@@ -1,0 +1,186 @@
+import { describe, expect, it } from 'vitest'
+import { runAgentTask, type AgentAdapter, type AgentTaskSpec, type ControlEvalResult, type KnowledgeRequirement } from '../src/index'
+
+interface State {
+  count: number
+}
+
+type Action = { type: 'increment' }
+
+const readyReq: KnowledgeRequirement = {
+  id: 'build-command',
+  description: 'Build command',
+  requiredFor: ['test'],
+  category: 'codebase_specific',
+  acquisitionMode: 'inspect_repo',
+  importance: 'blocking',
+  freshness: 'weekly',
+  sensitivity: 'public',
+  confidenceNeeded: 0.8,
+  currentConfidence: 0.9,
+  evidenceIds: ['page:build'],
+  fallbackPolicy: 'block',
+}
+
+function adapter(): AgentAdapter<State, Action, State, ControlEvalResult> {
+  let current: State = { count: 0 }
+  return {
+    observe: () => current,
+    validate: ({ state }) => [{
+      id: 'count-ready',
+      passed: state.count >= 1,
+      score: state.count >= 1 ? 1 : 0,
+      severity: 'info',
+      objective: true,
+    }],
+    decide: ({ state }) => state.count >= 1
+      ? { type: 'stop', pass: true, score: 1, reason: 'done' }
+      : { type: 'continue', action: { type: 'increment' }, reason: 'need one step' },
+    act: () => {
+      current = { count: 1 }
+      return current
+    },
+    shouldStop: ({ state }) => ({
+      stop: state.count >= 1,
+      pass: state.count >= 1,
+      score: state.count >= 1 ? 1 : 0,
+      reason: state.count >= 1 ? 'done' : 'continue',
+    }),
+  }
+}
+
+describe('runAgentTask', () => {
+  it('runs a ready task through the shared control lifecycle', async () => {
+    const task: AgentTaskSpec = {
+      id: 'task-1',
+      intent: 'increment once',
+      domain: 'test',
+      requiredKnowledge: [readyReq],
+      budget: { maxSteps: 3 },
+    }
+
+    const result = await runAgentTask({ task, adapter: adapter() })
+
+    expect(result.knowledge.readinessScore).toBe(1)
+    expect(result.control.pass).toBe(true)
+    expect(result.control.steps).toHaveLength(1)
+    expect(result.control.finalState?.count).toBe(1)
+  })
+
+  it('blocks before action when required knowledge is missing', async () => {
+    const task: AgentTaskSpec = {
+      id: 'task-2',
+      intent: 'deploy',
+      domain: 'legal',
+      requiredKnowledge: [{
+        ...readyReq,
+        id: 'customer-secret',
+        description: 'Customer credential',
+        category: 'credential_or_secret',
+        acquisitionMode: 'ask_user',
+        sensitivity: 'secret',
+        currentConfidence: 0,
+      }],
+      budget: { maxSteps: 3 },
+    }
+    let acted = false
+
+    const events: string[] = []
+    const result = await runAgentTask({
+      task,
+      onEvent: (event) => {
+        events.push(event.type)
+      },
+      adapter: {
+        ...adapter(),
+        act: () => {
+          acted = true
+          return { count: 1 }
+        },
+      },
+    })
+
+    expect(acted).toBe(false)
+    expect(result.status).toBe('blocked')
+    expect(result.control.pass).toBe(false)
+    expect(result.control.reason).toContain('knowledge readiness blocked')
+    expect(result.questions[0]?.answerType).toBe('credential')
+    expect(result.acquisitionPlans[0]?.mode).toBe('ask_user')
+    expect(events).toContain('task_start')
+    expect(events).toContain('readiness_end')
+    expect(events).toContain('control_start')
+    expect(events).toContain('task_end')
+  })
+
+  it('lets adapters convert knowledge blocks into domain actions', async () => {
+    const task: AgentTaskSpec = {
+      id: 'task-3',
+      intent: 'ask for missing info',
+      requiredKnowledge: [{ ...readyReq, currentConfidence: 0, acquisitionMode: 'ask_user' }],
+      budget: { maxSteps: 1 },
+    }
+
+    const result = await runAgentTask({
+      task,
+      adapter: {
+        ...adapter(),
+        onKnowledgeBlocked: ({ questions }) => ({
+          type: 'stop',
+          pass: false,
+          reason: `ask: ${questions[0]?.question}`,
+        }),
+      },
+    })
+
+    expect(result.control.reason).toContain('ask:')
+    expect(result.control.reason).toContain('Build command')
+  })
+
+  it('runs knowledge question/acquisition hooks and refreshes readiness before control', async () => {
+    const task: AgentTaskSpec = {
+      id: 'task-4',
+      intent: 'collect missing context then run',
+      requiredKnowledge: [{ ...readyReq, currentConfidence: 0, acquisitionMode: 'ask_user' }],
+      budget: { maxSteps: 3 },
+    }
+    const events: string[] = []
+
+    const result = await runAgentTask({
+      task,
+      adapter: adapter(),
+      onEvent: (event) => events.push(event.type),
+      knowledge: {
+        answerQuestions: () => ({ question_build: 'Use pnpm typecheck.' }),
+        executeAcquisitionPlans: () => ['page:build'],
+        refreshReadiness: ({ previous }) => ({
+          ...previous,
+          readinessScore: 1,
+          blockingMissingRequirements: [],
+          nonBlockingGaps: [],
+          reason: 'Knowledge was collected during preflight.',
+          severity: 'info',
+          recommendedAction: 'run_agent',
+          bundle: {
+            ...previous.bundle,
+            readinessScore: 1,
+            missing: [],
+            evidenceIds: ['page:build'],
+            userAnswers: { question_build: 'Use pnpm typecheck.' },
+          },
+        }),
+      },
+    })
+
+    expect(result.status).toBe('completed')
+    expect(result.userAnswers.question_build).toContain('pnpm')
+    expect(result.acquiredEvidenceIds).toEqual(['page:build'])
+    expect(result.knowledge.readinessScore).toBe(1)
+    expect(events).toEqual(expect.arrayContaining([
+      'questions_start',
+      'questions_end',
+      'acquisition_start',
+      'acquisition_end',
+      'control_step',
+    ]))
+  })
+})
