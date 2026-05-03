@@ -239,6 +239,12 @@ export interface RuntimeEventCollector<TState = unknown, TAction = unknown, TAct
   events: Array<Record<string, unknown>>
 }
 
+export interface ServerSentEventOptions {
+  event?: string
+  id?: string
+  retry?: number
+}
+
 export async function runAgentTask<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult>(
   options: RunAgentTaskOptions<TState, TAction, TActionResult, TEval>,
 ): Promise<AgentTaskRunResult<TState, TAction, TActionResult, TEval>> {
@@ -460,6 +466,35 @@ export function createRuntimeEventCollector<TState = unknown, TAction = unknown,
   }
 }
 
+export function encodeServerSentEvent(
+  data: unknown,
+  options: ServerSentEventOptions = {},
+): string {
+  const lines: string[] = []
+  if (options.id) lines.push(`id: ${stripNewlines(options.id)}`)
+  if (options.event) lines.push(`event: ${stripNewlines(options.event)}`)
+  if (typeof options.retry === 'number' && Number.isFinite(options.retry) && options.retry >= 0) {
+    lines.push(`retry: ${Math.floor(options.retry)}`)
+  }
+
+  const payload = typeof data === 'string' ? data : JSON.stringify(data)
+  for (const line of payload.split(/\r?\n/)) {
+    lines.push(`data: ${line}`)
+  }
+  return `${lines.join('\n')}\n\n`
+}
+
+export function readinessServerSentEvent(
+  report: KnowledgeReadinessReport,
+  options: RuntimeTelemetryOptions & ServerSentEventOptions = {},
+): string {
+  const { event = 'readiness', id, retry, ...telemetryOptions } = options
+  return encodeServerSentEvent({
+    type: 'readiness',
+    readiness: sanitizeKnowledgeReadinessReport(report, telemetryOptions),
+  }, { event, id, retry })
+}
+
 async function runKnowledgePreflight<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
   task: AgentTaskSpec,
   questions: UserQuestion[],
@@ -598,6 +633,10 @@ function summarizeEvals(evals: ControlEvalResult[], options: RuntimeTelemetryOpt
 
 function redactRecord(record: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.keys(record).map((key) => [key, '[redacted]']))
+}
+
+function stripNewlines(value: string): string {
+  return value.replace(/[\r\n]/g, ' ')
 }
 
 function buildReadiness(

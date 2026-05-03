@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createRuntimeEventCollector,
   decideKnowledgeReadiness,
+  encodeServerSentEvent,
+  readinessServerSentEvent,
   runAgentTask,
   sanitizeAgentRuntimeEvent,
   summarizeAgentTaskRun,
@@ -314,5 +316,29 @@ describe('runAgentTask', () => {
     expect(decideKnowledgeReadiness(ready.knowledge).status).toBe('ready')
     expect(decideKnowledgeReadiness(blocked.knowledge).status).toBe('blocked')
     expect(decideKnowledgeReadiness(caveat.knowledge, { minimumScore: 0.9 }).status).toBe('caveat')
+  })
+
+  it('encodes safe server-sent events for runtime telemetry streams', async () => {
+    expect(encodeServerSentEvent({ type: 'ping' }, { event: 'runtime\nbad', id: 'id\n1', retry: 1000 })).toBe(
+      'id: id 1\nevent: runtime bad\nretry: 1000\ndata: {"type":"ping"}\n\n',
+    )
+    expect(encodeServerSentEvent('line one\nline two')).toBe('data: line one\ndata: line two\n\n')
+  })
+
+  it('encodes sanitized readiness SSE payloads', async () => {
+    const result = await runAgentTask({
+      task: {
+        id: 'task-10',
+        intent: 'blocked',
+        requiredKnowledge: [{ ...readyReq, currentConfidence: 0 }],
+      },
+      adapter: adapter(),
+    })
+    const event = readinessServerSentEvent(result.knowledge, { includeRequirementDescriptions: true })
+
+    expect(event).toContain('event: readiness')
+    expect(event).toContain('"type":"readiness"')
+    expect(event).toContain('"readinessScore":0')
+    expect(event).toContain('Build command')
   })
 })
