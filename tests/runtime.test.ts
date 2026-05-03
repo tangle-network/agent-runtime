@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createRuntimeEventCollector,
+  decideKnowledgeReadiness,
   runAgentTask,
   sanitizeAgentRuntimeEvent,
   summarizeAgentTaskRun,
@@ -240,6 +241,7 @@ describe('runAgentTask', () => {
     const serializedEvents = JSON.stringify(collector.events)
 
     expect(summary.status).toBe('completed')
+    expect(summary.readinessStatus).toBe('ready')
     expect(summary.blockingGapIds).toEqual([])
     expect(summary.questionCount).toBe(1)
     expect(serializedEvents).not.toContain('sk-secret')
@@ -281,5 +283,36 @@ describe('runAgentTask', () => {
     expect(serialized).toContain('Build command')
     expect(serialized).toContain('pnpm test')
     expect(serialized).toContain('page:build')
+  })
+
+  it('returns a stable readiness decision for ready, blocked, and caveat states', async () => {
+    const readyTask: AgentTaskSpec = {
+      id: 'task-7',
+      intent: 'ready',
+      requiredKnowledge: [readyReq],
+    }
+    const blockedTask: AgentTaskSpec = {
+      id: 'task-8',
+      intent: 'blocked',
+      requiredKnowledge: [{ ...readyReq, currentConfidence: 0, fallbackPolicy: 'block' }],
+    }
+    const caveatTask: AgentTaskSpec = {
+      id: 'task-9',
+      intent: 'caveat',
+      requiredKnowledge: [{
+        ...readyReq,
+        importance: 'medium',
+        currentConfidence: 0.2,
+        fallbackPolicy: 'continue_with_caveat',
+      }],
+    }
+
+    const ready = await runAgentTask({ task: readyTask, adapter: adapter() })
+    const blocked = await runAgentTask({ task: blockedTask, adapter: adapter() })
+    const caveat = await runAgentTask({ task: caveatTask, adapter: adapter(), minimumReadinessScore: 0 })
+
+    expect(decideKnowledgeReadiness(ready.knowledge).status).toBe('ready')
+    expect(decideKnowledgeReadiness(blocked.knowledge).status).toBe('blocked')
+    expect(decideKnowledgeReadiness(caveat.knowledge, { minimumScore: 0.9 }).status).toBe('caveat')
   })
 })

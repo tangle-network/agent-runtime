@@ -208,6 +208,7 @@ export interface AgentTaskRunSummary {
   domain?: string
   status: AgentTaskStatus
   reason: string
+  readinessStatus: KnowledgeReadinessDecision['status']
   readinessScore: number
   recommendedAction: KnowledgeReadinessReport['recommendedAction']
   blockingGapIds: string[]
@@ -220,6 +221,17 @@ export interface AgentTaskRunSummary {
   failureClass?: string
   wallMs: number
   costUsd: number
+}
+
+export interface KnowledgeReadinessDecision {
+  passed: boolean
+  status: 'ready' | 'blocked' | 'caveat'
+  reason: string
+  readinessScore: number
+  recommendedAction: KnowledgeReadinessReport['recommendedAction']
+  severity: KnowledgeReadinessReport['severity']
+  blockingGapIds: string[]
+  nonBlockingGapIds: string[]
 }
 
 export interface RuntimeEventCollector<TState = unknown, TAction = unknown, TActionResult = unknown, TEval extends ControlEvalResult = ControlEvalResult> {
@@ -312,6 +324,7 @@ export function summarizeAgentTaskRun<TState, TAction, TActionResult, TEval exte
     domain: result.task.domain,
     status: result.status,
     reason: result.control.reason,
+    readinessStatus: decideKnowledgeReadiness(result.knowledge).status,
     readinessScore: result.knowledge.readinessScore,
     recommendedAction: result.knowledge.recommendedAction,
     blockingGapIds: result.knowledge.blockingMissingRequirements.map((requirement) => requirement.id),
@@ -324,6 +337,49 @@ export function summarizeAgentTaskRun<TState, TAction, TActionResult, TEval exte
     failureClass: result.control.failureClass,
     wallMs: result.control.wallMs,
     costUsd: result.control.spentCostUsd,
+  }
+}
+
+export function decideKnowledgeReadiness(
+  report: KnowledgeReadinessReport,
+  options: { minimumScore?: number } = {},
+): KnowledgeReadinessDecision {
+  const minimumScore = options.minimumScore ?? 0.7
+  const blockingGapIds = report.blockingMissingRequirements.map((requirement) => requirement.id)
+  const nonBlockingGapIds = report.nonBlockingGaps.map((requirement) => requirement.id)
+  if (blockingGapIds.length > 0) {
+    return {
+      passed: false,
+      status: 'blocked',
+      reason: report.reason,
+      readinessScore: report.readinessScore,
+      recommendedAction: report.recommendedAction,
+      severity: report.severity,
+      blockingGapIds,
+      nonBlockingGapIds,
+    }
+  }
+  if (report.readinessScore < minimumScore) {
+    return {
+      passed: false,
+      status: 'caveat',
+      reason: `Knowledge readiness score ${report.readinessScore.toFixed(3)} is below minimum ${minimumScore.toFixed(3)}.`,
+      readinessScore: report.readinessScore,
+      recommendedAction: report.recommendedAction,
+      severity: report.severity,
+      blockingGapIds,
+      nonBlockingGapIds,
+    }
+  }
+  return {
+    passed: true,
+    status: 'ready',
+    reason: report.reason,
+    readinessScore: report.readinessScore,
+    recommendedAction: report.recommendedAction,
+    severity: report.severity,
+    blockingGapIds,
+    nonBlockingGapIds,
   }
 }
 

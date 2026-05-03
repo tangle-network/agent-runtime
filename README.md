@@ -92,6 +92,10 @@ specific fields with `includeInputs`, `includeUserAnswers`,
 `includeRequirementDescriptions`. Task metadata and eval details are also
 redacted unless `includeMetadata` or `includeEvalDetails` is set.
 
+For control policies or route handlers that need a stable readiness branch,
+use `decideKnowledgeReadiness(report)`. It returns `ready`, `blocked`, or
+`caveat` plus gap IDs and the recommended action.
+
 Knowledge providers may implement:
 
 - `buildReadiness`
