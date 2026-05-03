@@ -488,7 +488,7 @@ export function readinessServerSentEvent(
   report: KnowledgeReadinessReport,
   options: RuntimeTelemetryOptions & ServerSentEventOptions = {},
 ): string {
-  const { event = 'readiness', id, retry, ...telemetryOptions } = options
+  const { event, id, retry, ...telemetryOptions } = options
   return encodeServerSentEvent({
     type: 'readiness',
     readiness: sanitizeKnowledgeReadinessReport(report, telemetryOptions),

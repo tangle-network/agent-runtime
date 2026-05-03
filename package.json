@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Reusable runtime lifecycle for domain-specific agents.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {

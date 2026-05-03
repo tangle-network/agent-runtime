@@ -335,10 +335,12 @@ describe('runAgentTask', () => {
       adapter: adapter(),
     })
     const event = readinessServerSentEvent(result.knowledge, { includeRequirementDescriptions: true })
+    const namedEvent = readinessServerSentEvent(result.knowledge, { event: 'readiness' })
 
-    expect(event).toContain('event: readiness')
+    expect(event).not.toContain('event:')
     expect(event).toContain('"type":"readiness"')
     expect(event).toContain('"readinessScore":0')
     expect(event).toContain('Build command')
+    expect(namedEvent).toContain('event: readiness')
   })
 })
