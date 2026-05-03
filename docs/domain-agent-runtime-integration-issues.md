@@ -106,3 +106,60 @@ Remaining changes:
 - Map failures to `knowledge_readiness_blocked`, `missing_codebase_context`, `missing_runtime_context`, `missing_credentials`, `stale_external_data`, `bad_retrieval`, `insufficient_evidence`, `contradictory_evidence`, `reasoning_error`, `tool_selection_error`, `sandbox_failure`, and `budget_exceeded`.
 - Extend holdout/promotion gates so a prompt/topology change is not promoted when observed gain is actually due to different context acquisition.
 - Add tests for missing build command, missing SDK docs, missing sandbox, stale template docs, and fully ready benchmark execution.
+
+## agent-builder
+
+Title: Integrate agent-builder with agent-runtime knowledge readiness
+
+`agent-builder` is the meta-platform for creating, testing, deploying, researching, and monetizing domain-specific agents. It already has the strongest production loop among the app repos: Forge builder sims, per-agent scenarios, feedback trajectories, canaries, auto-research, multi-shot optimization, KB optimization, version history, sandbox execution, marketplace publishing, and Playwright-to-agent-eval reporting.
+
+The missing boundary is that generated agents and Forge runs do not yet have a first-class `agent-runtime` preflight. Failures caused by missing build spec context, missing user/business/domain data, unavailable integrations, missing secrets, stale KB evidence, sandbox/runtime gaps, or bad retrieval can still be absorbed as prompt/config failures.
+
+Package updates:
+
+- Upgrade `@tangle-network/agent-eval` from `^0.19.1` to `^0.20.0`.
+- Upgrade `@tangle-network/agent-knowledge` from `^1.0.0` to `^1.1.0`.
+- Add `@tangle-network/agent-runtime` `^0.2.0`.
+
+Required changes:
+
+- Add a server-side runtime module: `src/lib/.server/runtime/agent-builder-runtime.ts`, `src/lib/.server/runtime/requirements.ts`, and `src/lib/.server/runtime/events.ts`.
+- Expose helpers: `buildForgeKnowledgeRequirements(input)`, `buildPublishedAgentKnowledgeRequirements(input)`, `runForgeAgentTask(input)`, `runPublishedAgentTask(input)`, and `runtimeEventsToTraceMetadata(events)`.
+- Define Forge build requirements for creator intent, target user, domain/category, BuildSpec completeness and approval, expected artifact, success criteria, tools, integrations, APIs, credentials, secrets, sandbox availability, runtime image, repository/scaffold structure, generated agent config, pricing/marketplace/governance constraints, and user-approved assumptions.
+- Define generated-agent requirements for domain-specific user facts, company/business/product context, regulatory freshness, connected integrations, secrets, vault/knowledge pages, source freshness, scenario fixtures, and fallback policy.
+- Persist generated-agent runtime metadata with agent config/version metadata so forks and marketplace consumers inherit the right contract.
+- Wire `runAgentTask` into Forge builder sims: `src/lib/.server/eval/forge-builder-sim.ts`, `src/routes/api.agents.eval.builder-sim.ts`, and `src/routes/api.admin.builder-sim.run.ts`.
+- Wire scenario and eval runs through runtime: `src/routes/api.agents.$agentId.scenarios.run.ts`, `src/routes/api.agents.$agentId.eval.simulate.ts`, `src/routes/api.agents.$agentId.eval.refine.ts`, and `src/routes/api.agents.$agentId.eval.ts`.
+- Add readiness checks or metadata to production chat/sandbox chat: `src/routes/api.agents.$agentId.chat.ts`, `src/routes/api.agents.$agentId.sandbox.chat.ts`, and `src/routes/api.v1.agents.$slug.chat.completions.ts`.
+- Bridge `agent-knowledge@1.1.0` readiness with `src/routes/api.agents.$agentId.knowledge.index.ts`, `src/routes/api.agents.$agentId.knowledge.search.ts`, `src/routes/api.agents.$agentId.knowledge.discover.ts`, `src/routes/api.agents.$agentId.knowledge.write-blocks.ts`, and `src/lib/.server/kb/optimization.ts`.
+- Persist runtime events into trace/report surfaces: `src/lib/.server/eval/trace-store-d1.ts`, `src/lib/.server/eval/session.ts`, `src/lib/.server/eval/run-record-store.ts`, `src/lib/.server/eval/run-record-fields.ts`, and `e2e/reporters/agent-eval-reporter.ts`.
+- Preserve `task_start`, `readiness_start/end`, `questions_start/end`, `acquisition_start/end`, `control_start/end`, and `task_end`.
+- Report readiness score, blocking gaps, acquisition mode, evidence IDs, user questions, runtime status, and blocked-before-execution status.
+- Map failures to `knowledge_readiness_blocked`, `missing_user_data`, `missing_domain_data`, `missing_codebase_context`, `missing_runtime_context`, `missing_credentials`, `stale_external_data`, `bad_retrieval`, `insufficient_evidence`, `contradictory_evidence`, and `ambiguous_user_intent`.
+- Update `src/lib/.server/eval/failure-inspector.ts`, `src/lib/.server/eval/multi-shot-adapter.ts`, `src/lib/.server/eval/heuristic-researcher.ts`, `src/lib/.server/eval/auto-research-runner.ts`, and `src/lib/.server/eval/canary-cron.ts`.
+- Extend ASI responsible surfaces beyond `agent.config.systemPrompt`: `knowledge-requirements`, `data-acquisition`, `retrieval-policy`, `user-question-policy`, `runtime-environment`, `integration-policy`, `sandbox-policy`, and `agent.config.systemPrompt`.
+- Ensure auto-research does not mutate prompts when the dominant failure is missing KB pages, missing BuildSpec fields, missing secrets, unavailable sandbox, or stale evidence.
+- Persist runtime contracts across versions, publish, and forks: `src/lib/.server/versions.ts`, `src/routes/api.agents.$agentId.versions.ts`, `src/routes/api.agents.$agentId.versions.$versionId.revert.ts`, `src/routes/api.agents.$agentId.fork.ts`, `src/routes/api.agents.$agentId.fork.apply-update.ts`, and `src/routes/api.agents.$agentId.publish.ts`.
+- Add workbench/admin UI visibility for readiness on eval pages, research cycle pages, knowledge pages, chat/workbench blockers, and marketplace/published agent caveats. Do not expose private/secret requirement details to public consumers.
+
+Tests:
+
+- Forge sim blocks when BuildSpec or intent is incomplete.
+- Forge sim blocks or asks when required integration credentials are missing.
+- Scenario run records readiness metadata.
+- KB optimization reports no pages / too few labels as knowledge readiness failures.
+- Multi-shot ASI points to data-acquisition/retrieval-policy instead of `agent.config.systemPrompt` for missing knowledge.
+- Fork preserves runtime contract.
+- Public chat hides private/secret requirement details.
+- E2E reporter can include runtime readiness metadata.
+
+Acceptance criteria:
+
+- `agent-builder` depends on `agent-runtime@^0.2.0`, `agent-eval@^0.20.0`, and `agent-knowledge@^1.1.0`.
+- Forge builder sims run through `runAgentTask` or a thin typed wrapper.
+- Per-agent scenario/eval runs attach `KnowledgeReadinessReport` before execution.
+- KB search/optimization feeds readiness into runtime and traces.
+- Missing BuildSpec, missing credentials, missing KB pages, stale evidence, bad retrieval, and sandbox unavailability are classified as knowledge/runtime failures.
+- Multi-shot optimization can recommend acquisition/retrieval/user-question/runtime-policy changes instead of always mutating prompts.
+- Runtime requirements persist across config versions, publish, and fork flows.
+- Workbench/admin reports show readiness score, gaps, acquisition plan, runtime status, and blocked-before-execution runs.
