@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { runAgentTask, type AgentAdapter, type AgentTaskSpec, type ControlEvalResult, type KnowledgeRequirement } from '../src/index'
+import {
+  createRuntimeEventCollector,
+  runAgentTask,
+  sanitizeAgentRuntimeEvent,
+  summarizeAgentTaskRun,
+  type AgentAdapter,
+  type AgentTaskSpec,
+  type ControlEvalResult,
+  type KnowledgeRequirement,
+} from '../src/index'
 
 interface State {
   count: number
@@ -182,5 +191,95 @@ describe('runAgentTask', () => {
       'acquisition_end',
       'control_step',
     ]))
+  })
+
+  it('summarizes runs without exposing task inputs or user answers', async () => {
+    const task: AgentTaskSpec = {
+      id: 'task-5',
+      intent: 'collect secret then run',
+      domain: 'test',
+      inputs: { apiKey: 'sk-secret' },
+      requiredKnowledge: [{
+        ...readyReq,
+        id: 'api-key',
+        description: 'Customer API key',
+        category: 'credential_or_secret',
+        acquisitionMode: 'ask_user',
+        sensitivity: 'secret',
+        currentConfidence: 0,
+      }],
+      budget: { maxSteps: 3 },
+    }
+    const collector = createRuntimeEventCollector()
+
+    const result = await runAgentTask({
+      task,
+      adapter: adapter(),
+      onEvent: collector.onEvent,
+      knowledge: {
+        answerQuestions: () => ({ question_api_key: 'sk-real-secret' }),
+        refreshReadiness: ({ previous }) => ({
+          ...previous,
+          readinessScore: 1,
+          blockingMissingRequirements: [],
+          nonBlockingGaps: [],
+          reason: 'Secret was supplied.',
+          severity: 'info',
+          recommendedAction: 'run_agent',
+          bundle: {
+            ...previous.bundle,
+            readinessScore: 1,
+            missing: [],
+            userAnswers: { question_api_key: 'sk-real-secret' },
+          },
+        }),
+      },
+    })
+
+    const summary = summarizeAgentTaskRun(result)
+    const serializedEvents = JSON.stringify(collector.events)
+
+    expect(summary.status).toBe('completed')
+    expect(summary.blockingGapIds).toEqual([])
+    expect(summary.questionCount).toBe(1)
+    expect(serializedEvents).not.toContain('sk-secret')
+    expect(serializedEvents).not.toContain('sk-real-secret')
+    expect(serializedEvents).not.toContain('Customer API key')
+    expect(serializedEvents).toContain('[redacted]')
+  })
+
+  it('can opt into richer sanitized telemetry for private diagnostics', () => {
+    const event = {
+      type: 'questions_end' as const,
+      task: {
+        id: 'task-6',
+        intent: 'diagnose',
+        inputs: { customer: 'Acme' },
+        requiredKnowledge: [readyReq],
+      },
+      questions: [{
+        id: 'q1',
+        question: 'Please provide: Build command',
+        reason: 'Required for test.',
+        requirementId: 'build-command',
+        importance: 'blocking' as const,
+        answerType: 'free_text' as const,
+        impactIfUnknown: 'The agent should not run until this is known.',
+      }],
+      userAnswers: { q1: 'pnpm test' },
+    }
+
+    const sanitized = sanitizeAgentRuntimeEvent(event, {
+      includeInputs: true,
+      includeRequirementDescriptions: true,
+      includeUserAnswers: true,
+      includeEvidenceIds: true,
+    })
+    const serialized = JSON.stringify(sanitized)
+
+    expect(serialized).toContain('Acme')
+    expect(serialized).toContain('Build command')
+    expect(serialized).toContain('pnpm test')
+    expect(serialized).toContain('page:build')
   })
 })

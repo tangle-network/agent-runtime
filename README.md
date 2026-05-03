@@ -72,6 +72,26 @@ Events cover readiness, question answering, acquisition, control-loop steps,
 and task completion. This keeps streaming UI, logs, and telemetry out of domain
 adapters while making every runtime transition observable.
 
+For logs, reports, and UI telemetry, do not serialize raw events directly.
+Use the built-in sanitized collector:
+
+```ts
+import { createRuntimeEventCollector, summarizeAgentTaskRun } from '@tangle-network/agent-runtime'
+
+const telemetry = createRuntimeEventCollector()
+const result = await runAgentTask({ task, adapter, onEvent: telemetry.onEvent })
+
+console.log(telemetry.events)
+console.log(summarizeAgentTaskRun(result))
+```
+
+Sanitized telemetry redacts task inputs, user answers, credential questions,
+control payloads, and evidence IDs by default. Private diagnostics can opt into
+specific fields with `includeInputs`, `includeUserAnswers`,
+`includeControlPayloads`, `includeEvidenceIds`, and
+`includeRequirementDescriptions`. Task metadata and eval details are also
+redacted unless `includeMetadata` or `includeEvalDetails` is set.
+
 Knowledge providers may implement:
 
 - `buildReadiness`
