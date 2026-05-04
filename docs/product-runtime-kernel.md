@@ -1,7 +1,7 @@
 # Product Runtime Kernel
 
-Status: implemented in `@tangle-network/agent-runtime@0.5.0`; validated and
-documented in `0.5.1`.
+Status: implemented in `@tangle-network/agent-runtime@0.5.0`; validated,
+documented, and hardened in `0.5.2`.
 
 This document tracks the production runtime kernel: what it is for, what is
 complete, what is intentionally out of scope, and what product repos still need
@@ -37,6 +37,24 @@ TaskSpec
   -> final task status
 ```
 
+## Definition of Done
+
+The kernel is complete when these are true:
+
+- A product route can call one runtime entry point, `runAgentTaskStream`, rather
+  than hand-rolling readiness + backend execution + SSE framing.
+- A coding harness can continue an existing workspace by passing `sessionId` and
+  `resume: true`.
+- A backend can be swapped without changing product stream consumers.
+- A failed backend emits structured failure events and gets a `stop()` callback
+  when available.
+- All UI/report telemetry has a safe sanitized representation by default.
+- Eval and optimization systems can distinguish missing context/runtime failure
+  from prompt/model reasoning failure.
+
+All kernel-side criteria are satisfied in `0.5.2`. Durable storage and UI
+rollout are product adoption tasks, not core package blockers.
+
 ## Completed API Surface
 
 ### Execution
@@ -49,6 +67,8 @@ TaskSpec
   - Normalizes backend output into `RuntimeStreamEvent`.
   - Emits `backend_start`, `backend_end`, `task_end`, and `final`.
   - Records backend stream events into an optional `RuntimeSessionStore`.
+  - Calls `backend.stop(session, reason)` on stream failure when a backend
+    supplies the hook.
 
 - `runAgentTask(options)`
   - Existing control-loop path for eval-oriented agents.
@@ -99,8 +119,7 @@ TaskSpec
 - `createCliBridgeBackend`
   - Posts task/message/session info to an HTTP CLI bridge.
   - Passes `sessionId` and `resumeToken`.
-  - Parses SSE/NDJSON-style streamed responses through the common stream
-    parser.
+  - Parses SSE and NDJSON streamed responses through the common stream parser.
 
 - `createOpenAICompatibleBackend`
   - Wraps TCloud/OpenAI-compatible `/chat/completions` streaming APIs.
@@ -142,6 +161,11 @@ Implemented test coverage in `tests/runtime.test.ts`:
 - Sandbox prompt events map to text/tool runtime stream events.
 - OpenAI-compatible streaming chat completions parse token deltas and produce a
   final completed event.
+- Knowledge question preflight emits exactly one `questions_end`.
+- CLI bridge streams parse NDJSON events and include session/message payloads in
+  bridge requests.
+- Backend stream failure calls `backend.stop`, emits `backend_error`, and
+  returns a failed `final` event with partial text preserved.
 
 Release verification:
 
@@ -150,6 +174,24 @@ Release verification:
 - `pnpm build`
 - Published to npm as `@tangle-network/agent-runtime@0.5.0`.
 - Documentation validation published in `@tangle-network/agent-runtime@0.5.1`.
+- Hardening validation published in `@tangle-network/agent-runtime@0.5.2`.
+
+## Completion Scorecard
+
+| Area | Status | Evidence |
+| --- | --- | --- |
+| Readiness gate | Complete | `runAgentTaskStream` blocks before backend execution when readiness is blocked. |
+| Stream contract | Complete | `RuntimeStreamEvent` covers readiness, session, backend, text, reasoning, tool, artifact, error, task end, final. |
+| Session resume contract | Complete | `RuntimeSession`, `RuntimeSessionStore`, `session_created`, `session_resumed`, `resumeToken`. |
+| Backend abstraction | Complete | `AgentExecutionBackend` with `start`, `resume`, `stream`, optional `stop`. |
+| Sandbox adapter | Complete | `createSandboxPromptBackend`; product proof in `agent-builder` PR #61. |
+| CLI bridge adapter | Complete | `createCliBridgeBackend`; tested with NDJSON stream and session payload. |
+| TCloud/OpenAI-compatible adapter | Complete | `createOpenAICompatibleBackend`; tested with streamed chat completions. |
+| SSE framing | Complete | `runtimeStreamServerSentEvent`, newline-safe SSE encoder. |
+| Sanitization | Complete | Default redaction for task inputs, answers, payloads, metadata, URIs, evidence IDs. |
+| Failure handling | Complete | Backend exceptions produce `backend_error`, failed `task_end`, failed `final`, and call `stop` when supplied. |
+| Durable persistence | Contract complete, product-owned | `RuntimeSessionStore` interface exists; product repos must provide D1/Postgres/Redis implementations. |
+| UI rollout | Product-owned | Runtime emits stable events; product UIs decide rendering. |
 
 ## Critique
 
@@ -171,6 +213,11 @@ important limitations are deliberate:
 These constraints are correct for a public package. The core should define the
 contract and provide high-quality adapters, not absorb private product code.
 
+The main remaining architectural risk is misuse: product teams can still bypass
+the kernel and directly call sandbox/TCloud/CLI streams. Reviews should treat
+new hand-rolled readiness + stream loops as a smell unless the route has a
+specific reason to avoid runtime normalization.
+
 ## Downstream Adoption Checklist
 
 For product routes:
@@ -181,6 +228,7 @@ For product routes:
 - Store `RuntimeSession` and `RuntimeStreamEvent[]` in the product database.
 - Pass `sessionId` and `resume: true` for continuation.
 - Persist `final.status`, readiness decision, and backend kind in run records.
+- Assert in tests that blocked readiness does not call the backend.
 
 For coding harnesses:
 
@@ -191,6 +239,7 @@ For coding harnesses:
   continuation from a fresh run.
 - Treat missing session state as a recoverable backend/runtime failure, not a
   prompt failure.
+- Implement `stop(session, reason)` for expensive or long-lived backends.
 
 For eval and optimization:
 
@@ -199,6 +248,8 @@ For eval and optimization:
   reasoning failures.
 - Do not optimize prompts when dominant failures are missing context, bad
   retrieval, missing credentials, or broken backend resume.
+- Add report slices by `backend`, `session_resumed`, `backend_error`, and
+  `readiness_end.decision.status`.
 
 ## Completed Downstream Proof
 
@@ -212,6 +263,17 @@ For eval and optimization:
 
 That validates the package against a real sandbox-backed product route, not only
 unit tests.
+
+## Review Notes
+
+Validation found and fixed two issues before marking this complete:
+
+- The control-loop preflight path needed explicit coverage that
+  `questions_end` is emitted exactly once.
+- The CLI bridge parser claim needed hardening. `0.5.2` now tests NDJSON bridge
+  streams instead of only SSE-style `data:` frames.
+
+The doc now matches shipped behavior.
 
 ## Remaining Work
 

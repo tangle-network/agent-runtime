@@ -521,6 +521,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
     const message = err instanceof Error ? err.message : String(err)
     session = touchSession({ ...session, status: options.signal?.aborted ? 'aborted' : 'failed' })
     await store?.put(session)
+    await options.backend.stop?.(session, message)
     const backendError = streamEvent({
       type: 'backend_error',
       task,
@@ -1214,26 +1215,55 @@ async function* streamResponseEvents(response: Response, context: AgentBackendCo
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const chunks = buffer.split(/\n\n/)
-    buffer = chunks.pop() ?? ''
-    for (const chunk of chunks) {
-      const event = parseStreamChunk(chunk, context)
-      if (event) yield event
-    }
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+    for (const event of drainStreamBuffer(false)) yield event
   }
+  buffer += decoder.decode().replace(/\r\n/g, '\n')
+  for (const event of drainStreamBuffer(true)) yield event
   if (buffer.trim()) {
     const event = parseStreamChunk(buffer, context)
     if (event) yield event
   }
+
+  function* drainStreamBuffer(flush: boolean): Iterable<RuntimeStreamEvent> {
+    for (;;) {
+      const sseBoundary = buffer.indexOf('\n\n')
+      if (sseBoundary >= 0) {
+        const chunk = buffer.slice(0, sseBoundary)
+        buffer = buffer.slice(sseBoundary + 2)
+        const event = parseStreamChunk(chunk, context)
+        if (event) yield event
+        continue
+      }
+
+      const newline = buffer.indexOf('\n')
+      if (newline >= 0 && !buffer.slice(0, newline).startsWith('data:')) {
+        const line = buffer.slice(0, newline)
+        buffer = buffer.slice(newline + 1)
+        const event = parseStreamChunk(line, context)
+        if (event) yield event
+        continue
+      }
+
+      if (flush && buffer.trim() && !buffer.trimStart().startsWith('data:')) {
+        const line = buffer
+        buffer = ''
+        const event = parseStreamChunk(line, context)
+        if (event) yield event
+        continue
+      }
+
+      break
+    }
+  }
 }
 
 function parseStreamChunk(chunk: string, context: AgentBackendContext): RuntimeStreamEvent | undefined {
-  const data = chunk
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => line.slice(5).trimStart())
-    .join('\n')
+  const lines = chunk.split(/\r?\n/)
+  const dataLines = lines.filter((line) => line.startsWith('data:'))
+  const data = dataLines.length > 0
+    ? dataLines.map((line) => line.slice(5).trimStart()).join('\n')
+    : chunk.trim()
   if (!data || data === '[DONE]') return undefined
   try {
     const parsed = JSON.parse(data) as Record<string, unknown>
