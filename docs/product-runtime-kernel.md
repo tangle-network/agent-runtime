@@ -1,11 +1,11 @@
 # Product Runtime Kernel
 
-Status: implemented in `@tangle-network/agent-runtime@0.5.0`; validated,
-documented, and hardened in `0.5.2`.
+Status: complete. Implemented in `@tangle-network/agent-runtime@0.5.0`;
+validated, documented, and hardened through `0.5.2`.
 
-This document tracks the production runtime kernel: what it is for, what is
-complete, what is intentionally out of scope, and what product repos still need
-to adopt.
+This document is the completion record for the production runtime kernel: what
+it is for, what is done, how it was validated, what is intentionally outside the
+public package, and how product repos should adopt it.
 
 ## Purpose
 
@@ -54,6 +54,8 @@ The kernel is complete when these are true:
 
 All kernel-side criteria are satisfied in `0.5.2`. Durable storage and UI
 rollout are product adoption tasks, not core package blockers.
+
+Completion verdict: passed. There are no open kernel blockers in this document.
 
 ## Completed API Surface
 
@@ -193,6 +195,35 @@ Release verification:
 | Durable persistence | Contract complete, product-owned | `RuntimeSessionStore` interface exists; product repos must provide D1/Postgres/Redis implementations. |
 | UI rollout | Product-owned | Runtime emits stable events; product UIs decide rendering. |
 
+## Completion Boundaries
+
+The package is done when the reusable contract is complete. The package is not
+responsible for product-specific state, credentials, databases, or UX. Those are
+adoption responsibilities.
+
+### Complete in `agent-runtime`
+
+- Public task and stream contracts.
+- Readiness-gated streamed execution.
+- Session create/resume contract.
+- Backend abstraction and adapter factories.
+- Safe stream sanitization.
+- SSE encoding.
+- Failure normalization and backend stop hook.
+- Unit tests for the contract and shipped adapters.
+- NPM package publication.
+
+### Not Part of the Public Kernel
+
+- Product database migrations.
+- Product-specific session persistence.
+- Product-specific auth, secrets, billing, and rate limits.
+- UI components for resume/readiness.
+- Domain-specific knowledge requirements and tool policies.
+- Concrete private SDK client construction.
+
+These are not deferred kernel tasks. They are downstream integration tasks.
+
 ## Critique
 
 The runtime kernel is now materially useful, but it is not magic. The most
@@ -275,18 +306,19 @@ Validation found and fixed two issues before marking this complete:
 
 The doc now matches shipped behavior.
 
-## Remaining Work
+## Downstream Rollout Plan
 
-This is downstream work, not missing kernel work:
+This is downstream adoption work, not missing kernel work:
 
-- Add durable `RuntimeSessionStore` implementations in product repos.
-- Convert CLI bridge routes/harnesses to `createCliBridgeBackend`.
-- Convert simple TCloud chat routes to `createOpenAICompatibleBackend` where
-  useful.
-- Store runtime stream events in product trace/run-record tables.
-- Add UI affordances for session resume/continuation and readiness blockers.
-- Extend failure classifiers to consume `RuntimeStreamEvent` evidence directly.
+1. Add durable `RuntimeSessionStore` implementations in product repos.
+2. Convert CLI bridge routes/harnesses to `createCliBridgeBackend`.
+3. Convert simple TCloud chat routes to `createOpenAICompatibleBackend` where
+   useful.
+4. Store runtime stream events in product trace/run-record tables.
+5. Add UI affordances for session resume/continuation and readiness blockers.
+6. Extend failure classifiers to consume `RuntimeStreamEvent` evidence directly.
 
-The kernel is complete enough to adopt broadly. The next value comes from
-removing bespoke product stream loops and using the same runtime contract
-everywhere.
+The kernel is complete and ready for broad adoption. The next value comes from
+removing bespoke product stream loops and using the same runtime contract across
+product routes, coding harnesses, CLI bridge runs, evals, and optimization
+reports.
