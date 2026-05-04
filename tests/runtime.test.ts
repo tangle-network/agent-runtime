@@ -513,6 +513,7 @@ describe('runAgentTask', () => {
   })
 
   it('stops a backend and emits failed final event when streaming throws', async () => {
+    const store = new InMemoryRuntimeSessionStore()
     const stopped: string[] = []
     const backend: AgentExecutionBackend = {
       kind: 'failing-harness',
@@ -527,9 +528,13 @@ describe('runAgentTask', () => {
     const events = await collect(runAgentTaskStream({
       task: { id: 'failing-task', intent: 'run', requiredKnowledge: [readyReq] },
       backend,
+      sessionStore: store,
+      sessionId: 'failing-session',
     }))
 
     expect(stopped).toEqual(['sandbox lost'])
+    expect(store.get('failing-session')?.status).toBe('failed')
+    expect(store.listEvents('failing-session').at(-1)).toMatchObject({ type: 'final', status: 'failed' })
     expect(events.find((event) => event.type === 'backend_error')).toMatchObject({
       type: 'backend_error',
       backend: 'failing-harness',
@@ -537,6 +542,32 @@ describe('runAgentTask', () => {
       recoverable: true,
     })
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'failed', text: 'partial' })
+  })
+
+  it('preserves the stream failure when backend cleanup also fails', async () => {
+    const backend: AgentExecutionBackend = {
+      kind: 'cleanup-fails',
+      stop: () => {
+        throw new Error('cleanup refused')
+      },
+      async *stream() {
+        throw new Error('primary stream failure')
+      },
+    }
+    const events = await collect(runAgentTaskStream({
+      task: { id: 'cleanup-failure-task', intent: 'run', requiredKnowledge: [readyReq] },
+      backend,
+    }))
+
+    expect(events.find((event) => event.type === 'backend_error')).toMatchObject({
+      type: 'backend_error',
+      message: 'primary stream failure; backend stop failed: cleanup refused',
+    })
+    expect(events.at(-1)).toMatchObject({
+      type: 'final',
+      status: 'failed',
+      reason: 'primary stream failure',
+    })
   })
 })
 

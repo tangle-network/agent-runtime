@@ -521,13 +521,18 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
     const message = err instanceof Error ? err.message : String(err)
     session = touchSession({ ...session, status: options.signal?.aborted ? 'aborted' : 'failed' })
     await store?.put(session)
-    await options.backend.stop?.(session, message)
+    let stopErrorMessage: string | undefined
+    try {
+      await options.backend.stop?.(session, message)
+    } catch (stopErr) {
+      stopErrorMessage = stopErr instanceof Error ? stopErr.message : String(stopErr)
+    }
     const backendError = streamEvent({
       type: 'backend_error',
       task,
       session,
       backend: options.backend.kind,
-      message,
+      message: stopErrorMessage ? `${message}; backend stop failed: ${stopErrorMessage}` : message,
       recoverable: !options.signal?.aborted,
     })
     await store?.appendEvent?.(session.id, backendError)
@@ -536,7 +541,9 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
     const taskEnd = streamEvent({ type: 'task_end', task, status, reason: message })
     await store?.appendEvent?.(session.id, taskEnd)
     yield taskEnd
-    yield streamEvent({ type: 'final', task, session, status, reason: message, text: finalText || undefined })
+    const final = streamEvent({ type: 'final', task, session, status, reason: message, text: finalText || undefined })
+    await store?.appendEvent?.(session.id, final)
+    yield final
   }
 }
 
