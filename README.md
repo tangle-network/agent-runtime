@@ -16,6 +16,16 @@ TaskSpec
   -> Run evidence
 ```
 
+For product agents that already have a streaming backend, use the stream kernel:
+
+```txt
+TaskSpec
+  -> Knowledge readiness
+  -> Session create/resume
+  -> Backend stream
+  -> Sanitized RuntimeStreamEvent/SSE
+```
+
 ## Install
 
 ```bash
@@ -85,6 +95,49 @@ writer.write(encoder.encode(readinessServerSentEvent(readinessReport)))
 
 Use these helpers when an app wants to expose readiness or runtime metadata over
 Server-Sent Events without leaking raw task inputs, credentials, or evidence.
+
+For main product loops, prefer `runAgentTaskStream` with an execution backend:
+
+```ts
+import {
+  InMemoryRuntimeSessionStore,
+  createSandboxPromptBackend,
+  runAgentTaskStream,
+  runtimeStreamServerSentEvent,
+} from '@tangle-network/agent-runtime'
+
+const backend = createSandboxPromptBackend({
+  getBox: () => sandboxClient.get(sandboxId),
+  streamPrompt: (box, message) => box.streamPrompt(message),
+  getSessionId: (box) => box.id,
+})
+
+const sessions = new InMemoryRuntimeSessionStore()
+
+for await (const event of runAgentTaskStream({
+  task,
+  backend,
+  input: { message },
+  sessionId,
+  resume: Boolean(sessionId),
+  sessionStore: sessions,
+})) {
+  writer.write(encoder.encode(runtimeStreamServerSentEvent(event)))
+}
+```
+
+`runAgentTaskStream` is the product-facing kernel. It readiness-gates execution,
+creates or resumes a backend session, normalizes text/tool/artifact/error/final
+events, and lets callers persist resumable session history. The package ships
+SDK-agnostic adapter factories for:
+
+- `createOpenAICompatibleBackend` for TCloud/OpenAI-compatible chat APIs.
+- `createCliBridgeBackend` for HTTP CLI bridge streams.
+- `createSandboxPromptBackend` for sandbox/sidecar `streamPrompt` clients.
+- `createIterableBackend` for custom coding harnesses or browser agents.
+
+The adapters are intentionally thin. Product repos still own client
+construction, auth, concrete tool permissions, and UI behavior.
 
 For logs, reports, and UI telemetry, do not serialize raw events directly.
 Use the built-in sanitized collector:

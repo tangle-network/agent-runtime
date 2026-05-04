@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
+  createOpenAICompatibleBackend,
+  createSandboxPromptBackend,
   createRuntimeEventCollector,
   decideKnowledgeReadiness,
   encodeServerSentEvent,
+  InMemoryRuntimeSessionStore,
   readinessServerSentEvent,
   runAgentTask,
+  runAgentTaskStream,
   sanitizeAgentRuntimeEvent,
+  sanitizeRuntimeStreamEvent,
   summarizeAgentTaskRun,
   type AgentAdapter,
+  type AgentExecutionBackend,
   type AgentTaskSpec,
   type ControlEvalResult,
   type KnowledgeRequirement,
+  type RuntimeStreamEvent,
+  type AgentBackendInput,
 } from '../src/index'
 
 interface State {
@@ -343,4 +351,140 @@ describe('runAgentTask', () => {
     expect(event).toContain('Build command')
     expect(namedEvent).toContain('event: readiness')
   })
+
+  it('blocks streaming backend execution when readiness is missing', async () => {
+    let streamed = false
+    const backend: AgentExecutionBackend = {
+      kind: 'test-backend',
+      async *stream() {
+        streamed = true
+        yield { type: 'text_delta', text: 'should not run' }
+      },
+    }
+    const events: RuntimeStreamEvent[] = []
+    for await (const event of runAgentTaskStream({
+      task: {
+        id: 'stream-blocked',
+        intent: 'run',
+        requiredKnowledge: [{ ...readyReq, currentConfidence: 0 }],
+      },
+      backend,
+    })) {
+      events.push(event)
+    }
+
+    expect(streamed).toBe(false)
+    expect(events.map((event) => event.type)).toEqual([
+      'task_start',
+      'readiness_start',
+      'readiness_end',
+      'task_end',
+      'final',
+    ])
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'blocked' })
+  })
+
+  it('streams through a backend, persists events, and resumes sessions', async () => {
+    const store = new InMemoryRuntimeSessionStore()
+    const sessions: string[] = []
+    const backend: AgentExecutionBackend<AgentBackendInput> = {
+      kind: 'coding-harness',
+      start: (_input, ctx) => ({
+        id: ctx.requestedSessionId ?? 'session-1',
+        backend: 'coding-harness',
+        status: 'active',
+        resumeToken: 'resume-1',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString(),
+      }),
+      resume: (session) => {
+        sessions.push(session.id)
+        return { ...session, status: 'active' }
+      },
+      async *stream(input) {
+        yield { type: 'text_delta', text: input.message ?? '' }
+        yield { type: 'tool_call', toolName: 'edit', args: { path: 'secret.ts' } }
+        yield { type: 'tool_result', toolName: 'edit', result: { ok: true } }
+      },
+    }
+    const task = { id: 'stream-ready', intent: 'continue coding', requiredKnowledge: [readyReq] }
+
+    const first = await collect(runAgentTaskStream({
+      task,
+      backend,
+      input: { message: 'hello' },
+      sessionStore: store,
+      sessionId: 'session-1',
+    }))
+    const second = await collect(runAgentTaskStream({
+      task,
+      backend,
+      input: { message: ' again' },
+      sessionStore: store,
+      sessionId: 'session-1',
+      resume: true,
+    }))
+
+    expect(first.find((event) => event.type === 'session_created')).toBeDefined()
+    expect(second.find((event) => event.type === 'session_resumed')).toBeDefined()
+    expect(sessions).toEqual(['session-1'])
+    expect(store.get('session-1')?.status).toBe('completed')
+    expect(store.listEvents('session-1').some((event) => event.type === 'tool_call')).toBe(true)
+
+    const toolCall = first.find((event) => event.type === 'tool_call')!
+    expect(JSON.stringify(sanitizeRuntimeStreamEvent(toolCall))).not.toContain('secret.ts')
+    expect(JSON.stringify(sanitizeRuntimeStreamEvent(toolCall, { includeControlPayloads: true }))).toContain('secret.ts')
+  })
+
+  it('maps sandbox prompt events into runtime stream events', async () => {
+    const backend = createSandboxPromptBackend({
+      getBox: () => ({ id: 'box-1' }),
+      getSessionId: (box) => box.id,
+      async *streamPrompt() {
+        yield { type: 'message.part.updated', data: { text: 'hi' } }
+        yield { type: 'tool_call', data: { name: 'Read', input: { path: '/tmp/a' } } }
+        yield { type: 'tool_result', data: { name: 'Read', output: 'ok' } }
+      },
+    })
+    const events = await collect(runAgentTaskStream({
+      task: { id: 'sandbox-task', intent: 'inspect', requiredKnowledge: [readyReq] },
+      backend,
+      input: { message: 'go' },
+    }))
+
+    expect(events.find((event) => event.type === 'session_created')).toMatchObject({
+      type: 'session_created',
+      session: { id: 'box-1', backend: 'sandbox' },
+    })
+    expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text)).toEqual(['hi'])
+    expect(events.find((event) => event.type === 'tool_call')).toMatchObject({ type: 'tool_call', toolName: 'Read' })
+  })
+
+  it('parses OpenAI-compatible streamed chat completions', async () => {
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      fetchImpl: async () => new Response(
+        'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n'
+        + 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n'
+        + 'data: [DONE]\n\n',
+        { status: 200 },
+      ),
+    })
+    const events = await collect(runAgentTaskStream({
+      task: { id: 'chat-task', intent: 'say hello', requiredKnowledge: [readyReq] },
+      backend,
+      input: { message: 'hello' },
+    }))
+
+    expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text).join('')).toBe('hello')
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
+  })
 })
+
+async function collect(iterable: AsyncIterable<RuntimeStreamEvent>): Promise<RuntimeStreamEvent[]> {
+  const events: RuntimeStreamEvent[] = []
+  for await (const event of iterable) events.push(event)
+  return events
+}

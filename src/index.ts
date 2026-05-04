@@ -129,6 +129,78 @@ export type AgentRuntimeEventSink<TState = unknown, TAction = unknown, TActionRe
   event: AgentRuntimeEvent<TState, TAction, TActionResult, TEval>,
 ) => Promise<void> | void
 
+export type RuntimeStreamEvent =
+  | { type: 'task_start'; task: AgentTaskSpec; timestamp: string }
+  | { type: 'readiness_start'; task: AgentTaskSpec; timestamp: string }
+  | { type: 'readiness_end'; task: AgentTaskSpec; knowledge: KnowledgeReadinessReport; decision: KnowledgeReadinessDecision; timestamp: string }
+  | { type: 'questions_start'; task: AgentTaskSpec; questions: UserQuestion[]; timestamp: string }
+  | { type: 'questions_end'; task: AgentTaskSpec; questions: UserQuestion[]; userAnswers: Record<string, string>; timestamp: string }
+  | { type: 'acquisition_start'; task: AgentTaskSpec; acquisitionPlans: DataAcquisitionPlan[]; timestamp: string }
+  | { type: 'acquisition_end'; task: AgentTaskSpec; acquisitionPlans: DataAcquisitionPlan[]; acquiredEvidenceIds: string[]; timestamp: string }
+  | { type: 'session_created'; task: AgentTaskSpec; session: RuntimeSession; timestamp: string }
+  | { type: 'session_resumed'; task: AgentTaskSpec; session: RuntimeSession; timestamp: string }
+  | { type: 'backend_start'; task: AgentTaskSpec; session: RuntimeSession; backend: string; timestamp: string }
+  | { type: 'text_delta'; task?: AgentTaskSpec; session?: RuntimeSession; text: string; timestamp?: string }
+  | { type: 'reasoning_delta'; task?: AgentTaskSpec; session?: RuntimeSession; text: string; timestamp?: string }
+  | { type: 'tool_call'; task?: AgentTaskSpec; session?: RuntimeSession; toolName: string; toolCallId?: string; args?: unknown; timestamp?: string }
+  | { type: 'tool_result'; task?: AgentTaskSpec; session?: RuntimeSession; toolName: string; toolCallId?: string; result?: unknown; timestamp?: string }
+  | { type: 'artifact'; task?: AgentTaskSpec; session?: RuntimeSession; artifactId: string; name?: string; mimeType?: string; uri?: string; metadata?: Record<string, unknown>; timestamp?: string }
+  | { type: 'backend_error'; task: AgentTaskSpec; session?: RuntimeSession; backend: string; message: string; recoverable: boolean; timestamp: string }
+  | { type: 'backend_end'; task: AgentTaskSpec; session: RuntimeSession; backend: string; timestamp: string }
+  | { type: 'task_end'; task: AgentTaskSpec; status: AgentTaskStatus; reason: string; timestamp: string }
+  | { type: 'final'; task: AgentTaskSpec; session?: RuntimeSession; status: AgentTaskStatus; reason: string; text?: string; metadata?: Record<string, unknown>; timestamp: string }
+
+export interface RuntimeSession {
+  id: string
+  backend: string
+  status: 'active' | 'completed' | 'failed' | 'aborted'
+  resumeToken?: string
+  createdAt: string
+  updatedAt: string
+  metadata?: Record<string, unknown>
+}
+
+export interface RuntimeSessionStore {
+  get(sessionId: string): Promise<RuntimeSession | undefined> | RuntimeSession | undefined
+  put(session: RuntimeSession): Promise<void> | void
+  appendEvent?(sessionId: string, event: RuntimeStreamEvent): Promise<void> | void
+  listEvents?(sessionId: string): Promise<RuntimeStreamEvent[]> | RuntimeStreamEvent[]
+}
+
+export interface AgentBackendInput {
+  task: AgentTaskSpec
+  message?: string
+  messages?: Array<{ role: string; content: string }>
+  inputs?: Record<string, unknown>
+}
+
+export interface AgentBackendContext {
+  task: AgentTaskSpec
+  knowledge: KnowledgeReadinessReport
+  session: RuntimeSession
+  signal?: AbortSignal
+}
+
+export interface AgentExecutionBackend<TInput extends AgentBackendInput = AgentBackendInput> {
+  kind: string
+  start?(input: TInput, context: Omit<AgentBackendContext, 'session'> & { requestedSessionId?: string }): Promise<RuntimeSession> | RuntimeSession
+  resume?(session: RuntimeSession, input: TInput, context: Omit<AgentBackendContext, 'session'>): Promise<RuntimeSession> | RuntimeSession
+  stream(input: TInput, context: AgentBackendContext): AsyncIterable<RuntimeStreamEvent>
+  stop?(session: RuntimeSession, reason: string): Promise<void> | void
+}
+
+export interface RunAgentTaskStreamOptions<TInput extends AgentBackendInput = AgentBackendInput> {
+  task: AgentTaskSpec
+  backend: AgentExecutionBackend<TInput>
+  input?: Omit<TInput, 'task'>
+  knowledge?: AgentKnowledgeProvider
+  sessionStore?: RuntimeSessionStore
+  sessionId?: string
+  resume?: boolean
+  signal?: AbortSignal
+  minimumReadinessScore?: number
+}
+
 export interface RunAgentTaskOptions<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult> {
   task: AgentTaskSpec
   adapter: AgentAdapter<TState, TAction, TActionResult, TEval>
@@ -245,6 +317,29 @@ export interface ServerSentEventOptions {
   retry?: number
 }
 
+export class InMemoryRuntimeSessionStore implements RuntimeSessionStore {
+  private readonly sessions = new Map<string, RuntimeSession>()
+  private readonly events = new Map<string, RuntimeStreamEvent[]>()
+
+  get(sessionId: string): RuntimeSession | undefined {
+    return this.sessions.get(sessionId)
+  }
+
+  put(session: RuntimeSession): void {
+    this.sessions.set(session.id, session)
+  }
+
+  appendEvent(sessionId: string, event: RuntimeStreamEvent): void {
+    const existing = this.events.get(sessionId) ?? []
+    existing.push(event)
+    this.events.set(sessionId, existing)
+  }
+
+  listEvents(sessionId: string): RuntimeStreamEvent[] {
+    return [...(this.events.get(sessionId) ?? [])]
+  }
+}
+
 export async function runAgentTask<TState, TAction, TActionResult, TEval extends ControlEvalResult = ControlEvalResult>(
   options: RunAgentTaskOptions<TState, TAction, TActionResult, TEval>,
 ): Promise<AgentTaskRunResult<TState, TAction, TActionResult, TEval>> {
@@ -343,6 +438,104 @@ export function summarizeAgentTaskRun<TState, TAction, TActionResult, TEval exte
     failureClass: result.control.failureClass,
     wallMs: result.control.wallMs,
     costUsd: result.control.spentCostUsd,
+  }
+}
+
+export async function* runAgentTaskStream<TInput extends AgentBackendInput = AgentBackendInput>(
+  options: RunAgentTaskStreamOptions<TInput>,
+): AsyncIterable<RuntimeStreamEvent> {
+  const task = options.task
+  const input = { task, ...(options.input ?? {}) } as TInput
+  const started = streamEvent({ type: 'task_start', task })
+  yield started
+
+  const readinessStart = streamEvent({ type: 'readiness_start', task })
+  yield readinessStart
+  let knowledge = await buildReadiness(task, options.knowledge)
+  const questions = userQuestionsForKnowledgeGaps(knowledge.blockingMissingRequirements)
+  const acquisitionPlans = acquisitionPlansForKnowledgeGaps([
+    ...knowledge.blockingMissingRequirements,
+    ...knowledge.nonBlockingGaps,
+  ])
+  const preflight = await runKnowledgePreflightStream(task, questions, acquisitionPlans, options.knowledge)
+  for (const event of preflight.events) yield event
+  if (options.knowledge?.refreshReadiness && (Object.keys(preflight.userAnswers).length > 0 || preflight.acquiredEvidenceIds.length > 0)) {
+    yield streamEvent({ type: 'readiness_start', task })
+    knowledge = await options.knowledge.refreshReadiness({
+      task,
+      previous: knowledge,
+      userAnswers: preflight.userAnswers,
+      acquiredEvidenceIds: preflight.acquiredEvidenceIds,
+    })
+  }
+  const decision = decideKnowledgeReadiness(knowledge, { minimumScore: options.minimumReadinessScore })
+  yield streamEvent({ type: 'readiness_end', task, knowledge, decision })
+  if (!decision.passed && decision.status === 'blocked') {
+    const reason = `knowledge readiness blocked: ${decision.reason}`
+    yield streamEvent({ type: 'task_end', task, status: 'blocked', reason })
+    yield streamEvent({ type: 'final', task, status: 'blocked', reason })
+    return
+  }
+
+  const store = options.sessionStore
+  const existing = options.sessionId ? await store?.get(options.sessionId) : undefined
+  const shouldResume = Boolean(options.resume && existing)
+  let session = shouldResume && existing
+    ? await resumeBackendSession(options.backend, existing, input, { task, knowledge, signal: options.signal })
+    : await startBackendSession(options.backend, input, { task, knowledge, signal: options.signal }, options.sessionId)
+  await store?.put(session)
+  const sessionEvent = streamEvent({
+    type: shouldResume ? 'session_resumed' : 'session_created',
+    task,
+    session,
+  })
+  await store?.appendEvent?.(session.id, sessionEvent)
+  yield sessionEvent
+
+  const backendStart = streamEvent({ type: 'backend_start', task, session, backend: options.backend.kind })
+  await store?.appendEvent?.(session.id, backendStart)
+  yield backendStart
+
+  let finalText = ''
+  try {
+    for await (const rawEvent of options.backend.stream(input, { task, knowledge, session, signal: options.signal })) {
+      const event = normalizeBackendStreamEvent(rawEvent, task, session)
+      if (event.type === 'text_delta') finalText += event.text
+      await store?.appendEvent?.(session.id, event)
+      yield event
+    }
+    const completedStatus: AgentTaskStatus = 'completed'
+    session = touchSession({ ...session, status: completedStatus })
+    await store?.put(session)
+    const backendEnd = streamEvent({ type: 'backend_end', task, session, backend: options.backend.kind })
+    await store?.appendEvent?.(session.id, backendEnd)
+    yield backendEnd
+    const reason = 'backend completed'
+    const taskEnd = streamEvent({ type: 'task_end', task, status: completedStatus, reason })
+    await store?.appendEvent?.(session.id, taskEnd)
+    yield taskEnd
+    const final = streamEvent({ type: 'final', task, session, status: completedStatus, reason, text: finalText || undefined })
+    await store?.appendEvent?.(session.id, final)
+    yield final
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    session = touchSession({ ...session, status: options.signal?.aborted ? 'aborted' : 'failed' })
+    await store?.put(session)
+    const backendError = streamEvent({
+      type: 'backend_error',
+      task,
+      session,
+      backend: options.backend.kind,
+      message,
+      recoverable: !options.signal?.aborted,
+    })
+    await store?.appendEvent?.(session.id, backendError)
+    yield backendError
+    const status: AgentTaskStatus = options.signal?.aborted ? 'aborted' : 'failed'
+    const taskEnd = streamEvent({ type: 'task_end', task, status, reason: message })
+    await store?.appendEvent?.(session.id, taskEnd)
+    yield taskEnd
+    yield streamEvent({ type: 'final', task, session, status, reason: message, text: finalText || undefined })
   }
 }
 
@@ -454,6 +647,107 @@ export function sanitizeAgentRuntimeEvent<TState, TAction, TActionResult, TEval 
   return { ...base, status: event.status, reason: event.reason }
 }
 
+export function sanitizeRuntimeStreamEvent(
+  event: RuntimeStreamEvent,
+  options: RuntimeTelemetryOptions = {},
+): Record<string, unknown> {
+  const withTask = 'task' in event && event.task
+    ? { task: sanitizeTask(event.task, options) }
+    : {}
+  const withSession = 'session' in event && event.session
+    ? { session: sanitizeRuntimeSession(event.session, options) }
+    : {}
+
+  if (event.type === 'readiness_end') {
+    return {
+      type: event.type,
+      ...withTask,
+      timestamp: event.timestamp,
+      decision: event.decision,
+      knowledge: sanitizeKnowledgeReadinessReport(event.knowledge, options),
+    }
+  }
+  if (event.type === 'questions_start') {
+    return { type: event.type, ...withTask, timestamp: event.timestamp, questions: event.questions.map((question) => sanitizeQuestion(question, options)) }
+  }
+  if (event.type === 'questions_end') {
+    return {
+      type: event.type,
+      ...withTask,
+      timestamp: event.timestamp,
+      questions: event.questions.map((question) => sanitizeQuestion(question, options)),
+      userAnswers: options.includeUserAnswers ? event.userAnswers : redactRecord(event.userAnswers),
+    }
+  }
+  if (event.type === 'acquisition_start') {
+    return { type: event.type, ...withTask, timestamp: event.timestamp, acquisitionPlans: event.acquisitionPlans.map(sanitizeAcquisitionPlan) }
+  }
+  if (event.type === 'acquisition_end') {
+    return {
+      type: event.type,
+      ...withTask,
+      timestamp: event.timestamp,
+      acquisitionPlans: event.acquisitionPlans.map(sanitizeAcquisitionPlan),
+      acquiredEvidenceCount: event.acquiredEvidenceIds.length,
+      acquiredEvidenceIds: options.includeEvidenceIds ? event.acquiredEvidenceIds : undefined,
+    }
+  }
+  if (event.type === 'tool_call') {
+    return {
+      type: event.type,
+      ...withTask,
+      ...withSession,
+      timestamp: event.timestamp,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      args: options.includeControlPayloads ? event.args : undefined,
+    }
+  }
+  if (event.type === 'tool_result') {
+    return {
+      type: event.type,
+      ...withTask,
+      ...withSession,
+      timestamp: event.timestamp,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      result: options.includeControlPayloads ? event.result : undefined,
+    }
+  }
+  if (event.type === 'artifact') {
+    return {
+      type: event.type,
+      ...withTask,
+      ...withSession,
+      timestamp: event.timestamp,
+      artifactId: event.artifactId,
+      name: event.name,
+      mimeType: event.mimeType,
+      uri: options.includeEvidenceIds ? event.uri : undefined,
+      metadata: options.includeMetadata ? event.metadata : undefined,
+    }
+  }
+  if (event.type === 'final') {
+    return {
+      type: event.type,
+      ...withTask,
+      ...withSession,
+      timestamp: event.timestamp,
+      status: event.status,
+      reason: event.reason,
+      text: options.includeControlPayloads ? event.text : undefined,
+      metadata: options.includeMetadata ? event.metadata : undefined,
+    }
+  }
+  return {
+    type: event.type,
+    ...withTask,
+    ...withSession,
+    timestamp: 'timestamp' in event ? event.timestamp : undefined,
+    ...pickPublicStreamFields(event),
+  }
+}
+
 export function createRuntimeEventCollector<TState = unknown, TAction = unknown, TActionResult = unknown, TEval extends ControlEvalResult = ControlEvalResult>(
   options: RuntimeTelemetryOptions = {},
 ): RuntimeEventCollector<TState, TAction, TActionResult, TEval> {
@@ -495,6 +789,132 @@ export function readinessServerSentEvent(
   }, { event, id, retry })
 }
 
+export function runtimeStreamServerSentEvent(
+  event: RuntimeStreamEvent,
+  options: RuntimeTelemetryOptions & ServerSentEventOptions = {},
+): string {
+  const { event: sseEvent, id, retry, ...telemetryOptions } = options
+  return encodeServerSentEvent(sanitizeRuntimeStreamEvent(event, telemetryOptions), { event: sseEvent, id, retry })
+}
+
+export function createIterableBackend<TInput extends AgentBackendInput>(
+  options: {
+    kind: string
+    start?: AgentExecutionBackend<TInput>['start']
+    resume?: AgentExecutionBackend<TInput>['resume']
+    stream: AgentExecutionBackend<TInput>['stream']
+    stop?: AgentExecutionBackend<TInput>['stop']
+  },
+): AgentExecutionBackend<TInput> {
+  return options
+}
+
+export function createSandboxPromptBackend<TBox, TInput extends AgentBackendInput = AgentBackendInput>(
+  options: {
+    kind?: string
+    getBox(input: TInput, context: Omit<AgentBackendContext, 'session'>): Promise<TBox> | TBox
+    streamPrompt(box: TBox, message: string, context: AgentBackendContext): AsyncIterable<unknown>
+    mapEvent?: (event: unknown, context: AgentBackendContext) => RuntimeStreamEvent | undefined
+    getSessionId?: (box: TBox, input: TInput) => string | undefined
+  },
+): AgentExecutionBackend<TInput> {
+  return {
+    kind: options.kind ?? 'sandbox',
+    async start(input, context) {
+      const box = await options.getBox(input, context)
+      return newRuntimeSession(options.kind ?? 'sandbox', options.getSessionId?.(box, input) ?? context.requestedSessionId, {
+        resumable: true,
+      })
+    },
+    resume(session) {
+      return touchSession({ ...session, status: 'active' })
+    },
+    async *stream(input, context) {
+      const box = await options.getBox(input, context)
+      const message = input.message ?? input.messages?.at(-1)?.content ?? context.task.intent
+      for await (const event of options.streamPrompt(box, message, context)) {
+        const mapped = options.mapEvent?.(event, context) ?? mapCommonBackendEvent(event, context)
+        if (mapped) yield mapped
+      }
+    },
+  }
+}
+
+export function createCliBridgeBackend<TInput extends AgentBackendInput = AgentBackendInput>(
+  options: {
+    url: string
+    bearer?: string
+    kind?: string
+    fetchImpl?: typeof fetch
+  },
+): AgentExecutionBackend<TInput> {
+  const fetcher = options.fetchImpl ?? fetch
+  return {
+    kind: options.kind ?? 'cli-bridge',
+    start(_input, context) {
+      return newRuntimeSession(options.kind ?? 'cli-bridge', context.requestedSessionId, { resumable: true })
+    },
+    resume(session) {
+      return touchSession({ ...session, status: 'active' })
+    },
+    async *stream(input, context) {
+      const response = await fetcher(options.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options.bearer ? { Authorization: `Bearer ${options.bearer}` } : {}),
+        },
+        body: JSON.stringify({
+          sessionId: context.session.id,
+          resumeToken: context.session.resumeToken,
+          task: input.task,
+          message: input.message,
+          messages: input.messages,
+          inputs: input.inputs,
+        }),
+        signal: context.signal,
+      })
+      if (!response.ok) throw new Error(`cli bridge returned ${response.status}`)
+      yield* streamResponseEvents(response, context)
+    },
+  }
+}
+
+export function createOpenAICompatibleBackend<TInput extends AgentBackendInput = AgentBackendInput>(
+  options: {
+    apiKey: string
+    baseUrl: string
+    model: string
+    kind?: string
+    fetchImpl?: typeof fetch
+  },
+): AgentExecutionBackend<TInput> {
+  const fetcher = options.fetchImpl ?? fetch
+  return {
+    kind: options.kind ?? 'tcloud',
+    start(_input, context) {
+      return newRuntimeSession(options.kind ?? 'tcloud', context.requestedSessionId)
+    },
+    async *stream(input, context) {
+      const response = await fetcher(`${options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${options.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: options.model,
+          stream: true,
+          messages: input.messages ?? [{ role: 'user', content: input.message ?? context.task.intent }],
+        }),
+        signal: context.signal,
+      })
+      if (!response.ok) throw new Error(`chat backend returned ${response.status}`)
+      yield* streamResponseEvents(response, context)
+    },
+  }
+}
+
 async function runKnowledgePreflight<TState, TAction, TActionResult, TEval extends ControlEvalResult>(
   task: AgentTaskSpec,
   questions: UserQuestion[],
@@ -517,6 +937,32 @@ async function runKnowledgePreflight<TState, TAction, TActionResult, TEval exten
   return { userAnswers, acquiredEvidenceIds }
 }
 
+async function runKnowledgePreflightStream(
+  task: AgentTaskSpec,
+  questions: UserQuestion[],
+  acquisitionPlans: DataAcquisitionPlan[],
+  provider: AgentKnowledgeProvider | undefined,
+): Promise<{
+  userAnswers: Record<string, string>
+  acquiredEvidenceIds: string[]
+  events: RuntimeStreamEvent[]
+}> {
+  const events: RuntimeStreamEvent[] = []
+  let userAnswers: Record<string, string> = {}
+  let acquiredEvidenceIds: string[] = []
+  if (questions.length > 0 && provider?.answerQuestions) {
+    events.push(streamEvent({ type: 'questions_start', task, questions }))
+    userAnswers = await provider.answerQuestions(questions, task)
+    events.push(streamEvent({ type: 'questions_end', task, questions, userAnswers }))
+  }
+  if (acquisitionPlans.length > 0 && provider?.executeAcquisitionPlans) {
+    events.push(streamEvent({ type: 'acquisition_start', task, acquisitionPlans }))
+    acquiredEvidenceIds = await provider.executeAcquisitionPlans(acquisitionPlans, task)
+    events.push(streamEvent({ type: 'acquisition_end', task, acquisitionPlans, acquiredEvidenceIds }))
+  }
+  return { userAnswers, acquiredEvidenceIds, events }
+}
+
 function sanitizeTask(task: AgentTaskSpec, options: RuntimeTelemetryOptions): Record<string, unknown> {
   return {
     id: task.id,
@@ -527,6 +973,18 @@ function sanitizeTask(task: AgentTaskSpec, options: RuntimeTelemetryOptions): Re
       sanitizeKnowledgeRequirement(requirement, options),
     ),
     metadata: options.includeMetadata ? task.metadata : task.metadata ? '[redacted]' : undefined,
+  }
+}
+
+function sanitizeRuntimeSession(session: RuntimeSession, options: RuntimeTelemetryOptions): Record<string, unknown> {
+  return {
+    id: session.id,
+    backend: session.backend,
+    status: session.status,
+    hasResumeToken: Boolean(session.resumeToken),
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    metadata: options.includeMetadata ? session.metadata : session.metadata ? '[redacted]' : undefined,
   }
 }
 
@@ -637,6 +1095,161 @@ function redactRecord(record: Record<string, string>): Record<string, string> {
 
 function stripNewlines(value: string): string {
   return value.replace(/[\r\n]/g, ' ')
+}
+
+function timestamp(): string {
+  return new Date().toISOString()
+}
+
+function streamEvent<T extends Omit<RuntimeStreamEvent, 'timestamp'>>(event: T): T & { timestamp: string } {
+  return { ...event, timestamp: timestamp() }
+}
+
+function newRuntimeSession(backend: string, requestedId?: string, metadata?: Record<string, unknown>): RuntimeSession {
+  const now = timestamp()
+  return {
+    id: requestedId || crypto.randomUUID(),
+    backend,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+    metadata,
+  }
+}
+
+function touchSession(session: RuntimeSession): RuntimeSession {
+  return { ...session, updatedAt: timestamp() }
+}
+
+async function startBackendSession<TInput extends AgentBackendInput>(
+  backend: AgentExecutionBackend<TInput>,
+  input: TInput,
+  context: Omit<AgentBackendContext, 'session'>,
+  requestedSessionId?: string,
+): Promise<RuntimeSession> {
+  if (backend.start) return backend.start(input, { ...context, requestedSessionId })
+  return newRuntimeSession(backend.kind, requestedSessionId)
+}
+
+async function resumeBackendSession<TInput extends AgentBackendInput>(
+  backend: AgentExecutionBackend<TInput>,
+  session: RuntimeSession,
+  input: TInput,
+  context: Omit<AgentBackendContext, 'session'>,
+): Promise<RuntimeSession> {
+  if (session.backend !== backend.kind) {
+    throw new Error(`Cannot resume ${session.backend} session with ${backend.kind} backend`)
+  }
+  if (backend.resume) return backend.resume(session, input, context)
+  return touchSession({ ...session, status: 'active' })
+}
+
+function normalizeBackendStreamEvent(event: RuntimeStreamEvent, task: AgentTaskSpec, session: RuntimeSession): RuntimeStreamEvent {
+  if ('task' in event && event.task && 'session' in event && event.session && 'timestamp' in event && event.timestamp) return event
+  return {
+    ...event,
+    task: 'task' in event && event.task ? event.task : task,
+    session: 'session' in event && event.session ? event.session : session,
+    timestamp: 'timestamp' in event && event.timestamp ? event.timestamp : timestamp(),
+  } as RuntimeStreamEvent
+}
+
+function pickPublicStreamFields(event: RuntimeStreamEvent): Record<string, unknown> {
+  if (event.type === 'session_created' || event.type === 'session_resumed') return {}
+  if (event.type === 'backend_start' || event.type === 'backend_end') return { backend: event.backend }
+  if (event.type === 'backend_error') return { backend: event.backend, message: event.message, recoverable: event.recoverable }
+  if (event.type === 'task_end') return { status: event.status, reason: event.reason }
+  if (event.type === 'text_delta' || event.type === 'reasoning_delta') return { text: event.text }
+  return {}
+}
+
+function mapCommonBackendEvent(event: unknown, context: AgentBackendContext): RuntimeStreamEvent | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const record = event as Record<string, unknown>
+  const type = String(record.type ?? '')
+  const data = record.data && typeof record.data === 'object' ? record.data as Record<string, unknown> : record
+  if (type === 'message.part.updated' || type === 'text_delta' || type === 'delta') {
+    const text = stringValue(data.text) ?? stringValue(data.delta) ?? stringValue(record.text)
+    return text ? { type: 'text_delta', task: context.task, session: context.session, text, timestamp: timestamp() } : undefined
+  }
+  if (type === 'reasoning_delta') {
+    const text = stringValue(data.text) ?? stringValue(record.text)
+    return text ? { type: 'reasoning_delta', task: context.task, session: context.session, text, timestamp: timestamp() } : undefined
+  }
+  if (type === 'tool_call') {
+    return {
+      type: 'tool_call',
+      task: context.task,
+      session: context.session,
+      toolName: stringValue(data.name) ?? stringValue(record.toolName) ?? 'tool',
+      toolCallId: stringValue(data.id) ?? stringValue(record.toolCallId),
+      args: data.args ?? data.input ?? record.args,
+      timestamp: timestamp(),
+    }
+  }
+  if (type === 'tool_result') {
+    return {
+      type: 'tool_result',
+      task: context.task,
+      session: context.session,
+      toolName: stringValue(data.name) ?? stringValue(record.toolName) ?? 'tool',
+      toolCallId: stringValue(data.id) ?? stringValue(record.toolCallId),
+      result: data.result ?? data.output ?? record.result,
+      timestamp: timestamp(),
+    }
+  }
+  if (type === 'result' || type === 'final') {
+    const text = stringValue(data.finalText) ?? stringValue(data.text) ?? stringValue(record.text)
+    return text ? { type: 'text_delta', task: context.task, session: context.session, text, timestamp: timestamp() } : undefined
+  }
+  return undefined
+}
+
+async function* streamResponseEvents(response: Response, context: AgentBackendContext): AsyncIterable<RuntimeStreamEvent> {
+  const body = response.body
+  if (!body) return
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split(/\n\n/)
+    buffer = chunks.pop() ?? ''
+    for (const chunk of chunks) {
+      const event = parseStreamChunk(chunk, context)
+      if (event) yield event
+    }
+  }
+  if (buffer.trim()) {
+    const event = parseStreamChunk(buffer, context)
+    if (event) yield event
+  }
+}
+
+function parseStreamChunk(chunk: string, context: AgentBackendContext): RuntimeStreamEvent | undefined {
+  const data = chunk
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trimStart())
+    .join('\n')
+  if (!data || data === '[DONE]') return undefined
+  try {
+    const parsed = JSON.parse(data) as Record<string, unknown>
+    const choice = Array.isArray(parsed.choices) ? parsed.choices[0] as Record<string, unknown> | undefined : undefined
+    const delta = choice?.delta as Record<string, unknown> | undefined
+    const message = choice?.message as Record<string, unknown> | undefined
+    const text = stringValue(delta?.content) ?? stringValue(message?.content) ?? stringValue(parsed.text)
+    if (text) return { type: 'text_delta', task: context.task, session: context.session, text, timestamp: timestamp() }
+    return mapCommonBackendEvent(parsed, context)
+  } catch {
+    return { type: 'text_delta', task: context.task, session: context.session, text: data, timestamp: timestamp() }
+  }
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function buildReadiness(
