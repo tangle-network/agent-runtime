@@ -2,10 +2,10 @@
 
 Reusable runtime lifecycle for domain-specific agents.
 
-`agent-runtime` is the shared skeleton for tax, legal, GTM, creative,
-agent-builder generated agents, blueprint-agent, redteam, and similar packages.
-It does not own domain policy, tools, connectors, or UI. It standardizes the
-task lifecycle and delegates domain behavior to an adapter.
+`agent-runtime` is the shared skeleton for domain agents, generated agents,
+red-team harnesses, coding agents, and similar packages. It does not own domain
+policy, tools, connectors, model routing, or UI. It standardizes the task
+lifecycle and delegates domain behavior to an adapter.
 
 ```txt
 TaskSpec
@@ -71,6 +71,20 @@ await runAgentTask({
 Events cover readiness, question answering, acquisition, control-loop steps,
 and task completion. This keeps streaming UI, logs, and telemetry out of domain
 adapters while making every runtime transition observable.
+
+This package does not stream model tokens for you. Domain adapters and product
+routes still own model calls, tool execution, and token streaming. `agent-runtime`
+emits lifecycle events around those actions, and provides small helpers for
+safe telemetry streams:
+
+```ts
+import { readinessServerSentEvent } from '@tangle-network/agent-runtime'
+
+writer.write(encoder.encode(readinessServerSentEvent(readinessReport)))
+```
+
+Use these helpers when an app wants to expose readiness or runtime metadata over
+Server-Sent Events without leaking raw task inputs, credentials, or evidence.
 
 For logs, reports, and UI telemetry, do not serialize raw events directly.
 Use the built-in sanitized collector:
