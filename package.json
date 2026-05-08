@@ -37,7 +37,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.20.0"
+    "@tangle-network/agent-eval": "^0.20.12"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

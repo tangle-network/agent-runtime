@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@tangle-network/agent-eval':
-        specifier: ^0.20.0
-        version: 0.20.0(typescript@5.9.3)
+        specifier: ^0.20.12
+        version: 0.20.12(typescript@5.9.3)
     devDependencies:
       '@types/node':
         specifier: ^25.6.0
@@ -386,13 +386,25 @@ packages:
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
-  '@tangle-network/agent-eval@0.20.0':
-    resolution: {integrity: sha512-lNVOHprDeCsL5LTmaun8O2bfGy8ALsyDkwZsGX8MXnIOJktDb911DHw6sXKhe28Wx0mnoyn8BZppMKdAb+qcBw==}
+  '@tangle-network/agent-eval@0.20.12':
+    resolution: {integrity: sha512-CNjN/ibiGViYfty44bT+C7e4CCCshLbu/uBWi16IKfR0vTznSEBYcFtH3+rSqSovqhs6N+d2ku/q+SQNKYcgWw==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@tangle-network/tcloud@0.2.0':
-    resolution: {integrity: sha512-OeD2Cm2Y8ISIiBRL3kZyZyeRDZy5leBn5D3KfLgGxPTtz69uQt78UbJokNl5T1Hk8Jsh5BXtp18oZN93qdK1PA==}
+  '@tangle-network/sandbox@0.1.2':
+    resolution: {integrity: sha512-6TPH9QgCgou9Bhc1kzLNL4/PRiT1mjId6NONY5Le/KT2kh77cXH8KN3TTY/cU+/eW+WM5FYJOy32FWl2HShXbw==}
+    peerDependencies:
+      viem: ^2.0.0
+    peerDependenciesMeta:
+      viem:
+        optional: true
+
+  '@tangle-network/tcloud-attestation@0.1.1':
+    resolution: {integrity: sha512-+TAF9s5t1jOWGyGHvKhIWe2FYmG7puVaxmmg0Et67ylAjGa7GqUAvISXGjG/6dzld7A170V0kQHK0WVdh2Wh0Q==}
+    engines: {node: '>=18'}
+
+  '@tangle-network/tcloud@0.4.6':
+    resolution: {integrity: sha512-ABjo9CBvFmKlEMWGazY7nPOlCI0lXa9nuM+qmVEa3RXLy+0q0RT33mA6ekqjA4Ieb8irym93uAan5P/iwdmxXg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -482,9 +494,9 @@ packages:
     resolution: {integrity: sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==}
     engines: {node: '>= 14.16.0'}
 
-  commander@13.1.0:
-    resolution: {integrity: sha512-/rFeCpNJQbhSZjGVwO9RFV3xPqbnERS8MmIQzCtD/zl6gpJuV/bMLuN92oG3F7d8oDEHHRrujSXNUr8fpjntKw==}
-    engines: {node: '>=18'}
+  commander@14.0.3:
+    resolution: {integrity: sha512-H+y0Jo/T1RZ9qPP4Eh1pkcQcLRglraJaSLoyOtHxu6AapkjWVCy2Sit1QQ4x3Dng8qDlSsZEet7g5Pq06MvTgw==}
+    engines: {node: '>=20'}
 
   commander@4.1.1:
     resolution: {integrity: sha512-NOKm8xhkzAjzFx8B2v5OAHT+u5pRQc2UCa2Vq9jYL/31o2wi9mxBA7LIFs3sV5VSC49z6pEhfbMULvShKj26WA==}
@@ -1092,12 +1104,12 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
-  '@tangle-network/agent-eval@0.20.0(typescript@5.9.3)':
+  '@tangle-network/agent-eval@0.20.12(typescript@5.9.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.2)
       '@ax-llm/ax': 19.0.45(zod@4.4.2)
       '@hono/node-server': 2.0.1(hono@4.12.16)
-      '@tangle-network/tcloud': 0.2.0(typescript@5.9.3)(zod@4.4.2)
+      '@tangle-network/tcloud': 0.4.6(typescript@5.9.3)(zod@4.4.2)
       hono: 4.12.16
       zod: 4.4.2
     transitivePeerDependencies:
@@ -1105,11 +1117,19 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@tangle-network/tcloud@0.2.0(typescript@5.9.3)(zod@4.4.2)':
+  '@tangle-network/sandbox@0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.4.2))':
+    optionalDependencies:
+      viem: 2.48.8(typescript@5.9.3)(zod@4.4.2)
+
+  '@tangle-network/tcloud-attestation@0.1.1': {}
+
+  '@tangle-network/tcloud@0.4.6(typescript@5.9.3)(zod@4.4.2)':
     dependencies:
       '@scure/bip32': 2.2.0
       '@scure/bip39': 2.2.0
-      commander: 13.1.0
+      '@tangle-network/sandbox': 0.1.2(viem@2.48.8(typescript@5.9.3)(zod@4.4.2))
+      '@tangle-network/tcloud-attestation': 0.1.1
+      commander: 14.0.3
       viem: 2.48.8(typescript@5.9.3)(zod@4.4.2)
     transitivePeerDependencies:
       - bufferutil
@@ -1204,7 +1224,7 @@ snapshots:
     dependencies:
       readdirp: 4.1.2
 
-  commander@13.1.0: {}
+  commander@14.0.3: {}
 
   commander@4.1.1: {}
 
