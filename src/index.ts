@@ -366,12 +366,13 @@ export async function runAgentTask<TState, TAction, TActionResult, TEval extends
   }
 
   await emit(options.onEvent, { type: 'control_start', task, knowledge })
+  const scenarioId = options.scenarioId ?? task.id
   const control = await runAgentControlLoop<TState, TAction, TActionResult, TEval>({
     intent: task.intent,
     budget: task.budget,
     signal: options.signal,
     store: options.store,
-    scenarioId: options.scenarioId ?? task.id,
+    scenarioId,
     projectId: options.projectId,
     variantId: options.variantId,
     observe: ({ history, abortSignal }) => options.adapter.observe({ task, knowledge, history, abortSignal }),
@@ -413,7 +414,9 @@ export async function runAgentTask<TState, TAction, TActionResult, TEval extends
     userAnswers: preflight.userAnswers,
     acquiredEvidenceIds: preflight.acquiredEvidenceIds,
     control,
-    runRecords: options.adapter.projectRunRecords?.(control, task) ?? [],
+    runRecords: (options.adapter.projectRunRecords?.(control, task) ?? []).map((record) => (
+      record.scenarioId === undefined ? { ...record, scenarioId } : record
+    )),
   }
 }
 
