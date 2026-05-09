@@ -1,29 +1,42 @@
 # agent-runtime
 
-Reusable runtime lifecycle for domain-specific agents.
+Reusable runtime lifecycle for domain-specific agents. Standardizes the
+task lifecycle (knowledge readiness → questions/acquisition → control loop
+→ eval) and delegates domain behavior to an adapter. Owns no domain
+policy, models, tools, connectors, or UI.
 
-`agent-runtime` is the shared skeleton for domain agents, generated agents,
-red-team harnesses, coding agents, and similar packages. It does not own domain
-policy, tools, connectors, model routing, or UI. It standardizes the task
-lifecycle and delegates domain behavior to an adapter.
+## Contents
+
+- [Overview](#overview)
+- [Install](#install)
+- [Getting started](#getting-started)
+- [When to use which entry point](#when-to-use-which-entry-point)
+- [Backends for `runAgentTaskStream`](#backends-for-runagenttaskstream)
+- [Lifecycle events](#lifecycle-events)
+- [Knowledge providers](#knowledge-providers)
+- [Sanitized telemetry](#sanitized-telemetry)
+- [Package boundaries](#package-boundaries)
+- [Examples](#examples)
+
+## Overview
 
 ```txt
 TaskSpec
-  -> Knowledge readiness
-  -> Question / acquisition decision
-  -> Agent control loop
-  -> Eval / verification
-  -> Run evidence
+  → Knowledge readiness
+  → Question / acquisition decision
+  → Agent control loop (observe / validate / decide / act)
+  → Eval / verification
+  → Run evidence
 ```
 
-For product agents that already have a streaming backend, use the stream kernel:
+For product agents that own a streaming model backend:
 
 ```txt
 TaskSpec
-  -> Knowledge readiness
-  -> Session create/resume
-  -> Backend stream
-  -> Sanitized RuntimeStreamEvent/SSE
+  → Knowledge readiness
+  → Session create/resume
+  → Backend stream
+  → Sanitized RuntimeStreamEvent / SSE
 ```
 
 ## Install
@@ -32,118 +45,112 @@ TaskSpec
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 ```
 
-## Usage
+## Getting started
+
+The smallest possible task — a domain adapter responding to one task with
+no streaming:
 
 ```ts
 import { runAgentTask } from '@tangle-network/agent-runtime'
 
 const result = await runAgentTask({
   task: {
-    id: 'tax-2026-return-review',
+    id: 'review-2026-return',
     intent: 'Review the return for missing evidence',
     domain: 'tax',
-    requiredKnowledge: [{
-      id: 'filing-status',
-      description: 'Taxpayer filing status',
-      requiredFor: ['return-review'],
-      category: 'user_specific',
-      acquisitionMode: 'ask_user',
-      importance: 'blocking',
-      freshness: 'static',
-      sensitivity: 'private',
-      confidenceNeeded: 1,
-      currentConfidence: 0,
-      evidenceIds: [],
-      fallbackPolicy: 'ask',
-    }],
   },
-  adapter,
+  adapter: {
+    async observe() { return { /* domain state */ } },
+    async validate({ state }) { return [/* eval results */] },
+    async decide({ state }) {
+      return { kind: 'finish', reason: 'review complete' }
+    },
+    async act() { return undefined },
+  },
 })
+
+console.log(result.status, result.runRecords)
 ```
 
-If knowledge readiness fails, `runAgentTask` stops before domain actions by
-default. Adapters can override `onKnowledgeBlocked` to emit a domain action,
-such as asking a user, querying a connector, or inspecting a repo.
+Full runnable: [`examples/basic-task/`](./examples/basic-task/).
 
-`runAgentTask` also emits typed lifecycle events through `onEvent`:
+## When to use which entry point
+
+| You want… | Use |
+|---|---|
+| Single-shot task with eval/verification | `runAgentTask` |
+| Streaming product loop with session resume | `runAgentTaskStream` + a backend factory |
+| Just SSE serialization for an existing readiness report | `readinessServerSentEvent` |
+| Just sanitized telemetry over an existing run | `createRuntimeEventCollector` + `summarizeAgentTaskRun` |
+| Stable readiness branching (`ready` / `blocked` / `caveat`) in a route | `decideKnowledgeReadiness` |
+
+## Backends for `runAgentTaskStream`
+
+Four SDK-agnostic factories ship in core:
+
+| Factory | When |
+|---|---|
+| `createOpenAICompatibleBackend` | TCloud / OpenAI-compatible chat APIs |
+| `createCliBridgeBackend` | HTTP CLI bridge streams |
+| `createSandboxPromptBackend` | Sandbox / sidecar `streamPrompt` clients |
+| `createIterableBackend` | Custom coding harnesses, browser agents |
+
+Adapters are intentionally thin. Product repos still own client
+construction, auth, concrete tool permissions, and UI behavior. See
+[`examples/sandbox-stream-backend/`](./examples/sandbox-stream-backend/) and
+[`examples/openai-stream-backend/`](./examples/openai-stream-backend/) for
+runnable wirings.
+
+## Lifecycle events
+
+`runAgentTask` and `runAgentTaskStream` emit typed lifecycle events
+through `onEvent`:
 
 ```ts
 await runAgentTask({
-  task,
-  adapter,
-  knowledge,
+  task, adapter,
   onEvent(event) {
     console.log(event.type)
   },
 })
 ```
 
-Events cover readiness, question answering, acquisition, control-loop steps,
-and task completion. This keeps streaming UI, logs, and telemetry out of domain
-adapters while making every runtime transition observable.
+Events cover readiness, question answering, acquisition, control-loop
+steps, and task completion. Every transition is observable without
+coupling domain adapters to logging, streaming, or telemetry concerns.
 
-This package does not stream model tokens for you. Domain adapters and product
-routes still own model calls, tool execution, and token streaming. `agent-runtime`
-emits lifecycle events around those actions, and provides small helpers for
-safe telemetry streams:
+This package does **not** stream model tokens for you. Domain adapters
+and product routes still own model calls, tool execution, and token
+streaming. agent-runtime emits lifecycle events around those actions.
 
-```ts
-import { readinessServerSentEvent } from '@tangle-network/agent-runtime'
+## Knowledge providers
 
-writer.write(encoder.encode(readinessServerSentEvent(readinessReport)))
-```
+Optional. A knowledge provider implements:
 
-Use these helpers when an app wants to expose readiness or runtime metadata over
-Server-Sent Events without leaking raw task inputs, credentials, or evidence.
+- `buildReadiness` — score readiness against the task's required knowledge
+- `answerQuestions` — handle outstanding user questions
+- `executeAcquisitionPlans` — fetch missing evidence
+- `refreshReadiness` — rerun scoring after acquisition
 
-For main product loops, prefer `runAgentTaskStream` with an execution backend:
+Lets a task collect missing context before the control loop starts, then
+rerun readiness against new evidence. If readiness fails, `runAgentTask`
+stops before domain actions; adapters can override `onKnowledgeBlocked`
+to emit a domain action (asking a user, querying a connector, etc.).
 
-```ts
-import {
-  InMemoryRuntimeSessionStore,
-  createSandboxPromptBackend,
-  runAgentTaskStream,
-  runtimeStreamServerSentEvent,
-} from '@tangle-network/agent-runtime'
+For control policies or route handlers that need a stable readiness
+branch, use `decideKnowledgeReadiness(report)` — it returns `ready`,
+`blocked`, or `caveat` plus gap IDs and the recommended action.
 
-const backend = createSandboxPromptBackend({
-  getBox: () => sandboxClient.get(sandboxId),
-  streamPrompt: (box, message) => box.streamPrompt(message),
-  getSessionId: (box) => box.id,
-})
+## Sanitized telemetry
 
-const sessions = new InMemoryRuntimeSessionStore()
-
-for await (const event of runAgentTaskStream({
-  task,
-  backend,
-  input: { message },
-  sessionId,
-  resume: Boolean(sessionId),
-  sessionStore: sessions,
-})) {
-  writer.write(encoder.encode(runtimeStreamServerSentEvent(event)))
-}
-```
-
-`runAgentTaskStream` is the product-facing kernel. It readiness-gates execution,
-creates or resumes a backend session, normalizes text/tool/artifact/error/final
-events, and lets callers persist resumable session history. The package ships
-SDK-agnostic adapter factories for:
-
-- `createOpenAICompatibleBackend` for TCloud/OpenAI-compatible chat APIs.
-- `createCliBridgeBackend` for HTTP CLI bridge streams.
-- `createSandboxPromptBackend` for sandbox/sidecar `streamPrompt` clients.
-- `createIterableBackend` for custom coding harnesses or browser agents.
-
-The adapters are intentionally thin. Product repos still own client
-construction, auth, concrete tool permissions, and UI behavior.
-
-For logs, reports, and UI telemetry, do not serialize raw events directly.
+For logs, reports, UI telemetry — never serialize raw events directly.
 Use the built-in sanitized collector:
 
 ```ts
-import { createRuntimeEventCollector, summarizeAgentTaskRun } from '@tangle-network/agent-runtime'
+import {
+  createRuntimeEventCollector,
+  summarizeAgentTaskRun,
+} from '@tangle-network/agent-runtime'
 
 const telemetry = createRuntimeEventCollector()
 const result = await runAgentTask({ task, adapter, onEvent: telemetry.onEvent })
@@ -152,36 +159,40 @@ console.log(telemetry.events)
 console.log(summarizeAgentTaskRun(result))
 ```
 
-Sanitized telemetry redacts task inputs, user answers, credential questions,
-control payloads, and evidence IDs by default. Private diagnostics can opt into
-specific fields with `includeInputs`, `includeUserAnswers`,
-`includeControlPayloads`, `includeEvidenceIds`, and
-`includeRequirementDescriptions`. Task metadata and eval details are also
-redacted unless `includeMetadata` or `includeEvalDetails` is set.
+By default, the collector redacts task inputs, user answers, credential
+questions, control payloads, evidence IDs, task metadata, and eval
+details. Private diagnostics opt-in via `RuntimeTelemetryOptions` flags
+(`includeInputs`, `includeUserAnswers`, `includeControlPayloads`,
+`includeEvidenceIds`, `includeRequirementDescriptions`,
+`includeMetadata`, `includeEvalDetails`).
 
-For control policies or route handlers that need a stable readiness branch,
-use `decideKnowledgeReadiness(report)`. It returns `ready`, `blocked`, or
-`caveat` plus gap IDs and the recommended action.
+For SSE-over-HTTP, use the helpers:
 
-Knowledge providers may implement:
+```ts
+import { readinessServerSentEvent } from '@tangle-network/agent-runtime'
+writer.write(encoder.encode(readinessServerSentEvent(readinessReport)))
+```
 
-- `buildReadiness`
-- `answerQuestions`
-- `executeAcquisitionPlans`
-- `refreshReadiness`
+## Package boundaries
 
-That lets a task collect missing context before the control loop starts, then
-rerun readiness scoring against the new evidence.
+| Package | Owns |
+|---|---|
+| `agent-runtime` | Reusable lifecycle and adapter contracts |
+| `agent-eval` | Control loops, readiness scoring, traces, evals, failure classes, optimization, release evidence |
+| `agent-knowledge` | Evidence, claims, wiki pages, retrieval, knowledge bundle builders |
+| Domain packages | Domain tools, policies, credentials, UI text, rubrics |
 
-## Package Boundaries
+The API uses `runAgentTask`, not `runVerticalAgentTask`. `domain` is
+metadata on the task, because the runtime should be reusable across many
+kinds of agents without baking taxonomy into type names.
 
-- `agent-runtime` owns the reusable lifecycle and adapter contracts.
-- `agent-eval` owns control loops, readiness scoring, traces, evals, failure
-  classes, optimization, and release evidence.
-- `agent-knowledge` owns evidence, claims, wiki pages, retrieval, and knowledge
-  bundle builders.
-- Domain packages own domain tools, policies, credentials, UI text, and rubrics.
+## Examples
 
-The primary API intentionally uses `runAgentTask`, not `runVerticalAgentTask`.
-`domain` is metadata on the task, because the runtime should be reusable across
-many kinds of agents without baking taxonomy into type names.
+Runnable in [`examples/`](./examples/):
+
+- [`basic-task/`](./examples/basic-task/) — the smallest `runAgentTask`
+- [`with-knowledge-readiness/`](./examples/with-knowledge-readiness/) — readiness gating + custom `onKnowledgeBlocked`
+- [`sanitized-telemetry/`](./examples/sanitized-telemetry/) — `createRuntimeEventCollector` + redaction policy
+- [`sse-stream/`](./examples/sse-stream/) — Server-Sent Events for browser clients
+- [`sandbox-stream-backend/`](./examples/sandbox-stream-backend/) — `runAgentTaskStream` with `createSandboxPromptBackend` (synthetic sandbox client; real one in `agent-builder`)
+- [`openai-stream-backend/`](./examples/openai-stream-backend/) — `runAgentTaskStream` with `createOpenAICompatibleBackend`
