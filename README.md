@@ -81,7 +81,7 @@ Full runnable: [`examples/basic-task/`](./examples/basic-task/).
 | Single-shot task with eval/verification | `runAgentTask` |
 | Streaming product loop with session resume | `runAgentTaskStream` + a backend factory |
 | Just SSE serialization for an existing readiness report | `readinessServerSentEvent` |
-| Just sanitized telemetry over an existing run | `createRuntimeEventCollector` + `summarizeAgentTaskRun` |
+| Just sanitized telemetry over an existing run | `createRuntimeEventCollector` (+ `summarizeAgentTaskRun`) for `runAgentTask`, or `createRuntimeStreamEventCollector` for `runAgentTaskStream` |
 | Stable readiness branching (`ready` / `blocked` / `caveat`) in a route | `decideKnowledgeReadiness` |
 
 ## Backends for `runAgentTaskStream`
@@ -166,6 +166,38 @@ details. Private diagnostics opt-in via `RuntimeTelemetryOptions` flags
 `includeEvidenceIds`, `includeRequirementDescriptions`,
 `includeMetadata`, `includeEvalDetails`).
 
+For `runAgentTaskStream`, use the sibling
+`createRuntimeStreamEventCollector`:
+
+```ts
+import {
+  createRuntimeStreamEventCollector,
+  runAgentTaskStream,
+} from '@tangle-network/agent-runtime'
+
+const telemetry = createRuntimeStreamEventCollector()
+for await (const event of runAgentTaskStream({ task, backend })) {
+  telemetry.onEvent(event)
+}
+
+console.log(telemetry.events)
+console.log(telemetry.summary())
+```
+
+Same `RuntimeTelemetryOptions` flags apply. Streaming and non-streaming
+events have different field shapes (timestamps, sessions, text/tool
+deltas), which is why the factories are siblings rather than overloads —
+a single dispatcher would silently misroute events whose `type` literals
+overlap (`task_start`, `readiness_end`, etc.).
+
+### `task.intent` is sanitized telemetry by default
+
+`task.intent` flows through sanitized telemetry on every event. **Never
+set it to user input** — use a fixed string describing the operation
+kind (e.g. `"Run a chat turn"`, `"Score a tax return"`). If you need to
+log user-visible intent, route it through `inputs` (which are redacted
+by default) instead.
+
 For SSE-over-HTTP, use the helpers:
 
 ```ts
@@ -193,6 +225,7 @@ Runnable in [`examples/`](./examples/):
 - [`basic-task/`](./examples/basic-task/) — the smallest `runAgentTask`
 - [`with-knowledge-readiness/`](./examples/with-knowledge-readiness/) — readiness gating + custom `onKnowledgeBlocked`
 - [`sanitized-telemetry/`](./examples/sanitized-telemetry/) — `createRuntimeEventCollector` + redaction policy
+- [`sanitized-telemetry-streaming/`](./examples/sanitized-telemetry-streaming/) — `createRuntimeStreamEventCollector` + redaction policy for `runAgentTaskStream`
 - [`sse-stream/`](./examples/sse-stream/) — Server-Sent Events for browser clients
 - [`sandbox-stream-backend/`](./examples/sandbox-stream-backend/) — `runAgentTaskStream` with `createSandboxPromptBackend` (synthetic sandbox client; real one in `agent-builder`)
 - [`openai-stream-backend/`](./examples/openai-stream-backend/) — `runAgentTaskStream` with `createOpenAICompatibleBackend`
