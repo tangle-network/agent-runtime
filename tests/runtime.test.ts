@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   createCliBridgeBackend,
+  createIterableBackend,
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
   createRuntimeEventCollector,
+  createRuntimeStreamEventCollector,
   decideKnowledgeReadiness,
   encodeServerSentEvent,
   InMemoryRuntimeSessionStore,
@@ -542,6 +544,102 @@ describe('runAgentTask', () => {
       recoverable: true,
     })
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'failed', text: 'partial' })
+  })
+
+  it('createRuntimeStreamEventCollector redacts payloads, evidence ids, user answers, and metadata by default', async () => {
+    const collector = createRuntimeStreamEventCollector()
+    const backend = createIterableBackend<AgentBackendInput>({
+      kind: 'fake-stream',
+      async *stream(_input, ctx) {
+        yield { type: 'tool_call', task: ctx.task, session: ctx.session, toolName: 'shell', args: { cmd: 'rm -rf /etc/secret.txt' }, timestamp: '2026-05-10T00:00:00.000Z' }
+        yield { type: 'tool_result', task: ctx.task, session: ctx.session, toolName: 'shell', result: { stdout: 'sk-leaked' }, timestamp: '2026-05-10T00:00:00.000Z' }
+        yield { type: 'artifact', task: ctx.task, session: ctx.session, artifactId: 'a1', name: 'report.json', mimeType: 'application/json', uri: 's3://internal/secret-bucket/key', metadata: { customerId: 'cust-99' }, timestamp: '2026-05-10T00:00:00.000Z' }
+        yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'hi from agent', timestamp: '2026-05-10T00:00:00.000Z' }
+      },
+    })
+    const task: AgentTaskSpec = {
+      id: 'redact-stream',
+      // Fixed operation kind — not user input. Real consumers MUST keep this static.
+      intent: 'Run a sandbox shell turn',
+      inputs: { command: 'cat /etc/secret.txt' },
+      metadata: { customerId: 'cust-99', email: 'redact@example.com' },
+      requiredKnowledge: [readyReq],
+    }
+    for await (const event of runAgentTaskStream({ task, backend, input: { message: 'go' } })) {
+      collector.onEvent(event)
+    }
+
+    const serialized = JSON.stringify(collector.events)
+    // The load-bearing assertion: nothing user-controlled escapes by default.
+    expect(serialized).not.toContain('rm -rf')
+    expect(serialized).not.toContain('sk-leaked')
+    expect(serialized).not.toContain('cat /etc/secret.txt')
+    expect(serialized).not.toContain('secret-bucket')
+    expect(serialized).not.toContain('cust-99')
+    expect(serialized).not.toContain('redact@example.com')
+    // The collector still records each event by `type` so consumers can act on the stream.
+    expect(collector.summary().eventCountsByType.tool_call).toBe(1)
+    expect(collector.summary().eventCountsByType.tool_result).toBe(1)
+    expect(collector.summary().eventCountsByType.artifact).toBe(1)
+    expect(collector.summary().finalStatus).toBe('completed')
+    expect(collector.summary().finalText).toBe('hi from agent')
+  })
+
+  it('createRuntimeStreamEventCollector exposes specific fields when opted in via RuntimeTelemetryOptions', async () => {
+    const collector = createRuntimeStreamEventCollector({
+      includeInputs: true,
+      includeControlPayloads: true,
+      includeEvidenceIds: true,
+      includeMetadata: true,
+    })
+    const backend = createIterableBackend<AgentBackendInput>({
+      kind: 'fake-stream',
+      async *stream(_input, ctx) {
+        yield { type: 'tool_call', task: ctx.task, session: ctx.session, toolName: 'shell', args: { cmd: 'pnpm test' }, timestamp: '2026-05-10T00:00:00.000Z' }
+        yield { type: 'artifact', task: ctx.task, session: ctx.session, artifactId: 'a1', name: 'r.json', uri: 's3://bucket/key', metadata: { customerId: 'cust-1' }, timestamp: '2026-05-10T00:00:00.000Z' }
+      },
+    })
+    const task: AgentTaskSpec = {
+      id: 'verbose-stream',
+      intent: 'Run a sandbox shell turn',
+      inputs: { command: 'pnpm test' },
+      metadata: { customerId: 'cust-1' },
+      requiredKnowledge: [readyReq],
+    }
+    for await (const event of runAgentTaskStream({ task, backend, input: { message: 'go' } })) {
+      collector.onEvent(event)
+    }
+    const serialized = JSON.stringify(collector.events)
+    expect(serialized).toContain('pnpm test')
+    expect(serialized).toContain('s3://bucket/key')
+    expect(serialized).toContain('cust-1')
+  })
+
+  it('createRuntimeStreamEventCollector summary tracks session ids and final reason', async () => {
+    const collector = createRuntimeStreamEventCollector()
+    const backend = createIterableBackend<AgentBackendInput>({
+      kind: 'fake-stream',
+      async *stream(_input, ctx) {
+        yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'partial', timestamp: '2026-05-10T00:00:00.000Z' }
+      },
+    })
+    for await (const event of runAgentTaskStream({
+      task: { id: 'summary-stream', intent: 'Run a sandbox turn', requiredKnowledge: [readyReq] },
+      backend,
+      sessionId: 'sess-xyz',
+      input: { message: 'hi' },
+    })) {
+      collector.onEvent(event)
+    }
+    const summary = collector.summary()
+    expect(summary.firstSessionId).toBe('sess-xyz')
+    expect(summary.finalStatus).toBe('completed')
+    expect(summary.finalReason).toBe('backend completed')
+    expect(summary.finalText).toBe('partial')
+    expect(summary.eventCount).toBeGreaterThan(0)
+    // Sanity: summary's event totals reconcile with the collected events array.
+    const totalFromTypes = Object.values(summary.eventCountsByType).reduce((a, b) => a + b, 0)
+    expect(totalFromTypes).toBe(summary.eventCount)
   })
 
   it('preserves the stream failure when backend cleanup also fails', async () => {

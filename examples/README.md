@@ -2,14 +2,15 @@
 
 Each example is a single runnable `.ts` file plus a short README. The
 synthetic ones (`basic-task`, `with-knowledge-readiness`, `sse-stream`,
-`sandbox-stream-backend`, `sanitized-telemetry`) need no credentials;
-`openai-stream-backend` needs an `OPENAI_API_KEY`.
+`sandbox-stream-backend`, `sanitized-telemetry`, `sanitized-telemetry-streaming`)
+need no credentials; `openai-stream-backend` needs an `OPENAI_API_KEY`.
 
 | Example | What it covers |
 |---|---|
 | [`basic-task/`](./basic-task/) | The smallest `runAgentTask` invocation — adapter contract + lifecycle |
 | [`with-knowledge-readiness/`](./with-knowledge-readiness/) | `requiredKnowledge` + `AgentKnowledgeProvider` + `decideKnowledgeReadiness` |
-| [`sanitized-telemetry/`](./sanitized-telemetry/) | `createRuntimeEventCollector` + redaction policy |
+| [`sanitized-telemetry/`](./sanitized-telemetry/) | `createRuntimeEventCollector` + redaction policy (`runAgentTask`) |
+| [`sanitized-telemetry-streaming/`](./sanitized-telemetry-streaming/) | `createRuntimeStreamEventCollector` + redaction policy (`runAgentTaskStream`) |
 | [`sse-stream/`](./sse-stream/) | Server-Sent Events helpers for browser routes |
 | [`sandbox-stream-backend/`](./sandbox-stream-backend/) | `runAgentTaskStream` with `createSandboxPromptBackend` (synthetic sandbox client) |
 | [`openai-stream-backend/`](./openai-stream-backend/) | `runAgentTaskStream` with `createOpenAICompatibleBackend` (real endpoint required) |
@@ -34,6 +35,7 @@ From the agent-runtime repo root:
 pnpm tsx examples/basic-task/basic-task.ts
 pnpm tsx examples/with-knowledge-readiness/with-knowledge-readiness.ts
 pnpm tsx examples/sanitized-telemetry/sanitized-telemetry.ts
+pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 pnpm tsx examples/sse-stream/sse-stream.ts
 pnpm tsx examples/sandbox-stream-backend/sandbox-stream-backend.ts
 

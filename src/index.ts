@@ -311,6 +311,30 @@ export interface RuntimeEventCollector<TState = unknown, TAction = unknown, TAct
   events: Array<Record<string, unknown>>
 }
 
+export type RuntimeStreamEventSink = (event: RuntimeStreamEvent) => void
+
+export interface RuntimeStreamEventSummary {
+  /** Total count of sanitized events collected. */
+  eventCount: number
+  /** Count of events per `type`. Useful for log-line summaries. */
+  eventCountsByType: Record<string, number>
+  /** First session id observed in a `session_created` / `session_resumed` event, if any. */
+  firstSessionId?: string
+  /** Last `final` event's status, if a final event was observed. */
+  finalStatus?: AgentTaskStatus
+  /** Last `final` event's reason, if a final event was observed. */
+  finalReason?: string
+  /** Concatenated `text_delta.text` across the stream, even when payloads are redacted. */
+  finalText: string
+}
+
+export interface RuntimeStreamEventCollector {
+  onEvent: RuntimeStreamEventSink
+  events: Array<Record<string, unknown>>
+  /** Snapshot of a small streaming-flavored summary derived from collected events. */
+  summary(): RuntimeStreamEventSummary
+}
+
 export interface ServerSentEventOptions {
   event?: string
   id?: string
@@ -767,6 +791,54 @@ export function createRuntimeEventCollector<TState = unknown, TAction = unknown,
     events,
     onEvent: (event) => {
       events.push(sanitizeAgentRuntimeEvent(event, options))
+    },
+  }
+}
+
+/**
+ * Streaming-event counterpart of `createRuntimeEventCollector`. Use this with
+ * `runAgentTaskStream` — pass each yielded event through `onEvent` and read
+ * the sanitized copies off `events`. The same `RuntimeTelemetryOptions`
+ * redaction flags apply.
+ *
+ * Stream and non-stream events have different field shapes (timestamps,
+ * sessions, text/tool deltas) so this is a sibling factory rather than an
+ * overload of `createRuntimeEventCollector`; the unified-union alternative
+ * was rejected because dispatching on `type` alone would silently misroute
+ * events whose `type` literals overlap (`task_start`, `readiness_end`, etc.).
+ */
+export function createRuntimeStreamEventCollector(
+  options: RuntimeTelemetryOptions = {},
+): RuntimeStreamEventCollector {
+  const events: Array<Record<string, unknown>> = []
+  const eventCountsByType: Record<string, number> = {}
+  let firstSessionId: string | undefined
+  let finalStatus: AgentTaskStatus | undefined
+  let finalReason: string | undefined
+  let finalText = ''
+  return {
+    events,
+    onEvent: (event) => {
+      events.push(sanitizeRuntimeStreamEvent(event, options))
+      eventCountsByType[event.type] = (eventCountsByType[event.type] ?? 0) + 1
+      if (event.type === 'text_delta') finalText += event.text
+      if (!firstSessionId && (event.type === 'session_created' || event.type === 'session_resumed')) {
+        firstSessionId = event.session.id
+      }
+      if (event.type === 'final') {
+        finalStatus = event.status
+        finalReason = event.reason
+      }
+    },
+    summary() {
+      return {
+        eventCount: events.length,
+        eventCountsByType: { ...eventCountsByType },
+        firstSessionId,
+        finalStatus,
+        finalReason,
+        finalText,
+      }
     },
   }
 }
