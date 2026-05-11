@@ -923,46 +923,6 @@ export function createSandboxPromptBackend<TBox, TInput extends AgentBackendInpu
   }
 }
 
-export function createCliBridgeBackend<TInput extends AgentBackendInput = AgentBackendInput>(
-  options: {
-    url: string
-    bearer?: string
-    kind?: string
-    fetchImpl?: typeof fetch
-  },
-): AgentExecutionBackend<TInput> {
-  const fetcher = options.fetchImpl ?? fetch
-  return {
-    kind: options.kind ?? 'cli-bridge',
-    start(_input, context) {
-      return newRuntimeSession(options.kind ?? 'cli-bridge', context.requestedSessionId, { resumable: true })
-    },
-    resume(session) {
-      return touchSession({ ...session, status: 'active' })
-    },
-    async *stream(input, context) {
-      const response = await fetcher(options.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.bearer ? { Authorization: `Bearer ${options.bearer}` } : {}),
-        },
-        body: JSON.stringify({
-          sessionId: context.session.id,
-          resumeToken: context.session.resumeToken,
-          task: input.task,
-          message: input.message,
-          messages: input.messages,
-          inputs: input.inputs,
-        }),
-        signal: context.signal,
-      })
-      if (!response.ok) throw new Error(`cli bridge returned ${response.status}`)
-      yield* streamResponseEvents(response, context)
-    },
-  }
-}
-
 export function createOpenAICompatibleBackend<TInput extends AgentBackendInput = AgentBackendInput>(
   options: {
     apiKey: string

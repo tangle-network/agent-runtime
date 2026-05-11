@@ -118,14 +118,12 @@ Completion verdict: passed. There are no open kernel blockers in this document.
   - Supports caller-provided session IDs and resume via backend `resume`.
   - Maps common sandbox events to `text_delta`, `tool_call`, and `tool_result`.
 
-- `createCliBridgeBackend`
-  - Posts task/message/session info to an HTTP CLI bridge.
-  - Passes `sessionId` and `resumeToken`.
-  - Parses SSE and NDJSON streamed responses through the common stream parser.
-
 - `createOpenAICompatibleBackend`
   - Wraps TCloud/OpenAI-compatible `/chat/completions` streaming APIs.
   - Normalizes streamed content deltas into `text_delta`.
+  - Also covers [cli-bridge](https://github.com/drewstone/cli-bridge) and any
+    other OpenAI-compatible HTTP gateway — point `baseUrl` at the bridge's
+    `/v1` and use a `<harness>/<model>` string as `model`.
 
 ### Sanitization and SSE
 
@@ -187,8 +185,7 @@ Release verification:
 | Session resume contract | Complete | `RuntimeSession`, `RuntimeSessionStore`, `session_created`, `session_resumed`, `resumeToken`. |
 | Backend abstraction | Complete | `AgentExecutionBackend` with `start`, `resume`, `stream`, optional `stop`. |
 | Sandbox adapter | Complete | `createSandboxPromptBackend`; product proof in `agent-builder` PR #61. |
-| CLI bridge adapter | Complete | `createCliBridgeBackend`; tested with NDJSON stream and session payload. |
-| TCloud/OpenAI-compatible adapter | Complete | `createOpenAICompatibleBackend`; tested with streamed chat completions. |
+| TCloud/OpenAI-compatible adapter | Complete | `createOpenAICompatibleBackend`; tested with streamed chat completions. Also serves cli-bridge (OpenAI-compatible) and any HTTP gateway. |
 | SSE framing | Complete | `runtimeStreamServerSentEvent`, newline-safe SSE encoder. |
 | Sanitization | Complete | Default redaction for task inputs, answers, payloads, metadata, URIs, evidence IDs. |
 | Failure handling | Complete | Backend exceptions produce `backend_error`, failed `task_end`, failed `final`, and call `stop` when supplied. |
@@ -263,7 +260,8 @@ For product routes:
 
 For coding harnesses:
 
-- Use `createSandboxPromptBackend`, `createCliBridgeBackend`, or a custom
+- Use `createSandboxPromptBackend`, `createOpenAICompatibleBackend` (also
+  covers cli-bridge and other OpenAI-compatible HTTP gateways), or a custom
   `AgentExecutionBackend`.
 - Require a stable `sessionId` for any long-running workspace.
 - Surface `session_resumed` in telemetry so product/debug views can distinguish
@@ -301,8 +299,11 @@ Validation found and fixed two issues before marking this complete:
 
 - The control-loop preflight path needed explicit coverage that
   `questions_end` is emitted exactly once.
-- The CLI bridge parser claim needed hardening. `0.5.2` now tests NDJSON bridge
-  streams instead of only SSE-style `data:` frames.
+- The CLI bridge parser claim needed hardening. `0.5.2` tested NDJSON bridge
+  streams instead of only SSE-style `data:` frames. `0.6.0` then removed the
+  bespoke `createCliBridgeBackend` entirely after confirming cli-bridge is
+  purely OpenAI-compatible at `/v1/chat/completions`; consumers now use
+  `createOpenAICompatibleBackend`.
 
 The doc now matches shipped behavior.
 
@@ -311,7 +312,8 @@ The doc now matches shipped behavior.
 This is downstream adoption work, not missing kernel work:
 
 1. Add durable `RuntimeSessionStore` implementations in product repos.
-2. Convert CLI bridge routes/harnesses to `createCliBridgeBackend`.
+2. Convert CLI bridge routes/harnesses to `createOpenAICompatibleBackend`
+   pointed at the bridge's `/v1` URL (cli-bridge is OpenAI-compatible).
 3. Convert simple TCloud chat routes to `createOpenAICompatibleBackend` where
    useful.
 4. Store runtime stream events in product trace/run-record tables.

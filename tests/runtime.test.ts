@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createCliBridgeBackend,
   createIterableBackend,
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
@@ -484,34 +483,6 @@ describe('runAgentTask', () => {
 
     expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text).join('')).toBe('hello')
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
-  })
-
-  it('parses CLI bridge NDJSON streams and sends resume session payloads', async () => {
-    let requestBody: Record<string, unknown> | undefined
-    const backend = createCliBridgeBackend({
-      url: 'https://bridge.example/run',
-      bearer: 'bridge-token',
-      fetchImpl: async (_url, init) => {
-        requestBody = JSON.parse(String(init?.body))
-        return new Response(
-          '{"type":"text_delta","text":"one"}\n{"type":"tool_call","toolName":"Bash","args":{"cmd":"pnpm test"}}\n',
-          { status: 200 },
-        )
-      },
-    })
-    const events = await collect(runAgentTaskStream({
-      task: { id: 'cli-task', intent: 'continue', requiredKnowledge: [readyReq] },
-      backend,
-      input: { message: 'resume work' },
-      sessionId: 'cli-session-1',
-    }))
-
-    expect(requestBody).toMatchObject({
-      sessionId: 'cli-session-1',
-      message: 'resume work',
-    })
-    expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text)).toEqual(['one'])
-    expect(events.find((event) => event.type === 'tool_call')).toMatchObject({ type: 'tool_call', toolName: 'Bash' })
   })
 
   it('stops a backend and emits failed final event when streaming throws', async () => {
