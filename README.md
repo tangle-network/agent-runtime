@@ -86,14 +86,19 @@ Full runnable: [`examples/basic-task/`](./examples/basic-task/).
 
 ## Backends for `runAgentTaskStream`
 
-Four SDK-agnostic factories ship in core:
+Three SDK-agnostic factories ship in core:
 
 | Factory | When |
 |---|---|
 | `createOpenAICompatibleBackend` | TCloud / OpenAI-compatible chat APIs |
-| `createCliBridgeBackend` | HTTP CLI bridge streams |
 | `createSandboxPromptBackend` | Sandbox / sidecar `streamPrompt` clients |
 | `createIterableBackend` | Custom coding harnesses, browser agents |
+
+For [cli-bridge](https://github.com/drewstone/cli-bridge) (or any other
+OpenAI-compatible HTTP gateway), use `createOpenAICompatibleBackend` pointed
+at the gateway's `/v1/chat/completions` URL — the cli-bridge harness/model
+selector is just an OpenAI `model` string like `claude/sonnet` or
+`codex/gpt-5-codex`.
 
 Adapters are intentionally thin. Product repos still own client
 construction, auth, concrete tool permissions, and UI behavior. See
