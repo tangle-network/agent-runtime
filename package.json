@@ -45,6 +45,10 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
+  "pnpm": {
+    "minimumReleaseAge": 4320,
+    "minimumReleaseAgeExclude": []
+  },
   "engines": {
     "node": ">=20"
   },
