@@ -6,9 +6,9 @@
  *   pnpm tsx examples/with-knowledge-readiness/with-knowledge-readiness.ts
  */
 
-import { runAgentTask } from '@tangle-network/agent-runtime'
-import type { AgentAdapter } from '@tangle-network/agent-runtime'
 import type { KnowledgeRequirement } from '@tangle-network/agent-eval'
+import type { AgentAdapter } from '@tangle-network/agent-runtime'
+import { runAgentTask } from '@tangle-network/agent-runtime'
 
 function requirement(currentConfidence: number): KnowledgeRequirement {
   return {
@@ -28,10 +28,18 @@ function requirement(currentConfidence: number): KnowledgeRequirement {
 }
 
 const adapter: AgentAdapter<{ ready: boolean }, void, void> = {
-  observe() { return { ready: true } },
-  validate() { return [] },
-  decide() { return { kind: 'finish', reason: 'demo done' } },
-  act() { return undefined },
+  observe() {
+    return { ready: true }
+  },
+  validate() {
+    return []
+  },
+  decide() {
+    return { kind: 'finish', reason: 'demo done' }
+  },
+  act() {
+    return undefined
+  },
 }
 
 async function main() {
@@ -48,7 +56,10 @@ async function main() {
   console.log('blocked status:', blocked.status)
   console.log('  readinessScore:', blocked.knowledge.readinessScore)
   console.log('  recommendedAction:', blocked.knowledge.recommendedAction)
-  console.log('  blocking gaps:', blocked.knowledge.blockingMissingRequirements.map((r) => r.id))
+  console.log(
+    '  blocking gaps:',
+    blocked.knowledge.blockingMissingRequirements.map((r) => r.id),
+  )
 
   // Run 2: full confidence → readiness passes → control loop runs.
   const ready = await runAgentTask({

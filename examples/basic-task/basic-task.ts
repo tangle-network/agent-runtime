@@ -5,10 +5,12 @@
  *   pnpm tsx examples/basic-task/basic-task.ts
  */
 
-import { runAgentTask } from '@tangle-network/agent-runtime'
 import type { AgentAdapter } from '@tangle-network/agent-runtime'
+import { runAgentTask } from '@tangle-network/agent-runtime'
 
-interface TaxState { reviewCount: number }
+interface TaxState {
+  reviewCount: number
+}
 type TaxAction = { kind: 'review' }
 
 let reviews = 0
