@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type AgentAdapter,
+  type AgentBackendInput,
+  type AgentExecutionBackend,
+  type AgentTaskSpec,
+  type ControlEvalResult,
   createIterableBackend,
   createOpenAICompatibleBackend,
-  createSandboxPromptBackend,
   createRuntimeEventCollector,
   createRuntimeStreamEventCollector,
+  createSandboxPromptBackend,
   decideKnowledgeReadiness,
   encodeServerSentEvent,
   InMemoryRuntimeSessionStore,
+  type KnowledgeRequirement,
+  type RuntimeStreamEvent,
   readinessServerSentEvent,
   runAgentTask,
   runAgentTaskStream,
   sanitizeAgentRuntimeEvent,
   sanitizeRuntimeStreamEvent,
   summarizeAgentTaskRun,
-  type AgentAdapter,
-  type AgentExecutionBackend,
-  type AgentTaskSpec,
-  type ControlEvalResult,
-  type KnowledgeRequirement,
-  type RuntimeStreamEvent,
-  type AgentBackendInput,
 } from '../src/index'
 
 interface State {
@@ -48,16 +48,19 @@ function adapter(): AgentAdapter<State, Action, State, ControlEvalResult> {
   let current: State = { count: 0 }
   return {
     observe: () => current,
-    validate: ({ state }) => [{
-      id: 'count-ready',
-      passed: state.count >= 1,
-      score: state.count >= 1 ? 1 : 0,
-      severity: 'info',
-      objective: true,
-    }],
-    decide: ({ state }) => state.count >= 1
-      ? { type: 'stop', pass: true, score: 1, reason: 'done' }
-      : { type: 'continue', action: { type: 'increment' }, reason: 'need one step' },
+    validate: ({ state }) => [
+      {
+        id: 'count-ready',
+        passed: state.count >= 1,
+        score: state.count >= 1 ? 1 : 0,
+        severity: 'info',
+        objective: true,
+      },
+    ],
+    decide: ({ state }) =>
+      state.count >= 1
+        ? { type: 'stop', pass: true, score: 1, reason: 'done' }
+        : { type: 'continue', action: { type: 'increment' }, reason: 'need one step' },
     act: () => {
       current = { count: 1 }
       return current
@@ -94,15 +97,17 @@ describe('runAgentTask', () => {
       id: 'task-2',
       intent: 'deploy',
       domain: 'legal',
-      requiredKnowledge: [{
-        ...readyReq,
-        id: 'customer-secret',
-        description: 'Customer credential',
-        category: 'credential_or_secret',
-        acquisitionMode: 'ask_user',
-        sensitivity: 'secret',
-        currentConfidence: 0,
-      }],
+      requiredKnowledge: [
+        {
+          ...readyReq,
+          id: 'customer-secret',
+          description: 'Customer credential',
+          category: 'credential_or_secret',
+          acquisitionMode: 'ask_user',
+          sensitivity: 'secret',
+          currentConfidence: 0,
+        },
+      ],
       budget: { maxSteps: 3 },
     }
     let acted = false
@@ -197,13 +202,15 @@ describe('runAgentTask', () => {
     expect(result.userAnswers.question_build).toContain('pnpm')
     expect(result.acquiredEvidenceIds).toEqual(['page:build'])
     expect(result.knowledge.readinessScore).toBe(1)
-    expect(events).toEqual(expect.arrayContaining([
-      'questions_start',
-      'questions_end',
-      'acquisition_start',
-      'acquisition_end',
-      'control_step',
-    ]))
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'questions_start',
+        'questions_end',
+        'acquisition_start',
+        'acquisition_end',
+        'control_step',
+      ]),
+    )
     expect(events.filter((event) => event === 'questions_end')).toHaveLength(1)
   })
 
@@ -213,15 +220,17 @@ describe('runAgentTask', () => {
       intent: 'collect secret then run',
       domain: 'test',
       inputs: { apiKey: 'sk-secret' },
-      requiredKnowledge: [{
-        ...readyReq,
-        id: 'api-key',
-        description: 'Customer API key',
-        category: 'credential_or_secret',
-        acquisitionMode: 'ask_user',
-        sensitivity: 'secret',
-        currentConfidence: 0,
-      }],
+      requiredKnowledge: [
+        {
+          ...readyReq,
+          id: 'api-key',
+          description: 'Customer API key',
+          category: 'credential_or_secret',
+          acquisitionMode: 'ask_user',
+          sensitivity: 'secret',
+          currentConfidence: 0,
+        },
+      ],
       budget: { maxSteps: 3 },
     }
     const collector = createRuntimeEventCollector()
@@ -272,15 +281,17 @@ describe('runAgentTask', () => {
         inputs: { customer: 'Acme' },
         requiredKnowledge: [readyReq],
       },
-      questions: [{
-        id: 'q1',
-        question: 'Please provide: Build command',
-        reason: 'Required for test.',
-        requirementId: 'build-command',
-        importance: 'blocking' as const,
-        answerType: 'free_text' as const,
-        impactIfUnknown: 'The agent should not run until this is known.',
-      }],
+      questions: [
+        {
+          id: 'q1',
+          question: 'Please provide: Build command',
+          reason: 'Required for test.',
+          requirementId: 'build-command',
+          importance: 'blocking' as const,
+          answerType: 'free_text' as const,
+          impactIfUnknown: 'The agent should not run until this is known.',
+        },
+      ],
       userAnswers: { q1: 'pnpm test' },
     }
 
@@ -312,17 +323,23 @@ describe('runAgentTask', () => {
     const caveatTask: AgentTaskSpec = {
       id: 'task-9',
       intent: 'caveat',
-      requiredKnowledge: [{
-        ...readyReq,
-        importance: 'medium',
-        currentConfidence: 0.2,
-        fallbackPolicy: 'continue_with_caveat',
-      }],
+      requiredKnowledge: [
+        {
+          ...readyReq,
+          importance: 'medium',
+          currentConfidence: 0.2,
+          fallbackPolicy: 'continue_with_caveat',
+        },
+      ],
     }
 
     const ready = await runAgentTask({ task: readyTask, adapter: adapter() })
     const blocked = await runAgentTask({ task: blockedTask, adapter: adapter() })
-    const caveat = await runAgentTask({ task: caveatTask, adapter: adapter(), minimumReadinessScore: 0 })
+    const caveat = await runAgentTask({
+      task: caveatTask,
+      adapter: adapter(),
+      minimumReadinessScore: 0,
+    })
 
     expect(decideKnowledgeReadiness(ready.knowledge).status).toBe('ready')
     expect(decideKnowledgeReadiness(blocked.knowledge).status).toBe('blocked')
@@ -330,9 +347,9 @@ describe('runAgentTask', () => {
   })
 
   it('encodes safe server-sent events for runtime telemetry streams', async () => {
-    expect(encodeServerSentEvent({ type: 'ping' }, { event: 'runtime\nbad', id: 'id\n1', retry: 1000 })).toBe(
-      'id: id 1\nevent: runtime bad\nretry: 1000\ndata: {"type":"ping"}\n\n',
-    )
+    expect(
+      encodeServerSentEvent({ type: 'ping' }, { event: 'runtime\nbad', id: 'id\n1', retry: 1000 }),
+    ).toBe('id: id 1\nevent: runtime bad\nretry: 1000\ndata: {"type":"ping"}\n\n')
     expect(encodeServerSentEvent('line one\nline two')).toBe('data: line one\ndata: line two\n\n')
   })
 
@@ -345,7 +362,9 @@ describe('runAgentTask', () => {
       },
       adapter: adapter(),
     })
-    const event = readinessServerSentEvent(result.knowledge, { includeRequirementDescriptions: true })
+    const event = readinessServerSentEvent(result.knowledge, {
+      includeRequirementDescriptions: true,
+    })
     const namedEvent = readinessServerSentEvent(result.knowledge, { event: 'readiness' })
 
     expect(event).not.toContain('event:')
@@ -412,21 +431,25 @@ describe('runAgentTask', () => {
     }
     const task = { id: 'stream-ready', intent: 'continue coding', requiredKnowledge: [readyReq] }
 
-    const first = await collect(runAgentTaskStream({
-      task,
-      backend,
-      input: { message: 'hello' },
-      sessionStore: store,
-      sessionId: 'session-1',
-    }))
-    const second = await collect(runAgentTaskStream({
-      task,
-      backend,
-      input: { message: ' again' },
-      sessionStore: store,
-      sessionId: 'session-1',
-      resume: true,
-    }))
+    const first = await collect(
+      runAgentTaskStream({
+        task,
+        backend,
+        input: { message: 'hello' },
+        sessionStore: store,
+        sessionId: 'session-1',
+      }),
+    )
+    const second = await collect(
+      runAgentTaskStream({
+        task,
+        backend,
+        input: { message: ' again' },
+        sessionStore: store,
+        sessionId: 'session-1',
+        resume: true,
+      }),
+    )
 
     expect(first.find((event) => event.type === 'session_created')).toBeDefined()
     expect(second.find((event) => event.type === 'session_resumed')).toBeDefined()
@@ -436,7 +459,9 @@ describe('runAgentTask', () => {
 
     const toolCall = first.find((event) => event.type === 'tool_call')!
     expect(JSON.stringify(sanitizeRuntimeStreamEvent(toolCall))).not.toContain('secret.ts')
-    expect(JSON.stringify(sanitizeRuntimeStreamEvent(toolCall, { includeControlPayloads: true }))).toContain('secret.ts')
+    expect(
+      JSON.stringify(sanitizeRuntimeStreamEvent(toolCall, { includeControlPayloads: true })),
+    ).toContain('secret.ts')
   })
 
   it('maps sandbox prompt events into runtime stream events', async () => {
@@ -449,18 +474,25 @@ describe('runAgentTask', () => {
         yield { type: 'tool_result', data: { name: 'Read', output: 'ok' } }
       },
     })
-    const events = await collect(runAgentTaskStream({
-      task: { id: 'sandbox-task', intent: 'inspect', requiredKnowledge: [readyReq] },
-      backend,
-      input: { message: 'go' },
-    }))
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'sandbox-task', intent: 'inspect', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'go' },
+      }),
+    )
 
     expect(events.find((event) => event.type === 'session_created')).toMatchObject({
       type: 'session_created',
       session: { id: 'box-1', backend: 'sandbox' },
     })
-    expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text)).toEqual(['hi'])
-    expect(events.find((event) => event.type === 'tool_call')).toMatchObject({ type: 'tool_call', toolName: 'Read' })
+    expect(
+      events.filter((event) => event.type === 'text_delta').map((event) => event.text),
+    ).toEqual(['hi'])
+    expect(events.find((event) => event.type === 'tool_call')).toMatchObject({
+      type: 'tool_call',
+      toolName: 'Read',
+    })
   })
 
   it('parses OpenAI-compatible streamed chat completions', async () => {
@@ -468,20 +500,28 @@ describe('runAgentTask', () => {
       apiKey: 'sk-test',
       baseUrl: 'https://router.example/v1',
       model: 'model-a',
-      fetchImpl: async () => new Response(
-        'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n'
-        + 'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n'
-        + 'data: [DONE]\n\n',
-        { status: 200 },
-      ),
+      fetchImpl: async () =>
+        new Response(
+          'data: {"choices":[{"delta":{"content":"hel"}}]}\n\n' +
+            'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' +
+            'data: [DONE]\n\n',
+          { status: 200 },
+        ),
     })
-    const events = await collect(runAgentTaskStream({
-      task: { id: 'chat-task', intent: 'say hello', requiredKnowledge: [readyReq] },
-      backend,
-      input: { message: 'hello' },
-    }))
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'chat-task', intent: 'say hello', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hello' },
+      }),
+    )
 
-    expect(events.filter((event) => event.type === 'text_delta').map((event) => event.text).join('')).toBe('hello')
+    expect(
+      events
+        .filter((event) => event.type === 'text_delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('hello')
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
   })
 
@@ -498,16 +538,21 @@ describe('runAgentTask', () => {
         throw new Error('sandbox lost')
       },
     }
-    const events = await collect(runAgentTaskStream({
-      task: { id: 'failing-task', intent: 'run', requiredKnowledge: [readyReq] },
-      backend,
-      sessionStore: store,
-      sessionId: 'failing-session',
-    }))
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'failing-task', intent: 'run', requiredKnowledge: [readyReq] },
+        backend,
+        sessionStore: store,
+        sessionId: 'failing-session',
+      }),
+    )
 
     expect(stopped).toEqual(['sandbox lost'])
     expect(store.get('failing-session')?.status).toBe('failed')
-    expect(store.listEvents('failing-session').at(-1)).toMatchObject({ type: 'final', status: 'failed' })
+    expect(store.listEvents('failing-session').at(-1)).toMatchObject({
+      type: 'final',
+      status: 'failed',
+    })
     expect(events.find((event) => event.type === 'backend_error')).toMatchObject({
       type: 'backend_error',
       backend: 'failing-harness',
@@ -522,10 +567,40 @@ describe('runAgentTask', () => {
     const backend = createIterableBackend<AgentBackendInput>({
       kind: 'fake-stream',
       async *stream(_input, ctx) {
-        yield { type: 'tool_call', task: ctx.task, session: ctx.session, toolName: 'shell', args: { cmd: 'rm -rf /etc/secret.txt' }, timestamp: '2026-05-10T00:00:00.000Z' }
-        yield { type: 'tool_result', task: ctx.task, session: ctx.session, toolName: 'shell', result: { stdout: 'sk-leaked' }, timestamp: '2026-05-10T00:00:00.000Z' }
-        yield { type: 'artifact', task: ctx.task, session: ctx.session, artifactId: 'a1', name: 'report.json', mimeType: 'application/json', uri: 's3://internal/secret-bucket/key', metadata: { customerId: 'cust-99' }, timestamp: '2026-05-10T00:00:00.000Z' }
-        yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'hi from agent', timestamp: '2026-05-10T00:00:00.000Z' }
+        yield {
+          type: 'tool_call',
+          task: ctx.task,
+          session: ctx.session,
+          toolName: 'shell',
+          args: { cmd: 'rm -rf /etc/secret.txt' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'tool_result',
+          task: ctx.task,
+          session: ctx.session,
+          toolName: 'shell',
+          result: { stdout: 'sk-leaked' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'artifact',
+          task: ctx.task,
+          session: ctx.session,
+          artifactId: 'a1',
+          name: 'report.json',
+          mimeType: 'application/json',
+          uri: 's3://internal/secret-bucket/key',
+          metadata: { customerId: 'cust-99' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'text_delta',
+          task: ctx.task,
+          session: ctx.session,
+          text: 'hi from agent',
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
       },
     })
     const task: AgentTaskSpec = {
@@ -566,8 +641,24 @@ describe('runAgentTask', () => {
     const backend = createIterableBackend<AgentBackendInput>({
       kind: 'fake-stream',
       async *stream(_input, ctx) {
-        yield { type: 'tool_call', task: ctx.task, session: ctx.session, toolName: 'shell', args: { cmd: 'pnpm test' }, timestamp: '2026-05-10T00:00:00.000Z' }
-        yield { type: 'artifact', task: ctx.task, session: ctx.session, artifactId: 'a1', name: 'r.json', uri: 's3://bucket/key', metadata: { customerId: 'cust-1' }, timestamp: '2026-05-10T00:00:00.000Z' }
+        yield {
+          type: 'tool_call',
+          task: ctx.task,
+          session: ctx.session,
+          toolName: 'shell',
+          args: { cmd: 'pnpm test' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'artifact',
+          task: ctx.task,
+          session: ctx.session,
+          artifactId: 'a1',
+          name: 'r.json',
+          uri: 's3://bucket/key',
+          metadata: { customerId: 'cust-1' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
       },
     })
     const task: AgentTaskSpec = {
@@ -591,7 +682,13 @@ describe('runAgentTask', () => {
     const backend = createIterableBackend<AgentBackendInput>({
       kind: 'fake-stream',
       async *stream(_input, ctx) {
-        yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'partial', timestamp: '2026-05-10T00:00:00.000Z' }
+        yield {
+          type: 'text_delta',
+          task: ctx.task,
+          session: ctx.session,
+          text: 'partial',
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
       },
     })
     for await (const event of runAgentTaskStream({
@@ -619,14 +716,20 @@ describe('runAgentTask', () => {
       stop: () => {
         throw new Error('cleanup refused')
       },
+      // Regression test: a stream generator that throws before any yield
+      // exercises the runtime's empty-event cleanup path (backend_error /
+      // task_end / final must still flow).
+      // biome-ignore lint/correctness/useYield: see comment above
       async *stream() {
         throw new Error('primary stream failure')
       },
     }
-    const events = await collect(runAgentTaskStream({
-      task: { id: 'cleanup-failure-task', intent: 'run', requiredKnowledge: [readyReq] },
-      backend,
-    }))
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'cleanup-failure-task', intent: 'run', requiredKnowledge: [readyReq] },
+        backend,
+      }),
+    )
 
     expect(events.find((event) => event.type === 'backend_error')).toMatchObject({
       type: 'backend_error',

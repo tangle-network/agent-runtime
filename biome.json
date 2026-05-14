@@ -1,0 +1,58 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+  "files": {
+    "includes": ["src/**", "tests/**", "examples/**/*.ts", "examples/**/*.tsx"],
+    "ignoreUnknown": true
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noConsole": "off",
+        "noAssignInExpressions": "warn",
+        "noImplicitAnyLet": "warn"
+      },
+      "style": {
+        "useImportType": "warn",
+        "useExportType": "warn",
+        "useNodejsImportProtocol": "error",
+        "noNonNullAssertion": "off",
+        "useTemplate": "warn",
+        "useExponentiationOperator": "warn",
+        "useShorthandFunctionType": "warn"
+      },
+      "complexity": {
+        "noUselessTypeConstraint": "warn",
+        "noBannedTypes": "warn"
+      },
+      "correctness": {
+        "noUnusedVariables": "off",
+        "noUnusedImports": "warn"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

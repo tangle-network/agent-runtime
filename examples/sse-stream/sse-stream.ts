@@ -5,17 +5,14 @@
  *   pnpm tsx examples/sse-stream/sse-stream.ts
  */
 
+import { type KnowledgeRequirement, scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
 import {
-  InMemoryRuntimeSessionStore,
   createIterableBackend,
+  InMemoryRuntimeSessionStore,
   readinessServerSentEvent,
   runAgentTaskStream,
   runtimeStreamServerSentEvent,
 } from '@tangle-network/agent-runtime'
-import {
-  scoreKnowledgeReadiness,
-  type KnowledgeRequirement,
-} from '@tangle-network/agent-eval'
 
 // ── 1. One-off readiness SSE — the kind of event you'd write to a
 // response stream when a task is gated by missing knowledge.
@@ -49,7 +46,7 @@ process.stdout.write(readinessServerSentEvent(readinessReport))
 // they map common shapes for you.
 const backend = createIterableBackend({
   kind: 'demo-iterable',
-  async * stream(input) {
+  async *stream(input) {
     const message = input.message ?? '(no message)'
     yield { type: 'text_delta' as const, text: `you said: ${message}\n` }
     yield { type: 'text_delta' as const, text: 'thinking...\n' }

@@ -9,8 +9,8 @@
  */
 
 import {
-  InMemoryRuntimeSessionStore,
   createSandboxPromptBackend,
+  InMemoryRuntimeSessionStore,
   runAgentTaskStream,
   runtimeStreamServerSentEvent,
 } from '@tangle-network/agent-runtime'
@@ -33,7 +33,7 @@ const sandboxClient = {
   get(id: string): SandboxBox {
     return {
       id,
-      async * streamPrompt(message: string) {
+      async *streamPrompt(message: string) {
         // A real sandbox forwards the prompt to a model + tools and
         // yields streamed tokens. Here we just yield three fragments.
         yield { type: 'text_delta' as const, text: `received: ${message}\n` }

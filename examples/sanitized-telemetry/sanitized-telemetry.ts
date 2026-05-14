@@ -5,18 +5,26 @@
  *   pnpm tsx examples/sanitized-telemetry/sanitized-telemetry.ts
  */
 
+import type { AgentAdapter } from '@tangle-network/agent-runtime'
 import {
   createRuntimeEventCollector,
   runAgentTask,
   summarizeAgentTaskRun,
 } from '@tangle-network/agent-runtime'
-import type { AgentAdapter } from '@tangle-network/agent-runtime'
 
 const adapter: AgentAdapter<{ ready: boolean }, void, void> = {
-  async observe() { return { ready: true } },
-  async validate() { return [{ id: 'ok', score: 1, passed: true }] },
-  async decide() { return { kind: 'finish', reason: 'demo done' } },
-  async act() { return undefined },
+  async observe() {
+    return { ready: true }
+  },
+  async validate() {
+    return [{ id: 'ok', score: 1, passed: true }]
+  },
+  async decide() {
+    return { kind: 'finish', reason: 'demo done' }
+  },
+  async act() {
+    return undefined
+  },
 }
 
 async function main() {

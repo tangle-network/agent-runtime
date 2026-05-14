@@ -19,11 +19,11 @@
  */
 
 import {
+  type AgentBackendInput,
   createIterableBackend,
   createRuntimeStreamEventCollector,
-  runAgentTaskStream,
-  type AgentBackendInput,
   type RuntimeStreamEvent,
+  runAgentTaskStream,
 } from '@tangle-network/agent-runtime'
 
 // A synthetic backend that yields a small streaming script. In a real
@@ -31,7 +31,7 @@ import {
 // CLI bridge — the redaction story is identical.
 const backend = createIterableBackend<AgentBackendInput>({
   kind: 'demo-stream',
-  async * stream(_input, ctx) {
+  async *stream(_input, ctx) {
     yield {
       type: 'text_delta',
       task: ctx.task,
