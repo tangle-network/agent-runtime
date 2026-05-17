@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { composeTurnProfile, runChatTurn, ChatTurnError } from './chat-turn'
 import type { AgentProfile, AgentSubagentProfile } from '@tangle-network/sandbox'
+import { describe, expect, it } from 'vitest'
+import { ChatTurnError, composeTurnProfile, runChatTurn } from './chat-turn'
 
 const baseProfile: AgentProfile = {
   name: 'test-agent',
@@ -48,7 +48,10 @@ describe('composeTurnProfile — per-turn AgentProfile via mergeAgentProfiles', 
   it('merges subagents overlay onto base subagents', () => {
     const out = composeTurnProfile(baseProfile, {
       subagentsOverlay: {
-        b: { description: 'b subagent ' + ' '.padEnd(40, '.'), prompt: 'B prompt' } as AgentSubagentProfile,
+        b: {
+          description: 'b subagent ' + ' '.padEnd(40, '.'),
+          prompt: 'B prompt',
+        } as AgentSubagentProfile,
       },
     })
     expect(Object.keys(out.subagents ?? {})).toContain('a')
@@ -59,7 +62,10 @@ describe('composeTurnProfile — per-turn AgentProfile via mergeAgentProfiles', 
 describe('runChatTurn — POSTs full AgentProfile to sandbox runtime stream', () => {
   it('throws ChatTurnError on non-2xx response', async () => {
     const fakeFetch = async () =>
-      new Response('upstream failure body', { status: 500, statusText: 'Internal' }) as unknown as Response
+      new Response('upstream failure body', {
+        status: 500,
+        statusText: 'Internal',
+      }) as unknown as Response
     const iter = runChatTurn({
       profile: baseProfile,
       message: 'hello',
@@ -84,7 +90,10 @@ describe('runChatTurn — POSTs full AgentProfile to sandbox runtime stream', ()
           controller.close()
         },
       })
-      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }) as unknown as Response
+      return new Response(body, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }) as unknown as Response
     }
     const events: unknown[] = []
     for await (const ev of runChatTurn({
@@ -99,7 +108,10 @@ describe('runChatTurn — POSTs full AgentProfile to sandbox runtime stream', ()
     }
     expect(captured).not.toBeNull()
     expect(captured!.url).toBe('https://sandbox.example/v1/sandboxes/sb1/runtime/agents/run/stream')
-    const body = JSON.parse(captured!.body) as { backend: { profile: { prompt?: { systemPrompt?: string; instructions?: string[] } } }; messages: unknown[] }
+    const body = JSON.parse(captured!.body) as {
+      backend: { profile: { prompt?: { systemPrompt?: string; instructions?: string[] } } }
+      messages: unknown[]
+    }
     // FULL profile reaches the sandbox — not a stub
     expect(body.backend.profile.prompt?.systemPrompt).toBe(baseProfile.prompt?.systemPrompt)
     expect(body.backend.profile.prompt?.instructions).toEqual(['turn 1 context'])
@@ -142,7 +154,11 @@ describe('runChatTurn — POSTs full AgentProfile to sandbox runtime stream', ()
     const fakeFetch = async (_url: string | URL | Request, init?: RequestInit) => {
       const headers = init?.headers as Record<string, string> | undefined
       capturedHeaders = headers ? { ...headers } : undefined
-      const body = new ReadableStream({ start(c) { c.close() } })
+      const body = new ReadableStream({
+        start(c) {
+          c.close()
+        },
+      })
       return new Response(body, { status: 200 }) as unknown as Response
     }
     for await (const _ of runChatTurn({

@@ -1,12 +1,16 @@
-import { describe, it, expect } from 'vitest'
-import { classifyIntent } from './intent-router'
 import type { AgentProfile, AgentSubagentProfile } from '@tangle-network/sandbox'
+import { describe, expect, it } from 'vitest'
+import { classifyIntent } from './intent-router'
 
 function profile(subagents: Record<string, AgentSubagentProfile>): AgentProfile {
   return { name: 'test-agent', subagents } as AgentProfile
 }
 
-function subagent(prompt: string, matchers?: unknown, status: string = 'full'): AgentSubagentProfile {
+function subagent(
+  prompt: string,
+  matchers?: unknown,
+  status: string = 'full',
+): AgentSubagentProfile {
   return {
     description: 'subagent for tests' + ' '.padEnd(40, '.'),
     prompt,
@@ -24,7 +28,9 @@ describe('classifyIntent — pure subagent router from profile.subagents metadat
 
   it('scores keyword hits (case-insensitive substring)', () => {
     const p = profile({
-      ma: subagent('M&A specialist', { keywords: ['earn-out', 'mac clause', 'reps and warranties'] }),
+      ma: subagent('M&A specialist', {
+        keywords: ['earn-out', 'mac clause', 'reps and warranties'],
+      }),
       contracts: subagent('Contracts specialist', { keywords: ['msa', 'sla', 'nda'] }),
     })
     const r = classifyIntent(p, 'I need help with an earn-out and MAC clause review')
@@ -95,11 +101,7 @@ describe('classifyIntent — pure subagent router from profile.subagents metadat
 
   it('handles matcher arrays (declare multiple rule blocks)', () => {
     const p = profile({
-      a: subagent('A', [
-        { keywords: ['contract'] },
-        { keywords: ['nda'] },
-        { minScore: 1 },
-      ]),
+      a: subagent('A', [{ keywords: ['contract'] }, { keywords: ['nda'] }, { minScore: 1 }]),
     })
     const r = classifyIntent(p, 'I have a contract and an NDA')
     expect(r.id).toBe('a')

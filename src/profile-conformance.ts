@@ -70,7 +70,16 @@ export interface ConformanceOptions {
   minSystemPromptChars?: number
 }
 
-const DEFAULT_SHELL_CAPS = ['bash', 'sh', 'python', 'node', 'curl', 'web', 'browser', 'shell'] as const
+const DEFAULT_SHELL_CAPS = [
+  'bash',
+  'sh',
+  'python',
+  'node',
+  'curl',
+  'web',
+  'browser',
+  'shell',
+] as const
 
 const DEFAULT_MIN_PROMPT_CHARS = 800
 
@@ -89,10 +98,7 @@ function checkSystemPrompt(profile: AgentProfile, minChars: number): Conformance
   return []
 }
 
-function checkToolsVsMcp(
-  profile: AgentProfile,
-  opts: ConformanceOptions,
-): ConformanceIssue[] {
+function checkToolsVsMcp(profile: AgentProfile, opts: ConformanceOptions): ConformanceIssue[] {
   const issues: ConformanceIssue[] = []
   const shellCaps = new Set(opts.knownShellCapabilities ?? DEFAULT_SHELL_CAPS)
   const allowedWithoutMcp = new Set(opts.toolsAllowedWithoutMcp ?? [])
@@ -144,16 +150,17 @@ function checkSubagentShape(subagent: AgentSubagentProfile, id: string): Conform
   return issues
 }
 
-function checkScaffoldSubagents(
-  profile: AgentProfile,
-  strict: boolean,
-): ConformanceIssue[] {
+function checkScaffoldSubagents(profile: AgentProfile, strict: boolean): ConformanceIssue[] {
   const issues: ConformanceIssue[] = []
   const subagents = profile.subagents ?? {}
   for (const [id, subagent] of Object.entries(subagents)) {
     const meta = subagent.metadata as Record<string, unknown> | undefined
     const status = meta?.status
-    if (status === 'scaffold' || status === 'not-implemented' || (meta as { implemented?: boolean })?.implemented === false) {
+    if (
+      status === 'scaffold' ||
+      status === 'not-implemented' ||
+      (meta as { implemented?: boolean })?.implemented === false
+    ) {
       issues.push({
         severity: strict ? 'error' : 'warn',
         code: 'subagent-scaffold-shipped',

@@ -114,9 +114,7 @@ const RUNTIME_PATH = '/runtime/agents/run/stream'
  *       // existing event handling — type === 'message' / 'tool_call' / 'task_complete' / etc.
  *     }
  */
-export async function* runChatTurn(
-  options: RunChatTurnOptions,
-): AsyncIterable<RuntimeStreamEvent> {
+export async function* runChatTurn(options: RunChatTurnOptions): AsyncIterable<RuntimeStreamEvent> {
   const turnProfile = options.overlay
     ? composeTurnProfile(options.profile, options.overlay)
     : options.profile
@@ -124,8 +122,9 @@ export async function* runChatTurn(
   // `AgentProfile` itself doesn't carry a `backend.type` — that's a transport-
   // level concern. Consumers can hint via `metadata.backend` if they want a
   // non-default backend; otherwise we send the canonical `claude-code` shape.
-  const backendType = ((turnProfile.metadata as { backend?: { type?: string } } | undefined)?.backend?.type)
-    ?? 'claude-code'
+  const backendType =
+    (turnProfile.metadata as { backend?: { type?: string } } | undefined)?.backend?.type ??
+    'claude-code'
   const body = JSON.stringify({
     backend: {
       type: backendType,
@@ -172,7 +171,9 @@ export function composeTurnProfile(base: AgentProfile, overlay: ChatTurnOverlay)
 }
 
 /** SSE/NDJSON line parser — handles the standard runtime stream shape. */
-async function* parseSseStream(stream: ReadableStream<Uint8Array>): AsyncIterable<RuntimeStreamEvent> {
+async function* parseSseStream(
+  stream: ReadableStream<Uint8Array>,
+): AsyncIterable<RuntimeStreamEvent> {
   const decoder = new TextDecoder()
   const reader = stream.getReader()
   let buffer = ''
@@ -224,9 +225,10 @@ export function sandboxAsChatTurnTarget(
   // `SandboxInstance.url` is the live agent URL when set (see
   // `@tangle-network/sandbox` types). The runtime path is appended in
   // `runChatTurn`, so we strip any trailing slash here.
-  const base = (instance as unknown as { url?: string }).url
-    ?? (instance as unknown as { connection?: { runtimeUrl?: string } }).connection?.runtimeUrl
-    ?? ''
+  const base =
+    (instance as unknown as { url?: string }).url ??
+    (instance as unknown as { connection?: { runtimeUrl?: string } }).connection?.runtimeUrl ??
+    ''
   if (!base) {
     throw new ChatTurnError(
       `sandboxAsChatTurnTarget: SandboxInstance has neither .url nor .connection.runtimeUrl set`,

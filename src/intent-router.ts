@@ -108,7 +108,8 @@ export function classifyIntent(
   const defaultMinScore = opts.defaultMinScore ?? DEFAULT_MIN_SCORE
 
   const scores: Record<string, number> = {}
-  const evaluated: Record<string, { keywordHits: number; patternHits: number; minScore: number }> = {}
+  const evaluated: Record<string, { keywordHits: number; patternHits: number; minScore: number }> =
+    {}
   let bestId: string | null = null
   let bestScore = -Infinity
   let bestSubagent: AgentSubagentProfile | null = null

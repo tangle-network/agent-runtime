@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { assertProfileConformance } from './profile-conformance'
 import type { AgentProfile, AgentSubagentProfile } from '@tangle-network/sandbox'
+import { describe, expect, it } from 'vitest'
+import { assertProfileConformance } from './profile-conformance'
 
 const LONG_PROMPT = 'Real partner-quality system prompt body '.repeat(40) // ~1600 chars
 
