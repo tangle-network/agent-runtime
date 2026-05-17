@@ -1,28 +1,10 @@
 /**
- * Chat-turn primitive — the canonical wire pattern for sending an AgentProfile
- * to a sandbox runtime per turn.
- *
- * Today's product agents (legal/gtm/tax/creative) implement variants of this
- * same loop in their own `src/lib/.server/agent-runtime/chat.ts` files — 1,249
- * lines duplicated across 3 repos at ~80% overlap. Only tax-agent does the
- * canonical pattern (`packages/api-worker/src/routes/sessions.ts:611-720`):
- * builds a per-turn profile via `mergeAgentProfiles`, POSTs it to the
- * sandbox's `/runtime/agents/run/stream` endpoint. The other 3 ship a stub
- * profile to `client.create()` and pass the system prompt as a flat string.
- * The canonical AgentProfile — its subagents, MCP servers, permissions —
- * never reaches the sandbox.
- *
- * `runChatTurn` is the extraction. Every consumer passes their canonical
- * profile + the user's message; the helper composes the per-turn overlay,
- * POSTs the FULL profile, and bridges the SSE stream back as
- * `RuntimeStreamEvent`s. Callers consume the same iterable surface
- * `runAgentTaskStream` already exposes — so existing UI / persistence /
- * trace bridges keep working unchanged.
- *
- * This is the linchpin of canonical conformance: when all 4 product agents
- * use this, the full AgentProfile reaches the sandbox per turn by
- * construction, and the "stub profile" anti-pattern is eliminated by API
- * shape rather than discipline.
+ * Send an AgentProfile to a sandbox runtime for one chat turn. Composes
+ * the per-turn overlay (user message, prior history, knowledge flags)
+ * via `mergeAgentProfiles`, POSTs the full profile to the runtime's
+ * `/runtime/agents/run/stream` endpoint, and yields `RuntimeStreamEvent`s
+ * from the SSE response. The full profile — subagents, MCP servers,
+ * permissions, file mounts — reaches the sandbox by construction.
  */
 
 import type {

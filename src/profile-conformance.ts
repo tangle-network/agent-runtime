@@ -1,25 +1,10 @@
 /**
- * Profile conformance — refuses decorative tools, dead MCP, scaffold-as-real.
- *
- * The canonical audit (2026-05-17) found:
- *   - gtm + creative declare `tools: { bash: true, web: true, ... }` where
- *     `bash` / `web` are shell capabilities (permissions), not tools, and
- *     the `gtm-*` tool keys had no corresponding `AgentProfileMcpServer`
- *     entry. Decoration, not contract.
- *   - legal + tax mark 5 of 7 subagents `metadata.status: 'scaffold'` and
- *     still let the runtime dispatch them, producing 5-10 line scaffold
- *     prompts that read like prose stubs.
- *   - Cross-repo: zero usage of `continuousAgreement` or `HypothesisManifest`
- *     for judge calibration / pre-registration.
- *
- * `assertProfileConformance` is the runtime / CI guard that fails LOUD on
- * any of those anti-patterns. Every consumer imports this and runs it in
- * a unit test against their profile (`tests/agent-profile.test.ts`); the
- * test fails CI if the profile re-introduces decorative tools or scaffold
- * subagents claiming to be real.
- *
- * Pure — no I/O — so callers can use it inside a unit test or at module
- * load to fail-fast on misconfiguration.
+ * Validate an AgentProfile against canonical conformance rules: tool keys
+ * must map to an MCP server entry (not be shell capabilities masquerading
+ * as tools), subagents marked `metadata.status: 'scaffold'` must not be
+ * dispatchable, system prompts must be substantive. Pure — no I/O — so
+ * callers run it in a unit test or at module load to fail-fast on
+ * misconfiguration.
  */
 
 import type {

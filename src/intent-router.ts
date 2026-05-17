@@ -1,32 +1,14 @@
 /**
- * Intent router primitive — classifies a user message against a profile's
- * subagent map.
- *
- * Today's product agents implement variants of this in their own
- * `src/lib/router/intent.ts` files: legal (101 lines), gtm (167 lines via
- * `index.ts` + `intents.ts`), tax (127 lines), creative (184 lines). All four
- * read `metadata.matchers` (or parallel constant tables) off `AgentSubagentProfile`
- * entries and keyword-score against the user message. The audit at
- * `/tmp/canonical-audit/SUMMARY.md` flagged the duplication.
- *
- * `classifyIntent` is the extraction. Routes are declared via
- * `AgentSubagentProfile.metadata.matchers` (regexes + literal keywords); the
- * router scores each subagent against the message and returns a typed result.
- * The contract — what shape `metadata.matchers` takes — is part of the
- * `@tangle-network/sandbox` profile spec, so every consumer encodes routes
- * once, on the profile, instead of in a parallel SPECIALIST_INTENTS table.
- *
- * No LLM call. Pure scoring. The runtime decides whether the score is high
- * enough to dispatch the subagent vs route to the base agent.
+ * Classify a user message against a profile's subagent map. Routes are
+ * declared on each `AgentSubagentProfile.metadata.matchers` (keywords +
+ * regex patterns); `classifyIntent` scores every subagent against the
+ * message and returns a typed result. Pure scoring — no LLM call. Caller
+ * decides whether the score is high enough to dispatch the subagent.
  */
 
 import type { AgentProfile, AgentSubagentProfile } from '@tangle-network/sandbox'
 
-/**
- * The matcher shape consumers attach to `subagent.metadata.matchers`. We
- * deliberately keep this minimal — every additional dimension is something
- * a route mistakes can hide behind.
- */
+/** Matcher shape attached to `subagent.metadata.matchers`. */
 export interface SubagentMatcher {
   /** Literal keywords (case-insensitive substring match). +1 per match unless `weight` overrides. */
   keywords?: readonly string[]
