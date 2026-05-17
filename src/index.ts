@@ -11,7 +11,7 @@
  * `@experimental` exports as subject to change inside this minor.
  */
 
-// ── Re-exports from @tangle-network/agent-eval (compat surface) ──────
+// ── Re-exports from @tangle-network/agent-eval ───────────────────────
 export type {
   ControlBudget,
   ControlDecision,
@@ -85,7 +85,7 @@ export type {
   RuntimeRunRow,
   RuntimeRunStatus,
 } from './runtime-run'
-// ── Production run lifecycle (new in 0.7.0) ──────────────────────────
+// ── Production run lifecycle ─────────────────────────────────────────
 export { startRuntimeRun } from './runtime-run'
 export type {
   RuntimeEventCollector,
@@ -114,7 +114,7 @@ export {
   runtimeStreamServerSentEvent,
 } from './sse'
 export type { TraceBridge, TraceBridgeOptions } from './trace-bridge'
-// ── agent-eval trace bridge (new in 0.7.0) ───────────────────────────
+// ── agent-eval trace bridge ──────────────────────────────────────────
 export { createTraceBridge, toAgentEvalTrace } from './trace-bridge'
 // ── Core types ───────────────────────────────────────────────────────
 export type {

@@ -2,11 +2,8 @@
 
 Canonical `RuntimeRunHandle` lifecycle: drive a streaming task through
 `runAgentTaskStream`, observe `llm_call` events into a cost ledger, and
-persist a `RuntimeRunRow` to your durable store.
-
-Use as the replacement for bespoke `agentRuns`-row plumbing (legal-agent's
-`completeProductionAgentRun` + `persistRuntimeRun` pair is the canonical
-example of what this pattern subsumes).
+persist a `RuntimeRunRow` to your durable store via a single
+`RuntimeRunPersistenceAdapter.upsert(row)` method.
 
 ## Run
 

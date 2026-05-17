@@ -1,34 +1,27 @@
 /**
  * @stable
  *
- * Canonical production-run lifecycle. ONE abstraction for "the agent did a
- * thing on behalf of a customer; record what it did, what it cost, and how it
- * ended." Consumer agents (legal, tax, gtm, creative, agent-builder) reach for
- * `startRuntimeRun` instead of inventing their own `agentRuns`-row helpers.
+ * Production-run lifecycle: record what the agent did on behalf of a customer,
+ * what it cost, and how it ended.
  *
  * Three concerns live in this module:
  *
  *  1. **Lifecycle state machine** — `running` -> `completed | failed | cancelled`,
- *     enforced by `RuntimeRunStateError`. Completion is idempotent (a second
- *     `complete()` call with the same status is a no-op so retries / cleanup
- *     paths don't double-fire side effects). A different terminal status is a
- *     state error.
+ *     enforced by `RuntimeRunStateError`. Completion is idempotent for the same
+ *     status (a second `complete()` call is a no-op so retries / cleanup paths
+ *     don't double-fire side effects). A different terminal status is a state
+ *     error.
  *
  *  2. **Cost ledger** — every `llm_call` event the handle observes contributes
  *     `tokensIn`, `tokensOut`, `costUsd`, and bumps `llmCalls`. Wall time is
  *     measured from `startRuntimeRun()` to `complete()`. Surface via
- *     `handle.cost()` for "cost per customer task" dashboards.
+ *     `handle.cost()` for cost-per-task dashboards.
  *
  *  3. **Persistence adapter** — `RuntimeRunPersistenceAdapter` is the seam
  *     consumers plug in to write a `RuntimeRunRow` to their D1 / postgres /
  *     KV store. The adapter receives a sanitized row shape; no telemetry
  *     payload bytes flow through it unless the consumer opts in via
  *     `RuntimeRunOptions.telemetryEvents`.
- *
- * The pattern replaces legal-agent's bespoke `completeProductionAgentRun` /
- * `persistRuntimeRun` pair from `eval-evidence.ts` + `api.chat.ts`. Both are
- * marked `@deprecated` in this release; consumers ditch them on their own
- * version bumps.
  */
 
 import { RuntimeRunStateError, ValidationError } from './errors'
@@ -226,9 +219,8 @@ export function startRuntimeRun(options: RuntimeRunOptions): RuntimeRunHandle {
     },
     cost: snapshotCost,
     complete(input) {
-      // `input.status` is typed `Exclude<RuntimeRunStatus, 'running'>`, but
-      // a JS caller can still pass `'running'`. Validate defensively so the
-      // state machine is enforced at runtime, not just at compile time.
+      // JS callers can bypass the `Exclude<…, 'running'>` type; enforce the
+      // state machine at runtime as well.
       if ((input.status as RuntimeRunStatus) === 'running') {
         throw new ValidationError('complete() requires a terminal status, got "running"')
       }
@@ -280,7 +272,7 @@ function mergeMetadata(
 }
 
 function randomSuffix(): string {
-  // Short, collision-resistant-enough for an in-memory id. Adapters that
-  // require stronger guarantees pass `options.id` explicitly.
+  // 8 chars of base36 — sufficient for in-process uniqueness. Callers needing
+  // stronger guarantees pass `options.id` explicitly.
   return Math.random().toString(36).slice(2, 10)
 }

@@ -29,10 +29,7 @@ export interface ChatTurnMessage {
  * Per-turn profile overlay. The caller's profile is the durable contract;
  * the overlay carries volatile per-turn context (workspace facts, dynamic-
  * advisor instructions, RAG hits) that the runtime should see but that
- * doesn't belong in the canonical profile.
- *
- * Composed via `mergeAgentProfiles(baseProfile, overlay)` — the same
- * primitive tax-agent uses (`packages/api-worker/src/routes/sessions.ts:638-641`).
+ * doesn't belong in the canonical profile. Composed via `mergeAgentProfiles`.
  */
 export interface ChatTurnOverlay {
   /** Volatile prompt additions: dynamic-advisor context, intake gate output, RAG citations. */
@@ -81,19 +78,14 @@ export interface RunChatTurnOptions {
 const RUNTIME_PATH = '/runtime/agents/run/stream'
 
 /**
- * The canonical chat-turn primitive.
- *
- * Composes per-turn profile via `mergeAgentProfiles(profile, overlay)`, POSTs
- * to the sandbox's runtime streaming endpoint with the FULL composed profile
- * (the runtime resolves prompt + subagents + MCP servers + permissions from
- * the profile — consumers never have to hand-craft `backend.profile` shape),
- * and yields parsed `RuntimeStreamEvent`s.
- *
- * Caller pattern (replaces ~400 lines of legal/gtm/creative chat-runtime
- * wrappers):
+ * Compose the per-turn profile via `mergeAgentProfiles(profile, overlay)`,
+ * POST the FULL composed profile to the sandbox's runtime streaming endpoint,
+ * and yield parsed `RuntimeStreamEvent`s. The runtime resolves prompt,
+ * subagents, MCP servers, and permissions from the profile — callers do not
+ * hand-craft a `backend.profile` shape.
  *
  *     for await (const event of runChatTurn({ profile, overlay, message, priorMessages, sandbox })) {
- *       // existing event handling — type === 'message' / 'tool_call' / 'task_complete' / etc.
+ *       // event.type === 'message' / 'tool_call' / 'task_complete' / etc.
  *     }
  */
 export async function* runChatTurn(options: RunChatTurnOptions): AsyncIterable<RuntimeStreamEvent> {
@@ -101,9 +93,8 @@ export async function* runChatTurn(options: RunChatTurnOptions): AsyncIterable<R
     ? composeTurnProfile(options.profile, options.overlay)
     : options.profile
   const url = `${options.sandbox.runtimeUrl}${RUNTIME_PATH}`
-  // `AgentProfile` itself doesn't carry a `backend.type` — that's a transport-
-  // level concern. Consumers can hint via `metadata.backend` if they want a
-  // non-default backend; otherwise we send the canonical `claude-code` shape.
+  // `backend.type` is a transport concern, not a profile field. Consumers can
+  // override via `metadata.backend`; otherwise the runtime receives `claude-code`.
   const backendType =
     (turnProfile.metadata as { backend?: { type?: string } } | undefined)?.backend?.type ??
     'claude-code'
@@ -204,9 +195,9 @@ export function sandboxAsChatTurnTarget(
   instance: SandboxInstance,
   opts?: { authHeader?: { name: string; value: string } },
 ): ChatTurnSandbox {
-  // `SandboxInstance.url` is the live agent URL when set (see
-  // `@tangle-network/sandbox` types). The runtime path is appended in
-  // `runChatTurn`, so we strip any trailing slash here.
+  // `SandboxInstance.url` is the live agent URL when set; fall back to the
+  // connection's `runtimeUrl`. `runChatTurn` appends the runtime path itself,
+  // so strip any trailing slash here.
   const base =
     (instance as unknown as { url?: string }).url ??
     (instance as unknown as { connection?: { runtimeUrl?: string } }).connection?.runtimeUrl ??

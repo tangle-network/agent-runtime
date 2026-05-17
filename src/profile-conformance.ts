@@ -76,7 +76,7 @@ function checkSystemPrompt(profile: AgentProfile, minChars: number): Conformance
         severity: 'error',
         code: 'system-prompt-too-short',
         path: 'prompt.systemPrompt',
-        message: `prompt.systemPrompt is ${prompt?.length ?? 0} chars; min required is ${minChars}. A canonical agent profile carries a partner-tier system prompt; below threshold is almost always a placeholder.`,
+        message: `prompt.systemPrompt is ${prompt?.length ?? 0} chars; min required is ${minChars}. Profiles below this threshold are almost always placeholders.`,
       },
     ]
   }
@@ -96,7 +96,7 @@ function checkToolsVsMcp(profile: AgentProfile, opts: ConformanceOptions): Confo
         severity: 'error',
         code: 'shell-capability-as-tool',
         path: `tools.${name}`,
-        message: `'${name}' is a shell capability, not a tool. Move to permissions and remove from tools. Anti-pattern from the canonical audit.`,
+        message: `'${name}' is a shell capability, not a tool. Move to permissions and remove from tools.`,
       })
       continue
     }
@@ -107,7 +107,7 @@ function checkToolsVsMcp(profile: AgentProfile, opts: ConformanceOptions): Confo
         severity: 'error',
         code: 'decorative-tool-without-mcp',
         path: `tools.${name}`,
-        message: `'${name}' declared in tools but no corresponding mcp[${name}] AgentProfileMcpServer. Either wire an MCP server, list this name in toolsAllowedWithoutMcp (if it's a file-mounted CLI binary), or remove from tools. Decorative tools were the #2 anti-pattern in the canonical audit.`,
+        message: `'${name}' declared in tools but no corresponding mcp[${name}] AgentProfileMcpServer. Either wire an MCP server, list this name in toolsAllowedWithoutMcp (if it's a file-mounted CLI binary), or remove from tools.`,
       })
     }
   }
@@ -169,8 +169,8 @@ function checkScaffoldSubagents(profile: AgentProfile, strict: boolean): Conform
  *       expect(result.errors).toEqual([])
  *     })
  *
- * The result lets the test report exactly which path/code failed instead
- * of a generic "validation failed."
+ * Issues carry `path` + `code` so tests can pinpoint failures rather than
+ * collapse to a generic "validation failed."
  */
 export function assertProfileConformance(
   profile: AgentProfile,
