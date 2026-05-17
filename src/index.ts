@@ -30,6 +30,33 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
+// ── Chat-turn primitive ──────────────────────────────────────────────
+export {
+  ChatTurnError,
+  composeTurnProfile,
+  runChatTurn,
+  sandboxAsChatTurnTarget,
+} from './chat-turn'
+export type {
+  ChatTurnMessage,
+  ChatTurnOverlay,
+  ChatTurnSandbox,
+  RunChatTurnOptions,
+} from './chat-turn'
+// ── Intent router ────────────────────────────────────────────────────
+export { classifyIntent } from './intent-router'
+export type {
+  ClassifyIntentOptions,
+  ClassifyIntentResult,
+  SubagentMatcher,
+} from './intent-router'
+// ── Profile conformance ──────────────────────────────────────────────
+export { assertProfileConformance } from './profile-conformance'
+export type {
+  ConformanceIssue,
+  ConformanceOptions,
+  ConformanceResult,
+} from './profile-conformance'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
