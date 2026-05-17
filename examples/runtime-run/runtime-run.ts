@@ -1,11 +1,9 @@
 /**
  * Production-run lifecycle: drive a streaming task through `runAgentTaskStream`
- * AND record a canonical `RuntimeRunRow` for cost/audit dashboards.
+ * and record a canonical `RuntimeRunRow` for cost / audit dashboards.
  *
- * This is the pattern that replaces legal-agent's bespoke
- * `completeProductionAgentRun` + `persistRuntimeRun` pair. Wire it into your
- * own DB by implementing the `RuntimeRunPersistenceAdapter` interface (one
- * `upsert(row)` method).
+ * Wire into your own DB by implementing the `RuntimeRunPersistenceAdapter`
+ * interface (one `upsert(row)` method).
  *
  * Run with:
  *   pnpm tsx examples/runtime-run/runtime-run.ts

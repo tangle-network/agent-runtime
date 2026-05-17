@@ -503,16 +503,12 @@ export function createRuntimeEventCollector<
 /**
  * @stable
  *
- * Streaming-event counterpart of `createRuntimeEventCollector`. Use this with
- * `runAgentTaskStream` — pass each yielded event through `onEvent` and read
- * the sanitized copies off `events`. The same `RuntimeTelemetryOptions`
- * redaction flags apply.
- *
- * Stream and non-stream events have different field shapes (timestamps,
- * sessions, text/tool deltas) so this is a sibling factory rather than an
- * overload of `createRuntimeEventCollector`; the unified-union alternative
- * was rejected because dispatching on `type` alone would silently misroute
- * events whose `type` literals overlap (`task_start`, `readiness_end`, etc.).
+ * Streaming-event counterpart of `createRuntimeEventCollector`. Pass each
+ * event yielded by `runAgentTaskStream` through `onEvent` and read the
+ * sanitized copies off `events`; the same `RuntimeTelemetryOptions` redaction
+ * flags apply. Kept distinct from `createRuntimeEventCollector` because the
+ * stream and non-stream event shapes overlap on `type` literals — dispatching
+ * on `type` alone would misroute events.
  */
 export function createRuntimeStreamEventCollector(
   options: RuntimeTelemetryOptions = {},

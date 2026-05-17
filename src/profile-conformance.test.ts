@@ -20,7 +20,7 @@ function realSubagent(): AgentSubagentProfile {
   } as AgentSubagentProfile
 }
 
-describe('assertProfileConformance — refuses decorative tools / dead MCP / scaffold-shipped', () => {
+describe('assertProfileConformance — refuses decorative tools, dead MCP, scaffold subagents', () => {
   it('passes a well-formed profile', () => {
     const p = baseProfile({
       tools: {},
@@ -32,7 +32,7 @@ describe('assertProfileConformance — refuses decorative tools / dead MCP / sca
     expect(r.errors).toEqual([])
   })
 
-  it('rejects shell capabilities declared as tools (the gtm/creative anti-pattern)', () => {
+  it('rejects shell capabilities declared as tools', () => {
     const p = baseProfile({
       tools: { bash: true, python: true, curl: true },
     } as Partial<AgentProfile>)
@@ -118,7 +118,7 @@ describe('assertProfileConformance — refuses decorative tools / dead MCP / sca
     expect(r.errors.find((e) => e.path === 'tools.fake-tool')).toBeDefined()
   })
 
-  it('the gtm-agent anti-pattern audit-found is caught', () => {
+  it('catches mixed shell-cap and decorative-tool errors in one profile', () => {
     const p = baseProfile({
       tools: { bash: true, web: true, 'gtm-seo-check': true, 'gtm-twitter-post': true },
       mcp: {},

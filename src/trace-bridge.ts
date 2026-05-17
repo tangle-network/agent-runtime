@@ -1,17 +1,10 @@
 /**
  * @stable
  *
- * Bridge from runtime stream events to the agent-eval trace schema.
+ * One-way bridge from `RuntimeStreamEvent` to agent-eval's `TraceEvent`.
  *
- * Before this module, consumers (legal-agent's chat.ts, gtm-agent's runtime
- * route) hand-rolled an adapter from `RuntimeStreamEvent` -> `TraceEvent` per
- * repo. The mapping is mechanical and the destination schema is owned by
- * agent-eval, so the adapter belongs in runtime, not in N consumer repos.
- *
- * The bridge is intentionally one-way (runtime -> agent-eval). The reverse
- * mapping is degenerate (agent-eval events have no session / task affinity)
- * and would invite consumers to round-trip through agent-eval, defeating the
- * point of the runtime-specific shape.
+ * The reverse direction is intentionally unsupported — agent-eval events
+ * have no session / task affinity, so round-tripping would erase information.
  */
 
 import type { EventKind, TraceEvent } from '@tangle-network/agent-eval'
@@ -191,9 +184,9 @@ function projectToTraceEvent(event: RuntimeStreamEvent): TraceProjection | undef
           phase: 'tool_call',
           toolName: event.toolName,
           toolCallId: event.toolCallId,
-          // Args intentionally omitted at this layer; consumers attach the
-          // payload to a `ToolSpan` if they need to retain it. Trace events
-          // are point-in-time markers, not the canonical store for tool I/O.
+          // Args omitted — trace events are point-in-time markers, not the
+          // canonical store for tool I/O. Attach payloads to a `ToolSpan`
+          // when retention is required.
         },
       }
     case 'tool_result':
@@ -240,12 +233,11 @@ function projectToTraceEvent(event: RuntimeStreamEvent): TraceProjection | undef
       }
     case 'text_delta':
     case 'reasoning_delta':
-      // Token-level deltas don't map cleanly to `TraceEvent`. Consumers that
-      // want the final text should accumulate it into an `LlmSpan.output` or
-      // a `final` event, both of which the bridge does cover.
+      // Token-level deltas don't map cleanly to a single `TraceEvent`. Consumers
+      // accumulate the text into an `LlmSpan.output` or read the `final` event.
       return undefined
     default: {
-      // Exhaustiveness fallback; future event types should add a case above.
+      // Exhaustiveness guard — adding a new event type must add a case above.
       const exhaust: never = event
       void exhaust
       return undefined

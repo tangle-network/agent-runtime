@@ -15,8 +15,8 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 |---|---|
 | `runAgentTask` | Single-shot adapter-driven task with eval/verification |
 | `runAgentTaskStream` | Streaming product loop with session resume + backends |
-| `startRuntimeRun` | Canonical production-run row + cost ledger (NEW in 0.7.0) |
-| `createTraceBridge` | Map `RuntimeStreamEvent` → `agent-eval` `TraceEvent` (NEW in 0.7.0) |
+| `startRuntimeRun` | Canonical production-run row + cost ledger |
+| `createTraceBridge` | Map `RuntimeStreamEvent` → `agent-eval` `TraceEvent` |
 | `decideKnowledgeReadiness` | `ready` / `blocked` / `caveat` branch for routes / UI |
 | `createOpenAICompatibleBackend` | OpenAI-compatible streaming backend (TCloud / cli-bridge) |
 | `createSandboxPromptBackend` | Sandbox / sidecar `streamPrompt` clients |
@@ -50,13 +50,11 @@ const result = await runAgentTask({
 console.log(result.status, result.runRecords)
 ```
 
-## Canonical production-run lifecycle (NEW in 0.7.0)
+## Canonical production-run lifecycle
 
-`startRuntimeRun` is the ONE abstraction for "the agent did a thing on
-behalf of a customer; record what it did, what it cost, how it ended."
-Replaces bespoke `agentRuns`-row helpers (legal-agent's
-`completeProductionAgentRun` + `persistRuntimeRun` pair is the canonical
-example of what this subsumes).
+`startRuntimeRun` records what the agent did on behalf of a customer,
+what it cost, and how it ended. Replaces bespoke `agentRuns`-row helpers
+across consumer repos with a single contract.
 
 ```ts
 import { startRuntimeRun, runAgentTaskStream } from '@tangle-network/agent-runtime'
@@ -87,11 +85,11 @@ console.log(run.cost()) // { tokensIn, tokensOut, costUsd, wallMs, llmCalls }
 
 Full runnable: [`examples/runtime-run/`](./examples/runtime-run/).
 
-## agent-eval trace bridge (NEW in 0.7.0)
+## agent-eval trace bridge
 
-If you persist traces in agent-eval's `TraceStore`, map runtime stream
-events to `TraceEvent` once and stop hand-rolling the adapter in every
-domain repo:
+If you persist traces in agent-eval's `TraceStore`, the bridge maps
+runtime stream events to `TraceEvent` so consumer repos don't hand-roll
+the adapter:
 
 ```ts
 import { createTraceBridge } from '@tangle-network/agent-runtime'
@@ -165,4 +163,4 @@ Runnable in [`examples/`](./examples/):
 - [`sse-stream/`](./examples/sse-stream/) — Server-Sent Events for browser clients
 - [`sandbox-stream-backend/`](./examples/sandbox-stream-backend/) — `createSandboxPromptBackend`
 - [`openai-stream-backend/`](./examples/openai-stream-backend/) — `createOpenAICompatibleBackend`
-- [`runtime-run/`](./examples/runtime-run/) — `startRuntimeRun` + cost ledger + persistence adapter (NEW)
+- [`runtime-run/`](./examples/runtime-run/) — `startRuntimeRun` + cost ledger + persistence adapter
