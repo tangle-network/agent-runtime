@@ -144,9 +144,40 @@ details. Private diagnostics opt-in via `RuntimeTelemetryOptions`.
 | Package | Owns |
 |---|---|
 | `agent-runtime` | Lifecycle, adapters, backends, `RuntimeRunHandle`, trace bridge |
+| `agent-runtime/platform` | Server-side clients for the Tangle platform: cross-site SSO (`PlatformAuthClient`) and integrations hub (`PlatformHubClient`) |
 | `agent-eval` | Control loops, readiness scoring, traces, evals, failure classes, release evidence |
 | `agent-knowledge` | Evidence, claims, wiki pages, retrieval, knowledge bundle builders |
 | Domain packages | Domain tools, policies, credentials, UI text, rubrics |
+
+### `agent-runtime/platform` — Login with Tangle + integrations hub
+
+```ts
+import {
+  PlatformAuthClient,
+  PlatformHubClient,
+} from '@tangle-network/agent-runtime/platform'
+
+// Login with Tangle (cross-site SSO bridge).
+const auth = new PlatformAuthClient({
+  baseUrl: process.env.TANGLE_PLATFORM_URL!, // https://id.tangle.tools
+  appId: 'gtm-agent',                        // must be registered in TRUSTED_APPS
+})
+const url = auth.authorizeUrl({ state: csrfToken, redirectUri: callbackUrl })
+// …user redirected to `url`, returns to callbackUrl with ?code=…
+const { apiKey, user } = await auth.exchange(code)
+
+// Integrations hub (uses the user's apiKey from cross-site exchange).
+const hub = new PlatformHubClient({
+  baseUrl: process.env.TANGLE_PLATFORM_URL!,
+  bearer: apiKey,
+})
+const connections = await hub.listConnections()
+const { authorizationUrl } = await hub.startAuth({
+  providerId: 'google',
+  connectorId: 'gmail',
+  returnUrl: 'https://gtm.tangle.tools/integrations',
+})
+```
 
 The API uses `runAgentTask`, not `runVerticalAgentTask`. `domain` is
 metadata on the task because the runtime is reusable across many kinds of
