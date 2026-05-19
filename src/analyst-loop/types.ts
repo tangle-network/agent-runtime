@@ -14,6 +14,7 @@
 
 import type {
   AnalystFinding,
+  AnalystRunEvent,
   AnalystRunInputs,
   AnalystRunResult,
   AnalystRunSummary,
@@ -102,6 +103,17 @@ export interface RunAnalystLoopOpts {
   autoApply?: AutoApplyPolicy
   /** Optional logger. Defaults to `console.log` for `[analyst-loop]` lines. */
   log?: (msg: string, fields?: Record<string, unknown>) => void
+  /**
+   * Event sink for live progress. Called for every phase of the loop:
+   * baseline resolution, registry events forwarded from `runStream`,
+   * ledger persistence, diff, knowledge / improvement proposals +
+   * apply outcomes, and the terminal `loop-completed`. Awaited so
+   * slow sinks (SSE write, JSONL append) apply backpressure.
+   *
+   * The callback MUST NOT throw — exceptions propagate and abort the
+   * loop. Catch + swallow internally if your sink is unreliable.
+   */
+  onEvent?: (event: AnalystLoopEvent) => void | Promise<void>
 }
 
 export interface RunAnalystLoopResult<TProposal = unknown, TEdit = unknown> {
@@ -155,3 +167,91 @@ export interface FindingsStoreLike {
 
 /** Re-export so consumers can type per-analyst summaries from the loop result. */
 export type { AnalystRunSummary }
+
+/**
+ * Narrow the `AnalystRegistryLike` further when we need streaming: the
+ * loop checks if the registry exposes `runStream` and uses it when
+ * present, falling back to `run()` otherwise. This keeps the type
+ * surface backwards-compatible — older registry shims that only
+ * implement `run` still work; they just don't forward per-analyst
+ * events.
+ */
+export interface AnalystRegistryStreamingLike extends AnalystRegistryLike {
+  runStream?(
+    runId: string,
+    inputs: AnalystRunInputs,
+    opts?: {
+      priorFindings?: ReadonlyArray<AnalystFinding> | Record<string, ReadonlyArray<AnalystFinding>>
+      [k: string]: unknown
+    },
+  ): AsyncIterable<AnalystRunEvent>
+}
+
+/**
+ * Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and
+ * JSONL tail-sinks consume this stream. The loop awaits each
+ * callback so a slow sink applies backpressure to the loop's phases
+ * (e.g. an SSE write that takes 200ms delays the next phase by
+ * 200ms — the loop never out-paces its observer).
+ *
+ * Forwards registry events verbatim via `analyst` so consumers don't
+ * have to wire two streams.
+ */
+export type AnalystLoopEvent =
+  | {
+      type: 'baseline-resolved'
+      runId: string
+      baselineRunId: string | null
+      priorFindingCount: number
+    }
+  | {
+      type: 'analyst'
+      runId: string
+      /** Forwarded verbatim from `AnalystRegistry.runStream`. */
+      event: AnalystRunEvent
+    }
+  | {
+      type: 'findings-persisted'
+      runId: string
+      count: number
+    }
+  | {
+      type: 'diff-computed'
+      runId: string
+      baselineRunId: string
+      appeared: number
+      disappeared: number
+      persisted: number
+      changed: number
+    }
+  | {
+      type: 'knowledge-proposed'
+      runId: string
+      proposalCount: number
+      skipped: number
+      errors: number
+    }
+  | {
+      type: 'knowledge-applied'
+      runId: string
+      writtenCount: number
+      withheldForReview: number
+    }
+  | {
+      type: 'improvement-proposed'
+      runId: string
+      editCount: number
+      skipped: number
+      errors: number
+    }
+  | {
+      type: 'improvement-applied'
+      runId: string
+      appliedCount: number
+      withheldForReview: number
+    }
+  | {
+      type: 'loop-completed'
+      runId: string
+      durationMs: number
+    }

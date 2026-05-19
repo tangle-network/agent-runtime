@@ -17,10 +17,12 @@
  * both adapters are wired.
  */
 
-import type { AnalystFinding, FindingsDiff } from '@tangle-network/agent-eval'
+import type { AnalystFinding, AnalystRunResult, FindingsDiff } from '@tangle-network/agent-eval'
 import { diffFindings } from '@tangle-network/agent-eval'
 
 import type {
+  AnalystLoopEvent,
+  AnalystRegistryStreamingLike,
   ImprovementReport,
   KnowledgeReport,
   RunAnalystLoopOpts,
@@ -32,6 +34,8 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
 ): Promise<RunAnalystLoopResult<TProposal, TEdit>> {
   const log = opts.log ?? defaultLog
   const strategy = opts.priorFindingsStrategy ?? 'per-kind'
+  const emit = makeEmitter(opts.onEvent)
+  const startedAt = Date.now()
 
   // 1. Resolve baseline + load prior findings.
   const baselineRunId = resolveBaselineRunId(opts)
@@ -39,10 +43,18 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
     ? (opts.findingsStore?.loadRun(baselineRunId) ?? [])
     : []
   log('baseline resolved', { baselineRunId, prior_findings: priorAll.length })
+  await emit({
+    type: 'baseline-resolved',
+    runId: opts.runId,
+    baselineRunId,
+    priorFindingCount: priorAll.length,
+  })
 
   // 2. Run the registry. Strategy controls how analysts see priors.
+  //    When the registry exposes runStream, forward each event verbatim
+  //    so subscribers see per-analyst progress in real time.
   const priorFindings = buildPriorFindingsInput(priorAll, strategy, opts.registry.list())
-  const analystResult = await opts.registry.run(opts.runId, opts.inputs, { priorFindings })
+  const analystResult = await runRegistry(opts, priorFindings, emit)
   log('analyst run complete', {
     findings: analystResult.findings.length,
     cost_usd: analystResult.total_cost_usd,
@@ -57,6 +69,11 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
   //    the ledger is the source of truth even if an adapter throws.
   if (opts.findingsStore && analystResult.findings.length > 0) {
     await opts.findingsStore.append(opts.runId, analystResult.findings)
+    await emit({
+      type: 'findings-persisted',
+      runId: opts.runId,
+      count: analystResult.findings.length,
+    })
   }
 
   // 4. Diff vs baseline.
@@ -72,19 +89,34 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
       persisted: diff.persisted.length,
       changed: diff.changed.length,
     })
+    await emit({
+      type: 'diff-computed',
+      runId: opts.runId,
+      baselineRunId,
+      appeared: diff.appeared.length,
+      disappeared: diff.disappeared.length,
+      persisted: diff.persisted.length,
+      changed: diff.changed.length,
+    })
   }
 
   // 5. Knowledge adapter — proposals + optional auto-apply.
   let knowledge: KnowledgeReport<TProposal> | null = null
   if (opts.knowledgeAdapter) {
-    knowledge = await runKnowledgeAdapter(opts, analystResult.findings, log)
+    knowledge = await runKnowledgeAdapter(opts, analystResult.findings, log, emit)
   }
 
   // 6. Improvement adapter — prompt / tool / scaffolding edits.
   let improvement: ImprovementReport<TEdit> | null = null
   if (opts.improvementAdapter) {
-    improvement = await runImprovementAdapter(opts, analystResult.findings, log)
+    improvement = await runImprovementAdapter(opts, analystResult.findings, log, emit)
   }
+
+  await emit({
+    type: 'loop-completed',
+    runId: opts.runId,
+    durationMs: Date.now() - startedAt,
+  })
 
   return {
     runId: opts.runId,
@@ -96,13 +128,39 @@ export async function runAnalystLoop<TProposal = unknown, TEdit = unknown>(
   }
 }
 
+type Emitter = (event: AnalystLoopEvent) => Promise<void>
+
+function makeEmitter(onEvent: RunAnalystLoopOpts['onEvent']): Emitter {
+  if (!onEvent) return async () => {}
+  return async (event) => {
+    await onEvent(event)
+  }
+}
+
+async function runRegistry(
+  opts: RunAnalystLoopOpts,
+  priorFindings: ReturnType<typeof buildPriorFindingsInput>,
+  emit: Emitter,
+): Promise<AnalystRunResult> {
+  const reg = opts.registry as AnalystRegistryStreamingLike
+  if (typeof reg.runStream === 'function' && opts.onEvent) {
+    let final: AnalystRunResult | null = null
+    for await (const ev of reg.runStream(opts.runId, opts.inputs, { priorFindings })) {
+      await emit({ type: 'analyst', runId: opts.runId, event: ev })
+      if (ev.type === 'run-completed') final = ev.result
+    }
+    if (!final) {
+      throw new Error('runAnalystLoop: registry.runStream ended without run-completed event')
+    }
+    return final
+  }
+  return opts.registry.run(opts.runId, opts.inputs, { priorFindings })
+}
+
 function resolveBaselineRunId(opts: RunAnalystLoopOpts): string | null {
   if (opts.baselineRunId === null) return null
   if (typeof opts.baselineRunId === 'string') return opts.baselineRunId
   if (!opts.findingsStore) return null
-  // Auto-pick the most recent run id in the store, excluding the
-  // current `runId`. The store stamps each row with `run_id` so a
-  // single pass finds the last distinct id without parsing dates.
   const all = opts.findingsStore.loadAll()
   let last: string | null = null
   for (const row of all) {
@@ -122,12 +180,6 @@ function buildPriorFindingsInput(
   if (strategy === 'wildcard') {
     return { '*': stripped }
   }
-  // per-kind: registry filters by analyst_id automatically when given
-  // an array. We pass the array; analysts that have no prior of their
-  // own see undefined (not empty).
-  // Defensive: when an analyst id has zero priors AND a sibling has
-  // many, the array form still works correctly because the registry
-  // filters server-side.
   void registry
   return stripped
 }
@@ -136,6 +188,7 @@ async function runKnowledgeAdapter<TProposal>(
   opts: RunAnalystLoopOpts,
   findings: ReadonlyArray<AnalystFinding>,
   log: NonNullable<RunAnalystLoopOpts['log']>,
+  emit: Emitter,
 ): Promise<KnowledgeReport<TProposal>> {
   const adapter = opts.knowledgeAdapter!
   const batch = await adapter.proposeFromFindings(findings)
@@ -144,11 +197,24 @@ async function runKnowledgeAdapter<TProposal>(
     skipped: batch.skipped,
     errors: batch.errors.length,
   })
+  await emit({
+    type: 'knowledge-proposed',
+    runId: opts.runId,
+    proposalCount: batch.proposals.length,
+    skipped: batch.skipped,
+    errors: batch.errors.length,
+  })
 
   const auto = opts.autoApply?.knowledge ?? false
   const threshold = opts.autoApply?.knowledgeConfidenceThreshold ?? 0.85
 
   if (!auto || !adapter.apply) {
+    await emit({
+      type: 'knowledge-applied',
+      runId: opts.runId,
+      writtenCount: 0,
+      withheldForReview: batch.proposals.length,
+    })
     return {
       proposals: batch.proposals as TProposal[],
       applied: [],
@@ -179,6 +245,12 @@ async function runKnowledgeAdapter<TProposal>(
     withheld_for_review: withheld,
     warnings: result.warnings.length,
   })
+  await emit({
+    type: 'knowledge-applied',
+    runId: opts.runId,
+    writtenCount: result.written.length,
+    withheldForReview: withheld,
+  })
   return {
     proposals: batch.proposals as TProposal[],
     applied: result.written,
@@ -192,6 +264,7 @@ async function runImprovementAdapter<TEdit>(
   opts: RunAnalystLoopOpts,
   findings: ReadonlyArray<AnalystFinding>,
   log: NonNullable<RunAnalystLoopOpts['log']>,
+  emit: Emitter,
 ): Promise<ImprovementReport<TEdit>> {
   const adapter = opts.improvementAdapter!
   const batch = await adapter.proposeFromFindings(findings)
@@ -200,11 +273,24 @@ async function runImprovementAdapter<TEdit>(
     skipped: batch.skipped,
     errors: batch.errors.length,
   })
+  await emit({
+    type: 'improvement-proposed',
+    runId: opts.runId,
+    editCount: batch.edits.length,
+    skipped: batch.skipped,
+    errors: batch.errors.length,
+  })
 
   const auto = opts.autoApply?.improvement ?? false
   const threshold = opts.autoApply?.improvementConfidenceThreshold ?? 0.9
 
   if (!auto || !adapter.apply) {
+    await emit({
+      type: 'improvement-applied',
+      runId: opts.runId,
+      appliedCount: 0,
+      withheldForReview: batch.edits.length,
+    })
     return {
       edits: batch.edits as TEdit[],
       applied: [],
@@ -230,6 +316,12 @@ async function runImprovementAdapter<TEdit>(
     applied: result.applied.length,
     withheld_for_review: withheld,
     warnings: result.warnings.length,
+  })
+  await emit({
+    type: 'improvement-applied',
+    runId: opts.runId,
+    appliedCount: result.applied.length,
+    withheldForReview: withheld,
   })
   return {
     edits: batch.edits as TEdit[],

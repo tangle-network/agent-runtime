@@ -48,7 +48,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.28.0"
+    "@tangle-network/agent-eval": "^0.29.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
