@@ -14,7 +14,7 @@ function baseProfile(over: Partial<AgentProfile> = {}): AgentProfile {
 
 function realSubagent(): AgentSubagentProfile {
   return {
-    description: 'A real specialist for tests' + ' '.padEnd(40, '.'),
+    description: `A real specialist for tests${' '.padEnd(40, '.')}`,
     prompt: 'Specialist prompt content. '.repeat(10), // > 100 chars
     metadata: { status: 'full' },
   } as AgentSubagentProfile
@@ -73,7 +73,7 @@ describe('assertProfileConformance — refuses decorative tools, dead MCP, scaff
 
   it('warns on scaffold-status subagents by default (router should gate)', () => {
     const scaffold: AgentSubagentProfile = {
-      description: 'Scaffold subagent for tests' + ' '.padEnd(40, '.'),
+      description: `Scaffold subagent for tests${' '.padEnd(40, '.')}`,
       prompt: 'Scaffold prompt placeholder. '.repeat(10),
       metadata: { status: 'scaffold' },
     } as AgentSubagentProfile
@@ -85,7 +85,7 @@ describe('assertProfileConformance — refuses decorative tools, dead MCP, scaff
 
   it('errors on scaffold subagents in strict mode', () => {
     const scaffold: AgentSubagentProfile = {
-      description: 'Scaffold subagent for tests' + ' '.padEnd(40, '.'),
+      description: `Scaffold subagent for tests${' '.padEnd(40, '.')}`,
       prompt: 'Scaffold prompt placeholder. '.repeat(10),
       metadata: { status: 'scaffold' },
     } as AgentSubagentProfile

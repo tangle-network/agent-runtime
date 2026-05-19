@@ -30,6 +30,12 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
+export type {
+  ChatTurnMessage,
+  ChatTurnOverlay,
+  ChatTurnSandbox,
+  RunChatTurnOptions,
+} from './chat-turn'
 // ── Chat-turn primitive ──────────────────────────────────────────────
 export {
   ChatTurnError,
@@ -37,26 +43,6 @@ export {
   runChatTurn,
   sandboxAsChatTurnTarget,
 } from './chat-turn'
-export type {
-  ChatTurnMessage,
-  ChatTurnOverlay,
-  ChatTurnSandbox,
-  RunChatTurnOptions,
-} from './chat-turn'
-// ── Intent router ────────────────────────────────────────────────────
-export { classifyIntent } from './intent-router'
-export type {
-  ClassifyIntentOptions,
-  ClassifyIntentResult,
-  SubagentMatcher,
-} from './intent-router'
-// ── Profile conformance ──────────────────────────────────────────────
-export { assertProfileConformance } from './profile-conformance'
-export type {
-  ConformanceIssue,
-  ConformanceOptions,
-  ConformanceResult,
-} from './profile-conformance'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
@@ -72,6 +58,20 @@ export {
   ValidationError,
   VerificationError,
 } from './errors'
+export type {
+  ClassifyIntentOptions,
+  ClassifyIntentResult,
+  SubagentMatcher,
+} from './intent-router'
+// ── Intent router ────────────────────────────────────────────────────
+export { classifyIntent } from './intent-router'
+export type {
+  ConformanceIssue,
+  ConformanceOptions,
+  ConformanceResult,
+} from './profile-conformance'
+// ── Profile conformance ──────────────────────────────────────────────
+export { assertProfileConformance } from './profile-conformance'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────

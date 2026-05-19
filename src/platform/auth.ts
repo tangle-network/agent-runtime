@@ -104,9 +104,9 @@ export class PlatformAuthClient {
     const body = await res.json().catch(() => null)
     if (!res.ok) {
       const message =
-        (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
+        body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
           ? body.error
-          : `Platform exchange failed (${res.status})`)
+          : `Platform exchange failed (${res.status})`
       throw new PlatformAuthError(message, res.status, body)
     }
     const result = body as Partial<ExchangeCodeResult>

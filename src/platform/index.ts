@@ -13,8 +13,8 @@ export {
   type AuthorizeUrlOptions,
   type ExchangeCodeResult,
   PlatformAuthClient,
-  PlatformAuthError,
   type PlatformAuthClientOptions,
+  PlatformAuthError,
 } from './auth.js'
 
 export {
@@ -25,8 +25,8 @@ export {
   type PlatformCatalogProvider,
   type PlatformConnection,
   PlatformHubClient,
-  PlatformHubError,
   type PlatformHubClientOptions,
+  PlatformHubError,
   type StartAuthInput,
   type StartAuthResult,
 } from './integrations.js'

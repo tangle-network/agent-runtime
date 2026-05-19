@@ -66,8 +66,8 @@ describe('PlatformAuthClient', () => {
   })
 
   it('raises PlatformAuthError on platform-side errors', async () => {
-    const fetchImpl = mockFetch(() =>
-      new Response(JSON.stringify({ error: 'Invalid or expired code' }), { status: 401 }),
+    const fetchImpl = mockFetch(
+      () => new Response(JSON.stringify({ error: 'Invalid or expired code' }), { status: 401 }),
     )
     const client = new PlatformAuthClient({
       baseUrl: 'https://id.tangle.tools',
@@ -81,8 +81,8 @@ describe('PlatformAuthClient', () => {
   })
 
   it('raises PlatformAuthError when the response is missing apiKey/user', async () => {
-    const fetchImpl = mockFetch(() =>
-      new Response(JSON.stringify({ apiKey: 'k', user: {} }), { status: 200 }),
+    const fetchImpl = mockFetch(
+      () => new Response(JSON.stringify({ apiKey: 'k', user: {} }), { status: 200 }),
     )
     const client = new PlatformAuthClient({
       baseUrl: 'https://id.tangle.tools',
@@ -179,14 +179,15 @@ describe('PlatformHubClient', () => {
   })
 
   it('throws PlatformHubError on a wrapped error envelope', async () => {
-    const client = makeClient(() =>
-      new Response(
-        JSON.stringify({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'OAuth returnUrl is not allowed' },
-        }),
-        { status: 400 },
-      ),
+    const client = makeClient(
+      () =>
+        new Response(
+          JSON.stringify({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'OAuth returnUrl is not allowed' },
+          }),
+          { status: 400 },
+        ),
     )
     const err = await client
       .startAuth({
@@ -202,8 +203,8 @@ describe('PlatformHubClient', () => {
   })
 
   it('throws PlatformHubError when the envelope is missing data on success', async () => {
-    const client = makeClient(() =>
-      new Response(JSON.stringify({ success: true }), { status: 200 }),
+    const client = makeClient(
+      () => new Response(JSON.stringify({ success: true }), { status: 200 }),
     )
     await expect(client.listConnections()).rejects.toBeInstanceOf(PlatformHubError)
   })

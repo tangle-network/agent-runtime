@@ -138,7 +138,10 @@ export class PlatformHubClient {
     revokedGrants: unknown[]
     providerRevocation: { ok: boolean }
   }> {
-    return this.request('DELETE', `/v1/integrations/connections/${encodeURIComponent(connectionId)}`)
+    return this.request(
+      'DELETE',
+      `/v1/integrations/connections/${encodeURIComponent(connectionId)}`,
+    )
   }
 
   /** Begin OAuth — returns the URL to send the user to. */
@@ -195,10 +198,7 @@ export class PlatformHubClient {
       }
     }
     if (!res.ok || (parsed && parsed.success === false)) {
-      const code =
-        parsed?.error && typeof parsed.error === 'object'
-          ? parsed.error.code
-          : undefined
+      const code = parsed?.error && typeof parsed.error === 'object' ? parsed.error.code : undefined
       const message =
         (parsed?.error && typeof parsed.error === 'object' && parsed.error.message) ||
         (typeof parsed?.error === 'string' ? parsed.error : `Platform hub error (${res.status})`)
