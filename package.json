@@ -23,6 +23,11 @@
       "types": "./dist/platform.d.ts",
       "import": "./dist/platform.js",
       "default": "./dist/platform.js"
+    },
+    "./analyst-loop": {
+      "types": "./dist/analyst-loop.d.ts",
+      "import": "./dist/analyst-loop.js",
+      "default": "./dist/analyst-loop.js"
     }
   },
   "files": [
@@ -43,7 +48,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.24.0"
+    "@tangle-network/agent-eval": "^0.28.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
