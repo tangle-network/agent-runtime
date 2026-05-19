@@ -155,10 +155,11 @@ async function* parseSseStream(
       const { value, done } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
-      let idx: number
-      while ((idx = buffer.indexOf('\n')) >= 0) {
+      let idx = buffer.indexOf('\n')
+      while (idx >= 0) {
         const line = buffer.slice(0, idx).replace(/\r$/, '').trim()
         buffer = buffer.slice(idx + 1)
+        idx = buffer.indexOf('\n')
         if (!line) continue
         // SSE: lines starting with `data:` carry the JSON payload.
         const payload = line.startsWith('data:') ? line.slice(5).trim() : line

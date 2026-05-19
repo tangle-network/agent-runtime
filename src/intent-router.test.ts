@@ -12,7 +12,7 @@ function subagent(
   status: string = 'full',
 ): AgentSubagentProfile {
   return {
-    description: 'subagent for tests' + ' '.padEnd(40, '.'),
+    description: `subagent for tests${' '.padEnd(40, '.')}`,
     prompt,
     metadata: matchers !== undefined ? { matchers, status } : { status },
   } as AgentSubagentProfile

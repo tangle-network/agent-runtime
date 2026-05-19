@@ -9,7 +9,7 @@ const baseProfile: AgentProfile = {
   prompt: { systemPrompt: 'Base partner-quality system prompt.' },
   subagents: {
     a: {
-      description: 'subagent a — for tests' + ' '.padEnd(40, '.'),
+      description: `subagent a — for tests${' '.padEnd(40, '.')}`,
       prompt: 'A prompt',
     } as AgentSubagentProfile,
   },
@@ -49,7 +49,7 @@ describe('composeTurnProfile — per-turn AgentProfile via mergeAgentProfiles', 
     const out = composeTurnProfile(baseProfile, {
       subagentsOverlay: {
         b: {
-          description: 'b subagent ' + ' '.padEnd(40, '.'),
+          description: `b subagent ${' '.padEnd(40, '.')}`,
           prompt: 'B prompt',
         } as AgentSubagentProfile,
       },
