@@ -15,6 +15,11 @@ export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } fr
 export { InMemoryDurableRunStore } from './in-memory-store'
 export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
 export { runDurable } from './runner'
+// Canonical D1 schema string + current version. Consumers wire via
+//   await env.DB.exec(DURABLE_SCHEMA_SQL)
+// during one-time bootstrap. `src/durable/schema.sql` is the source of
+// truth; `schema.ts` is the build-bundled string that ships in dist/.
+export { DURABLE_SCHEMA_SQL, DURABLE_SCHEMA_VERSION } from './schema'
 export type {
   DurableRunManifest,
   DurableRunStore,
