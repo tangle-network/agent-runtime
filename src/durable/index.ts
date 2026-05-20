@@ -8,6 +8,18 @@
  * See `./types.ts` for the full type contract and concurrency model.
  */
 
+// ── Durable chat-turn engine ──────────────────────────────────────────
+// Framework-neutral chat-turn orchestrator: durable turn + NDJSON
+// streaming + session.run.* lifecycle + product persist/post-process
+// hooks. Every product chat handler routes through this.
+export type {
+  ChatStreamEvent,
+  ChatTurnHooks,
+  ChatTurnIdentity,
+  ChatTurnResult,
+  RunChatTurnInput,
+} from './chat-engine'
+export { DurableChatTurnEngine, durableChatTurnEngine } from './chat-engine'
 export type { D1DatabaseLike, D1PreparedStatementLike } from './d1-store'
 export { D1DurableRunStore } from './d1-store'
 export { FileSystemDurableRunStore } from './file-system-store'
@@ -20,6 +32,15 @@ export { runDurable } from './runner'
 // during one-time bootstrap. `src/durable/schema.sql` is the source of
 // truth; `schema.ts` is the build-bundled string that ships in dist/.
 export { DURABLE_SCHEMA_SQL, DURABLE_SCHEMA_VERSION } from './schema'
+// ── Durable turn primitive ────────────────────────────────────────────
+// Streaming, backend-agnostic, checkpoint+replay durable turn. The single
+// reusable primitive every product chat handler routes through.
+export type {
+  DurableTurnHandle,
+  DurableTurnProducer,
+  RunDurableTurnOptions,
+} from './turn'
+export { runDurableTurn } from './turn'
 export type {
   DurableRunManifest,
   DurableRunStore,
