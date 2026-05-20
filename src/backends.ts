@@ -94,6 +94,14 @@ export interface BackendRetryPolicy {
   jitter?: number
   /** Status codes that trigger a retry. Default: 408, 425, 429, 500, 502, 503, 504. */
   retryStatuses?: ReadonlyArray<number>
+  /**
+   * Per-attempt wall-clock deadline in ms. If a single fetch attempt does
+   * not return headers within this window the attempt is aborted and
+   * retried. Default 120000 (2 min). Without this a hung upstream blocks
+   * the attempt indefinitely — observed in production as a 15-minute
+   * `fetch failed` that burned an entire eval persona. Set to 0 to disable.
+   */
+  requestTimeoutMs?: number
 }
 
 const DEFAULT_RETRY_STATUSES = [408, 425, 429, 500, 502, 503, 504] as const
@@ -103,6 +111,41 @@ function pickRetryDelayMs(attempt: number, policy: Required<BackendRetryPolicy>)
   const capped = Math.min(exp, policy.maxBackoffMs)
   const jitter = capped * policy.jitter * (Math.random() * 2 - 1)
   return Math.max(0, Math.round(capped + jitter))
+}
+
+/**
+ * Derive a per-attempt AbortSignal that fires when EITHER the caller's
+ * signal aborts OR `timeoutMs` elapses. `dispose()` clears the timer so a
+ * completed attempt doesn't leak a pending timeout. `timeoutMs <= 0`
+ * disables the deadline (caller signal still propagates).
+ */
+function withTimeout(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; dispose: () => void } {
+  if (timeoutMs <= 0) {
+    return { signal: callerSignal ?? new AbortController().signal, dispose: () => undefined }
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new Error(`request timed out after ${timeoutMs}ms`)),
+    timeoutMs,
+  )
+  if (typeof (timer as { unref?: () => void }).unref === 'function') {
+    ;(timer as { unref: () => void }).unref()
+  }
+  const onCallerAbort = () => controller.abort(callerSignal?.reason ?? new Error('aborted'))
+  if (callerSignal) {
+    if (callerSignal.aborted) onCallerAbort()
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    },
+  }
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -141,6 +184,7 @@ export function createOpenAICompatibleBackend<
     maxBackoffMs: options.retry?.maxBackoffMs ?? 30000,
     jitter: options.retry?.jitter ?? 0.25,
     retryStatuses: options.retry?.retryStatuses ?? DEFAULT_RETRY_STATUSES,
+    requestTimeoutMs: options.retry?.requestTimeoutMs ?? 120_000,
   }
   return {
     kind,
@@ -148,24 +192,46 @@ export function createOpenAICompatibleBackend<
       return newRuntimeSession(kind, context.requestedSessionId)
     },
     async *stream(input, context) {
+      const url = `${options.baseUrl.replace(/\/$/, '')}/chat/completions`
+      const requestBody = JSON.stringify({
+        model: options.model,
+        stream: true,
+        messages: input.messages ?? [
+          { role: 'user', content: input.message ?? context.task.intent },
+        ],
+      })
       let response: Response | undefined
       let lastStatus = 0
+      // The last thrown transport error (timeout abort, DNS / connection
+      // failure). Network throws are retryable just like 5xx — without this
+      // a `fetch failed` propagated immediately and burned the attempt.
+      let lastThrown: unknown
       for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt++) {
-        response = await fetcher(`${options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${options.apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: options.model,
-            stream: true,
-            messages: input.messages ?? [
-              { role: 'user', content: input.message ?? context.task.intent },
-            ],
-          }),
-          signal: context.signal,
-        })
+        lastThrown = undefined
+        // Per-attempt deadline: abort a hung upstream instead of waiting
+        // forever. Linked to context.signal so a caller cancel still wins.
+        const attemptSignal = withTimeout(context.signal, retryPolicy.requestTimeoutMs)
+        try {
+          response = await fetcher(url, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${options.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: requestBody,
+            signal: attemptSignal.signal,
+          })
+        } catch (err) {
+          attemptSignal.dispose()
+          // A caller-initiated abort is terminal — do not retry it.
+          if (context.signal?.aborted) throw err
+          lastThrown = err
+          response = undefined
+          if (attempt === retryPolicy.maxAttempts) break
+          await sleep(pickRetryDelayMs(attempt, retryPolicy), context.signal)
+          continue
+        }
+        attemptSignal.dispose()
         if (response.ok) break
         lastStatus = response.status
         if (!retryPolicy.retryStatuses.includes(response.status)) break
@@ -179,7 +245,15 @@ export function createOpenAICompatibleBackend<
         const delayMs = pickRetryDelayMs(attempt, retryPolicy)
         await sleep(delayMs, context.signal)
       }
-      if (!response || !response.ok) {
+      if (!response) {
+        const reason = lastThrown instanceof Error ? lastThrown.message : String(lastThrown)
+        throw new BackendTransportError(
+          kind,
+          `chat backend unreachable after ${retryPolicy.maxAttempts} attempts: ${reason}`,
+          { status: 0 },
+        )
+      }
+      if (!response.ok) {
         throw new BackendTransportError(kind, `chat backend returned ${lastStatus || 'unknown'}`, {
           status: lastStatus || 0,
         })
