@@ -88,60 +88,85 @@ export function resolveSubjectPath(
   surfaces: AgentSurfaces,
   repoRoot: string,
 ): ResolvedSurface | null {
-  const rel = relativePathForSubject(subject, surfaces)
-  if (rel === null) return null
-  const abs = isAbsolute(rel) ? rel : join(repoRoot, rel)
-  const exists = existsSync(abs)
+  const candidates = candidatePathsForSubject(subject, surfaces)
+  if (candidates.length === 0) return null
+
+  // Probe candidates in order, preferring the first one that exists on disk.
+  // Lets the substrate accept both the flat `<section>.md` convention and
+  // the skill-dir `<section>/SKILL.md` convention without forcing one layout.
+  // When none exists, fall back to the first candidate (canonical create-new).
+  for (const rel of candidates) {
+    const abs = isAbsolute(rel) ? rel : join(repoRoot, rel)
+    if (existsSync(abs)) {
+      return { absolutePath: abs, repoRelativePath: rel, exists: true, intent: 'edit-existing' }
+    }
+  }
+  const fallback = candidates[0]!
+  const fallbackAbs = isAbsolute(fallback) ? fallback : join(repoRoot, fallback)
   return {
-    absolutePath: abs,
-    repoRelativePath: rel,
-    exists,
-    intent: exists ? 'edit-existing' : 'create-new',
+    absolutePath: fallbackAbs,
+    repoRelativePath: fallback,
+    exists: false,
+    intent: 'create-new',
   }
 }
 
-function relativePathForSubject(subject: FindingSubject, surfaces: AgentSurfaces): string | null {
+function candidatePathsForSubject(
+  subject: FindingSubject,
+  surfaces: AgentSurfaces,
+): ReadonlyArray<string> {
   switch (subject.kind) {
     case 'knowledge.wiki':
     case 'knowledge.stale':
-      return join(surfaces.knowledge, `${subject.slug}.md`)
+      return [join(surfaces.knowledge, `${subject.slug}.md`)]
     case 'knowledge.claim':
       // Claims land in a per-topic claims directory under the knowledge root.
-      return join(surfaces.knowledge, 'claims', `${slugify(subject.topic)}.md`)
+      return [join(surfaces.knowledge, 'claims', `${slugify(subject.topic)}.md`)]
     case 'knowledge.raw':
-      return join(surfaces.knowledge, 'raw', `${subject.sourceId}.md`)
-    case 'system-prompt':
-      return join(surfaces.systemPrompt, `${slugify(subject.section)}.md`)
+      return [join(surfaces.knowledge, 'raw', `${subject.sourceId}.md`)]
+    case 'system-prompt': {
+      const slug = slugify(subject.section)
+      // Prefer flat layout for create-new (canonical); probe skill-dir layout
+      // in case the existing repo (tax/legal/gtm/creative) uses
+      // `<section>/SKILL.md` already.
+      return [
+        join(surfaces.systemPrompt, `${slug}.md`),
+        join(surfaces.systemPrompt, slug, 'SKILL.md'),
+        join(surfaces.systemPrompt, slug, 'index.md'),
+      ]
+    }
     case 'tool-doc':
-      return subject.aspect
-        ? join(surfaces.tools, subject.tool, `${slugify(subject.aspect)}.md`)
-        : join(surfaces.tools, subject.tool, 'README.md')
+      if (subject.aspect) {
+        return [join(surfaces.tools, subject.tool, `${slugify(subject.aspect)}.md`)]
+      }
+      // tool-doc default: `<tool>/README.md`; also probe `<tool>.md` for flat
+      // tool-list repos.
+      return [
+        join(surfaces.tools, subject.tool, 'README.md'),
+        join(surfaces.tools, `${subject.tool}.md`),
+      ]
     case 'new-tool':
-      return join(surfaces.tools, subject.name, 'README.md')
+      return [join(surfaces.tools, subject.name, 'README.md')]
     case 'rag':
-      if (!surfaces.rag) return null
-      return join(surfaces.rag, subject.corpus, `${subject.docId}.md`)
+      if (!surfaces.rag) return []
+      return [join(surfaces.rag, subject.corpus, `${subject.docId}.md`)]
     case 'memory':
-      if (!surfaces.memory) return null
-      return join(surfaces.memory, `${slugify(subject.key)}.json`)
+      if (!surfaces.memory) return []
+      return [join(surfaces.memory, `${slugify(subject.key)}.json`)]
     case 'scaffolding':
-      if (!surfaces.scaffolding) return null
-      return join(surfaces.scaffolding, `${slugify(subject.concern)}.md`)
+      if (!surfaces.scaffolding) return []
+      return [join(surfaces.scaffolding, `${slugify(subject.concern)}.md`)]
     case 'output-schema':
-      if (!surfaces.outputSchema) return null
-      // outputSchema is a single file — the field name is metadata for
-      // the LLM-drafted patch, not a separate path.
-      return surfaces.outputSchema
+      if (!surfaces.outputSchema) return []
+      return [surfaces.outputSchema]
     case 'websearch.outdated':
     case 'prior-run-summary':
-      // Stale signals don't map to a single file — they're handled by
-      // the knowledge adapter as `agent-knowledge:stale:*` after the
-      // operator decides which wiki page to retract. The substrate
-      // doesn't auto-route them.
-      return null
+      // Stale signals don't map to a single file — handled by the knowledge
+      // adapter as `agent-knowledge:stale:*` after operator review.
+      return []
     case 'cluster':
       // failure-mode cluster labels are evidence, not mutations.
-      return null
+      return []
   }
 }
 

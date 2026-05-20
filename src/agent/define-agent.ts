@@ -16,6 +16,7 @@
  */
 
 import type { TraceAnalystKindSpec } from '@tangle-network/agent-eval'
+import type { RuntimeStreamEvent } from '../types'
 import { type AgentSurfaces, renderSurfaceIssues, validateSurfaces } from './surfaces'
 
 // ── manifest ─────────────────────────────────────────────────────────
@@ -157,15 +158,74 @@ export interface JudgeConfig<TRunOutput> {
 
 export interface AgentRuntime<TPersona, TRunOutput> {
   /**
-   * Invoke the agent against one persona. Returns the structured run
-   * output the rubric will score.
+   * Invoke the agent against one persona. Returns BOTH:
+   *   - `events`: an `AsyncIterable<RuntimeStreamEvent>` the chat-centric
+   *     product consumes verbatim (SSE / WebSocket / inline render).
+   *     **Streaming is mandatory — never collapse this to a single Promise.**
+   *     The agent's existing `runChatTurn` (or equivalent async generator)
+   *     plugs in here directly.
+   *   - `output`: a `Promise<TRunOutput>` resolved AFTER the event stream
+   *     drains. The eval substrate awaits this for rubric scoring; chat
+   *     products usually ignore it (they already rendered incrementally).
    *
-   * `ctx.emitter` is the substrate-threaded `TraceEmitter` — agents
-   * SHOULD record their LLM calls / tool calls through it for capture
-   * integrity. `ctx.deadlineMs` is wall-clock; the runtime SHOULD
-   * honour it for graceful cancel.
+   * Implementation contract:
+   *   1. `act` MUST return immediately (synchronous construction of the
+   *      `events` iterator + the `output` promise).
+   *   2. Iterating `events` drives the underlying LLM/tool calls — the
+   *      caller chooses when to consume.
+   *   3. `output` resolves only after the iterator yields its terminal
+   *      event (typically `task_end`); see `collectAgentRun` helper.
+   *
+   * `ctx.emitter` is the substrate-threaded `TraceEmitter` — runtimes
+   * SHOULD record LLM/tool spans through it for capture integrity.
+   * `ctx.deadlineMs` is wall-clock; the runtime SHOULD honour for graceful
+   * cancel. `ctx.signal` is the standard abort signal.
    */
-  act: (persona: TPersona, ctx: AgentRunContext) => Promise<TRunOutput>
+  act: (persona: TPersona, ctx: AgentRunContext) => AgentRunInvocation<TRunOutput>
+}
+
+export interface AgentRunInvocation<TRunOutput> {
+  /** Live stream of typed runtime events. Consumed by chat UX directly. */
+  events: AsyncIterable<RuntimeStreamEvent>
+  /** Final structured output the rubric scores. Resolves after `events` drains. */
+  output: Promise<TRunOutput>
+}
+
+/**
+ * Stub for agents whose `runtime.act` is not yet wired to the substrate's
+ * eval path. Preserves the streaming contract (empty event stream + a
+ * rejected `output` promise that tells the caller exactly what to fix).
+ *
+ * Per-vertical manifests usually start with this stub and replace it with
+ * the agent's real streaming runtime (`runChatTurn` or equivalent) once
+ * the eval path consumes the manifest end-to-end.
+ */
+export function unimplementedAgentRun<TRunOutput = unknown>(
+  reason = 'AgentRuntime.act is not yet wired for this manifest',
+): AgentRunInvocation<TRunOutput> {
+  return {
+    events: (async function* empty(): AsyncIterable<RuntimeStreamEvent> {})(),
+    output: Promise.reject(new Error(reason)),
+  }
+}
+
+/**
+ * Drain `act`'s `events` into an array AND await its `output`. Useful for
+ * eval / outcome-measurement code paths that don't care about live
+ * rendering. The events array is preserved so the substrate can inspect
+ * tool calls / readiness / questions retrospectively.
+ *
+ * IMPORTANT: chat-centric UX MUST NOT call this — it defeats streaming
+ * (no incremental render). Use `for await (const ev of invocation.events)`
+ * directly in the chat surface.
+ */
+export async function collectAgentRun<TRunOutput>(
+  invocation: AgentRunInvocation<TRunOutput>,
+): Promise<{ events: ReadonlyArray<RuntimeStreamEvent>; output: TRunOutput }> {
+  const events: RuntimeStreamEvent[] = []
+  for await (const ev of invocation.events) events.push(ev)
+  const output = await invocation.output
+  return { events, output }
 }
 
 export interface AgentRunContext {

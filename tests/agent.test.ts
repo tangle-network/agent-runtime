@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentManifestError, defineAgent } from '../src/agent/define-agent'
+import {
+  AgentManifestError,
+  collectAgentRun,
+  defineAgent,
+  unimplementedAgentRun,
+} from '../src/agent/define-agent'
 import {
   createSurfaceImprovementAdapter,
   type DraftPatchInput,
@@ -75,7 +80,7 @@ describe('defineAgent', () => {
           { id: 'd2', weight: 0.5, score: () => 1 },
         ],
       },
-      runtime: { act: async () => ({}) },
+      runtime: { act: () => unimplementedAgentRun() },
       personas: async () => [],
       analystKinds: [],
       analyst: { model: 'claude-haiku-4-5' },
@@ -96,7 +101,7 @@ describe('defineAgent', () => {
           personas: 'personas',
         },
         rubric: { dimensions: [{ id: 'd1', weight: 1, score: () => 0 }] },
-        runtime: { act: async () => ({}) },
+        runtime: { act: () => unimplementedAgentRun() },
         personas: async () => [],
         analystKinds: [],
         analyst: { model: 'claude-haiku-4-5' },
@@ -122,7 +127,7 @@ describe('defineAgent', () => {
             { id: 'd2', weight: 5, score: () => 1 },
           ],
         },
-        runtime: { act: async () => ({}) },
+        runtime: { act: () => unimplementedAgentRun() },
         personas: async () => [],
         analystKinds: [],
         analyst: { model: 'claude-haiku-4-5' },
@@ -143,7 +148,7 @@ describe('defineAgent', () => {
         // No scaffolding / memory / rag / outputSchema — should not throw.
       },
       rubric: { dimensions: [{ id: 'd1', weight: 1, score: () => 0 }] },
-      runtime: { act: async () => ({}) },
+      runtime: { act: () => unimplementedAgentRun() },
       personas: async () => [],
       analystKinds: [],
       analyst: { model: 'claude-haiku-4-5' },
@@ -570,5 +575,102 @@ describe('validateSurfaces', () => {
     )
     expect(flagged).toHaveLength(1)
     expect(flagged[0]!.surface).toBe('rag')
+  })
+})
+
+describe('AgentRunInvocation streaming contract', () => {
+  it('unimplementedAgentRun yields no events and rejects output with a clear message', async () => {
+    const invocation = unimplementedAgentRun<{ score: number }>()
+    const events: unknown[] = []
+    for await (const ev of invocation.events) events.push(ev)
+    expect(events).toEqual([])
+    await expect(invocation.output).rejects.toThrow(/not yet wired/)
+  })
+
+  it('collectAgentRun drains events AND awaits output', async () => {
+    const invocation = {
+      events: (async function* yielder() {
+        yield { type: 'task_start', task: { id: 't' }, timestamp: 'now' } as never
+        yield { type: 'task_end', task: { id: 't' }, ok: true, timestamp: 'now' } as never
+      })(),
+      output: Promise.resolve({ score: 0.9 }),
+    }
+    const result = await collectAgentRun(invocation)
+    expect(result.events.length).toBe(2)
+    expect(result.output).toEqual({ score: 0.9 })
+  })
+
+  it('preserves chat-UX streaming — events consumed incrementally', async () => {
+    const yielded: string[] = []
+    const invocation = {
+      events: (async function* tokens() {
+        yielded.push('start')
+        yield { type: 'task_start', task: { id: 't' }, timestamp: 'now' } as never
+        yielded.push('mid')
+        yield { type: 'task_end', task: { id: 't' }, ok: true, timestamp: 'now' } as never
+        yielded.push('end')
+      })(),
+      output: Promise.resolve({ score: 1 }),
+    }
+    for await (const _ev of invocation.events) {
+      /* incremental render */
+    }
+    expect(yielded).toEqual(['start', 'mid', 'end'])
+  })
+})
+
+describe('multi-candidate path probing', () => {
+  it('probes <section>/SKILL.md skill-dir layout when present', () => {
+    const surfaces = {
+      systemPrompt: 'prompts',
+      tools: 'tools',
+      rubric: 'rubric.ts',
+      knowledge: '.agent-knowledge',
+      personas: 'personas',
+    }
+    mkdirSync(join(tmpRoot, 'prompts/expense-categorization'), { recursive: true })
+    writeFileSync(
+      join(tmpRoot, 'prompts/expense-categorization/SKILL.md'),
+      '# expense-categorization\n',
+    )
+    const r = resolveSubjectPath(
+      { kind: 'system-prompt', section: 'expense-categorization' },
+      surfaces,
+      tmpRoot,
+    )
+    expect(r?.repoRelativePath).toBe('prompts/expense-categorization/SKILL.md')
+    expect(r?.intent).toBe('edit-existing')
+  })
+
+  it('prefers flat <section>.md when both layouts exist', () => {
+    const surfaces = {
+      systemPrompt: 'prompts',
+      tools: 'tools',
+      rubric: 'rubric.ts',
+      knowledge: '.agent-knowledge',
+      personas: 'personas',
+    }
+    mkdirSync(join(tmpRoot, 'prompts/both-layouts'), { recursive: true })
+    writeFileSync(join(tmpRoot, 'prompts/both-layouts.md'), '# flat\n')
+    writeFileSync(join(tmpRoot, 'prompts/both-layouts/SKILL.md'), '# skill\n')
+    const r = resolveSubjectPath(
+      { kind: 'system-prompt', section: 'both-layouts' },
+      surfaces,
+      tmpRoot,
+    )
+    expect(r?.repoRelativePath).toBe('prompts/both-layouts.md')
+  })
+
+  it('falls back to flat tool-doc <tool>.md when <tool>/README.md is absent', () => {
+    const surfaces = {
+      systemPrompt: 'prompts',
+      tools: 'tools',
+      rubric: 'rubric.ts',
+      knowledge: '.agent-knowledge',
+      personas: 'personas',
+    }
+    writeFileSync(join(tmpRoot, 'tools/flat-tool.md'), '# flat-tool\n')
+    const r = resolveSubjectPath({ kind: 'tool-doc', tool: 'flat-tool' }, surfaces, tmpRoot)
+    expect(r?.repoRelativePath).toBe('tools/flat-tool.md')
   })
 })
