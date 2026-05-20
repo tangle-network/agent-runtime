@@ -185,6 +185,49 @@ describe('resolveSubjectPath', () => {
     expect(r?.exists).toBe(false)
   })
 
+  it('probes the skill-dir layout (<section>/SKILL.md) and picks it when present', () => {
+    // Set up a tax-agent-style skill-dir layout: <section>/SKILL.md exists,
+    // <section>.md does NOT. The substrate should pick the SKILL.md.
+    mkdirSync(join(tmpRoot, 'prompts/expense-categorization'), { recursive: true })
+    writeFileSync(
+      join(tmpRoot, 'prompts/expense-categorization/SKILL.md'),
+      '# expense-categorization\n',
+    )
+    const r = resolveSubjectPath(
+      { kind: 'system-prompt', section: 'expense-categorization' },
+      surfaces,
+      tmpRoot,
+    )
+    expect(r?.repoRelativePath).toBe('prompts/expense-categorization/SKILL.md')
+    expect(r?.exists).toBe(true)
+    expect(r?.intent).toBe('edit-existing')
+  })
+
+  it('prefers the flat <section>.md when both layouts exist', () => {
+    // Both flat <section>.md AND <section>/SKILL.md exist. The flat one wins
+    // because it's the canonical layout the create-new path also uses.
+    mkdirSync(join(tmpRoot, 'prompts/both-layouts'), { recursive: true })
+    writeFileSync(join(tmpRoot, 'prompts/both-layouts.md'), '# flat\n')
+    writeFileSync(join(tmpRoot, 'prompts/both-layouts/SKILL.md'), '# skill\n')
+    const r = resolveSubjectPath(
+      { kind: 'system-prompt', section: 'both-layouts' },
+      surfaces,
+      tmpRoot,
+    )
+    expect(r?.repoRelativePath).toBe('prompts/both-layouts.md')
+  })
+
+  it('probes tool-doc with flat fallback (<tool>.md) when the dir layout is absent', () => {
+    // Flat tool repo: `<tools>/foo.md` exists, no `<tools>/foo/README.md`.
+    writeFileSync(join(tmpRoot, 'tools/flat-tool.md'), '# flat-tool\n')
+    const r = resolveSubjectPath(
+      { kind: 'tool-doc', tool: 'flat-tool' },
+      surfaces,
+      tmpRoot,
+    )
+    expect(r?.repoRelativePath).toBe('tools/flat-tool.md')
+  })
+
   it('routes tool-doc with aspect to <tools>/<tool>/<aspect>.md', () => {
     const r = resolveSubjectPath(
       { kind: 'tool-doc', tool: 'list_invoices', aspect: 'examples' },
