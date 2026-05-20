@@ -16,11 +16,7 @@
  */
 
 import type { TraceAnalystKindSpec } from '@tangle-network/agent-eval'
-import {
-  type AgentSurfaces,
-  renderSurfaceIssues,
-  validateSurfaces,
-} from './surfaces'
+import { type AgentSurfaces, renderSurfaceIssues, validateSurfaces } from './surfaces'
 
 // ── manifest ─────────────────────────────────────────────────────────
 

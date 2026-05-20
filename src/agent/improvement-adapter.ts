@@ -30,8 +30,8 @@
  * loop's report surfaces.
  */
 
-import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import {
   type AnalystFinding,
   type FindingSubject,
@@ -238,7 +238,9 @@ export function createSurfaceImprovementAdapter(
       }
 
       if (mode === 'open-pr' && !opts.ghRepo) {
-        warnings.push('createSurfaceImprovementAdapter: mode=open-pr requires `ghRepo`; falling back to no-op')
+        warnings.push(
+          'createSurfaceImprovementAdapter: mode=open-pr requires `ghRepo`; falling back to no-op',
+        )
         return { applied, warnings }
       }
 
@@ -246,9 +248,7 @@ export function createSurfaceImprovementAdapter(
         // Race-detection: confirm the file content hasn't moved since the
         // patch was drafted. A diff applied against drifted content is a
         // recipe for silent corruption.
-        const current = edit.target.exists
-          ? readFileSync(edit.target.absolutePath, 'utf-8')
-          : ''
+        const current = edit.target.exists ? readFileSync(edit.target.absolutePath, 'utf-8') : ''
         if (sha256(current) !== edit.baseSha256) {
           warnings.push(
             `${edit.target.repoRelativePath}: base SHA mismatch; file changed after draft. Skipping.`,
@@ -310,7 +310,10 @@ function openPullRequest(
     `Automated analyst-loop edits — review carefully before merge.`,
     '',
     `Source findings:`,
-    ...edits.map((e) => `  - ${e.sourceFindingId} (confidence ${e.confidence.toFixed(2)}, severity ${e.severity})`),
+    ...edits.map(
+      (e) =>
+        `  - ${e.sourceFindingId} (confidence ${e.confidence.toFixed(2)}, severity ${e.severity})`,
+    ),
     '',
     'Rationales:',
     ...edits.map((e) => `\n## ${e.target.repoRelativePath}\n\n${e.rationale}`),

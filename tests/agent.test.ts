@@ -165,11 +165,7 @@ describe('resolveSubjectPath', () => {
   }
 
   it('routes system-prompt subject to <surfaces.systemPrompt>/<section>.md', () => {
-    const r = resolveSubjectPath(
-      { kind: 'system-prompt', section: 'intake' },
-      surfaces,
-      tmpRoot,
-    )
+    const r = resolveSubjectPath({ kind: 'system-prompt', section: 'intake' }, surfaces, tmpRoot)
     expect(r?.repoRelativePath).toBe('prompts/intake.md')
     expect(r?.exists).toBe(true)
     expect(r?.intent).toBe('edit-existing')
@@ -196,11 +192,7 @@ describe('resolveSubjectPath', () => {
 
   it('returns null when subject targets an undeclared optional surface', () => {
     const noRag = { ...surfaces, rag: undefined }
-    const r = resolveSubjectPath(
-      { kind: 'rag', corpus: 'irs', docId: 'foo' },
-      noRag,
-      tmpRoot,
-    )
+    const r = resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: 'foo' }, noRag, tmpRoot)
     expect(r).toBeNull()
   })
 
@@ -378,9 +370,7 @@ describe('createSurfaceImprovementAdapter — proposeFromFindings', () => {
       repoRoot: tmpRoot,
       draftPatch: async () => ({ patch: '', summary: 'no-op', rationale: '' }),
     })
-    const { edits, skipped } = await adapter.proposeFromFindings([
-      f('np', 'system-prompt:intake'),
-    ])
+    const { edits, skipped } = await adapter.proposeFromFindings([f('np', 'system-prompt:intake')])
     expect(edits).toEqual([])
     expect(skipped).toBe(1)
   })

@@ -100,10 +100,7 @@ export function resolveSubjectPath(
   }
 }
 
-function relativePathForSubject(
-  subject: FindingSubject,
-  surfaces: AgentSurfaces,
-): string | null {
+function relativePathForSubject(subject: FindingSubject, surfaces: AgentSurfaces): string | null {
   switch (subject.kind) {
     case 'knowledge.wiki':
     case 'knowledge.stale':
@@ -184,11 +181,7 @@ export function validateSurfaces(
     'knowledge',
   ]
   const fileSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['rubric']
-  const optionalDirSurfaces: ReadonlyArray<keyof AgentSurfaces> = [
-    'scaffolding',
-    'memory',
-    'rag',
-  ]
+  const optionalDirSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['scaffolding', 'memory', 'rag']
   const optionalFileSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['outputSchema']
 
   for (const key of dirSurfaces) {

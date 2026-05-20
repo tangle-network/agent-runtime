@@ -44,9 +44,9 @@ export interface OutcomeMeasurementOpts {
    * The callback SHOULD reuse the same cohort + judges + variant as
    * the baseline run; only the agent's mutable surfaces have changed.
    */
-  reRunCohort: (personaIds: ReadonlyArray<string>) => Promise<
-    ReadonlyArray<{ personaId: string; composite: number }>
-  >
+  reRunCohort: (
+    personaIds: ReadonlyArray<string>,
+  ) => Promise<ReadonlyArray<{ personaId: string; composite: number }>>
   /** When `true`, applied edits are reverted on negative delta. Default `false`. */
   rollbackOnRegression?: boolean
   /** Callback to revert a list of paths (typically `git checkout HEAD --`). */
