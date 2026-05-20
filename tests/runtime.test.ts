@@ -525,6 +525,94 @@ describe('runAgentTask', () => {
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
   })
 
+  it('retries a thrown fetch error and succeeds on a later attempt', async () => {
+    let calls = 0
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { initialBackoffMs: 1, maxBackoffMs: 2 },
+      fetchImpl: async () => {
+        calls += 1
+        // First two attempts throw a network error (the `fetch failed`
+        // shape); the third returns a real stream.
+        if (calls < 3) throw new TypeError('fetch failed')
+        return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+        })
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'retry-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(calls).toBe(3)
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'ok' })
+  })
+
+  it('aborts a hung attempt via the per-attempt timeout, then retries', async () => {
+    let calls = 0
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { initialBackoffMs: 1, maxBackoffMs: 2, requestTimeoutMs: 30 },
+      fetchImpl: (_url, init) => {
+        calls += 1
+        // First attempt hangs until its per-attempt signal aborts; the
+        // second returns immediately.
+        if (calls === 1) {
+          return new Promise((_resolve, reject) => {
+            const signal = (init as RequestInit | undefined)?.signal
+            signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')))
+          })
+        }
+        return Promise.resolve(
+          new Response(
+            'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n',
+            {
+              status: 200,
+            },
+          ),
+        )
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'timeout-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(calls).toBe(2)
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'recovered' })
+  })
+
+  it('throws BackendTransportError when every attempt throws', async () => {
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { maxAttempts: 2, initialBackoffMs: 1, maxBackoffMs: 2 },
+      fetchImpl: async () => {
+        throw new TypeError('fetch failed')
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'dead-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    const final = events.at(-1)
+    expect(final).toMatchObject({ type: 'final' })
+    expect(final?.type === 'final' && final.status).not.toBe('completed')
+  })
+
   it('stops a backend and emits failed final event when streaming throws', async () => {
     const store = new InMemoryRuntimeSessionStore()
     const stopped: string[] = []
