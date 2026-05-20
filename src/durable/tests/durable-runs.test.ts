@@ -11,7 +11,10 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { readFileSync } from 'node:fs'
+
 import {
+  D1DurableRunStore,
   DurableAwaitEventTimeoutError,
   DurableRunDivergenceError,
   DurableRunInputMismatchError,
@@ -23,6 +26,9 @@ import {
   type DurableRunManifest,
   type DurableRunStore,
 } from '../index'
+import { createSqliteD1 } from './sqlite-d1-adapter'
+
+const SCHEMA_SQL = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
 
 function makeManifest(overrides?: Partial<DurableRunManifest>): DurableRunManifest {
   return {
@@ -52,6 +58,17 @@ const storeKinds = [
       return {
         store: new FileSystemDurableRunStore(dir),
         cleanup: () => rmSync(dir, { recursive: true, force: true }),
+      }
+    },
+  },
+  {
+    name: 'D1DurableRunStore (better-sqlite3)',
+    factory: () => {
+      const handle = createSqliteD1()
+      handle.raw.exec(SCHEMA_SQL)
+      return {
+        store: new D1DurableRunStore(handle.db),
+        cleanup: () => handle.close(),
       }
     },
   },

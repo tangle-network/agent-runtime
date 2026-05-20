@@ -32,6 +32,16 @@ export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } fr
 
 export { InMemoryDurableRunStore } from './in-memory-store'
 export { FileSystemDurableRunStore } from './file-system-store'
+export { D1DurableRunStore } from './d1-store'
+export type { D1DatabaseLike, D1PreparedStatementLike } from './d1-store'
 
 export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
 export { runDurable } from './runner'
+
+// ── Cloudflare Workflows integration ──────────────────────────────────
+export type {
+  RunOnWorkflowStepInput,
+  WorkflowStepConfig,
+  WorkflowStepLike,
+} from './workflows'
+export { runOnWorkflowStep } from './workflows'
