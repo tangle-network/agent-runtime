@@ -5,13 +5,10 @@
  * matrix proves both implementations.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
-import { readFileSync } from 'node:fs'
 
 import {
   D1DurableRunStore,
@@ -19,12 +16,12 @@ import {
   DurableRunDivergenceError,
   DurableRunInputMismatchError,
   DurableRunLeaseHeldError,
+  type DurableRunManifest,
+  type DurableRunStore,
   FileSystemDurableRunStore,
   InMemoryDurableRunStore,
   manifestHash,
   runDurable,
-  type DurableRunManifest,
-  type DurableRunStore,
 } from '../index'
 import { createSqliteD1 } from './sqlite-d1-adapter'
 
@@ -103,11 +100,10 @@ for (const kind of storeKinds) {
       })
       expect(result).toBe(10)
       expect(record.status).toBe('completed')
-      expect(steps.map((s) => ({ idx: s.stepIndex, intent: s.intent, status: s.status })))
-        .toEqual([
-          { idx: 0, intent: 'add', status: 'completed' },
-          { idx: 1, intent: 'multiply', status: 'completed' },
-        ])
+      expect(steps.map((s) => ({ idx: s.stepIndex, intent: s.intent, status: s.status }))).toEqual([
+        { idx: 0, intent: 'add', status: 'completed' },
+        { idx: 1, intent: 'multiply', status: 'completed' },
+      ])
     })
 
     it('replays completed steps without re-executing fn', async () => {

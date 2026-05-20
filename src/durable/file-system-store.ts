@@ -21,7 +21,7 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs'
-import { appendFile, readFile, rename, writeFile, readdir } from 'node:fs/promises'
+import { appendFile, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { manifestHash } from './identity'
@@ -97,9 +97,7 @@ export class FileSystemDurableRunStore implements DurableRunStore {
     }
     const lease = await this.readLeaseSafe(input.runId)
     const leaseStillLive =
-      lease &&
-      lease.workerId !== input.workerId &&
-      new Date(lease.leaseExpiresAt).getTime() > nowMs
+      lease && lease.workerId !== input.workerId && new Date(lease.leaseExpiresAt).getTime() > nowMs
     if (leaseStillLive) {
       throw new DurableRunLeaseHeldError(
         `runId ${input.runId} leased by ${lease.workerId} until ${lease.leaseExpiresAt}`,
@@ -108,7 +106,8 @@ export class FileSystemDurableRunStore implements DurableRunStore {
     const completedSteps = await this.readSteps(input.runId)
     const nextRecord: RunRecord = {
       ...record,
-      status: record.status === 'completed' || record.status === 'failed' ? record.status : 'running',
+      status:
+        record.status === 'completed' || record.status === 'failed' ? record.status : 'running',
       updatedAt: nowIso,
       leaseHolderId: input.workerId,
       leaseExpiresAt,
@@ -194,7 +193,9 @@ export class FileSystemDurableRunStore implements DurableRunStore {
     const all = await this.readSteps(input.runId, { includeFailed: true, includeRunning: true })
     const prior = all.find((s) => s.stepIndex === input.stepIndex)
     if (!prior) {
-      throw new Error(`durable-runs: completeStep called before beginStep (step ${input.stepIndex})`)
+      throw new Error(
+        `durable-runs: completeStep called before beginStep (step ${input.stepIndex})`,
+      )
     }
     const nowIso = new Date(this.now()).toISOString()
     const rec: StepRecord = {
@@ -266,7 +267,11 @@ export class FileSystemDurableRunStore implements DurableRunStore {
       payload: input.payload,
       emittedAt: new Date(this.now()).toISOString(),
     }
-    await appendFile(join(this.runDir(input.runId), 'events.jsonl'), `${JSON.stringify(rec)}\n`, 'utf8')
+    await appendFile(
+      join(this.runDir(input.runId), 'events.jsonl'),
+      `${JSON.stringify(rec)}\n`,
+      'utf8',
+    )
     return { accepted: true, record: rec }
   }
 

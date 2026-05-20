@@ -8,6 +8,13 @@
  * See `./types.ts` for the full type contract and concurrency model.
  */
 
+export type { D1DatabaseLike, D1PreparedStatementLike } from './d1-store'
+export { D1DurableRunStore } from './d1-store'
+export { FileSystemDurableRunStore } from './file-system-store'
+export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } from './identity'
+export { InMemoryDurableRunStore } from './in-memory-store'
+export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
+export { runDurable } from './runner'
 export type {
   DurableRunManifest,
   DurableRunStore,
@@ -27,16 +34,6 @@ export {
   DurableRunInputMismatchError,
   DurableRunLeaseHeldError,
 } from './types'
-
-export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } from './identity'
-
-export { InMemoryDurableRunStore } from './in-memory-store'
-export { FileSystemDurableRunStore } from './file-system-store'
-export { D1DurableRunStore } from './d1-store'
-export type { D1DatabaseLike, D1PreparedStatementLike } from './d1-store'
-
-export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
-export { runDurable } from './runner'
 
 // ── Cloudflare Workflows integration ──────────────────────────────────
 export type {

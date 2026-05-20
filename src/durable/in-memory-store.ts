@@ -10,11 +10,11 @@ import type {
   DurableRunManifest,
   DurableRunStore,
   EventRecord,
+  RunOutcome,
   RunRecord,
+  StepError,
   StepKind,
   StepRecord,
-  RunOutcome,
-  StepError,
 } from './types'
 import {
   DurableRunDivergenceError,
@@ -86,9 +86,10 @@ export class InMemoryDurableRunStore implements DurableRunStore {
     // Acquire / renew.
     state.record.leaseHolderId = input.workerId
     state.record.leaseExpiresAt = leaseExpiresAt
-    state.record.status = state.record.status === 'completed' || state.record.status === 'failed'
-      ? state.record.status
-      : 'running'
+    state.record.status =
+      state.record.status === 'completed' || state.record.status === 'failed'
+        ? state.record.status
+        : 'running'
     state.record.updatedAt = nowIso
     const completed = [...state.steps.values()]
       .filter((s) => s.status === 'completed')
@@ -110,10 +111,7 @@ export class InMemoryDurableRunStore implements DurableRunStore {
     const nowMs = this.now()
     if (state.record.leaseHolderId !== input.workerId) {
       // Lease lapsed — another worker may have taken over.
-      if (
-        state.record.leaseExpiresAt &&
-        new Date(state.record.leaseExpiresAt).getTime() > nowMs
-      ) {
+      if (state.record.leaseExpiresAt && new Date(state.record.leaseExpiresAt).getTime() > nowMs) {
         return { ok: false }
       }
     }
@@ -180,7 +178,9 @@ export class InMemoryDurableRunStore implements DurableRunStore {
     const state = this.requireRun(input.runId)
     const rec = state.steps.get(input.stepIndex)
     if (!rec) {
-      throw new Error(`durable-runs: completeStep called before beginStep (step ${input.stepIndex})`)
+      throw new Error(
+        `durable-runs: completeStep called before beginStep (step ${input.stepIndex})`,
+      )
     }
     const nowIso = new Date(this.now()).toISOString()
     rec.status = 'completed'

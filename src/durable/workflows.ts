@@ -58,7 +58,10 @@ export interface WorkflowStepLike {
   do<T>(name: string, opts: WorkflowStepConfig, fn: () => Promise<T>): Promise<T>
   do<T>(name: string, fn: () => Promise<T>): Promise<T>
   sleep(name: string, duration: string | number): Promise<void>
-  waitForEvent<T = unknown>(name: string, opts: { type: string; timeout?: string }): Promise<{
+  waitForEvent<T = unknown>(
+    name: string,
+    opts: { type: string; timeout?: string },
+  ): Promise<{
     payload: T
     timestamp: number
     type: string
@@ -66,7 +69,11 @@ export interface WorkflowStepLike {
 }
 
 export interface WorkflowStepConfig {
-  retries?: { limit: number; delay: string | number; backoff?: 'constant' | 'linear' | 'exponential' }
+  retries?: {
+    limit: number
+    delay: string | number
+    backoff?: 'constant' | 'linear' | 'exponential'
+  }
   timeout?: string | number
 }
 

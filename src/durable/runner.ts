@@ -35,10 +35,7 @@ import type {
   StepKind,
   StepRecord,
 } from './types'
-import {
-  DurableAwaitEventTimeoutError,
-  DurableRunDivergenceError,
-} from './types'
+import { DurableAwaitEventTimeoutError, DurableRunDivergenceError } from './types'
 
 export interface DurableContext {
   readonly runId: string
@@ -101,7 +98,9 @@ export interface RunDurableResult<TResult> {
   steps: ReadonlyArray<StepRecord>
 }
 
-export async function runDurable<TResult>(input: RunDurableInput<TResult>): Promise<RunDurableResult<TResult>> {
+export async function runDurable<TResult>(
+  input: RunDurableInput<TResult>,
+): Promise<RunDurableResult<TResult>> {
   const workerId = input.workerId ?? deriveWorkerId()
   const leaseMs = input.leaseMs ?? DEFAULT_LEASE_MS
   const { completedSteps } = await input.store.startOrResume({
@@ -149,7 +148,8 @@ export async function runDurable<TResult>(input: RunDurableInput<TResult>): Prom
       checkAbortAndLease(input.signal, leaseLost)
       const stepIndex = positionCounter++
       const prior = priorByIndex.get(stepIndex)
-      const inputHash = opts?.inputFingerprint !== undefined ? canonicalHash(opts.inputFingerprint) : ''
+      const inputHash =
+        opts?.inputFingerprint !== undefined ? canonicalHash(opts.inputFingerprint) : ''
       if (prior && prior.status === 'completed') {
         // Replay path — return cached result.
         if (prior.intent !== intent) {
@@ -264,19 +264,15 @@ export async function runDurable<TResult>(input: RunDurableInput<TResult>): Prom
       return { accepted: res.accepted }
     },
     async now(): Promise<Date> {
-      const v = await this.step(
-        `deterministic:now`,
-        async () => new Date().toISOString(),
-        { kind: 'deterministic' },
-      )
+      const v = await this.step(`deterministic:now`, async () => new Date().toISOString(), {
+        kind: 'deterministic',
+      })
       return new Date(v)
     },
     async uuid(): Promise<string> {
-      return this.step(
-        `deterministic:uuid`,
-        async () => cryptoRandomUuid(),
-        { kind: 'deterministic' },
-      )
+      return this.step(`deterministic:uuid`, async () => cryptoRandomUuid(), {
+        kind: 'deterministic',
+      })
     },
   }
 

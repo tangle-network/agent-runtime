@@ -5,8 +5,8 @@
  * conditional UPDATEs — instead of a hand-rolled parser stub.
  */
 
-import Database from 'better-sqlite3'
 import type { Database as SqliteDatabase, Statement as SqliteStatement } from 'better-sqlite3'
+import Database from 'better-sqlite3'
 
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../d1-store'
 

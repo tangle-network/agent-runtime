@@ -168,18 +168,10 @@ export interface DurableRunStore {
   }): Promise<StepRecord>
 
   /** Mark step completed with a JSON-serializable result. */
-  completeStep(input: {
-    runId: string
-    stepIndex: number
-    result: unknown
-  }): Promise<StepRecord>
+  completeStep(input: { runId: string; stepIndex: number; result: unknown }): Promise<StepRecord>
 
   /** Mark step failed with a captured error. */
-  failStep(input: {
-    runId: string
-    stepIndex: number
-    error: StepError
-  }): Promise<StepRecord>
+  failStep(input: { runId: string; stepIndex: number; error: StepError }): Promise<StepRecord>
 
   /** End the run; releases lease. */
   endRun(input: {
