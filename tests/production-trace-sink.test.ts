@@ -83,7 +83,11 @@ describe('createProductionTraceSink — RunRecord persistence', () => {
     const emitter = new TraceEmitter(sink.traceStore, {
       onRunComplete: [sink.onRunComplete],
     })
-    await emitter.startRun({ scenarioId: 'sess-abort', projectId: 'tax-agent', layer: 'app-runtime' })
+    await emitter.startRun({
+      scenarioId: 'sess-abort',
+      projectId: 'tax-agent',
+      layer: 'app-runtime',
+    })
     await emitter.abortRun('user-cancelled')
 
     expect(runRecordStore.rows).toHaveLength(1)
@@ -96,7 +100,11 @@ describe('createProductionTraceSink — RunRecord persistence', () => {
     const emitter = new TraceEmitter(sink.traceStore, {
       onRunComplete: [sink.onRunComplete],
     })
-    await emitter.startRun({ scenarioId: 'sess-fail', projectId: 'tax-agent', layer: 'app-runtime' })
+    await emitter.startRun({
+      scenarioId: 'sess-fail',
+      projectId: 'tax-agent',
+      layer: 'app-runtime',
+    })
     await emitter.endRun({
       pass: false,
       score: 0.1,
@@ -115,7 +123,11 @@ describe('createProductionTraceSink — RunRecord persistence', () => {
     const log = vi.fn()
     const sink = createProductionTraceSink({
       projectId: 'tax-agent',
-      runRecordStore: { async append() { throw new Error('db down') } },
+      runRecordStore: {
+        async append() {
+          throw new Error('db down')
+        },
+      },
       log,
     })
     const emitter = new TraceEmitter(sink.traceStore, {
@@ -133,7 +145,9 @@ describe('createProductionTraceSink — RunRecord persistence', () => {
 
 describe('createProductionTraceSink — OTLP forwarding', () => {
   it('POSTs the run to the configured collector with service.name resource attr', async () => {
-    const fetchMock = vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch
+    const fetchMock = vi.fn(
+      async () => new Response('', { status: 200 }),
+    ) as unknown as typeof fetch
     const sink = createProductionTraceSink({
       projectId: 'tax-agent',
       otlp: {
@@ -145,7 +159,11 @@ describe('createProductionTraceSink — OTLP forwarding', () => {
     const emitter = new TraceEmitter(sink.traceStore, {
       onRunComplete: [sink.onRunComplete],
     })
-    await emitter.startRun({ scenarioId: 'sess-otlp', projectId: 'tax-agent', layer: 'app-runtime' })
+    await emitter.startRun({
+      scenarioId: 'sess-otlp',
+      projectId: 'tax-agent',
+      layer: 'app-runtime',
+    })
     await emitter.endRun({ pass: true, score: 0.8 })
 
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -186,7 +204,9 @@ describe('createProductionTraceSink — OTLP forwarding', () => {
 
   it('logs (does not throw) on OTLP non-2xx', async () => {
     const log = vi.fn()
-    const fetchMock = vi.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch
+    const fetchMock = vi.fn(
+      async () => new Response('', { status: 500 }),
+    ) as unknown as typeof fetch
     const sink = createProductionTraceSink({
       projectId: 'tax-agent',
       otlp: { endpoint: 'https://x', authHeader: 'auth' },
@@ -196,14 +216,13 @@ describe('createProductionTraceSink — OTLP forwarding', () => {
     const emitter = new TraceEmitter(sink.traceStore, { onRunComplete: [sink.onRunComplete] })
     await emitter.startRun({ scenarioId: 's', projectId: 'tax-agent', layer: 'app-runtime' })
     await emitter.endRun({ pass: false, score: 0 })
-    expect(log).toHaveBeenCalledWith(
-      'OTLP POST non-2xx',
-      expect.objectContaining({ status: 500 }),
-    )
+    expect(log).toHaveBeenCalledWith('OTLP POST non-2xx', expect.objectContaining({ status: 500 }))
   })
 
   it('omits the auth header when authHeader is undefined', async () => {
-    const fetchMock = vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch
+    const fetchMock = vi.fn(
+      async () => new Response('', { status: 200 }),
+    ) as unknown as typeof fetch
     const sink = createProductionTraceSink({
       projectId: 'tax-agent',
       otlp: { endpoint: 'https://x' },
@@ -263,11 +282,21 @@ describe('createProductionTraceSink — recordFeedback', () => {
     const sink = createProductionTraceSink({
       projectId: 'tax-agent',
       feedbackStore: {
-        async save() { throw new Error('write fail') },
-        async get() { return null },
-        async list() { return [] },
-        async appendAttempt() { throw new Error('na') },
-        async appendLabel() { throw new Error('na') },
+        async save() {
+          throw new Error('write fail')
+        },
+        async get() {
+          return null
+        },
+        async list() {
+          return []
+        },
+        async appendAttempt() {
+          throw new Error('na')
+        },
+        async appendLabel() {
+          throw new Error('na')
+        },
       },
       log,
     })

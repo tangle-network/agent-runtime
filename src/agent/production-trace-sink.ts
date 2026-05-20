@@ -184,9 +184,7 @@ export interface RecordFeedbackInput {
 
 // ── factory ──────────────────────────────────────────────────────────
 
-export function createProductionTraceSink(
-  opts: ProductionTraceSinkOpts,
-): ProductionTraceSink {
+export function createProductionTraceSink(opts: ProductionTraceSinkOpts): ProductionTraceSink {
   const log = opts.log ?? defaultLog
   const fetchImpl = opts.fetch ?? globalThis.fetch
   const traceStore = new InMemoryTraceStore()
@@ -237,9 +235,7 @@ export function createProductionTraceSink(
     }
   }
 
-  const recordFeedback = async (
-    input: RecordFeedbackInput,
-  ): Promise<string | null> => {
+  const recordFeedback = async (input: RecordFeedbackInput): Promise<string | null> => {
     if (!opts.feedbackStore) return null
     const trajectoryId = input.trajectoryId ?? `traj-${input.runId}`
     try {
