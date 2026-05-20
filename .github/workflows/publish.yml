@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, staging-runner]
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +50,7 @@ jobs:
   publish-npm:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, staging-runner]
     permissions:
       contents: read
       id-token: write
