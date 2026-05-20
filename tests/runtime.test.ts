@@ -571,9 +571,12 @@ describe('runAgentTask', () => {
           })
         }
         return Promise.resolve(
-          new Response('data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n', {
-            status: 200,
-          }),
+          new Response(
+            'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n',
+            {
+              status: 200,
+            },
+          ),
         )
       },
     })
