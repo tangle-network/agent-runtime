@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@tangle-network/agent-eval':
-        specifier: ^0.29.1
-        version: 0.29.1(typescript@5.9.3)
+        specifier: ^0.30.0
+        version: 0.30.0(typescript@5.9.3)
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.0
@@ -445,8 +445,8 @@ packages:
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
 
-  '@tangle-network/agent-eval@0.29.1':
-    resolution: {integrity: sha512-mzxCZqgFOlW7F4Ozv/tBfF87FSPm2GI71myZu/EuboT1gHtIdviEI+3dD/AHV8RO/CPOzYbrDWWt8HY7pduI/A==}
+  '@tangle-network/agent-eval@0.30.0':
+    resolution: {integrity: sha512-PggTJ2wOLm3wt5MUSRLet5su5UxNkq+Of70L3bkS5uO/crZedULbYg2I9EdZ0a5u3v4HXAy5aCbfMgzTh6oJag==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -1198,7 +1198,7 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
-  '@tangle-network/agent-eval@0.29.1(typescript@5.9.3)':
+  '@tangle-network/agent-eval@0.30.0(typescript@5.9.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.2)
       '@ax-llm/ax': 19.0.45(zod@4.4.2)
