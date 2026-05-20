@@ -24,6 +24,7 @@ export type {
   RunRecord,
   UserQuestion,
 } from '@tangle-network/agent-eval'
+export type { BackendRetryPolicy } from './backends'
 // ── Backends ──────────────────────────────────────────────────────────
 export {
   createIterableBackend,
@@ -43,6 +44,12 @@ export {
   runChatTurn,
   sandboxAsChatTurnTarget,
 } from './chat-turn'
+// ── Durable-run substrate ─────────────────────────────────────────────
+// Step-checkpointed agent runs that survive worker crashes, deploy rolls,
+// rate-limit cascades, and transient transport errors. See ./durable for
+// the full contract; in-memory + filesystem stores ship out of the box,
+// D1 store + Cloudflare Workflows adapter land as opt-in subpath exports.
+export * from './durable'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,

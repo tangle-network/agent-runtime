@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Reusable runtime lifecycle for domain-specific agents.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -58,7 +58,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
     "@tangle-network/sandbox": "0.1.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.6.0",
+    "better-sqlite3": "^12.10.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
@@ -69,6 +71,7 @@
       "@tangle-network/agent-eval"
     ],
     "onlyBuiltDependencies": [
+      "better-sqlite3",
       "esbuild"
     ]
   },
