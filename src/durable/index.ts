@@ -41,6 +41,19 @@ export type {
   RunDurableTurnOptions,
 } from './turn'
 export { runDurableTurn } from './turn'
+// ── Cross-worker sandbox-reconnect durability ─────────────────────────
+// Checkpoints a substrate run handle at turn start so a fresh worker can
+// re-attach to an in-flight sandbox run instead of re-running a long turn.
+export type {
+  ReconnectableTurnHandle,
+  ReconnectableTurnMode,
+  ReconnectableTurnProducer,
+  ReconnectProduce,
+  ReconnectableProduce,
+  RunHandle,
+  RunReconnectableTurnOptions,
+} from './run-handle'
+export { runReconnectableTurn } from './run-handle'
 export type {
   DurableRunManifest,
   DurableRunStore,
