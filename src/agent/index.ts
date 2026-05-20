@@ -11,14 +11,20 @@
 export type {
   AgentManifest,
   AgentRubric,
-  AgentRuntime,
   AgentRunContext,
+  AgentRunInvocation,
+  AgentRuntime,
   AnalystConfig,
   AutoApplyPolicy,
   JudgeConfig,
   RubricDimension,
 } from './define-agent'
-export { AgentManifestError, defineAgent } from './define-agent'
+export {
+  AgentManifestError,
+  collectAgentRun,
+  defineAgent,
+  unimplementedAgentRun,
+} from './define-agent'
 
 export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
 export { renderSurfaceIssues, resolveSubjectPath, validateSurfaces } from './surfaces'
