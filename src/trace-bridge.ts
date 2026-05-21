@@ -221,6 +221,16 @@ function projectToTraceEvent(event: RuntimeStreamEvent): TraceProjection | undef
           mimeType: event.mimeType,
         },
       }
+    case 'proposal_created':
+      return {
+        kind: 'state_mutation',
+        payload: {
+          phase: 'proposal_created',
+          proposalId: event.proposalId,
+          title: event.title,
+          status: event.status,
+        },
+      }
     case 'task_end':
       return {
         kind: event.status === 'failed' || event.status === 'aborted' ? 'error' : 'log',

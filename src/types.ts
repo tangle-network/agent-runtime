@@ -290,7 +290,17 @@ export type RuntimeStreamEvent =
       name?: string
       mimeType?: string
       uri?: string
+      content?: string
       metadata?: Record<string, unknown>
+      timestamp?: string
+    }
+  | {
+      type: 'proposal_created'
+      task?: AgentTaskSpec
+      session?: RuntimeSession
+      proposalId: string
+      title: string
+      status?: 'pending' | 'approved' | 'rejected'
       timestamp?: string
     }
   | {

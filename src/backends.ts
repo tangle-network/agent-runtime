@@ -344,6 +344,43 @@ function mapCommonBackendEvent(
       timestamp: nowIso(),
     }
   }
+  if (type === 'artifact') {
+    const artifactId = stringValue(data.artifactId) ?? stringValue(data.id) ?? stringValue(record.artifactId)
+    if (!artifactId) return undefined
+    return {
+      type: 'artifact',
+      task: context.task,
+      session: context.session,
+      artifactId,
+      name: stringValue(data.name) ?? stringValue(record.name),
+      mimeType: stringValue(data.mimeType) ?? stringValue(record.mimeType),
+      uri: stringValue(data.uri) ?? stringValue(record.uri),
+      content: stringValue(data.content) ?? stringValue(data.body) ?? stringValue(record.content),
+      metadata:
+        data.metadata && typeof data.metadata === 'object'
+          ? (data.metadata as Record<string, unknown>)
+          : undefined,
+      timestamp: nowIso(),
+    }
+  }
+  if (type === 'proposal_created' || type === 'proposal' || type === 'filing') {
+    const proposalId =
+      stringValue(data.proposalId) ?? stringValue(data.id) ?? stringValue(record.proposalId)
+    if (!proposalId) return undefined
+    const status = stringValue(data.status) ?? stringValue(record.status)
+    return {
+      type: 'proposal_created',
+      task: context.task,
+      session: context.session,
+      proposalId,
+      title: stringValue(data.title) ?? stringValue(record.title) ?? proposalId,
+      status:
+        status === 'pending' || status === 'approved' || status === 'rejected'
+          ? status
+          : undefined,
+      timestamp: nowIso(),
+    }
+  }
   if (type === 'result' || type === 'final') {
     const text = stringValue(data.finalText) ?? stringValue(data.text) ?? stringValue(record.text)
     return text
