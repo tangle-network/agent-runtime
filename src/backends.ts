@@ -345,7 +345,8 @@ function mapCommonBackendEvent(
     }
   }
   if (type === 'artifact') {
-    const artifactId = stringValue(data.artifactId) ?? stringValue(data.id) ?? stringValue(record.artifactId)
+    const artifactId =
+      stringValue(data.artifactId) ?? stringValue(data.id) ?? stringValue(record.artifactId)
     if (!artifactId) return undefined
     return {
       type: 'artifact',
@@ -375,9 +376,7 @@ function mapCommonBackendEvent(
       proposalId,
       title: stringValue(data.title) ?? stringValue(record.title) ?? proposalId,
       status:
-        status === 'pending' || status === 'approved' || status === 'rejected'
-          ? status
-          : undefined,
+        status === 'pending' || status === 'approved' || status === 'rejected' ? status : undefined,
       timestamp: nowIso(),
     }
   }
