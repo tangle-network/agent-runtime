@@ -257,7 +257,19 @@ export function sanitizeRuntimeStreamEvent(
       name: event.name,
       mimeType: event.mimeType,
       uri: options.includeEvidenceIds ? event.uri : undefined,
+      content: options.includeControlPayloads ? event.content : undefined,
       metadata: options.includeMetadata ? event.metadata : undefined,
+    }
+  }
+  if (event.type === 'proposal_created') {
+    return {
+      type: event.type,
+      ...withTask,
+      ...withSession,
+      timestamp: event.timestamp,
+      proposalId: event.proposalId,
+      title: options.includeControlPayloads ? event.title : undefined,
+      status: event.status,
     }
   }
   if (event.type === 'final') {

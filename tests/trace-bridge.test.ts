@@ -173,6 +173,26 @@ describe('createTraceBridge', () => {
     expect(traces.map((trace) => trace.eventId)).toEqual(['evt-1', 'evt-2', 'evt-3'])
   })
 
+  it('maps proposal_created into a state_mutation trace event carrying id, title, status', () => {
+    const bridge = createTraceBridge({ runId: 'run-prop' })
+    const trace = bridge.toTraceEvent({
+      type: 'proposal_created',
+      task,
+      session,
+      proposalId: 'prop-1',
+      title: 'Amend filing X',
+      status: 'pending',
+      timestamp: '2026-05-10T00:00:00.000Z',
+    })
+    expect(trace?.kind).toBe('state_mutation')
+    expect(trace?.payload).toMatchObject({
+      phase: 'proposal_created',
+      proposalId: 'prop-1',
+      title: 'Amend filing X',
+      status: 'pending',
+    })
+  })
+
   it('toAgentEvalTrace() one-shot matches createTraceBridge.toTraceEvent()', () => {
     const event: RuntimeStreamEvent = {
       type: 'task_start',
