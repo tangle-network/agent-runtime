@@ -238,7 +238,7 @@ for (const kind of storeKinds) {
       const reconnect: ReconnectProduce<FakeEvent> = (h) => {
         reconnectedWith = h
         // the replay endpoint streams the rest of the turn from the cursor
-        let assembled = '[replayed] full answer'
+        const assembled = '[replayed] full answer'
         async function* stream(): AsyncGenerator<FakeEvent, void, unknown> {
           yield { type: 'delta', text: '[replayed] full answer' }
           yield { type: 'result', text: assembled }

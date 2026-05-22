@@ -302,9 +302,7 @@ export function runReconnectableTurn<TEvent>(
       // pointer refinement, not correctness — a non-reconnectable handle
       // re-runs. A rejected write must not abort the turn, so it is absorbed.
       handleWrites = handleWrites
-        .then(() =>
-          store.completeStep({ runId, stepIndex: HANDLE_STEP, result: { handle } }),
-        )
+        .then(() => store.completeStep({ runId, stepIndex: HANDLE_STEP, result: { handle } }))
         .catch(() => undefined)
     }
 
