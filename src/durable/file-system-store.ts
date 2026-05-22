@@ -32,11 +32,13 @@ import {
   type DurableRunManifest,
   type DurableRunStore,
   type EventRecord,
+  type RunHandle,
   type RunOutcome,
   type RunRecord,
   type StepError,
   type StepKind,
   type StepRecord,
+  type StreamEventRecord,
 } from './types'
 
 const DEFAULT_LEASE_MS = 30_000
@@ -86,6 +88,7 @@ export class FileSystemDurableRunStore implements DurableRunStore {
       // Touch the jsonl files so listing them later doesn't ENOENT.
       await appendFile(join(dir, 'steps.jsonl'), '', 'utf8')
       await appendFile(join(dir, 'events.jsonl'), '', 'utf8')
+      await appendFile(join(dir, 'stream-events.jsonl'), '', 'utf8')
       return { run: record, completedSteps: [], leaseExpiresAt }
     }
 
@@ -287,8 +290,58 @@ export class FileSystemDurableRunStore implements DurableRunStore {
     return undefined
   }
 
+  async appendStreamEvent(input: {
+    runId: string
+    eventId: string
+    payload: unknown
+  }): ReturnType<DurableRunStore['appendStreamEvent']> {
+    const existing = await this.readStreamEventsRaw(input.runId)
+    const dup = existing.find((e) => e.eventId === input.eventId)
+    if (dup) return { accepted: false, record: dup }
+    const rec: StreamEventRecord = {
+      runId: input.runId,
+      seq: existing.length,
+      eventId: input.eventId,
+      payload: input.payload,
+      appendedAt: new Date(this.now()).toISOString(),
+    }
+    await appendFile(
+      join(this.runDir(input.runId), 'stream-events.jsonl'),
+      `${JSON.stringify(rec)}\n`,
+      'utf8',
+    )
+    return { accepted: true, record: rec }
+  }
+
+  async readStreamEvents(
+    runId: string,
+    afterSeq?: number,
+  ): Promise<ReadonlyArray<StreamEventRecord>> {
+    const cutoff = afterSeq ?? -1
+    return (await this.readStreamEventsRaw(runId)).filter((e) => e.seq > cutoff)
+  }
+
+  async setRunHandle(input: { runId: string; handle: RunHandle }): Promise<void> {
+    const record = await this.readRun(input.runId)
+    record.handle = input.handle
+    record.updatedAt = new Date(this.now()).toISOString()
+    await this.writeRun(record)
+  }
+
   async close(): Promise<void> {
     // No persistent handles to close.
+  }
+
+  private async readStreamEventsRaw(runId: string): Promise<StreamEventRecord[]> {
+    const path = join(this.runDir(runId), 'stream-events.jsonl')
+    if (!existsSync(path)) return []
+    const content = await readFile(path, 'utf8')
+    const out: StreamEventRecord[] = []
+    for (const line of content.split('\n')) {
+      if (!line) continue
+      out.push(JSON.parse(line) as StreamEventRecord)
+    }
+    return out.sort((a, b) => a.seq - b.seq)
   }
 
   /** @internal — used by tests to list runs in the store. */

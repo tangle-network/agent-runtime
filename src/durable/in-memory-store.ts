@@ -10,11 +10,13 @@ import type {
   DurableRunManifest,
   DurableRunStore,
   EventRecord,
+  RunHandle,
   RunOutcome,
   RunRecord,
   StepError,
   StepKind,
   StepRecord,
+  StreamEventRecord,
 } from './types'
 import {
   DurableRunDivergenceError,
@@ -28,6 +30,8 @@ interface RunState {
   record: RunRecord
   steps: Map<number, StepRecord>
   events: Map<string, EventRecord>
+  /** Ordered, replayable event-stream log — `seq` is the array index. */
+  streamEvents: StreamEventRecord[]
 }
 
 export class InMemoryDurableRunStore implements DurableRunStore {
@@ -62,7 +66,7 @@ export class InMemoryDurableRunStore implements DurableRunStore {
         leaseExpiresAt,
         stepCount: 0,
       }
-      state = { record, steps: new Map(), events: new Map() }
+      state = { record, steps: new Map(), events: new Map(), streamEvents: [] }
       this.runs.set(input.runId, state)
       return { run: { ...record }, completedSteps: [], leaseExpiresAt }
     }
@@ -254,6 +258,41 @@ export class InMemoryDurableRunStore implements DurableRunStore {
     if (!state) return undefined
     const rec = state.events.get(key)
     return rec ? { ...rec } : undefined
+  }
+
+  async appendStreamEvent(input: {
+    runId: string
+    eventId: string
+    payload: unknown
+  }): ReturnType<DurableRunStore['appendStreamEvent']> {
+    const state = this.requireRun(input.runId)
+    const existing = state.streamEvents.find((e) => e.eventId === input.eventId)
+    if (existing) return { accepted: false, record: { ...existing } }
+    const rec: StreamEventRecord = {
+      runId: input.runId,
+      seq: state.streamEvents.length,
+      eventId: input.eventId,
+      payload: input.payload,
+      appendedAt: new Date(this.now()).toISOString(),
+    }
+    state.streamEvents.push(rec)
+    return { accepted: true, record: { ...rec } }
+  }
+
+  async readStreamEvents(
+    runId: string,
+    afterSeq?: number,
+  ): Promise<ReadonlyArray<StreamEventRecord>> {
+    const state = this.runs.get(runId)
+    if (!state) return []
+    const cutoff = afterSeq ?? -1
+    return state.streamEvents.filter((e) => e.seq > cutoff).map((e) => ({ ...e }))
+  }
+
+  async setRunHandle(input: { runId: string; handle: RunHandle }): Promise<void> {
+    const state = this.requireRun(input.runId)
+    state.record.handle = { ...input.handle }
+    state.record.updatedAt = new Date(this.now()).toISOString()
   }
 
   async close(): Promise<void> {

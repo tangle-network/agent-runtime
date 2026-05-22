@@ -25,19 +25,6 @@ export { D1DurableRunStore } from './d1-store'
 export { FileSystemDurableRunStore } from './file-system-store'
 export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } from './identity'
 export { InMemoryDurableRunStore } from './in-memory-store'
-// ── Cross-worker sandbox-reconnect durability ─────────────────────────
-// Checkpoints a substrate run handle at turn start so a fresh worker can
-// re-attach to an in-flight sandbox run instead of re-running a long turn.
-export type {
-  ReconnectableProduce,
-  ReconnectableTurnHandle,
-  ReconnectableTurnMode,
-  ReconnectableTurnProducer,
-  ReconnectProduce,
-  RunHandle,
-  RunReconnectableTurnOptions,
-} from './run-handle'
-export { runReconnectableTurn } from './run-handle'
 export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
 export { runDurable } from './runner'
 // Canonical D1 schema string + current version. Consumers wire via
@@ -45,6 +32,26 @@ export { runDurable } from './runner'
 // during one-time bootstrap. `src/durable/schema.sql` is the source of
 // truth; `schema.ts` is the build-bundled string that ships in dist/.
 export { DURABLE_SCHEMA_SQL, DURABLE_SCHEMA_VERSION } from './schema'
+// ── Durable-run supervisor — cross-worker / cross-DO durability ───────
+// Relocates the durability boundary off the ephemeral worker isolate: the
+// supervisor drains a run's event stream into the substrate's own log, and
+// a fresh supervisor re-attaches from the persisted cursor instead of
+// re-prompting. SessionSupervisorDO hosts it on a Cloudflare Durable Object.
+export type {
+  DurableObjectStateLike,
+  DurableObjectStorageLike,
+  SessionSupervisorDO,
+  SupervisorHostConfig,
+} from './session-supervisor-do'
+export { createSessionSupervisorDO } from './session-supervisor-do'
+export type {
+  RunSupervisorOptions,
+  SandboxReconnectAdapter,
+  SupervisedEvent,
+  SupervisedRunHandle,
+  SupervisedRunMode,
+} from './supervisor'
+export { runSupervisedTurn } from './supervisor'
 // ── Durable turn primitive ────────────────────────────────────────────
 // Streaming, backend-agnostic, checkpoint+replay durable turn. The single
 // reusable primitive every product chat handler routes through.
@@ -58,6 +65,7 @@ export type {
   DurableRunManifest,
   DurableRunStore,
   EventRecord,
+  RunHandle,
   RunOutcome,
   RunRecord,
   RunStatus,
@@ -65,6 +73,7 @@ export type {
   StepKind,
   StepRecord,
   StepStatus,
+  StreamEventRecord,
 } from './types'
 export {
   DurableAwaitEventTimeoutError,

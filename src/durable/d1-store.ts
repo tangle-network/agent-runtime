@@ -20,11 +20,13 @@ import {
   type DurableRunManifest,
   type DurableRunStore,
   type EventRecord,
+  type RunHandle,
   type RunOutcome,
   type RunRecord,
   type StepError,
   type StepKind,
   type StepRecord,
+  type StreamEventRecord,
 } from './types'
 
 const DEFAULT_LEASE_MS = 30_000
@@ -59,6 +61,15 @@ interface RunRow {
   lease_expires_at: string | null
   outcome_json: string | null
   step_count: number
+  handle_json: string | null
+}
+
+interface StreamEventRow {
+  run_id: string
+  seq: number
+  event_id: string
+  payload_json: string | null
+  appended_at: string
 }
 
 interface StepRow {
@@ -383,6 +394,54 @@ export class D1DurableRunStore implements DurableRunStore {
     return row ? rowToEventRecord(row) : undefined
   }
 
+  async appendStreamEvent(input: {
+    runId: string
+    eventId: string
+    payload: unknown
+  }): ReturnType<DurableRunStore['appendStreamEvent']> {
+    const nowIso = new Date(this.now()).toISOString()
+    // INSERT OR IGNORE — the UNIQUE(run_id, event_id) index makes a re-append
+    // a no-op; seq is the next monotonic value, computed atomically with the
+    // insert. A new event_id never collides on the (run_id, seq) PK.
+    const res = await this.db
+      .prepare(
+        `INSERT OR IGNORE INTO durable_stream_events (run_id, seq, event_id, payload_json, appended_at)
+         VALUES (
+           ?,
+           (SELECT COALESCE(MAX(seq), -1) + 1 FROM durable_stream_events WHERE run_id = ?),
+           ?, ?, ?
+         )`,
+      )
+      .bind(input.runId, input.runId, input.eventId, JSON.stringify(input.payload ?? null), nowIso)
+      .run()
+    const accepted = (res.meta?.changes ?? 0) > 0
+    const row = await this.db
+      .prepare('SELECT * FROM durable_stream_events WHERE run_id = ? AND event_id = ?')
+      .bind(input.runId, input.eventId)
+      .first<StreamEventRow>()
+    if (!row) throw new Error('durable-runs: appendStreamEvent failed to persist or read back')
+    return { accepted, record: rowToStreamEventRecord(row) }
+  }
+
+  async readStreamEvents(
+    runId: string,
+    afterSeq?: number,
+  ): Promise<ReadonlyArray<StreamEventRecord>> {
+    const { results } = await this.db
+      .prepare('SELECT * FROM durable_stream_events WHERE run_id = ? AND seq > ? ORDER BY seq')
+      .bind(runId, afterSeq ?? -1)
+      .all<StreamEventRow>()
+    return results.map(rowToStreamEventRecord)
+  }
+
+  async setRunHandle(input: { runId: string; handle: RunHandle }): Promise<void> {
+    const nowIso = new Date(this.now()).toISOString()
+    await this.db
+      .prepare('UPDATE durable_runs SET handle_json = ?, updated_at = ? WHERE run_id = ?')
+      .bind(JSON.stringify(input.handle), nowIso, input.runId)
+      .run()
+  }
+
   async close(): Promise<void> {
     // D1 binding lifecycle is owned by the runtime; no-op.
   }
@@ -432,6 +491,17 @@ function rowToRunRecord(row: RunRow): RunRecord {
     leaseExpiresAt: row.lease_expires_at ?? undefined,
     outcome: row.outcome_json ? (JSON.parse(row.outcome_json) as RunOutcome) : undefined,
     stepCount: row.step_count,
+    handle: row.handle_json ? (JSON.parse(row.handle_json) as RunHandle) : undefined,
+  }
+}
+
+function rowToStreamEventRecord(row: StreamEventRow): StreamEventRecord {
+  return {
+    runId: row.run_id,
+    seq: row.seq,
+    eventId: row.event_id,
+    payload: row.payload_json ? JSON.parse(row.payload_json) : null,
+    appendedAt: row.appended_at,
   }
 }
 
