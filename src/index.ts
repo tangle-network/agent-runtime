@@ -73,6 +73,26 @@ export type {
 // ── Intent router ────────────────────────────────────────────────────
 export { classifyIntent } from './intent-router'
 export type {
+  ChatModelCandidate,
+  ChatModelValidation,
+  ModelInfo,
+  ResolvedChatModel,
+  RouterEnv,
+} from './model-resolution'
+// ── Chat-model resolution ────────────────────────────────────────────
+// Router catalog fetch + fail-closed id validation + precedence resolver.
+// One primitive for every product chat handler — replaces the per-repo
+// hand-rolled model-resolution copies.
+export {
+  cleanModelId,
+  DEFAULT_ROUTER_BASE_URL,
+  getModels,
+  resolveChatModel,
+  resolveRouterBaseUrl,
+  validateChatModelId,
+  withConfiguredModels,
+} from './model-resolution'
+export type {
   ConformanceIssue,
   ConformanceOptions,
   ConformanceResult,
