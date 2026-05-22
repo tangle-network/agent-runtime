@@ -15,7 +15,7 @@
  * migration entry to durable_schema_info instead of mutating prior rows.
  */
 
-export const DURABLE_SCHEMA_VERSION = 1
+export const DURABLE_SCHEMA_VERSION = 2
 
 export const DURABLE_SCHEMA_SQL = `-- Durable-run substrate — versioned schema for D1 / SQLite.
 --
@@ -84,4 +84,33 @@ CREATE TABLE IF NOT EXISTS durable_events (
 
 INSERT OR IGNORE INTO durable_schema_info (version, applied_at)
 VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+
+-- ── Migration v2 — durable event-stream log + run handle ───────────────
+-- Run once on a database created at v1. \`ALTER TABLE\` is not idempotent; the
+-- version trail in \`durable_schema_info\` is how migrations are sequenced —
+-- never by blind re-execution of this block.
+--
+--   - \`durable_stream_events\` is the ordered, replayable per-run event log.
+--     \`seq\` is the store-assigned monotonic cursor; the UNIQUE index on
+--     (run_id, event_id) makes appends idempotent — a reconnecting adapter
+--     that re-yields a boundary event cannot double-log it.
+--   - \`durable_runs.handle_json\` is the pointer (sandbox + substrate run id +
+--     cursor) a fresh supervisor re-attaches by.
+
+ALTER TABLE durable_runs ADD COLUMN handle_json TEXT;
+
+CREATE TABLE IF NOT EXISTS durable_stream_events (
+  run_id       TEXT    NOT NULL,
+  seq          INTEGER NOT NULL,
+  event_id     TEXT    NOT NULL,
+  payload_json TEXT,
+  appended_at  TEXT    NOT NULL,
+  PRIMARY KEY (run_id, seq)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_durable_stream_events_event_id
+  ON durable_stream_events(run_id, event_id);
+
+INSERT OR IGNORE INTO durable_schema_info (version, applied_at)
+VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 `

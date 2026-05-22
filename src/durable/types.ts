@@ -79,6 +79,44 @@ export interface EventRecord {
   emittedAt: string
 }
 
+/**
+ * A pointer to a substrate run that outlives the worker isolate — the sandbox
+ * container is orchestrator-managed and survives a Worker death or a Durable
+ * Object migration. Persisted on the run row so a fresh supervisor re-attaches
+ * to the in-flight run instead of re-prompting.
+ */
+export interface RunHandle {
+  /** Which substrate owns the run. `sandbox` runs are reconnectable;
+   *  `tcloud` runs have no cross-process replay endpoint. */
+  kind: 'sandbox' | 'tcloud'
+  /** Orchestrator-managed sandbox id — stable across worker isolates. */
+  sandboxId?: string
+  /** Sandbox conversation/session id. */
+  sessionId?: string
+  /** The substrate run id (the sandbox SDK's `executionId`). The replay
+   *  endpoint keys on it. */
+  runId?: string
+  /** Lifecycle of the substrate run as last observed. */
+  status: 'running' | 'completed' | 'failed'
+  /** Last substrate event id seen — the adapter's reconnect cursor. */
+  cursor?: string
+}
+
+/**
+ * One event in a run's ordered, replayable stream log. The supervisor drains
+ * a run's event stream into this log as it flows, so replay is guaranteed by
+ * the substrate rather than by the sandbox runtime's own buffering.
+ */
+export interface StreamEventRecord {
+  runId: string
+  /** Monotonic 0-based sequence — the store's ordering + cursor. */
+  seq: number
+  /** Producer-supplied stable id — the dedup key and the substrate cursor. */
+  eventId: string
+  payload: unknown
+  appendedAt: string
+}
+
 export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'suspended'
 
 export interface RunOutcome {
@@ -116,6 +154,9 @@ export interface RunRecord {
   leaseExpiresAt?: string
   outcome?: RunOutcome
   stepCount: number
+  /** Pointer to the in-flight substrate run, when one has been registered.
+   *  A fresh supervisor re-attaches by it. */
+  handle?: RunHandle
 }
 
 /**
@@ -194,6 +235,28 @@ export interface DurableRunStore {
 
   /** Load the cached event payload if it has been emitted. */
   loadEvent(runId: string, key: string): Promise<EventRecord | undefined>
+
+  /**
+   * Append an event to the run's ordered stream log. The store assigns the
+   * monotonic `seq`. Idempotent on `eventId`: re-appending a known id is a
+   * no-op that returns the existing record under `accepted: false` — so an
+   * adapter that re-yields a boundary event on reconnect cannot double-log.
+   */
+  appendStreamEvent(input: {
+    runId: string
+    eventId: string
+    payload: unknown
+  }): Promise<{ accepted: boolean; record: StreamEventRecord }>
+
+  /**
+   * Read the stream log in `seq` order. `afterSeq` (exclusive) resumes a
+   * reader from a cursor; omit for the whole log.
+   */
+  readStreamEvents(runId: string, afterSeq?: number): Promise<ReadonlyArray<StreamEventRecord>>
+
+  /** Persist the run handle — the pointer a fresh supervisor re-attaches by.
+   *  One per run; overwrites. */
+  setRunHandle(input: { runId: string; handle: RunHandle }): Promise<void>
 
   /** Cleanup hook for in-memory / fs stores; no-op for D1. Idempotent. */
   close(): Promise<void>
