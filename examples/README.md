@@ -17,6 +17,8 @@ which needs an `OPENAI_API_KEY`.
 | [`model-resolution/`](./model-resolution/) | `resolveChatModel` + `validateChatModelId` (fail-closed) + `getModels` |
 | [`durable-supervisor/`](./durable-supervisor/) | `runSupervisedTurn` — cross-worker resume keystone (fresh / resumed / replayed) |
 | [`agent-into-reviewer/`](./agent-into-reviewer/) | Pipe one runtime's stream into a reviewer agent (the "2-runtime" pattern) |
+| [`chat-handler/`](./chat-handler/) | `DurableChatTurnEngine.runTurn` — the centerpiece production chat handler (fresh / replay paths) |
+| [`production-trace-sink/`](./production-trace-sink/) | `createProductionTraceSink` — production data capture (RunRecord + OTLP + feedback) |
 
 ## Conventions
 
@@ -45,6 +47,8 @@ pnpm tsx examples/runtime-run/runtime-run.ts
 pnpm tsx examples/model-resolution/model-resolution.ts
 pnpm tsx examples/durable-supervisor/durable-supervisor.ts
 pnpm tsx examples/agent-into-reviewer/agent-into-reviewer.ts
+pnpm tsx examples/chat-handler/chat-handler.ts
+pnpm tsx examples/production-trace-sink/production-trace-sink.ts
 
 # requires creds
 OPENAI_API_KEY=... pnpm tsx examples/openai-stream-backend/openai-stream-backend.ts
