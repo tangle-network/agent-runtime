@@ -34,8 +34,9 @@ async function drain(body: ReadableStream<Uint8Array>): Promise<ChatStreamEvent[
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    let nl: number
-    while ((nl = buffer.indexOf('\n')) !== -1) {
+    for (;;) {
+      const nl = buffer.indexOf('\n')
+      if (nl === -1) break
       const line = buffer.slice(0, nl).trim()
       buffer = buffer.slice(nl + 1)
       if (line) events.push(JSON.parse(line) as ChatStreamEvent)

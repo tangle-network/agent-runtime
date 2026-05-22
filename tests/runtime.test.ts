@@ -525,6 +525,131 @@ describe('runAgentTask', () => {
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
   })
 
+  it('maps wire artifact and proposal events from a streamed backend', async () => {
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      fetchImpl: async () =>
+        new Response(
+          'data: {"type":"artifact","artifactId":"art-9","name":"brief.md","mimeType":"text/markdown","content":"# Brief body"}\n\n' +
+            'data: {"type":"proposal_created","proposalId":"prop-9","title":"File amendment","status":"pending"}\n\n' +
+            'data: [DONE]\n\n',
+          { status: 200 },
+        ),
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'wire-task', intent: 'produce a brief', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'go' },
+      }),
+    )
+    const artifact = events.find((event) => event.type === 'artifact')
+    expect(artifact).toMatchObject({
+      type: 'artifact',
+      artifactId: 'art-9',
+      name: 'brief.md',
+      mimeType: 'text/markdown',
+      content: '# Brief body',
+    })
+    const proposal = events.find((event) => event.type === 'proposal_created')
+    expect(proposal).toMatchObject({
+      type: 'proposal_created',
+      proposalId: 'prop-9',
+      title: 'File amendment',
+      status: 'pending',
+    })
+  })
+
+  it('retries a thrown fetch error and succeeds on a later attempt', async () => {
+    let calls = 0
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { initialBackoffMs: 1, maxBackoffMs: 2 },
+      fetchImpl: async () => {
+        calls += 1
+        // First two attempts throw a network error (the `fetch failed`
+        // shape); the third returns a real stream.
+        if (calls < 3) throw new TypeError('fetch failed')
+        return new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+          status: 200,
+        })
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'retry-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(calls).toBe(3)
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'ok' })
+  })
+
+  it('aborts a hung attempt via the per-attempt timeout, then retries', async () => {
+    let calls = 0
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { initialBackoffMs: 1, maxBackoffMs: 2, requestTimeoutMs: 30 },
+      fetchImpl: (_url, init) => {
+        calls += 1
+        // First attempt hangs until its per-attempt signal aborts; the
+        // second returns immediately.
+        if (calls === 1) {
+          return new Promise((_resolve, reject) => {
+            const signal = (init as RequestInit | undefined)?.signal
+            signal?.addEventListener('abort', () => reject(signal.reason ?? new Error('aborted')))
+          })
+        }
+        return Promise.resolve(
+          new Response(
+            'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n',
+            {
+              status: 200,
+            },
+          ),
+        )
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'timeout-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(calls).toBe(2)
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'recovered' })
+  })
+
+  it('throws BackendTransportError when every attempt throws', async () => {
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      retry: { maxAttempts: 2, initialBackoffMs: 1, maxBackoffMs: 2 },
+      fetchImpl: async () => {
+        throw new TypeError('fetch failed')
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'dead-task', intent: 'go', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    const final = events.at(-1)
+    expect(final).toMatchObject({ type: 'final' })
+    expect(final?.type === 'final' && final.status).not.toBe('completed')
+  })
+
   it('stops a backend and emits failed final event when streaming throws', async () => {
     const store = new InMemoryRuntimeSessionStore()
     const stopped: string[] = []
@@ -591,7 +716,17 @@ describe('runAgentTask', () => {
           name: 'report.json',
           mimeType: 'application/json',
           uri: 's3://internal/secret-bucket/key',
+          content: 'confidential-deliverable-body',
           metadata: { customerId: 'cust-99' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'proposal_created',
+          task: ctx.task,
+          session: ctx.session,
+          proposalId: 'p1',
+          title: 'confidential-proposal-title',
+          status: 'pending',
           timestamp: '2026-05-10T00:00:00.000Z',
         }
         yield {
@@ -623,10 +758,14 @@ describe('runAgentTask', () => {
     expect(serialized).not.toContain('secret-bucket')
     expect(serialized).not.toContain('cust-99')
     expect(serialized).not.toContain('redact@example.com')
+    // Produced artifact body and proposal title are payloads — redacted by default.
+    expect(serialized).not.toContain('confidential-deliverable-body')
+    expect(serialized).not.toContain('confidential-proposal-title')
     // The collector still records each event by `type` so consumers can act on the stream.
     expect(collector.summary().eventCountsByType.tool_call).toBe(1)
     expect(collector.summary().eventCountsByType.tool_result).toBe(1)
     expect(collector.summary().eventCountsByType.artifact).toBe(1)
+    expect(collector.summary().eventCountsByType.proposal_created).toBe(1)
     expect(collector.summary().finalStatus).toBe('completed')
     expect(collector.summary().finalText).toBe('hi from agent')
   })
@@ -656,7 +795,17 @@ describe('runAgentTask', () => {
           artifactId: 'a1',
           name: 'r.json',
           uri: 's3://bucket/key',
+          content: 'the produced deliverable body',
           metadata: { customerId: 'cust-1' },
+          timestamp: '2026-05-10T00:00:00.000Z',
+        }
+        yield {
+          type: 'proposal_created',
+          task: ctx.task,
+          session: ctx.session,
+          proposalId: 'prop-1',
+          title: 'Amend filing X for cust-1',
+          status: 'pending',
           timestamp: '2026-05-10T00:00:00.000Z',
         }
       },
@@ -675,6 +824,13 @@ describe('runAgentTask', () => {
     expect(serialized).toContain('pnpm test')
     expect(serialized).toContain('s3://bucket/key')
     expect(serialized).toContain('cust-1')
+    // includeControlPayloads exposes the produced artifact body and proposal title.
+    expect(serialized).toContain('the produced deliverable body')
+    expect(serialized).toContain('Amend filing X for cust-1')
+    expect(collector.summary().eventCountsByType.artifact).toBe(1)
+    expect(collector.summary().eventCountsByType.proposal_created).toBe(1)
+    const proposal = collector.events.find((e) => e.type === 'proposal_created')
+    expect(proposal).toMatchObject({ proposalId: 'prop-1', status: 'pending' })
   })
 
   it('createRuntimeStreamEventCollector summary tracks session ids and final reason', async () => {
