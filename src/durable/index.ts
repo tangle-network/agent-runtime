@@ -25,6 +25,19 @@ export { D1DurableRunStore } from './d1-store'
 export { FileSystemDurableRunStore } from './file-system-store'
 export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } from './identity'
 export { InMemoryDurableRunStore } from './in-memory-store'
+// ── Cross-worker sandbox-reconnect durability ─────────────────────────
+// Checkpoints a substrate run handle at turn start so a fresh worker can
+// re-attach to an in-flight sandbox run instead of re-running a long turn.
+export type {
+  ReconnectableProduce,
+  ReconnectableTurnHandle,
+  ReconnectableTurnMode,
+  ReconnectableTurnProducer,
+  ReconnectProduce,
+  RunHandle,
+  RunReconnectableTurnOptions,
+} from './run-handle'
+export { runReconnectableTurn } from './run-handle'
 export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
 export { runDurable } from './runner'
 // Canonical D1 schema string + current version. Consumers wire via
