@@ -1,9 +1,8 @@
 # agent-runtime examples
 
-Each example is a single runnable `.ts` file plus a short README. The
-synthetic ones (`basic-task`, `with-knowledge-readiness`, `sse-stream`,
-`sandbox-stream-backend`, `sanitized-telemetry`, `sanitized-telemetry-streaming`)
-need no credentials; `openai-stream-backend` needs an `OPENAI_API_KEY`.
+Each example is a single runnable `.ts` file plus a short README. All
+ten are synthetic — no credentials required, except `openai-stream-backend`
+which needs an `OPENAI_API_KEY`.
 
 | Example | What it covers |
 |---|---|
@@ -14,6 +13,10 @@ need no credentials; `openai-stream-backend` needs an `OPENAI_API_KEY`.
 | [`sse-stream/`](./sse-stream/) | Server-Sent Events helpers for browser routes |
 | [`sandbox-stream-backend/`](./sandbox-stream-backend/) | `runAgentTaskStream` with `createSandboxPromptBackend` (synthetic sandbox client) |
 | [`openai-stream-backend/`](./openai-stream-backend/) | `runAgentTaskStream` with `createOpenAICompatibleBackend` (real endpoint required) |
+| [`runtime-run/`](./runtime-run/) | `startRuntimeRun` + cost ledger + persistence adapter |
+| [`model-resolution/`](./model-resolution/) | `resolveChatModel` + `validateChatModelId` (fail-closed) + `getModels` |
+| [`durable-supervisor/`](./durable-supervisor/) | `runSupervisedTurn` — cross-worker resume keystone (fresh / resumed / replayed) |
+| [`agent-into-reviewer/`](./agent-into-reviewer/) | Pipe one runtime's stream into a reviewer agent (the "2-runtime" pattern) |
 
 ## Conventions
 
@@ -38,6 +41,10 @@ pnpm tsx examples/sanitized-telemetry/sanitized-telemetry.ts
 pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 pnpm tsx examples/sse-stream/sse-stream.ts
 pnpm tsx examples/sandbox-stream-backend/sandbox-stream-backend.ts
+pnpm tsx examples/runtime-run/runtime-run.ts
+pnpm tsx examples/model-resolution/model-resolution.ts
+pnpm tsx examples/durable-supervisor/durable-supervisor.ts
+pnpm tsx examples/agent-into-reviewer/agent-into-reviewer.ts
 
 # requires creds
 OPENAI_API_KEY=... pnpm tsx examples/openai-stream-backend/openai-stream-backend.ts
