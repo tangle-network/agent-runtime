@@ -2,10 +2,11 @@
 
 Production runtime substrate for domain agents. Owns the task lifecycle
 (knowledge readiness, control loop, session resume, sanitized telemetry,
-durable runs across worker / DO crashes, canonical `RuntimeRunRow`
-persistence + cost ledger), the chat-model catalog + admission, and the
-declarative `defineAgent` manifest — so domain repos stop inventing their
-own.
+canonical `RuntimeRunRow` persistence + cost ledger), the chat-turn
+engine (NDJSON envelope + product hooks), the chat-model catalog +
+admission, and the declarative `defineAgent` manifest — so domain
+repos stop inventing their own. Long-running execution durability
+(reconnect, replay, dedup) lives in `@tangle-network/sandbox`.
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval

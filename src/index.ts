@@ -44,11 +44,13 @@ export {
   runChatTurn,
   sandboxAsChatTurnTarget,
 } from './chat-turn'
-// ── Durable-run substrate ─────────────────────────────────────────────
-// Step-checkpointed agent runs that survive worker crashes, deploy rolls,
-// rate-limit cascades, and transient transport errors. See ./durable for
-// the full contract; in-memory + filesystem stores ship out of the box,
-// D1 store + Cloudflare Workflows adapter land as opt-in subpath exports.
+// ── Turn-lifecycle helpers ────────────────────────────────────────────
+// `ChatTurnEngine` wraps a producer with the `session.run.*` envelope +
+// NDJSON framing + persist/post-process/trace-flush hook ordering.
+// `AgentExecutionHandle` + `deriveExecutionId` are the typed pointer
+// products persist so a client retry of the same turn can land on the
+// same substrate execution. Long-running execution durability itself
+// (reconnect, replay, dedup) lives in @tangle-network/sandbox.
 export * from './durable'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
