@@ -308,10 +308,13 @@ function mapCommonBackendEvent(
     // fall through to `undefined` (the consumer can opt in via `mapEvent`).
     const part = data.part as Record<string, unknown> | undefined
     const partText =
-      part !== undefined && typeof part === 'object' && (part.type === 'text' || part.type === undefined)
+      part !== undefined &&
+      typeof part === 'object' &&
+      (part.type === 'text' || part.type === undefined)
         ? stringValue(part.text)
         : undefined
-    const text = stringValue(data.text) ?? stringValue(data.delta) ?? stringValue(record.text) ?? partText
+    const text =
+      stringValue(data.text) ?? stringValue(data.delta) ?? stringValue(record.text) ?? partText
     return text
       ? {
           type: 'text_delta',

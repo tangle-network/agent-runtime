@@ -12,7 +12,11 @@
  *   pnpm tsx examples/chat-handler/chat-handler.ts
  */
 
-import { type ChatStreamEvent, type ChatTurnProducer, handleChatTurn } from '@tangle-network/agent-runtime'
+import {
+  type ChatStreamEvent,
+  type ChatTurnProducer,
+  handleChatTurn,
+} from '@tangle-network/agent-runtime'
 
 function produce(userMessage: string): ChatTurnProducer<ChatStreamEvent> {
   let accumulated = ''

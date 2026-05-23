@@ -55,10 +55,7 @@ export interface ChatTurnHooks {
   produce(): ChatTurnProducer
   /** Persist the assistant message to the product's own store. Called
    *  once, after drain, with the assembled (transform-applied) text. */
-  persistAssistantMessage(input: {
-    identity: ChatTurnIdentity
-    finalText: string
-  }): Promise<void>
+  persistAssistantMessage(input: { identity: ChatTurnIdentity; finalText: string }): Promise<void>
   /** Optional post-processing (proposals, citations, credit metering …).
    *  Errors are swallowed + logged — post-process must never fail a turn
    *  that already streamed successfully. */

@@ -12,8 +12,6 @@
  *     persist so a retry of the same turn lands on the same execution.
  */
 
-export { deriveExecutionId } from './execution-handle'
-
 export type {
   ChatStreamEvent,
   ChatTurnHooks,
@@ -23,3 +21,4 @@ export type {
   RunChatTurnInput,
 } from './chat-engine'
 export { handleChatTurn } from './chat-engine'
+export { deriveExecutionId } from './execution-handle'
