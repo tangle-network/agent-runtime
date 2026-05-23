@@ -1,17 +1,15 @@
 /**
  * `ChatTurnEngine` — the framework-neutral chat-turn orchestrator every
- * product chat handler routes through. Owns the parts that were copy-pasted
- * across legal / gtm / creative / tax: the NDJSON `ChatStreamEvent` line
- * protocol, the `session.run.*` lifecycle vocabulary, the persist /
- * post-process / trace-flush hook ordering.
+ * product chat handler routes through. Owns the NDJSON `ChatStreamEvent`
+ * line protocol, the `session.run.*` lifecycle vocabulary, and the persist
+ * / post-process / trace-flush hook ordering.
  *
- * Execution durability is NOT this engine's problem. The substrate
- * (@tangle-network/sandbox + orchestrator) owns it: `box.streamPrompt({
- * executionId, lastEventId })` buffers the stream by `executionId`,
- * replays strictly after `lastEventId` on reconnect, and never spawns a
- * duplicate. `AgentExecutionHandle` is the typed pointer products
- * persist; this engine just wraps a producer that already speaks that
- * primitive.
+ * Execution durability is the substrate's concern: `box.streamPrompt({
+ * executionId, lastEventId })` from `@tangle-network/sandbox` buffers the
+ * stream by `executionId`, replays strictly after `lastEventId` on
+ * reconnect, and never spawns a duplicate. `AgentExecutionHandle` is the
+ * typed pointer products persist; this engine wraps a producer that
+ * speaks that primitive.
  *
  * What the engine owns:
  *   - the `session.run.started` / `session.run.completed` / `session.run.failed`
