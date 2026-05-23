@@ -145,13 +145,7 @@ export function handleChatTurn(input: RunChatTurnInput): ChatTurnResult {
           ? await hooks.transformFinalText(rawFinal)
           : rawFinal
 
-        try {
-          await hooks.persistAssistantMessage({ identity, finalText })
-        } catch (err) {
-          log('[chat-engine] persistAssistantMessage threw', {
-            error: err instanceof Error ? err.message : String(err),
-          })
-        }
+        await hooks.persistAssistantMessage({ identity, finalText })
         if (hooks.onTurnComplete) {
           try {
             await hooks.onTurnComplete({ identity, finalText })
