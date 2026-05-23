@@ -10,12 +10,9 @@
  * opaque id. Substrate executionIds are not a secrecy boundary.
  *
  * Wire integration:
- *   - `@tangle-network/sandbox@0.1.x` PromptOptions does not yet expose
- *     `executionId`. The SDK auto-reconnects in-call by extracting it
- *     from the response `execution.started` event; products do nothing.
- *   - For cross-process reconnect today, bypass the SDK and POST to the
- *     orchestrator's `/agents/run/stream` directly with this id in the
- *     `X-Execution-ID` header (see tax-agent's `sessions.ts`).
+ *   - Sandbox PromptOptions accepts `executionId` and `lastEventId`.
+ *     Products pass this id to make cross-process reconnect land on the
+ *     same substrate execution instead of spawning a duplicate run.
  */
 export function deriveExecutionId(input: {
   projectId: string
