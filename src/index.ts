@@ -44,11 +44,12 @@ export {
   runChatTurn,
   sandboxAsChatTurnTarget,
 } from './chat-turn'
-// ── Durable-run substrate ─────────────────────────────────────────────
-// Step-checkpointed agent runs that survive worker crashes, deploy rolls,
-// rate-limit cascades, and transient transport errors. See ./durable for
-// the full contract; in-memory + filesystem stores ship out of the box,
-// D1 store + Cloudflare Workflows adapter land as opt-in subpath exports.
+// ── Chat-turn HTTP orchestration ──────────────────────────────────────
+// `handleChatTurn` frames a producer with the `session.run.*` envelope
+// + NDJSON line protocol + persist/post-process/trace-flush hook order.
+// `deriveExecutionId` produces the stable id products persist so a
+// client retry can replay the same substrate execution. Long-running
+// execution durability itself lives in @tangle-network/sandbox.
 export * from './durable'
 // ── Errors ───────────────────────────────────────────────────────────
 export {

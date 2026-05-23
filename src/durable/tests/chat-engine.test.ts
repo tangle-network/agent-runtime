@@ -1,30 +1,7 @@
-/**
- * `DurableChatTurnEngine` tests — the orchestration contract every product
- * chat handler depends on. Run against all three stores so the engine is
- * proven on every backend. Covers: lifecycle envelope, NDJSON encoding,
- * replay-skips-persist (no double-write), hook ordering, the failure
- * envelope, the per-event side channel, and the pre-persist transform.
- */
+import { describe, expect, it, vi } from 'vitest'
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { type ChatStreamEvent, handleChatTurn } from '../chat-engine'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-
-import {
-  type ChatStreamEvent,
-  D1DurableRunStore,
-  DurableChatTurnEngine,
-  type DurableRunStore,
-  FileSystemDurableRunStore,
-  InMemoryDurableRunStore,
-} from '../index'
-import { createSqliteD1 } from './sqlite-d1-adapter'
-
-const SCHEMA_SQL = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')
-
-/** Drain an NDJSON ReadableStream into parsed events. */
 async function drain(body: ReadableStream<Uint8Array>): Promise<ChatStreamEvent[]> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -46,7 +23,6 @@ async function drain(body: ReadableStream<Uint8Array>): Promise<ChatStreamEvent[
   return events
 }
 
-/** A producer that streams the given text as two part-updates + a result. */
 function textProducer(text: string, onConstruct?: () => void) {
   return () => {
     onConstruct?.()
@@ -58,221 +34,150 @@ function textProducer(text: string, onConstruct?: () => void) {
   }
 }
 
-const storeKinds = [
-  {
-    name: 'InMemoryDurableRunStore',
-    factory: () => ({ store: new InMemoryDurableRunStore(), cleanup: () => undefined }),
-  },
-  {
-    name: 'FileSystemDurableRunStore',
-    factory: () => {
-      const dir = mkdtempSync(join(tmpdir(), 'chat-engine-test-'))
-      return {
-        store: new FileSystemDurableRunStore(dir),
-        cleanup: () => rmSync(dir, { recursive: true, force: true }),
-      }
-    },
-  },
-  {
-    name: 'D1DurableRunStore (better-sqlite3)',
-    factory: () => {
-      const handle = createSqliteD1()
-      handle.raw.exec(SCHEMA_SQL)
-      return {
-        store: new D1DurableRunStore(handle.db),
-        cleanup: () => handle.close(),
-      }
-    },
-  },
-] as const
-
 const IDENTITY = { tenantId: 'ws-1', sessionId: 'thread-1', userId: 'user-1', turnIndex: 0 }
 
-for (const kind of storeKinds) {
-  describe(`DurableChatTurnEngine / ${kind.name}`, () => {
-    let store: DurableRunStore
-    let cleanup: () => void
-    const engine = new DurableChatTurnEngine()
-
-    beforeEach(() => {
-      const made = kind.factory()
-      store = made.store
-      cleanup = made.cleanup
-    })
-
-    afterEach(async () => {
-      await store.close()
-      cleanup()
-    })
-
-    it('wraps the turn in the session.run.* lifecycle envelope', async () => {
-      const persisted: string[] = []
-      const { body, contentType } = engine.runTurn({
-        identity: IDENTITY,
-        userMessage: 'hello',
-        projectId: 'legal-agent',
-        domain: 'legal',
-        store,
-        hooks: {
-          produce: textProducer('Hi there.'),
-          persistAssistantMessage: async ({ finalText }) => {
-            persisted.push(finalText)
-          },
+describe('handleChatTurn', () => {
+  // intentionally exercises the public function via the same name used by
+  // consumers
+  it('wraps the turn in the session.run.* lifecycle envelope', async () => {
+    const persisted: string[] = []
+    const { body, contentType } = handleChatTurn({
+      identity: IDENTITY,
+      hooks: {
+        produce: textProducer('Hi there.'),
+        persistAssistantMessage: async ({ finalText }) => {
+          persisted.push(finalText)
         },
-      })
-      expect(contentType).toBe('application/x-ndjson')
-      const events = await drain(body)
-
-      expect(events[0]?.type).toBe('session.run.started')
-      expect(events.at(-1)?.type).toBe('session.run.completed')
-      expect(events.some((e) => e.type === 'message.part.updated')).toBe(true)
-      expect(events.some((e) => e.type === 'result')).toBe(true)
-      expect(persisted).toEqual(['Hi there.'])
+      },
     })
+    expect(contentType).toBe('application/x-ndjson')
+    const events = await drain(body)
 
-    it('runs hooks in order: persist → onTurnComplete, after the stream', async () => {
-      const order: string[] = []
-      const { body } = engine.runTurn({
-        identity: IDENTITY,
-        userMessage: 'q',
-        projectId: 'gtm-agent',
-        domain: 'gtm',
-        store,
-        hooks: {
-          produce: textProducer('answer'),
-          persistAssistantMessage: async () => {
-            order.push('persist')
-          },
-          onTurnComplete: async () => {
-            order.push('postProcess')
-          },
-        },
-      })
-      await drain(body)
-      expect(order).toEqual(['persist', 'postProcess'])
-    })
+    expect(events[0]?.type).toBe('session.run.started')
+    expect(events.at(-1)?.type).toBe('session.run.completed')
+    expect(events.some((e) => e.type === 'message.part.updated')).toBe(true)
+    expect(events.some((e) => e.type === 'result')).toBe(true)
+    expect(persisted).toEqual(['Hi there.'])
+  })
 
-    it('replay skips the producer AND skips persist/post-process (no double-write)', async () => {
-      let constructs = 0
-      let persists = 0
-      let postProcesses = 0
-      const hooks = {
-        produce: textProducer('cached', () => (constructs += 1)),
+  it('runs hooks in order: persist → onTurnComplete, after the stream', async () => {
+    const order: string[] = []
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      hooks: {
+        produce: textProducer('answer'),
         persistAssistantMessage: async () => {
-          persists += 1
+          order.push('persist')
         },
         onTurnComplete: async () => {
-          postProcesses += 1
+          order.push('postProcess')
         },
-      }
-      // First attempt — fresh.
-      await drain(
-        engine.runTurn({
-          identity: IDENTITY,
-          userMessage: 'q',
-          projectId: 'creative-agent',
-          domain: 'creative',
-          store,
-          hooks,
-        }).body,
-      )
-      // Second attempt — same identity → replay.
-      const replayEvents = await drain(
-        engine.runTurn({
-          identity: IDENTITY,
-          userMessage: 'q',
-          projectId: 'creative-agent',
-          domain: 'creative',
-          store,
-          hooks,
-        }).body,
-      )
-
-      expect(constructs).toBe(1) // producer built once
-      expect(persists).toBe(1) // assistant message persisted once
-      expect(postProcesses).toBe(1) // post-process ran once
-      expect(replayEvents.some((e) => e.type === 'result')).toBe(true)
-      const completed = replayEvents.find((e) => e.type === 'session.run.completed')
-      expect(completed?.data?.replayed).toBe(true)
+      },
     })
+    await drain(body)
+    expect(order).toEqual(['persist', 'postProcess'])
+  })
 
-    it('a producer failure becomes error + session.run.failed, stream still closes', async () => {
-      const { body } = engine.runTurn({
-        identity: IDENTITY,
-        userMessage: 'q',
-        projectId: 'tax-agent',
-        domain: 'tax',
-        store,
-        hooks: {
-          produce: () => {
-            async function* stream(): AsyncGenerator<ChatStreamEvent, void, unknown> {
-              yield { type: 'message.part.updated', data: { delta: 'partial' } }
-              throw new Error('backend exploded')
-            }
-            return { stream: stream(), finalText: () => '' }
-          },
-          persistAssistantMessage: async () => undefined,
+  it('a producer failure becomes error + session.run.failed, stream still closes', async () => {
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      log: () => undefined, // silence the default console.error in tests
+      hooks: {
+        produce: () => {
+          async function* stream(): AsyncGenerator<ChatStreamEvent, void, unknown> {
+            yield { type: 'message.part.updated', data: { delta: 'partial' } }
+            throw new Error('backend exploded')
+          }
+          return { stream: stream(), finalText: () => '' }
         },
-      })
-      const events = await drain(body)
-      expect(events[0]?.type).toBe('session.run.started')
-      const err = events.find((e) => e.type === 'error')
-      expect(err?.data?.message).toBe('backend exploded')
-      expect(events.at(-1)?.type).toBe('session.run.failed')
+        persistAssistantMessage: async () => undefined,
+      },
     })
+    const events = await drain(body)
+    expect(events[0]?.type).toBe('session.run.started')
+    const err = events.find((e) => e.type === 'error')
+    expect(err?.data?.message).toBe('backend exploded')
+    expect(events.at(-1)?.type).toBe('session.run.failed')
+  })
 
-    it('onEvent side channel receives every emitted event', async () => {
-      const broadcast: string[] = []
-      const { body } = engine.runTurn({
-        identity: IDENTITY,
-        userMessage: 'q',
-        projectId: 'gtm-agent',
-        domain: 'gtm',
-        store,
-        hooks: {
-          produce: textProducer('x'),
-          persistAssistantMessage: async () => undefined,
-          onEvent: (event) => {
-            broadcast.push(event.type)
-          },
+  it('onEvent side channel receives every emitted event', async () => {
+    const broadcast: string[] = []
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      hooks: {
+        produce: textProducer('x'),
+        persistAssistantMessage: async () => undefined,
+        onEvent: (event) => {
+          broadcast.push(event.type)
         },
-      })
-      const events = await drain(body)
-      // Side channel saw exactly what the client saw.
-      expect(broadcast).toEqual(events.map((e) => e.type))
+      },
     })
+    const events = await drain(body)
+    expect(broadcast).toEqual(events.map((e) => e.type))
+  })
 
-    it('transformFinalText alters what is persisted, not the live stream', async () => {
-      let persisted = ''
-      const { body } = engine.runTurn({
-        identity: IDENTITY,
-        userMessage: 'q',
-        projectId: 'legal-agent',
-        domain: 'legal',
-        store,
-        hooks: {
-          produce: textProducer('SSN 123-45-6789'),
-          transformFinalText: (t) => t.replace(/\d{3}-\d{2}-\d{4}/, '[REDACTED]'),
-          persistAssistantMessage: async ({ finalText }) => {
-            persisted = finalText
-          },
+  it('transformFinalText alters what is persisted, not the live stream', async () => {
+    let persisted = ''
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      hooks: {
+        produce: textProducer('SSN 123-45-6789'),
+        transformFinalText: (t) => t.replace(/\d{3}-\d{2}-\d{4}/, '[REDACTED]'),
+        persistAssistantMessage: async ({ finalText }) => {
+          persisted = finalText
         },
-      })
-      const events = await drain(body)
-      // Live stream still carries the raw text.
-      const result = events.find((e) => e.type === 'result')
-      expect(result?.data?.finalText).toBe('SSN 123-45-6789')
-      // Persisted copy is redacted.
-      expect(persisted).toBe('SSN [REDACTED]')
+      },
     })
+    const events = await drain(body)
+    const result = events.find((e) => e.type === 'result')
+    expect(result?.data?.finalText).toBe('SSN 123-45-6789')
+    expect(persisted).toBe('SSN [REDACTED]')
+  })
 
-    it('a throwing persist hook is swallowed — the turn still completes', async () => {
-      const { body } = engine.runTurn({
+  it('a throwing persist hook is swallowed — the turn still completes', async () => {
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      log: () => undefined,
+      hooks: {
+        produce: textProducer('ok'),
+        persistAssistantMessage: async () => {
+          throw new Error('db down')
+        },
+      },
+    })
+    const events = await drain(body)
+    expect(events.at(-1)?.type).toBe('session.run.completed')
+  })
+
+  it('traceFlush is handed to waitUntil so the worker isolate survives the POST', async () => {
+    let flushAwaited = false
+    let waitUntilCalled = false
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      waitUntil: (p) => {
+        waitUntilCalled = true
+        void p.then(() => {
+          flushAwaited = true
+        })
+      },
+      hooks: {
+        produce: textProducer('ok'),
+        persistAssistantMessage: async () => undefined,
+        traceFlush: async () => {
+          flushAwaited = true
+        },
+      },
+    })
+    await drain(body)
+    expect(waitUntilCalled).toBe(true)
+    expect(flushAwaited).toBe(true)
+  })
+
+  it('swallowed hook errors are logged to console.error by default', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { body } = handleChatTurn({
         identity: IDENTITY,
-        userMessage: 'q',
-        projectId: 'legal-agent',
-        domain: 'legal',
-        store,
         hooks: {
           produce: textProducer('ok'),
           persistAssistantMessage: async () => {
@@ -280,9 +185,12 @@ for (const kind of storeKinds) {
           },
         },
       })
-      const events = await drain(body)
-      // Persist failure must not turn into session.run.failed.
-      expect(events.at(-1)?.type).toBe('session.run.completed')
-    })
+      await drain(body)
+      expect(spy).toHaveBeenCalled()
+      const messages = spy.mock.calls.map((c) => c[0])
+      expect(messages.some((m) => String(m).includes('persistAssistantMessage'))).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
   })
-}
+})

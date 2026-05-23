@@ -21,8 +21,15 @@ rest. Read this file once and the rest of the API falls into place.
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
-   │  Durability     ─  runDurableTurn / runSupervisedTurn   │
-   │  + DurableRunStore + stream-event log + RunHandle        │
+   │  Chat-turn lifecycle ─  handleChatTurn(...)                 │
+   │  NDJSON + session.run.* envelope + persist/trace hooks   │
+   └───────────────────────────────────────┬─────────────────┘
+                                           │
+   ┌───────────────────────────────────────┴─────────────────┐
+   │  Execution continuity (substrate-owned)                  │
+   │  box.streamPrompt — auto-reconnect in-call; X-Execution-ID
+   │  header for cross-process. deriveExecutionId is the
+   │  convention helper.                                       │
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
@@ -34,7 +41,7 @@ rest. Read this file once and the rest of the API falls into place.
 
 Each layer composes the one below it. You can use the bottom layers
 alone (a raw backend + the model catalog), or the whole stack
-(`defineAgent` → `runSupervisedTurn`) — they're the same primitives
+(`defineAgent` → `handleChatTurn`) — they're the same primitives
 nested.
 
 ## The task lifecycle
@@ -51,52 +58,33 @@ The adapter is *yours*. The lifecycle, the eval lift, the stop semantics,
 the cost ledger — all substrate. Streaming is the same shape:
 `runAgentTaskStream` yields `RuntimeStreamEvent`s as the loop progresses.
 
-## Durability — three levels
+## Execution continuity — substrate-owned
 
-A turn that "completes" means the response reached the client AND the
-side effects landed. A worker isolate can die anywhere in between. Pick
-the level that matches your turn length and substrate:
+Long-running execution durability — reconnect, replay, dedup — is the
+substrate's job, not agent-runtime's. The `@tangle-network/sandbox`
+SDK + orchestrator already handle it:
 
-| Level | Survives | When to reach for it |
-|---|---|---|
-| `runAgentTask` / `runAgentTaskStream` | nothing — a worker crash re-runs from the top | sub-second turns, no sandbox |
-| `runDurableTurn` | a worker crash *after* the turn finished (cached replay) | medium turns, no sandbox-reconnect |
-| `runSupervisedTurn` + `SessionSupervisorDO` | a worker crash *during* the turn — a fresh supervisor re-attaches to the in-flight sandbox run | long sandbox-backed turns |
+- **In-call reconnect**: `box.streamPrompt` extracts `executionId` from
+  the response's `execution.started` event and replays via the runtime
+  endpoint if the stream drops. Transparent — callers do nothing.
+- **Cross-process reconnect**: a fresh Worker can resume a prior
+  Worker's execution by POSTing to the orchestrator's
+  `/agents/run/stream` with the `X-Execution-ID` header. The SDK's
+  public `PromptOptions` does not yet surface this; products bypass the
+  SDK and call the orchestrator directly when they need it (see
+  tax-agent's `sessions.ts`).
+- The orchestrator's buffer is 10k events / 2-min post-completion. A
+  retry past that window gets `execution_not_found` and re-runs.
 
-`runSupervisedTurn` works because the sandbox container is
-orchestrator-managed and **outlives** the worker. The supervisor:
+agent-runtime owns one helper, `deriveExecutionId({ projectId,
+sessionId, turnIndex })`, that produces the stable id the product
+persists on its session row.
 
-1. Drains every event into the substrate's own ordered log
-   (`appendStreamEvent`, idempotent on `eventId`).
-2. Persists a `RunHandle` (`setRunHandle`) the moment the substrate
-   yields a run id.
-3. Heartbeats the lease while attached.
-
-A fresh supervisor reads the log for its cursor and calls
-`adapter.attach(handle, cursor)` to resume past it — events through
-`cursor` are not re-delivered (the log's idempotency dedups the seam).
-
-## The reconnect adapter contract
-
-`SandboxReconnectAdapter` is one typed interface. Implement it **once
-per substrate** (the Tangle sandbox SDK, an OpenAI Assistants thread,
-whatever), never per product.
-
-```ts
-interface SandboxReconnectAdapter<TEvent> {
-  start(): AsyncIterable<SupervisedEvent<TEvent>>
-  attach(handle: RunHandle, afterEventId: string | undefined):
-    AsyncIterable<SupervisedEvent<TEvent>>
-}
-```
-
-`SupervisedEvent` carries an `eventId` (cursor + dedup key), a `payload`
-(your event type), and an optional `handle` (carried on the first frame
-once the substrate yields the run id).
-
-Conformance assertions live in `src/durable/tests/supervisor.test.ts` —
-copy them into your adapter's tests so substrate quirks surface there,
-not in a 15-minute production turn.
+What lives in the Worker: auth, access control, product DB writes,
+prompt composition, routing. What lives in the substrate: the
+long-running execution, event buffering, replay-on-reconnect, dedup.
+The Worker stays a routing + persistence layer — it does not host
+execution state.
 
 ## The agent manifest
 
@@ -150,8 +138,8 @@ agents because nothing in this list is baked into it.
 
 1. `examples/basic-task/` — the smallest end-to-end.
 2. `examples/sandbox-stream-backend/` — what streaming looks like.
-3. `examples/runtime-run/` — the production-run row + cost ledger.
-4. `examples/model-resolution/` — pick + validate a model.
-5. `examples/durable-supervisor/` — the cross-worker resume keystone.
+3. `examples/chat-handler/` — `handleChatTurn` — the centerpiece chat handler.
+4. `examples/runtime-run/` — the production-run row + cost ledger.
+5. `examples/model-resolution/` — pick + validate a model.
 6. `examples/agent-into-reviewer/` — pipe one runtime's stream into a reviewer agent.
 7. The `README.md` entry-point table — every other primitive, one row each.

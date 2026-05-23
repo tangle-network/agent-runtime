@@ -2,10 +2,11 @@
 
 Production runtime substrate for domain agents. Owns the task lifecycle
 (knowledge readiness, control loop, session resume, sanitized telemetry,
-durable runs across worker / DO crashes, canonical `RuntimeRunRow`
-persistence + cost ledger), the chat-model catalog + admission, and the
-declarative `defineAgent` manifest — so domain repos stop inventing their
-own.
+canonical `RuntimeRunRow` persistence + cost ledger), the chat-turn
+engine (NDJSON envelope + product hooks), the chat-model catalog +
+admission, and the declarative `defineAgent` manifest — so domain
+repos stop inventing their own. Long-running execution durability
+(reconnect, replay, dedup) lives in `@tangle-network/sandbox`.
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
@@ -17,12 +18,9 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 |---|---|
 | `runAgentTask` | Single-shot adapter-driven task with eval/verification |
 | `runAgentTaskStream` | Streaming product loop with session resume + backends |
-| `runDurableTurn` | Checkpoint+replay chat turn — survives a worker crash *after* completion |
-| `runSupervisedTurn` | Always-attached durable turn — re-attaches an in-flight sandbox run *during* a crash |
-| `SessionSupervisorDO` | Cloudflare Durable Object host for `runSupervisedTurn` (with alarm-driven orphan re-attach) |
-| `DurableChatTurnEngine` | Framework-neutral chat-turn orchestrator (durable turn + NDJSON + session lifecycle + product hooks) |
+| `handleChatTurn` | Framework-neutral chat-turn orchestrator (NDJSON + `session.run.*` envelope + product hooks) |
+| `deriveExecutionId` | Stable substrate executionId for `X-Execution-ID` cross-process reconnect |
 | `startRuntimeRun` | Canonical production-run row + cost ledger |
-| `runDurable` + `*DurableRunStore` | General durable-step substrate (in-memory / file-system / D1) |
 | `defineAgent` | Declarative per-vertical agent manifest — surfaces, knowledge, rubric, run fn |
 | `resolveChatModel` / `validateChatModelId` / `getModels` | Router catalog fetch + fail-closed admission + precedence resolver |
 | `createTraceBridge` | Map `RuntimeStreamEvent` → `agent-eval` `TraceEvent` |
@@ -53,64 +51,53 @@ const result = await runAgentTask({
 console.log(result.status, result.runRecords)
 ```
 
-## Durable chat turns
+## Chat turns
 
-A 15-minute agentic turn must survive a Cloudflare worker isolate dying.
-`runDurableTurn` replays a *completed* turn from cache (worker died after
-the turn finished). `runSupervisedTurn` closes the harder gap — a turn
-interrupted *mid-stream* — by relocating the durability boundary off the
-ephemeral worker:
-
-- The supervisor drains every event into the substrate's own ordered log
-  (`appendStreamEvent`, idempotent on `eventId`).
-- It persists the substrate `RunHandle` the instant the sandbox yields it.
-- A fresh supervisor reads the log for its cursor and resumes via
-  `adapter.attach(handle, cursor)` — no event lost, none delivered twice.
-
-The reconnect glue is one typed contract — `SandboxReconnectAdapter` —
-implemented once per substrate, not per product.
+`handleChatTurn` wraps a product `produce()` hook with the `session.run.*`
+lifecycle envelope, drains the producer stream through the NDJSON line
+protocol, and calls the persist / post-process hooks after drain.
+Framework-neutral: takes already-resolved values, never a `Request` or
+`Context`.
 
 ```ts
-import { runSupervisedTurn, InMemoryDurableRunStore } from '@tangle-network/agent-runtime'
+import { handleChatTurn } from '@tangle-network/agent-runtime'
 
-const store = new InMemoryDurableRunStore()
-const supervised = runSupervisedTurn({
-  store, runId: `chat:${threadId}:${turnIndex}`, manifest, workerId,
-  adapter: mySandboxAdapter,
+const result = handleChatTurn({
+  identity: { tenantId: workspaceId, sessionId: threadId, userId, turnIndex },
+  hooks: {
+    produce: () => ({
+      stream: box.streamPrompt(prompt, sandboxOptions),
+      finalText: () => assembled,
+    }),
+    persistAssistantMessage: async ({ identity, finalText }) => db.insert(messages).values(...),
+    onTurnComplete: async ({ identity, finalText }) => extractProposals(finalText),
+    traceFlush: () => traceSink.flush(),
+  },
+  waitUntil: ctx.waitUntil,
 })
-for await (const event of supervised.stream) sendToClient(event)
-// supervised.mode() === 'fresh' | 'resumed' | 'replayed'
+return new Response(result.body, { headers: { 'content-type': result.contentType } })
 ```
 
-Full runnable: [`examples/durable-supervisor/`](./examples/durable-supervisor/).
+## Execution continuity
 
-### Cloudflare Durable Object host
+Long-running execution durability — reconnect, replay, dedup — lives in
+the substrate. `@tangle-network/sandbox`'s `box.streamPrompt`
+auto-reconnects in-call (extracts `executionId` from the response and
+replays via the runtime endpoint on drop). Cross-process reconnect —
+worker dies, a fresh worker resumes the same execution — requires
+either bypassing the SDK and POSTing directly with `X-Execution-ID`
+(see `tax-agent/sessions.ts`) or a future SDK release that surfaces the
+field on `PromptOptions`.
 
-`SessionSupervisorDO` hosts the supervisor on a real DO — `fetch` streams the
-turn, `alarm()` re-attaches a run a dropped response stream abandoned.
+`deriveExecutionId` is the convention helper for the stable id the
+product persists alongside its session row:
 
 ```ts
-import { createSessionSupervisorDO } from '@tangle-network/agent-runtime'
+import { deriveExecutionId } from '@tangle-network/agent-runtime'
 
-export const SessionSupervisor = createSessionSupervisorDO({
-  resolveRun(request, env, state)   { /* return RunSupervisorOptions */ },
-  resolveOrphan(runId, env, state)  { /* same, for the alarm path */ },
-  encodeEvent(event) { return `data: ${JSON.stringify(event)}\n\n` },
-})
+const executionId = deriveExecutionId({ projectId, sessionId, turnIndex })
+// pass as `X-Execution-ID` header when calling the orchestrator directly
 ```
-
-```toml
-# wrangler.toml
-[[durable_objects.bindings]]
-name = "SESSION_SUPERVISOR"
-class_name = "SessionSupervisor"
-[[migrations]]
-tag = "v1"
-new_classes = ["SessionSupervisor"]
-```
-
-CF types are structural (`DurableObjectStateLike`) — no
-`@cloudflare/workers-types` runtime dep.
 
 ## Chat-model resolution
 
@@ -157,7 +144,7 @@ export const myAgent = defineAgent({
   knowledge: { /* requirements + provider */ },
   rubric: { /* dimensions + weights */ },
   run: async (ctx) => {
-    /* product-specific run — typically wraps runSupervisedTurn or runAgentTaskStream */
+    /* product-specific run — typically wraps handleChatTurn or runAgentTaskStream */
   },
 })
 ```
@@ -213,9 +200,6 @@ for await (const event of runAgentTaskStream({ task, backend, input })) {
 | `BackendTransportError` | Backend HTTP / IPC call returned non-success |
 | `SessionMismatchError` | Resume requested against a different backend |
 | `RuntimeRunStateError` | `RuntimeRunHandle` lifecycle methods called out of order |
-| `DurableRunLeaseHeldError` | Another worker holds a live lease on the run |
-| `DurableRunInputMismatchError` | A `runId` exists with a different manifest hash |
-| `DurableRunDivergenceError` | A step's intent changed across replays |
 
 All extend `AgentEvalError` (re-exported from `@tangle-network/agent-eval`)
 and carry a stable `code` so cross-package handlers pattern-match
@@ -240,7 +224,7 @@ console.log(telemetry.events, telemetry.summary())
 
 | Package | Owns |
 |---|---|
-| `agent-runtime` | Lifecycle, adapters, backends, durable substrate, supervisor + DO, model resolution, trace bridge, `defineAgent` |
+| `agent-runtime` | Task lifecycle, adapters, backends, chat-turn engine, execution-handle contract, model resolution, trace bridge, `defineAgent`. **Does not** own long-running execution state — that lives in `@tangle-network/sandbox` + orchestrator. |
 | `agent-runtime/platform` | Cross-site SSO (`PlatformAuthClient`) + integrations hub (`PlatformHubClient`) |
 | `agent-runtime/agent` | `defineAgent` + surfaces / outcome adapters |
 | `agent-runtime/analyst-loop` | `runAnalystLoop` — analyst registry driver |
@@ -263,16 +247,14 @@ Runnable in [`examples/`](./examples/). Every example imports from
 - [`openai-stream-backend/`](./examples/openai-stream-backend/) — `createOpenAICompatibleBackend`
 - [`runtime-run/`](./examples/runtime-run/) — production-run row + cost ledger
 - [`model-resolution/`](./examples/model-resolution/) — router catalog + fail-closed admission
-- [`durable-supervisor/`](./examples/durable-supervisor/) — cross-worker resume keystone
 - [`agent-into-reviewer/`](./examples/agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent
-- [`chat-handler/`](./examples/chat-handler/) — `DurableChatTurnEngine.runTurn` (the centerpiece production pattern)
+- [`chat-handler/`](./examples/chat-handler/) — `handleChatTurn` (the centerpiece production pattern)
 - [`production-trace-sink/`](./examples/production-trace-sink/) — `createProductionTraceSink` data capture
 
 ## Tests
 
 ```bash
-pnpm test          # full Node suite (251 tests)
-pnpm test:workers  # real workerd DO integration test
+pnpm test
 pnpm typecheck
 pnpm lint
 pnpm build
