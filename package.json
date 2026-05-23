@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "Reusable runtime lifecycle for domain-specific agents.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
-    "@tangle-network/sandbox": "0.1.2",
+    "@tangle-network/sandbox": "^0.2.1",
     "@types/node": "^25.6.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
@@ -78,6 +78,6 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/sandbox": "0.1.2"
+    "@tangle-network/sandbox": ">=0.1.2 <0.3.0"
   }
 }

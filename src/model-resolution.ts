@@ -62,7 +62,6 @@ export async function getModels(
   return Array.isArray(body.data) ? body.data : []
 }
 
-
 /** Trim a candidate model id; `undefined` for non-strings and blanks. */
 export function cleanModelId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
