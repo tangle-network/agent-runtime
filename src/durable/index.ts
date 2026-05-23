@@ -1,92 +1,29 @@
 /**
- * Durable-run substrate for `@tangle-network/agent-runtime`.
+ * Turn-lifecycle helpers for `@tangle-network/agent-runtime`.
  *
- * Public surface — what consumers import. Implementations live in
- * sibling files (in-memory / file-system / D1). Runner + ctx live in
- * runner.ts. Identity helpers live in identity.ts.
+ * Execution state — long-running agent execution, reconnect, replay,
+ * dedup — lives in the substrate (`@tangle-network/sandbox` SDK +
+ * orchestrator). agent-runtime owns the layer above:
  *
- * See `./types.ts` for the full type contract and concurrency model.
+ *   - `AgentExecutionHandle` — the typed pointer products persist so a
+ *     reconnect lands on the same substrate execution instead of starting
+ *     a second prompt.
+ *   - `ChatTurnEngine` — the framework-neutral turn lifecycle: NDJSON
+ *     framing, `session.run.*` envelope, persist / post-process / trace-
+ *     flush hook ordering. Wraps any producer; the producer talks to the
+ *     substrate.
  */
 
-// ── Durable chat-turn engine ──────────────────────────────────────────
-// Framework-neutral chat-turn orchestrator: durable turn + NDJSON
-// streaming + session.run.* lifecycle + product persist/post-process
-// hooks. Every product chat handler routes through this.
+// ── Chat-turn engine ──────────────────────────────────────────────────
 export type {
   ChatStreamEvent,
   ChatTurnHooks,
   ChatTurnIdentity,
+  ChatTurnProducer,
   ChatTurnResult,
   RunChatTurnInput,
 } from './chat-engine'
-export { DurableChatTurnEngine, durableChatTurnEngine } from './chat-engine'
-export type { D1DatabaseLike, D1PreparedStatementLike } from './d1-store'
-export { D1DurableRunStore } from './d1-store'
-export { FileSystemDurableRunStore } from './file-system-store'
-export { canonicalHash, canonicalJson, deriveWorkerId, manifestHash, stepId } from './identity'
-export { InMemoryDurableRunStore } from './in-memory-store'
-export type { DurableContext, RunDurableInput, RunDurableResult } from './runner'
-export { runDurable } from './runner'
-// Canonical D1 schema string + current version. Consumers wire via
-//   await env.DB.exec(DURABLE_SCHEMA_SQL)
-// during one-time bootstrap. `src/durable/schema.sql` is the source of
-// truth; `schema.ts` is the build-bundled string that ships in dist/.
-export { DURABLE_SCHEMA_SQL, DURABLE_SCHEMA_VERSION } from './schema'
-// ── Durable-run supervisor — cross-worker / cross-DO durability ───────
-// Relocates the durability boundary off the ephemeral worker isolate: the
-// supervisor drains a run's event stream into the substrate's own log, and
-// a fresh supervisor re-attaches from the persisted cursor instead of
-// re-prompting. SessionSupervisorDO hosts it on a Cloudflare Durable Object.
-export type {
-  DurableObjectStateLike,
-  DurableObjectStorageLike,
-  SessionSupervisorDO,
-  SupervisorHostConfig,
-} from './session-supervisor-do'
-export { createSessionSupervisorDO } from './session-supervisor-do'
-export type {
-  RunSupervisorOptions,
-  SandboxReconnectAdapter,
-  SupervisedEvent,
-  SupervisedRunHandle,
-  SupervisedRunMode,
-} from './supervisor'
-export { runSupervisedTurn } from './supervisor'
-// ── Durable turn primitive ────────────────────────────────────────────
-// Streaming, backend-agnostic, checkpoint+replay durable turn. The single
-// reusable primitive every product chat handler routes through.
-export type {
-  DurableTurnHandle,
-  DurableTurnProducer,
-  RunDurableTurnOptions,
-} from './turn'
-export { runDurableTurn } from './turn'
-export type {
-  DurableRunManifest,
-  DurableRunStore,
-  EventRecord,
-  RunHandle,
-  RunOutcome,
-  RunRecord,
-  RunStatus,
-  StepError,
-  StepKind,
-  StepRecord,
-  StepStatus,
-  StreamEventRecord,
-} from './types'
-export {
-  DurableAwaitEventTimeoutError,
-  DurableRunDivergenceError,
-  DurableRunError,
-  DurableRunInputMismatchError,
-  DurableRunLeaseHeldError,
-} from './types'
-
-// ── Cloudflare Workflows integration ──────────────────────────────────
-export type {
-  RunOnWorkflowStepInput,
-  WorkflowStepConfig,
-  WorkflowStepLike,
-} from './workflows'
-export { runOnWorkflowStep } from './workflows'
+export { ChatTurnEngine, chatTurnEngine } from './chat-engine'
+// ── Execution-continuity contract ─────────────────────────────────────
+export type { AgentExecutionHandle, ReconnectableAgentStream } from './execution-handle'
+export { deriveExecutionId } from './execution-handle'

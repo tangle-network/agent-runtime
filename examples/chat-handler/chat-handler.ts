@@ -1,14 +1,13 @@
 /**
- * Full durable chat handler — the centerpiece production pattern every
- * product chat handler implements.
+ * Full chat handler — the centerpiece production pattern every product
+ * chat handler implements.
  *
- * `DurableChatTurnEngine.runTurn` composes the substrate stack: it builds
- * the durable manifest from the chat identity, drives `runDurableTurn`,
- * emits `session.run.*` lifecycle events around the producer stream,
- * checkpoints the final text into the run store, and returns a ready-to-
- * pipe `ReadableStream`. A worker crash *after* the turn finishes replays
- * the cached final text; a worker crash *during* the turn is what
- * `runSupervisedTurn` is for (see `examples/durable-supervisor/`).
+ * `ChatTurnEngine.runTurn` wraps the product's `produce()` hook with the
+ * `session.run.*` lifecycle envelope, drains the producer stream through
+ * the NDJSON line protocol, and calls the persist / post-process hooks
+ * after drain. It owns no execution state — that lives in the substrate
+ * (`@tangle-network/sandbox`'s `box.streamPrompt({ executionId,
+ * lastEventId })` handles reconnect/replay/dedup).
  *
  * In a real product, `produce()` calls `runAgentTaskStream({ task,
  * backend, input })` with a real backend (`createOpenAICompatibleBackend`
@@ -19,15 +18,13 @@
  *   pnpm tsx examples/chat-handler/chat-handler.ts
  */
 
-import type { ChatStreamEvent, DurableTurnProducer } from '@tangle-network/agent-runtime'
-import { durableChatTurnEngine, InMemoryDurableRunStore } from '@tangle-network/agent-runtime'
-
-const store = new InMemoryDurableRunStore()
+import type { ChatStreamEvent, ChatTurnProducer } from '@tangle-network/agent-runtime'
+import { chatTurnEngine, deriveExecutionId } from '@tangle-network/agent-runtime'
 
 // ── The product's `produce` hook — yields the turn's event stream + a
 //    finalText() once drained. In production this is a thin wrapper over
 //    `runAgentTaskStream(...)` against a real backend. ──────────────────
-function produce(userMessage: string): DurableTurnProducer<ChatStreamEvent> {
+function produce(userMessage: string): ChatTurnProducer<ChatStreamEvent> {
   let accumulated = ''
   const reply = userMessage.toLowerCase().includes('missing')
     ? 'The 2026 return is missing Schedule B and one W-2. Please upload them.'
@@ -49,17 +46,28 @@ function produce(userMessage: string): DurableTurnProducer<ChatStreamEvent> {
 }
 
 async function runTurn(userMessage: string, turnIndex: number): Promise<string> {
-  const result = durableChatTurnEngine.runTurn({
-    store,
-    identity: { tenantId: 'demo-tenant', sessionId: 'thread-42', turnIndex },
-    userMessage,
+  // The execution id products persist alongside their session row so a
+  // client retry lands on the same substrate execution. The chat-turn
+  // engine itself does not need it — it goes into the producer hook
+  // when calling `box.streamPrompt({ executionId, lastEventId })`.
+  const executionId = deriveExecutionId({
     projectId: 'demo-agent',
-    domain: 'demo',
-    hooks: { produce: () => produce(userMessage) },
+    sessionId: 'thread-42',
+    turnIndex,
   })
 
-  // The engine returns a ReadableStream of NDJSON-encoded ChatStreamEvent
-  // lines — exactly what an SSE/HTTP route forwards to the client.
+  const result = chatTurnEngine.runTurn({
+    identity: { tenantId: 'demo-tenant', sessionId: 'thread-42', userId: 'demo-user', turnIndex },
+    hooks: {
+      produce: () => produce(userMessage),
+      persistAssistantMessage: async ({ finalText }) => {
+        console.log(
+          `[persist     ] turn=${turnIndex} executionId=${executionId} chars=${finalText.length}`,
+        )
+      },
+    },
+  })
+
   const reader = result.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -74,7 +82,7 @@ async function runTurn(userMessage: string, turnIndex: number): Promise<string> 
       if (!line) continue
       const event = JSON.parse(line) as ChatStreamEvent
       if (event.type === 'message.part.updated') process.stdout.write('.')
-      if (event.type === 'result') final = String((event.data ?? {}).finalText ?? '')
+      if (event.type === 'result') final = String(event.data?.finalText ?? '')
       if (event.type === 'session.run.started') console.log(`[run started ] turn=${turnIndex}`)
       if (event.type === 'session.run.completed') console.log(`\n[run done    ] turn=${turnIndex}`)
     }
@@ -83,18 +91,11 @@ async function runTurn(userMessage: string, turnIndex: number): Promise<string> 
 }
 
 async function main() {
-  // Turn 1: fresh.
   const t1 = await runTurn('Where do I start with my 2026 return?', 0)
   console.log(`[turn 0 text ] ${t1}\n`)
 
-  // Turn 2: a different turn — fresh manifest, fresh runId.
   const t2 = await runTurn('What about the missing Schedule B?', 1)
   console.log(`[turn 1 text ] ${t2}\n`)
-
-  // Turn 3: same identity as turn 0 — durable run hits the replay path
-  // because step 0 of `chat:thread-42:0` is already completed.
-  const t3 = await runTurn('Where do I start with my 2026 return?', 0)
-  console.log(`[turn 0 text ] ${t3}   (replayed from durable store)`)
 }
 
 main().catch((err) => {

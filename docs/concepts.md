@@ -21,8 +21,14 @@ rest. Read this file once and the rest of the API falls into place.
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
-   │  Durability     ─  runDurableTurn / runSupervisedTurn   │
-   │  + DurableRunStore + stream-event log + RunHandle        │
+   │  Chat-turn engine  ─  ChatTurnEngine.runTurn(...)        │
+   │  NDJSON + session.run.* envelope + persist/trace hooks    │
+   └───────────────────────────────────────┬─────────────────┘
+                                           │
+   ┌───────────────────────────────────────┴─────────────────┐
+   │  Execution continuity (substrate-owned)                  │
+   │  box.streamPrompt({ executionId, lastEventId })          │
+   │  agent-runtime provides: AgentExecutionHandle + deriveExecutionId
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
@@ -34,7 +40,7 @@ rest. Read this file once and the rest of the API falls into place.
 
 Each layer composes the one below it. You can use the bottom layers
 alone (a raw backend + the model catalog), or the whole stack
-(`defineAgent` → `runSupervisedTurn`) — they're the same primitives
+(`defineAgent` → `chatTurnEngine`) — they're the same primitives
 nested.
 
 ## The task lifecycle
@@ -51,52 +57,55 @@ The adapter is *yours*. The lifecycle, the eval lift, the stop semantics,
 the cost ledger — all substrate. Streaming is the same shape:
 `runAgentTaskStream` yields `RuntimeStreamEvent`s as the loop progresses.
 
-## Durability — three levels
+## Execution continuity — substrate-owned
 
-A turn that "completes" means the response reached the client AND the
-side effects landed. A worker isolate can die anywhere in between. Pick
-the level that matches your turn length and substrate:
+Long-running execution durability — reconnect, replay, dedup — is the
+substrate's job, not agent-runtime's. The `@tangle-network/sandbox` SDK
++ orchestrator already implements every primitive a 15-minute turn
+needs:
 
-| Level | Survives | When to reach for it |
-|---|---|---|
-| `runAgentTask` / `runAgentTaskStream` | nothing — a worker crash re-runs from the top | sub-second turns, no sandbox |
-| `runDurableTurn` | a worker crash *after* the turn finished (cached replay) | medium turns, no sandbox-reconnect |
-| `runSupervisedTurn` + `SessionSupervisorDO` | a worker crash *during* the turn — a fresh supervisor re-attaches to the in-flight sandbox run | long sandbox-backed turns |
+- `box.streamPrompt(prompt, { executionId, lastEventId })` buffers the
+  event stream by `executionId` at the orchestrator.
+- On reconnect with the same `executionId` and a known `lastEventId`,
+  the orchestrator replays strictly after that id without spawning a
+  duplicate execution.
+- The SDK dedupes replayed text deltas and tool completions on the
+  client side; observers see exactly one of each.
 
-`runSupervisedTurn` works because the sandbox container is
-orchestrator-managed and **outlives** the worker. The supervisor:
-
-1. Drains every event into the substrate's own ordered log
-   (`appendStreamEvent`, idempotent on `eventId`).
-2. Persists a `RunHandle` (`setRunHandle`) the moment the substrate
-   yields a run id.
-3. Heartbeats the lease while attached.
-
-A fresh supervisor reads the log for its cursor and calls
-`adapter.attach(handle, cursor)` to resume past it — events through
-`cursor` are not re-delivered (the log's idempotency dedups the seam).
-
-## The reconnect adapter contract
-
-`SandboxReconnectAdapter` is one typed interface. Implement it **once
-per substrate** (the Tangle sandbox SDK, an OpenAI Assistants thread,
-whatever), never per product.
+agent-runtime owns the typed pointer products persist:
 
 ```ts
-interface SandboxReconnectAdapter<TEvent> {
-  start(): AsyncIterable<SupervisedEvent<TEvent>>
-  attach(handle: RunHandle, afterEventId: string | undefined):
-    AsyncIterable<SupervisedEvent<TEvent>>
+interface AgentExecutionHandle {
+  executionId: string
+  sessionId?: string
+  lastEventId?: string
 }
+
+deriveExecutionId({ projectId, sessionId, turnIndex }): string
 ```
 
-`SupervisedEvent` carries an `eventId` (cursor + dedup key), a `payload`
-(your event type), and an optional `handle` (carried on the first frame
-once the substrate yields the run id).
+The product persists `executionId` on its session row so a client retry
+of the same turn lands on the same substrate execution — the
+orchestrator replays its buffer instead of starting a second prompt.
+A retry with a stale `lastEventId` (or none) replays from the start of
+the buffer.
 
-Conformance assertions live in `src/durable/tests/supervisor.test.ts` —
-copy them into your adapter's tests so substrate quirks surface there,
-not in a 15-minute production turn.
+What lives in the Worker:
+
+- auth / access control
+- product DB writes (the assistant message, run row, side effects)
+- prompt / profile composition
+- routing (which backend handles this turn)
+
+What lives in the substrate:
+
+- the long-running execution
+- event buffering keyed by `executionId`
+- replay-on-reconnect
+- dedup across the reconnect seam
+
+The Worker stays a routing + persistence layer. It does not host
+execution state.
 
 ## The agent manifest
 
@@ -150,8 +159,8 @@ agents because nothing in this list is baked into it.
 
 1. `examples/basic-task/` — the smallest end-to-end.
 2. `examples/sandbox-stream-backend/` — what streaming looks like.
-3. `examples/runtime-run/` — the production-run row + cost ledger.
-4. `examples/model-resolution/` — pick + validate a model.
-5. `examples/durable-supervisor/` — the cross-worker resume keystone.
+3. `examples/chat-handler/` — `chatTurnEngine` + `deriveExecutionId` — the centerpiece chat handler.
+4. `examples/runtime-run/` — the production-run row + cost ledger.
+5. `examples/model-resolution/` — pick + validate a model.
 6. `examples/agent-into-reviewer/` — pipe one runtime's stream into a reviewer agent.
 7. The `README.md` entry-point table — every other primitive, one row each.

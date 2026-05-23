@@ -1,13 +1,19 @@
 /**
- * `DurableChatTurnEngine` — the framework-neutral chat-turn orchestrator every
- * product chat handler routes through. It owns the parts that were copy-pasted
- * across legal / gtm / creative / tax: durable checkpointing, the NDJSON
- * `StreamEvent` line protocol, the `session.run.*` lifecycle vocabulary, the
- * runtime-run cost ledger, and trace flush. Everything genuinely
- * product-specific is a hook the product supplies.
+ * `ChatTurnEngine` — the framework-neutral chat-turn orchestrator every
+ * product chat handler routes through. Owns the parts that were copy-pasted
+ * across legal / gtm / creative / tax: the NDJSON `ChatStreamEvent` line
+ * protocol, the `session.run.*` lifecycle vocabulary, the persist /
+ * post-process / trace-flush hook ordering.
+ *
+ * Execution durability is NOT this engine's problem. The substrate
+ * (@tangle-network/sandbox + orchestrator) owns it: `box.streamPrompt({
+ * executionId, lastEventId })` buffers the stream by `executionId`,
+ * replays strictly after `lastEventId` on reconnect, and never spawns a
+ * duplicate. `AgentExecutionHandle` is the typed pointer products
+ * persist; this engine just wraps a producer that already speaks that
+ * primitive.
  *
  * What the engine owns:
- *   - durable turn (`runDurableTurn`): completed turns replay free, no re-bill
  *   - the `session.run.started` / `session.run.completed` / `session.run.failed`
  *     event envelope around the producer's events
  *   - NDJSON encoding into a `ReadableStream<Uint8Array>` (the body every
@@ -24,17 +30,13 @@
  *   - `onTurnComplete` (optional) — post-process (proposals, citations, …)
  *   - `onEvent` (optional)        — per-event side-channel (e.g. DO broadcast)
  *   - `transformFinalText` (optional) — pre-persist transform (e.g. PII redact)
+ *   - `traceFlush` (optional)     — handed to waitUntil so OTLP export lands
  *
- * Framework neutrality: the engine takes already-resolved values
- * (`userId`, identity tuple, parsed message, a `DurableRunStore`, a
- * `waitUntil`), never a `Request` or a `Context`. The product's thin route
- * adapter does auth + parse + access-control, then calls `engine.runTurn(...)`
- * and returns `result.body` as its platform `Response`.
+ * Framework neutrality: the engine takes already-resolved values (`identity`
+ * tuple, a `waitUntil`), never a `Request` or a `Context`. The product's
+ * thin route adapter does auth + parse + access-control, then calls
+ * `engine.runTurn(...)` and returns `result.body` as its platform `Response`.
  */
-
-import { deriveWorkerId } from './identity'
-import { type DurableTurnProducer, runDurableTurn } from './turn'
-import type { DurableRunManifest, DurableRunStore, RunRecord } from './types'
 
 /** The NDJSON line protocol every product chat client already speaks. */
 export interface ChatStreamEvent {
@@ -46,11 +48,22 @@ export interface ChatStreamEvent {
  *  scoped products and the user id for session-scoped products. */
 export interface ChatTurnIdentity {
   tenantId: string
-  /** Thread / session id — the durable run is keyed on this + `turnIndex`. */
+  /** Thread / session id. */
   sessionId: string
   userId: string
   /** Monotonic 0-based turn index within the session. */
   turnIndex: number
+}
+
+/** The live side of a turn — what the product's `produce` hook returns. */
+export interface ChatTurnProducer<TEvent extends ChatStreamEvent = ChatStreamEvent> {
+  /** The turn's event stream. Forwarded verbatim to the caller. */
+  stream: AsyncGenerator<TEvent, void, unknown>
+  /** The turn's final assistant text. Read once, after `stream` drains.
+   *  When the producer cannot populate this synchronously after drain,
+   *  return '' and use `ChatTurnHooks.accumulate` to assemble text from
+   *  events instead. */
+  finalText(): string
 }
 
 export interface ChatTurnHooks {
@@ -59,17 +72,13 @@ export interface ChatTurnHooks {
    * backend this is — sandbox container, tcloud router, direct runtime, a
    * test double — it only forwards the events and reads `finalText()`.
    */
-  produce(): DurableTurnProducer<ChatStreamEvent>
+  produce(): ChatTurnProducer
   /**
    * Persist the completed assistant message to the product's own store.
-   * Called once, after the stream drains, on a fresh (non-replay) run.
-   * Receives the assembled (and `transformFinalText`-transformed) text.
+   * Called once, after the stream drains, with the assembled (and
+   * `transformFinalText`-transformed) text.
    */
-  persistAssistantMessage(input: {
-    identity: ChatTurnIdentity
-    finalText: string
-    record: RunRecord | undefined
-  }): Promise<void>
+  persistAssistantMessage(input: { identity: ChatTurnIdentity; finalText: string }): Promise<void>
   /**
    * Optional post-processing after persistence — proposal extraction,
    * citation validation, credit metering, etc. Product policy; the engine
@@ -89,6 +98,13 @@ export interface ChatTurnHooks {
    */
   transformFinalText?(text: string): string | Promise<string>
   /**
+   * Optional live accumulator. When the producer's `finalText()` is only
+   * valid after drain, this lets the engine also observe each event to
+   * build the text — return the running text or `undefined` to ignore an
+   * event. When omitted, `producer.finalText()` is the sole source.
+   */
+  accumulate?(event: ChatStreamEvent, current: string): string | undefined
+  /**
    * Optional trace flush — resolves when OTLP export completes. The engine
    * hands it to `waitUntil` so the worker isolate stays alive for the POST.
    */
@@ -97,23 +113,10 @@ export interface ChatTurnHooks {
 
 export interface RunChatTurnInput {
   identity: ChatTurnIdentity
-  /** The user's message for this turn. Hashed into the durable run identity. */
-  userMessage: string
-  /** Product id for telemetry / the durable manifest (`legal-agent`, …). */
-  projectId: string
-  /** Domain tag for the task spec (`legal`, `gtm`, …). */
-  domain: string
-  /** Model id, when known — recorded on the manifest. */
-  model?: string
-  store: DurableRunStore
   hooks: ChatTurnHooks
   /** Worker liveness hook (`ctx.waitUntil` / `executionCtx.waitUntil`). When
    *  omitted, trace flush is awaited inline before the stream closes. */
   waitUntil?: (p: Promise<unknown>) => void
-  /** Stable per-isolate worker id. Defaults to a fresh `deriveWorkerId()`. */
-  workerId?: string
-  /** Lease window in ms. Default 60_000. */
-  leaseMs?: number
   /** Optional structured logger for swallowed hook errors. */
   log?: (message: string, meta?: Record<string, unknown>) => void
 }
@@ -135,49 +138,23 @@ function encodeLine(event: ChatStreamEvent): Uint8Array {
  * The engine. One instance is stateless and reusable across requests — all
  * per-turn state lives in `runTurn`'s closure.
  */
-export class DurableChatTurnEngine {
+export class ChatTurnEngine {
   /**
-   * Run one durable chat turn. Returns immediately with a `ReadableStream`
-   * body; the turn executes as the body is pulled. Never rejects — backend
+   * Run one chat turn. Returns immediately with a `ReadableStream` body;
+   * the turn executes as the body is pulled. Never rejects — backend
    * failures surface as `error` + `session.run.failed` events.
    */
   runTurn(input: RunChatTurnInput): ChatTurnResult {
-    const workerId = input.workerId ?? deriveWorkerId()
     const log = input.log ?? (() => undefined)
-    const { identity } = input
-    const runId = `chat:${identity.sessionId}:${identity.turnIndex}`
-
-    const manifest: DurableRunManifest = {
-      projectId: input.projectId,
-      scenarioId: identity.sessionId,
-      task: {
-        id: `${input.projectId}:chat:${identity.sessionId}:${identity.turnIndex}`,
-        intent: `Run a ${input.domain} chat turn with workspace context.`,
-        domain: input.domain,
-        requiredKnowledge: [],
-        metadata: {
-          tenantId: identity.tenantId,
-          sessionId: identity.sessionId,
-          turnIndex: identity.turnIndex,
-        },
-      },
-      input: {
-        userMessage: input.userMessage,
-        model: input.model ?? null,
-      },
-      tags: {
-        session_id: identity.sessionId,
-        tenant_id: identity.tenantId,
-      },
-    }
+    const { identity, hooks } = input
 
     const body = new ReadableStream<Uint8Array>({
       start: async (controller) => {
         const emit = async (event: ChatStreamEvent): Promise<void> => {
           controller.enqueue(encodeLine(event))
-          if (input.hooks.onEvent) {
+          if (hooks.onEvent) {
             try {
-              await input.hooks.onEvent(event)
+              await hooks.onEvent(event)
             } catch (err) {
               log('[chat-engine] onEvent hook threw', {
                 error: err instanceof Error ? err.message : String(err),
@@ -186,7 +163,6 @@ export class DurableChatTurnEngine {
           }
         }
 
-        let turnFailed = false
         try {
           await emit({
             type: 'session.run.started',
@@ -197,75 +173,45 @@ export class DurableChatTurnEngine {
             },
           })
 
-          const turn = runDurableTurn<ChatStreamEvent>({
-            store: input.store,
-            runId,
-            manifest,
-            workerId,
-            leaseMs: input.leaseMs,
-            intent: `chat:turn-${identity.turnIndex}`,
-            produce: input.hooks.produce,
-            replayEvent: (finalText) => ({ type: 'result', data: { finalText } }),
-            accumulate: (event, current) => {
-              // Accumulate from the same event shapes products already emit:
-              // `message.part.updated` text deltas and a trailing `result`.
-              if (event.type === 'message.part.updated') {
-                const data = event.data ?? {}
-                const delta = typeof data.delta === 'string' ? data.delta : ''
-                const part = data.part as { type?: string; text?: string } | undefined
-                if (delta) return current + delta
-                if (part?.type === 'text' && typeof part.text === 'string') return part.text
-                return undefined
-              }
-              if (event.type === 'result') {
-                const data = event.data ?? {}
-                if (typeof data.finalText === 'string') return data.finalText
-              }
-              return undefined
-            },
-          })
-
-          for await (const event of turn.stream) {
+          const producer = hooks.produce()
+          let accumulated = ''
+          for await (const event of producer.stream) {
+            if (hooks.accumulate) {
+              const next = hooks.accumulate(event, accumulated)
+              if (typeof next === 'string') accumulated = next
+            }
             await emit(event)
           }
-
-          const rawFinal = turn.finalText()
-          const finalText = input.hooks.transformFinalText
-            ? await input.hooks.transformFinalText(rawFinal)
+          // Producer's own finalText wins when populated; otherwise the
+          // live accumulator's value stands.
+          const producerText = producer.finalText()
+          const rawFinal = producerText || accumulated
+          const finalText = hooks.transformFinalText
+            ? await hooks.transformFinalText(rawFinal)
             : rawFinal
 
-          // Persist + post-process only on a fresh run. On replay the
-          // assistant message + side effects already landed on the first
-          // (completed) attempt — re-persisting would double-write.
-          if (!turn.replayed()) {
+          try {
+            await hooks.persistAssistantMessage({ identity, finalText })
+          } catch (err) {
+            log('[chat-engine] persistAssistantMessage threw', {
+              error: err instanceof Error ? err.message : String(err),
+            })
+          }
+          if (hooks.onTurnComplete) {
             try {
-              await input.hooks.persistAssistantMessage({
-                identity,
-                finalText,
-                record: turn.record(),
-              })
+              await hooks.onTurnComplete({ identity, finalText })
             } catch (err) {
-              log('[chat-engine] persistAssistantMessage threw', {
+              log('[chat-engine] onTurnComplete threw', {
                 error: err instanceof Error ? err.message : String(err),
               })
-            }
-            if (input.hooks.onTurnComplete) {
-              try {
-                await input.hooks.onTurnComplete({ identity, finalText })
-              } catch (err) {
-                log('[chat-engine] onTurnComplete threw', {
-                  error: err instanceof Error ? err.message : String(err),
-                })
-              }
             }
           }
 
           await emit({
             type: 'session.run.completed',
-            data: { sessionId: identity.sessionId, replayed: turn.replayed() },
+            data: { sessionId: identity.sessionId },
           })
         } catch (err) {
-          turnFailed = true
           const message = err instanceof Error ? err.message : String(err)
           log('[chat-engine] turn failed', { error: message })
           await emit({ type: 'error', data: { message } })
@@ -274,10 +220,8 @@ export class DurableChatTurnEngine {
             data: { sessionId: identity.sessionId, message },
           })
         } finally {
-          // Trace flush: hand to waitUntil so the isolate survives the POST;
-          // await inline when no waitUntil is available (local / tests).
-          if (input.hooks.traceFlush) {
-            const flush = input.hooks.traceFlush().catch((err) =>
+          if (hooks.traceFlush) {
+            const flush = hooks.traceFlush().catch((err) =>
               log('[chat-engine] traceFlush threw', {
                 error: err instanceof Error ? err.message : String(err),
               }),
@@ -286,7 +230,6 @@ export class DurableChatTurnEngine {
             else await flush
           }
           controller.close()
-          void turnFailed
         }
       },
     })
@@ -296,4 +239,4 @@ export class DurableChatTurnEngine {
 }
 
 /** Convenience singleton — the engine is stateless, one instance is enough. */
-export const durableChatTurnEngine = new DurableChatTurnEngine()
+export const chatTurnEngine = new ChatTurnEngine()
