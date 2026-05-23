@@ -193,9 +193,14 @@ export function createOpenAICompatibleBackend<
     },
     async *stream(input, context) {
       const url = `${options.baseUrl.replace(/\/$/, '')}/chat/completions`
+      // `stream_options.include_usage` instructs OpenAI-compatible providers
+      // (and the Tangle Router) to emit a final usage chunk in the SSE stream.
+      // Without this the response carries no token counts and every downstream
+      // ledger reads zero. Providers that don't recognize the field ignore it.
       const requestBody = JSON.stringify({
         model: options.model,
         stream: true,
+        stream_options: { include_usage: true },
         messages: input.messages ?? [
           { role: 'user', content: input.message ?? context.task.intent },
         ],
@@ -258,9 +263,23 @@ export function createOpenAICompatibleBackend<
           status: lastStatus || 0,
         })
       }
-      yield* streamResponseEvents(response, context)
+      yield* streamResponseEvents(response, context, options.model)
     },
   }
+}
+
+/**
+ * Token usage accumulated across an SSE stream. OpenAI emits a single final
+ * `usage` chunk; Anthropic emits `input_tokens` on `message_start` and
+ * `output_tokens` on the terminal `message_delta`. We accept both — and the
+ * router proxy may forward either shape depending on which upstream answered.
+ */
+interface StreamUsageAccumulator {
+  tokensIn?: number
+  tokensOut?: number
+  model?: string
+  finishReason?: string
+  saw: boolean
 }
 
 /** @internal */
@@ -413,12 +432,15 @@ function mapCommonBackendEvent(
 async function* streamResponseEvents(
   response: Response,
   context: AgentBackendContext,
+  requestedModel: string,
 ): AsyncIterable<RuntimeStreamEvent> {
   const body = response.body
   if (!body) return
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  const usage: StreamUsageAccumulator = { saw: false }
+  const startedAt = Date.now()
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -428,8 +450,28 @@ async function* streamResponseEvents(
   buffer += decoder.decode().replace(/\r\n/g, '\n')
   for (const event of drainStreamBuffer(true)) yield event
   if (buffer.trim()) {
-    const event = parseStreamChunk(buffer, context)
+    const event = parseStreamChunk(buffer, context, usage)
     if (event) yield event
+  }
+  // Synthesize a single `llm_call` event from accumulated usage. We only emit
+  // when the upstream actually reported tokens — silent zeros would corrupt
+  // every cost ledger that observes the stream. Consumers that need to detect
+  // missing usage can check `tokensIn === undefined`.
+  if (usage.saw) {
+    yield {
+      type: 'llm_call',
+      task: context.task,
+      session: context.session,
+      model: usage.model ?? requestedModel,
+      tokensIn: usage.tokensIn,
+      tokensOut: usage.tokensOut,
+      // `costUsd` is intentionally absent — pricing tables live in consumers
+      // (agent-eval's `estimateCost`, MetricsCollector). Emitting a wrong
+      // number here is worse than emitting none.
+      latencyMs: Date.now() - startedAt,
+      finishReason: usage.finishReason,
+      timestamp: nowIso(),
+    }
   }
 
   function* drainStreamBuffer(flush: boolean): Iterable<RuntimeStreamEvent> {
@@ -438,7 +480,7 @@ async function* streamResponseEvents(
       if (sseBoundary >= 0) {
         const chunk = buffer.slice(0, sseBoundary)
         buffer = buffer.slice(sseBoundary + 2)
-        const event = parseStreamChunk(chunk, context)
+        const event = parseStreamChunk(chunk, context, usage)
         if (event) yield event
         continue
       }
@@ -447,7 +489,7 @@ async function* streamResponseEvents(
       if (newline >= 0 && !buffer.slice(0, newline).startsWith('data:')) {
         const line = buffer.slice(0, newline)
         buffer = buffer.slice(newline + 1)
-        const event = parseStreamChunk(line, context)
+        const event = parseStreamChunk(line, context, usage)
         if (event) yield event
         continue
       }
@@ -455,7 +497,7 @@ async function* streamResponseEvents(
       if (flush && buffer.trim() && !buffer.trimStart().startsWith('data:')) {
         const line = buffer
         buffer = ''
-        const event = parseStreamChunk(line, context)
+        const event = parseStreamChunk(line, context, usage)
         if (event) yield event
         continue
       }
@@ -468,6 +510,7 @@ async function* streamResponseEvents(
 function parseStreamChunk(
   chunk: string,
   context: AgentBackendContext,
+  usage: StreamUsageAccumulator,
 ): RuntimeStreamEvent | undefined {
   const lines = chunk.split(/\r?\n/)
   const dataLines = lines.filter((line) => line.startsWith('data:'))
@@ -478,6 +521,7 @@ function parseStreamChunk(
   if (!data || data === '[DONE]') return undefined
   try {
     const parsed = JSON.parse(data) as Record<string, unknown>
+    captureStreamUsage(parsed, usage)
     const choices = parsed.choices
     const choice = Array.isArray(choices)
       ? (choices[0] as Record<string, unknown> | undefined)
@@ -495,6 +539,21 @@ function parseStreamChunk(
         timestamp: nowIso(),
       }
     }
+    // Anthropic shape: `content_block_delta` carries `delta.text` for streamed
+    // text. The router proxies these through verbatim, so handle them here.
+    if (stringValue(parsed.type) === 'content_block_delta') {
+      const d = parsed.delta as Record<string, unknown> | undefined
+      const text = stringValue(d?.text)
+      if (text) {
+        return {
+          type: 'text_delta',
+          task: context.task,
+          session: context.session,
+          text,
+          timestamp: nowIso(),
+        }
+      }
+    }
     return mapCommonBackendEvent(parsed, context)
   } catch {
     return {
@@ -505,6 +564,79 @@ function parseStreamChunk(
       timestamp: nowIso(),
     }
   }
+}
+
+/**
+ * Accumulate token usage from any SSE chunk shape the router may emit.
+ *
+ *  - OpenAI: a final chunk before `[DONE]` with `{ usage: { prompt_tokens,
+ *    completion_tokens, total_tokens } }` and (often) empty `choices`. The
+ *    `model` field is on every chunk and the last `choices[0].finish_reason`
+ *    carries the stop reason.
+ *  - Anthropic: `message_start` carries `message.model` and
+ *    `message.usage.input_tokens`. The terminal `message_delta` carries
+ *    `usage.output_tokens` and `delta.stop_reason`.
+ */
+function captureStreamUsage(parsed: Record<string, unknown>, usage: StreamUsageAccumulator): void {
+  const model = stringValue(parsed.model)
+  if (model && !usage.model) usage.model = model
+
+  const openAiUsage = parsed.usage as Record<string, unknown> | undefined
+  if (openAiUsage && typeof openAiUsage === 'object') {
+    const promptTokens = numberValue(openAiUsage.prompt_tokens)
+    const completionTokens = numberValue(openAiUsage.completion_tokens)
+    const inputTokens = numberValue(openAiUsage.input_tokens)
+    const outputTokens = numberValue(openAiUsage.output_tokens)
+    if (promptTokens !== undefined) {
+      usage.tokensIn = promptTokens
+      usage.saw = true
+    } else if (inputTokens !== undefined) {
+      usage.tokensIn = (usage.tokensIn ?? 0) + inputTokens
+      usage.saw = true
+    }
+    if (completionTokens !== undefined) {
+      usage.tokensOut = completionTokens
+      usage.saw = true
+    } else if (outputTokens !== undefined) {
+      usage.tokensOut = (usage.tokensOut ?? 0) + outputTokens
+      usage.saw = true
+    }
+  }
+
+  const type = stringValue(parsed.type)
+  if (type === 'message_start') {
+    const message = parsed.message as Record<string, unknown> | undefined
+    const messageModel = stringValue(message?.model)
+    if (messageModel && !usage.model) usage.model = messageModel
+    const messageUsage = message?.usage as Record<string, unknown> | undefined
+    const inputTokens = numberValue(messageUsage?.input_tokens)
+    if (inputTokens !== undefined) {
+      usage.tokensIn = inputTokens
+      usage.saw = true
+    }
+    const outputTokens = numberValue(messageUsage?.output_tokens)
+    if (outputTokens !== undefined) {
+      usage.tokensOut = (usage.tokensOut ?? 0) + outputTokens
+      usage.saw = true
+    }
+  }
+  if (type === 'message_delta') {
+    const delta = parsed.delta as Record<string, unknown> | undefined
+    const stopReason = stringValue(delta?.stop_reason)
+    if (stopReason) usage.finishReason = stopReason
+  }
+
+  const choices = parsed.choices
+  if (Array.isArray(choices)) {
+    const finishReason = stringValue(
+      (choices[0] as Record<string, unknown> | undefined)?.finish_reason,
+    )
+    if (finishReason) usage.finishReason = finishReason
+  }
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function stringValue(value: unknown): string | undefined {
