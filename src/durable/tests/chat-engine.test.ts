@@ -134,7 +134,7 @@ describe('handleChatTurn', () => {
     expect(persisted).toBe('SSN [REDACTED]')
   })
 
-  it('a throwing persist hook is swallowed — the turn still completes', async () => {
+  it('a throwing persist hook fails the turn before completion', async () => {
     const { body } = handleChatTurn({
       identity: IDENTITY,
       log: () => undefined,
@@ -146,7 +146,10 @@ describe('handleChatTurn', () => {
       },
     })
     const events = await drain(body)
-    expect(events.at(-1)?.type).toBe('session.run.completed')
+    expect(events.find((e) => e.type === 'session.run.completed')).toBeUndefined()
+    const err = events.find((e) => e.type === 'error')
+    expect(err?.data?.message).toBe('db down')
+    expect(events.at(-1)?.type).toBe('session.run.failed')
   })
 
   it('traceFlush is handed to waitUntil so the worker isolate survives the POST', async () => {
@@ -173,7 +176,7 @@ describe('handleChatTurn', () => {
     expect(flushAwaited).toBe(true)
   })
 
-  it('swallowed hook errors are logged to console.error by default', async () => {
+  it('persist hook errors are logged as turn failures by default', async () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       const { body } = handleChatTurn({
@@ -188,7 +191,7 @@ describe('handleChatTurn', () => {
       await drain(body)
       expect(spy).toHaveBeenCalled()
       const messages = spy.mock.calls.map((c) => c[0])
-      expect(messages.some((m) => String(m).includes('persistAssistantMessage'))).toBe(true)
+      expect(messages.some((m) => String(m).includes('turn failed'))).toBe(true)
     } finally {
       spy.mockRestore()
     }
