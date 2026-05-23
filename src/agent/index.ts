@@ -39,14 +39,5 @@ export type {
 export { createSurfaceKnowledgeAdapter } from './knowledge-adapter'
 export type { OutcomeMeasurement, OutcomeMeasurementOpts } from './outcome'
 export { measureOutcome } from './outcome'
-export type {
-  ProductionRunRecord,
-  ProductionRunRecordStore,
-  ProductionTraceSink,
-  ProductionTraceSinkOpts,
-  RecordFeedbackInput,
-} from './production-trace-sink'
-export { createProductionTraceSink } from './production-trace-sink'
-
 export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
 export { renderSurfaceIssues, resolveSubjectPath, validateSurfaces } from './surfaces'

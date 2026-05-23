@@ -232,7 +232,6 @@ Runnable in [`examples/`](./examples/). Every example imports from
 - [`model-resolution/`](./examples/model-resolution/) — router catalog + fail-closed admission
 - [`agent-into-reviewer/`](./examples/agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent
 - [`chat-handler/`](./examples/chat-handler/) — `handleChatTurn` (the centerpiece production pattern)
-- [`production-trace-sink/`](./examples/production-trace-sink/) — `createProductionTraceSink` data capture
 
 ## Tests
 
