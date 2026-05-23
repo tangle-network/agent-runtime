@@ -299,7 +299,19 @@ function mapCommonBackendEvent(
       ? (record.data as Record<string, unknown>)
       : record
   if (type === 'message.part.updated' || type === 'text_delta' || type === 'delta') {
-    const text = stringValue(data.text) ?? stringValue(data.delta) ?? stringValue(record.text)
+    // `@tangle-network/sandbox` `box.streamTask` emits `message.part.updated`
+    // with a nested part: `{ type: 'message.part.updated', data: { part:
+    // { type: 'text', text: '…' } } }`. Walk into `data.part.text` so the
+    // canonical sandbox-SDK shape produces a `text_delta` natively — no
+    // per-product `mapEvent` shim required. Tool parts are picked up by
+    // the `tool_call` / `tool_result` branches below; non-text parts here
+    // fall through to `undefined` (the consumer can opt in via `mapEvent`).
+    const part = data.part as Record<string, unknown> | undefined
+    const partText =
+      part !== undefined && typeof part === 'object' && (part.type === 'text' || part.type === undefined)
+        ? stringValue(part.text)
+        : undefined
+    const text = stringValue(data.text) ?? stringValue(data.delta) ?? stringValue(record.text) ?? partText
     return text
       ? {
           type: 'text_delta',

@@ -495,6 +495,65 @@ describe('runAgentTask', () => {
     })
   })
 
+  it('unwraps the @tangle-network/sandbox `data.part.text` shape natively (no mapEvent shim needed)', async () => {
+    // The sandbox SDK emits `message.part.updated` with the text nested
+    // under `data.part.text` (the canonical sandbox-SDK shape). Before
+    // this fix, the default mapper looked at `data.text`/`data.delta`
+    // only and silently dropped every part-text event — forcing every
+    // sandbox-SDK consumer to ship a `mapEvent` shim (see blueprint-
+    // agent#1758, tangle-network/agent-runtime#35). This test pins the
+    // native unwrap so a regression here breaks the entire sandbox-SDK
+    // → agent-runtime chat-engine path.
+    const backend = createSandboxPromptBackend({
+      getBox: () => ({ id: 'box-sandbox-sdk' }),
+      getSessionId: (box) => box.id,
+      async *streamPrompt() {
+        yield { type: 'message.part.updated', data: { part: { type: 'text', text: 'hello' } } }
+        yield { type: 'message.part.updated', data: { part: { type: 'text', text: ' world' } } }
+        // A part of a non-text kind should NOT produce a text_delta —
+        // those are handled by the `tool_call`/`tool_result` branches
+        // when the consumer streams the matching event types.
+        yield { type: 'message.part.updated', data: { part: { type: 'tool', name: 'bash' } } }
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'sandbox-sdk-shape', intent: 'inspect', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'go' },
+      }),
+    )
+
+    expect(
+      events.filter((event) => event.type === 'text_delta').map((event) => event.text),
+    ).toEqual(['hello', ' world'])
+  })
+
+  it('prefers explicit `data.text` when both `data.text` and `data.part.text` are present (back-compat)', async () => {
+    // If a consumer happens to send both shapes (mixed bag), the flat
+    // `data.text` wins — preserves the pre-existing behaviour for any
+    // call site that was passing `{ data: { text } }` directly.
+    const backend = createSandboxPromptBackend({
+      getBox: () => ({ id: 'box-1' }),
+      async *streamPrompt() {
+        yield {
+          type: 'message.part.updated',
+          data: { text: 'flat-wins', part: { type: 'text', text: 'should-not-win' } },
+        }
+      },
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'precedence', intent: 'inspect', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'go' },
+      }),
+    )
+    expect(
+      events.filter((event) => event.type === 'text_delta').map((event) => event.text),
+    ).toEqual(['flat-wins'])
+  })
+
   it('parses OpenAI-compatible streamed chat completions', async () => {
     const backend = createOpenAICompatibleBackend({
       apiKey: 'sk-test',
