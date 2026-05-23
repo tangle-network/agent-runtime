@@ -6,11 +6,7 @@
  */
 
 import type { AgentAdapter } from '@tangle-network/agent-runtime'
-import {
-  createRuntimeEventCollector,
-  runAgentTask,
-  summarizeAgentTaskRun,
-} from '@tangle-network/agent-runtime'
+import { createRuntimeEventCollector, runAgentTask } from '@tangle-network/agent-runtime'
 
 const adapter: AgentAdapter<{ ready: boolean }, void, void> = {
   async observe() {
@@ -74,8 +70,8 @@ async function main() {
     console.log(JSON.stringify(e))
   }
 
-  console.log('\n--- summary (always safe) ---')
-  console.log(summarizeAgentTaskRun(result))
+  console.log('\n--- final result ---')
+  console.log(`status=${result.status} pass=${result.control.pass}`)
 }
 
 main().catch((err) => {

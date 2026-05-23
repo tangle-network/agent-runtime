@@ -7,7 +7,6 @@ import {
   resolveChatModel,
   resolveRouterBaseUrl,
   validateChatModelId,
-  withConfiguredModels,
 } from './model-resolution'
 
 const catalog: ModelInfo[] = [
@@ -70,18 +69,6 @@ describe('resolveChatModel — precedence', () => {
         { source: 'default', model: 'gpt-4o' },
       ),
     ).toEqual({ source: 'default', model: 'gpt-4o' })
-  })
-})
-
-describe('withConfiguredModels', () => {
-  it('prepends configured ids the catalog does not already list', () => {
-    const result = withConfiguredModels(catalog, ['private/model-x', 'gpt-4o'])
-    expect(result[0]?.id).toBe('private/model-x')
-    expect(result.filter((m) => m.id === 'gpt-4o')).toHaveLength(1)
-  })
-
-  it('returns the catalog unchanged when nothing new is configured', () => {
-    expect(withConfiguredModels(catalog, ['gpt-4o', '  '])).toBe(catalog)
   })
 })
 

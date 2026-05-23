@@ -14,7 +14,6 @@ which needs an `OPENAI_API_KEY`.
 | [`sandbox-stream-backend/`](./sandbox-stream-backend/) | `runAgentTaskStream` with `createSandboxPromptBackend` (synthetic sandbox client) |
 | [`openai-stream-backend/`](./openai-stream-backend/) | `runAgentTaskStream` with `createOpenAICompatibleBackend` (real endpoint required) |
 | [`runtime-run/`](./runtime-run/) | `startRuntimeRun` + cost ledger + persistence adapter |
-| [`model-resolution/`](./model-resolution/) | `resolveChatModel` + `validateChatModelId` (fail-closed) + `getModels` |
 | [`agent-into-reviewer/`](./agent-into-reviewer/) | Pipe one runtime's stream into a reviewer agent (the "2-runtime" pattern) |
 | [`chat-handler/`](./chat-handler/) | `handleChatTurn` — the centerpiece production chat handler |
 | [`production-trace-sink/`](./production-trace-sink/) | `createProductionTraceSink` — production data capture (RunRecord + OTLP + feedback) |
@@ -43,7 +42,6 @@ pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 pnpm tsx examples/sse-stream/sse-stream.ts
 pnpm tsx examples/sandbox-stream-backend/sandbox-stream-backend.ts
 pnpm tsx examples/runtime-run/runtime-run.ts
-pnpm tsx examples/model-resolution/model-resolution.ts
 pnpm tsx examples/agent-into-reviewer/agent-into-reviewer.ts
 pnpm tsx examples/chat-handler/chat-handler.ts
 pnpm tsx examples/production-trace-sink/production-trace-sink.ts

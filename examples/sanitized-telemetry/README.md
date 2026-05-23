@@ -15,6 +15,5 @@ pnpm tsx examples/sanitized-telemetry/sanitized-telemetry.ts
 ## What it shows
 
 - `createRuntimeEventCollector()` capturing every lifecycle event safely
-- `summarizeAgentTaskRun` producing a one-line summary for logs
 - The `RuntimeTelemetryOptions` flags (`includeInputs`, `includeUserAnswers`,
   `includeControlPayloads`, etc.) and what each enables
