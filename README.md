@@ -18,8 +18,8 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 |---|---|
 | `runAgentTask` | Single-shot adapter-driven task with eval/verification |
 | `runAgentTaskStream` | Streaming product loop with session resume + backends |
-| `ChatTurnEngine` / `chatTurnEngine` | Framework-neutral chat-turn orchestrator (NDJSON + `session.run.*` envelope + product hooks) |
-| `AgentExecutionHandle` + `deriveExecutionId` | Typed pointer to a substrate-owned execution — the contract for cross-process replay/reconnect |
+| `handleChatTurn` | Framework-neutral chat-turn orchestrator (NDJSON + `session.run.*` envelope + product hooks) |
+| `deriveExecutionId` | Stable substrate executionId for `X-Execution-ID` cross-process reconnect |
 | `startRuntimeRun` | Canonical production-run row + cost ledger |
 | `defineAgent` | Declarative per-vertical agent manifest — surfaces, knowledge, rubric, run fn |
 | `resolveChatModel` / `validateChatModelId` / `getModels` | Router catalog fetch + fail-closed admission + precedence resolver |
@@ -53,26 +53,20 @@ console.log(result.status, result.runRecords)
 
 ## Chat turns
 
-`ChatTurnEngine` wraps a product `produce()` hook with the
-`session.run.*` lifecycle envelope, drains the producer stream through
-the NDJSON line protocol, and calls the persist / post-process hooks
-after drain. Framework-neutral: the engine takes already-resolved
-values, never a `Request` or `Context`.
+`handleChatTurn` wraps a product `produce()` hook with the `session.run.*`
+lifecycle envelope, drains the producer stream through the NDJSON line
+protocol, and calls the persist / post-process hooks after drain.
+Framework-neutral: takes already-resolved values, never a `Request` or
+`Context`.
 
 ```ts
-import { chatTurnEngine, deriveExecutionId } from '@tangle-network/agent-runtime'
+import { handleChatTurn } from '@tangle-network/agent-runtime'
 
-const executionId = deriveExecutionId({
-  projectId: 'gtm-agent',
-  sessionId: threadId,
-  turnIndex,
-})
-
-const result = chatTurnEngine.runTurn({
+const result = handleChatTurn({
   identity: { tenantId: workspaceId, sessionId: threadId, userId, turnIndex },
   hooks: {
     produce: () => ({
-      stream: box.streamPrompt(prompt, { executionId, lastEventId, ...sandboxOptions }),
+      stream: box.streamPrompt(prompt, sandboxOptions),
       finalText: () => assembled,
     }),
     persistAssistantMessage: async ({ identity, finalText }) => db.insert(messages).values(...),
@@ -87,29 +81,23 @@ return new Response(result.body, { headers: { 'content-type': result.contentType
 ## Execution continuity
 
 Long-running execution durability — reconnect, replay, dedup — lives in
-the substrate. `@tangle-network/sandbox`'s `box.streamPrompt({
-executionId, lastEventId })` buffers the stream by `executionId`,
-replays strictly after `lastEventId` on reconnect, and never spawns a
-duplicate execution. agent-runtime owns the typed pointer:
+the substrate. `@tangle-network/sandbox`'s `box.streamPrompt`
+auto-reconnects in-call (extracts `executionId` from the response and
+replays via the runtime endpoint on drop). Cross-process reconnect —
+worker dies, a fresh worker resumes the same execution — requires
+either bypassing the SDK and POSTing directly with `X-Execution-ID`
+(see `tax-agent/sessions.ts`) or a future SDK release that surfaces the
+field on `PromptOptions`.
+
+`deriveExecutionId` is the convention helper for the stable id the
+product persists alongside its session row:
 
 ```ts
-import { type AgentExecutionHandle, deriveExecutionId } from '@tangle-network/agent-runtime'
+import { deriveExecutionId } from '@tangle-network/agent-runtime'
 
-const handle: AgentExecutionHandle = {
-  executionId: deriveExecutionId({ projectId, sessionId, turnIndex }),
-  sessionId,
-  // lastEventId set on retry from the client's last-seen id
-}
-for await (const event of box.streamPrompt(prompt, {
-  executionId: handle.executionId,
-  lastEventId: handle.lastEventId,
-})) { ... }
+const executionId = deriveExecutionId({ projectId, sessionId, turnIndex })
+// pass as `X-Execution-ID` header when calling the orchestrator directly
 ```
-
-The product persists `executionId` on the session row so a client retry
-of the same turn lands on the same substrate execution — the
-orchestrator's buffer replays the stream instead of starting a second
-prompt.
 
 ## Chat-model resolution
 
@@ -156,7 +144,7 @@ export const myAgent = defineAgent({
   knowledge: { /* requirements + provider */ },
   rubric: { /* dimensions + weights */ },
   run: async (ctx) => {
-    /* product-specific run — typically wraps chatTurnEngine.runTurn or runAgentTaskStream */
+    /* product-specific run — typically wraps handleChatTurn or runAgentTaskStream */
   },
 })
 ```
@@ -260,7 +248,7 @@ Runnable in [`examples/`](./examples/). Every example imports from
 - [`runtime-run/`](./examples/runtime-run/) — production-run row + cost ledger
 - [`model-resolution/`](./examples/model-resolution/) — router catalog + fail-closed admission
 - [`agent-into-reviewer/`](./examples/agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent
-- [`chat-handler/`](./examples/chat-handler/) — `chatTurnEngine.runTurn` + `deriveExecutionId` (the centerpiece production pattern)
+- [`chat-handler/`](./examples/chat-handler/) — `handleChatTurn` (the centerpiece production pattern)
 - [`production-trace-sink/`](./examples/production-trace-sink/) — `createProductionTraceSink` data capture
 
 ## Tests

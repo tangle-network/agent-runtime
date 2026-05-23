@@ -1,20 +1,19 @@
 /**
  * Turn-lifecycle helpers for `@tangle-network/agent-runtime`.
  *
- * Execution state — long-running agent execution, reconnect, replay,
- * dedup — lives in the substrate (`@tangle-network/sandbox` SDK +
- * orchestrator). agent-runtime owns the layer above:
+ * Execution state — long-running execution, reconnect, replay, dedup —
+ * lives in the substrate (`@tangle-network/sandbox` + orchestrator).
+ * agent-runtime owns:
  *
- *   - `AgentExecutionHandle` — the typed pointer products persist so a
- *     reconnect lands on the same substrate execution instead of starting
- *     a second prompt.
- *   - `ChatTurnEngine` — the framework-neutral turn lifecycle: NDJSON
- *     framing, `session.run.*` envelope, persist / post-process / trace-
- *     flush hook ordering. Wraps any producer; the producer talks to the
- *     substrate.
+ *   - `handleChatTurn` — framework-neutral turn lifecycle: NDJSON framing,
+ *     `session.run.*` envelope, persist / post-process / trace-flush
+ *     hook ordering.
+ *   - `deriveExecutionId` — convention helper for the stable id products
+ *     persist so a retry of the same turn lands on the same execution.
  */
 
-// ── Chat-turn engine ──────────────────────────────────────────────────
+export { deriveExecutionId } from './execution-handle'
+
 export type {
   ChatStreamEvent,
   ChatTurnHooks,
@@ -23,7 +22,4 @@ export type {
   ChatTurnResult,
   RunChatTurnInput,
 } from './chat-engine'
-export { ChatTurnEngine, chatTurnEngine } from './chat-engine'
-// ── Execution-continuity contract ─────────────────────────────────────
-export type { AgentExecutionHandle, ReconnectableAgentStream } from './execution-handle'
-export { deriveExecutionId } from './execution-handle'
+export { handleChatTurn } from './chat-engine'

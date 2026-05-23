@@ -16,7 +16,7 @@ which needs an `OPENAI_API_KEY`.
 | [`runtime-run/`](./runtime-run/) | `startRuntimeRun` + cost ledger + persistence adapter |
 | [`model-resolution/`](./model-resolution/) | `resolveChatModel` + `validateChatModelId` (fail-closed) + `getModels` |
 | [`agent-into-reviewer/`](./agent-into-reviewer/) | Pipe one runtime's stream into a reviewer agent (the "2-runtime" pattern) |
-| [`chat-handler/`](./chat-handler/) | `chatTurnEngine.runTurn` + `deriveExecutionId` — the centerpiece production chat handler |
+| [`chat-handler/`](./chat-handler/) | `handleChatTurn` — the centerpiece production chat handler |
 | [`production-trace-sink/`](./production-trace-sink/) | `createProductionTraceSink` — production data capture (RunRecord + OTLP + feedback) |
 
 ## Conventions

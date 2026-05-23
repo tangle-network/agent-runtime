@@ -1,16 +1,7 @@
-/**
- * `ChatTurnEngine` tests — the orchestration contract every product chat
- * handler depends on. Covers: lifecycle envelope, NDJSON encoding,
- * hook ordering, the failure envelope, the per-event side channel,
- * the pre-persist transform, the live accumulator, and swallowed
- * hook errors.
- */
+import { describe, expect, it, vi } from 'vitest'
 
-import { describe, expect, it } from 'vitest'
+import { type ChatStreamEvent, handleChatTurn } from '../chat-engine'
 
-import { type ChatStreamEvent, ChatTurnEngine } from '../chat-engine'
-
-/** Drain an NDJSON ReadableStream into parsed events. */
 async function drain(body: ReadableStream<Uint8Array>): Promise<ChatStreamEvent[]> {
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -32,7 +23,6 @@ async function drain(body: ReadableStream<Uint8Array>): Promise<ChatStreamEvent[
   return events
 }
 
-/** A producer that streams the given text as two part-updates + a result. */
 function textProducer(text: string, onConstruct?: () => void) {
   return () => {
     onConstruct?.()
@@ -46,12 +36,12 @@ function textProducer(text: string, onConstruct?: () => void) {
 
 const IDENTITY = { tenantId: 'ws-1', sessionId: 'thread-1', userId: 'user-1', turnIndex: 0 }
 
-describe('ChatTurnEngine', () => {
-  const engine = new ChatTurnEngine()
-
+describe('handleChatTurn', () => {
+  // intentionally exercises the public function via the same name used by
+  // consumers
   it('wraps the turn in the session.run.* lifecycle envelope', async () => {
     const persisted: string[] = []
-    const { body, contentType } = engine.runTurn({
+    const { body, contentType } = handleChatTurn({
       identity: IDENTITY,
       hooks: {
         produce: textProducer('Hi there.'),
@@ -72,7 +62,7 @@ describe('ChatTurnEngine', () => {
 
   it('runs hooks in order: persist → onTurnComplete, after the stream', async () => {
     const order: string[] = []
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
       hooks: {
         produce: textProducer('answer'),
@@ -89,8 +79,9 @@ describe('ChatTurnEngine', () => {
   })
 
   it('a producer failure becomes error + session.run.failed, stream still closes', async () => {
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
+      log: () => undefined, // silence the default console.error in tests
       hooks: {
         produce: () => {
           async function* stream(): AsyncGenerator<ChatStreamEvent, void, unknown> {
@@ -111,7 +102,7 @@ describe('ChatTurnEngine', () => {
 
   it('onEvent side channel receives every emitted event', async () => {
     const broadcast: string[] = []
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
       hooks: {
         produce: textProducer('x'),
@@ -127,7 +118,7 @@ describe('ChatTurnEngine', () => {
 
   it('transformFinalText alters what is persisted, not the live stream', async () => {
     let persisted = ''
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
       hooks: {
         produce: textProducer('SSN 123-45-6789'),
@@ -143,35 +134,10 @@ describe('ChatTurnEngine', () => {
     expect(persisted).toBe('SSN [REDACTED]')
   })
 
-  it('accumulate builds final text from events when producer.finalText() is empty', async () => {
-    let persisted = ''
-    const { body } = engine.runTurn({
-      identity: IDENTITY,
-      hooks: {
-        produce: () => {
-          async function* stream(): AsyncGenerator<ChatStreamEvent, void, unknown> {
-            yield { type: 'message.part.updated', data: { delta: 'Hello' } }
-            yield { type: 'message.part.updated', data: { delta: ' world' } }
-          }
-          return { stream: stream(), finalText: () => '' }
-        },
-        accumulate: (event, current) => {
-          if (event.type !== 'message.part.updated') return undefined
-          const delta = typeof event.data?.delta === 'string' ? event.data.delta : ''
-          return current + delta
-        },
-        persistAssistantMessage: async ({ finalText }) => {
-          persisted = finalText
-        },
-      },
-    })
-    await drain(body)
-    expect(persisted).toBe('Hello world')
-  })
-
   it('a throwing persist hook is swallowed — the turn still completes', async () => {
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
+      log: () => undefined,
       hooks: {
         produce: textProducer('ok'),
         persistAssistantMessage: async () => {
@@ -186,7 +152,7 @@ describe('ChatTurnEngine', () => {
   it('traceFlush is handed to waitUntil so the worker isolate survives the POST', async () => {
     let flushAwaited = false
     let waitUntilCalled = false
-    const { body } = engine.runTurn({
+    const { body } = handleChatTurn({
       identity: IDENTITY,
       waitUntil: (p) => {
         waitUntilCalled = true
@@ -205,5 +171,26 @@ describe('ChatTurnEngine', () => {
     await drain(body)
     expect(waitUntilCalled).toBe(true)
     expect(flushAwaited).toBe(true)
+  })
+
+  it('swallowed hook errors are logged to console.error by default', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { body } = handleChatTurn({
+        identity: IDENTITY,
+        hooks: {
+          produce: textProducer('ok'),
+          persistAssistantMessage: async () => {
+            throw new Error('db down')
+          },
+        },
+      })
+      await drain(body)
+      expect(spy).toHaveBeenCalled()
+      const messages = spy.mock.calls.map((c) => c[0])
+      expect(messages.some((m) => String(m).includes('persistAssistantMessage'))).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

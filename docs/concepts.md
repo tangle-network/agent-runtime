@@ -21,14 +21,15 @@ rest. Read this file once and the rest of the API falls into place.
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
-   │  Chat-turn engine  ─  ChatTurnEngine.runTurn(...)        │
-   │  NDJSON + session.run.* envelope + persist/trace hooks    │
+   │  Chat-turn lifecycle ─  handleChatTurn(...)                 │
+   │  NDJSON + session.run.* envelope + persist/trace hooks   │
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
    │  Execution continuity (substrate-owned)                  │
-   │  box.streamPrompt({ executionId, lastEventId })          │
-   │  agent-runtime provides: AgentExecutionHandle + deriveExecutionId
+   │  box.streamPrompt — auto-reconnect in-call; X-Execution-ID
+   │  header for cross-process. deriveExecutionId is the
+   │  convention helper.                                       │
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
@@ -40,7 +41,7 @@ rest. Read this file once and the rest of the API falls into place.
 
 Each layer composes the one below it. You can use the bottom layers
 alone (a raw backend + the model catalog), or the whole stack
-(`defineAgent` → `chatTurnEngine`) — they're the same primitives
+(`defineAgent` → `handleChatTurn`) — they're the same primitives
 nested.
 
 ## The task lifecycle
@@ -60,51 +61,29 @@ the cost ledger — all substrate. Streaming is the same shape:
 ## Execution continuity — substrate-owned
 
 Long-running execution durability — reconnect, replay, dedup — is the
-substrate's job, not agent-runtime's. The `@tangle-network/sandbox` SDK
-+ orchestrator already implements every primitive a 15-minute turn
-needs:
+substrate's job, not agent-runtime's. The `@tangle-network/sandbox`
+SDK + orchestrator already handle it:
 
-- `box.streamPrompt(prompt, { executionId, lastEventId })` buffers the
-  event stream by `executionId` at the orchestrator.
-- On reconnect with the same `executionId` and a known `lastEventId`,
-  the orchestrator replays strictly after that id without spawning a
-  duplicate execution.
-- The SDK dedupes replayed text deltas and tool completions on the
-  client side; observers see exactly one of each.
+- **In-call reconnect**: `box.streamPrompt` extracts `executionId` from
+  the response's `execution.started` event and replays via the runtime
+  endpoint if the stream drops. Transparent — callers do nothing.
+- **Cross-process reconnect**: a fresh Worker can resume a prior
+  Worker's execution by POSTing to the orchestrator's
+  `/agents/run/stream` with the `X-Execution-ID` header. The SDK's
+  public `PromptOptions` does not yet surface this; products bypass the
+  SDK and call the orchestrator directly when they need it (see
+  tax-agent's `sessions.ts`).
+- The orchestrator's buffer is 10k events / 2-min post-completion. A
+  retry past that window gets `execution_not_found` and re-runs.
 
-agent-runtime owns the typed pointer products persist:
+agent-runtime owns one helper, `deriveExecutionId({ projectId,
+sessionId, turnIndex })`, that produces the stable id the product
+persists on its session row.
 
-```ts
-interface AgentExecutionHandle {
-  executionId: string
-  sessionId?: string
-  lastEventId?: string
-}
-
-deriveExecutionId({ projectId, sessionId, turnIndex }): string
-```
-
-The product persists `executionId` on its session row so a client retry
-of the same turn lands on the same substrate execution — the
-orchestrator replays its buffer instead of starting a second prompt.
-A retry with a stale `lastEventId` (or none) replays from the start of
-the buffer.
-
-What lives in the Worker:
-
-- auth / access control
-- product DB writes (the assistant message, run row, side effects)
-- prompt / profile composition
-- routing (which backend handles this turn)
-
-What lives in the substrate:
-
-- the long-running execution
-- event buffering keyed by `executionId`
-- replay-on-reconnect
-- dedup across the reconnect seam
-
-The Worker stays a routing + persistence layer. It does not host
+What lives in the Worker: auth, access control, product DB writes,
+prompt composition, routing. What lives in the substrate: the
+long-running execution, event buffering, replay-on-reconnect, dedup.
+The Worker stays a routing + persistence layer — it does not host
 execution state.
 
 ## The agent manifest
@@ -159,7 +138,7 @@ agents because nothing in this list is baked into it.
 
 1. `examples/basic-task/` — the smallest end-to-end.
 2. `examples/sandbox-stream-backend/` — what streaming looks like.
-3. `examples/chat-handler/` — `chatTurnEngine` + `deriveExecutionId` — the centerpiece chat handler.
+3. `examples/chat-handler/` — `handleChatTurn` — the centerpiece chat handler.
 4. `examples/runtime-run/` — the production-run row + cost ledger.
 5. `examples/model-resolution/` — pick + validate a model.
 6. `examples/agent-into-reviewer/` — pipe one runtime's stream into a reviewer agent.

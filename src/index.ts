@@ -44,13 +44,12 @@ export {
   runChatTurn,
   sandboxAsChatTurnTarget,
 } from './chat-turn'
-// ── Turn-lifecycle helpers ────────────────────────────────────────────
-// `ChatTurnEngine` wraps a producer with the `session.run.*` envelope +
-// NDJSON framing + persist/post-process/trace-flush hook ordering.
-// `AgentExecutionHandle` + `deriveExecutionId` are the typed pointer
-// products persist so a client retry of the same turn can land on the
-// same substrate execution. Long-running execution durability itself
-// (reconnect, replay, dedup) lives in @tangle-network/sandbox.
+// ── Chat-turn HTTP orchestration ──────────────────────────────────────
+// `handleChatTurn` frames a producer with the `session.run.*` envelope
+// + NDJSON line protocol + persist/post-process/trace-flush hook order.
+// `deriveExecutionId` produces the stable id products persist so a
+// client retry can replay the same substrate execution. Long-running
+// execution durability itself lives in @tangle-network/sandbox.
 export * from './durable'
 // ── Errors ───────────────────────────────────────────────────────────
 export {

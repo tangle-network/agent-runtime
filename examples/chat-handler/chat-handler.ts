@@ -1,29 +1,19 @@
 /**
  * Full chat handler — the centerpiece production pattern every product
- * chat handler implements.
- *
- * `ChatTurnEngine.runTurn` wraps the product's `produce()` hook with the
- * `session.run.*` lifecycle envelope, drains the producer stream through
- * the NDJSON line protocol, and calls the persist / post-process hooks
- * after drain. It owns no execution state — that lives in the substrate
- * (`@tangle-network/sandbox`'s `box.streamPrompt({ executionId,
- * lastEventId })` handles reconnect/replay/dedup).
+ * chat handler implements. `handleChatTurn` frames events with NDJSON +
+ * `session.run.*` envelope and calls product hooks after drain.
  *
  * In a real product, `produce()` calls `runAgentTaskStream({ task,
- * backend, input })` with a real backend (`createOpenAICompatibleBackend`
- * / `createSandboxPromptBackend`). Here we yield a small scripted stream
- * so the example runs offline with no LLM.
+ * backend, input })` against a real backend
+ * (`createOpenAICompatibleBackend` / `createSandboxPromptBackend`).
+ * Here we yield a small scripted stream so the example runs offline.
  *
  * Run with:
  *   pnpm tsx examples/chat-handler/chat-handler.ts
  */
 
-import type { ChatStreamEvent, ChatTurnProducer } from '@tangle-network/agent-runtime'
-import { chatTurnEngine, deriveExecutionId } from '@tangle-network/agent-runtime'
+import { type ChatStreamEvent, type ChatTurnProducer, handleChatTurn } from '@tangle-network/agent-runtime'
 
-// ── The product's `produce` hook — yields the turn's event stream + a
-//    finalText() once drained. In production this is a thin wrapper over
-//    `runAgentTaskStream(...)` against a real backend. ──────────────────
 function produce(userMessage: string): ChatTurnProducer<ChatStreamEvent> {
   let accumulated = ''
   const reply = userMessage.toLowerCase().includes('missing')
@@ -46,24 +36,12 @@ function produce(userMessage: string): ChatTurnProducer<ChatStreamEvent> {
 }
 
 async function runTurn(userMessage: string, turnIndex: number): Promise<string> {
-  // The execution id products persist alongside their session row so a
-  // client retry lands on the same substrate execution. The chat-turn
-  // engine itself does not need it — it goes into the producer hook
-  // when calling `box.streamPrompt({ executionId, lastEventId })`.
-  const executionId = deriveExecutionId({
-    projectId: 'demo-agent',
-    sessionId: 'thread-42',
-    turnIndex,
-  })
-
-  const result = chatTurnEngine.runTurn({
+  const result = handleChatTurn({
     identity: { tenantId: 'demo-tenant', sessionId: 'thread-42', userId: 'demo-user', turnIndex },
     hooks: {
       produce: () => produce(userMessage),
       persistAssistantMessage: async ({ finalText }) => {
-        console.log(
-          `[persist     ] turn=${turnIndex} executionId=${executionId} chars=${finalText.length}`,
-        )
+        console.log(`[persist     ] turn=${turnIndex} chars=${finalText.length}`)
       },
     },
   })
