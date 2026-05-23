@@ -37,7 +37,6 @@ import type {
   AgentRuntimeEventSink,
   AgentTaskContext,
   AgentTaskRunResult,
-  AgentTaskRunSummary,
   AgentTaskSpec,
   AgentTaskStatus,
   RunAgentTaskOptions,
@@ -155,36 +154,6 @@ export async function runAgentTask<
     runRecords: (options.adapter.projectRunRecords?.(control, task) ?? []).map((record) =>
       record.scenarioId === undefined ? { ...record, scenarioId } : record,
     ),
-  }
-}
-
-/** @stable */
-export function summarizeAgentTaskRun<
-  TState,
-  TAction,
-  TActionResult,
-  TEval extends ControlEvalResult,
->(result: AgentTaskRunResult<TState, TAction, TActionResult, TEval>): AgentTaskRunSummary {
-  return {
-    taskId: result.task.id,
-    domain: result.task.domain,
-    status: result.status,
-    reason: result.control.reason,
-    readinessStatus: decideKnowledgeReadiness(result.knowledge).status,
-    readinessScore: result.knowledge.readinessScore,
-    recommendedAction: result.knowledge.recommendedAction,
-    blockingGapIds: result.knowledge.blockingMissingRequirements.map(
-      (requirement) => requirement.id,
-    ),
-    nonBlockingGapIds: result.knowledge.nonBlockingGaps.map((requirement) => requirement.id),
-    questionCount: result.questions.length,
-    acquisitionPlanCount: result.acquisitionPlans.length,
-    acquiredEvidenceCount: result.acquiredEvidenceIds.length,
-    controlStepCount: result.control.steps.length,
-    pass: result.control.pass,
-    failureClass: result.control.failureClass,
-    wallMs: result.control.wallMs,
-    costUsd: result.control.spentCostUsd,
   }
 }
 

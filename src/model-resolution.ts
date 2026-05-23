@@ -62,30 +62,6 @@ export async function getModels(
   return Array.isArray(body.data) ? body.data : []
 }
 
-/**
- * Prepend synthetic catalog entries for ids the environment pins but the
- * router may not list (e.g. a private or self-hosted chat model). Ids already
- * present in `models` are not duplicated.
- */
-export function withConfiguredModels(models: ModelInfo[], extraIds: string[]): ModelInfo[] {
-  const known = new Set(models.map((model) => model.id))
-  const extra = extraIds
-    .map((id) => cleanModelId(id))
-    .filter((id): id is string => id !== undefined && !known.has(id))
-    .map(
-      (id): ModelInfo => ({
-        id,
-        name: id,
-        description: 'Configured chat model for this environment.',
-        architecture: {
-          modality: 'text->text',
-          input_modalities: ['text'],
-          output_modalities: ['text'],
-        },
-      }),
-    )
-  return extra.length > 0 ? [...extra, ...models] : models
-}
 
 /** Trim a candidate model id; `undefined` for non-strings and blanks. */
 export function cleanModelId(value: unknown): string | undefined {

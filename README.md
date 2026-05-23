@@ -23,7 +23,6 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 | `startRuntimeRun` | Canonical production-run row + cost ledger |
 | `defineAgent` | Declarative per-vertical agent manifest — surfaces, knowledge, rubric, run fn |
 | `resolveChatModel` / `validateChatModelId` / `getModels` | Router catalog fetch + fail-closed admission + precedence resolver |
-| `createTraceBridge` | Map `RuntimeStreamEvent` → `agent-eval` `TraceEvent` |
 | `decideKnowledgeReadiness` | `ready` / `blocked` / `caveat` branch for routes / UI |
 | `createOpenAICompatibleBackend` | OpenAI-compatible streaming backend (TCloud / cli-bridge) |
 | `createSandboxPromptBackend` | Sandbox / sidecar `streamPrompt` clients |
@@ -173,22 +172,6 @@ await run.persist({ runtimeEvents: telemetry.events })
 ```
 
 Full runnable: [`examples/runtime-run/`](./examples/runtime-run/).
-
-## agent-eval trace bridge
-
-If you persist traces in agent-eval's `TraceStore`, the bridge maps
-runtime stream events to `TraceEvent` so consumer repos don't hand-roll
-the adapter.
-
-```ts
-import { createTraceBridge } from '@tangle-network/agent-runtime'
-
-const bridge = createTraceBridge({ runId, spanId })
-for await (const event of runAgentTaskStream({ task, backend, input })) {
-  const trace = bridge.toTraceEvent(event)
-  if (trace) await traceStore.appendEvent(trace)
-}
-```
 
 ## Error taxonomy
 

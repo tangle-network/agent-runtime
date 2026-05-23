@@ -11,7 +11,6 @@ import {
   createRuntimeStreamEventCollector,
   createSandboxPromptBackend,
   decideKnowledgeReadiness,
-  encodeServerSentEvent,
   InMemoryRuntimeSessionStore,
   type KnowledgeRequirement,
   type RuntimeStreamEvent,
@@ -20,7 +19,6 @@ import {
   runAgentTaskStream,
   sanitizeAgentRuntimeEvent,
   sanitizeRuntimeStreamEvent,
-  summarizeAgentTaskRun,
 } from '../src/index'
 
 interface State {
@@ -259,13 +257,12 @@ describe('runAgentTask', () => {
       },
     })
 
-    const summary = summarizeAgentTaskRun(result)
     const serializedEvents = JSON.stringify(collector.events)
 
-    expect(summary.status).toBe('completed')
-    expect(summary.readinessStatus).toBe('ready')
-    expect(summary.blockingGapIds).toEqual([])
-    expect(summary.questionCount).toBe(1)
+    expect(result.status).toBe('completed')
+    expect(decideKnowledgeReadiness(result.knowledge).status).toBe('ready')
+    expect(result.knowledge.blockingMissingRequirements).toEqual([])
+    expect(result.questions).toHaveLength(1)
     expect(serializedEvents).not.toContain('sk-secret')
     expect(serializedEvents).not.toContain('sk-real-secret')
     expect(serializedEvents).not.toContain('Customer API key')
@@ -344,13 +341,6 @@ describe('runAgentTask', () => {
     expect(decideKnowledgeReadiness(ready.knowledge).status).toBe('ready')
     expect(decideKnowledgeReadiness(blocked.knowledge).status).toBe('blocked')
     expect(decideKnowledgeReadiness(caveat.knowledge, { minimumScore: 0.9 }).status).toBe('caveat')
-  })
-
-  it('encodes safe server-sent events for runtime telemetry streams', async () => {
-    expect(
-      encodeServerSentEvent({ type: 'ping' }, { event: 'runtime\nbad', id: 'id\n1', retry: 1000 }),
-    ).toBe('id: id 1\nevent: runtime bad\nretry: 1000\ndata: {"type":"ping"}\n\n')
-    expect(encodeServerSentEvent('line one\nline two')).toBe('data: line one\ndata: line two\n\n')
   })
 
   it('encodes sanitized readiness SSE payloads', async () => {

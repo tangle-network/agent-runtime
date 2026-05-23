@@ -111,8 +111,8 @@ answers wrong (or differently). Substrate primitive:
   rejects malformed ids and ids absent from both the caller's
   `allowlist` and the live router catalog. **Fails closed**: when the
   catalog can't be fetched, an unverifiable id is rejected.
-- **`getModels` / `resolveRouterBaseUrl` / `withConfiguredModels`** —
-  the catalog fetch + base-URL + injection helpers.
+- **`getModels` / `resolveRouterBaseUrl`** —
+  the catalog fetch + base-URL helpers.
 
 This module has **no React, no `process.env` assumption** — it runs
 unchanged in Node and in Cloudflare Workers.
