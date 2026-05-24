@@ -83,6 +83,12 @@ export {
   DELEGATION_STATUS_TOOL_NAME,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
+export type { TraceContext } from './trace-propagation'
+export {
+  createPropagatingTraceEmitter,
+  readTraceContextFromEnv,
+  traceContextToEnv,
+} from './trace-propagation'
 export type {
   DelegateCodeArgs,
   DelegateCodeConfig,

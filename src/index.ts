@@ -119,3 +119,15 @@ export type {
   RuntimeSessionStore,
   RuntimeStreamEvent,
 } from './types'
+
+// ── OTEL export + trace propagation ──────────────────────────────────
+export {
+  createOtelExporter,
+  loopEventToOtelSpan,
+} from './otel-export'
+export type {
+  OtelExportConfig,
+  OtelExporter,
+  OtelSpan,
+  OtelAttribute,
+} from './otel-export'

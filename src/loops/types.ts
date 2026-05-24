@@ -37,6 +37,12 @@ export interface ValidationCtx {
   iteration: number
   /** Cooperative cancellation channel. */
   signal: AbortSignal
+  /**
+   * Optional trace emitter. When set, validator implementations that make
+   * LLM calls (e.g. LLM reviewer in coderProfile) emit spans into it.
+   * The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
+   */
+  traceEmitter?: LoopTraceEmitter
 }
 
 /** @experimental */
@@ -273,4 +279,15 @@ export interface ExecCtx {
   runHandle?: RuntimeRunHandle
   /** Cooperative cancellation signal. */
   signal?: AbortSignal
+  /**
+   * Trace id for OTEL correlation. When set alongside `traceEmitter`, the
+   * exporter uses this as the parent trace for all emitted spans. Typically
+   * inherited from TRACE_ID env var in MCP subprocess mode.
+   */
+  traceId?: string
+  /**
+   * Parent span id for OTEL correlation. Loop events become children of
+   * this span. Typically inherited from PARENT_SPAN_ID env var.
+   */
+  parentSpanId?: string
 }
