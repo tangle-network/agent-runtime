@@ -11,7 +11,7 @@
  * delegate against `multiHarnessResearcherFanout`.
  *
  * Environment variables:
- *   SANDBOX_API_KEY                  required — passed to `new Sandbox({ apiKey })`
+ *   TANGLE_API_KEY                  required — passed to `new Sandbox({ apiKey })`
  *   SANDBOX_BASE_URL                 optional — sandbox-SDK base URL override
  *   MCP_MAX_CONCURRENT_SANDBOXES     default 4 — kernel maxConcurrency cap
  *   MCP_CODER_FANOUT_HARNESSES       comma-separated harness ids to use for variants > 1
@@ -38,10 +38,10 @@ async function main(): Promise<void> {
   const needsSandbox = wantCoder || wantResearcher
   let sandboxClient: LoopSandboxClient | undefined
   if (needsSandbox) {
-    const apiKey = process.env.SANDBOX_API_KEY
+    const apiKey = process.env.TANGLE_API_KEY
     if (!apiKey && !process.env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY) {
       process.stderr.write(
-        'agent-runtime-mcp: SANDBOX_API_KEY is required (set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or set MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to run the queue-only subset)\n',
+        'agent-runtime-mcp: TANGLE_API_KEY is required (set AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 to run without it for diagnostics, or set MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to run the queue-only subset)\n',
       )
       process.exit(2)
     }
@@ -85,7 +85,7 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<LoopSandbo
     return {
       async create() {
         throw new Error(
-          'agent-runtime-mcp: SANDBOX_API_KEY is unset; coder/researcher delegations are disabled in diagnostic mode. Set SANDBOX_API_KEY or use MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to remove the unsupported tools from the tool list.',
+          'agent-runtime-mcp: TANGLE_API_KEY is unset; coder/researcher delegations are disabled in diagnostic mode. Set TANGLE_API_KEY or use MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to remove the unsupported tools from the tool list.',
         )
       },
     } satisfies LoopSandboxClient

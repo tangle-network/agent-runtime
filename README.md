@@ -199,7 +199,7 @@ import {
   createDefaultCoderDelegate,
 } from '@tangle-network/agent-runtime/mcp'
 
-const sandboxClient = new Sandbox({ apiKey: process.env.SANDBOX_API_KEY! })
+const sandboxClient = new Sandbox({ apiKey: process.env.TANGLE_API_KEY! })
 const server = createMcpServer({
   coderDelegate: createDefaultCoderDelegate({ sandboxClient }),
   // researcherDelegate: wire your own — see below.
@@ -210,14 +210,14 @@ await server.serve() // reads JSON-RPC from stdin, writes responses to stdout
 Or run the ready-made bin:
 
 ```bash
-SANDBOX_API_KEY=sk_sandbox_... agent-runtime-mcp
+TANGLE_API_KEY=sk_sandbox_... agent-runtime-mcp
 ```
 
 The bin auto-wires the coder delegate and, when
 `@tangle-network/agent-knowledge` is installed as a peer, the researcher
 delegate. Environment knobs:
 
-- `SANDBOX_API_KEY` — required (unless both `MCP_DISABLE_*` are set)
+- `TANGLE_API_KEY` — required (unless both `MCP_DISABLE_*` are set)
 - `SANDBOX_BASE_URL` — sandbox-SDK base URL override
 - `MCP_MAX_CONCURRENT_SANDBOXES` — kernel `maxConcurrency` cap (default 4)
 - `MCP_CODER_FANOUT_HARNESSES` — comma-separated harness ids for `variants > 1`
