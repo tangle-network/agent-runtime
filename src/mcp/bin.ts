@@ -77,6 +77,19 @@ async function main(): Promise<void> {
 }
 
 async function loadSandboxClient(apiKey: string | undefined): Promise<LoopSandboxClient> {
+  // Diagnostic mode: AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 enables tools/list + the
+  // queue-bound tools (status / history / feedback) without sandbox creds.
+  // Coder + researcher delegations require a real client; the stub fails loud
+  // at create() so the agent observes the cause instead of silent success.
+  if (!apiKey) {
+    return {
+      async create() {
+        throw new Error(
+          'agent-runtime-mcp: SANDBOX_API_KEY is unset; coder/researcher delegations are disabled in diagnostic mode. Set SANDBOX_API_KEY or use MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to remove the unsupported tools from the tool list.',
+        )
+      },
+    } satisfies LoopSandboxClient
+  }
   // Dynamic import keeps the bin importable in environments that haven't
   // installed `@tangle-network/sandbox` yet (the runtime package lists it
   // as a peer dep, not a hard dep).
