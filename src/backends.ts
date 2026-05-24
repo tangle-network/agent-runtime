@@ -18,6 +18,8 @@ import type {
   AgentBackendContext,
   AgentBackendInput,
   AgentExecutionBackend,
+  OpenAIChatTool,
+  OpenAIChatToolChoice,
   RuntimeSession,
   RuntimeStreamEvent,
 } from './types'
@@ -166,6 +168,40 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/**
+ * @stable
+ *
+ * OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
+ * `POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
+ * Tangle Router, OpenAI direct, OpenRouter, Groq, DeepSeek, Together. The
+ * router also fronts Anthropic models in Anthropic-native SSE shape; this
+ * backend handles both.
+ *
+ * ### Tool calls
+ *
+ * Pass `tools` (and optionally `toolChoice`) to forward an OpenAI Chat
+ * Completions `tools[]` array on every request. Streamed `tool_call` chunks
+ * are buffered until the model finalizes them (either `finish_reason:
+ * 'tool_calls'` for OpenAI shape or a `content_block_stop` for Anthropic
+ * `tool_use` blocks proxied through the router), then emitted as a single
+ * `tool_call` RuntimeStreamEvent with the assembled `args`.
+ *
+ * The backend does NOT execute tools — it surfaces calls for the caller's
+ * own dispatcher (typically the product's MCP / sandbox runtime) to fulfill
+ * and feed back as a subsequent `messages` turn. This keeps the transport
+ * thin and lets the agent host own tool dispatch policy.
+ *
+ * ### Fail-loud errors
+ *
+ * Non-success HTTP responses (4xx/5xx) and exhausted retry budgets throw
+ * `BackendTransportError` from inside the `stream()` generator. The runtime
+ * catches the throw, yields a `backend_error` with a typed `error` field
+ * (`kind`, `status`, truncated `body`) and a terminal `final` event with
+ * `status: 'failed'` carrying the same detail. Consumers MUST map
+ * `final.error` onto their `RunRecord.error` — silently treating an empty
+ * `finalText` as "agent produced nothing" hides credit exhaustion, auth
+ * failure, and upstream outages.
+ */
 export function createOpenAICompatibleBackend<
   TInput extends AgentBackendInput = AgentBackendInput,
 >(options: {
@@ -173,6 +209,20 @@ export function createOpenAICompatibleBackend<
   baseUrl: string
   model: string
   kind?: string
+  /**
+   * OpenAI Chat Completions `tools[]` definitions surfaced to the model on
+   * every request. Omit to send a tool-free request (existing behavior).
+   * The runtime makes no assumption about the dispatcher — calls stream out
+   * as `tool_call` events and the caller is responsible for executing them
+   * and feeding `tool_result` messages back on a follow-up turn.
+   */
+  tools?: ReadonlyArray<OpenAIChatTool>
+  /**
+   * OpenAI Chat Completions `tool_choice`. Default `undefined` (request
+   * omits the field; provider falls back to its own default — typically
+   * `'auto'`).
+   */
+  toolChoice?: OpenAIChatToolChoice
   fetchImpl?: typeof fetch
   retry?: BackendRetryPolicy
 }): AgentExecutionBackend<TInput> {
@@ -197,14 +247,19 @@ export function createOpenAICompatibleBackend<
       // (and the Tangle Router) to emit a final usage chunk in the SSE stream.
       // Without this the response carries no token counts and every downstream
       // ledger reads zero. Providers that don't recognize the field ignore it.
-      const requestBody = JSON.stringify({
+      const bodyPayload: Record<string, unknown> = {
         model: options.model,
         stream: true,
         stream_options: { include_usage: true },
         messages: input.messages ?? [
           { role: 'user', content: input.message ?? context.task.intent },
         ],
-      })
+      }
+      if (options.tools && options.tools.length > 0) {
+        bodyPayload.tools = options.tools
+        if (options.toolChoice !== undefined) bodyPayload.tool_choice = options.toolChoice
+      }
+      const requestBody = JSON.stringify(bodyPayload)
       let response: Response | undefined
       let lastStatus = 0
       // The last thrown transport error (timeout abort, DNS / connection
@@ -259,14 +314,36 @@ export function createOpenAICompatibleBackend<
         )
       }
       if (!response.ok) {
+        // Capture the upstream body so the operator sees *why* the call
+        // failed (e.g. `free_tier_limit`, `invalid_api_key`,
+        // `model_not_found`). Truncate aggressively — HTML error pages from a
+        // misconfigured proxy can be megabytes and would otherwise bloat
+        // every persisted event. Best-effort: if body reading throws we
+        // still surface the status code.
+        let body: string | undefined
+        try {
+          const raw = await response.text()
+          body = raw.length > MAX_ERROR_BODY_BYTES ? `${raw.slice(0, MAX_ERROR_BODY_BYTES)}…` : raw
+        } catch {
+          body = undefined
+        }
         throw new BackendTransportError(kind, `chat backend returned ${lastStatus || 'unknown'}`, {
           status: lastStatus || 0,
+          body,
         })
       }
       yield* streamResponseEvents(response, context, options.model)
     },
   }
 }
+
+/**
+ * Cap the captured error body. 2 KiB is enough to carry a JSON error envelope
+ * with a structured `code`/`message` payload (the router returns ~150 bytes
+ * for a free-tier denial; OpenAI returns ~300 bytes for invalid auth) without
+ * letting an HTML error page balloon persisted events.
+ */
+const MAX_ERROR_BODY_BYTES = 2048
 
 /**
  * Token usage accumulated across an SSE stream. OpenAI emits a single final
@@ -440,6 +517,11 @@ async function* streamResponseEvents(
   const decoder = new TextDecoder()
   let buffer = ''
   const usage: StreamUsageAccumulator = { saw: false }
+  // Tool-call assembly is stateful across SSE chunks: both OpenAI and
+  // Anthropic streamed `arguments`/`partial_json` incrementally and the
+  // final event is only safe to emit once we see a `finish_reason:
+  // 'tool_calls'` or `content_block_stop` for the relevant index.
+  const toolCalls: ToolCallAccumulator = new Map()
   const startedAt = Date.now()
   for (;;) {
     const { done, value } = await reader.read()
@@ -450,9 +532,13 @@ async function* streamResponseEvents(
   buffer += decoder.decode().replace(/\r\n/g, '\n')
   for (const event of drainStreamBuffer(true)) yield event
   if (buffer.trim()) {
-    const event = parseStreamChunk(buffer, context, usage)
-    if (event) yield event
+    for (const event of parseStreamChunk(buffer, context, usage, toolCalls)) yield event
   }
+  // Flush any tool calls the model never closed via `finish_reason` — the
+  // upstream may have terminated the stream without a terminal chunk (e.g.
+  // when the proxy proactively forwards `[DONE]`). Emitting these here is
+  // strictly safer than silently dropping a tool call the agent intended.
+  for (const event of flushPendingToolCalls(toolCalls, context)) yield event
   // Synthesize a single `llm_call` event from accumulated usage. We only emit
   // when the upstream actually reported tokens — silent zeros would corrupt
   // every cost ledger that observes the stream. Consumers that need to detect
@@ -480,8 +566,7 @@ async function* streamResponseEvents(
       if (sseBoundary >= 0) {
         const chunk = buffer.slice(0, sseBoundary)
         buffer = buffer.slice(sseBoundary + 2)
-        const event = parseStreamChunk(chunk, context, usage)
-        if (event) yield event
+        for (const event of parseStreamChunk(chunk, context, usage, toolCalls)) yield event
         continue
       }
 
@@ -489,16 +574,14 @@ async function* streamResponseEvents(
       if (newline >= 0 && !buffer.slice(0, newline).startsWith('data:')) {
         const line = buffer.slice(0, newline)
         buffer = buffer.slice(newline + 1)
-        const event = parseStreamChunk(line, context, usage)
-        if (event) yield event
+        for (const event of parseStreamChunk(line, context, usage, toolCalls)) yield event
         continue
       }
 
       if (flush && buffer.trim() && !buffer.trimStart().startsWith('data:')) {
         const line = buffer
         buffer = ''
-        const event = parseStreamChunk(line, context, usage)
-        if (event) yield event
+        for (const event of parseStreamChunk(line, context, usage, toolCalls)) yield event
         continue
       }
 
@@ -507,45 +590,144 @@ async function* streamResponseEvents(
   }
 }
 
-function parseStreamChunk(
+/**
+ * Per-tool-call accumulator. Keyed by either OpenAI `index` (cast to string)
+ * or Anthropic `content_block` `index`. Holds the streamed identifier, name,
+ * and string-form `arguments` so we can emit a single typed `tool_call`
+ * event once the stream signals the call is finalized.
+ */
+type ToolCallAccumulator = Map<
+  string,
+  {
+    id?: string
+    name?: string
+    /** Accumulated JSON-string `arguments` / `input` payload. */
+    argsRaw: string
+    /** Source format: OpenAI delta vs Anthropic `tool_use` block. */
+    source: 'openai' | 'anthropic'
+    /** Set true once the model signals this call is complete. */
+    finalized: boolean
+  }
+>
+
+function* parseStreamChunk(
   chunk: string,
   context: AgentBackendContext,
   usage: StreamUsageAccumulator,
-): RuntimeStreamEvent | undefined {
+  toolCalls: ToolCallAccumulator,
+): Iterable<RuntimeStreamEvent> {
   const lines = chunk.split(/\r?\n/)
   const dataLines = lines.filter((line) => line.startsWith('data:'))
   const data =
     dataLines.length > 0
       ? dataLines.map((line) => line.slice(5).trimStart()).join('\n')
       : chunk.trim()
-  if (!data || data === '[DONE]') return undefined
+  if (!data || data === '[DONE]') return
+  let parsed: Record<string, unknown>
   try {
-    const parsed = JSON.parse(data) as Record<string, unknown>
-    captureStreamUsage(parsed, usage)
-    const choices = parsed.choices
-    const choice = Array.isArray(choices)
-      ? (choices[0] as Record<string, unknown> | undefined)
-      : undefined
-    const delta = choice?.delta as Record<string, unknown> | undefined
-    const message = choice?.message as Record<string, unknown> | undefined
-    const text =
-      stringValue(delta?.content) ?? stringValue(message?.content) ?? stringValue(parsed.text)
-    if (text) {
-      return {
-        type: 'text_delta',
-        task: context.task,
-        session: context.session,
-        text,
-        timestamp: nowIso(),
-      }
+    parsed = JSON.parse(data) as Record<string, unknown>
+  } catch {
+    yield {
+      type: 'text_delta',
+      task: context.task,
+      session: context.session,
+      text: data,
+      timestamp: nowIso(),
     }
-    // Anthropic shape: `content_block_delta` carries `delta.text` for streamed
-    // text. The router proxies these through verbatim, so handle them here.
-    if (stringValue(parsed.type) === 'content_block_delta') {
-      const d = parsed.delta as Record<string, unknown> | undefined
+    return
+  }
+  captureStreamUsage(parsed, usage)
+  const choices = parsed.choices
+  const choice = Array.isArray(choices)
+    ? (choices[0] as Record<string, unknown> | undefined)
+    : undefined
+  const delta = choice?.delta as Record<string, unknown> | undefined
+  const message = choice?.message as Record<string, unknown> | undefined
+
+  // ── OpenAI streamed `tool_calls` deltas ─────────────────────────────
+  const deltaToolCalls = delta?.tool_calls
+  if (Array.isArray(deltaToolCalls)) {
+    for (const tc of deltaToolCalls) {
+      if (!tc || typeof tc !== 'object') continue
+      const rec = tc as Record<string, unknown>
+      const idx = numberValue(rec.index) ?? 0
+      const key = `openai:${idx}`
+      const acc = toolCalls.get(key) ?? { argsRaw: '', source: 'openai' as const, finalized: false }
+      const id = stringValue(rec.id)
+      if (id) acc.id = id
+      const fn = rec.function as Record<string, unknown> | undefined
+      const name = stringValue(fn?.name)
+      if (name) acc.name = name
+      const args = stringValue(fn?.arguments)
+      if (args) acc.argsRaw += args
+      toolCalls.set(key, acc)
+    }
+  }
+  // `message.tool_calls` is the non-streamed shape — the model returned a
+  // complete tool call in one chunk. Treat the whole array as terminal.
+  const messageToolCalls = message?.tool_calls
+  if (Array.isArray(messageToolCalls)) {
+    for (const tc of messageToolCalls) {
+      if (!tc || typeof tc !== 'object') continue
+      const rec = tc as Record<string, unknown>
+      const fn = rec.function as Record<string, unknown> | undefined
+      const idx = numberValue(rec.index) ?? messageToolCalls.indexOf(tc)
+      const key = `openai:${idx}`
+      const acc = toolCalls.get(key) ?? { argsRaw: '', source: 'openai' as const, finalized: false }
+      const id = stringValue(rec.id)
+      if (id) acc.id = id
+      const name = stringValue(fn?.name)
+      if (name) acc.name = name
+      const args = stringValue(fn?.arguments)
+      if (args) acc.argsRaw += args
+      acc.finalized = true
+      toolCalls.set(key, acc)
+    }
+  }
+
+  const finishReason = stringValue(choice?.finish_reason)
+  if (finishReason === 'tool_calls') {
+    // Model signaled it's done streaming tool calls — flush every OpenAI-
+    // sourced pending entry. Subsequent chunks (usage, [DONE]) won't add
+    // more.
+    for (const [key, acc] of toolCalls) {
+      if (acc.source === 'openai' && !acc.finalized) acc.finalized = true
+      toolCalls.set(key, acc)
+    }
+  }
+
+  // ── Anthropic shape (proxied through router) ────────────────────────
+  const eventType = stringValue(parsed.type)
+  if (eventType === 'content_block_start') {
+    const block = parsed.content_block as Record<string, unknown> | undefined
+    if (block && stringValue(block.type) === 'tool_use') {
+      const idx = numberValue(parsed.index) ?? 0
+      const key = `anthropic:${idx}`
+      toolCalls.set(key, {
+        id: stringValue(block.id),
+        name: stringValue(block.name),
+        argsRaw: '',
+        source: 'anthropic',
+        finalized: false,
+      })
+    }
+  }
+  if (eventType === 'content_block_delta') {
+    const d = parsed.delta as Record<string, unknown> | undefined
+    const dType = stringValue(d?.type)
+    if (dType === 'input_json_delta') {
+      const idx = numberValue(parsed.index) ?? 0
+      const key = `anthropic:${idx}`
+      const acc = toolCalls.get(key)
+      if (acc) {
+        const partial = stringValue(d?.partial_json) ?? ''
+        acc.argsRaw += partial
+        toolCalls.set(key, acc)
+      }
+    } else {
       const text = stringValue(d?.text)
       if (text) {
-        return {
+        yield {
           type: 'text_delta',
           task: context.task,
           session: context.session,
@@ -554,15 +736,86 @@ function parseStreamChunk(
         }
       }
     }
-    return mapCommonBackendEvent(parsed, context)
-  } catch {
-    return {
+  }
+  if (eventType === 'content_block_stop') {
+    const idx = numberValue(parsed.index) ?? 0
+    const key = `anthropic:${idx}`
+    const acc = toolCalls.get(key)
+    if (acc) {
+      acc.finalized = true
+      toolCalls.set(key, acc)
+    }
+  }
+
+  // Emit any tool calls that just became finalized. Done eagerly per-chunk so
+  // consumers see the call as soon as it's safe — the analyst loop watches
+  // `tool_call` events for delegation-pattern detection.
+  for (const event of drainFinalizedToolCalls(toolCalls, context)) yield event
+
+  // ── Text deltas ──────────────────────────────────────────────────────
+  const text =
+    stringValue(delta?.content) ?? stringValue(message?.content) ?? stringValue(parsed.text)
+  if (text) {
+    yield {
       type: 'text_delta',
       task: context.task,
       session: context.session,
-      text: data,
+      text,
       timestamp: nowIso(),
     }
+    return
+  }
+  const mapped = mapCommonBackendEvent(parsed, context)
+  if (mapped) yield mapped
+}
+
+function* drainFinalizedToolCalls(
+  toolCalls: ToolCallAccumulator,
+  context: AgentBackendContext,
+): Iterable<RuntimeStreamEvent> {
+  for (const [key, acc] of toolCalls) {
+    if (!acc.finalized) continue
+    toolCalls.delete(key)
+    yield buildToolCallEvent(acc, context)
+  }
+}
+
+function* flushPendingToolCalls(
+  toolCalls: ToolCallAccumulator,
+  context: AgentBackendContext,
+): Iterable<RuntimeStreamEvent> {
+  for (const [key, acc] of toolCalls) {
+    toolCalls.delete(key)
+    yield buildToolCallEvent(acc, context)
+  }
+}
+
+function buildToolCallEvent(
+  acc: { id?: string; name?: string; argsRaw: string; source: 'openai' | 'anthropic' },
+  context: AgentBackendContext,
+): RuntimeStreamEvent {
+  // `argsRaw` is JSON-string by the provider contract (OpenAI streams an
+  // escaped JSON string; Anthropic streams `partial_json` chunks). Parse
+  // best-effort — surface the raw string if parsing fails so downstream
+  // doesn't lose the call entirely.
+  let args: unknown = acc.argsRaw
+  if (acc.argsRaw.length > 0) {
+    try {
+      args = JSON.parse(acc.argsRaw)
+    } catch {
+      args = acc.argsRaw
+    }
+  } else {
+    args = {}
+  }
+  return {
+    type: 'tool_call',
+    task: context.task,
+    session: context.session,
+    toolName: acc.name ?? 'tool',
+    toolCallId: acc.id,
+    args,
+    timestamp: nowIso(),
   }
 }
 

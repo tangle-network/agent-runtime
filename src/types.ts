@@ -192,6 +192,73 @@ export type AgentRuntimeEventSink<
   TEval extends ControlEvalResult = ControlEvalResult,
 > = (event: AgentRuntimeEvent<TState, TAction, TActionResult, TEval>) => Promise<void> | void
 
+/**
+ * @stable
+ *
+ * Typed transport / backend failure detail. Carried on `backend_error` and
+ * `final` events when the backend's stream throws or the upstream HTTP call
+ * returns a non-success status. Lets consumers (a) distinguish "stream
+ * completed with no text" from "stream never reached the model" and
+ * (b) reconstruct the precise upstream signal (status + truncated body) when
+ * building a `RunRecord.error`.
+ *
+ * `body` is truncated to 2 KiB by the backend so an HTML error page from a
+ * misconfigured proxy never bloats event payloads or logs. Consumers needing
+ * the full body should inspect the underlying `BackendTransportError.body`
+ * via a custom `mapEvent` or backend wrapper.
+ */
+export interface BackendErrorDetail {
+  /**
+   * `'transport'` — upstream HTTP / network failure with optional status code.
+   * `'backend'` — the backend's `stream()` generator threw for a non-transport
+   * reason (e.g. a custom adapter error, sandbox crash).
+   */
+  kind: 'transport' | 'backend'
+  message: string
+  /** Upstream HTTP status when known. `0` for connection / abort errors. */
+  status?: number
+  /** Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed. */
+  body?: string
+}
+
+/**
+ * @stable
+ *
+ * OpenAI Chat Completions tool descriptor. The shape mirrors the
+ * `/v1/chat/completions` `tools[]` parameter so callers can pass tool
+ * definitions through `createOpenAICompatibleBackend({ tools })` without any
+ * runtime translation. The router proxies this shape verbatim to Anthropic
+ * (translated server-side), DeepSeek, Groq, OpenAI, and Gemini — every model
+ * that the eval surface targets.
+ *
+ * Callers that build their tool list from MCP servers should run a one-shot
+ * MCP `tools/list` at config time and project the result into this shape. The
+ * runtime intentionally does NOT depend on `@modelcontextprotocol/sdk` —
+ * keeping the backend transport thin lets domain repos own MCP plumbing.
+ */
+export interface OpenAIChatTool {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters?: Record<string, unknown>
+  }
+}
+
+/**
+ * @stable
+ *
+ * `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI
+ * spec: `'auto'` (default — model decides), `'none'` (disable tool calling
+ * for this turn), `'required'` (force a tool call), or a specific function
+ * pin `{ type: 'function', function: { name } }`.
+ */
+export type OpenAIChatToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { type: 'function'; function: { name: string } }
+
 /** @stable */
 export type RuntimeStreamEvent =
   | { type: 'task_start'; task: AgentTaskSpec; timestamp: string }
@@ -310,6 +377,18 @@ export type RuntimeStreamEvent =
       backend: string
       message: string
       recoverable: boolean
+      /**
+       * Typed transport diagnostic. Present when the upstream returned a
+       * non-success HTTP status or every retry attempt threw. Consumers MUST
+       * surface this onto their `RunRecord.error` — silently treating a
+       * `backend_error` as "no output" hides credit exhaustion, auth failure,
+       * and upstream outages from operators.
+       *  - `kind: 'transport'` — HTTP / network failure with optional `status`
+       *    + truncated response `body`.
+       *  - `kind: 'backend'` — the backend's `stream()` generator threw for a
+       *    reason that isn't a recognized transport failure.
+       */
+      error?: BackendErrorDetail
       timestamp: string
     }
   | {
@@ -334,6 +413,15 @@ export type RuntimeStreamEvent =
       reason: string
       text?: string
       metadata?: Record<string, unknown>
+      /**
+       * Typed terminal-error diagnostic. Mirrors the `backend_error.error`
+       * shape so a consumer that only listens for `final` still receives a
+       * loud, structured failure when the backend never produced output. Only
+       * set when `status !== 'completed'`. Consumers building a `RunRecord`
+       * MUST map this to `RunRecord.error` rather than recording silent
+       * `error: null` with empty `finalText`.
+       */
+      error?: BackendErrorDetail
       timestamp: string
     }
 
