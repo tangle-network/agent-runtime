@@ -22,6 +22,7 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval
 | `deriveExecutionId` | Stable substrate executionId for `X-Execution-ID` cross-process reconnect |
 | `startRuntimeRun` | Canonical production-run row + cost ledger |
 | `defineAgent` | Declarative per-vertical agent manifest — surfaces, knowledge, rubric, run fn |
+| `createMcpServer` (`/mcp`) + `agent-runtime-mcp` bin | Stdio MCP server with the 5 delegation tools (`delegate_code`, `delegate_research`, `delegate_feedback`, `delegation_status`, `delegation_history`) |
 | `resolveChatModel` / `validateChatModelId` / `getModels` | Router catalog fetch + fail-closed admission + precedence resolver |
 | `decideKnowledgeReadiness` | `ready` / `blocked` / `caveat` branch for routes / UI |
 | `createOpenAICompatibleBackend` | OpenAI-compatible streaming backend (TCloud / cli-bridge) |
@@ -172,6 +173,115 @@ await run.persist({ runtimeEvents: telemetry.events })
 ```
 
 Full runnable: [`examples/runtime-run/`](./examples/runtime-run/).
+
+## Delegation tools (MCP)
+
+`@tangle-network/agent-runtime/mcp` ships a stdio MCP server that exposes
+five delegation tools to a sandbox coding-harness agent (claude-code,
+codex, opencode, ...). The product agent itself runs inside a sandbox
+during a chat; when it needs a long-running coder or researcher loop, it
+calls one of these tools instead of doing the work in-line.
+
+| Tool | Kind | Use |
+|---|---|---|
+| `delegate_code` | async | Code-modification task — returns a `taskId`; poll `delegation_status` for the patch |
+| `delegate_research` | async | Source-grounded research task — returns a `taskId`; poll for items + citations |
+| `delegate_feedback` | sync | Append an agent/user/judge rating against a delegation, artifact, or outcome |
+| `delegation_status` | sync | Snapshot of a delegation's state machine (`pending` → `running` → `completed` \| `failed` \| `cancelled`) |
+| `delegation_history` | sync | Newest-first read of past delegations + attached feedback |
+
+Mount the server from a Node entry point:
+
+```ts
+import { Sandbox } from '@tangle-network/sandbox'
+import {
+  createMcpServer,
+  createDefaultCoderDelegate,
+} from '@tangle-network/agent-runtime/mcp'
+
+const sandboxClient = new Sandbox({ apiKey: process.env.SANDBOX_API_KEY! })
+const server = createMcpServer({
+  coderDelegate: createDefaultCoderDelegate({ sandboxClient }),
+  // researcherDelegate: wire your own — see below.
+})
+await server.serve() // reads JSON-RPC from stdin, writes responses to stdout
+```
+
+Or run the ready-made bin:
+
+```bash
+SANDBOX_API_KEY=sk_sandbox_... agent-runtime-mcp
+```
+
+The bin auto-wires the coder delegate and, when
+`@tangle-network/agent-knowledge` is installed as a peer, the researcher
+delegate. Environment knobs:
+
+- `SANDBOX_API_KEY` — required (unless both `MCP_DISABLE_*` are set)
+- `SANDBOX_BASE_URL` — sandbox-SDK base URL override
+- `MCP_MAX_CONCURRENT_SANDBOXES` — kernel `maxConcurrency` cap (default 4)
+- `MCP_CODER_FANOUT_HARNESSES` — comma-separated harness ids for `variants > 1`
+- `MCP_DISABLE_CODER` / `MCP_DISABLE_RESEARCHER` — omit the matching tool
+
+### Async semantics
+
+Coder + researcher delegations are **fire-and-poll**. The handler returns
+a `taskId` immediately; the agent calls `delegation_status(taskId)` until
+the state is terminal. Identical inputs return the same `taskId` —
+duplicate-call safety is built in via canonical-form hashing.
+
+```
+agent → delegate_code(goal, repoRoot)        → { taskId, estimatedDurationMs }
+agent → delegation_status(taskId)            → { status: 'running', progress: { ... } }
+... (minutes pass)
+agent → delegation_status(taskId)            → { status: 'completed', result: { profile: 'coder', output: <CoderOutput> } }
+agent → delegate_feedback(refersTo, rating)  → { recorded: true, id }
+```
+
+Task state lives in-memory inside the server process. A restart drops
+pending delegations — Phase 2 will move state into sqlite.
+
+### Wiring a researcher delegate
+
+`agent-runtime` cannot depend on `@tangle-network/agent-knowledge` (it
+would induce a dependency cycle). Wire the researcher delegate from your
+own integration code:
+
+```ts
+import { runLoop } from '@tangle-network/agent-runtime/loops'
+import { researcherProfile, multiHarnessResearcherFanout } from '@tangle-network/agent-knowledge/profiles'
+import { createMcpServer, type ResearcherDelegate } from '@tangle-network/agent-runtime/mcp'
+
+const researcherDelegate: ResearcherDelegate = async (args, ctx) => {
+  const task = {
+    question: args.question,
+    knowledgeNamespace: args.namespace,
+    scope: args.scope,
+    sources: args.sources,
+    /* ...map config.recencyWindow ISO strings to Date objects */
+  }
+  if ((args.variants ?? 1) <= 1) {
+    const preset = researcherProfile({ task })
+    const result = await runLoop({
+      driver: { /* single-shot */ async plan(t, h) { return h.length === 0 ? [t] : [] }, decide(h) { return h.length > 0 ? 'pick-winner' : 'fail' } },
+      agentRun: preset.agentRunSpec, output: preset.output, validator: preset.validator,
+      task, ctx: { sandboxClient, signal: ctx.signal }, maxIterations: 1,
+    })
+    return result.winner!.output
+  }
+  const fanout = multiHarnessResearcherFanout({ task })
+  const result = await runLoop({
+    driver: fanout.driver,
+    agentRuns: fanout.agentRuns.slice(0, args.variants),
+    output: fanout.output, validator: fanout.validator,
+    task, ctx: { sandboxClient, signal: ctx.signal },
+    maxIterations: args.variants ?? 1,
+  })
+  return result.winner!.output
+}
+
+createMcpServer({ researcherDelegate })
+```
 
 ## Error taxonomy
 
