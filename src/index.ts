@@ -28,7 +28,6 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
-
 // ── Chat-turn HTTP orchestration ──────────────────────────────────────
 // `handleChatTurn` frames a producer with the `session.run.*` envelope
 // + NDJSON line protocol + persist/post-process/trace-flush hook order.
@@ -36,7 +35,6 @@ export {
 // client retry can replay the same substrate execution. Long-running
 // execution durability itself lives in @tangle-network/sandbox.
 export * from './durable'
-
 // ── Errors ───────────────────────────────────────────────────────────
 export {
   AgentEvalError,
@@ -48,6 +46,12 @@ export {
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
+// ── MCP → OpenAI tools projection ────────────────────────────────────
+// Helper for eval / orchestrator code that routes through the
+// OpenAI-compat backend and needs the 5 delegation tools surfaced to
+// the model. Sandbox-SDK callers discover tools via the runtime's MCP
+// mount and don't need this projection.
+export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './mcp/openai-tools'
 
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.

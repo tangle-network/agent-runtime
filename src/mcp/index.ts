@@ -31,6 +31,7 @@ export type {
 export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
+export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
