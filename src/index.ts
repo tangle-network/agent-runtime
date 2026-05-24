@@ -41,6 +41,7 @@ export * from './durable'
 export {
   AgentEvalError,
   type AgentEvalErrorCode,
+  BackendTransportError,
   ConfigError,
   JudgeError,
   NotFoundError,
@@ -108,6 +109,9 @@ export type {
   AgentTaskRunResult,
   AgentTaskSpec,
   AgentTaskStatus,
+  BackendErrorDetail,
+  OpenAIChatTool,
+  OpenAIChatToolChoice,
   RuntimeSessionStore,
   RuntimeStreamEvent,
 } from './types'

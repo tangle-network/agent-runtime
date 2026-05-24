@@ -273,6 +273,19 @@ export function sanitizeRuntimeStreamEvent(
     }
   }
   if (event.type === 'final') {
+    // Surface error `kind` + `status` always — operators need failure
+    // classification regardless of telemetry payload opt-in. `body` follows
+    // the same gating as raw payloads (`includeControlPayloads`) because it
+    // can echo user-visible text from the upstream provider's error page.
+    const sanitizedError =
+      event.error !== undefined
+        ? {
+            kind: event.error.kind,
+            message: event.error.message,
+            status: event.error.status,
+            body: options.includeControlPayloads ? event.error.body : undefined,
+          }
+        : undefined
     return {
       type: event.type,
       ...withTask,
@@ -282,6 +295,7 @@ export function sanitizeRuntimeStreamEvent(
       reason: event.reason,
       text: options.includeControlPayloads ? event.text : undefined,
       metadata: options.includeMetadata ? event.metadata : undefined,
+      ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
     }
   }
   return {
@@ -449,7 +463,24 @@ function pickPublicStreamFields(event: RuntimeStreamEvent): Record<string, unkno
   if (event.type === 'backend_start' || event.type === 'backend_end')
     return { backend: event.backend }
   if (event.type === 'backend_error') {
-    return { backend: event.backend, message: event.message, recoverable: event.recoverable }
+    // `error.body` is the truncated upstream response — it can carry
+    // user-visible text (a `free_tier_limit` envelope is safe, but an HTML
+    // error page from a misconfigured proxy may echo the request URL with
+    // query string). Redact body by default; surface `kind` + `status` so
+    // operators can still classify the failure without raw text.
+    const sanitizedError =
+      event.error !== undefined
+        ? {
+            kind: event.error.kind,
+            status: event.error.status,
+          }
+        : undefined
+    return {
+      backend: event.backend,
+      message: event.message,
+      recoverable: event.recoverable,
+      ...(sanitizedError !== undefined ? { error: sanitizedError } : {}),
+    }
   }
   if (event.type === 'task_end') return { status: event.status, reason: event.reason }
   if (event.type === 'text_delta' || event.type === 'reasoning_delta') return { text: event.text }

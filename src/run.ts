@@ -27,7 +27,7 @@ import {
 } from '@tangle-network/agent-eval'
 
 import { normalizeBackendStreamEvent } from './backends'
-import { SessionMismatchError } from './errors'
+import { BackendTransportError, SessionMismatchError } from './errors'
 import { decideKnowledgeReadiness } from './readiness'
 import { newRuntimeSession, nowIso, touchSession } from './sessions'
 import type {
@@ -39,6 +39,7 @@ import type {
   AgentTaskRunResult,
   AgentTaskSpec,
   AgentTaskStatus,
+  BackendErrorDetail,
   RunAgentTaskOptions,
   RunAgentTaskStreamOptions,
   RuntimeSession,
@@ -284,13 +285,30 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
     } catch (stopErr) {
       stopErrorMessage = stopErr instanceof Error ? stopErr.message : String(stopErr)
     }
+    const combinedMessage = stopErrorMessage
+      ? `${message}; backend stop failed: ${stopErrorMessage}`
+      : message
+    // Typed transport detail — preserves status code + truncated body so
+    // consumers can map onto `RunRecord.error` without re-parsing the log
+    // string. Required by the runtime's fail-loud contract: silent empty
+    // output for a 402 / 401 / 5xx hides the real failure mode.
+    const errorDetail: BackendErrorDetail =
+      err instanceof BackendTransportError
+        ? {
+            kind: 'transport',
+            message: combinedMessage,
+            status: err.status,
+            body: err.body,
+          }
+        : { kind: 'backend', message: combinedMessage }
     const backendError = streamEvent({
       type: 'backend_error',
       task,
       session,
       backend: options.backend.kind,
-      message: stopErrorMessage ? `${message}; backend stop failed: ${stopErrorMessage}` : message,
+      message: combinedMessage,
       recoverable: !options.signal?.aborted,
+      error: errorDetail,
     })
     await store?.appendEvent?.(session.id, backendError)
     yield backendError
@@ -305,6 +323,7 @@ export async function* runAgentTaskStream<TInput extends AgentBackendInput = Age
       status,
       reason: message,
       text: finalText || undefined,
+      error: errorDetail,
     })
     await store?.appendEvent?.(session.id, final)
     yield final

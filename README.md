@@ -362,6 +362,94 @@ const researcherDelegate: ResearcherDelegate = async (args, ctx) => {
 createMcpServer({ researcherDelegate })
 ```
 
+## OpenAI-compat backend — tools + fail-loud errors
+
+`createOpenAICompatibleBackend` forwards an OpenAI Chat Completions
+`tools[]` array on every request when configured. Streamed tool calls
+(both OpenAI delta shape and the Anthropic `tool_use` shape proxied by
+the router) are assembled across SSE chunks and emitted as a single
+`tool_call` RuntimeStreamEvent per call. The backend does NOT execute
+tools — surfacing the call is the contract; dispatch is the caller's
+problem.
+
+```ts
+import {
+  createOpenAICompatibleBackend,
+  runAgentTaskStream,
+  type OpenAIChatTool,
+} from '@tangle-network/agent-runtime'
+
+const delegateResearch: OpenAIChatTool = {
+  type: 'function',
+  function: {
+    name: 'delegate_research',
+    description: 'Spin up a researcher loop and return a taskId.',
+    parameters: {
+      type: 'object',
+      properties: { question: { type: 'string' } },
+      required: ['question'],
+    },
+  },
+}
+
+const backend = createOpenAICompatibleBackend({
+  apiKey: process.env.TANGLE_API_KEY!,
+  baseUrl: 'https://router.tangle.tools/v1',
+  model: 'claude-sonnet-4-6',
+  tools: [delegateResearch /* + delegate_code, delegate_feedback, etc. */],
+  toolChoice: 'auto', // or 'none' | 'required' | { type: 'function', function: { name } }
+})
+
+for await (const event of runAgentTaskStream({ task, backend, input })) {
+  if (event.type === 'tool_call') {
+    // Dispatch through your MCP / sandbox runtime. `args` is JSON-parsed
+    // when the model produced a valid object, raw string otherwise.
+    const result = await dispatch(event.toolName, event.args)
+    // Feed `result` back on a follow-up turn via `input.messages`.
+  }
+}
+```
+
+Callers integrating with `agent-runtime/mcp` typically project the MCP
+server's `tools/list` response into this shape once at config time and
+pass the array as `tools`. The runtime intentionally does NOT depend on
+`@modelcontextprotocol/sdk` — keeping the backend transport thin lets
+domain repos own MCP plumbing.
+
+### Transport errors fail loud
+
+Non-success HTTP responses (4xx/5xx after retry exhaustion) and
+connection failures throw `BackendTransportError` from inside the
+`stream()` generator. `runAgentTaskStream` catches the throw and emits:
+
+- `backend_error` event with `error: { kind: 'transport', message, status, body }`
+- terminal `final` event with `status: 'failed'` carrying the same `error` detail
+
+Consumers building a `RunRecord` MUST map `final.error` onto
+`RunRecord.error`. Treating an empty `finalText` as "agent produced
+nothing" hides credit exhaustion (HTTP 402), auth failure (401),
+model-not-found (404), and upstream outages (5xx).
+
+```ts
+for await (const event of runAgentTaskStream({ task, backend, input })) {
+  run.observe(event)
+  if (event.type === 'final') {
+    run.complete({
+      status: event.status === 'completed' ? 'completed' : 'failed',
+      resultSummary: event.text ?? '',
+      error: event.error
+        ? `${event.error.kind} ${event.error.status ?? ''}: ${event.error.message}`
+        : undefined,
+    })
+  }
+}
+```
+
+The body is captured truncated to 2 KiB. By default the sanitized
+telemetry envelope surfaces `error.kind` + `error.status` but redacts
+`error.body` (it can echo user-visible text from a provider's error
+page). Opt in with `RuntimeTelemetryOptions.includeControlPayloads`.
+
 ## Error taxonomy
 
 | Error | When |
@@ -369,7 +457,7 @@ createMcpServer({ researcherDelegate })
 | `ValidationError` | Caller passed invalid arguments |
 | `ConfigError` | Required env / config missing |
 | `NotFoundError` | A named resource does not exist |
-| `BackendTransportError` | Backend HTTP / IPC call returned non-success |
+| `BackendTransportError` | Backend HTTP / IPC call returned non-success — carries `status` + truncated `body` |
 | `SessionMismatchError` | Resume requested against a different backend |
 | `RuntimeRunStateError` | `RuntimeRunHandle` lifecycle methods called out of order |
 
