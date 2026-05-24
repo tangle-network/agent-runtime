@@ -421,6 +421,10 @@ Runnable in [`examples/`](./examples/). Every example imports from
 - [`model-resolution/`](./examples/model-resolution/) — router catalog + fail-closed admission
 - [`agent-into-reviewer/`](./examples/agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent
 - [`chat-handler/`](./examples/chat-handler/) — `handleChatTurn` (the centerpiece production pattern)
+- [`coder-loop/`](./examples/coder-loop/) — `coderProfile` + `runLoop` + `FanoutVote` (driven-loop kernel)
+- [`researcher-loop/`](./examples/researcher-loop/) — `researcherProfile` + `runLoop` + `FanoutVote` (peer dep: `@tangle-network/agent-knowledge`)
+- [`mcp-delegation/`](./examples/mcp-delegation/) — mount `agent-runtime-mcp` in a product `AgentProfile` + stdio `tools/list` smoke
+- [`fleet-delegation/`](./examples/fleet-delegation/) — `TANGLE_FLEET_ID` env flip + `createFleetWorkspaceExecutor` topology
 
 ## Tests
 
