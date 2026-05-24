@@ -149,10 +149,25 @@ export interface LoopResult<Task, Output, Decision> {
  * `new Sandbox({ apiKey, baseUrl })` — declared as a structural type so
  * tests can pass a stub without instantiating the SDK.
  *
+ * `describePlacement` is optional. When present, the kernel calls it after
+ * each `create()` so the `loop.iteration.dispatch` trace event carries fleet
+ * coordinates (fleetId + machineId) instead of just the sibling sandboxId.
+ * Fleet-aware adapters set this; the raw `Sandbox` SDK class does not, and
+ * the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
+ *
  * @experimental
  */
 export interface LoopSandboxClient {
   create(options?: CreateSandboxOptions): Promise<SandboxInstance>
+  describePlacement?(box: SandboxInstance): LoopSandboxPlacement
+}
+
+/** @experimental */
+export interface LoopSandboxPlacement {
+  kind: 'sibling' | 'fleet'
+  sandboxId?: string
+  fleetId?: string
+  machineId?: string
 }
 
 /** @experimental */
@@ -168,6 +183,12 @@ export type LoopTraceEvent =
       runId: string
       timestamp: number
       payload: LoopIterationStartedPayload
+    }
+  | {
+      kind: 'loop.iteration.dispatch'
+      runId: string
+      timestamp: number
+      payload: LoopIterationDispatchPayload
     }
   | {
       kind: 'loop.iteration.ended'
@@ -191,6 +212,26 @@ export interface LoopIterationStartedPayload {
   iterationIndex: number
   agentRunName: string
   taskHash: string
+}
+
+/**
+ * Where the iteration's worker was placed. `sibling` = a fresh sandbox the
+ * kernel created via `sandboxClient.create`. `fleet` = an existing machine in
+ * a shared-workspace fleet — workers see the caller's filesystem and any diff
+ * they write lands on it directly.
+ *
+ * @experimental
+ */
+export interface LoopIterationDispatchPayload {
+  iterationIndex: number
+  agentRunName: string
+  placement: 'sibling' | 'fleet'
+  /** Set on every placement. Lets analyst loops correlate per-iteration logs. */
+  sandboxId?: string
+  /** Set only when `placement === 'fleet'`. */
+  fleetId?: string
+  /** Set only when `placement === 'fleet'`. */
+  machineId?: string
 }
 
 /** @experimental */

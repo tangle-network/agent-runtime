@@ -121,7 +121,7 @@ export interface JsonRpcResponse {
 
 const PROTOCOL_VERSION = '2024-11-05'
 const DEFAULT_SERVER_NAME = 'agent-runtime-mcp'
-const DEFAULT_SERVER_VERSION = '0.20.0'
+const DEFAULT_SERVER_VERSION = '0.21.0'
 
 /** @experimental */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {

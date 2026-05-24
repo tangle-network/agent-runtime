@@ -13,6 +13,16 @@
  * Environment variables:
  *   TANGLE_API_KEY                   required — passed to `new Sandbox({ apiKey })`
  *   SANDBOX_BASE_URL                 optional — sandbox-SDK base URL override
+ *   TANGLE_FLEET_ID                  optional — when set, delegations dispatch
+ *                                    INTO this fleet's shared workspace instead
+ *                                    of creating sibling sandboxes. Set by the
+ *                                    parent sandbox when launching this MCP
+ *                                    server so worker diffs land on the caller's
+ *                                    filesystem with no cross-sandbox boundary.
+ *   TANGLE_FLEET_EXCLUDE_MACHINES    optional — comma-separated machine ids to
+ *                                    skip during fleet-mode round-robin
+ *                                    (typically the coordinator machine this
+ *                                    MCP server is running on).
  *   MCP_MAX_CONCURRENT_SANDBOXES     default 4 — kernel maxConcurrency cap
  *   MCP_CODER_FANOUT_HARNESSES       comma-separated harness ids to use for variants > 1
  *   MCP_DISABLE_CODER                set to `1` to omit `delegate_code`
@@ -21,7 +31,9 @@
 
 import type { LoopSandboxClient } from '../loops'
 import { runLoop } from '../loops'
+import { detectExecutor } from './bin-helpers'
 import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
+import type { DelegationExecutor } from './executor'
 import { createMcpServer } from './server'
 import type { ResearchOutputShape } from './types'
 
@@ -30,6 +42,7 @@ async function main(): Promise<void> {
   const maxConcurrency = parseConcurrency(process.env.MCP_MAX_CONCURRENT_SANDBOXES)
   const wantCoder = !process.env.MCP_DISABLE_CODER
   const wantResearcher = !process.env.MCP_DISABLE_RESEARCHER
+  const fleetId = parseFleetId(process.env.TANGLE_FLEET_ID)
 
   // Skip the sandbox client load entirely when no profile delegate needs it —
   // the feedback + status + history tools are queue-bound and require no
@@ -37,6 +50,7 @@ async function main(): Promise<void> {
   // self-introspection.
   const needsSandbox = wantCoder || wantResearcher
   let sandboxClient: LoopSandboxClient | undefined
+  let executor: DelegationExecutor | undefined
   if (needsSandbox) {
     const apiKey = process.env.TANGLE_API_KEY
     if (!apiKey && !process.env.AGENT_RUNTIME_MCP_ALLOW_NO_KEY) {
@@ -45,21 +59,35 @@ async function main(): Promise<void> {
       )
       process.exit(2)
     }
+    // Fleet mode against a diagnostic stub is meaningless — the stub can't
+    // resolve a real fleet handle. Refuse rather than silently degrading,
+    // otherwise a fleet-mounted MCP would behave differently than configured.
+    if (fleetId && !apiKey) {
+      process.stderr.write(
+        'agent-runtime-mcp: TANGLE_FLEET_ID was set but TANGLE_API_KEY is missing; cannot resolve fleet handle. Provide an api key or unset TANGLE_FLEET_ID.\n',
+      )
+      process.exit(2)
+    }
     sandboxClient = await loadSandboxClient(apiKey)
+    executor = await detectExecutor({ sandboxClient })
+    if (fleetId) {
+      process.stderr.write(`agent-runtime-mcp: fleet-aware delegation: fleetId=${fleetId}\n`)
+    }
+    process.stderr.write(`agent-runtime-mcp: delegation placement → ${executor.describe()}\n`)
   }
 
   const coderDelegate =
-    wantCoder && sandboxClient
+    wantCoder && executor
       ? createDefaultCoderDelegate({
-          sandboxClient,
+          executor,
           fanoutHarnesses,
           maxConcurrency,
         })
       : undefined
 
   const researcherDelegate =
-    wantResearcher && sandboxClient
-      ? await loadResearcherDelegate(sandboxClient, maxConcurrency)
+    wantResearcher && executor
+      ? await loadResearcherDelegate(executor.client, maxConcurrency)
       : undefined
 
   const server = createMcpServer({ coderDelegate, researcherDelegate })
@@ -216,6 +244,12 @@ function parseHarnesses(raw: string | undefined): string[] | undefined {
     .map((entry) => entry.trim())
     .filter(Boolean)
   return list.length > 0 ? list : undefined
+}
+
+function parseFleetId(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 function parseConcurrency(raw: string | undefined): number {
