@@ -1,0 +1,49 @@
+/**
+ * @experimental
+ *
+ * Driven-loop substrate. `runLoop` orchestrates around the sandbox SDK; it
+ * does not invent its own notion of "what an agent is". Each iteration is
+ * a `sandboxClient.create({ backend: { profile } })` + `box.streamPrompt`
+ * call. The driver owns topology; the validator owns scoring; the output
+ * adapter owns event-stream decode; the kernel owns iteration accounting,
+ * concurrency, abort, cost aggregation, and trace emission.
+ */
+
+// One-stop import: sandbox-SDK types consumers need to spell out an
+// `AgentRunSpec` without importing `@tangle-network/sandbox` separately.
+export type {
+  AgentProfile,
+  CreateSandboxOptions,
+  SandboxEvent,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
+export type {
+  CreateFanoutVoteDriverOptions,
+  FanoutVoteDecision,
+  FanoutVoteScored,
+} from './drivers/fanout-vote'
+export { createFanoutVoteDriver, scoreFanoutVoteIterations } from './drivers/fanout-vote'
+export type { CreateRefineDriverOptions, RefineDecision } from './drivers/refine'
+export { createRefineDriver, refineWinnerIndex } from './drivers/refine'
+export type { RunLoopOptions } from './run-loop'
+export { runLoop } from './run-loop'
+export type {
+  AgentRunSpec,
+  DefaultVerdict,
+  Driver,
+  ExecCtx,
+  Iteration,
+  LoopDecisionPayload,
+  LoopEndedPayload,
+  LoopIterationEndedPayload,
+  LoopIterationStartedPayload,
+  LoopResult,
+  LoopSandboxClient,
+  LoopStartedPayload,
+  LoopTraceEmitter,
+  LoopTraceEvent,
+  LoopWinner,
+  OutputAdapter,
+  ValidationCtx,
+  Validator,
+} from './types'

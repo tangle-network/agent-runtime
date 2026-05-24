@@ -6,6 +6,8 @@ export default defineConfig({
     platform: 'src/platform/index.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
     agent: 'src/agent/index.ts',
+    loops: 'src/loops/index.ts',
+    profiles: 'src/profiles/index.ts',
   },
   format: ['esm'],
   dts: true,
