@@ -8,6 +8,8 @@ export default defineConfig({
     agent: 'src/agent/index.ts',
     loops: 'src/loops/index.ts',
     profiles: 'src/profiles/index.ts',
+    'mcp/index': 'src/mcp/index.ts',
+    'mcp/bin': 'src/mcp/bin.ts',
   },
   format: ['esm'],
   dts: true,

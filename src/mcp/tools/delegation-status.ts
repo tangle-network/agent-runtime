@@ -1,0 +1,76 @@
+/**
+ * @experimental
+ *
+ * `delegation_status` MCP tool — synchronous poll. Returns the current
+ * state machine + optional progress + final result (when terminal).
+ */
+
+import { NotFoundError } from '../../errors'
+import type {
+  DelegationStatusArgs,
+  DelegationStatusResult,
+  DelegationTaskQueue,
+} from '../task-queue'
+
+/** @experimental */
+export const DELEGATION_STATUS_TOOL_NAME = 'delegation_status'
+
+/** @experimental */
+export const DELEGATION_STATUS_DESCRIPTION = [
+  'Poll the status of an async delegation. Returns the current state',
+  '(pending | running | completed | failed | cancelled), optional progress,',
+  'and the final result when status === "completed".',
+  '',
+  'Use when: you previously called delegate_code or delegate_research and',
+  "need to know whether the work is done. The agent's right rhythm is to",
+  'call this every minute or two while waiting; do not busy-poll.',
+  '',
+  'For a completed coder task, `result.output` is a CoderOutput with branch,',
+  'patch, test/typecheck results, and diff stats. For a completed research',
+  'task, `result.output` is the items + citations + proposedWrites bundle.',
+  '',
+  'Throws NotFoundError when taskId is unknown — never silently returns',
+  '`pending` for a typo.',
+].join('\n')
+
+/** @experimental */
+export const DELEGATION_STATUS_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    taskId: { type: 'string', description: 'Returned by delegate_code / delegate_research.' },
+  },
+  required: ['taskId'],
+  additionalProperties: false,
+} as const
+
+/** @experimental */
+export function validateDelegationStatusArgs(raw: unknown): DelegationStatusArgs {
+  if (raw === null || typeof raw !== 'object') {
+    throw new TypeError('delegation_status: arguments must be an object')
+  }
+  const value = raw as Record<string, unknown>
+  const taskId = value.taskId
+  if (typeof taskId !== 'string' || taskId.trim().length === 0) {
+    throw new TypeError('delegation_status: `taskId` must be a non-empty string')
+  }
+  return { taskId: taskId.trim() }
+}
+
+/** @experimental */
+export interface DelegationStatusHandlerOptions {
+  queue: DelegationTaskQueue
+}
+
+/** @experimental */
+export function createDelegationStatusHandler(
+  options: DelegationStatusHandlerOptions,
+): (raw: unknown) => Promise<DelegationStatusResult> {
+  return async (raw) => {
+    const args = validateDelegationStatusArgs(raw)
+    const status = options.queue.status(args.taskId)
+    if (!status) {
+      throw new NotFoundError(`delegation_status: unknown taskId "${args.taskId}"`)
+    }
+    return status
+  }
+}
