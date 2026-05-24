@@ -14,6 +14,7 @@
 export type {
   LoopDecisionPayload,
   LoopEndedPayload,
+  LoopIterationDispatchPayload,
   LoopIterationEndedPayload,
   LoopIterationStartedPayload,
   LoopStartedPayload,

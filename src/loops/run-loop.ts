@@ -8,7 +8,9 @@
  *   2. For each task (parallel, bounded by `maxConcurrency`):
  *        a. round-robin an `AgentRunSpec` from `agentRuns`
  *        b. `sandboxClient.create({ backend: { profile }, ...overrides })`
- *        c. iterate `box.streamPrompt(taskToPrompt(task))` and collect events
+ *        c. emit `loop.iteration.dispatch` with the placement
+ *           (`{ sibling, sandboxId }` or `{ fleet, fleetId, machineId, sandboxId }`)
+ *        d. iterate `box.streamPrompt(taskToPrompt(task))` and collect events
  *   3. `output.parse(events)` → typed `Output`
  *   4. `validator?.validate(output)` → `DefaultVerdict`
  *   5. Append `Iteration` to history; emit `loop.iteration.ended`
@@ -36,6 +38,7 @@ import type {
   Iteration,
   LoopResult,
   LoopSandboxClient,
+  LoopSandboxPlacement,
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
@@ -264,6 +267,20 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
 
   try {
     const box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
+    const placement = describePlacementSafe(args.ctx.sandboxClient, box)
+    await emitTrace(args.ctx.traceEmitter, {
+      kind: 'loop.iteration.dispatch',
+      runId: args.runId,
+      timestamp: args.now(),
+      payload: {
+        iterationIndex: args.item.index,
+        agentRunName: slot.agentRunName,
+        placement: placement.kind,
+        sandboxId: placement.sandboxId,
+        fleetId: placement.fleetId,
+        machineId: placement.machineId,
+      },
+    })
     const message = spec.taskToPrompt(args.item.task)
     const events: SandboxEvent[] = []
     for await (const event of box.streamPrompt(message, { signal: args.signal })) {
@@ -301,6 +318,37 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       },
     })
   }
+}
+
+function describePlacementSafe(
+  client: LoopSandboxClient,
+  box: SandboxInstance,
+): LoopSandboxPlacement {
+  if (typeof client.describePlacement === 'function') {
+    try {
+      const result = client.describePlacement(box)
+      if (
+        result &&
+        typeof result === 'object' &&
+        (result.kind === 'sibling' || result.kind === 'fleet')
+      ) {
+        return {
+          kind: result.kind,
+          sandboxId: result.sandboxId ?? readSandboxId(box),
+          fleetId: result.fleetId,
+          machineId: result.machineId,
+        }
+      }
+    } catch {
+      // Adapter bug must not corrupt the iteration; fall through to default.
+    }
+  }
+  return { kind: 'sibling', sandboxId: readSandboxId(box) }
+}
+
+function readSandboxId(box: SandboxInstance): string | undefined {
+  const raw = (box as unknown as { id?: unknown }).id
+  return typeof raw === 'string' && raw.length > 0 ? raw : undefined
 }
 
 async function createSandboxForSpec<Task>(

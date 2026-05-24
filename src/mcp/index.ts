@@ -13,6 +13,8 @@
  * sandbox client + run-loop topology.
  */
 
+export type { DetectExecutorArgs } from './bin-helpers'
+export { detectExecutor } from './bin-helpers'
 export type {
   CoderDelegate,
   CreateDefaultCoderDelegateOptions,
@@ -20,6 +22,13 @@ export type {
   ResearcherDelegate,
 } from './delegates'
 export { createDefaultCoderDelegate } from './delegates'
+export type {
+  DelegationExecutor,
+  FleetHandle,
+  FleetWorkspaceExecutorOptions,
+  SiblingSandboxExecutorOptions,
+} from './executor'
+export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
 export type {

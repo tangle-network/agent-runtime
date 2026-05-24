@@ -219,9 +219,88 @@ delegate. Environment knobs:
 
 - `TANGLE_API_KEY` — required (unless both `MCP_DISABLE_*` are set)
 - `SANDBOX_BASE_URL` — sandbox-SDK base URL override
+- `TANGLE_FLEET_ID` — switches placement from sibling-sandbox to fleet-workspace (see [Placement modes](#placement-modes))
+- `TANGLE_FLEET_EXCLUDE_MACHINES` — comma-separated machine ids to skip during fleet-mode round-robin (typically the coordinator)
 - `MCP_MAX_CONCURRENT_SANDBOXES` — kernel `maxConcurrency` cap (default 4)
 - `MCP_CODER_FANOUT_HARNESSES` — comma-separated harness ids for `variants > 1`
 - `MCP_DISABLE_CODER` / `MCP_DISABLE_RESEARCHER` — omit the matching tool
+
+### Placement modes
+
+Where worker iterations land — sibling sandboxes vs the caller's fleet
+workspace — is controlled by `TANGLE_FLEET_ID`.
+
+**Sibling-sandbox mode (default).** No `TANGLE_FLEET_ID` set. Every
+`delegate_code` / `delegate_research` call invokes `sandboxClient.create(...)`
+and runs the worker in a fresh sandbox. The worker's diff lives in the
+worker's filesystem; the caller pulls it back via the structured tool
+result. Use this when the MCP server runs as a standalone CLI mounted
+outside a fleet (developer workflows, single-process integrations).
+
+**Fleet-workspace mode.** `TANGLE_FLEET_ID` set by the parent sandbox when
+it launches the MCP server. Each delegation dispatches onto an existing
+machine in that fleet via `fleet.sandbox(machineId).streamPrompt(...)`.
+The fleet's shared-workspace policy means worker machines mount the same
+filesystem as the caller — diffs land in-place, no cross-sandbox copy
+step. The bin logs `fleet-aware delegation: fleetId=...` to stderr on
+startup so the operator can confirm the placement.
+
+Pass `TANGLE_FLEET_ID` from a parent sandbox's `AgentProfile.mcpServers`
+config:
+
+```ts
+import { defineAgentProfile } from '@tangle-network/sandbox'
+
+const parentProfile = defineAgentProfile({
+  name: 'tax-orchestrator',
+  mcp: {
+    'agent-runtime': {
+      transport: 'stdio',
+      command: 'agent-runtime-mcp',
+      env: {
+        TANGLE_API_KEY: '${TANGLE_API_KEY}',
+        TANGLE_FLEET_ID: '${TANGLE_FLEET_ID}',          // injected by orchestrator
+        TANGLE_FLEET_EXCLUDE_MACHINES: 'coordinator',    // skip the machine running this MCP server
+      },
+    },
+  },
+})
+```
+
+For non-bin entry points, wire an executor directly:
+
+```ts
+import { Sandbox } from '@tangle-network/sandbox'
+import {
+  createMcpServer,
+  createDefaultCoderDelegate,
+  createFleetWorkspaceExecutor,
+  createSiblingSandboxExecutor,
+  detectExecutor,
+} from '@tangle-network/agent-runtime/mcp'
+
+const sandboxClient = new Sandbox({ apiKey: process.env.TANGLE_API_KEY! })
+
+// Either pick automatically from env:
+const executor = await detectExecutor({ sandboxClient })
+
+// Or pin it explicitly:
+const fleet = await sandboxClient.fleets.get(process.env.TANGLE_FLEET_ID!)
+const fleetExecutor = createFleetWorkspaceExecutor({
+  fleet,
+  excludeMachineIds: ['coordinator'],
+})
+
+const server = createMcpServer({
+  coderDelegate: createDefaultCoderDelegate({ executor: fleetExecutor }),
+})
+```
+
+The kernel emits a `loop.iteration.dispatch` trace event for every
+iteration: `{ placement: 'sibling', sandboxId }` in sibling mode,
+`{ placement: 'fleet', fleetId, machineId, sandboxId }` in fleet mode.
+Analyst loops use this to correlate worker activity with the caller's
+machine.
 
 ### Async semantics
 

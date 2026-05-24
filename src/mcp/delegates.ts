@@ -19,6 +19,7 @@
 import type { LoopSandboxClient } from '../loops'
 import { runLoop } from '../loops'
 import { coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
+import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
   CoderTask,
   DelegateCodeArgs,
@@ -47,7 +48,18 @@ export type ResearcherDelegate = (
 
 /** @experimental */
 export interface CreateDefaultCoderDelegateOptions {
-  sandboxClient: LoopSandboxClient
+  /**
+   * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
+   * to control where worker iterations land. `sandboxClient` is a
+   * convenience shorthand that wraps the client in a sibling executor — pass
+   * one or the other, not both.
+   */
+  executor?: DelegationExecutor
+  /**
+   * Convenience shorthand for sibling placement. Equivalent to
+   * `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
+   */
+  sandboxClient?: LoopSandboxClient
   /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
   fanoutHarnesses?: string[]
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */
@@ -64,7 +76,8 @@ export interface CreateDefaultCoderDelegateOptions {
 export function createDefaultCoderDelegate(
   options: CreateDefaultCoderDelegateOptions,
 ): CoderDelegate {
-  const sandboxClient = options.sandboxClient
+  const executor = resolveExecutor(options)
+  const sandboxClient = executor.client
   const fanoutHarnesses = options.fanoutHarnesses
   const maxConcurrency = options.maxConcurrency ?? 4
   return async (args, ctx) => {
@@ -125,6 +138,17 @@ export function createDefaultCoderDelegate(
 function buildCoderGoal(args: DelegateCodeArgs): string {
   if (!args.contextHint) return args.goal
   return [args.goal, '', '## Context', args.contextHint].join('\n')
+}
+
+function resolveExecutor(options: CreateDefaultCoderDelegateOptions): DelegationExecutor {
+  if (options.executor && options.sandboxClient) {
+    throw new Error('createDefaultCoderDelegate: pass exactly one of `executor` or `sandboxClient`')
+  }
+  if (options.executor) return options.executor
+  if (options.sandboxClient) {
+    return createSiblingSandboxExecutor({ client: options.sandboxClient })
+  }
+  throw new Error('createDefaultCoderDelegate: `executor` or `sandboxClient` is required')
 }
 
 /**
