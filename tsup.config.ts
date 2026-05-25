@@ -5,6 +5,7 @@ export default defineConfig({
     index: 'src/index.ts',
     platform: 'src/platform/index.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
+    improvement: 'src/improvement/index.ts',
     agent: 'src/agent/index.ts',
     loops: 'src/loops/index.ts',
     profiles: 'src/profiles/index.ts',

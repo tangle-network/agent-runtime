@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Reusable runtime lifecycle for domain-specific agents.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -28,6 +28,11 @@
       "types": "./dist/analyst-loop.d.ts",
       "import": "./dist/analyst-loop.js",
       "default": "./dist/analyst-loop.js"
+    },
+    "./improvement": {
+      "types": "./dist/improvement.d.ts",
+      "import": "./dist/improvement.js",
+      "default": "./dist/improvement.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
@@ -71,7 +76,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.38.0"
+    "@tangle-network/agent-eval": "^0.40.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
