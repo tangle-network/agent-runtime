@@ -213,6 +213,33 @@ Or run the ready-made bin:
 TANGLE_API_KEY=sk_sandbox_... agent-runtime-mcp
 ```
 
+### Surfacing the tools through `createOpenAICompatibleBackend`
+
+Sandbox callers discover MCP tools through the runtime mount. Callers that
+route through the OpenAI-compat backend (tcloud, OpenRouter, cli-bridge,
+OpenAI direct) must hand the model an explicit `tools[]` array — the
+backend does not auto-discover. `mcpToolsForRuntimeMcp()` returns the
+canonical projection so the model can call any of the 5 delegation tools
+through the OpenAI-compat path:
+
+```ts
+import {
+  createOpenAICompatibleBackend,
+  mcpToolsForRuntimeMcp,
+} from '@tangle-network/agent-runtime'
+
+const backend = createOpenAICompatibleBackend({
+  apiKey,
+  baseUrl,
+  model,
+  tools: mcpToolsForRuntimeMcp(),
+})
+```
+
+Use `mcpToolsForRuntimeMcpSubset(['delegate_research', 'delegation_status'])`
+when you want a curated subset (e.g. read-only research without the coder
+queue).
+
 The bin auto-wires the coder delegate and, when
 `@tangle-network/agent-knowledge` is installed as a peer, the researcher
 delegate. Environment knobs:

@@ -31,6 +31,7 @@ export type {
 export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
+export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
 export type {
   JsonRpcMessage,
   JsonRpcResponse,
@@ -82,6 +83,12 @@ export {
   DELEGATION_STATUS_TOOL_NAME,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
+export type { TraceContext } from './trace-propagation'
+export {
+  createPropagatingTraceEmitter,
+  readTraceContextFromEnv,
+  traceContextToEnv,
+} from './trace-propagation'
 export type {
   DelegateCodeArgs,
   DelegateCodeConfig,

@@ -297,6 +297,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       slot.verdict = await args.validator.validate(slot.output, {
         iteration: args.item.index,
         signal: args.signal,
+        traceEmitter: args.ctx.traceEmitter,
       })
     }
   } catch (err) {
