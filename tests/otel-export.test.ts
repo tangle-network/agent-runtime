@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createOtelExporter, loopEventToOtelSpan } from '../src/otel-export'
 
 describe('otel-export', () => {
@@ -52,7 +52,7 @@ describe('otel-export', () => {
       status: { code: 1 },
     })
 
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
 
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:4318/v1/traces',
@@ -85,8 +85,8 @@ describe('otel-export', () => {
       endTimeUnixNano: '1000000000000',
     })
 
-    await new Promise(r => setTimeout(r, 50))
-    expect(capturedHeaders['Authorization']).toBe('Bearer secret')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(capturedHeaders.Authorization).toBe('Bearer secret')
     expect(capturedHeaders['X-Org']).toBe('my-org')
 
     await exporter.shutdown()
@@ -115,7 +115,9 @@ describe('otel-export', () => {
   })
 
   it('network failure does not crash the exporter', async () => {
-    const mockFetch = vi.fn(async () => { throw new Error('ECONNREFUSED') })
+    const mockFetch = vi.fn(async () => {
+      throw new Error('ECONNREFUSED')
+    })
     vi.stubGlobal('fetch', mockFetch)
 
     const exporter = createOtelExporter({
@@ -132,7 +134,7 @@ describe('otel-export', () => {
       endTimeUnixNano: '1000000000000',
     })
 
-    await new Promise(r => setTimeout(r, 50))
+    await new Promise((r) => setTimeout(r, 50))
     await exporter.shutdown()
     // If we get here without exception, test passes
   })
@@ -158,9 +160,7 @@ describe('otel-export', () => {
     expect(span.name).toBe('loop.iteration.started')
     // 1700000000000ms * 1_000_000 = 1700000000000000000000ns
     expect(span.startTimeUnixNano).toBe((BigInt(1700000000000) * 1_000_000n).toString())
-    const attrMap = Object.fromEntries(
-      (span.attributes ?? []).map(a => [a.key, a.value]),
-    )
+    const attrMap = Object.fromEntries((span.attributes ?? []).map((a) => [a.key, a.value]))
     expect(attrMap['loop.event_kind']).toEqual({ stringValue: 'loop.iteration.started' })
     expect(attrMap['loop.iterationIndex']).toEqual({ intValue: '0' })
     expect(attrMap['loop.agentRunName']).toEqual({ stringValue: 'coder' })

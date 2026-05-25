@@ -66,7 +66,8 @@ const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.23.0' }
  */
 export function createOtelExporter(config?: OtelExportConfig): OtelExporter | undefined {
   const resolvedEndpoint =
-    config?.endpoint ?? (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
+    config?.endpoint ??
+    (typeof process !== 'undefined' ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT : undefined)
   if (!resolvedEndpoint) return undefined
   const endpoint: string = resolvedEndpoint
 
@@ -126,7 +127,7 @@ export function createOtelExporter(config?: OtelExportConfig): OtelExporter | un
         },
       ],
     }
-    const url = endpoint.replace(/\/+$/, '') + '/v1/traces'
+    const url = `${endpoint.replace(/\/+$/, '')}/v1/traces`
     try {
       await fetch(url, {
         method: 'POST',
@@ -228,5 +229,7 @@ function generateSpanId(): string {
   } else {
     for (let i = 0; i < 8; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }
