@@ -29,6 +29,22 @@ export type {
   SiblingSandboxExecutorOptions,
 } from './executor'
 export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
+export type {
+  InProcessExecutorDescribePlacement,
+  InProcessExecutorOptions,
+} from './in-process-executor'
+export { createInProcessExecutor } from './in-process-executor'
+export type { LocalHarness, LocalHarnessResult, RunLocalHarnessOptions } from './local-harness'
+export { runLocalHarness } from './local-harness'
+export type {
+  CreateWorktreeOptions,
+  DiffOptions,
+  DiffResult,
+  GitRunner,
+  RemoveWorktreeOptions,
+  WorktreeHandle,
+} from './worktree'
+export { captureWorktreeDiff, createWorktree, removeWorktree } from './worktree'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
