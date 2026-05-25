@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { runLoop } from '../../src/loops/run-loop'
-import type { ValidationCtx, Validator, LoopTraceEmitter, LoopTraceEvent } from '../../src/loops/types'
+import type {
+  LoopTraceEmitter,
+  LoopTraceEvent,
+  ValidationCtx,
+  Validator,
+} from '../../src/loops/types'
 
 function makeSandboxClient() {
   return {
@@ -29,7 +34,9 @@ describe('validator tracing', () => {
 
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = {
-      emit(event) { events.push(event) },
+      emit(event) {
+        events.push(event)
+      },
     }
 
     await runLoop({
@@ -100,7 +107,9 @@ describe('validator tracing', () => {
   it('validator spans emitted alongside loop events', async () => {
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = {
-      emit(event) { events.push(event) },
+      emit(event) {
+        events.push(event)
+      },
     }
 
     const validator: Validator<string> = {
@@ -145,7 +154,7 @@ describe('validator tracing', () => {
 
     // Should have loop events + the validator's custom event
     const validatorEvent = events.find(
-      e => e.kind === 'loop.decision' && e.runId === 'validator-span',
+      (e) => e.kind === 'loop.decision' && e.runId === 'validator-span',
     )
     expect(validatorEvent).toBeDefined()
   })

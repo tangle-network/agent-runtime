@@ -64,13 +64,21 @@ export {
   resolveRouterBaseUrl,
   validateChatModelId,
 } from './model-resolution'
-
+export type {
+  OtelAttribute,
+  OtelExportConfig,
+  OtelExporter,
+  OtelSpan,
+} from './otel-export'
+// ── OTEL export + trace propagation ──────────────────────────────────
+export {
+  createOtelExporter,
+  loopEventToOtelSpan,
+} from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
-
 // ── Run loop ─────────────────────────────────────────────────────────
 export { runAgentTask, runAgentTaskStream } from './run'
-
 // ── Production run lifecycle ─────────────────────────────────────────
 export type {
   RuntimeRunHandle,
@@ -78,7 +86,6 @@ export type {
   RuntimeRunRow,
 } from './runtime-run'
 export { startRuntimeRun } from './runtime-run'
-
 // ── Sanitization / telemetry ─────────────────────────────────────────
 export type {
   RuntimeEventCollector,
@@ -93,13 +100,10 @@ export {
   sanitizeKnowledgeReadinessReport,
   sanitizeRuntimeStreamEvent,
 } from './sanitize'
-
 // ── Sessions ──────────────────────────────────────────────────────────
 export { InMemoryRuntimeSessionStore } from './sessions'
-
 // ── SSE ───────────────────────────────────────────────────────────────
 export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
-
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,
@@ -119,15 +123,3 @@ export type {
   RuntimeSessionStore,
   RuntimeStreamEvent,
 } from './types'
-
-// ── OTEL export + trace propagation ──────────────────────────────────
-export {
-  createOtelExporter,
-  loopEventToOtelSpan,
-} from './otel-export'
-export type {
-  OtelExportConfig,
-  OtelExporter,
-  OtelSpan,
-  OtelAttribute,
-} from './otel-export'

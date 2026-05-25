@@ -19,7 +19,7 @@
 
 import type { LoopTraceEmitter, LoopTraceEvent } from '../loops/types'
 import type { OtelExporter } from '../otel-export'
-import { loopEventToOtelSpan, createOtelExporter } from '../otel-export'
+import { createOtelExporter, loopEventToOtelSpan } from '../otel-export'
 
 export interface TraceContext {
   /** Trace id inherited from the parent process, or a fresh one. */
@@ -55,11 +55,7 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
   const emitter: LoopTraceEmitter = {
     emit(event: LoopTraceEvent) {
       if (!exporter) return
-      const span = loopEventToOtelSpan(
-        event,
-        ctx.traceId,
-        ctx.parentSpanId,
-      )
+      const span = loopEventToOtelSpan(event, ctx.traceId, ctx.parentSpanId)
       exporter.exportSpan(span)
     },
   }
@@ -84,5 +80,7 @@ function generateTraceId(): string {
   } else {
     for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
 }

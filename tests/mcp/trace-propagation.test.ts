@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
-  readTraceContextFromEnv,
   createPropagatingTraceEmitter,
+  readTraceContextFromEnv,
   traceContextToEnv,
 } from '../../src/mcp/trace-propagation'
 
