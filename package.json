@@ -29,6 +29,11 @@
       "import": "./dist/analyst-loop.js",
       "default": "./dist/analyst-loop.js"
     },
+    "./improvement": {
+      "types": "./dist/improvement.d.ts",
+      "import": "./dist/improvement.js",
+      "default": "./dist/improvement.js"
+    },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",

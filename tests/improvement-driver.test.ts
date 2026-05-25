@@ -6,8 +6,8 @@ import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
-import { analystDriver } from '../src/analyst-loop/analyst-driver'
 import type { ImprovementAdapter, ImprovementEditBatch } from '../src/analyst-loop/types'
+import { improvementDriver, reflectiveGenerator } from '../src/improvement'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -64,14 +64,19 @@ function stubAdapter(
   return { proposeFromFindings: () => batch }
 }
 
-describe('analystDriver — reflective ImprovementDriver', () => {
+/** The reflective setting of the ONE improvement driver. */
+function reflectiveDriver(adapter: ImprovementAdapter<SurfaceImprovementEdit>) {
+  return improvementDriver({
+    generator: reflectiveGenerator({ improvementAdapter: adapter }),
+    worktree: gitWorktreeAdapter({ repoRoot }),
+    baseRef: 'main',
+  })
+}
+
+describe('improvementDriver — reflective generator', () => {
   it('applies drafted edits into one worktree and returns a CodeSurface', async () => {
     const adapter = stubAdapter({ edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] })
-    const driver = analystDriver({
-      improvementAdapter: adapter,
-      worktree: gitWorktreeAdapter({ repoRoot }),
-      baseRef: 'main',
-    })
+    const driver = reflectiveDriver(adapter)
 
     const surfaces = await driver.propose(ctxWith(FINDINGS))
 
@@ -98,10 +103,7 @@ describe('analystDriver — reflective ImprovementDriver', () => {
         return { edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] }
       },
     }
-    const driver = analystDriver({
-      improvementAdapter: adapter,
-      worktree: gitWorktreeAdapter({ repoRoot }),
-    })
+    const driver = reflectiveDriver(adapter)
 
     const reportFindings = [
       {
@@ -119,32 +121,20 @@ describe('analystDriver — reflective ImprovementDriver', () => {
 
   it('proposes nothing when there are no findings', async () => {
     const adapter = stubAdapter({ edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] })
-    const driver = analystDriver({
-      improvementAdapter: adapter,
-      worktree: gitWorktreeAdapter({ repoRoot }),
-    })
-    expect(await driver.propose(ctxWith([]))).toEqual([])
+    expect(await reflectiveDriver(adapter).propose(ctxWith([]))).toEqual([])
   })
 
   it('proposes nothing when the adapter drafts no edits', async () => {
     const adapter = stubAdapter({ edits: [], skipped: 3, errors: [] })
-    const driver = analystDriver({
-      improvementAdapter: adapter,
-      worktree: gitWorktreeAdapter({ repoRoot }),
-    })
-    expect(await driver.propose(ctxWith(FINDINGS))).toEqual([])
+    expect(await reflectiveDriver(adapter).propose(ctxWith(FINDINGS))).toEqual([])
   })
 
   it('discards the worktree and proposes nothing when no patch applies', async () => {
     // A patch against content that does not match → git apply fails.
     const badPatch = '--- prompt.md\n+++ prompt.md\n@@ -1 +1 @@\n-NONEXISTENT line\n+whatever\n'
     const adapter = stubAdapter({ edits: [editFixture(badPatch)], skipped: 0, errors: [] })
-    const driver = analystDriver({
-      improvementAdapter: adapter,
-      worktree: gitWorktreeAdapter({ repoRoot }),
-    })
 
-    expect(await driver.propose(ctxWith(FINDINGS))).toEqual([])
+    expect(await reflectiveDriver(adapter).propose(ctxWith(FINDINGS))).toEqual([])
     // No orphaned worktree left behind.
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
   })
