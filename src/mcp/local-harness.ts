@@ -16,7 +16,7 @@
  *   - enforce a wall-clock timeout
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 
 /** Local coding harness available inside the sandbox. */
 export type LocalHarness = 'claude' | 'codex' | 'opencode'
@@ -57,11 +57,15 @@ export interface RunLocalHarnessOptions {
    * Test seam — inject a custom spawner so unit tests can mock the
    * subprocess without touching the OS. Defaults to node's `child_process.spawn`.
    */
-  spawn?: (command: string, args: ReadonlyArray<string>, opts: {
-    cwd: string
-    env: NodeJS.ProcessEnv
-    stdio: 'pipe'
-  }) => ChildProcess
+  spawn?: (
+    command: string,
+    args: ReadonlyArray<string>,
+    opts: {
+      cwd: string
+      env: NodeJS.ProcessEnv
+      stdio: 'pipe'
+    },
+  ) => ChildProcess
 }
 
 /** @experimental */
@@ -129,12 +133,13 @@ export function runLocalHarness(options: RunLocalHarnessOptions): Promise<LocalH
     let timedOut = false
     let settled = false
 
-    const timer = timeoutMs > 0
-      ? setTimeout(() => {
-          timedOut = true
-          if (!child.killed) child.kill('SIGTERM')
-        }, timeoutMs)
-      : null
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true
+            if (!child.killed) child.kill('SIGTERM')
+          }, timeoutMs)
+        : null
     if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
       ;(timer as { unref: () => void }).unref()
     }

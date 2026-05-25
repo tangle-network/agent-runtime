@@ -82,7 +82,10 @@ const KNOWN_HARNESSES: ReadonlyArray<LocalHarness> = ['claude', 'codex', 'openco
 
 function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | undefined {
   if (!raw) return undefined
-  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const parts = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
   if (parts.length === 0) return undefined
   for (const part of parts) {
     if (!KNOWN_HARNESSES.includes(part as LocalHarness)) {

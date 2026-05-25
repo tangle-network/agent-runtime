@@ -37,12 +37,12 @@ import { randomUUID } from 'node:crypto'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { LoopSandboxClient, LoopSandboxPlacement } from '../loops'
 import type { DelegationExecutor } from './executor'
-import { runLocalHarness, type LocalHarness } from './local-harness'
+import { type LocalHarness, runLocalHarness } from './local-harness'
 import {
   captureWorktreeDiff,
   createWorktree,
-  removeWorktree,
   type GitRunner,
+  removeWorktree,
   type WorktreeHandle,
 } from './worktree'
 
@@ -85,7 +85,11 @@ export interface InProcessExecutorOptions {
    * Test seam — override the post-check runner. Defaults to spawning the
    * configured `testCmd` / `typecheckCmd` via `child_process.spawn`.
    */
-  runPostCheck?: (cmd: string, cwd: string, signal?: AbortSignal) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+  runPostCheck?: (
+    cmd: string,
+    cwd: string,
+    signal?: AbortSignal,
+  ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
 }
 
 /** @experimental */
@@ -125,7 +129,10 @@ const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
  * @experimental
  */
 export function createInProcessExecutor(options: InProcessExecutorOptions): DelegationExecutor {
-  const harnesses = options.harnesses && options.harnesses.length > 0 ? [...options.harnesses] : (['claude'] as const)
+  const harnesses =
+    options.harnesses && options.harnesses.length > 0
+      ? [...options.harnesses]
+      : (['claude'] as const)
   const runHarness = options.runHarness ?? runLocalHarness
   const runPostCheck = options.runPostCheck ?? defaultRunPostCheck
 
@@ -145,10 +152,21 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
         id: `in-process-${runId}`,
         __inProcess: { runId, harness },
         // eslint-disable-next-line require-yield
-        async *streamPrompt(this: VirtualSandbox, message: string | unknown[], promptOpts?: { signal?: AbortSignal }): AsyncGenerator<SandboxEvent> {
-          const taskPrompt = typeof message === 'string'
-            ? message
-            : message.map((p) => (typeof p === 'object' && p && 'text' in p ? String((p as { text: unknown }).text) : '')).join('\n')
+        async *streamPrompt(
+          this: VirtualSandbox,
+          message: string | unknown[],
+          promptOpts?: { signal?: AbortSignal },
+        ): AsyncGenerator<SandboxEvent> {
+          const taskPrompt =
+            typeof message === 'string'
+              ? message
+              : message
+                  .map((p) =>
+                    typeof p === 'object' && p && 'text' in p
+                      ? String((p as { text: unknown }).text)
+                      : '',
+                  )
+                  .join('\n')
 
           let worktree: WorktreeHandle | undefined
           try {
@@ -198,18 +216,22 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
             // Optional post-checks. Each runs in the WORKTREE so it sees the
             // harness's edits.
             const testCheck = options.testCmd
-              ? await runPostCheck(options.testCmd, worktree.path, promptOpts?.signal).catch((err) => ({
-                  exitCode: -1,
-                  stdout: '',
-                  stderr: err instanceof Error ? err.message : String(err),
-                }))
+              ? await runPostCheck(options.testCmd, worktree.path, promptOpts?.signal).catch(
+                  (err) => ({
+                    exitCode: -1,
+                    stdout: '',
+                    stderr: err instanceof Error ? err.message : String(err),
+                  }),
+                )
               : { exitCode: 0, stdout: '', stderr: '' }
             const typecheckCheck = options.typecheckCmd
-              ? await runPostCheck(options.typecheckCmd, worktree.path, promptOpts?.signal).catch((err) => ({
-                  exitCode: -1,
-                  stdout: '',
-                  stderr: err instanceof Error ? err.message : String(err),
-                }))
+              ? await runPostCheck(options.typecheckCmd, worktree.path, promptOpts?.signal).catch(
+                  (err) => ({
+                    exitCode: -1,
+                    stdout: '',
+                    stderr: err instanceof Error ? err.message : String(err),
+                  }),
+                )
               : { exitCode: 0, stdout: '', stderr: '' }
 
             const coderOutput = {
@@ -224,9 +246,10 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
                 output: tail(typecheckCheck.stderr || typecheckCheck.stdout, 4000),
               },
               diffStats: diff.stats,
-              reviewerNotes: harnessResult.exitCode === 0
-                ? undefined
-                : `harness ${harness} exited ${harnessResult.exitCode}${harnessResult.timedOut ? ' (timed out)' : ''}`,
+              reviewerNotes:
+                harnessResult.exitCode === 0
+                  ? undefined
+                  : `harness ${harness} exited ${harnessResult.exitCode}${harnessResult.timedOut ? ' (timed out)' : ''}`,
             }
 
             // The terminal event the coderProfile parser looks for.
@@ -286,10 +309,16 @@ async function defaultRunPostCheck(
     const child = spawn('sh', ['-c', cmd], { cwd, stdio: 'pipe' })
     let stdout = ''
     let stderr = ''
-    child.stdout?.on('data', (c) => { stdout += String(c) })
-    child.stderr?.on('data', (c) => { stderr += String(c) })
+    child.stdout?.on('data', (c) => {
+      stdout += String(c)
+    })
+    child.stderr?.on('data', (c) => {
+      stderr += String(c)
+    })
     if (signal) {
-      const onAbort = () => { if (!child.killed) child.kill('SIGTERM') }
+      const onAbort = () => {
+        if (!child.killed) child.kill('SIGTERM')
+      }
       if (signal.aborted) onAbort()
       else signal.addEventListener('abort', onAbort, { once: true })
     }
@@ -299,7 +328,10 @@ async function defaultRunPostCheck(
     if (typeof (killTimer as { unref?: () => void }).unref === 'function') {
       ;(killTimer as { unref: () => void }).unref()
     }
-    child.on('error', (err) => { clearTimeout(killTimer); reject(err) })
+    child.on('error', (err) => {
+      clearTimeout(killTimer)
+      reject(err)
+    })
     child.on('close', (code) => {
       clearTimeout(killTimer)
       resolve({ exitCode: code ?? -1, stdout, stderr })
