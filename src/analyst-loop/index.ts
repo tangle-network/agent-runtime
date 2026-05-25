@@ -8,6 +8,7 @@
  * (or a custom equivalent) into the adapter slots once at app init.
  */
 
+export { type AnalystDriverOptions, analystDriver } from './analyst-driver'
 export { runAnalystLoop } from './run-analyst-loop'
 export type {
   AnalystLoopEvent,
