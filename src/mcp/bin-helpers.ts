@@ -13,6 +13,8 @@ import {
   type DelegationExecutor,
   type FleetHandle,
 } from './executor'
+import { createInProcessExecutor } from './in-process-executor'
+import type { LocalHarness } from './local-harness'
 
 /** @experimental */
 export interface DetectExecutorArgs {
@@ -43,6 +45,26 @@ export interface DetectExecutorArgs {
  */
 export async function detectExecutor(args: DetectExecutorArgs): Promise<DelegationExecutor> {
   const env = args.env ?? process.env
+
+  // In-process (Phase 2.8): parent harness sets AGENT_RUNTIME_IN_SANDBOX=1
+  // and points us at the workspace root. Highest-priority — when this is
+  // set, delegations spawn local harness CLIs on git worktrees in the
+  // SAME filesystem instead of provisioning sibling sandboxes.
+  if (env.AGENT_RUNTIME_IN_SANDBOX === '1') {
+    const repoRoot = env.AGENT_RUNTIME_REPO_ROOT?.trim()
+    if (!repoRoot) {
+      throw new Error(
+        'agent-runtime-mcp: AGENT_RUNTIME_IN_SANDBOX=1 requires AGENT_RUNTIME_REPO_ROOT to point at the workspace root',
+      )
+    }
+    return createInProcessExecutor({
+      repoRoot,
+      harnesses: parseHarnesses(env.AGENT_RUNTIME_LOCAL_HARNESSES),
+      testCmd: env.AGENT_RUNTIME_TEST_CMD?.trim() || undefined,
+      typecheckCmd: env.AGENT_RUNTIME_TYPECHECK_CMD?.trim() || undefined,
+    })
+  }
+
   const fleetId = parseFleetId(env.TANGLE_FLEET_ID)
   if (!fleetId) {
     return createSiblingSandboxExecutor({ client: args.sandboxClient })
@@ -54,6 +76,22 @@ export async function detectExecutor(args: DetectExecutorArgs): Promise<Delegati
     fleet,
     excludeMachineIds,
   })
+}
+
+const KNOWN_HARNESSES: ReadonlyArray<LocalHarness> = ['claude', 'codex', 'opencode']
+
+function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | undefined {
+  if (!raw) return undefined
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  if (parts.length === 0) return undefined
+  for (const part of parts) {
+    if (!KNOWN_HARNESSES.includes(part as LocalHarness)) {
+      throw new Error(
+        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${KNOWN_HARNESSES.join(', ')}.`,
+      )
+    }
+  }
+  return parts as LocalHarness[]
 }
 
 interface FleetsApi {
