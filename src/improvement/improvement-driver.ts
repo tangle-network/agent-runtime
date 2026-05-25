@@ -75,21 +75,28 @@ export function improvementDriver(
           baseRef,
           label: `${opts.generator.kind}-gen${ctx.generation}-cand${i}`,
         })
-        const { applied, summary } = await opts.generator.generate({
-          worktreePath: wt.path,
-          report: ctx.report,
-          findings,
-          dataset: ctx.dataset,
-          maxShots: ctx.maxImprovementShots ?? 1,
-          signal: ctx.signal,
-        })
-        if (!applied) {
-          // Generator produced nothing usable — discard, don't leave an empty
-          // worktree behind, don't return a no-op candidate.
-          await opts.worktree.discard(wt)
-          continue
+        // Once a worktree exists it MUST be accounted for: finalized into a
+        // surface, or discarded. A throw from generate()/finalize() must not
+        // leak the worktree + branch — discard best-effort, then rethrow loud.
+        try {
+          const { applied, summary } = await opts.generator.generate({
+            worktreePath: wt.path,
+            report: ctx.report,
+            findings,
+            dataset: ctx.dataset,
+            maxShots: ctx.maxImprovementShots ?? 1,
+            signal: ctx.signal,
+          })
+          if (!applied) {
+            await opts.worktree.discard(wt)
+            continue
+          }
+          surfaces.push(await opts.worktree.finalize(wt, summary))
+        } catch (err) {
+          // Best-effort cleanup; never mask the original failure.
+          await opts.worktree.discard(wt).catch(() => {})
+          throw err
         }
-        surfaces.push(await opts.worktree.finalize(wt, summary))
       }
       return surfaces
     },

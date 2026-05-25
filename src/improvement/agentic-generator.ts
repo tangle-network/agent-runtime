@@ -106,12 +106,25 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 1)}…`
 }
 
-/** Non-empty `git status --porcelain` ⇒ the harness changed the worktree. */
+/** Non-empty `git status --porcelain` ⇒ the harness changed the worktree.
+ *  Fails loud: the worktree is a fresh checkout, so a git error here means
+ *  something is genuinely broken (git missing, corrupt index, killed mid-run).
+ *  Folding that into `false` would silently discard a candidate and mask the
+ *  real failure — forbidden by the no-silent-fallbacks doctrine. */
 function worktreeDirty(worktreePath: string): boolean {
   const result = spawnSync('git', ['status', '--porcelain'], {
     cwd: worktreePath,
     encoding: 'utf-8',
   })
-  if (result.status !== 0) return false
+  if (result.error) {
+    throw new Error(
+      `agenticGenerator: git status failed to spawn in ${worktreePath}: ${result.error.message}`,
+    )
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `agenticGenerator: git status exited ${result.status} in ${worktreePath}: ${result.stderr.trim()}`,
+    )
+  }
   return result.stdout.trim().length > 0
 }

@@ -138,4 +138,25 @@ describe('improvementDriver — reflective generator', () => {
     // No orphaned worktree left behind.
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
   })
+
+  it('rethrows and leaves NO orphaned worktree when the generator throws', async () => {
+    // A generator whose generate() throws mid-candidate must not leak the
+    // already-created worktree (the try/finally cleanup in propose()).
+    const boom = new Error('generator exploded')
+    const throwingDriver = improvementDriver({
+      generator: {
+        kind: 'throws',
+        async generate() {
+          throw boom
+        },
+      },
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+
+    await expect(throwingDriver.propose(ctxWith(FINDINGS))).rejects.toThrow('generator exploded')
+    // The worktree created before the throw was discarded — only the main
+    // worktree remains.
+    expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
+  })
 })
