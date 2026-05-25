@@ -618,6 +618,15 @@ function* parseStreamChunk(
 ): Iterable<RuntimeStreamEvent> {
   const lines = chunk.split(/\r?\n/)
   const dataLines = lines.filter((line) => line.startsWith('data:'))
+  if (
+    dataLines.length === 0 &&
+    lines.every((line) => {
+      const trimmed = line.trim()
+      return trimmed.length === 0 || trimmed.startsWith(':')
+    })
+  ) {
+    return
+  }
   const data =
     dataLines.length > 0
       ? dataLines.map((line) => line.slice(5).trimStart()).join('\n')
