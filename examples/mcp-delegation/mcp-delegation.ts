@@ -1,5 +1,4 @@
 // AgentProfile.mcp + agent-runtime-mcp stdio smoke. See README.md.
- */
 
 import { spawn } from 'node:child_process'
 import path from 'node:path'
