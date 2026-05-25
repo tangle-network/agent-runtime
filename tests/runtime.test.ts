@@ -574,6 +574,38 @@ describe('runAgentTask', () => {
     expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'hello' })
   })
 
+  it('ignores SSE comment frames from OpenAI-compatible streams', async () => {
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.example/v1',
+      model: 'model-a',
+      fetchImpl: async () =>
+        new Response(
+          ': connected\n\n' +
+            ': keepalive\n\n' +
+            'data: {"choices":[{"delta":{"content":"clean"}}]}\n\n' +
+            ': keepalive\n\n' +
+            'data: [DONE]\n\n',
+          { status: 200 },
+        ),
+    })
+    const events = await collect(
+      runAgentTaskStream({
+        task: { id: 'chat-comments', intent: 'say clean', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hello' },
+      }),
+    )
+
+    expect(
+      events
+        .filter((event) => event.type === 'text_delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('clean')
+    expect(events.at(-1)).toMatchObject({ type: 'final', status: 'completed', text: 'clean' })
+  })
+
   it('maps wire artifact and proposal events from a streamed backend', async () => {
     const backend = createOpenAICompatibleBackend({
       apiKey: 'sk-test',
