@@ -1,18 +1,4 @@
-/**
- * `researcherProfile` + `runLoop` + `FanoutVote` driver — the smallest
- * end-to-end researcher loop. Two parallel researcher iterations attempt
- * the same question; the validator scores citation density + namespace
- * scoping + per-item provenance; the kernel picks the highest-scoring
- * valid winner.
- *
- * Mirrors `coder-loop` in shape but plugs the `researcherProfile` preset
- * from `@tangle-network/agent-knowledge/profiles` so the entry surface is
- * `ResearchOutput` (items + citations + proposed knowledge writes) rather
- * than `CoderOutput`.
- *
- * Run with:
- *   pnpm tsx examples/researcher-loop/researcher-loop.ts
- */
+// researcherProfile + runLoop + FanoutVote — smallest end-to-end researcher loop. See README.md for context.
 
 import {
   type ResearchOutput,
