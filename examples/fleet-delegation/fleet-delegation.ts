@@ -1,32 +1,4 @@
-/**
- * Fleet-aware delegation — how `TANGLE_FLEET_ID` flips
- * `agent-runtime-mcp` from sibling-sandbox dispatch into
- * fleet-workspace dispatch.
- *
- * Two parts:
- *
- *   1. ENV WIRING — the shell that launches `agent-runtime-mcp` for a
- *      sandbox-side agent sets `TANGLE_FLEET_ID` to the parent fleet's id
- *      and (optionally) `TANGLE_FLEET_EXCLUDE_MACHINES=...` so workers don't
- *      land on the coordinator machine. With the env set, the bin's
- *      `detectExecutor` resolves to `createFleetWorkspaceExecutor` instead
- *      of `createSiblingSandboxExecutor`, and every `delegate_code` /
- *      `delegate_research` call dispatches to an existing machine in the
- *      fleet — worker diffs land on the caller's filesystem directly.
- *
- *   2. EXECUTOR DEMO — instantiate `createFleetWorkspaceExecutor` against
- *      a structural `FleetHandle` stub so the resolved `LoopSandboxClient`
- *      can be inspected without instantiating the real sandbox SDK. The
- *      demo round-robins three machine ids, records the placement tag the
- *      kernel reads, and prints the dispatch decisions.
- *
- * Source pointer: `src/mcp/executor.ts` — `createFleetWorkspaceExecutor`
- * is the production entry point; the bin (`src/mcp/bin.ts`) reads
- * `TANGLE_FLEET_ID` and calls it.
- *
- * Run with:
- *   pnpm tsx examples/fleet-delegation/fleet-delegation.ts
- */
+// TANGLE_FLEET_ID flips delegation from sibling-sandbox to fleet-workspace dispatch. See README.md.
 
 import type { LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
 import {

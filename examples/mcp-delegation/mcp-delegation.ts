@@ -1,28 +1,4 @@
-/**
- * How a product mounts the `agent-runtime-mcp` server into its
- * `AgentProfile`, plus a tiny stdio client that proves the server exposes
- * all five delegation tools.
- *
- * Two parts:
- *
- *   1. PROFILE — the `AgentProfile.mcp['agent-runtime-delegation']` entry a
- *      product passes to `sandboxClient.create({ backend: { profile } })`.
- *      Once mounted, the sandbox-side coding harness sees `delegate_code`,
- *      `delegate_research`, `delegate_feedback`, `delegation_status`,
- *      `delegation_history` as first-class MCP tools.
- *
- *   2. SMOKE — a stdio JSON-RPC client that spawns `agent-runtime-mcp`
- *      directly, calls `tools/list`, and asserts the five canonical tools
- *      are present. Same shape as gtm-agent's `scripts/smoke-mcp-tools-call.mjs`.
- *
- * Env (for the smoke leg only):
- *   TANGLE_API_KEY — sandbox key forwarded to the MCP child. When unset,
- *     the script sets `AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1` so the child boots
- *     in diagnostic mode (queue-only, no real delegations) so the tools/list
- *     surface is still verifiable.
- *
- * Run with:
- *   pnpm tsx examples/mcp-delegation/mcp-delegation.ts
+// AgentProfile.mcp + agent-runtime-mcp stdio smoke. See README.md.
  */
 
 import { spawn } from 'node:child_process'

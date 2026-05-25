@@ -1,18 +1,4 @@
-/**
- * `coderProfile` + `runLoop` + `FanoutVote` driver — the smallest end-to-end
- * coder loop. Two parallel coder iterations attempt the goal; the validator
- * scores test + typecheck + diff size; the kernel picks the highest-score
- * valid winner.
- *
- * No real sandbox SDK or harness is required. The synthetic `sandboxClient`
- * mirrors the production `Sandbox` surface one-for-one (`create()` returns
- * an object with `streamPrompt(message, opts)`), and emits a `result` event
- * whose `data.result` matches the `CoderOutput` shape `coderProfile`'s
- * `parseCoderEvents` walks back-to-front.
- *
- * Run with:
- *   pnpm tsx examples/coder-loop/coder-loop.ts
- */
+// coderProfile + runLoop + FanoutVote — smallest end-to-end coder loop. See README.md for context.
 
 import { createFanoutVoteDriver, runLoop } from '@tangle-network/agent-runtime/loops'
 import { type CoderTask, coderProfile } from '@tangle-network/agent-runtime/profiles'
