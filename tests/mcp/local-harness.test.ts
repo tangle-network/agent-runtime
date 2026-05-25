@@ -69,7 +69,8 @@ describe('runLocalHarness', () => {
         harness: 'opencode',
         cwd: '/tmp/wt',
         taskPrompt: 'x',
-        spawn: () => makeFakeChild({ emitErrorBeforeClose: new Error('ENOENT: opencode not on PATH') }),
+        spawn: () =>
+          makeFakeChild({ emitErrorBeforeClose: new Error('ENOENT: opencode not on PATH') }),
       }),
     ).rejects.toThrow(/ENOENT/)
   })
@@ -117,7 +118,9 @@ describe('runLocalHarness', () => {
   })
 
   it('builds CLI-correct args for each known harness', async () => {
-    const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) => makeFakeChild({ exitCode: 0 }))
+    const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
+      makeFakeChild({ exitCode: 0 }),
+    )
     for (const harness of ['claude', 'codex', 'opencode'] as const) {
       await runLocalHarness({ harness, cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
     }

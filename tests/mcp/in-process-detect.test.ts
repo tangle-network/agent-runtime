@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { detectExecutor } from '../../src/mcp/bin-helpers'
 
-const stubClient = { create: vi.fn(async () => ({ id: 'sibling-stub' } as never)) }
+const stubClient = { create: vi.fn(async () => ({ id: 'sibling-stub' }) as never) }
 
 describe('detectExecutor — in-process selection', () => {
   it('selects in-process when AGENT_RUNTIME_IN_SANDBOX=1', async () => {

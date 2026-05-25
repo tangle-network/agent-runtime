@@ -37,7 +37,8 @@ describe('createInProcessExecutor', () => {
     const state: FakeGitState = {
       worktreesCreated: [],
       worktreesRemoved: [],
-      diffPatch: 'diff --git a/util.ts b/util.ts\n+++ b/util.ts\n@@ +1 @@\n+export const add = (a,b)=>a+b\n',
+      diffPatch:
+        'diff --git a/util.ts b/util.ts\n+++ b/util.ts\n@@ +1 @@\n+export const add = (a,b)=>a+b\n',
       diffShortstat: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n',
       baseSha: 'abc1234',
     }
@@ -57,12 +58,26 @@ describe('createInProcessExecutor', () => {
 
     const box = await exec.client.create()
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }> }).streamPrompt('add util.ts exporting add(a,b)')) {
+    for await (const event of (
+      box as unknown as {
+        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
+      }
+    ).streamPrompt('add util.ts exporting add(a,b)')) {
       events.push(event)
     }
 
-    expect(events.map((e) => e.type)).toEqual(['in_process.harness.started', 'in_process.harness.ended', 'result'])
-    const result = events[2]!.data.result as { branch: string; patch: string; testResult: { passed: boolean }; typecheckResult: { passed: boolean }; diffStats: { filesChanged: number; insertions: number; deletions: number } }
+    expect(events.map((e) => e.type)).toEqual([
+      'in_process.harness.started',
+      'in_process.harness.ended',
+      'result',
+    ])
+    const result = events[2]!.data.result as {
+      branch: string
+      patch: string
+      testResult: { passed: boolean }
+      typecheckResult: { passed: boolean }
+      diffStats: { filesChanged: number; insertions: number; deletions: number }
+    }
     expect(result.patch).toContain('util.ts')
     expect(result.diffStats).toEqual({ filesChanged: 1, insertions: 1, deletions: 0 })
     expect(result.testResult.passed).toBe(true)
@@ -72,9 +87,20 @@ describe('createInProcessExecutor', () => {
   })
 
   it('rotates harnesses round-robin across create() calls', async () => {
-    const state: FakeGitState = { worktreesCreated: [], worktreesRemoved: [], diffPatch: '', diffShortstat: '', baseSha: 'sha' }
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
     const runHarness = vi.fn(async () => ({
-      exitCode: 0, stdout: '', stderr: '', killedBySignal: null, durationMs: 1, timedOut: false,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      killedBySignal: null,
+      durationMs: 1,
+      timedOut: false,
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
@@ -85,7 +111,9 @@ describe('createInProcessExecutor', () => {
 
     for (let i = 0; i < 6; i++) {
       const box = await exec.client.create()
-      for await (const _ of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }).streamPrompt('task ' + i)) {
+      for await (const _ of (
+        box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
+      ).streamPrompt('task ' + i)) {
         // drain
       }
     }
@@ -94,7 +122,13 @@ describe('createInProcessExecutor', () => {
   })
 
   it('runs testCmd + typecheckCmd against the worktree and folds results into CoderOutput', async () => {
-    const state: FakeGitState = { worktreesCreated: [], worktreesRemoved: [], diffPatch: '', diffShortstat: '', baseSha: 'sha' }
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
     const runPostCheck = vi.fn(async (cmd: string) => ({
       exitCode: cmd === 'pnpm test' ? 0 : 1,
       stdout: '',
@@ -106,16 +140,30 @@ describe('createInProcessExecutor', () => {
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
       runGit: makeFakeGit(state),
-      runHarness: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '', killedBySignal: null, durationMs: 1, timedOut: false })),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
       runPostCheck,
     })
 
     const box = await exec.client.create()
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }> }).streamPrompt('go')) {
+    for await (const event of (
+      box as unknown as {
+        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
+      }
+    ).streamPrompt('go')) {
       events.push(event)
     }
-    const result = events.find((e) => e.type === 'result')!.data.result as { testResult: { passed: boolean }; typecheckResult: { passed: boolean; output: string } }
+    const result = events.find((e) => e.type === 'result')!.data.result as {
+      testResult: { passed: boolean }
+      typecheckResult: { passed: boolean; output: string }
+    }
     expect(result.testResult.passed).toBe(true)
     expect(result.typecheckResult.passed).toBe(false)
     expect(result.typecheckResult.output).toContain('type error')
@@ -123,51 +171,101 @@ describe('createInProcessExecutor', () => {
   })
 
   it('marks result with reviewerNotes when harness exits non-zero', async () => {
-    const state: FakeGitState = { worktreesCreated: [], worktreesRemoved: [], diffPatch: '', diffShortstat: '', baseSha: 'sha' }
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
     const exec = createInProcessExecutor({
       repoRoot: '/w',
       runGit: makeFakeGit(state),
-      runHarness: vi.fn(async () => ({ exitCode: 2, stdout: '', stderr: 'fail', killedBySignal: null, durationMs: 1, timedOut: false })),
+      runHarness: vi.fn(async () => ({
+        exitCode: 2,
+        stdout: '',
+        stderr: 'fail',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
     })
     const box = await exec.client.create()
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
-    for await (const event of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }> }).streamPrompt('x')) {
+    for await (const event of (
+      box as unknown as {
+        streamPrompt: (m: string) => AsyncGenerator<{ type: string; data: Record<string, unknown> }>
+      }
+    ).streamPrompt('x')) {
       events.push(event)
     }
-    const result = events.find((e) => e.type === 'result')!.data.result as { reviewerNotes?: string }
+    const result = events.find((e) => e.type === 'result')!.data.result as {
+      reviewerNotes?: string
+    }
     expect(result.reviewerNotes).toContain('claude exited 2')
   })
 
   it('cleans up worktree even when streamPrompt is aborted mid-flight', async () => {
-    const state: FakeGitState = { worktreesCreated: [], worktreesRemoved: [], diffPatch: '', diffShortstat: '', baseSha: 'sha' }
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
     const exec = createInProcessExecutor({
       repoRoot: '/w',
       runGit: makeFakeGit(state),
-      runHarness: vi.fn(async () => { throw new Error('boom') }),
+      runHarness: vi.fn(async () => {
+        throw new Error('boom')
+      }),
     })
     const box = await exec.client.create()
-    await expect((async () => {
-      for await (const _ of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }).streamPrompt('x')) {
-        // drain
-      }
-    })()).rejects.toThrow(/boom/)
+    await expect(
+      (async () => {
+        for await (const _ of (
+          box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
+        ).streamPrompt('x')) {
+          // drain
+        }
+      })(),
+    ).rejects.toThrow(/boom/)
     expect(state.worktreesCreated.length).toBe(1)
     expect(state.worktreesRemoved.length).toBe(1)
   })
 
   it('describePlacement carries harness + worktreePath after streamPrompt runs', async () => {
-    const state: FakeGitState = { worktreesCreated: [], worktreesRemoved: [], diffPatch: '', diffShortstat: '', baseSha: 'sha' }
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
     const exec = createInProcessExecutor({
       repoRoot: '/w',
       harnesses: ['codex'],
       runGit: makeFakeGit(state),
-      runHarness: vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '', killedBySignal: null, durationMs: 1, timedOut: false })),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
     })
     const box = await exec.client.create()
-    for await (const _ of (box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }).streamPrompt('x')) {
+    for await (const _ of (
+      box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
+    ).streamPrompt('x')) {
       // drain so streamPrompt populates the worktree handle
     }
-    const placement = exec.client.describePlacement?.(box) as { harness?: string; worktreePath?: string; sandboxId?: string }
+    const placement = exec.client.describePlacement?.(box) as {
+      harness?: string
+      worktreePath?: string
+      sandboxId?: string
+    }
     expect(placement?.harness).toBe('codex')
     expect(placement?.worktreePath).toMatch(/\.coder-variants/)
     expect(placement?.sandboxId).toMatch(/^in-process-/)

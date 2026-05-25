@@ -86,8 +86,12 @@ async function runGitAsync(
     const proc = spawn('git', args, { cwd, stdio: 'pipe' })
     let stdout = ''
     let stderr = ''
-    proc.stdout?.on('data', (c) => { stdout += String(c) })
-    proc.stderr?.on('data', (c) => { stderr += String(c) })
+    proc.stdout?.on('data', (c) => {
+      stdout += String(c)
+    })
+    proc.stderr?.on('data', (c) => {
+      stderr += String(c)
+    })
     proc.on('error', reject)
     proc.on('close', (code) => resolve({ stdout, stderr, exitCode: code ?? -1 }))
   })
@@ -98,7 +102,9 @@ function ensureGitOk(
   result: { stdout: string; stderr: string; exitCode: number },
 ): void {
   if (result.exitCode !== 0) {
-    throw new Error(`worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`)
+    throw new Error(
+      `worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`,
+    )
   }
 }
 
@@ -129,7 +135,11 @@ export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffRes
   // No `ensureGitOk` here — diff returns 0 even when there are no changes.
 
   // Stats: `git diff --shortstat` produces e.g. " 3 files changed, 42 insertions(+), 10 deletions(-)".
-  const shortstat = await runGitAsync(['diff', '--shortstat', baseRef], options.worktree.path, options.runGit)
+  const shortstat = await runGitAsync(
+    ['diff', '--shortstat', baseRef],
+    options.worktree.path,
+    options.runGit,
+  )
   const stats = parseShortstat(shortstat.stdout)
   return { patch: patch.stdout, stats }
 }
@@ -159,13 +169,17 @@ export async function removeWorktree(options: RemoveWorktreeOptions): Promise<vo
   // worktree dir may already be gone (caller deleted it manually).
   if (result.exitCode !== 0 && !/not a working tree/.test(result.stderr)) {
     // Best-effort branch cleanup so the next run can reuse the runId.
-    await runGitAsync(['branch', '-D', options.worktree.branch], options.repoRoot, options.runGit).catch(
-      () => undefined,
-    )
+    await runGitAsync(
+      ['branch', '-D', options.worktree.branch],
+      options.repoRoot,
+      options.runGit,
+    ).catch(() => undefined)
   }
   // Always attempt branch removal — the worktree-remove sometimes leaves
   // the branch behind even when the directory is gone.
-  await runGitAsync(['branch', '-D', options.worktree.branch], options.repoRoot, options.runGit).catch(
-    () => undefined,
-  )
+  await runGitAsync(
+    ['branch', '-D', options.worktree.branch],
+    options.repoRoot,
+    options.runGit,
+  ).catch(() => undefined)
 }
