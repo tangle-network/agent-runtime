@@ -11,7 +11,7 @@ All header names are lowercased on the wire. Implementations MUST be case-insens
 | Header | Direction | Purpose |
 |---|---|---|
 | `x-tangle-forwarded-authorization` | inbound+outbound | The original user's `Bearer sk-tan-<user>` (or `Bearer <x402-token>`). Forwarded verbatim through every hop so the final billed party is always the human/agent that initiated the request, not whichever intermediate agent made the call. |
-| `x-tangle-forwarded-depth` | inbound+outbound | Hop counter. Origin caller MUST omit or set to `0`. Every gateway / runtime MUST increment by 1 before forwarding. Recipients MUST refuse with HTTP `413 Payload Too Large` when the inbound depth ≥ `DEFAULT_MAX_DEPTH` (4 unless overridden). |
+| `x-tangle-forwarded-depth` | inbound+outbound | Hop counter. Origin caller MUST omit or set to `0`. Every gateway / runtime MUST increment by 1 before forwarding. Recipients MUST refuse with HTTP `429 Too Many Requests` + body code `bridge_depth_exceeded` when the inbound depth ≥ `DEFAULT_MAX_DEPTH` (4 unless overridden via the `CLI_BRIDGE_MAX_DEPTH` env var). |
 | `x-tangle-runid` | inbound+outbound | The top-level conversation's run identifier. Propagated unchanged through all nested calls so all hops correlate to one run. |
 | `x-tangle-turnid` | outbound | This specific call's deterministic turn identifier. Format: `<runId>.t<index>.<speakerSlug>`. Stable across retries of the same logical turn; caching gateways MAY treat repeated turn ids as idempotency keys and return cached results. |
 | `x-tangle-parent-turnid` | outbound (recursion) | When the call is *inside* another turn (i.e. the caller is itself a participant in a higher-order conversation), the enclosing turn's id. Used for trace stitching. Omit when at the top level. |
@@ -23,7 +23,7 @@ All header names are lowercased on the wire. Implementations MUST be case-insens
 2. **Authorization preservation.** A receiving runtime MUST forward `x-tangle-forwarded-authorization` verbatim on any outbound call it makes on behalf of the original caller. Substituting its own credentials silently re-bills the user incorrectly.
 3. **runId immutability.** A nested conversation invoked via `createConversationBackend` does NOT mint a new `x-tangle-runid` — it inherits the parent's. (It does mint new `turnId`s, which include its own run scope.)
 4. **Idempotency contract (advisory).** Gateways MAY dedupe by `(runId, turnId)`. If they do, they MUST return the cached response unchanged. If they don't, retries cost N× credits — that's the caller's choice.
-5. **Refusal granularity.** Depth-limit refusal at a gateway MUST be `413 Payload Too Large` with a body describing the limit and the observed inbound depth, so the caller can route around (or accept) the limit instead of treating it as a generic error.
+5. **Refusal granularity.** Depth-limit refusal MUST be HTTP `429 Too Many Requests` with body code `bridge_depth_exceeded` and a message describing the observed inbound depth + configured limit, so the caller can route around (or accept) the limit instead of treating it as a generic rate-limit error. `tangle-router` implements this today; `agent-gateway` middleware is a follow-up (see *Implementation status* below).
 
 ## Worked example
 
@@ -70,6 +70,19 @@ A `@tangle-network/agent-runtime` consumer (driver code):
 - `@tangle-network/agent-runtime/journal` — durable transcript so a driver crash mid-run doesn't lose acknowledged turns.
 - `@tangle-network/agent-runtime/turn-id` — deterministic `turnId(runId, index, speaker)`.
 - `@tangle-network/agent-gateway` — Hono middleware for inbound enforcement.
+
+## Implementation status
+
+The spec describes the *conformant* behavior of every layer. As of `agent-runtime@0.26.0` the live state is:
+
+| Layer | Header emit | Header read | Depth refusal (429) | Authorization preservation |
+|---|---|---|---|---|
+| `agent-runtime` (`runConversation`) | ✅ all six on every backend call | n/a (caller-supplied) | n/a (no inbound) | ✅ forwarded verbatim |
+| `tangle-router` | ✅ depth + authorization on outbound bridge dispatch | ✅ reads inbound depth | ✅ HTTP 429 `bridge_depth_exceeded` at `CLI_BRIDGE_MAX_DEPTH` (default 4) | ✅ forwards into cli-bridge |
+| `cli-bridge` | ❌ (inherits via router) | ✅ reads `x-tangle-forwarded-authorization`, threads to sandbox backend | ⚠️ not enforced locally; relies on tangle-router upstream | ✅ propagates as `forwardedAuthorization` metadata |
+| `agent-gateway` (Hono middleware) | n/a | ❌ does not yet read forwarded headers | ❌ not yet implemented | ❌ does not yet use forwarded auth as effective billing identity |
+
+Practical implication today: any agent-to-agent recursion that touches `tangle-router` (the common case — `bridge/sandbox/*` dispatches) is depth-bounded. A direct call from one `agent-gateway`-fronted endpoint to another, bypassing the router, currently has no depth guard — but no production agent does this yet. The agent-gateway middleware is tracked but not built; first real consumer drives the work.
 
 ## Versioning
 
