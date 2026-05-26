@@ -28,6 +28,58 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
+export type {
+  BackendCallPolicy,
+  CircuitBreakerConfig,
+  Conversation,
+  ConversationDriveState,
+  ConversationJournal,
+  ConversationJournalEntry,
+  ConversationParticipant,
+  ConversationPolicy,
+  ConversationResult,
+  ConversationStreamEvent,
+  ConversationTurn,
+  ForwardHeaderName,
+  HaltContext,
+  HaltPredicate,
+  HaltReason,
+  HaltSignal,
+  PropagatedHeaders,
+  RetryableErrorPredicate,
+  RetryBackoff,
+  RunConversationOptions,
+  TurnOrder,
+} from './conversation'
+// ── Conversations (multi-agent, distributed) ──────────────────────────
+// Drives N participants in turn through any reachable AgentExecutionBackend
+// (in-process, local cli-bridge, sandbox, router, remote agent-gateway).
+// Layered primitives — durable journal, per-turn call policy (deadline +
+// retry + circuit breaker), deterministic turn ids, and cross-gateway header
+// propagation — make the same driver work same-machine, same-cluster, and
+// cross-cloud without code changes. See docs/agent-bus-protocol.md.
+export {
+  buildForwardHeaders,
+  CircuitBreakerState,
+  CircuitOpenError,
+  computeBackoff,
+  createConversationBackend,
+  DEFAULT_MAX_DEPTH,
+  DeadlineExceededError,
+  defaultIsRetryable,
+  defineConversation,
+  FileConversationJournal,
+  FORWARD_HEADERS,
+  InMemoryConversationJournal,
+  isDepthExceeded,
+  makePerAttemptSignal,
+  readDepth,
+  runConversation,
+  runConversationStream,
+  sleep,
+  slugifySpeaker,
+  turnId,
+} from './conversation'
 // ── Chat-turn HTTP orchestration ──────────────────────────────────────
 // `handleChatTurn` frames a producer with the `session.run.*` envelope
 // + NDJSON line protocol + persist/post-process/trace-flush hook order.
