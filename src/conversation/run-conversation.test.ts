@@ -154,6 +154,11 @@ describe('runConversation — happy path', () => {
     expect(result.transcript.map((t) => t.text)).toEqual(['r-1', 'c-1', 'r-2', 'c-2'])
     expect(result.halted).toEqual({ kind: 'max_turns', turns: 4 })
     expect(result.spentCreditsCents).toBe(4) // 4 turns × $0.01 = 4¢
+    // Every turn has a deterministic id + attempts=1 on the happy path.
+    for (const t of result.transcript) {
+      expect(t.turnId).toMatch(new RegExp(`^${result.runId}\\.t\\d+\\.`))
+      expect(t.attempts).toBe(1)
+    }
   })
 
   it('uses round-robin for 3 participants by default', async () => {

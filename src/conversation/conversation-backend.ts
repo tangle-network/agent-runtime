@@ -21,6 +21,7 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
+import { FORWARD_HEADERS, readDepth } from './headers'
 import { runConversationStream } from './run-conversation'
 import type { Conversation, HaltReason } from './types'
 
@@ -53,9 +54,19 @@ export function createConversationBackend(options: {
       let totalTokensIn = 0
       let totalTokensOut = 0
 
+      // Recursion: forward this call's propagation context into the nested
+      // conversation. The nested run INHERITS the parent's runId (protocol
+      // invariant: runId is immutable across nesting), continues the depth
+      // counter from the headers, and stamps the enclosing turn as the
+      // parentTurnId so trace stitching reaches across nesting levels.
+      const inboundDepth = parseInboundDepth(context.propagatedHeaders)
       for await (const event of runConversationStream(options.conversation, {
         seed,
         signal: context.signal,
+        runId: context.runId,
+        propagatedHeaders: context.propagatedHeaders,
+        inboundDepth,
+        parentTurnId: context.turnId,
       })) {
         if (event.type === 'turn_end') {
           const tagged = `[${event.turn.speaker}] ${event.turn.text}\n`
@@ -104,6 +115,18 @@ export function createConversationBackend(options: {
 
       yield { type: 'backend_end', task, session, backend: kind, timestamp: nowIso() }
     },
+  }
+}
+
+function parseInboundDepth(headers: Readonly<Record<string, string>> | undefined): number {
+  if (!headers) return 0
+  // Accept either the canonical header key OR a lookup via the keyed name.
+  const raw = headers[FORWARD_HEADERS.depth]
+  if (raw === undefined) return 0
+  try {
+    return readDepth({ [FORWARD_HEADERS.depth]: raw })
+  } catch {
+    return 0
   }
 }
 

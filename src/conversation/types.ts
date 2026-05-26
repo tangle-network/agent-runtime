@@ -12,6 +12,9 @@
  */
 
 import type { AgentExecutionBackend } from '../types'
+import type { BackendCallPolicy } from './call-policy'
+import type { PropagatedHeaders } from './headers'
+import type { ConversationJournal } from './journal'
 
 /** @stable */
 export interface ConversationParticipant {
@@ -32,6 +35,12 @@ export interface ConversationParticipant {
    * is the addressing key.
    */
   label?: string
+  /**
+   * Optional per-participant override of the conversation's default
+   * `callPolicy`. Use to tighten the deadline or raise the retry budget for
+   * a participant known to be slow or flaky.
+   */
+  callPolicy?: BackendCallPolicy
 }
 
 /** @stable */
@@ -89,12 +98,24 @@ export interface ConversationPolicy {
    * returning truthy stops the loop with `{ kind: 'predicate', ... }`.
    */
   haltOn?: HaltPredicate
+  /**
+   * Default per-turn resilience policy applied to every participant call
+   * (deadline, retries, circuit breaker). Individual participants may
+   * override via `ConversationParticipant.callPolicy`.
+   */
+  defaultCallPolicy?: BackendCallPolicy
 }
 
 /** @stable */
 export interface ConversationTurn {
   index: number
   speaker: string
+  /**
+   * Deterministic turn identifier — stable across retries of the same logical
+   * turn so caching gateways and trace backends can dedupe. Shape:
+   * `${runId}.t${index}.${speakerSlug}`.
+   */
+  turnId: string
   text: string
   /**
    * Aggregated backend usage for this turn alone. Populated from any
@@ -108,6 +129,12 @@ export interface ConversationTurn {
     latencyMs?: number
     model?: string
   }
+  /**
+   * Number of attempts that ran before this turn committed. `1` is the
+   * common case; higher means the call policy retried after transient
+   * failures.
+   */
+  attempts: number
   startedAt: string
   endedAt: string
 }
@@ -122,7 +149,12 @@ export interface Conversation {
 export interface RunConversationOptions {
   /** First message kicking off the conversation. Routes to the first speaker. */
   seed: string
-  /** Optional run identifier for cross-participant trace correlation. Auto-generated when omitted. */
+  /**
+   * Optional run identifier for cross-participant trace correlation. Auto-
+   * generated when omitted. Reusing a runId against the same `journal`
+   * resumes the prior run — the runner replays the persisted transcript and
+   * continues from the first un-recorded turn.
+   */
   runId?: string
   /** Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`. */
   signal?: AbortSignal
@@ -133,6 +165,33 @@ export interface RunConversationOptions {
    * without waiting for the conversation to finish.
    */
   onEvent?: (event: ConversationStreamEvent) => void | Promise<void>
+  /**
+   * Optional durable transcript. When set, the runner persists every
+   * committed turn before yielding `turn_end`. Reusing the same `runId`
+   * against the same journal resumes from the last committed turn — so a
+   * driver process crash mid-run loses zero acknowledged turns.
+   */
+  journal?: ConversationJournal
+  /**
+   * Headers to forward verbatim to every participant backend call (gateway
+   * propagation: `X-Tangle-Forwarded-Authorization`, run/turn correlation,
+   * depth counter). Backends opt in by reading `propagatedHeaders` from
+   * their `AgentBackendContext`; backends that ignore the field still work.
+   */
+  propagatedHeaders?: PropagatedHeaders
+  /**
+   * Inbound depth at the point this driver was invoked. The runner
+   * increments it on every outbound participant call; gateways refuse at
+   * `DEFAULT_MAX_DEPTH`. Default 0 (origin caller).
+   */
+  inboundDepth?: number
+  /**
+   * Parent turn id when this conversation is *inside* another turn (i.e. the
+   * driver is itself a participant via `createConversationBackend`). The
+   * runner stamps each outbound call with this as `X-Tangle-Parent-TurnId`
+   * so trace stitching survives nested orchestration.
+   */
+  parentTurnId?: string
 }
 
 /** @stable */
@@ -156,14 +215,40 @@ export type ConversationStreamEvent =
       seed: string
       timestamp: string
     }
-  | { type: 'turn_start'; runId: string; index: number; speaker: string; timestamp: string }
+  | {
+      type: 'conversation_resumed'
+      runId: string
+      participants: readonly string[]
+      transcript: readonly ConversationTurn[]
+      timestamp: string
+    }
+  | {
+      type: 'turn_start'
+      runId: string
+      index: number
+      speaker: string
+      turnId: string
+      attempt: number
+      timestamp: string
+    }
   | {
       type: 'turn_text_delta'
       runId: string
       index: number
       speaker: string
+      turnId: string
       text: string
       timestamp?: string
+    }
+  | {
+      type: 'turn_retry'
+      runId: string
+      index: number
+      speaker: string
+      turnId: string
+      attempt: number
+      reason: string
+      timestamp: string
     }
   | { type: 'turn_end'; runId: string; turn: ConversationTurn; timestamp: string }
   | { type: 'conversation_end'; runId: string; result: ConversationResult; timestamp: string }

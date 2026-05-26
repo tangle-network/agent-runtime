@@ -277,6 +277,13 @@ export function createOpenAICompatibleBackend<
             headers: {
               Authorization: `Bearer ${options.apiKey}`,
               'Content-Type': 'application/json',
+              // Cross-gateway forwarding: when this call is part of a
+              // multi-agent conversation, the runner stamps run/turn/
+              // depth/forwarded-auth headers onto the context. They flow
+              // through to the downstream gateway verbatim so the original
+              // user gets billed, the recursion depth stays bounded, and
+              // the trace correlates across hops.
+              ...(context.propagatedHeaders ?? {}),
             },
             body: requestBody,
             signal: attemptSignal.signal,
