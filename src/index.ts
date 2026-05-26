@@ -28,6 +28,32 @@ export {
   createOpenAICompatibleBackend,
   createSandboxPromptBackend,
 } from './backends'
+export type {
+  Conversation,
+  ConversationDriveState,
+  ConversationParticipant,
+  ConversationPolicy,
+  ConversationResult,
+  ConversationStreamEvent,
+  ConversationTurn,
+  HaltContext,
+  HaltPredicate,
+  HaltReason,
+  HaltSignal,
+  RunConversationOptions,
+  TurnOrder,
+} from './conversation'
+// ── Conversations (multi-agent) ──────────────────────────────────────
+// Drives N participants in turn through any reachable AgentExecutionBackend
+// (in-process, local cli-bridge, sandbox, router, remote agent-gateway).
+// `createConversationBackend` exposes a conversation as a single agent,
+// enabling recursive composition + single-endpoint publishing.
+export {
+  createConversationBackend,
+  defineConversation,
+  runConversation,
+  runConversationStream,
+} from './conversation'
 // ── Chat-turn HTTP orchestration ──────────────────────────────────────
 // `handleChatTurn` frames a producer with the `session.run.*` envelope
 // + NDJSON line protocol + persist/post-process/trace-flush hook order.
