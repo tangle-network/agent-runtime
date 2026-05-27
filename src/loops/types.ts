@@ -11,6 +11,7 @@
  * output scoring; the output adapter owns event-stream → typed-output decode.
  */
 
+import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
   CreateSandboxOptions,
@@ -19,17 +20,12 @@ import type {
 } from '@tangle-network/sandbox'
 import type { RuntimeRunHandle } from '../runtime-run'
 
-/** @experimental */
-export interface DefaultVerdict {
-  /** Whether the output meets the validator's pass criteria. */
-  valid: boolean
-  /** Aggregate score in [0, 1]. Drivers use this for winner selection. */
-  score: number
-  /** Per-dimension scores. Free-form; weighted into `score` by the validator. */
-  scores?: Record<string, number>
-  /** Human-readable rationale; surfaces in trace + final-result `winner.verdict`. */
-  notes?: string
-}
+// DefaultVerdict is a substrate primitive — it lives in @tangle-network/agent-eval.
+// agent-runtime re-exports it here so existing consumers keep working without
+// changing their import paths. The runtime-shaped `Validator<Output, Verdict>`
+// interface below stays in agent-runtime because it's coupled to runtime-only
+// concerns (ValidationCtx with iteration + signal + traceEmitter).
+export type { DefaultVerdict }
 
 /** @experimental */
 export interface ValidationCtx {
