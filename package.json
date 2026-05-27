@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Reusable runtime lifecycle for domain-specific agents.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -76,7 +76,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.50.2"
+    "@tangle-network/agent-eval": "^0.52.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
