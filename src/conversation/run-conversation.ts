@@ -274,7 +274,19 @@ export async function* runConversationStream(
           aggregator: localAgg,
           propagatedHeaders: buildForwardHeaders({
             inboundDepth,
-            forwardedAuthorization,
+            // When the participant elects to pay for its own outbound calls,
+            // drop the forwarded user identity so the downstream gateway
+            // bills the participant's own credentials instead. The backend
+            // brings its own `Authorization` header at construction time
+            // (e.g. `createOpenAICompatibleBackend({ apiKey: sk-tan-AGENT })`);
+            // omitting the forwarded header is what flips the billing target.
+            forwardedAuthorization: resolveAuthForwarding(speaker, {
+              transcript,
+              turnIndex,
+              spentCreditsCents,
+            })
+              ? forwardedAuthorization
+              : undefined,
             runId,
             turnId: tid,
             parentTurnId: options.parentTurnId,
@@ -528,6 +540,23 @@ function buildMessagesFor(
   }
   if (currentInput) messages.push({ role: 'user', content: currentInput })
   return messages
+}
+
+/**
+ * True when this participant should forward the caller's
+ * `X-Tangle-Forwarded-Authorization` on outbound calls (the "pass-through"
+ * commercial mode). False when it elects to pay for its own outbound calls
+ * (the "reseller" / "bundle" mode). See ConversationParticipant.authSource.
+ */
+function resolveAuthForwarding(
+  participant: ConversationParticipant,
+  state: { transcript: readonly ConversationTurn[]; turnIndex: number; spentCreditsCents: number },
+): boolean {
+  const decision =
+    typeof participant.authSource === 'function'
+      ? participant.authSource(state)
+      : (participant.authSource ?? 'forward-user')
+  return decision === 'forward-user'
 }
 
 function selectSpeaker(
