@@ -4,6 +4,30 @@ Shared task-lifecycle skeleton for domain agents, generated agents, red-team har
 
 Imports `@tangle-network/agent-eval` for the control loop, knowledge readiness scoring, and run-record types. Does not own domain policy, models, tools, connectors, or UI.
 
+## Repo layering — this package depends on agent-eval, never the reverse
+
+```
+agent-knowledge ─┐
+                 ├──► agent-eval (substrate — the bottom)
+agent-runtime ───┘   (this repo — wraps the substrate)
+```
+
+**Rule: agent-runtime depends on agent-eval. agent-eval MUST NOT import from agent-runtime.** No upward imports, no `peerDependencies` declaration in agent-eval pointing at agent-runtime, no `import type { X } from '@tangle-network/agent-runtime'` inside agent-eval. If reviewers spot one, it's a bug — file an issue and move the type into agent-eval where it belongs.
+
+Substrate primitives that this repo CONSUMES from agent-eval:
+- `DefaultVerdict` — validator-output shape (`@tangle-network/agent-eval`)
+- `RunRecord` — canonical run-record type
+- `AgentEvalError` + the error taxonomy
+- `AnalystFinding`, `AnalystRunResult`, `FindingsDiff` — analyst types
+- `TraceAnalystKindSpec`, `KnowledgeReadinessReport`
+
+Types that stay in THIS repo because they're runtime-shaped:
+- `Validator<Output, Verdict>` interface (coupled to `ValidationCtx`: iteration, signal, traceEmitter)
+- `AgentRunSpec`, `OutputAdapter`, `Driver`, `LoopResult` — coupled to the sandbox loop
+- `RuntimeRunHandle` — execution-context shape
+
+**The test for "where does a type live?"** — does this concept make sense WITHOUT a running agent loop? If yes, it's substrate (belongs in agent-eval). If no, it's runtime (belongs here). When in doubt, lean substrate.
+
 ## Authorship
 
 Do not add `Co-Authored-By:` trailers (or any other AI-attribution lines) to commits, PR descriptions, or other artifacts in this repo. Author = the human running the session. Applies to every contributor, including AI agents and subagents — do not include the default Claude Code template trailer.
