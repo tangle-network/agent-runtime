@@ -127,7 +127,7 @@ Every public export is annotated `@stable` or `@experimental`. `@stable` exports
 | `agent-knowledge` | Evidence, claims, wiki pages, retrieval |
 | `sandbox` | `AgentProfile`, `Sandbox.create`, `streamPrompt`, `exportTraceBundle` |
 
-See [`docs/concepts.md`](./docs/concepts.md) for the deeper mental model.
+See [`docs/concepts.md`](./docs/concepts.md) for the deeper mental model. For multi-agent conversations see [`docs/agent-bus-protocol.md`](./docs/agent-bus-protocol.md) (cross-gateway header contract), [`docs/conversation-economics.md`](./docs/conversation-economics.md) (who pays for what — `authSource`), and [`docs/durability-adapters.md`](./docs/durability-adapters.md) (SQL-backed `ConversationJournal` for D1, postgres, sqlite, libSQL).
 
 ## Tests
 

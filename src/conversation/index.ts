@@ -44,9 +44,17 @@ export {
   FileConversationJournal,
   InMemoryConversationJournal,
 } from './journal'
+export {
+  type D1DatabaseLike,
+  type D1StmtLike,
+  d1ToSqlAdapter,
+  type SqlAdapter,
+  SqlConversationJournal,
+} from './journal-sql'
 export { runConversation, runConversationStream } from './run-conversation'
 export { slugifySpeaker, turnId } from './turn-id'
 export type {
+  AuthSource,
   Conversation,
   ConversationDriveState,
   ConversationParticipant,

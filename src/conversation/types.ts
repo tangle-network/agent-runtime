@@ -41,7 +41,33 @@ export interface ConversationParticipant {
    * a participant known to be slow or flaky.
    */
   callPolicy?: BackendCallPolicy
+  /**
+   * Who pays for THIS participant's outbound calls?
+   *
+   * - `'forward-user'` (default) — propagate the caller's
+   *   `X-Tangle-Forwarded-Authorization` so the downstream gateway bills the
+   *   original user. Right for pass-through agents that aggregate/route
+   *   without taking economic risk.
+   * - `'agent-owned'` — DO NOT forward the user's auth; the participant's
+   *   backend uses its own credentials (typically a sk-tan-AGENT or x402
+   *   wallet baked into the backend at construction). Downstream charges
+   *   land on the agent, not the user. Right for resold-bundle agents that
+   *   take margin between their inbound price and their sub-agent costs.
+   * - `(state) => AuthSource` — per-turn / per-condition decision, e.g. base
+   *   sub-services are agent-owned but premium add-ons forward the user.
+   *
+   * The agent's own credentials live on the backend (set at construction
+   * time, e.g. `createOpenAICompatibleBackend({ apiKey })`); this field is
+   * purely about *whether to also forward the user's identity downstream*.
+   */
+  authSource?: AuthSource
 }
+
+/** @stable */
+export type AuthSource =
+  | 'forward-user'
+  | 'agent-owned'
+  | ((state: ConversationDriveState) => 'forward-user' | 'agent-owned')
 
 /** @stable */
 export type TurnOrder = 'alternate' | 'round-robin' | ((state: ConversationDriveState) => number)

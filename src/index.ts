@@ -29,6 +29,7 @@ export {
   createSandboxPromptBackend,
 } from './backends'
 export type {
+  AuthSource,
   BackendCallPolicy,
   CircuitBreakerConfig,
   Conversation,
@@ -40,6 +41,8 @@ export type {
   ConversationResult,
   ConversationStreamEvent,
   ConversationTurn,
+  D1DatabaseLike,
+  D1StmtLike,
   ForwardHeaderName,
   HaltContext,
   HaltPredicate,
@@ -49,6 +52,7 @@ export type {
   RetryableErrorPredicate,
   RetryBackoff,
   RunConversationOptions,
+  SqlAdapter,
   TurnOrder,
 } from './conversation'
 // ── Conversations (multi-agent, distributed) ──────────────────────────
@@ -66,6 +70,7 @@ export {
   createConversationBackend,
   DEFAULT_MAX_DEPTH,
   DeadlineExceededError,
+  d1ToSqlAdapter,
   defaultIsRetryable,
   defineConversation,
   FileConversationJournal,
@@ -76,6 +81,7 @@ export {
   readDepth,
   runConversation,
   runConversationStream,
+  SqlConversationJournal,
   sleep,
   slugifySpeaker,
   turnId,
