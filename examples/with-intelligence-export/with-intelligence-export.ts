@@ -39,10 +39,36 @@ const INTELLIGENCE_BASE =
 const backend = createIterableBackend<AgentBackendInput>({
   kind: 'intel-demo',
   async *stream(_input, ctx) {
-    yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'working...\n', timestamp: new Date().toISOString() }
-    yield { type: 'tool_call', task: ctx.task, session: ctx.session, toolName: 'web_search', args: {}, timestamp: new Date().toISOString() }
-    yield { type: 'tool_result', task: ctx.task, session: ctx.session, toolName: 'web_search', result: { ok: true }, timestamp: new Date().toISOString() }
-    yield { type: 'text_delta', task: ctx.task, session: ctx.session, text: 'done.\n', timestamp: new Date().toISOString() }
+    yield {
+      type: 'text_delta',
+      task: ctx.task,
+      session: ctx.session,
+      text: 'working...\n',
+      timestamp: new Date().toISOString(),
+    }
+    yield {
+      type: 'tool_call',
+      task: ctx.task,
+      session: ctx.session,
+      toolName: 'web_search',
+      args: {},
+      timestamp: new Date().toISOString(),
+    }
+    yield {
+      type: 'tool_result',
+      task: ctx.task,
+      session: ctx.session,
+      toolName: 'web_search',
+      result: { ok: true },
+      timestamp: new Date().toISOString(),
+    }
+    yield {
+      type: 'text_delta',
+      task: ctx.task,
+      session: ctx.session,
+      text: 'done.\n',
+      timestamp: new Date().toISOString(),
+    }
   },
 })
 
