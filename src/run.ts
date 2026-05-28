@@ -19,12 +19,45 @@ import {
   type ControlEvalResult,
   type ControlRunResult,
   type DataAcquisitionPlan,
+  FAILURE_CLASSES,
+  type FailureClass,
   type KnowledgeReadinessReport,
+  type RunRecord,
   runAgentControlLoop,
   scoreKnowledgeReadiness,
   type UserQuestion,
   userQuestionsForKnowledgeGaps,
 } from '@tangle-network/agent-eval'
+
+const FAILURE_CLASS_SET = new Set<string>(FAILURE_CLASSES)
+
+/** True when a free-form control failure string is a canonical taxonomy
+ *  class — so only real taxonomy tags are promoted to the cross-agent
+ *  `RunRecord.failureClass` key; novel strings stay as `failureMode` detail. */
+function asFailureClass(value: string | undefined): FailureClass | undefined {
+  return value && FAILURE_CLASS_SET.has(value) ? (value as FailureClass) : undefined
+}
+
+/** Stamp cross-cutting defaults onto adapter-projected RunRecords without
+ *  overriding anything the adapter set explicitly:
+ *   - `scenarioId` — the run's scenario, when the record omits one.
+ *   - `failureClass` — the control layer's failure classification promoted
+ *     onto the canonical cross-agent key, but ONLY when it's a real taxonomy
+ *     class. This is what lets the substrate aggregate failures across every
+ *     agent in one vocabulary instead of per-agent ad-hoc strings. */
+export function applyRunRecordDefaults(
+  records: RunRecord[],
+  scenarioId: string,
+  controlFailureClass: string | undefined,
+): RunRecord[] {
+  const fc = asFailureClass(controlFailureClass)
+  return records.map((record) => {
+    let r = record
+    if (r.scenarioId === undefined) r = { ...r, scenarioId }
+    if (r.failureClass === undefined && fc) r = { ...r, failureClass: fc }
+    return r
+  })
+}
 
 import { normalizeBackendStreamEvent } from './backends'
 import { BackendTransportError, SessionMismatchError } from './errors'
@@ -152,8 +185,10 @@ export async function runAgentTask<
     userAnswers: preflight.userAnswers,
     acquiredEvidenceIds: preflight.acquiredEvidenceIds,
     control,
-    runRecords: (options.adapter.projectRunRecords?.(control, task) ?? []).map((record) =>
-      record.scenarioId === undefined ? { ...record, scenarioId } : record,
+    runRecords: applyRunRecordDefaults(
+      options.adapter.projectRunRecords?.(control, task) ?? [],
+      scenarioId,
+      control.failureClass,
     ),
   }
 }

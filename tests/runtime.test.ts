@@ -1,6 +1,8 @@
+import type { RunRecord } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentAdapter,
+  applyRunRecordDefaults,
   type AgentBackendInput,
   type AgentExecutionBackend,
   type AgentTaskSpec,
@@ -985,3 +987,53 @@ async function collect(iterable: AsyncIterable<RuntimeStreamEvent>): Promise<Run
   for await (const event of iterable) events.push(event)
   return events
 }
+
+describe('applyRunRecordDefaults — canonical failureClass propagation', () => {
+  function rec(overrides: Partial<RunRecord> = {}): RunRecord {
+    return {
+      runId: 'run-1',
+      experimentId: 'exp-1',
+      candidateId: 'cand-1',
+      seed: 0,
+      model: 'm@v',
+      promptHash: 'sha256:p',
+      configHash: 'sha256:c',
+      commitSha: 'abc',
+      wallMs: 10,
+      costUsd: 0,
+      tokenUsage: { input: 0, output: 0 },
+      outcome: { holdoutScore: 0, raw: {} },
+      splitTag: 'holdout',
+      ...overrides,
+    }
+  }
+
+  it('promotes a canonical control failureClass onto records that lack one', () => {
+    const out = applyRunRecordDefaults([rec()], 'scn-1', 'tool_recovery_failure')
+    expect(out[0]?.failureClass).toBe('tool_recovery_failure')
+    expect(out[0]?.scenarioId).toBe('scn-1')
+  })
+
+  it('never overrides a failureClass the adapter set explicitly', () => {
+    const out = applyRunRecordDefaults(
+      [rec({ failureClass: 'hallucination', scenarioId: 'kept' })],
+      'scn-1',
+      'tool_recovery_failure',
+    )
+    expect(out[0]?.failureClass).toBe('hallucination')
+    expect(out[0]?.scenarioId).toBe('kept')
+  })
+
+  it('does NOT promote a non-taxonomy control string (stays unclassified)', () => {
+    // agent-builder's ad-hoc "forge_build_unsatisfied" is not a FailureClass —
+    // it must not pollute the canonical cross-agent key.
+    const out = applyRunRecordDefaults([rec()], 'scn-1', 'forge_build_unsatisfied')
+    expect(out[0]?.failureClass).toBeUndefined()
+  })
+
+  it('is a no-op on failureClass when the control did not fail', () => {
+    const out = applyRunRecordDefaults([rec()], 'scn-1', undefined)
+    expect(out[0]?.failureClass).toBeUndefined()
+    expect(out[0]?.scenarioId).toBe('scn-1')
+  })
+})
