@@ -55,7 +55,7 @@ async function main() {
   })
   if (!exporter) throw new Error('no OTLP endpoint configured')
 
-  const traceId = 'run' + Date.now().toString(16).padStart(29, '0')
+  const traceId = `run${Date.now().toString(16).padStart(29, '0')}`
   const runId = 'demo-run-1'
   for await (const event of runAgentTaskStream({
     task: { id: runId, intent: 'demo task', domain: 'demo', inputs: {} },
