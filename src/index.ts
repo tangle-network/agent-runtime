@@ -136,7 +136,7 @@ export {
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
-export { runAgentTask, runAgentTaskStream } from './run'
+export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 // ── Production run lifecycle ─────────────────────────────────────────
 export type {
   RuntimeRunHandle,
