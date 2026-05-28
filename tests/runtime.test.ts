@@ -2,10 +2,10 @@ import type { RunRecord } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentAdapter,
-  applyRunRecordDefaults,
   type AgentBackendInput,
   type AgentExecutionBackend,
   type AgentTaskSpec,
+  applyRunRecordDefaults,
   type ControlEvalResult,
   createIterableBackend,
   createOpenAICompatibleBackend,

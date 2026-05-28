@@ -113,7 +113,7 @@ describe('createInProcessExecutor', () => {
       const box = await exec.client.create()
       for await (const _ of (
         box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
-      ).streamPrompt('task ' + i)) {
+      ).streamPrompt(`task ${i}`)) {
         // drain
       }
     }
