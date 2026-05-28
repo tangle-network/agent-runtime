@@ -39,6 +39,7 @@ These were standalone examples in an earlier release. The patterns are now folde
 - [`sse-stream/`](./sse-stream/) — SSE helpers for browser routes
 - [`sanitized-telemetry/`](./sanitized-telemetry/) — non-streaming counterpart to `sanitized-telemetry-streaming`
 - [`agent-into-reviewer/`](./agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent (advanced 2-runtime topology)
+- [`with-intelligence-export/`](./with-intelligence-export/) — ship loop traces to Tangle Intelligence (`createOtelExporter` + raw OTLP) for failure-correlation + quality insights
 
 ## Conventions
 
