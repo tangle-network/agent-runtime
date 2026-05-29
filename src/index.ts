@@ -123,14 +123,20 @@ export {
   validateChatModelId,
 } from './model-resolution'
 export type {
+  EvalRunEvent,
+  EvalRunGeneration,
+  EvalRunsExportConfig,
+  EvalRunsExportResult,
   OtelAttribute,
   OtelExportConfig,
   OtelExporter,
   OtelSpan,
 } from './otel-export'
-// ── OTEL export + trace propagation ──────────────────────────────────
+// ── OTEL export + trace propagation + eval-run provenance ────────────
 export {
   createOtelExporter,
+  exportEvalRuns,
+  INTELLIGENCE_WIRE_VERSION,
   loopEventToOtelSpan,
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
