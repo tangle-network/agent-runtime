@@ -186,7 +186,15 @@ describe('exportEvalRuns (Intelligence self-improvement provenance)', () => {
     status: 'generation-complete' as const,
     labels: { stage: 'proposed', measured: 'false' },
     generations: [
-      { index: 0, surfaceHash: 'h1', surface: { surfaceId: 'completeness-audit' }, cells: [], compositeMean: 0, costUsd: 0, durationMs: 0 },
+      {
+        index: 0,
+        surfaceHash: 'h1',
+        surface: { surfaceId: 'completeness-audit' },
+        cells: [],
+        compositeMean: 0,
+        costUsd: 0,
+        durationMs: 0,
+      },
     ],
     totalCostUsd: 0,
     totalDurationMs: 0,
@@ -203,7 +211,11 @@ describe('exportEvalRuns (Intelligence self-improvement provenance)', () => {
       return new Response(JSON.stringify({ accepted: 1, rejected: [] }), { status: 200 })
     })
     vi.stubGlobal('fetch', mockFetch)
-    const r = await exportEvalRuns([event], { apiKey: 'sk-tan-test', base: 'https://intel.example', idempotencyKey: 'rsi-1' })
+    const r = await exportEvalRuns([event], {
+      apiKey: 'sk-tan-test',
+      base: 'https://intel.example',
+      idempotencyKey: 'rsi-1',
+    })
     expect(r.ok).toBe(true)
     expect(r.accepted).toBe(1)
     expect(captured!.url).toBe('https://intel.example/v1/ingest/eval-runs')
@@ -216,8 +228,11 @@ describe('exportEvalRuns (Intelligence self-improvement provenance)', () => {
   })
 
   it('surfaces per-event rejections from a 400 (does not throw)', async () => {
-    const mockFetch = vi.fn(async () =>
-      new Response(JSON.stringify({ accepted: 0, rejected: [{ index: 0, reason: 'bad' }] }), { status: 400 }),
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ accepted: 0, rejected: [{ index: 0, reason: 'bad' }] }), {
+          status: 400,
+        }),
     )
     vi.stubGlobal('fetch', mockFetch)
     const r = await exportEvalRuns([event], { apiKey: 'k' })

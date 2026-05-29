@@ -267,7 +267,13 @@ export interface EvalRunEvent {
   runDir: string
   /** ISO timestamp. */
   timestamp: string
-  status: 'started' | 'baseline-complete' | 'generation-complete' | 'gate-decided' | 'finished' | 'errored'
+  status:
+    | 'started'
+    | 'baseline-complete'
+    | 'generation-complete'
+    | 'gate-decided'
+    | 'finished'
+    | 'errored'
   labels?: Record<string, string>
   baseline?: EvalRunGeneration
   generations?: EvalRunGeneration[]
@@ -309,7 +315,8 @@ export async function exportEvalRuns(
   if (events.length === 0) return { ok: true, status: 0, accepted: 0, rejected: [] }
   const apiKey =
     config?.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
-  if (!apiKey) throw new Error('exportEvalRuns: apiKey required (pass config.apiKey or set TANGLE_API_KEY)')
+  if (!apiKey)
+    throw new Error('exportEvalRuns: apiKey required (pass config.apiKey or set TANGLE_API_KEY)')
   const base =
     config?.base ??
     (typeof process !== 'undefined' ? process.env.INTELLIGENCE_BASE : undefined) ??
