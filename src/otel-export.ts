@@ -233,3 +233,108 @@ function generateSpanId(): string {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
 }
+
+// ─── Eval-run ingest (self-improvement provenance) ───────────────────────────
+//
+// Tangle Intelligence has a first-class, non-trace record for self-improvement
+// runs: POST /v1/ingest/eval-runs ("Mode D"). Each generation carries a
+// `surfaceHash` (the proposed-change identity) + arbitrary `surface` provenance;
+// a later `gate-decided` event re-emits the same `runId` (idempotent upsert) with
+// a real `gateDecision` + `holdoutLift`, so proposal→verdict is one diffable
+// record. This is how a consumer's RSI loop records WHAT it changed, WHY, from
+// which evidence — the audit trail behind agentic self-improvement.
+
+/** Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). */
+export const INTELLIGENCE_WIRE_VERSION = '2026-05-26.v1'
+
+export interface EvalRunGeneration {
+  /** 0-based ordinal of this generation within the run (required by ingest). */
+  index: number
+  /** Identity of the proposed surface change (content-addressed hash). */
+  surfaceHash: string
+  /** Arbitrary provenance for this generation (rationale, evidence, source). */
+  surface?: unknown
+  /** Per-scenario results; empty until the generation is measured. */
+  cells?: unknown[]
+  /** Mean composite score (0 when unmeasured — pair with labels.measured). */
+  compositeMean: number
+  costUsd: number
+  durationMs: number
+}
+
+export interface EvalRunEvent {
+  runId: string
+  runDir: string
+  /** ISO timestamp. */
+  timestamp: string
+  status: 'started' | 'baseline-complete' | 'generation-complete' | 'gate-decided' | 'finished' | 'errored'
+  labels?: Record<string, string>
+  baseline?: EvalRunGeneration
+  generations?: EvalRunGeneration[]
+  gateDecision?: 'ship' | 'hold' | 'need_more_work' | 'model_ceiling' | 'arch_ceiling'
+  holdoutLift?: number
+  totalCostUsd: number
+  totalDurationMs: number
+  errorMessage?: string
+}
+
+export interface EvalRunsExportConfig {
+  /** Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY. */
+  apiKey?: string
+  /** Intelligence base. Reads INTELLIGENCE_BASE env, else prod. */
+  base?: string
+  /** Idempotency-Key header (e.g. the runId) — safe retries + upsert. */
+  idempotencyKey?: string
+}
+
+export interface EvalRunsExportResult {
+  ok: boolean
+  status: number
+  accepted: number
+  rejected: Array<{ index: number; reason: string }>
+}
+
+const DEFAULT_INTELLIGENCE_BASE = 'https://intelligence.tangle.tools'
+
+/**
+ * Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
+ * best-effort span exporter, this RESOLVES with the ingest verdict (accepted /
+ * rejected per event) so a consumer's loop can assert its provenance landed.
+ * Throws only on a missing key or network failure.
+ */
+export async function exportEvalRuns(
+  events: EvalRunEvent[],
+  config?: EvalRunsExportConfig,
+): Promise<EvalRunsExportResult> {
+  if (events.length === 0) return { ok: true, status: 0, accepted: 0, rejected: [] }
+  const apiKey =
+    config?.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
+  if (!apiKey) throw new Error('exportEvalRuns: apiKey required (pass config.apiKey or set TANGLE_API_KEY)')
+  const base =
+    config?.base ??
+    (typeof process !== 'undefined' ? process.env.INTELLIGENCE_BASE : undefined) ??
+    DEFAULT_INTELLIGENCE_BASE
+  const url = `${base.replace(/\/+$/, '')}/v1/ingest/eval-runs`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${apiKey}`,
+      'X-Tangle-Wire-Version': INTELLIGENCE_WIRE_VERSION,
+      ...(config?.idempotencyKey ? { 'Idempotency-Key': config.idempotencyKey } : {}),
+    },
+    body: JSON.stringify({ wireVersion: INTELLIGENCE_WIRE_VERSION, events }),
+  })
+  let parsed: { accepted?: number; rejected?: Array<{ index: number; reason: string }> } = {}
+  try {
+    parsed = (await res.json()) as typeof parsed
+  } catch {
+    // non-JSON body (e.g. 5xx HTML) — leave parsed empty
+  }
+  return {
+    ok: res.ok,
+    status: res.status,
+    accepted: parsed.accepted ?? (res.ok ? events.length : 0),
+    rejected: parsed.rejected ?? [],
+  }
+}

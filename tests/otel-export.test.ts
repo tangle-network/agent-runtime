@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createOtelExporter, loopEventToOtelSpan } from '../src/otel-export'
+import {
+  createOtelExporter,
+  exportEvalRuns,
+  INTELLIGENCE_WIRE_VERSION,
+  loopEventToOtelSpan,
+} from '../src/otel-export'
 
 describe('otel-export', () => {
   afterEach(() => {
@@ -164,5 +169,65 @@ describe('otel-export', () => {
     expect(attrMap['loop.event_kind']).toEqual({ stringValue: 'loop.iteration.started' })
     expect(attrMap['loop.iterationIndex']).toEqual({ intValue: '0' })
     expect(attrMap['loop.agentRunName']).toEqual({ stringValue: 'coder' })
+  })
+})
+
+describe('exportEvalRuns (Intelligence self-improvement provenance)', () => {
+  afterEach(() => {
+    delete process.env.TANGLE_API_KEY
+    delete process.env.INTELLIGENCE_BASE
+    vi.unstubAllGlobals()
+  })
+
+  const event = {
+    runId: 'rsi-1',
+    runDir: 'rsi/fhenix/abc',
+    timestamp: '2026-05-29T00:00:00.000Z',
+    status: 'generation-complete' as const,
+    labels: { stage: 'proposed', measured: 'false' },
+    generations: [
+      { index: 0, surfaceHash: 'h1', surface: { surfaceId: 'completeness-audit' }, cells: [], compositeMean: 0, costUsd: 0, durationMs: 0 },
+    ],
+    totalCostUsd: 0,
+    totalDurationMs: 0,
+  }
+
+  it('throws without an api key', async () => {
+    await expect(exportEvalRuns([event])).rejects.toThrow(/apiKey required/)
+  })
+
+  it('POSTs the wire-versioned envelope to /v1/ingest/eval-runs with bearer + version header', async () => {
+    let captured: { url: string; init: any } | undefined
+    const mockFetch = vi.fn(async (url: string, init: any) => {
+      captured = { url, init }
+      return new Response(JSON.stringify({ accepted: 1, rejected: [] }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    const r = await exportEvalRuns([event], { apiKey: 'sk-tan-test', base: 'https://intel.example', idempotencyKey: 'rsi-1' })
+    expect(r.ok).toBe(true)
+    expect(r.accepted).toBe(1)
+    expect(captured!.url).toBe('https://intel.example/v1/ingest/eval-runs')
+    expect(captured!.init.headers.authorization).toBe('Bearer sk-tan-test')
+    expect(captured!.init.headers['X-Tangle-Wire-Version']).toBe(INTELLIGENCE_WIRE_VERSION)
+    expect(captured!.init.headers['Idempotency-Key']).toBe('rsi-1')
+    const body = JSON.parse(captured!.init.body)
+    expect(body.wireVersion).toBe(INTELLIGENCE_WIRE_VERSION)
+    expect(body.events[0].generations[0].index).toBe(0)
+  })
+
+  it('surfaces per-event rejections from a 400 (does not throw)', async () => {
+    const mockFetch = vi.fn(async () =>
+      new Response(JSON.stringify({ accepted: 0, rejected: [{ index: 0, reason: 'bad' }] }), { status: 400 }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+    const r = await exportEvalRuns([event], { apiKey: 'k' })
+    expect(r.ok).toBe(false)
+    expect(r.status).toBe(400)
+    expect(r.rejected[0]?.reason).toBe('bad')
+  })
+
+  it('no-ops on empty events', async () => {
+    const r = await exportEvalRuns([], { apiKey: 'k' })
+    expect(r).toEqual({ ok: true, status: 0, accepted: 0, rejected: [] })
   })
 })
