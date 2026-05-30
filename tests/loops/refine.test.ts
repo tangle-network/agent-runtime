@@ -11,6 +11,7 @@ import {
   type LoopTraceEvent,
   type OutputAdapter,
   refineWinnerIndex,
+  reportLoopUsage,
   runLoop,
   type Validator,
 } from '../../src/loops'
@@ -242,6 +243,27 @@ describe('runLoop + createRefineDriver', () => {
     expect(result.iterations[0]?.costUsd).toBeCloseTo(0.01, 9)
     expect(result.iterations[1]?.costUsd).toBeCloseTo(0.02, 9)
     expect(result.costUsd).toBeCloseTo(0.03, 9)
+    // Token usage must aggregate too — a runProfileMatrix dispatch forwards
+    // this to the backend-integrity guard; if it stayed 0/0 a real run would
+    // be misread as a stub.
+    expect(result.iterations[0]?.tokenUsage).toEqual({ input: 100, output: 50 })
+    expect(result.iterations[1]?.tokenUsage).toEqual({ input: 80, output: 30 })
+    expect(result.tokenUsage).toEqual({ input: 180, output: 80 })
+
+    // reportLoopUsage forwards both cost AND tokens into a campaign cost meter.
+    const observed: Array<{ usd: number; src: string }> = []
+    let tokens = { input: 0, output: 0 }
+    reportLoopUsage(
+      {
+        observe: (usd, src) => observed.push({ usd, src }),
+        observeTokens: (u) => {
+          tokens = u
+        },
+      },
+      result,
+    )
+    expect(observed).toEqual([{ usd: 0.03, src: 'loop' }])
+    expect(tokens).toEqual({ input: 180, output: 80 })
   })
 
   it('refineWinnerIndex returns the last valid iteration', () => {

@@ -90,6 +90,15 @@ export interface OutputAdapter<Output> {
   parse(events: SandboxEvent[]): Output
 }
 
+/** LLM token usage. Structurally matches agent-eval's `RunTokenUsage` /
+ *  `CampaignTokenUsage` ({ input, output }) so a loop result maps straight
+ *  onto `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch — without
+ *  which the backend-integrity guard reads the run as a stub. */
+export interface LoopTokenUsage {
+  input: number
+  output: number
+}
+
 /** @experimental */
 export interface Iteration<Task, Output> {
   /** 0-based iteration index assigned by the kernel. */
@@ -105,6 +114,8 @@ export interface Iteration<Task, Output> {
   startedAt: number
   endedAt: number
   costUsd: number
+  /** Summed LLM token usage across every `llm_call` event in this iteration. */
+  tokenUsage: LoopTokenUsage
 }
 
 /** @experimental */
@@ -144,6 +155,10 @@ export interface LoopResult<Task, Output, Decision> {
   durationMs: number
   /** Sum of every iteration's `costUsd`. */
   costUsd: number
+  /** Sum of every iteration's token usage. Forward to
+   *  `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch so the
+   *  integrity guard sees real LLM activity. */
+  tokenUsage: LoopTokenUsage
 }
 
 /**
