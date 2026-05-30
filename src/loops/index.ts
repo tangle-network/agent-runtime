@@ -27,6 +27,7 @@ export type { CreateRefineDriverOptions, RefineDecision } from './drivers/refine
 export { createRefineDriver, refineWinnerIndex } from './drivers/refine'
 export type { RunLoopOptions } from './run-loop'
 export { runLoop } from './run-loop'
+export { reportLoopUsage, type UsageSink } from './report-usage'
 export type {
   AgentRunSpec,
   DefaultVerdict,
@@ -42,6 +43,7 @@ export type {
   LoopSandboxClient,
   LoopSandboxPlacement,
   LoopStartedPayload,
+  LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,

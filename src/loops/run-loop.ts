@@ -149,6 +149,7 @@ export async function runLoop<Task, Output, Decision>(
           startedAt: now(),
           endedAt: 0,
           costUsd: 0,
+          tokenUsage: { input: 0, output: 0 },
         })
       }
 
@@ -288,6 +289,8 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         slot.costUsd += llmCall.costUsd ?? 0
+        slot.tokenUsage.input += llmCall.tokensIn ?? 0
+        slot.tokenUsage.output += llmCall.tokensOut ?? 0
         args.ctx.runHandle?.observe(llmCall)
       }
     }
@@ -405,12 +408,21 @@ function finalize<Task, Output, Decision>(
 ): LoopResult<Task, Output, Decision> {
   const winner = (args.options.selectWinner ?? defaultSelectWinner)(args.iterations)
   const costUsd = args.iterations.reduce((sum, iter) => sum + (iter.costUsd || 0), 0)
+  const tokenUsage = args.iterations.reduce(
+    (acc, iter) => {
+      acc.input += iter.tokenUsage?.input ?? 0
+      acc.output += iter.tokenUsage?.output ?? 0
+      return acc
+    },
+    { input: 0, output: 0 },
+  )
   const result: LoopResult<Task, Output, Decision> = {
     decision: args.decision,
     iterations: args.iterations,
     winner,
     durationMs: args.now() - args.startMs,
     costUsd,
+    tokenUsage,
   }
   void emitTrace(args.options.ctx.traceEmitter, {
     kind: 'loop.ended',
