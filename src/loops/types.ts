@@ -260,6 +260,14 @@ export interface LoopPlanPayload {
   moveKind: string
   /** Driver rationale for the move, when available. */
   rationale?: string
+  /**
+   * Iteration index this round branched FROM (the edge source). `undefined`
+   * for round 0 (root). Kernel-inferred branch point — the best-valid (else
+   * latest) iteration so far — unless a driver later declares it explicitly.
+   */
+  parentIndex?: number
+  /** Iteration indices this round dispatched (the edge targets). */
+  childIndices: number[]
 }
 
 /** @experimental */
@@ -267,6 +275,10 @@ export interface LoopIterationStartedPayload {
   iterationIndex: number
   agentRunName: string
   taskHash: string
+  /** Plan round (== `LoopPlanPayload.roundIndex`) this iteration belongs to. */
+  groupId?: number
+  /** Iteration this one was planned from; `undefined` ⇒ root. */
+  parentIndex?: number
 }
 
 /**
@@ -287,6 +299,10 @@ export interface LoopIterationDispatchPayload {
   fleetId?: string
   /** Set only when `placement === 'fleet'`. */
   machineId?: string
+  /** Plan round this iteration belongs to. */
+  groupId?: number
+  /** Iteration this one was planned from; `undefined` ⇒ root. */
+  parentIndex?: number
 }
 
 /** @experimental */
@@ -301,6 +317,13 @@ export interface LoopIterationEndedPayload {
   /** Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
    *  branch span. Omitted when no `llm_call` events carried token counts. */
   tokenUsage?: LoopTokenUsage
+  /** Plan round this iteration belongs to. */
+  groupId?: number
+  /** Iteration this one was planned from; `undefined` ⇒ root. */
+  parentIndex?: number
+  /** Truncated string preview of the parsed output — for a viewer's drawer.
+   *  Bounded to ~280 chars; never the full payload. */
+  outputPreview?: string
 }
 
 /** @experimental */

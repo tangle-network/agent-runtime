@@ -267,6 +267,8 @@ export function buildLoopOtelSpans(
     if (win !== undefined) rootAttrs['tangle.loop.winner.iteration_index'] = win
     const cost = num(ep.totalCostUsd)
     if (cost !== undefined) rootAttrs['tangle.cost.usd'] = cost
+    const dur = num(ep.durationMs)
+    if (dur !== undefined) rootAttrs['tangle.loop.duration_ms'] = dur
     const iters = num(ep.iterations)
     if (iters !== undefined) rootAttrs['tangle.loop.iterations'] = iters
   }
@@ -293,14 +295,21 @@ export function buildLoopOtelSpans(
       case 'loop.plan': {
         flushRound(e.timestamp)
         const id = generateSpanId()
+        const roundIdx = num(p.roundIndex) ?? 0
         const attrs: Record<string, string | number | boolean> = {
           [GEN_AI.operation]: 'invoke_workflow',
-          'tangle.loop.round.index': num(p.roundIndex) ?? 0,
+          'tangle.loop.round.index': roundIdx,
           'tangle.loop.move.kind': str(p.moveKind) ?? 'unknown',
+          'tangle.loop.move.round': roundIdx,
           'tangle.loop.move.width': num(p.plannedCount) ?? 0,
         }
         const r = str(p.rationale)
         if (r) attrs['tangle.loop.move.rationale'] = r
+        const parent = num(p.parentIndex)
+        if (parent !== undefined) attrs['tangle.loop.move.parent_index'] = parent
+        if (Array.isArray(p.childIndices) && p.childIndices.length > 0) {
+          attrs['tangle.loop.move.child_indices'] = p.childIndices.map(String).join(',')
+        }
         pendingRound = { id, start: e.timestamp, attrs }
         currentRoundId = id
         break
@@ -347,6 +356,14 @@ export function buildLoopOtelSpans(
         const score = num(verdict.score)
         if (score !== undefined) attrs['tangle.loop.verdict.score'] = score
         if (err) attrs['tangle.loop.error'] = err
+        const gid = num(p.groupId)
+        if (gid !== undefined) attrs['tangle.loop.iteration.group_id'] = gid
+        const par = num(p.parentIndex)
+        if (par !== undefined) attrs['tangle.loop.iteration.parent_index'] = par
+        const dur = num(p.durationMs)
+        if (dur !== undefined) attrs['tangle.loop.iteration.duration_ms'] = dur
+        const preview = str(p.outputPreview)
+        if (preview) attrs['tangle.loop.iteration.output_preview'] = preview
         Object.assign(attrs, placementByIdx.get(idx) ?? {})
         out.push(
           make(
