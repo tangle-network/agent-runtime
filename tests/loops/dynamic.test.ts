@@ -10,6 +10,9 @@ import {
   type AgentRunSpec,
   createDynamicDriver,
   createSandboxPlanner,
+  type LoopPlanPayload,
+  type LoopTraceEmitter,
+  type LoopTraceEvent,
   type OutputAdapter,
   runLoop,
   type TopologyMove,
@@ -470,5 +473,70 @@ describe('createSandboxPlanner', () => {
         ctx: { sandboxClient: client },
       }),
     ).rejects.toThrow(PlannerError)
+  })
+})
+
+describe('runLoop dynamic driver — trace emission for topology viewers', () => {
+  it('emits loop.plan with move kind + rationale, and iteration tokenUsage', async () => {
+    const goal = 'trace'
+    const moves: TopologyMove<Task>[] = [
+      { kind: 'refine', task: { goal, strategy: 'parallel-x' }, rationale: 'first pass, refine' },
+      { kind: 'stop', rationale: 'valid result exists' },
+    ]
+    let round = 0
+    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+
+    const client = {
+      async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
+        const name =
+          (opts?.backend?.profile && typeof opts.backend.profile === 'object'
+            ? opts.backend.profile.name
+            : undefined) ?? 'w'
+        return {
+          async *streamPrompt(message: string) {
+            const task = JSON.parse(message) as Task
+            // result event carries usage → kernel sums it into iteration tokenUsage
+            yield {
+              type: 'result',
+              data: {
+                strategy: task.strategy,
+                harness: name,
+                score: scoreFor(task.strategy),
+                usage: { inputTokens: 800, outputTokens: 200 },
+              },
+            } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+
+    const all: LoopTraceEvent[] = []
+    const planPayloads: LoopPlanPayload[] = []
+    const traceEmitter: LoopTraceEmitter = {
+      emit(e) {
+        all.push(e)
+        if (e.kind === 'loop.plan') planPayloads.push(e.payload)
+      },
+    }
+
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRun: workerSpecs(['w'])[0],
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client, traceEmitter },
+    })
+
+    expect(result.decision).toBe('done')
+    expect(planPayloads.map((p) => p.moveKind)).toEqual(['refine', 'stop'])
+    expect(planPayloads[0]?.rationale).toBe('first pass, refine')
+    expect(planPayloads[1]?.rationale).toBe('valid result exists')
+
+    const ended = all.find((e) => e.kind === 'loop.iteration.ended')
+    expect(ended?.kind).toBe('loop.iteration.ended')
+    if (ended?.kind === 'loop.iteration.ended') {
+      expect(ended.payload.tokenUsage).toEqual({ input: 800, output: 200 })
+    }
   })
 })

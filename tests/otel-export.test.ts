@@ -1,10 +1,206 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildLoopOtelSpans,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,
   loopEventToOtelSpan,
+  type OtelSpan,
 } from '../src/otel-export'
+
+function attrMap(span: OtelSpan): Record<string, string | number | boolean | undefined> {
+  const out: Record<string, string | number | boolean | undefined> = {}
+  for (const a of span.attributes ?? []) {
+    const v = a.value
+    out[a.key] =
+      v.stringValue ??
+      (v.intValue !== undefined ? Number(v.intValue) : undefined) ??
+      v.doubleValue ??
+      v.boolValue
+  }
+  return out
+}
+
+describe('buildLoopOtelSpans — nested GenAI topology tree', () => {
+  // One dynamic-loop run: round 0 fans out 2 branches (with rationale), then stops.
+  const events = [
+    {
+      kind: 'loop.started',
+      runId: 'run-1',
+      timestamp: 1000,
+      payload: {
+        driver: 'dynamic',
+        agentRunNames: ['claude', 'codex'],
+        maxIterations: 8,
+        maxConcurrency: 4,
+      },
+    },
+    {
+      kind: 'loop.plan',
+      runId: 'run-1',
+      timestamp: 1010,
+      payload: {
+        roundIndex: 0,
+        plannedCount: 2,
+        moveKind: 'fanout',
+        rationale: 'attempts disagree; fan to 2 harnesses',
+      },
+    },
+    {
+      kind: 'loop.iteration.started',
+      runId: 'run-1',
+      timestamp: 1020,
+      payload: { iterationIndex: 0, agentRunName: 'claude', taskHash: 'h0' },
+    },
+    {
+      kind: 'loop.iteration.dispatch',
+      runId: 'run-1',
+      timestamp: 1021,
+      payload: {
+        iterationIndex: 0,
+        agentRunName: 'claude',
+        placement: 'fleet',
+        sandboxId: 'sb0',
+        fleetId: 'flt',
+        machineId: 'm1',
+      },
+    },
+    {
+      kind: 'loop.iteration.started',
+      runId: 'run-1',
+      timestamp: 1022,
+      payload: { iterationIndex: 1, agentRunName: 'codex', taskHash: 'h1' },
+    },
+    {
+      kind: 'loop.iteration.ended',
+      runId: 'run-1',
+      timestamp: 1500,
+      payload: {
+        iterationIndex: 0,
+        agentRunName: 'claude',
+        costUsd: 0.02,
+        durationMs: 480,
+        verdict: { valid: true, score: 0.9 },
+        tokenUsage: { input: 1200, output: 300 },
+      },
+    },
+    {
+      kind: 'loop.iteration.ended',
+      runId: 'run-1',
+      timestamp: 1600,
+      payload: {
+        iterationIndex: 1,
+        agentRunName: 'codex',
+        costUsd: 0.03,
+        durationMs: 578,
+        verdict: { valid: false, score: 0.4 },
+        tokenUsage: { input: 1100, output: 250 },
+      },
+    },
+    {
+      kind: 'loop.decision',
+      runId: 'run-1',
+      timestamp: 1610,
+      payload: { decision: 'continue', historyLength: 2 },
+    },
+    {
+      kind: 'loop.plan',
+      runId: 'run-1',
+      timestamp: 1620,
+      payload: {
+        roundIndex: 1,
+        plannedCount: 0,
+        moveKind: 'stop',
+        rationale: 'valid winner exists',
+      },
+    },
+    {
+      kind: 'loop.decision',
+      runId: 'run-1',
+      timestamp: 1625,
+      payload: { decision: 'done', historyLength: 2 },
+    },
+    {
+      kind: 'loop.ended',
+      runId: 'run-1',
+      timestamp: 1700,
+      payload: { winnerIterationIndex: 0, totalCostUsd: 0.05, durationMs: 700, iterations: 2 },
+    },
+  ]
+
+  it('builds a real-duration root → round → branch tree with a single trace id', () => {
+    const spans = buildLoopOtelSpans(events, 'trace-abc')
+    const byName = (n: string) => spans.filter((s) => s.name === n)
+
+    const root = byName('loop')
+    expect(root).toHaveLength(1)
+    expect(spans.every((s) => s.traceId === root[0]!.traceId)).toBe(true)
+    // real durations, not zero-width point spans
+    expect(BigInt(root[0]!.endTimeUnixNano) - BigInt(root[0]!.startTimeUnixNano)).toBe(
+      700n * 1_000_000n,
+    )
+
+    const rounds = byName('loop.round')
+    expect(rounds).toHaveLength(2)
+    expect(rounds.every((r) => r.parentSpanId === root[0]!.spanId)).toBe(true)
+
+    const iters = byName('loop.iteration')
+    expect(iters).toHaveLength(2)
+    // iterations nest under round 0 (the fanout), not the root
+    const round0 = rounds[0]!
+    expect(iters.every((i) => i.parentSpanId === round0.spanId)).toBe(true)
+    // branch span duration reflects started→ended (480ms for iter 0)
+    const iter0 = iters.find((i) => attrMap(i)['tangle.loop.iteration.index'] === 0)!
+    expect(BigInt(iter0.endTimeUnixNano) - BigInt(iter0.startTimeUnixNano)).toBe(480n * 1_000_000n)
+  })
+
+  it('emits current (non-deprecated) gen_ai.* + tangle.* attributes', () => {
+    const spans = buildLoopOtelSpans(events, 'trace-abc')
+    const root = attrMap(spans.find((s) => s.name === 'loop')!)
+    expect(root['gen_ai.operation.name']).toBe('invoke_workflow')
+    expect(root['gen_ai.conversation.id']).toBe('run-1')
+    expect(root['tangle.loop.driver']).toBe('dynamic')
+    expect(root['tangle.loop.winner.iteration_index']).toBe(0)
+    expect(root['tangle.cost.usd']).toBeCloseTo(0.05, 6)
+
+    const round0 = attrMap(spans.filter((s) => s.name === 'loop.round')[0]!)
+    expect(round0['tangle.loop.move.kind']).toBe('fanout')
+    expect(round0['tangle.loop.move.width']).toBe(2)
+    expect(round0['tangle.loop.move.rationale']).toBe('attempts disagree; fan to 2 harnesses')
+    expect(round0['tangle.loop.decision']).toBe('continue')
+
+    const iter0 = attrMap(
+      spans
+        .filter((s) => s.name === 'loop.iteration')
+        .find((s) => attrMap(s)['tangle.loop.iteration.index'] === 0)!,
+    )
+    expect(iter0['gen_ai.operation.name']).toBe('invoke_agent')
+    expect(iter0['gen_ai.agent.name']).toBe('claude')
+    expect(iter0['gen_ai.usage.input_tokens']).toBe(1200)
+    expect(iter0['gen_ai.usage.output_tokens']).toBe(300)
+    expect(iter0['tangle.loop.verdict.valid']).toBe(true)
+    expect(iter0['tangle.loop.verdict.score']).toBeCloseTo(0.9, 6)
+    expect(iter0['tangle.loop.placement.kind']).toBe('fleet')
+    expect(iter0['tangle.machine.id']).toBe('m1')
+
+    // NO deprecated keys anywhere
+    const allKeys = spans.flatMap((s) => (s.attributes ?? []).map((a) => a.key))
+    expect(allKeys).not.toContain('gen_ai.system')
+    expect(allKeys).not.toContain('gen_ai.usage.prompt_tokens')
+    expect(allKeys).not.toContain('gen_ai.usage.completion_tokens')
+  })
+
+  it('parents the loop-root under an inherited span when provided', () => {
+    const spans = buildLoopOtelSpans(events, 'trace-abc', 'parent-span-id')
+    const root = spans.find((s) => s.name === 'loop')!
+    expect(root.parentSpanId).toBeDefined()
+    expect(root.parentSpanId).toHaveLength(16)
+  })
+
+  it('returns [] for an empty event stream', () => {
+    expect(buildLoopOtelSpans([], 'trace-abc')).toEqual([])
+  })
+})
 
 describe('otel-export', () => {
   afterEach(() => {

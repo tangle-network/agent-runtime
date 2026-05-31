@@ -59,7 +59,21 @@ interface OtlpExport {
   resourceSpans: OtlpResourceSpans[]
 }
 
-const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.23.0' }
+const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.33.0' }
+
+/**
+ * Current (non-deprecated) OpenTelemetry GenAI semantic-convention keys.
+ * Registry: https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/
+ * NB: `gen_ai.system` / `gen_ai.usage.prompt_tokens` / `completion_tokens` are
+ * DEPRECATED — do not emit them. We use `provider.name` + `input/output_tokens`.
+ */
+const GEN_AI = {
+  operation: 'gen_ai.operation.name',
+  agentName: 'gen_ai.agent.name',
+  conversationId: 'gen_ai.conversation.id',
+  inputTokens: 'gen_ai.usage.input_tokens',
+  outputTokens: 'gen_ai.usage.output_tokens',
+} as const
 
 /**
  * Create an OTEL exporter. Returns undefined when no endpoint is configured.
@@ -177,6 +191,189 @@ export function loopEventToOtelSpan(
     attributes: toAttributes(attrs),
     status: { code: 1 },
   }
+}
+
+/**
+ * Build a nested, real-duration OTLP span tree for ONE loop run from its full
+ * ordered `LoopTraceEvent` stream. Unlike `loopEventToOtelSpan` (one flat,
+ * zero-duration span per event), this reconstructs the topology hierarchy a
+ * GenAI trace viewer renders natively:
+ *
+ *   loop (invoke_workflow)
+ *     └─ loop.round[k] (invoke_workflow)   ← tangle.loop.move.{kind,width,rationale}
+ *          ├─ loop.iteration[i] (invoke_agent)  ← gen_ai.agent.name + usage + verdict + placement
+ *          └─ …
+ *
+ * Attributes follow the current GenAI semconv (`gen_ai.*`) where they apply and
+ * a namespaced `tangle.loop.*` / `tangle.cost.usd` extension for topology /
+ * verdict / placement / cost (not yet standardized). Pure: feed it a buffered
+ * per-runId event array (e.g. flushed on `loop.ended`) and export the result.
+ */
+export function buildLoopOtelSpans(
+  events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
+  traceId: string,
+  rootParentSpanId?: string,
+): OtelSpan[] {
+  if (events.length === 0) return []
+  const tid = padTraceId(traceId)
+  const out: OtelSpan[] = []
+  const num = (v: unknown): number | undefined =>
+    typeof v === 'number' && Number.isFinite(v) ? v : undefined
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.length > 0 ? v : undefined
+  const rec = (v: unknown): Record<string, unknown> =>
+    v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+
+  const started = events.find((e) => e.kind === 'loop.started')
+  const ended = events.find((e) => e.kind === 'loop.ended')
+  const runId = events[0]?.runId ?? ''
+  const rootStart = started?.timestamp ?? events[0]!.timestamp
+  const rootEnd = ended?.timestamp ?? events[events.length - 1]!.timestamp
+  const rootId = generateSpanId()
+
+  const make = (
+    spanId: string,
+    parentSpanId: string | undefined,
+    name: string,
+    startMs: number,
+    endMs: number,
+    attrs: Record<string, string | number | boolean>,
+    statusCode = 1,
+  ): OtelSpan => ({
+    traceId: tid,
+    spanId,
+    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    name,
+    kind: 1,
+    startTimeUnixNano: msToNs(startMs),
+    endTimeUnixNano: msToNs(endMs),
+    attributes: toAttributes(attrs),
+    status: { code: statusCode },
+  })
+
+  // root
+  const sp = rec(started?.payload)
+  const rootAttrs: Record<string, string | number | boolean> = {
+    [GEN_AI.operation]: 'invoke_workflow',
+    [GEN_AI.conversationId]: runId,
+    'tangle.loop.driver': str(sp.driver) ?? 'driver',
+  }
+  if (Array.isArray(sp.agentRunNames) && sp.agentRunNames.length > 0) {
+    rootAttrs['tangle.loop.agents'] = sp.agentRunNames.map(String).join(',')
+  }
+  if (ended) {
+    const ep = rec(ended.payload)
+    const win = num(ep.winnerIterationIndex)
+    if (win !== undefined) rootAttrs['tangle.loop.winner.iteration_index'] = win
+    const cost = num(ep.totalCostUsd)
+    if (cost !== undefined) rootAttrs['tangle.cost.usd'] = cost
+    const iters = num(ep.iterations)
+    if (iters !== undefined) rootAttrs['tangle.loop.iterations'] = iters
+  }
+  out.push(make(rootId, rootParentSpanId, 'loop', rootStart, rootEnd, rootAttrs))
+
+  // rounds + iterations
+  const iterStartTs = new Map<number, number>()
+  const placementByIdx = new Map<number, Record<string, string>>()
+  let currentRoundId: string | undefined
+  let pendingRound:
+    | { id: string; start: number; attrs: Record<string, string | number | boolean> }
+    | undefined
+  const flushRound = (endMs: number) => {
+    if (!pendingRound) return
+    out.push(
+      make(pendingRound.id, rootId, 'loop.round', pendingRound.start, endMs, pendingRound.attrs),
+    )
+    pendingRound = undefined
+  }
+
+  for (const e of events) {
+    const p = rec(e.payload)
+    switch (e.kind) {
+      case 'loop.plan': {
+        flushRound(e.timestamp)
+        const id = generateSpanId()
+        const attrs: Record<string, string | number | boolean> = {
+          [GEN_AI.operation]: 'invoke_workflow',
+          'tangle.loop.round.index': num(p.roundIndex) ?? 0,
+          'tangle.loop.move.kind': str(p.moveKind) ?? 'unknown',
+          'tangle.loop.move.width': num(p.plannedCount) ?? 0,
+        }
+        const r = str(p.rationale)
+        if (r) attrs['tangle.loop.move.rationale'] = r
+        pendingRound = { id, start: e.timestamp, attrs }
+        currentRoundId = id
+        break
+      }
+      case 'loop.iteration.started': {
+        const idx = num(p.iterationIndex)
+        if (idx !== undefined) iterStartTs.set(idx, e.timestamp)
+        break
+      }
+      case 'loop.iteration.dispatch': {
+        const idx = num(p.iterationIndex)
+        if (idx === undefined) break
+        const place: Record<string, string> = {}
+        const kind = str(p.placement)
+        if (kind) place['tangle.loop.placement.kind'] = kind
+        const sid = str(p.sandboxId)
+        if (sid) place['tangle.sandbox.id'] = sid
+        const fid = str(p.fleetId)
+        if (fid) place['tangle.fleet.id'] = fid
+        const mid = str(p.machineId)
+        if (mid) place['tangle.machine.id'] = mid
+        placementByIdx.set(idx, place)
+        break
+      }
+      case 'loop.iteration.ended': {
+        const idx = num(p.iterationIndex) ?? 0
+        const start = iterStartTs.get(idx) ?? e.timestamp
+        const err = str(p.error)
+        const attrs: Record<string, string | number | boolean> = {
+          [GEN_AI.operation]: 'invoke_agent',
+          'tangle.loop.iteration.index': idx,
+        }
+        const agent = str(p.agentRunName)
+        if (agent) attrs[GEN_AI.agentName] = agent
+        const tu = rec(p.tokenUsage)
+        const inTok = num(tu.input)
+        if (inTok !== undefined) attrs[GEN_AI.inputTokens] = inTok
+        const outTok = num(tu.output)
+        if (outTok !== undefined) attrs[GEN_AI.outputTokens] = outTok
+        const cost = num(p.costUsd)
+        if (cost !== undefined) attrs['tangle.cost.usd'] = cost
+        const verdict = rec(p.verdict)
+        if (typeof verdict.valid === 'boolean') attrs['tangle.loop.verdict.valid'] = verdict.valid
+        const score = num(verdict.score)
+        if (score !== undefined) attrs['tangle.loop.verdict.score'] = score
+        if (err) attrs['tangle.loop.error'] = err
+        Object.assign(attrs, placementByIdx.get(idx) ?? {})
+        out.push(
+          make(
+            generateSpanId(),
+            currentRoundId ?? rootId,
+            'loop.iteration',
+            start,
+            e.timestamp,
+            attrs,
+            err ? 2 : 1,
+          ),
+        )
+        break
+      }
+      case 'loop.decision': {
+        if (pendingRound) {
+          const dec = str(p.decision)
+          if (dec) pendingRound.attrs['tangle.loop.decision'] = dec
+          flushRound(e.timestamp)
+        }
+        currentRoundId = undefined
+        break
+      }
+    }
+  }
+  flushRound(rootEnd)
+  return out
 }
 
 function parseHeadersFromEnv(): Record<string, string> {

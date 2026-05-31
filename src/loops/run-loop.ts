@@ -109,6 +109,7 @@ export async function runLoop<Task, Output, Decision>(
   const loopStart = now()
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
+  let round = 0
 
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.started',
@@ -133,6 +134,21 @@ export async function runLoop<Task, Output, Decision>(
     while (iterations.length < maxIterations) {
       if (controller.signal.aborted) throwAbort()
       const planned = await options.driver.plan(options.task, iterations)
+      const planDesc = options.driver.describePlan?.()
+      await emitTrace(options.ctx.traceEmitter, {
+        kind: 'loop.plan',
+        runId,
+        timestamp: now(),
+        payload: {
+          roundIndex: round,
+          plannedCount: planned.length,
+          moveKind:
+            planDesc?.kind ??
+            (planned.length === 0 ? 'stop' : planned.length === 1 ? 'refine' : 'fanout'),
+          rationale: planDesc?.rationale,
+        },
+      })
+      round += 1
       if (planned.length === 0) break
 
       const remaining = maxIterations - iterations.length
@@ -319,6 +335,8 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         error: slot.error?.message,
         costUsd: slot.costUsd,
         durationMs: slot.endedAt - slot.startedAt,
+        tokenUsage:
+          slot.tokenUsage.input || slot.tokenUsage.output ? { ...slot.tokenUsage } : undefined,
       },
     })
   }

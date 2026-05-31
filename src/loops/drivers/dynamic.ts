@@ -134,6 +134,15 @@ export function createDynamicDriver<Task, Output>(
       // plan() — and thus the planner — runs again next round.
       return pending?.kind === 'stop' ? 'done' : 'continue'
     },
+    describePlan() {
+      // Surface the move the planner just chose (kind + rationale) so the
+      // kernel's loop.plan trace event carries the agent's intent, not just the
+      // inferred fan-width. `pending` is the move set by the preceding plan().
+      if (!pending) return undefined
+      return pending.rationale !== undefined
+        ? { kind: pending.kind, rationale: pending.rationale }
+        : { kind: pending.kind }
+    },
   }
 }
 
