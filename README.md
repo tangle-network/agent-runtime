@@ -86,7 +86,7 @@ sandbox        ────  AgentProfile (substrate type), Sandbox.create, expo
                      (provides the harness execution surface)
 ```
 
-Self-improving products consume all four. See [`agent-stack-adoption` skill](https://github.com/drewstone/dotfiles/blob/main/claude/skills/agent-stack-adoption/SKILL.md) for the end-to-end 10-phase adoption runbook.
+Self-improving products consume all four. This package ships a self-contained adoption skill at [`skills/agent-runtime-adoption/SKILL.md`](./skills/agent-runtime-adoption/SKILL.md) — driven loops, topology drivers (refine / fanout-vote / dynamic), the `loopDispatch` campaign bridge, MCP delegation, and identity-gated `optimizePrompt`; it needs only this package + `@tangle-network/agent-eval`. For the end-to-end self-improving pipeline (trace sink → analyst loop → scorecard → production loop → CI), see the broader `agent-eval-adoption` / `agent-stack-adoption` skills.
 
 ## Examples
 
