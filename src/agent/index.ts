@@ -39,5 +39,7 @@ export type {
 export { createSurfaceKnowledgeAdapter } from './knowledge-adapter'
 export type { OutcomeMeasurement, OutcomeMeasurementOpts } from './outcome'
 export { measureOutcome } from './outcome'
+export type { CreateSandboxActOptions } from './sandbox-act'
+export { createSandboxAct } from './sandbox-act'
 export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
 export { renderSurfaceIssues, resolveSubjectPath, validateSurfaces } from './surfaces'
