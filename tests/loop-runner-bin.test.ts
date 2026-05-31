@@ -1,6 +1,25 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DelegatedLoopRegistry } from '../src/loop-runner'
 import { parseLoopRunnerArgv, runLoopRunnerCli } from '../src/loop-runner-bin'
+
+describe('loop-runner-bin module-load safety', () => {
+  it('does not throw at import when process.argv is undefined (Cloudflare Workers runtime)', async () => {
+    // Regression: the bin's run-as-main guard read `process.argv[1]` directly.
+    // When agent-runtime is bundled into a Worker (process is a shim without
+    // `argv`), that threw `Cannot read properties of undefined (reading '1')`
+    // at module load, crashing the Worker on startup (CF validation error
+    // 10021) and breaking every consumer that imports the testable core.
+    const savedArgv = process.argv
+    try {
+      ;(process as unknown as { argv?: string[] }).argv = undefined
+      vi.resetModules()
+      await expect(import('../src/loop-runner-bin')).resolves.toBeDefined()
+    } finally {
+      process.argv = savedArgv
+      vi.resetModules()
+    }
+  })
+})
 
 describe('parseLoopRunnerArgv', () => {
   it('parses --mode/--config in both space and = forms', () => {
