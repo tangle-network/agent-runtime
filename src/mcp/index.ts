@@ -26,6 +26,15 @@ export type {
 } from './delegates'
 export { createDefaultCoderDelegate } from './delegates'
 export type {
+  BuildDelegationMcpServerOptions,
+  ComposeProductionAgentProfileOptions,
+} from './delegation-profile'
+export {
+  buildDelegationMcpServer,
+  composeProductionAgentProfile,
+  DELEGATION_MCP_SERVER_KEY,
+} from './delegation-profile'
+export type {
   DelegationExecutor,
   FleetHandle,
   FleetWorkspaceExecutorOptions,

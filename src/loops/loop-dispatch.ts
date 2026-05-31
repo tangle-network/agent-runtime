@@ -47,7 +47,13 @@ export type LoopOptionsForDispatch<Task, Output, Decision> = Omit<
   'ctx'
 >
 
-export interface LoopDispatchOptions<Task, Output, Decision, TScenario extends Scenario, TArtifact> {
+export interface LoopDispatchOptions<
+  Task,
+  Output,
+  Decision,
+  TScenario extends Scenario,
+  TArtifact,
+> {
   /** Sandbox client used for every cell's `runLoop`. Supplied once. */
   sandboxClient: LoopSandboxClient
   /** Build the per-cell runLoop options from the scenario (+ profile, when
@@ -92,8 +98,7 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
     ctx: {
       sandboxClient: opts.sandboxClient,
       signal: ctx.signal,
-      traceEmitter:
-        opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
+      traceEmitter: opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
     },
   })
   reportLoopUsage(ctx.cost, result, opts.costSource ?? 'loop')

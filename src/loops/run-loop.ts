@@ -30,7 +30,7 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
-import type { RuntimeStreamEvent } from '../types'
+import { extractLlmCallEvent } from './sandbox-events'
 import type {
   AgentRunSpec,
   Driver,
@@ -431,7 +431,13 @@ function readSandboxId(box: SandboxInstance): string | undefined {
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
 }
 
-async function createSandboxForSpec<Task>(
+/**
+ * Instantiate a sandbox for an `AgentRunSpec`: sets `backend.profile` to the
+ * spec's profile (inferring the backend type when the spec doesn't override
+ * it) and merges `sandboxOverrides`. Shared by the loop kernel and the
+ * `AgentRuntime.act` sandbox bridge so both boot the sandbox identically.
+ */
+export async function createSandboxForSpec<Task>(
   client: LoopSandboxClient,
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
@@ -580,73 +586,6 @@ function throwAbort(): never {
   const err = new Error('aborted')
   err.name = 'AbortError'
   throw err
-}
-
-/**
- * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
- * the event carries usage/cost data. Returns `undefined` for non-cost events
- * so the kernel can iterate the full stream without branching.
- *
- * Sandbox SDK emits a polymorphic `SandboxEvent = { type, data, id? }`. The
- * canonical cost-carrying types observed in the wild:
- *   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
- *   - `message.completed` / `result` — `data: { usage: { inputTokens,
- *      outputTokens, totalCostUsd? } }`
- *   - `cost.usage` — same shape under a dedicated type
- *
- * Numeric coercion is strict: `Number.isFinite` gates every accumulator
- * write so a sentinel `NaN` from a misbehaving backend cannot poison the
- * ledger.
- */
-function extractLlmCallEvent(
-  event: SandboxEvent,
-  agentRunName: string,
-): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
-  if (!event || typeof event !== 'object') return undefined
-  const type = String(event.type ?? '')
-  const data =
-    event.data && typeof event.data === 'object'
-      ? (event.data as Record<string, unknown>)
-      : ({} as Record<string, unknown>)
-
-  if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
-    return buildLlmCall(data, agentRunName)
-  }
-  if (type === 'message.completed' || type === 'result' || type === 'final') {
-    const usage = data.usage as Record<string, unknown> | undefined
-    if (!usage || typeof usage !== 'object') return undefined
-    return buildLlmCall({ ...usage, model: data.model ?? usage.model }, agentRunName)
-  }
-  return undefined
-}
-
-function buildLlmCall(
-  data: Record<string, unknown>,
-  agentRunName: string,
-): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
-  const tokensIn = pickFiniteNumber(data, ['tokensIn', 'inputTokens', 'prompt_tokens'])
-  const tokensOut = pickFiniteNumber(data, ['tokensOut', 'outputTokens', 'completion_tokens'])
-  const costUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
-  if (tokensIn === undefined && tokensOut === undefined && costUsd === undefined) {
-    return undefined
-  }
-  const model = typeof data.model === 'string' && data.model.length > 0 ? data.model : agentRunName
-  const event: RuntimeStreamEvent & { type: 'llm_call' } = {
-    type: 'llm_call',
-    model,
-  }
-  if (tokensIn !== undefined) event.tokensIn = tokensIn
-  if (tokensOut !== undefined) event.tokensOut = tokensOut
-  if (costUsd !== undefined) event.costUsd = costUsd
-  return event
-}
-
-function pickFiniteNumber(data: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = data[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return undefined
 }
 
 /**
