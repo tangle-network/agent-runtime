@@ -93,4 +93,39 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
       ),
     ).toEqual({ type: 'llm_call', model: 'agent', tokensIn: 100, tokensOut: 20 })
   })
+
+  // Regression: sandbox 0.4.0's terminal `done` event carries usage under
+  // `tokenUsage` (not `usage`) with cost top-level — without this the in-process
+  // loopDispatch ledger read {0,0} and the backend-integrity guard misreported a
+  // real sandboxed run as a stub.
+  it('extracts cost+tokens from the sandbox 0.4.0 `done` event (reasoning folds into output)', () => {
+    expect(
+      extractLlmCallEvent(
+        {
+          type: 'done',
+          data: {
+            tokenUsage: {
+              inputTokens: 17381,
+              outputTokens: 1851,
+              reasoningTokens: 2119,
+              cacheReadInputTokens: 1792,
+            },
+            totalCostUsd: 0.0042,
+            model: 'deepseek-v4-pro',
+          },
+        },
+        'agent',
+      ),
+    ).toEqual({
+      type: 'llm_call',
+      model: 'deepseek-v4-pro',
+      tokensIn: 17381,
+      tokensOut: 1851 + 2119,
+      costUsd: 0.0042,
+    })
+  })
+
+  it('returns undefined for a `done` event with no tokenUsage (no phantom cost)', () => {
+    expect(extractLlmCallEvent({ type: 'done', data: { requestId: 'x' } }, 'agent')).toBeUndefined()
+  })
 })
