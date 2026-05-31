@@ -45,9 +45,9 @@ export {
   loopDispatch,
 } from './loop-dispatch'
 export { reportLoopUsage, type UsageSink } from './report-usage'
-export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, runLoop } from './run-loop'
+export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
 export type {
   AgentRunSpec,
   DefaultVerdict,

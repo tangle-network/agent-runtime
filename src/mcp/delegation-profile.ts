@@ -66,7 +66,10 @@ export function buildDelegationMcpServer(
   const sandboxApiKey = options.sandboxApiKey ?? env.TANGLE_API_KEY
   if (!sandboxApiKey) return undefined
   const baseUrl =
-    options.sandboxBaseUrl ?? env.SANDBOX_BASE_URL ?? env.SANDBOX_API_URL ?? DEFAULT_SANDBOX_BASE_URL
+    options.sandboxBaseUrl ??
+    env.SANDBOX_BASE_URL ??
+    env.SANDBOX_API_URL ??
+    DEFAULT_SANDBOX_BASE_URL
 
   const otelEnv: Record<string, string> = {}
   for (const key of OTEL_FORWARD_KEYS) {

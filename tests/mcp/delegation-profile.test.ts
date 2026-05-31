@@ -128,7 +128,10 @@ describe('composeProductionAgentProfile — base + delegation merge', () => {
   })
 
   it('concatenates extraFiles after the base files', () => {
-    const extra = { path: '/skills/b.md', resource: { kind: 'inline' as const, name: 'b', content: 'y' } }
+    const extra = {
+      path: '/skills/b.md',
+      resource: { kind: 'inline' as const, name: 'b', content: 'y' },
+    }
     const profile = composeProductionAgentProfile(BASE, { extraFiles: [extra], env: {} })
     expect(profile.resources?.files).toEqual([...(BASE.resources?.files ?? []), extra])
   })

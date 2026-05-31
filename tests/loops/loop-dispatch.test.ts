@@ -1,10 +1,10 @@
+import type { DispatchContext } from '@tangle-network/agent-eval/campaign'
 import type {
-  AgentProfile as SandboxAgentProfile,
   CreateSandboxOptions,
+  AgentProfile as SandboxAgentProfile,
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
-import type { DispatchContext } from '@tangle-network/agent-eval/campaign'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
@@ -44,7 +44,9 @@ const passAlways: Validator<Output> = {
   },
 }
 
-function stubClient(events: SandboxEvent[]): { create(opts?: CreateSandboxOptions): Promise<SandboxInstance> } {
+function stubClient(events: SandboxEvent[]): {
+  create(opts?: CreateSandboxOptions): Promise<SandboxInstance>
+} {
   return {
     async create() {
       return {

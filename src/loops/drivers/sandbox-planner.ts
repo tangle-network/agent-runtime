@@ -24,11 +24,7 @@
  * loop never silently runs a topology the agent did not choose.
  */
 
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-} from '@tangle-network/sandbox'
+import type { AgentProfile, CreateSandboxOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { PlannerError, ValidationError } from '../../errors'
 import type { AgentRunSpec, LoopSandboxClient } from '../types'
 import type { PlannerContext, TopologyMove, TopologyPlanner } from './dynamic'
@@ -113,7 +109,9 @@ function envelopeToMove<Task, Output>(
     const tasks = resolveFanoutTasks(envelope, ctx, decodeTask)
     return { kind: 'fanout', tasks, rationale }
   }
-  throw new PlannerError(`sandbox planner emitted unknown move kind: ${JSON.stringify(envelope.kind)}`)
+  throw new PlannerError(
+    `sandbox planner emitted unknown move kind: ${JSON.stringify(envelope.kind)}`,
+  )
 }
 
 function resolveFanoutTasks<Task, Output>(
