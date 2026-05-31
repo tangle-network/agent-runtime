@@ -200,6 +200,124 @@ describe('buildLoopOtelSpans — nested GenAI topology tree', () => {
   it('returns [] for an empty event stream', () => {
     expect(buildLoopOtelSpans([], 'trace-abc')).toEqual([])
   })
+
+  it('emits edge lineage (move child_indices/parent_index + iteration group_id/parent_index/output_preview)', () => {
+    // fanout(0,1) at round 0 → refine(2) at round 1 branching off iteration 0.
+    const lineageEvents = [
+      {
+        kind: 'loop.started',
+        runId: 'r2',
+        timestamp: 0,
+        payload: { driver: 'dynamic', agentRunNames: ['a'] },
+      },
+      {
+        kind: 'loop.plan',
+        runId: 'r2',
+        timestamp: 1,
+        payload: { roundIndex: 0, plannedCount: 2, moveKind: 'fanout', childIndices: [0, 1] },
+      },
+      {
+        kind: 'loop.iteration.started',
+        runId: 'r2',
+        timestamp: 2,
+        payload: { iterationIndex: 0, agentRunName: 'a', groupId: 0 },
+      },
+      {
+        kind: 'loop.iteration.started',
+        runId: 'r2',
+        timestamp: 2,
+        payload: { iterationIndex: 1, agentRunName: 'a', groupId: 0 },
+      },
+      {
+        kind: 'loop.iteration.ended',
+        runId: 'r2',
+        timestamp: 10,
+        payload: {
+          iterationIndex: 0,
+          agentRunName: 'a',
+          costUsd: 0.01,
+          durationMs: 8,
+          groupId: 0,
+          verdict: { valid: true, score: 0.8 },
+          outputPreview: '{"answer":"alpha"}',
+        },
+      },
+      {
+        kind: 'loop.iteration.ended',
+        runId: 'r2',
+        timestamp: 11,
+        payload: { iterationIndex: 1, agentRunName: 'a', costUsd: 0.01, durationMs: 9, groupId: 0 },
+      },
+      {
+        kind: 'loop.decision',
+        runId: 'r2',
+        timestamp: 12,
+        payload: { decision: 'continue', historyLength: 2 },
+      },
+      {
+        kind: 'loop.plan',
+        runId: 'r2',
+        timestamp: 13,
+        payload: {
+          roundIndex: 1,
+          plannedCount: 1,
+          moveKind: 'refine',
+          parentIndex: 0,
+          childIndices: [2],
+        },
+      },
+      {
+        kind: 'loop.iteration.started',
+        runId: 'r2',
+        timestamp: 14,
+        payload: { iterationIndex: 2, agentRunName: 'a', groupId: 1, parentIndex: 0 },
+      },
+      {
+        kind: 'loop.iteration.ended',
+        runId: 'r2',
+        timestamp: 20,
+        payload: {
+          iterationIndex: 2,
+          agentRunName: 'a',
+          costUsd: 0.01,
+          durationMs: 6,
+          groupId: 1,
+          parentIndex: 0,
+          outputPreview: '{"answer":"beta"}',
+        },
+      },
+      {
+        kind: 'loop.decision',
+        runId: 'r2',
+        timestamp: 21,
+        payload: { decision: 'done', historyLength: 3 },
+      },
+      {
+        kind: 'loop.ended',
+        runId: 'r2',
+        timestamp: 25,
+        payload: { winnerIterationIndex: 2, totalCostUsd: 0.03, durationMs: 25, iterations: 3 },
+      },
+    ]
+    const spans = buildLoopOtelSpans(lineageEvents, 'trace-xyz')
+    const moves = spans.filter((s) => s.name === 'loop.round').map(attrMap)
+    const fanout = moves.find((m) => m['tangle.loop.move.kind'] === 'fanout')!
+    expect(fanout['tangle.loop.move.child_indices']).toBe('0,1')
+    expect(fanout['tangle.loop.move.parent_index']).toBeUndefined()
+    const refine = moves.find((m) => m['tangle.loop.move.kind'] === 'refine')!
+    expect(refine['tangle.loop.move.parent_index']).toBe(0)
+    expect(refine['tangle.loop.move.child_indices']).toBe('2')
+
+    const iters = spans.filter((s) => s.name === 'loop.iteration').map(attrMap)
+    const iter2 = iters.find((i) => i['tangle.loop.iteration.index'] === 2)!
+    expect(iter2['tangle.loop.iteration.group_id']).toBe(1)
+    expect(iter2['tangle.loop.iteration.parent_index']).toBe(0)
+    expect(iter2['tangle.loop.iteration.duration_ms']).toBe(6)
+    expect(iter2['tangle.loop.iteration.output_preview']).toBe('{"answer":"beta"}')
+
+    const root = attrMap(spans.find((s) => s.name === 'loop')!)
+    expect(root['tangle.loop.duration_ms']).toBe(25)
+  })
 })
 
 describe('otel-export', () => {

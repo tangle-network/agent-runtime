@@ -532,11 +532,16 @@ describe('runLoop dynamic driver — trace emission for topology viewers', () =>
     expect(planPayloads.map((p) => p.moveKind)).toEqual(['refine', 'stop'])
     expect(planPayloads[0]?.rationale).toBe('first pass, refine')
     expect(planPayloads[1]?.rationale).toBe('valid result exists')
+    // edge lineage: round 0 dispatches iteration 0 from root (no parent)
+    expect(planPayloads[0]?.childIndices).toEqual([0])
+    expect(planPayloads[0]?.parentIndex).toBeUndefined()
 
     const ended = all.find((e) => e.kind === 'loop.iteration.ended')
     expect(ended?.kind).toBe('loop.iteration.ended')
     if (ended?.kind === 'loop.iteration.ended') {
       expect(ended.payload.tokenUsage).toEqual({ input: 800, output: 200 })
+      expect(ended.payload.groupId).toBe(0)
+      expect(typeof ended.payload.outputPreview).toBe('string')
     }
   })
 })

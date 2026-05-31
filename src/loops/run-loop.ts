@@ -135,25 +135,33 @@ export async function runLoop<Task, Output, Decision>(
       if (controller.signal.aborted) throwAbort()
       const planned = await options.driver.plan(options.task, iterations)
       const planDesc = options.driver.describePlan?.()
+      const roundIndex = round
+      const baseIndex = iterations.length
+      const remaining = maxIterations - iterations.length
+      const slice = planned.slice(0, remaining)
+      // Edge lineage: round 0 branches from root (undefined); later rounds branch
+      // from the best-valid (else latest) iteration so far — emitted, not guessed,
+      // so a viewer draws the actual topology instead of inferring it.
+      const parentIndex = roundIndex === 0 ? undefined : branchPoint(iterations)
+      const childIndices = slice.map((_, i) => baseIndex + i)
       await emitTrace(options.ctx.traceEmitter, {
         kind: 'loop.plan',
         runId,
         timestamp: now(),
         payload: {
-          roundIndex: round,
+          roundIndex,
           plannedCount: planned.length,
           moveKind:
             planDesc?.kind ??
             (planned.length === 0 ? 'stop' : planned.length === 1 ? 'refine' : 'fanout'),
           rationale: planDesc?.rationale,
+          parentIndex,
+          childIndices,
         },
       })
       round += 1
       if (planned.length === 0) break
 
-      const remaining = maxIterations - iterations.length
-      const slice = planned.slice(0, remaining)
-      const baseIndex = iterations.length
       // Reserve slots up front so concurrent workers may mutate by index.
       for (let i = 0; i < slice.length; i += 1) {
         const spec = specs[(baseIndex + i) % specs.length]!
@@ -181,6 +189,8 @@ export async function runLoop<Task, Output, Decision>(
         ctx: options.ctx,
         runId,
         now,
+        roundIndex,
+        parentIndex,
       })
 
       if (controller.signal.aborted) throwAbort()
@@ -242,6 +252,10 @@ interface RunBatchArgs<Task, Output> {
   ctx: ExecCtx
   runId: string
   now: () => number
+  /** Plan round these iterations belong to — stamped as `groupId`. */
+  roundIndex: number
+  /** Iteration this round branched from — stamped as `parentIndex`. */
+  parentIndex?: number
 }
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
@@ -279,6 +293,8 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       iterationIndex: args.item.index,
       agentRunName: slot.agentRunName,
       taskHash: hashJson(args.item.task),
+      groupId: args.roundIndex,
+      parentIndex: args.parentIndex,
     },
   })
 
@@ -296,6 +312,8 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         sandboxId: placement.sandboxId,
         fleetId: placement.fleetId,
         machineId: placement.machineId,
+        groupId: args.roundIndex,
+        parentIndex: args.parentIndex,
       },
     })
     const message = spec.taskToPrompt(args.item.task)
@@ -337,9 +355,47 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         durationMs: slot.endedAt - slot.startedAt,
         tokenUsage:
           slot.tokenUsage.input || slot.tokenUsage.output ? { ...slot.tokenUsage } : undefined,
+        groupId: args.roundIndex,
+        parentIndex: args.parentIndex,
+        outputPreview: slot.output !== undefined ? previewOutput(slot.output) : undefined,
       },
     })
   }
+}
+
+/**
+ * Branch point for a new round — the iteration a later round descends from.
+ * Highest-valid-score iteration so far; ties + no-valid fall back to the latest
+ * index. Inferred (not driver-declared), so refine renders as a chain and
+ * fanout→refine chains off the fanout winner.
+ */
+function branchPoint<Task, Output>(
+  iterations: ReadonlyArray<Iteration<Task, Output>>,
+): number | undefined {
+  if (iterations.length === 0) return undefined
+  let best = iterations.length - 1
+  let bestScore = -Infinity
+  for (const iter of iterations) {
+    if (iter.verdict?.valid !== true) continue
+    const score = iter.verdict.score ?? 0
+    if (score > bestScore) {
+      bestScore = score
+      best = iter.index
+    }
+  }
+  return best
+}
+
+/** Bounded string preview of a parsed output for a viewer's drawer — never the
+ *  full payload. JSON when serializable, else `String()`, truncated to 280. */
+function previewOutput(output: unknown): string {
+  let s: string
+  try {
+    s = typeof output === 'string' ? output : (JSON.stringify(output) ?? String(output))
+  } catch {
+    s = String(output)
+  }
+  return s.length > 280 ? `${s.slice(0, 280)}…` : s
 }
 
 function describePlacementSafe(
