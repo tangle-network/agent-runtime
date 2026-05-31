@@ -120,7 +120,12 @@ async function main(): Promise<void> {
   process.exit(cli.exitCode)
 }
 
-// Run only when executed as the bin (not when imported for the testable core).
-if (process.argv[1] && /loop-runner-bin\.(js|ts|mjs)$/.test(process.argv[1])) {
+// Run only when executed as the bin — never when imported for the testable
+// core, and never when bundled into a runtime that has no `process.argv`
+// (e.g. Cloudflare Workers, where `process` is a shim without `argv`). Reading
+// `process.argv[1]` directly would throw at module load there; `process.argv?.`
+// keeps the guard a no-op instead of crashing the Worker on startup.
+const invokedScript = typeof process !== 'undefined' ? process.argv?.[1] : undefined
+if (invokedScript && /loop-runner-bin\.(js|ts|mjs)$/.test(invokedScript)) {
   void main()
 }
