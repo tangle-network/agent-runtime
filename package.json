@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-runtime",
   "version": "0.43.0",
-  "description": "Reusable runtime lifecycle for domain-specific agents.",
+  "description": "Runs the task lifecycle for domain agents — chat turns, agent-driven loop topologies, delegated build/research/review loops, and eval-gated prompt optimization.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
     "type": "git",

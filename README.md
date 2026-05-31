@@ -1,6 +1,8 @@
 # @tangle-network/agent-runtime
 
-The task-lifecycle substrate for domain agents. It owns the **chat-turn engine**, the **driven-loop kernel** (refine / fanout-vote / agent-authored *dynamic* topologies), **delegated loops** (build-in-a-loop, valid-only research, review, audit, self-improve), **identity-gated prompt optimization**, **OpenTelemetry GenAI tracing**, knowledge readiness, sanitized telemetry, and the declarative `defineAgent` manifest — and delegates domain behavior (models, tools, KB) to adapters. Long-running execution durability lives in [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox); evals + gates in [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval).
+Runs a domain agent's task from prompt to result — and the loops that make the result better.
+
+It owns the chat turn, the loop kernel (refine, fanout-vote, and agent-authored dynamic topologies), delegated sub-agent loops (build, research, review, audit, self-improve), identity-gated prompt optimization, OpenTelemetry GenAI tracing, knowledge-readiness checks, sanitized telemetry, and the declarative `defineAgent` manifest. Domain behavior — models, tools, knowledge — lives in adapters; durable long-running execution in [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox); evals and ship-gates in [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval).
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox
