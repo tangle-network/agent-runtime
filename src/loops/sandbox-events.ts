@@ -48,6 +48,29 @@ export function extractLlmCallEvent(
     if (!usage || typeof usage !== 'object') return undefined
     return buildLlmCall({ ...usage, model: data.model ?? usage.model }, agentRunName)
   }
+  // sandbox 0.4.0 terminal event: `data = { tokenUsage: { inputTokens, outputTokens,
+  // reasoningTokens, cacheReadInputTokens }, totalCostUsd }`. Usage lives under
+  // `tokenUsage` (not `usage`) and the cost is top-level — neither matched the
+  // branches above, so an in-process loopDispatch run reported {0,0} and the
+  // backend-integrity guard misread a real run as a stub. Reasoning tokens are
+  // billed output (reasoning models), so they fold into the output count.
+  if (type === 'done') {
+    const usage = data.tokenUsage as Record<string, unknown> | undefined
+    if (!usage || typeof usage !== 'object') return undefined
+    const out = pickFiniteNumber(usage, ['outputTokens', 'completion_tokens', 'tokensOut'])
+    const reasoning = pickFiniteNumber(usage, ['reasoningTokens'])
+    const mergedOut =
+      out !== undefined || reasoning !== undefined ? (out ?? 0) + (reasoning ?? 0) : undefined
+    return buildLlmCall(
+      {
+        inputTokens: usage.inputTokens,
+        outputTokens: mergedOut,
+        totalCostUsd: data.totalCostUsd,
+        model: data.model ?? usage.model,
+      },
+      agentRunName,
+    )
+  }
   return undefined
 }
 
