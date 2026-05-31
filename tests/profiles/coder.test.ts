@@ -184,3 +184,51 @@ describe('multiHarnessCoderFanout — heterogeneous fanout bundle', () => {
     expect(bundle.agentRuns.every((s) => s.profile.tools?.git === true)).toBe(true)
   })
 })
+
+describe('createCoderValidator — default-on safety floor (no-op + secrets)', () => {
+  it('rejects an empty patch (no-op) even when tests + typecheck pass', async () => {
+    const validator = createCoderValidator(baseTask)
+    const output: CoderOutput = {
+      branch: 'feat/x',
+      patch: '',
+      testResult: { passed: true, output: 'ok' },
+      typecheckResult: { passed: true, output: 'ok' },
+      diffStats: { filesChanged: 0, insertions: 0, deletions: 0 },
+    }
+    const verdict = await validator.validate(output, ctx)
+    expect(verdict.valid).toBe(false)
+    expect(verdict.scores?.nonEmpty).toBe(0)
+    expect(verdict.notes).toMatch(/empty patch/i)
+  })
+
+  it('rejects a patch touching a secret-shaped path regardless of forbiddenPaths', async () => {
+    // `.env` is NOT in baseTask.forbiddenPaths — the secret floor is always-on.
+    const validator = createCoderValidator(baseTask)
+    const output: CoderOutput = {
+      branch: 'feat/x',
+      patch: diff(['config/.env', 'src/ok.ts'], 2, 0),
+      testResult: { passed: true, output: 'ok' },
+      typecheckResult: { passed: true, output: 'ok' },
+      diffStats: { filesChanged: 2, insertions: 2, deletions: 0 },
+    }
+    const verdict = await validator.validate(output, ctx)
+    expect(verdict.valid).toBe(false)
+    expect(verdict.scores?.noSecrets).toBe(0)
+    expect(verdict.notes).toMatch(/secret-shaped/i)
+  })
+
+  it('passes a normal non-empty, non-secret patch (floor does not regress clean work)', async () => {
+    const validator = createCoderValidator(baseTask)
+    const output: CoderOutput = {
+      branch: 'feat/x',
+      patch: diff(['src/foo.ts'], 3, 1),
+      testResult: { passed: true, output: 'ok' },
+      typecheckResult: { passed: true, output: 'ok' },
+      diffStats: { filesChanged: 1, insertions: 3, deletions: 1 },
+    }
+    const verdict = await validator.validate(output, ctx)
+    expect(verdict.valid).toBe(true)
+    expect(verdict.scores?.nonEmpty).toBe(1)
+    expect(verdict.scores?.noSecrets).toBe(1)
+  })
+})

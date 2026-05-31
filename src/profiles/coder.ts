@@ -250,6 +250,15 @@ function parseCoderEvents(events: SandboxEvent[]): CoderOutput {
  *
  * @experimental
  */
+/**
+ * Default-on safety floor (folded from the ai-trading-blueprint delegation
+ * MCP): a coder patch that touches a credential-shaped path is rejected
+ * regardless of `forbiddenPaths` config. Catches `.env`, private keys,
+ * keystores, wallets, and the common secret/credential JSON files.
+ */
+const SECRET_PATH_RE =
+  /(^|\/)(\.env(\.|$)|.*\.(pem|key|p12|pfx|keystore|wallet)|id_rsa|id_ed25519|secrets?\.json|credentials?\.json)$/i
+
 export function createCoderValidator(task: CoderTask): Validator<CoderOutput> {
   const maxDiff = task.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES
   const forbidden = task.forbiddenPaths ?? []
@@ -260,6 +269,27 @@ export function createCoderValidator(task: CoderTask): Validator<CoderOutput> {
       let pass = true
 
       const touched = touchedPathsFromPatch(output.patch)
+
+      // No-op rejection: an empty patch can trivially "pass" tests/typecheck
+      // (nothing changed) yet does no work — never a valid coder result.
+      if (touched.length === 0 || output.patch.trim().length === 0) {
+        pass = false
+        scores.nonEmpty = 0
+        notes.push('empty patch — no files changed')
+      } else {
+        scores.nonEmpty = 1
+      }
+
+      // Secret-path floor: always-on, independent of `forbiddenPaths`.
+      const touchedSecrets = touched.filter((p) => SECRET_PATH_RE.test(p))
+      if (touchedSecrets.length > 0) {
+        pass = false
+        scores.noSecrets = 0
+        notes.push(`touched secret-shaped paths: ${touchedSecrets.join(', ')}`)
+      } else {
+        scores.noSecrets = 1
+      }
+
       const touchedForbidden = forbidden.filter((path) => {
         const prefix = path.endsWith('/') ? path : `${path}/`
         const exact = prefix.slice(0, -1)
