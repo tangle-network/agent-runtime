@@ -16,9 +16,9 @@
  * pass `researcherDelegate` explicitly when constructing the server.
  */
 
-import type { LoopSandboxClient } from '../loops'
+import type { Iteration, LoopSandboxClient } from '../loops'
 import { runLoop } from '../loops'
-import { coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
+import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
   CoderTask,
@@ -46,6 +46,43 @@ export type ResearcherDelegate = (
   ctx: DelegateRunCtx,
 ) => Promise<ResearchOutputShape>
 
+/** @experimental Structured review verdict over a coder candidate. */
+export interface CoderReview {
+  /** Gate: only approved candidates are eligible to win. */
+  approved: boolean
+  /** Reviewer's recommendation — surfaced in traces. */
+  recommendation: 'ship' | 'approve-with-nits' | 'changes-requested' | 'reject'
+  /** Readiness 0..1, used by the `highest-readiness` winner-selection strategy. */
+  readiness: number
+  notes?: string
+}
+
+/**
+ * @experimental
+ *
+ * Optional adversarial reviewer over a coder candidate that already passed
+ * mechanical validation (tests/typecheck/forbidden/diff/no-op/secrets). Folded
+ * from the ai-trading-blueprint delegation MCP: a candidate is only eligible to
+ * win if the reviewer approves it. The reviewer is the consumer's seam — an LLM
+ * judge, a `pnpm review` command, anything returning a `CoderReview`.
+ */
+export type CoderReviewer = (
+  output: import('../profiles/coder').CoderOutput,
+  task: CoderTask,
+  ctx: { signal: AbortSignal },
+) => Promise<CoderReview> | CoderReview
+
+/**
+ * @experimental Winner-selection strategy among validated (+ reviewed)
+ * candidates. `highest-readiness` requires a `reviewer`. Default `highest-score`
+ * (the kernel's behavior — preserves backward compatibility).
+ */
+export type CoderWinnerSelection =
+  | 'highest-score'
+  | 'smallest-diff'
+  | 'highest-readiness'
+  | 'first-approved'
+
 /** @experimental */
 export interface CreateDefaultCoderDelegateOptions {
   /**
@@ -64,6 +101,15 @@ export interface CreateDefaultCoderDelegateOptions {
   fanoutHarnesses?: string[]
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */
   maxConcurrency?: number
+  /**
+   * Optional adversarial reviewer. When set, a candidate must pass mechanical
+   * validation AND `reviewer.approved` to be eligible to win — empty/secret/
+   * test-failing patches are already gone; this catches the "compiles + passes
+   * but wrong/unsafe" class the deterministic validator can't see.
+   */
+  reviewer?: CoderReviewer
+  /** Winner-selection strategy among eligible candidates. Default `highest-score`. */
+  winnerSelection?: CoderWinnerSelection
 }
 
 /**
@@ -103,12 +149,16 @@ export function createDefaultCoderDelegate(
         maxIterations: 1,
         maxConcurrency,
       })
-      const winner = result.winner
-      if (!winner) {
-        throw new Error('coder delegate produced no winner')
-      }
+      const chosen = await pickCoderWinner({
+        iterations: result.iterations,
+        reviewer: options.reviewer,
+        selection: options.winnerSelection ?? 'highest-score',
+        task,
+        signal: ctx.signal,
+      })
+      if (!chosen) throw new Error(noWinnerMessage(options.reviewer))
       ctx.report({ iteration: 1, phase: 'completed' })
-      return winner.output
+      return chosen
     }
     const fanout = multiHarnessCoderFanout(
       fanoutHarnesses && fanoutHarnesses.length > 0
@@ -126,13 +176,94 @@ export function createDefaultCoderDelegate(
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })
-    const winner = result.winner
-    if (!winner) {
-      throw new Error('coder delegate fanout produced no winner')
-    }
+    const chosen = await pickCoderWinner({
+      iterations: result.iterations,
+      reviewer: options.reviewer,
+      selection: options.winnerSelection ?? 'highest-score',
+      task,
+      signal: ctx.signal,
+    })
+    if (!chosen) throw new Error(noWinnerMessage(options.reviewer))
     ctx.report({ iteration: agentRuns.length, phase: 'completed' })
-    return winner.output
+    return chosen
   }
+}
+
+interface PickCoderWinnerArgs {
+  iterations: ReadonlyArray<Iteration<CoderTask, CoderOutput>>
+  reviewer: CoderReviewer | undefined
+  selection: CoderWinnerSelection
+  task: CoderTask
+  signal: AbortSignal
+}
+
+interface CoderCandidate {
+  index: number
+  output: CoderOutput
+  score: number
+  readiness: number
+}
+
+/**
+ * Pick the winning coder candidate from a finished loop's iterations:
+ *   1. keep only mechanically-VALID candidates (the validator already gated
+ *      tests/typecheck/forbidden/diff/no-op/secrets),
+ *   2. if a `reviewer` is wired, keep only those it APPROVES,
+ *   3. select among survivors by the chosen strategy.
+ * Returns `undefined` when nothing survives — the delegate fails loud.
+ */
+async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput | undefined> {
+  const valid: CoderCandidate[] = []
+  for (const iter of args.iterations) {
+    if (iter.output === undefined || iter.error || iter.verdict?.valid !== true) continue
+    valid.push({
+      index: iter.index,
+      output: iter.output,
+      score: iter.verdict.score ?? 0,
+      readiness: iter.verdict.score ?? 0,
+    })
+  }
+  if (valid.length === 0) return undefined
+
+  let eligible = valid
+  if (args.reviewer) {
+    eligible = []
+    for (const c of valid) {
+      const review = await args.reviewer(c.output, args.task, { signal: args.signal })
+      if (review.approved) eligible.push({ ...c, readiness: review.readiness })
+    }
+    if (eligible.length === 0) return undefined
+  }
+
+  return selectCoderCandidate(eligible, args.selection).output
+}
+
+/** Apply the winner-selection strategy; ties broken by earliest iteration. */
+function selectCoderCandidate(
+  candidates: CoderCandidate[],
+  selection: CoderWinnerSelection,
+): CoderCandidate {
+  const diffLines = (c: CoderCandidate) =>
+    c.output.diffStats.insertions + c.output.diffStats.deletions
+  const sorted = [...candidates].sort((a, b) => {
+    switch (selection) {
+      case 'smallest-diff':
+        return diffLines(a) - diffLines(b) || a.index - b.index
+      case 'highest-readiness':
+        return b.readiness - a.readiness || a.index - b.index
+      case 'first-approved':
+        return a.index - b.index
+      default:
+        return b.score - a.score || a.index - b.index
+    }
+  })
+  return sorted[0]!
+}
+
+function noWinnerMessage(reviewer: CoderReviewer | undefined): string {
+  return reviewer
+    ? 'coder delegate: no candidate passed validation + review'
+    : 'coder delegate: no candidate passed validation'
 }
 
 function buildCoderGoal(args: DelegateCodeArgs): string {
