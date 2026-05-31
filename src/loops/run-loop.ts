@@ -139,10 +139,12 @@ export async function runLoop<Task, Output, Decision>(
       const baseIndex = iterations.length
       const remaining = maxIterations - iterations.length
       const slice = planned.slice(0, remaining)
-      // Edge lineage: round 0 branches from root (undefined); later rounds branch
-      // from the best-valid (else latest) iteration so far — emitted, not guessed,
-      // so a viewer draws the actual topology instead of inferring it.
-      const parentIndex = roundIndex === 0 ? undefined : branchPoint(iterations)
+      // Edge lineage: a driver may DECLARE the branch source (planner-authored
+      // topology); otherwise the kernel infers it — round 0 branches from root
+      // (undefined), later rounds from the best-valid (else latest) iteration so
+      // far. Either way it's emitted, not guessed by the viewer.
+      const parentIndex =
+        planDesc?.parentIndex ?? (roundIndex === 0 ? undefined : branchPoint(iterations))
       const childIndices = slice.map((_, i) => baseIndex + i)
       await emitTrace(options.ctx.traceEmitter, {
         kind: 'loop.plan',

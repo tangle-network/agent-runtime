@@ -40,8 +40,8 @@ export type DynamicDecision = 'continue' | 'done'
  * @experimental
  */
 export type TopologyMove<Task> =
-  | { kind: 'refine'; task: Task; rationale?: string }
-  | { kind: 'fanout'; tasks: Task[]; rationale?: string }
+  | { kind: 'refine'; task: Task; rationale?: string; parentIndex?: number }
+  | { kind: 'fanout'; tasks: Task[]; rationale?: string; parentIndex?: number }
   | { kind: 'stop'; rationale?: string }
 
 /** @experimental */
@@ -135,13 +135,18 @@ export function createDynamicDriver<Task, Output>(
       return pending?.kind === 'stop' ? 'done' : 'continue'
     },
     describePlan() {
-      // Surface the move the planner just chose (kind + rationale) so the
-      // kernel's loop.plan trace event carries the agent's intent, not just the
-      // inferred fan-width. `pending` is the move set by the preceding plan().
+      // Surface the move the planner just chose (kind + rationale + an optional
+      // DECLARED branch source) so the kernel's loop.plan trace carries the
+      // agent's intent — including faithful edge lineage when the planner
+      // branched off a specific (non-winner) iteration. `pending` is the move
+      // set by the preceding plan().
       if (!pending) return undefined
-      return pending.rationale !== undefined
-        ? { kind: pending.kind, rationale: pending.rationale }
-        : { kind: pending.kind }
+      const out: { kind: string; rationale?: string; parentIndex?: number } = { kind: pending.kind }
+      if (pending.rationale !== undefined) out.rationale = pending.rationale
+      if (pending.kind !== 'stop' && pending.parentIndex !== undefined) {
+        out.parentIndex = pending.parentIndex
+      }
+      return out
     },
   }
 }

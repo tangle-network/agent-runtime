@@ -545,3 +545,47 @@ describe('runLoop dynamic driver — trace emission for topology viewers', () =>
     }
   })
 })
+
+describe('runLoop dynamic driver — planner-declared edge lineage (#82)', () => {
+  it('a declared move.parentIndex overrides the kernel-inferred branch point', async () => {
+    const goal = 'lineage'
+    // round 0: fanout → iter0 (naive=0.3 invalid) + iter1 (parallel-a=0.9 valid).
+    // round 1: refine DECLARING parentIndex 0 (branch off the WEAK iter, not the winner).
+    // Inferred branchPoint would pick the best-valid iter1; declared must win.
+    const moves: TopologyMove<Task>[] = [
+      {
+        kind: 'fanout',
+        tasks: [
+          { goal, strategy: 'naive' },
+          { goal, strategy: 'parallel-a' },
+        ],
+      },
+      { kind: 'refine', task: { goal, strategy: 'parallel-x' }, parentIndex: 0 },
+      { kind: 'stop' },
+    ]
+    let round = 0
+    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+
+    const planPayloads: LoopPlanPayload[] = []
+    const traceEmitter: LoopTraceEmitter = {
+      emit(e) {
+        if (e.kind === 'loop.plan') planPayloads.push(e.payload)
+      },
+    }
+    const { client } = workerClient()
+    await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRuns: workerSpecs(['a', 'b']),
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client, traceEmitter },
+    })
+
+    // round 0 fanout branches from root; round 1 refine declares parent 0 (the
+    // weak iteration), which must override the inferred best-valid (iter 1).
+    expect(planPayloads[0]?.parentIndex).toBeUndefined()
+    expect(planPayloads[1]?.moveKind).toBe('refine')
+    expect(planPayloads[1]?.parentIndex).toBe(0)
+  })
+})

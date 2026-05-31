@@ -154,6 +154,13 @@ export interface LoopPlanDescription {
   kind: string
   /** Why the driver chose this move (the agent's rationale), when available. */
   rationale?: string
+  /**
+   * Iteration index this round branches FROM, when the driver declares it.
+   * Overrides the kernel's inferred branch point — lets a planner that
+   * branches off a specific (non-winner) iteration emit faithful edge lineage.
+   * Omit to keep the inferred (best-valid / latest) branch point.
+   */
+  parentIndex?: number
 }
 
 /** @experimental */
