@@ -16,7 +16,7 @@
  * pass `researcherDelegate` explicitly when constructing the server.
  */
 
-import type { Iteration, LoopSandboxClient } from '../loops'
+import type { Iteration, LoopSandboxClient, LoopTraceEmitter } from '../loops'
 import { runLoop } from '../loops'
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
@@ -110,6 +110,14 @@ export interface CreateDefaultCoderDelegateOptions {
   reviewer?: CoderReviewer
   /** Winner-selection strategy among eligible candidates. Default `highest-score`. */
   winnerSelection?: CoderWinnerSelection
+  /**
+   * Loop trace emitter forwarded into every delegated `runLoop`. Wire
+   * `createPropagatingTraceEmitter(readTraceContextFromEnv())` here (the bin
+   * does) so delegated build-loops export their topology spans to the OTLP /
+   * Tangle Intelligence sink when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — and
+   * are a cheap no-op when it isn't. Configurable by construction.
+   */
+  traceEmitter?: LoopTraceEmitter
 }
 
 /**
@@ -126,6 +134,7 @@ export function createDefaultCoderDelegate(
   const sandboxClient = executor.client
   const fanoutHarnesses = options.fanoutHarnesses
   const maxConcurrency = options.maxConcurrency ?? 4
+  const traceEmitter = options.traceEmitter
   return async (args, ctx) => {
     const task: CoderTask = {
       goal: buildCoderGoal(args),
@@ -145,7 +154,7 @@ export function createDefaultCoderDelegate(
         output,
         validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal },
+        ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -172,7 +181,7 @@ export function createDefaultCoderDelegate(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal },
+      ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })

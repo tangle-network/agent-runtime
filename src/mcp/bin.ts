@@ -29,12 +29,13 @@
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
  */
 
-import type { LoopSandboxClient } from '../loops'
+import type { LoopSandboxClient, LoopTraceEmitter } from '../loops'
 import { runLoop } from '../loops'
 import { detectExecutor } from './bin-helpers'
 import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
 import type { DelegationExecutor } from './executor'
 import { createMcpServer } from './server'
+import { createPropagatingTraceEmitter, readTraceContextFromEnv } from './trace-propagation'
 import type { ResearchOutputShape } from './types'
 
 async function main(): Promise<void> {
@@ -76,30 +77,43 @@ async function main(): Promise<void> {
     process.stderr.write(`agent-runtime-mcp: delegation placement → ${executor.describe()}\n`)
   }
 
+  // Export delegated-loop topology spans to the OTLP / Tangle Intelligence sink
+  // when OTEL_EXPORTER_OTLP_ENDPOINT is set (+ TRACE_ID / PARENT_SPAN_ID for
+  // correlation with the caller's trace). A cheap no-op when the endpoint is
+  // unset — the fleet forwards the env into this MCP's process to turn it on.
+  const { emitter: traceEmitter, exporter: traceExporter } = createPropagatingTraceEmitter(
+    readTraceContextFromEnv(),
+  )
+  if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+    process.stderr.write(
+      `agent-runtime-mcp: exporting loop topology → ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}\n`,
+    )
+  }
+
   const coderDelegate =
     wantCoder && executor
       ? createDefaultCoderDelegate({
           executor,
           fanoutHarnesses,
           maxConcurrency,
+          traceEmitter,
         })
       : undefined
 
   const researcherDelegate =
     wantResearcher && executor
-      ? await loadResearcherDelegate(executor.client, maxConcurrency)
+      ? await loadResearcherDelegate(executor.client, maxConcurrency, traceEmitter)
       : undefined
 
   const server = createMcpServer({ coderDelegate, researcherDelegate })
 
-  process.on('SIGINT', () => {
+  const shutdown = () => {
     server.stop()
-    process.exit(0)
-  })
-  process.on('SIGTERM', () => {
-    server.stop()
-    process.exit(0)
-  })
+    void traceExporter?.shutdown().finally(() => process.exit(0))
+    if (!traceExporter) process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
 
   await server.serve()
 }
@@ -157,6 +171,7 @@ interface ResearcherFanoutPreset {
 async function loadResearcherDelegate(
   sandboxClient: LoopSandboxClient,
   maxConcurrency: number,
+  traceEmitter?: LoopTraceEmitter,
 ): Promise<ResearcherDelegate | undefined> {
   // Optional peer — when `@tangle-network/agent-knowledge` isn't installed,
   // we silently omit the researcher tool from the advertisement. The
@@ -210,7 +225,7 @@ async function loadResearcherDelegate(
         output: preset.output,
         validator: preset.validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal },
+        ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -226,7 +241,7 @@ async function loadResearcherDelegate(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal },
+      ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })

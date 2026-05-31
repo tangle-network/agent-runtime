@@ -108,3 +108,23 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
     expect(['small', 'big']).toContain(out.branch)
   })
 })
+
+import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/loops'
+
+describe('createDefaultCoderDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
+  it('forwards the trace emitter into the delegated runLoop (loop.* spans emitted)', async () => {
+    const events: LoopTraceEvent[] = []
+    const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
+    const delegate = createDefaultCoderDelegate({
+      sandboxClient: candidateClient(),
+      fanoutHarnesses: ['claude-code', 'codex'],
+      traceEmitter,
+    })
+    await delegate(args, ctx)
+    const kinds = new Set(events.map((e) => e.kind))
+    // the delegated loop's topology spans reach the emitter → the OTLP exporter
+    expect(kinds.has('loop.started')).toBe(true)
+    expect(kinds.has('loop.ended')).toBe(true)
+    expect(kinds.has('loop.iteration.ended')).toBe(true)
+  })
+})
