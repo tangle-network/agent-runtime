@@ -99,3 +99,20 @@ export class RuntimeRunStateError extends AgentEvalError {
     super('validation', message, options)
   }
 }
+
+/**
+ * @stable
+ *
+ * The dynamic-loop planner returned an unusable topology move — the LLM emitted
+ * no parseable envelope, an unknown `kind`, or a structurally-invalid move
+ * (e.g. a fanout with zero tasks). This is a structural failure of the
+ * agent-authored topology, not a config mistake: the planner ran but its output
+ * cannot drive the kernel. Carries `validation` so cross-package handlers can
+ * pattern-match without importing the runtime. Fail loud — never substitute a
+ * default move, or the loop silently runs a topology nobody chose.
+ */
+export class PlannerError extends AgentEvalError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('validation', message, options)
+  }
+}
