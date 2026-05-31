@@ -107,15 +107,23 @@ export {
 } from './errors'
 // ── Delegated loop-runner (configured code/research/review/audit/self-improve/dynamic) ──
 export {
+  auditLoopRunner,
   type CoderLoopRunnerOptions,
   coderLoopRunner,
   type DelegatedLoopMode,
   type DelegatedLoopRegistry,
   type DelegatedLoopResult,
   type DelegatedLoopRunner,
+  type DynamicLoopRunnerOptions,
+  dynamicLoopRunner,
+  type ResearchLoopResult,
+  type ResearchLoopRunnerOptions,
   type RunDelegatedLoopOptions,
+  researchLoopRunner,
   reviewLoopRunner,
   runDelegatedLoop,
+  selfImproveLoopRunner,
+  type VetoedFact,
 } from './loop-runner'
 // ── MCP → OpenAI tools projection ────────────────────────────────────
 // Helper for eval / orchestrator code that routes through the

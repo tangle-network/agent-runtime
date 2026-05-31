@@ -21,14 +21,33 @@
  * with the factories below, or inject your own / a stub).
  */
 
+import type { Scenario } from '@tangle-network/agent-eval/campaign'
+import { runAnalystLoop } from './analyst-loop'
+import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
-import type { LoopSandboxClient } from './loops'
+import {
+  type OptimizePromptOptions,
+  type OptimizePromptResult,
+  optimizePrompt,
+} from './improvement/optimize-prompt'
+import {
+  type AgentRunSpec,
+  createDynamicDriver,
+  type DynamicDecision,
+  type LoopResult,
+  type LoopSandboxClient,
+  type OutputAdapter,
+  runLoop,
+  type TopologyPlanner,
+  type Validator,
+} from './loops'
 import {
   type CoderReviewer,
   type CoderWinnerSelection,
   createDefaultCoderDelegate,
   type DelegateRunCtx,
 } from './mcp/delegates'
+import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
 import type { DelegateCodeArgs } from './mcp/types'
 import type { CoderOutput } from './profiles/coder'
 
@@ -140,4 +159,120 @@ export function reviewLoopRunner(
   options: CoderLoopRunnerOptions & { reviewer: CoderReviewer },
 ): DelegatedLoopRunner<CoderOutput> {
   return coderLoopRunner(options)
+}
+
+/** @experimental Options for the default `dynamic` runner. */
+export interface DynamicLoopRunnerOptions<Task, Output> {
+  sandboxClient: LoopSandboxClient
+  /** The agent-authored topology planner (e.g. `createSandboxPlanner(...)`). */
+  planner: TopologyPlanner<Task, Output>
+  task: Task
+  output: OutputAdapter<Output>
+  validator?: Validator<Output>
+  /** Exactly one of `agentRun` / `agentRuns` (runLoop validates). */
+  agentRun?: AgentRunSpec<Task>
+  agentRuns?: AgentRunSpec<Task>[]
+  maxIterations?: number
+  maxFanout?: number
+}
+
+/** @experimental `dynamic` mode — agent-authored topology over `runLoop`. */
+export function dynamicLoopRunner<Task, Output>(
+  o: DynamicLoopRunnerOptions<Task, Output>,
+): DelegatedLoopRunner<LoopResult<Task, Output, DynamicDecision>> {
+  return async (signal) =>
+    runLoop<Task, Output, DynamicDecision>({
+      driver: createDynamicDriver<Task, Output>({
+        planner: o.planner,
+        ...(o.maxIterations !== undefined ? { maxIterations: o.maxIterations } : {}),
+        ...(o.maxFanout !== undefined ? { maxFanout: o.maxFanout } : {}),
+      }),
+      ...(o.agentRun ? { agentRun: o.agentRun } : {}),
+      ...(o.agentRuns ? { agentRuns: o.agentRuns } : {}),
+      output: o.output,
+      ...(o.validator ? { validator: o.validator } : {}),
+      task: o.task,
+      ctx: { sandboxClient: o.sandboxClient, signal },
+      ...(o.maxIterations !== undefined ? { maxIterations: o.maxIterations } : {}),
+    })
+}
+
+/** @experimental A fact rejected at the KB gate — surfaced, never dropped. */
+export interface VetoedFact {
+  candidate: FactCandidate
+  vetoedBy?: string
+  reason?: string
+}
+
+/** @experimental */
+export interface ResearchLoopResult {
+  /** Facts that passed the fail-closed gate — safe to write to the KB. */
+  accepted: FactCandidate[]
+  /** Facts the gate vetoed in the final round — escalate, do not silently drop. */
+  vetoed: VetoedFact[]
+  /** Research rounds actually run. */
+  rounds: number
+}
+
+/** @experimental Options for the default `research` runner. */
+export interface ResearchLoopRunnerOptions {
+  /**
+   * The research engine (the consumer's web/doc searcher + extractor). Called
+   * each round with the prior round's vetoes so it can re-research the gaps.
+   * Returns fact candidates carrying their grounding (`verbatimPassage` +
+   * `sourceText`).
+   */
+  research: (round: number, vetoed: VetoedFact[]) => Promise<FactCandidate[]>
+  /** Gate config (extra judges, self-artifact kinds, …). The floor is always on. */
+  gate?: CreateKbGateOptions
+  /** Max research rounds (correct-on-veto remediation). Default 1. */
+  maxRounds?: number
+}
+
+/**
+ * @experimental `research` mode — research-in-a-loop with valid-only KB growth.
+ *
+ * Each round: research → gate every candidate (fail-closed; passage MUST be in
+ * the source) → accept the clean ones → re-research the vetoed ones next round,
+ * up to `maxRounds`. Vetoed facts in the final round are RETURNED (escalate,
+ * never silently dropped) so the caller audits vs retries.
+ */
+export function researchLoopRunner(
+  o: ResearchLoopRunnerOptions,
+): DelegatedLoopRunner<ResearchLoopResult> {
+  const gate = createKbGate(o.gate)
+  const maxRounds = Math.max(1, Math.trunc(o.maxRounds ?? 1))
+  return async (signal) => {
+    const accepted: FactCandidate[] = []
+    let vetoed: VetoedFact[] = []
+    let rounds = 0
+    for (let round = 0; round < maxRounds; round += 1) {
+      if (signal.aborted) break
+      rounds += 1
+      const candidates = await o.research(round, vetoed)
+      if (candidates.length === 0) break
+      vetoed = []
+      for (const c of candidates) {
+        const v = await gate(c)
+        if (v.accepted) accepted.push(c)
+        else vetoed.push({ candidate: c, vetoedBy: v.vetoedBy, reason: v.reason })
+      }
+      if (vetoed.length === 0) break
+    }
+    return { accepted, vetoed, rounds }
+  }
+}
+
+/** @experimental `self-improve` mode — identity-gated prompt optimization. */
+export function selfImproveLoopRunner<TScenario extends Scenario, TArtifact>(
+  options: OptimizePromptOptions<TScenario, TArtifact>,
+): DelegatedLoopRunner<OptimizePromptResult<TArtifact, TScenario>> {
+  return async () => optimizePrompt<TScenario, TArtifact>(options)
+}
+
+/** @experimental `audit` mode — analyst loop over captured trace/run data. */
+export function auditLoopRunner<TProposal = unknown, TEdit = unknown>(
+  options: RunAnalystLoopOpts,
+): DelegatedLoopRunner<RunAnalystLoopResult<TProposal, TEdit>> {
+  return async () => runAnalystLoop<TProposal, TEdit>(options)
 }
