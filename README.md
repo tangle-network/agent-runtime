@@ -1,8 +1,8 @@
 # @tangle-network/agent-runtime
 
-Runs a domain agent's task from prompt to result — and the loops that make the result better.
+Runs domain agents and closes the loop that makes them better — capturing every run as a trace and turning those traces into eval-gated improvements, automatically.
 
-It owns the chat turn, the loop kernel (refine, fanout-vote, and agent-authored dynamic topologies), delegated sub-agent loops (build, research, review, audit, self-improve), identity-gated prompt optimization, OpenTelemetry GenAI tracing, knowledge-readiness checks, sanitized telemetry, and the declarative `defineAgent` manifest. Domain behavior — models, tools, knowledge — lives in adapters; durable long-running execution in [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox); evals and ship-gates in [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval).
+Two halves. **Execution:** the chat turn, the loop kernel (refine, fanout-vote, agent-authored dynamic topologies), delegated sub-agent loops (build, research, review, audit), and OpenTelemetry GenAI tracing of all of it. **Self-improvement:** the declarative `defineAgent` manifest that names an agent's mutable surfaces, an analyst loop that mines real traces into findings, surface adapters that apply them to prompts and knowledge, identity-gated prompt optimization, outcome measurement, and `createSandboxAct` so the agent is evaluated through its actual production profile. Domain behavior — models, tools, knowledge — lives in adapters; the scoring/judge/ship-gate engine in [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); durable long-running execution in [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox

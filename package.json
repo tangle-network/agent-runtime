@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-runtime",
   "version": "0.43.0",
-  "description": "Runs the task lifecycle for domain agents — chat turns, agent-driven loop topologies, delegated build/research/review loops, and eval-gated prompt optimization.",
+  "description": "Runs domain agents and automates improving them from their own traces — chat turns and loop topologies, with an analyst→prompt/knowledge→eval-gated-ship self-improvement loop.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
     "type": "git",
