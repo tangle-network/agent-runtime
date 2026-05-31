@@ -18,6 +18,14 @@ export type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 export type {
+  CreateDynamicDriverOptions,
+  DynamicDecision,
+  PlannerContext,
+  TopologyMove,
+  TopologyPlanner,
+} from './drivers/dynamic'
+export { createDynamicDriver, summarizeHistory } from './drivers/dynamic'
+export type {
   CreateFanoutVoteDriverOptions,
   FanoutVoteDecision,
   FanoutVoteScored,
@@ -25,6 +33,11 @@ export type {
 export { createFanoutVoteDriver, scoreFanoutVoteIterations } from './drivers/fanout-vote'
 export type { CreateRefineDriverOptions, RefineDecision } from './drivers/refine'
 export { createRefineDriver, refineWinnerIndex } from './drivers/refine'
+export type {
+  CreateSandboxPlannerOptions,
+  TopologyMoveEnvelope,
+} from './drivers/sandbox-planner'
+export { createSandboxPlanner } from './drivers/sandbox-planner'
 export type { RunLoopOptions } from './run-loop'
 export { runLoop } from './run-loop'
 export { reportLoopUsage, type UsageSink } from './report-usage'
