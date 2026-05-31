@@ -19,7 +19,7 @@
 
 import type { LoopTraceEmitter, LoopTraceEvent } from '../loops/types'
 import type { OtelExporter } from '../otel-export'
-import { createOtelExporter, loopEventToOtelSpan } from '../otel-export'
+import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
 
 export interface TraceContext {
   /** Trace id inherited from the parent process, or a fresh one. */
@@ -52,11 +52,26 @@ export function createPropagatingTraceEmitter(ctx: TraceContext): {
 } {
   const exporter = createOtelExporter()
 
+  // Buffer events per loop run, then emit the full nested span tree on
+  // `loop.ended` so the topology hierarchy (loop → round → branch) reaches the
+  // OTLP collector — not a flat list of zero-duration point spans. A run that
+  // never reaches `loop.ended` (hard abort) drops its buffer; acceptable for
+  // the short-lived MCP subprocess.
+  const buffers = new Map<string, LoopTraceEvent[]>()
+
   const emitter: LoopTraceEmitter = {
     emit(event: LoopTraceEvent) {
       if (!exporter) return
-      const span = loopEventToOtelSpan(event, ctx.traceId, ctx.parentSpanId)
-      exporter.exportSpan(span)
+      const buf = buffers.get(event.runId)
+      if (buf) buf.push(event)
+      else buffers.set(event.runId, [event])
+      if (event.kind === 'loop.ended') {
+        const events = buffers.get(event.runId) ?? [event]
+        buffers.delete(event.runId)
+        for (const span of buildLoopOtelSpans(events, ctx.traceId, ctx.parentSpanId)) {
+          exporter.exportSpan(span)
+        }
+      }
     },
   }
 

@@ -136,6 +136,24 @@ export interface Driver<Task, Output, Decision> {
    * is hit, or when the abort signal fires.
    */
   decide(history: ReadonlyArray<Iteration<Task, Output>>): Decision | Promise<Decision>
+  /**
+   * Optional: describe the move `plan()` just produced, for trace emission.
+   * The kernel calls this immediately after `plan()` and emits the result in
+   * the `loop.plan` event so a topology viewer can render the agent's chosen
+   * move + rationale (not just the inferred fan-width). Drivers whose topology
+   * is a pure function of count (refine/fanout-vote) omit it — the kernel
+   * infers `moveKind` from the planned-task count. Agent-authored drivers
+   * (`createDynamicDriver`) return their chosen move's kind + rationale.
+   */
+  describePlan?(): LoopPlanDescription | undefined
+}
+
+/** @experimental Driver-supplied description of the just-planned move. */
+export interface LoopPlanDescription {
+  /** Topology move this round — e.g. `'refine' | 'fanout' | 'verify' | 'stop'`. */
+  kind: string
+  /** Why the driver chose this move (the agent's rationale), when available. */
+  rationale?: string
 }
 
 /** @experimental */
@@ -195,6 +213,7 @@ export interface LoopTraceEmitter {
 /** @experimental */
 export type LoopTraceEvent =
   | { kind: 'loop.started'; runId: string; timestamp: number; payload: LoopStartedPayload }
+  | { kind: 'loop.plan'; runId: string; timestamp: number; payload: LoopPlanPayload }
   | {
       kind: 'loop.iteration.started'
       runId: string
@@ -222,6 +241,25 @@ export interface LoopStartedPayload {
   agentRunNames: string[]
   maxIterations: number
   maxConcurrency: number
+}
+
+/**
+ * Emitted once per `plan()` round, immediately after the driver plans. Carries
+ * the topology move so a viewer renders WHAT the agent decided + WHY, not just
+ * the inferred fan-width. `moveKind` is the driver's `describePlan().kind` when
+ * provided, else inferred from `plannedCount` (0→stop, 1→refine, N→fanout).
+ *
+ * @experimental
+ */
+export interface LoopPlanPayload {
+  /** 0-based plan round (one per `plan()` call). */
+  roundIndex: number
+  /** Tasks the driver issued this round. */
+  plannedCount: number
+  /** Topology move — `'refine' | 'fanout' | 'verify' | 'stop'` etc. */
+  moveKind: string
+  /** Driver rationale for the move, when available. */
+  rationale?: string
 }
 
 /** @experimental */
@@ -260,6 +298,9 @@ export interface LoopIterationEndedPayload {
   error?: string
   costUsd: number
   durationMs: number
+  /** Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
+   *  branch span. Omitted when no `llm_call` events carried token counts. */
+  tokenUsage?: LoopTokenUsage
 }
 
 /** @experimental */

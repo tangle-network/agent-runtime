@@ -135,6 +135,7 @@ export type {
 } from './otel-export'
 // ── OTEL export + trace propagation + eval-run provenance ────────────
 export {
+  buildLoopOtelSpans,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,

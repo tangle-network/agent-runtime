@@ -38,15 +38,15 @@ export type {
   TopologyMoveEnvelope,
 } from './drivers/sandbox-planner'
 export { createSandboxPlanner } from './drivers/sandbox-planner'
-export type { RunLoopOptions } from './run-loop'
-export { runLoop } from './run-loop'
-export { reportLoopUsage, type UsageSink } from './report-usage'
 export {
-  loopCampaignDispatch,
-  loopDispatch,
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
+  loopCampaignDispatch,
+  loopDispatch,
 } from './loop-dispatch'
+export { reportLoopUsage, type UsageSink } from './report-usage'
+export type { RunLoopOptions } from './run-loop'
+export { runLoop } from './run-loop'
 export type {
   AgentRunSpec,
   DefaultVerdict,
@@ -58,6 +58,8 @@ export type {
   LoopIterationDispatchPayload,
   LoopIterationEndedPayload,
   LoopIterationStartedPayload,
+  LoopPlanDescription,
+  LoopPlanPayload,
   LoopResult,
   LoopSandboxClient,
   LoopSandboxPlacement,
