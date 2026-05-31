@@ -17,6 +17,9 @@ export type { DetectExecutorArgs } from './bin-helpers'
 export { detectExecutor } from './bin-helpers'
 export type {
   CoderDelegate,
+  CoderReview,
+  CoderReviewer,
+  CoderWinnerSelection,
   CreateDefaultCoderDelegateOptions,
   DelegateRunCtx,
   ResearcherDelegate,
@@ -36,6 +39,14 @@ export type {
   InProcessExecutorOptions,
 } from './in-process-executor'
 export { createInProcessExecutor } from './in-process-executor'
+export {
+  type CreateKbGateOptions,
+  createKbGate,
+  type FactCandidate,
+  type FactJudge,
+  type FactJudgeVerdict,
+  type KbGateResult,
+} from './kb-gate'
 export type { LocalHarness, LocalHarnessResult, RunLocalHarnessOptions } from './local-harness'
 export { runLocalHarness } from './local-harness'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
