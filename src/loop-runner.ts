@@ -51,14 +51,23 @@ import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mc
 import type { DelegateCodeArgs } from './mcp/types'
 import type { CoderOutput } from './profiles/coder'
 
+/** @experimental Every delegated-loop mode, for validation + CLI surfaces. */
+export const DELEGATED_LOOP_MODES = [
+  'code',
+  'review',
+  'research',
+  'audit',
+  'self-improve',
+  'dynamic',
+] as const
+
 /** @experimental */
-export type DelegatedLoopMode =
-  | 'code'
-  | 'review'
-  | 'research'
-  | 'audit'
-  | 'self-improve'
-  | 'dynamic'
+export type DelegatedLoopMode = (typeof DELEGATED_LOOP_MODES)[number]
+
+/** @experimental Type guard for an untrusted mode string (CLI / config input). */
+export function isDelegatedLoopMode(value: unknown): value is DelegatedLoopMode {
+  return typeof value === 'string' && (DELEGATED_LOOP_MODES as readonly string[]).includes(value)
+}
 
 /** @experimental A pre-configured loop for one mode. Returns the mode's raw
  *  output; the dispatcher wraps it in a {@link DelegatedLoopResult}. */

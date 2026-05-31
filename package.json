@@ -56,7 +56,8 @@
     }
   },
   "bin": {
-    "agent-runtime-mcp": "./dist/mcp/bin.js"
+    "agent-runtime-mcp": "./dist/mcp/bin.js",
+    "agent-runtime-loop": "./dist/loop-runner-bin.js"
   },
   "files": [
     "dist",

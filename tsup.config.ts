@@ -11,6 +11,7 @@ export default defineConfig({
     profiles: 'src/profiles/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',
+    'loop-runner-bin': 'src/loop-runner-bin.ts',
   },
   format: ['esm'],
   dts: true,
