@@ -105,13 +105,24 @@ export {
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
+// ── Delegated loop-runner (configured code/research/review/audit/self-improve/dynamic) ──
+export {
+  type CoderLoopRunnerOptions,
+  coderLoopRunner,
+  type DelegatedLoopMode,
+  type DelegatedLoopRegistry,
+  type DelegatedLoopResult,
+  type DelegatedLoopRunner,
+  type RunDelegatedLoopOptions,
+  reviewLoopRunner,
+  runDelegatedLoop,
+} from './loop-runner'
 // ── MCP → OpenAI tools projection ────────────────────────────────────
 // Helper for eval / orchestrator code that routes through the
 // OpenAI-compat backend and needs the 5 delegation tools surfaced to
 // the model. Sandbox-SDK callers discover tools via the runtime's MCP
 // mount and don't need this projection.
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './mcp/openai-tools'
-
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.
 export type { ModelInfo, ResolvedChatModel, RouterEnv } from './model-resolution'
