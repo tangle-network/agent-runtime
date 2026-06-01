@@ -1,15 +1,24 @@
 import { randomUUID } from 'node:crypto'
-import vm from 'node:vm'
 import { ValidationError } from '../errors'
 import { WorkflowBudget } from './budget'
-import { installWorkflowGlobals, normalizeRuntimeError, type WorkflowRuntimeGlobals } from './realm'
-import { validateJsonSchema } from './schema'
+import { normalizeRuntimeError, type WorkflowRuntimeGlobals } from './realm'
+import {
+  assertWorkflowString,
+  checkpointEndedKind,
+  checkpointStartedKind,
+  createWorkflowSignal,
+  decodeWorkflowDelegateResult,
+  fulfilledValues,
+  isRejected,
+  normalizeWorkflowCaps,
+  runWorkflowBody,
+  type WorkflowCheckpointRuntimeKind,
+  waitForWorkflowBudget,
+} from './runtime-support'
 import type {
   WorkflowAnalystDelegate,
-  WorkflowBudgetCaps,
   WorkflowCheckpointOptions,
   WorkflowDelegateContext,
-  WorkflowDelegateResult,
   WorkflowResult,
   WorkflowReviewerDelegate,
   WorkflowRuntimeOptions,
@@ -18,25 +27,13 @@ import type {
 } from './types'
 import { parseWorkflowScript } from './validate'
 
-const DEFAULT_CAPS: Required<WorkflowBudgetCaps> = {
-  maxCostUsd: Number.POSITIVE_INFINITY,
-  maxTokens: Number.POSITIVE_INFINITY,
-  maxWallMs: 10 * 60_000,
-  maxAgentCalls: 32,
-  maxLoopCalls: 16,
-  maxFanout: 8,
-  maxDepth: 1,
-}
-
-type WorkflowCheckpointRuntimeKind = 'verifier' | 'analyst' | 'reviewer'
-
 export async function runWorkflow<TOutput = unknown>(
   options: WorkflowRuntimeOptions,
 ): Promise<WorkflowResult<TOutput>> {
   const parsed = parseWorkflowScript(options.source)
   const runId = options.runId ?? `workflow-${randomUUID()}`
   const depth = options.depth ?? 0
-  const caps = normalizeCaps(options.caps)
+  const caps = normalizeWorkflowCaps(options.caps)
   if (depth > caps.maxDepth) {
     throw new ValidationError(`workflow depth ${depth} exceeds maxDepth=${caps.maxDepth}`)
   }
@@ -78,12 +75,12 @@ export async function runWorkflow<TOutput = unknown>(
   const globals: WorkflowRuntimeGlobals = {
     budget,
     phase(title) {
-      assertString(title, 'phase title')
+      assertWorkflowString(title, 'phase title')
       currentPhase = title
       void emit(emitNow({ kind: 'workflow.phase', payload: { title } }))
     },
     log(message) {
-      assertString(message, 'log message')
+      assertWorkflowString(message, 'log message')
       void emit(emitNow({ kind: 'workflow.log', payload: { message, phase: currentPhase } }))
     },
     async parallel(thunks) {
@@ -251,7 +248,7 @@ export async function runWorkflow<TOutput = unknown>(
       return fulfilledValues(settled) as never[]
     },
     async agent(prompt, agentOptions = {}) {
-      assertString(prompt, 'agent prompt')
+      assertWorkflowString(prompt, 'agent prompt')
       const index = budget.nextAgentIndex()
       const label = agentOptions.label
       const opStarted = now()
@@ -267,13 +264,13 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      const result = await waitForBudget(
+      const result = await waitForWorkflowBudget(
         () => options.agent(prompt, agentOptions, delegateCtx()),
         budget,
         workflowSignal.signal,
         workflowSignal.abort,
       )
-      const output = decodeResult(result, agentOptions)
+      const output = decodeWorkflowDelegateResult(result, agentOptions)
       const usage = budget.observe(result)
       await emit(
         emitNow({
@@ -307,13 +304,13 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      const result = await waitForBudget(
+      const result = await waitForWorkflowBudget(
         () => options.loop!(input, loopOptions, delegateCtx()),
         budget,
         workflowSignal.signal,
         workflowSignal.abort,
       )
-      const output = decodeResult(result, loopOptions)
+      const output = decodeWorkflowDelegateResult(result, loopOptions)
       const usage = budget.observe(result)
       await emit(
         emitNow({
@@ -387,13 +384,13 @@ export async function runWorkflow<TOutput = unknown>(
         },
       }),
     )
-    const result = await waitForBudget(
+    const result = await waitForWorkflowBudget(
       () => args.delegate(args.input, args.checkpointOptions, delegateCtx()),
       budget,
       workflowSignal.signal,
       workflowSignal.abort,
     )
-    const output = decodeResult(result, args.checkpointOptions)
+    const output = decodeWorkflowDelegateResult(result, args.checkpointOptions)
     const usage = budget.observe(result)
     await emit(
       emitNow({
@@ -414,8 +411,8 @@ export async function runWorkflow<TOutput = unknown>(
 
   await emit(emitNow({ kind: 'workflow.started', payload: { meta: parsed.meta, depth, caps } }))
   try {
-    const output = (await waitForBudget(
-      () => runBody(parsed.body, parsed.meta.name, globals, options.syncTimeoutMs),
+    const output = (await waitForWorkflowBudget(
+      () => runWorkflowBody(parsed.body, parsed.meta.name, globals, options.syncTimeoutMs),
       budget,
       options.signal,
       workflowSignal.abort,
@@ -462,169 +459,5 @@ export async function runWorkflow<TOutput = unknown>(
     throw normalized
   } finally {
     workflowSignal.cleanup()
-  }
-}
-
-async function runBody(
-  body: string,
-  workflowName: string,
-  globals: WorkflowRuntimeGlobals,
-  syncTimeoutMs = 1000,
-): Promise<unknown> {
-  const context = vm.createContext(Object.create(null), {
-    name: `workflow:${workflowName}`,
-    codeGeneration: { strings: false, wasm: false },
-  })
-  installWorkflowGlobals(context, globals)
-  const script = new vm.Script(
-    `
-'use strict'
-const __workflowMain = async () => {
-${body}
-}
-__workflowMain()
-`,
-    { filename: `${workflowName}.workflow.js` },
-  )
-  return script.runInContext(context, { timeout: syncTimeoutMs })
-}
-
-function decodeResult<TOptions extends { schema?: unknown; decode?: (value: unknown) => unknown }>(
-  result: WorkflowDelegateResult,
-  options: TOptions,
-): unknown {
-  if (options.schema) validateJsonSchema(result.output, options.schema as never)
-  return options.decode ? options.decode(result.output) : result.output
-}
-
-function normalizeCaps(caps: WorkflowBudgetCaps = {}): Required<WorkflowBudgetCaps> {
-  return {
-    maxCostUsd: normalizeCap(caps.maxCostUsd, DEFAULT_CAPS.maxCostUsd, 'maxCostUsd'),
-    maxTokens: normalizeCap(caps.maxTokens, DEFAULT_CAPS.maxTokens, 'maxTokens'),
-    maxWallMs: normalizeCap(caps.maxWallMs, DEFAULT_CAPS.maxWallMs, 'maxWallMs'),
-    maxAgentCalls: normalizeCap(caps.maxAgentCalls, DEFAULT_CAPS.maxAgentCalls, 'maxAgentCalls', {
-      integer: true,
-    }),
-    maxLoopCalls: normalizeCap(caps.maxLoopCalls, DEFAULT_CAPS.maxLoopCalls, 'maxLoopCalls', {
-      integer: true,
-    }),
-    maxFanout: normalizeCap(caps.maxFanout, DEFAULT_CAPS.maxFanout, 'maxFanout', {
-      integer: true,
-    }),
-    maxDepth: normalizeCap(caps.maxDepth, DEFAULT_CAPS.maxDepth, 'maxDepth', { integer: true }),
-  }
-}
-
-async function waitForBudget<T>(
-  run: () => Promise<T>,
-  budget: WorkflowBudget,
-  signal: AbortSignal | undefined,
-  abortWorkflow?: () => void,
-  scope: 'delegate' | 'body' = 'delegate',
-): Promise<T> {
-  budget.assertWall()
-  const wallMs = budget.remainingWallMs()
-  if (signal?.aborted) throw new ValidationError(`workflow aborted before ${scope} completed`)
-  if (wallMs !== undefined && wallMs <= 0) {
-    throw new ValidationError('workflow budget exhausted: maxWallMs reached')
-  }
-  const promise = run()
-  if (wallMs === undefined || !Number.isFinite(wallMs)) return promise
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  let abort: (() => void) | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => {
-          reject(new ValidationError(`workflow ${scope} timed out`))
-          abortWorkflow?.()
-        }, wallMs)
-        abort = () => reject(new ValidationError(`workflow aborted before ${scope} completed`))
-        signal?.addEventListener('abort', abort, { once: true })
-      }),
-    ])
-  } finally {
-    if (timeout) clearTimeout(timeout)
-    if (abort) signal?.removeEventListener('abort', abort)
-  }
-}
-
-function createWorkflowSignal(external: AbortSignal | undefined): {
-  signal: AbortSignal
-  abort: () => void
-  cleanup: () => void
-} {
-  const controller = new AbortController()
-  const abort = () => {
-    if (!controller.signal.aborted) controller.abort()
-  }
-  if (external) {
-    if (external.aborted) {
-      abort()
-    } else {
-      external.addEventListener('abort', abort, { once: true })
-    }
-  }
-  return {
-    signal: controller.signal,
-    abort,
-    cleanup: () => external?.removeEventListener('abort', abort),
-  }
-}
-
-function isRejected<T>(settled: PromiseSettledResult<T>): settled is PromiseRejectedResult {
-  return settled.status === 'rejected'
-}
-
-function fulfilledValues<T>(settled: readonly PromiseSettledResult<T>[]): T[] {
-  return settled.map((item) => (item as PromiseFulfilledResult<T>).value)
-}
-
-function normalizeCap(
-  value: number | undefined,
-  fallback: number,
-  field: keyof WorkflowBudgetCaps,
-  options: { integer?: boolean } = {},
-): number {
-  const cap = value ?? fallback
-  if (typeof cap !== 'number' || Number.isNaN(cap) || cap < 0) {
-    throw new ValidationError(`workflow caps.${field} must be a non-negative number`)
-  }
-  if (options.integer && Number.isFinite(cap) && !Number.isInteger(cap)) {
-    throw new ValidationError(`workflow caps.${field} must be an integer`)
-  }
-  return cap
-}
-
-function checkpointStartedKind(
-  kind: WorkflowCheckpointRuntimeKind,
-): 'workflow.verifier.started' | 'workflow.analyst.started' | 'workflow.reviewer.started' {
-  switch (kind) {
-    case 'verifier':
-      return 'workflow.verifier.started'
-    case 'analyst':
-      return 'workflow.analyst.started'
-    case 'reviewer':
-      return 'workflow.reviewer.started'
-  }
-}
-
-function checkpointEndedKind(
-  kind: WorkflowCheckpointRuntimeKind,
-): 'workflow.verifier.ended' | 'workflow.analyst.ended' | 'workflow.reviewer.ended' {
-  switch (kind) {
-    case 'verifier':
-      return 'workflow.verifier.ended'
-    case 'analyst':
-      return 'workflow.analyst.ended'
-    case 'reviewer':
-      return 'workflow.reviewer.ended'
-  }
-}
-
-function assertString(value: unknown, name: string): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new ValidationError(`workflow ${name} must be a non-empty string`)
   }
 }
