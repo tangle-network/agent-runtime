@@ -17,6 +17,8 @@ export type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+export type { CreateAnalystSteeringOptions } from './drivers/analyst-steering'
+export { createAnalystSteering } from './drivers/analyst-steering'
 export type {
   CreateDynamicDriverOptions,
   DynamicDecision,
@@ -38,6 +40,16 @@ export type {
   TopologyMoveEnvelope,
 } from './drivers/sandbox-planner'
 export { createSandboxPlanner } from './drivers/sandbox-planner'
+export type {
+  CreateSteeringPlannerOptions,
+  SteeringFindingLike,
+  SteeringSignal,
+} from './drivers/steering-planner'
+export {
+  createSteeringPlanner,
+  defaultAnalyze,
+  steeringSignalsFromFindings,
+} from './drivers/steering-planner'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
