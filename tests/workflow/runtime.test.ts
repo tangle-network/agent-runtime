@@ -120,6 +120,73 @@ return x
     ).rejects.toThrow(/forbidden capability: process/)
   })
 
+  it('does not expose host constructors through globals, delegate outputs, budget snapshots, or errors', async () => {
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'realm_escape', description: 'Keep host objects out of the workflow realm' }
+const key = 'constructor'
+const code = 'return process'
+const attempts = []
+try {
+  attempts.push((await agent[key](code)()).version)
+} catch (err) {
+  attempts.push(err.name)
+}
+const out = await agent('host object')
+try {
+  attempts.push(out[key][key](code)().version)
+} catch (err) {
+  attempts.push(err.name)
+}
+const spent = budget.spent()
+try {
+  attempts.push(spent[key][key](code)().version)
+} catch (err) {
+  attempts.push(err.name)
+}
+try {
+  await agent('throw host error')
+} catch (err) {
+  try {
+    attempts.push(err[key][key](code)().version)
+  } catch (inner) {
+    attempts.push(inner.name)
+  }
+}
+try {
+  await agent('bad bridge output')
+} catch (err) {
+  try {
+    attempts.push(err[key][key](code)().version)
+  } catch (inner) {
+    attempts.push(inner.name)
+  }
+}
+return attempts
+`,
+      agent: async (prompt) => {
+        if (prompt.includes('throw')) throw new ValidationError('host delegate failed')
+        if (prompt.includes('bad bridge')) return { output: () => null }
+        return { output: { ok: true }, costUsd: 0.01, tokenUsage: { input: 1, output: 1 } }
+      },
+    })
+
+    expect(result.output).toEqual(['EvalError', 'EvalError', 'EvalError', 'EvalError', 'EvalError'])
+  })
+
+  it('removes nondeterministic Math.random even through computed property access', async () => {
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'deterministic_globals', description: 'No randomness in workflow scripts' }
+const key = 'random'
+return { randomType: typeof Math[key], max: Math.max(1, 3) }
+`,
+      agent: async () => ({ output: null }),
+    })
+
+    expect(result.output).toEqual({ randomType: 'undefined', max: 3 })
+  })
+
   it('enforces fanout caps for parallel branches', async () => {
     await expect(
       runWorkflow({

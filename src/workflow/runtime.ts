@@ -2,16 +2,14 @@ import { randomUUID } from 'node:crypto'
 import vm from 'node:vm'
 import { ValidationError } from '../errors'
 import { WorkflowBudget } from './budget'
+import { installWorkflowGlobals, normalizeRuntimeError, type WorkflowRuntimeGlobals } from './realm'
 import { validateJsonSchema } from './schema'
 import type {
-  WorkflowAgentOptions,
   WorkflowAnalystDelegate,
   WorkflowBudgetCaps,
-  WorkflowBudgetView,
   WorkflowCheckpointOptions,
   WorkflowDelegateContext,
   WorkflowDelegateResult,
-  WorkflowLoopOptions,
   WorkflowResult,
   WorkflowReviewerDelegate,
   WorkflowRuntimeOptions,
@@ -28,22 +26,6 @@ const DEFAULT_CAPS: Required<WorkflowBudgetCaps> = {
   maxLoopCalls: 16,
   maxFanout: 8,
   maxDepth: 1,
-}
-
-interface RuntimeGlobals {
-  agent(prompt: string, options?: WorkflowAgentOptions): Promise<unknown>
-  loop(input: unknown, options?: WorkflowLoopOptions): Promise<unknown>
-  verify(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
-  analyzeTrace(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
-  review(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
-  parallel<T>(thunks: Array<() => Promise<T> | T>): Promise<T[]>
-  pipeline<T, R>(
-    items: T[],
-    ...stages: Array<(value: unknown, original: T, index: number) => R>
-  ): Promise<R[]>
-  phase(title: string): void
-  log(message: string): void
-  budget: WorkflowBudgetView
 }
 
 type WorkflowCheckpointRuntimeKind = 'verifier' | 'analyst' | 'reviewer'
@@ -91,7 +73,7 @@ export async function runWorkflow<TOutput = unknown>(
       timestamp: now(),
     }) as WorkflowTraceEvent
 
-  const globals: RuntimeGlobals = {
+  const globals: WorkflowRuntimeGlobals = {
     budget,
     phase(title) {
       assertString(title, 'phase title')
@@ -361,50 +343,32 @@ export async function runWorkflow<TOutput = unknown>(
     )
     return { ...result, events }
   } catch (err) {
+    const normalized = normalizeRuntimeError(err)
     await emit(
       emitNow({
         kind: 'workflow.failed',
         payload: {
-          message: err instanceof Error ? err.message : String(err),
-          code: err instanceof Error ? err.name : undefined,
+          message: normalized.message,
+          code: normalized.name,
           phase: currentPhase,
         },
       }),
     )
-    throw err
+    throw normalized
   }
 }
 
 async function runBody(
   body: string,
   workflowName: string,
-  globals: RuntimeGlobals,
+  globals: WorkflowRuntimeGlobals,
   syncTimeoutMs = 1000,
 ): Promise<unknown> {
-  const context = vm.createContext(
-    {
-      agent: globals.agent,
-      loop: globals.loop,
-      verify: globals.verify,
-      analyzeTrace: globals.analyzeTrace,
-      review: globals.review,
-      parallel: globals.parallel,
-      pipeline: globals.pipeline,
-      phase: globals.phase,
-      log: globals.log,
-      budget: globals.budget,
-      JSON,
-      Object,
-      Array,
-      String,
-      Number,
-      Boolean,
-    },
-    {
-      name: `workflow:${workflowName}`,
-      codeGeneration: { strings: false, wasm: false },
-    },
-  )
+  const context = vm.createContext(Object.create(null), {
+    name: `workflow:${workflowName}`,
+    codeGeneration: { strings: false, wasm: false },
+  })
+  installWorkflowGlobals(context, globals)
   const script = new vm.Script(
     `
 'use strict'
