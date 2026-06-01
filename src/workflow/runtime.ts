@@ -64,6 +64,7 @@ export async function runWorkflow<TOutput = unknown>(
     phase: currentPhase,
     signal: workflowSignal.signal,
     caps,
+    budget,
     metadata: options.metadata,
   })
 

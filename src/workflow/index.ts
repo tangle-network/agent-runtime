@@ -13,6 +13,14 @@ export {
 export { WorkflowBudget } from './budget'
 export type { CreateRunLoopWorkflowDelegateOptions } from './loop-delegate'
 export { createRunLoopWorkflowDelegate } from './loop-delegate'
+export type {
+  CreateNestedWorkflowAgentDelegateOptions,
+  NestedWorkflowCapsResolver,
+  NestedWorkflowDelegateInput,
+  NestedWorkflowMetadataResolver,
+  NestedWorkflowTrace,
+} from './nested-workflow-delegate'
+export { createNestedWorkflowAgentDelegate } from './nested-workflow-delegate'
 export { runWorkflow } from './runtime'
 export { validateJsonSchema } from './schema'
 export type {

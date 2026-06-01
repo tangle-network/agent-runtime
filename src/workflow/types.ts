@@ -101,6 +101,10 @@ export interface WorkflowDelegateResult {
   output: unknown
   costUsd?: number
   tokenUsage?: Partial<WorkflowTokenUsage>
+  /** Additional downstream workflow agent calls consumed inside this delegate. */
+  agentCalls?: number
+  /** Additional downstream workflow loop calls consumed inside this delegate. */
+  loopCalls?: number
   trace?: unknown
 }
 
@@ -110,6 +114,7 @@ export interface WorkflowDelegateContext {
   phase?: string
   signal: AbortSignal
   caps: WorkflowBudgetCaps
+  budget: WorkflowBudgetView
   metadata?: Record<string, unknown>
 }
 

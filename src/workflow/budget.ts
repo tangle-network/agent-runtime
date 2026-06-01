@@ -92,9 +92,13 @@ export class WorkflowBudget implements WorkflowBudgetView {
       input: finiteNonNegative(result.tokenUsage?.input ?? 0, 'tokenUsage.input'),
       output: finiteNonNegative(result.tokenUsage?.output ?? 0, 'tokenUsage.output'),
     }
+    const agentCalls = finiteNonNegativeInteger(result.agentCalls ?? 0, 'agentCalls')
+    const loopCalls = finiteNonNegativeInteger(result.loopCalls ?? 0, 'loopCalls')
     this.costUsd += costUsd
     this.tokens.input += tokenUsage.input
     this.tokens.output += tokenUsage.output
+    this.agentCallCount += agentCalls
+    this.loopCallCount += loopCalls
     this.assertSpend()
     return { costUsd, tokenUsage }
   }
@@ -129,6 +133,13 @@ export class WorkflowBudget implements WorkflowBudgetView {
 
 function finiteNonNegative(value: number, field: string): number {
   if (!Number.isFinite(value) || value < 0) {
+    throw new ValidationError(`workflow delegate returned invalid ${field}: ${value}`)
+  }
+  return value
+}
+
+function finiteNonNegativeInteger(value: number, field: string): number {
+  if (!Number.isInteger(value) || value < 0) {
     throw new ValidationError(`workflow delegate returned invalid ${field}: ${value}`)
   }
   return value

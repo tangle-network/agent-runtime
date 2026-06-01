@@ -8,6 +8,7 @@ import {
   type Validator,
 } from '../../src/loops'
 import {
+  createNestedWorkflowAgentDelegate,
   createRunLoopWorkflowDelegate,
   createSandboxWorkflowAgentDelegate,
   parseWorkflowScript,
@@ -516,6 +517,147 @@ return 'nope'
         agent: async () => ({ output: null }),
       }),
     ).rejects.toThrow(/exceeds maxDepth=1/)
+  })
+
+  it('runs nested workflows through explicit allowWorkflow with bounded child caps', async () => {
+    const childSource = [
+      "export const meta = { name: 'child_workflow', description: 'Build and verify child work' }",
+      "phase('Child')",
+      "const worker = await agent('child worker', { label: 'nested-worker' })",
+      "const verdict = await verify(worker, { label: 'child-check' })",
+      'return { worker, verdict }',
+    ].join('\n')
+    const workerCalls: string[] = []
+    const childEvents: WorkflowTraceEvent[] = []
+
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'parent_workflow', description: 'Delegate a child workflow' }
+const childSource = ${JSON.stringify(childSource)}
+return agent(childSource, {
+  label: 'child-workflow',
+  allowWorkflow: true,
+  schema: {
+    type: 'object',
+    required: ['worker', 'verdict'],
+    additionalProperties: false,
+    properties: {
+      worker: { type: 'object' },
+      verdict: { type: 'object' },
+    },
+  },
+})
+`,
+      runId: 'wf-parent',
+      caps: {
+        maxWallMs: 2_000,
+        maxAgentCalls: 4,
+        maxLoopCalls: 1,
+        maxFanout: 3,
+        maxDepth: 1,
+        maxCostUsd: 1,
+        maxTokens: 100,
+      },
+      agent: createNestedWorkflowAgentDelegate({
+        agent: async (prompt, _options, ctx) => {
+          workerCalls.push(`${ctx.workflowRunId}:${prompt}`)
+          return {
+            output: { prompt, depth: ctx.depth, phase: ctx.phase },
+            costUsd: 0.01,
+            tokenUsage: { input: 2, output: 3 },
+            trace: { workerDepth: ctx.depth },
+          }
+        },
+        verifier: async (input, _options, ctx) => ({
+          output: { pass: true, phase: ctx.phase, input },
+          costUsd: 0.02,
+          tokenUsage: { input: 4, output: 5 },
+          trace: { verifierDepth: ctx.depth },
+        }),
+        caps: {
+          maxWallMs: 500,
+          maxAgentCalls: 2,
+          maxLoopCalls: 0,
+          maxFanout: 2,
+          maxDepth: 1,
+          maxCostUsd: 0.5,
+          maxTokens: 50,
+        },
+        runId: ({ parent }) => `${parent.workflowRunId}-child`,
+        traceEmitter: { emit: (event) => childEvents.push(event) },
+      }),
+    })
+
+    expect(workerCalls).toEqual(['wf-parent-child:child worker'])
+    expect(result.output).toMatchObject({
+      worker: { prompt: 'child worker', depth: 1, phase: 'Child' },
+      verdict: { pass: true, phase: 'Child' },
+    })
+    expect(result.agentCalls).toBe(2)
+    expect(result.loopCalls).toBe(0)
+    expect(result.costUsd).toBeCloseTo(0.03, 6)
+    expect(result.tokenUsage).toEqual({ input: 6, output: 8 })
+    expect(childEvents.map((event) => event.kind)).toEqual([
+      'workflow.started',
+      'workflow.phase',
+      'workflow.agent.started',
+      'workflow.agent.ended',
+      'workflow.verifier.started',
+      'workflow.verifier.ended',
+      'workflow.ended',
+    ])
+    const parentAgentEnd = result.events.find((event) => event.kind === 'workflow.agent.ended')
+    expect(parentAgentEnd?.payload.trace).toMatchObject({
+      nested: true,
+      runId: 'wf-parent-child',
+      parentRunId: 'wf-parent',
+      depth: 1,
+      metaName: 'child_workflow',
+      eventCount: 7,
+      costUsd: 0.03,
+      tokenUsage: { input: 6, output: 8 },
+      agentCalls: 1,
+      loopCalls: 0,
+    })
+  })
+
+  it('rejects nested workflows without explicit finite child caps', async () => {
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'bad_nested_caps', description: 'Nested caps must be explicit' }
+return agent("export const meta = { name: 'child', description: 'child' }\\nreturn 1", {
+  allowWorkflow: true,
+})
+`,
+        caps: { maxDepth: 1, maxAgentCalls: 2, maxLoopCalls: 1, maxFanout: 1, maxWallMs: 100 },
+        agent: createNestedWorkflowAgentDelegate({
+          agent: async () => ({ output: null }),
+          caps: { maxWallMs: 50, maxAgentCalls: 1, maxLoopCalls: 0, maxFanout: 1 },
+        }),
+      }),
+    ).rejects.toThrow(/nested workflow caps.maxDepth must be a finite non-negative number/)
+  })
+
+  it('clamps child workflow calls to the parent remaining agent-call budget', async () => {
+    const childSource = [
+      "export const meta = { name: 'child_budget', description: 'Child should inherit parent budget' }",
+      "return agent('child worker')",
+    ].join('\n')
+
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'parent_budget', description: 'Parent has no spare agent calls' }
+return agent(${JSON.stringify(childSource)}, { allowWorkflow: true })
+`,
+        caps: { maxDepth: 1, maxAgentCalls: 1, maxLoopCalls: 1, maxFanout: 1, maxWallMs: 1_000 },
+        agent: createNestedWorkflowAgentDelegate({
+          agent: async (prompt) => ({ output: prompt }),
+          caps: { maxWallMs: 500, maxAgentCalls: 2, maxLoopCalls: 0, maxFanout: 1, maxDepth: 1 },
+        }),
+      }),
+    ).rejects.toThrow(/maxAgentCalls=0/)
   })
 
   it('lets workflow loop() call the existing runLoop kernel through the delegate', async () => {
