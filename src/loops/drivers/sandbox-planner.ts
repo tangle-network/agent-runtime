@@ -52,7 +52,7 @@ export interface CreateSandboxPlannerOptions<Task, Output> {
    */
   decodeTask: (raw: unknown, ctx: PlannerContext<Task, Output>) => Task
   /** Override the default prompt (history summary + envelope contract). */
-  buildPrompt?: (ctx: PlannerContext<Task, Output>) => string
+  buildPrompt?: (ctx: PlannerContext<Task, Output>) => string | Promise<string>
   /** Override envelope extraction from the event stream. */
   parseEnvelope?: (events: SandboxEvent[]) => TopologyMoveEnvelope | undefined
   /** Sandbox overrides for the planner sandbox (timeouts, env, etc.). */
@@ -76,8 +76,9 @@ export function createSandboxPlanner<Task, Output>(
 
   return async (ctx) => {
     const box = await opts.client.create(buildSandboxOptions(opts.profile, opts.sandboxOverrides))
+    const prompt = await buildPrompt(ctx)
     const events: SandboxEvent[] = []
-    for await (const event of box.streamPrompt(buildPrompt(ctx), { signal: opts.signal })) {
+    for await (const event of box.streamPrompt(prompt, { signal: opts.signal })) {
       events.push(event)
     }
     const envelope = parseEnvelope(events)

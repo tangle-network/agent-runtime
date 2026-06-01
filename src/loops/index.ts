@@ -38,6 +38,11 @@ export type {
   TopologyMoveEnvelope,
 } from './drivers/sandbox-planner'
 export { createSandboxPlanner } from './drivers/sandbox-planner'
+export type {
+  CreateSteeringPlannerOptions,
+  SteeringSignal,
+} from './drivers/steering-planner'
+export { createSteeringPlanner, defaultAnalyze } from './drivers/steering-planner'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
