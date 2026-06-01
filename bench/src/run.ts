@@ -109,8 +109,47 @@ async function main() {
     return
   }
 
+  if (cmd === 'batch-blind') {
+    const { solveShotLocal } = await import('./worker-local')
+    const fs = await import('node:fs/promises')
+    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const limit = Number(rest[0] ?? process.env.N ?? 10)
+    const conc = Number(process.env.CONCURRENCY ?? 5)
+    const out = process.env.SCORECARD ?? '/tmp/swebench-blind-scorecard.jsonl'
+    await adapter.preflight()
+    const tasks = await adapter.loadTasks({ limit })
+    console.log(`[batch-blind] ${tasks.length} instances · model=${model} · concurrency=${conc} · NO caps`)
+    let next = 0
+    let done = 0
+    let resolved = 0
+    const results: Array<{ id: string; resolved: boolean; patchBytes: number; error?: string }> = []
+    const worker = async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++] as (typeof tasks)[number]
+        const started = Date.now()
+        let rec: { id: string; resolved: boolean; patchBytes: number; error?: string }
+        try {
+          const shot = await solveShotLocal(task, { model }) // no caps — runs to convergence
+          const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
+          rec = { id: task.id, resolved: score.resolved, patchBytes: shot.patch.length }
+        } catch (err) {
+          rec = { id: task.id, resolved: false, patchBytes: 0, error: err instanceof Error ? err.message : String(err) }
+        }
+        results.push(rec)
+        await fs.appendFile(out, `${JSON.stringify({ ...rec, secs: Math.round((Date.now() - started) / 1000) })}\n`)
+        done += 1
+        if (rec.resolved) resolved += 1
+        console.log(`  [${done}/${tasks.length}] ${rec.id}: ${rec.resolved ? '✅ RESOLVED' : rec.error ? `ERR ${rec.error.slice(0, 60)}` : '⚠️  no'} (${resolved}/${done} so far)`)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+    console.log(`\n=== BLIND resolve rate: ${resolved}/${tasks.length} = ${((resolved / tasks.length) * 100).toFixed(1)}% ===`)
+    console.log(`scorecard: ${out}`)
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind`,
   )
 }
 
