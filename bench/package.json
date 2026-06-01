@@ -1,0 +1,20 @@
+{
+  "name": "@tangle-network/agent-runtime-bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "External-benchmark harness for the agent-runtime loop: run blind vs steering vs steering+memory drivers against real benchmarks (SWE-bench, Terminal-Bench, AppWorld) and their DETERMINISTIC judges.",
+  "scripts": {
+    "preflight": "tsx src/run.ts preflight",
+    "verify-judge": "tsx src/run.ts verify-judge",
+    "compare": "tsx src/run.ts compare"
+  },
+  "dependencies": {
+    "@tangle-network/agent-eval": "^0.61.0",
+    "@tangle-network/agent-runtime": "file:.."
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
