@@ -1,4 +1,6 @@
 export { WorkflowBudget } from './budget'
+export type { CreateRunLoopWorkflowDelegateOptions } from './loop-delegate'
+export { createRunLoopWorkflowDelegate } from './loop-delegate'
 export { runWorkflow } from './runtime'
 export { validateJsonSchema } from './schema'
 export type {

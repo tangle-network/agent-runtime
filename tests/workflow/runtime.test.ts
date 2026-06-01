@@ -1,6 +1,14 @@
+import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
 import {
+  type AgentRunSpec,
+  createRefineDriver,
+  type OutputAdapter,
+  type Validator,
+} from '../../src/loops'
+import {
+  createRunLoopWorkflowDelegate,
   parseWorkflowScript,
   runWorkflow,
   type WorkflowAgentDelegate,
@@ -159,5 +167,69 @@ return 'nope'
         agent: async () => ({ output: null }),
       }),
     ).rejects.toThrow(/exceeds maxDepth=1/)
+  })
+
+  it('lets workflow loop() call the existing runLoop kernel through the delegate', async () => {
+    interface Task {
+      goal: string
+    }
+    interface Output {
+      attempt: number
+    }
+    let attempt = 0
+    const profile: AgentProfile = { name: 'loop-worker' }
+    const agentRun: AgentRunSpec<Task> = {
+      profile,
+      name: 'loop-worker',
+      taskToPrompt: (task) => task.goal,
+    }
+    const output: OutputAdapter<Output> = {
+      parse(events) {
+        const last = events.at(-1)
+        const data = last?.data as { attempt?: number } | undefined
+        return { attempt: typeof data?.attempt === 'number' ? data.attempt : 0 }
+      },
+    }
+    const validator: Validator<Output> = {
+      async validate(out) {
+        return { valid: out.attempt >= 2, score: out.attempt / 2 }
+      },
+    }
+    const sandboxClient = {
+      async create() {
+        return {
+          async *streamPrompt() {
+            attempt += 1
+            yield { type: 'result', data: { attempt } } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'loop_bridge', description: 'Call runLoop from workflow loop' }
+const out = await loop({ goal: 'finish' }, { label: 'refine-loop' })
+return out
+`,
+      agent: async () => ({ output: null }),
+      loop: createRunLoopWorkflowDelegate<Task, Task, Output, 'continue' | 'stop'>({
+        toRunLoopOptions(input) {
+          return {
+            driver: createRefineDriver<Task, Output>({ maxIterations: 3 }),
+            agentRun,
+            output,
+            validator,
+            task: input,
+            ctx: { sandboxClient },
+          }
+        },
+      }),
+    })
+
+    expect(result.output).toEqual({ attempt: 2 })
+    expect(result.loopCalls).toBe(1)
+    expect(result.costUsd).toBe(0)
+    expect(result.events.map((e) => e.kind)).toContain('workflow.loop.ended')
   })
 })
