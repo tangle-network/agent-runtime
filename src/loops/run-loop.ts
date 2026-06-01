@@ -300,8 +300,9 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     },
   })
 
+  let box: SandboxInstance | undefined
   try {
-    const box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
+    box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
     const placement = describePlacementSafe(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {
       kind: 'loop.iteration.dispatch',
@@ -362,6 +363,22 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         outputPreview: slot.output !== undefined ? previewOutput(slot.output) : undefined,
       },
     })
+    // The loop owns the per-shot box lifecycle — tear it down so sandboxes don't
+    // leak (one per shot, plus the planner's). Best-effort; platform expiry backstops.
+    await destroySandboxSafe(box)
+  }
+}
+
+/**
+ * Best-effort sandbox teardown. A failed delete must never surface as a loop
+ * error, and instances without a `delete` (the loop's test fakes) are skipped.
+ */
+export async function destroySandboxSafe(box: SandboxInstance | undefined): Promise<void> {
+  if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return
+  try {
+    await box.delete()
+  } catch {
+    // ignore — platform reaps on expiry
   }
 }
 
