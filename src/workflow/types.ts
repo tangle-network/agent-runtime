@@ -90,6 +90,13 @@ export interface WorkflowLoopOptions<TOutput = unknown> {
   decode?: (value: unknown) => TOutput
 }
 
+export interface WorkflowCheckpointOptions<TOutput = unknown> {
+  label?: string
+  schema?: JsonSchema
+  metadata?: Record<string, unknown>
+  decode?: (value: unknown) => TOutput
+}
+
 export interface WorkflowDelegateResult {
   output: unknown
   costUsd?: number
@@ -115,6 +122,24 @@ export type WorkflowAgentDelegate = (
 export type WorkflowLoopDelegate = (
   input: unknown,
   options: WorkflowLoopOptions,
+  ctx: WorkflowDelegateContext,
+) => Promise<WorkflowDelegateResult>
+
+export type WorkflowVerifierDelegate = (
+  input: unknown,
+  options: WorkflowCheckpointOptions,
+  ctx: WorkflowDelegateContext,
+) => Promise<WorkflowDelegateResult>
+
+export type WorkflowAnalystDelegate = (
+  input: unknown,
+  options: WorkflowCheckpointOptions,
+  ctx: WorkflowDelegateContext,
+) => Promise<WorkflowDelegateResult>
+
+export type WorkflowReviewerDelegate = (
+  input: unknown,
+  options: WorkflowCheckpointOptions,
   ctx: WorkflowDelegateContext,
 ) => Promise<WorkflowDelegateResult>
 
@@ -169,6 +194,42 @@ export type WorkflowTraceEvent =
       runId: string
       timestamp: number
       payload: WorkflowLoopEndedPayload
+    }
+  | {
+      kind: 'workflow.verifier.started'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointStartedPayload
+    }
+  | {
+      kind: 'workflow.verifier.ended'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointEndedPayload
+    }
+  | {
+      kind: 'workflow.analyst.started'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointStartedPayload
+    }
+  | {
+      kind: 'workflow.analyst.ended'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointEndedPayload
+    }
+  | {
+      kind: 'workflow.reviewer.started'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointStartedPayload
+    }
+  | {
+      kind: 'workflow.reviewer.ended'
+      runId: string
+      timestamp: number
+      payload: WorkflowCheckpointEndedPayload
     }
   | { kind: 'workflow.failed'; runId: string; timestamp: number; payload: WorkflowFailedPayload }
   | { kind: 'workflow.ended'; runId: string; timestamp: number; payload: WorkflowEndedPayload }
@@ -247,6 +308,23 @@ export interface WorkflowLoopEndedPayload {
   trace?: unknown
 }
 
+export interface WorkflowCheckpointStartedPayload {
+  index: number
+  label?: string
+  phase?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface WorkflowCheckpointEndedPayload {
+  index: number
+  label?: string
+  durationMs: number
+  costUsd: number
+  tokenUsage: WorkflowTokenUsage
+  phase?: string
+  trace?: unknown
+}
+
 export interface WorkflowFailedPayload {
   message: string
   code?: string
@@ -269,6 +347,9 @@ export interface WorkflowRuntimeOptions {
   source: string
   agent: WorkflowAgentDelegate
   loop?: WorkflowLoopDelegate
+  verifier?: WorkflowVerifierDelegate
+  analyst?: WorkflowAnalystDelegate
+  reviewer?: WorkflowReviewerDelegate
   runId?: string
   depth?: number
   caps?: WorkflowBudgetCaps

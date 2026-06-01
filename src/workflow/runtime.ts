@@ -5,14 +5,18 @@ import { WorkflowBudget } from './budget'
 import { validateJsonSchema } from './schema'
 import type {
   WorkflowAgentOptions,
+  WorkflowAnalystDelegate,
   WorkflowBudgetCaps,
   WorkflowBudgetView,
+  WorkflowCheckpointOptions,
   WorkflowDelegateContext,
   WorkflowDelegateResult,
   WorkflowLoopOptions,
   WorkflowResult,
+  WorkflowReviewerDelegate,
   WorkflowRuntimeOptions,
   WorkflowTraceEvent,
+  WorkflowVerifierDelegate,
 } from './types'
 import { parseWorkflowScript } from './validate'
 
@@ -29,6 +33,9 @@ const DEFAULT_CAPS: Required<WorkflowBudgetCaps> = {
 interface RuntimeGlobals {
   agent(prompt: string, options?: WorkflowAgentOptions): Promise<unknown>
   loop(input: unknown, options?: WorkflowLoopOptions): Promise<unknown>
+  verify(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
+  analyzeTrace(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
+  review(input: unknown, options?: WorkflowCheckpointOptions): Promise<unknown>
   parallel<T>(thunks: Array<() => Promise<T> | T>): Promise<T[]>
   pipeline<T, R>(
     items: T[],
@@ -38,6 +45,8 @@ interface RuntimeGlobals {
   log(message: string): void
   budget: WorkflowBudgetView
 }
+
+type WorkflowCheckpointRuntimeKind = 'verifier' | 'analyst' | 'reviewer'
 
 export async function runWorkflow<TOutput = unknown>(
   options: WorkflowRuntimeOptions,
@@ -55,6 +64,11 @@ export async function runWorkflow<TOutput = unknown>(
   const events: WorkflowTraceEvent[] = []
   const startedAt = now()
   let currentPhase: string | undefined
+  const checkpointCounts: Record<WorkflowCheckpointRuntimeKind, number> = {
+    verifier: 0,
+    analyst: 0,
+    reviewer: 0,
+  }
 
   const emit = async (event: WorkflowTraceEvent): Promise<void> => {
     events.push(event)
@@ -172,7 +186,7 @@ export async function runWorkflow<TOutput = unknown>(
         }),
       )
       const result = await waitForBudget(
-        options.agent(prompt, agentOptions, delegateCtx()),
+        () => options.agent(prompt, agentOptions, delegateCtx()),
         budget,
         options.signal,
       )
@@ -211,7 +225,7 @@ export async function runWorkflow<TOutput = unknown>(
         }),
       )
       const result = await waitForBudget(
-        options.loop(input, loopOptions, delegateCtx()),
+        () => options.loop!(input, loopOptions, delegateCtx()),
         budget,
         options.signal,
       )
@@ -233,6 +247,84 @@ export async function runWorkflow<TOutput = unknown>(
       )
       return output
     },
+    verify(input, verifierOptions = {}) {
+      if (!options.verifier) {
+        throw new ValidationError('workflow verify() delegate is not configured')
+      }
+      return runCheckpoint({
+        kind: 'verifier',
+        input,
+        checkpointOptions: verifierOptions,
+        delegate: options.verifier,
+      })
+    },
+    analyzeTrace(input, analystOptions = {}) {
+      if (!options.analyst) {
+        throw new ValidationError('workflow analyzeTrace() delegate is not configured')
+      }
+      return runCheckpoint({
+        kind: 'analyst',
+        input,
+        checkpointOptions: analystOptions,
+        delegate: options.analyst,
+      })
+    },
+    review(input, reviewerOptions = {}) {
+      if (!options.reviewer) {
+        throw new ValidationError('workflow review() delegate is not configured')
+      }
+      return runCheckpoint({
+        kind: 'reviewer',
+        input,
+        checkpointOptions: reviewerOptions,
+        delegate: options.reviewer,
+      })
+    },
+  }
+
+  async function runCheckpoint(args: {
+    kind: WorkflowCheckpointRuntimeKind
+    input: unknown
+    checkpointOptions: WorkflowCheckpointOptions
+    delegate: WorkflowVerifierDelegate | WorkflowAnalystDelegate | WorkflowReviewerDelegate
+  }): Promise<unknown> {
+    const index = checkpointCounts[args.kind]
+    checkpointCounts[args.kind] += 1
+    const label = args.checkpointOptions.label
+    const opStarted = now()
+    await emit(
+      emitNow({
+        kind: checkpointStartedKind(args.kind),
+        payload: {
+          index,
+          label,
+          phase: currentPhase,
+          metadata: args.checkpointOptions.metadata,
+        },
+      }),
+    )
+    const result = await waitForBudget(
+      () => args.delegate(args.input, args.checkpointOptions, delegateCtx()),
+      budget,
+      options.signal,
+    )
+    const output = decodeResult(result, args.checkpointOptions)
+    const usage = budget.observe(result)
+    await emit(
+      emitNow({
+        kind: checkpointEndedKind(args.kind),
+        payload: {
+          index,
+          label,
+          durationMs: now() - opStarted,
+          costUsd: usage.costUsd,
+          tokenUsage: usage.tokenUsage,
+          phase: currentPhase,
+          trace: result.trace,
+        },
+      }),
+    )
+    return output
   }
 
   await emit(emitNow({ kind: 'workflow.started', payload: { meta: parsed.meta, depth, caps } }))
@@ -293,6 +385,9 @@ async function runBody(
     {
       agent: globals.agent,
       loop: globals.loop,
+      verify: globals.verify,
+      analyzeTrace: globals.analyzeTrace,
+      review: globals.review,
       parallel: globals.parallel,
       pipeline: globals.pipeline,
       phase: globals.phase,
@@ -344,15 +439,18 @@ function normalizeCaps(caps: WorkflowBudgetCaps = {}): Required<WorkflowBudgetCa
 }
 
 async function waitForBudget<T>(
-  promise: Promise<T>,
+  run: () => Promise<T>,
   budget: WorkflowBudget,
   signal: AbortSignal | undefined,
 ): Promise<T> {
   budget.assertWall()
   const wallMs = budget.remainingWallMs()
   if (signal?.aborted) throw new ValidationError('workflow aborted before delegate completed')
+  if (wallMs !== undefined && wallMs <= 0) {
+    throw new ValidationError('workflow budget exhausted: maxWallMs reached')
+  }
+  const promise = run()
   if (wallMs === undefined || !Number.isFinite(wallMs)) return promise
-  if (wallMs <= 0) throw new ValidationError('workflow budget exhausted: maxWallMs reached')
   let timeout: ReturnType<typeof setTimeout> | undefined
   let abort: (() => void) | undefined
   try {
@@ -370,6 +468,32 @@ async function waitForBudget<T>(
   } finally {
     if (timeout) clearTimeout(timeout)
     if (abort) signal?.removeEventListener('abort', abort)
+  }
+}
+
+function checkpointStartedKind(
+  kind: WorkflowCheckpointRuntimeKind,
+): 'workflow.verifier.started' | 'workflow.analyst.started' | 'workflow.reviewer.started' {
+  switch (kind) {
+    case 'verifier':
+      return 'workflow.verifier.started'
+    case 'analyst':
+      return 'workflow.analyst.started'
+    case 'reviewer':
+      return 'workflow.reviewer.started'
+  }
+}
+
+function checkpointEndedKind(
+  kind: WorkflowCheckpointRuntimeKind,
+): 'workflow.verifier.ended' | 'workflow.analyst.ended' | 'workflow.reviewer.ended' {
+  switch (kind) {
+    case 'verifier':
+      return 'workflow.verifier.ended'
+    case 'analyst':
+      return 'workflow.analyst.ended'
+    case 'reviewer':
+      return 'workflow.reviewer.ended'
   }
 }
 

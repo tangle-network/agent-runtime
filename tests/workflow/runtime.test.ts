@@ -156,6 +156,90 @@ return agent('bad schema', {
     ).rejects.toThrow(ValidationError)
   })
 
+  it('runs verifier, analyst, and reviewer delegates with typed trace events', async () => {
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'feedback_loop', description: 'Verify and review a worker result' }
+phase('Build')
+const app = await agent('build app', { label: 'implement' })
+phase('Assess')
+const verdict = await verify(app, {
+  label: 'acceptance',
+  schema: {
+    type: 'object',
+    required: ['pass'],
+    additionalProperties: false,
+    properties: { pass: { type: 'boolean' } },
+  },
+})
+const findings = await analyzeTrace({ app, verdict }, { label: 'trace-analyst' })
+const decision = await review({ verdict, findings }, { label: 'next-shot' })
+return { app, verdict, findings, decision }
+`,
+      agent: async () => ({
+        output: { files: ['src/App.tsx'] },
+        costUsd: 0.01,
+        tokenUsage: { input: 10, output: 5 },
+      }),
+      verifier: async (input) => ({
+        output: { pass: true },
+        costUsd: 0.02,
+        tokenUsage: { input: 3, output: 2 },
+        trace: { checked: input },
+      }),
+      analyst: async (input) => ({
+        output: { failures: [], input },
+        costUsd: 0.03,
+        tokenUsage: { input: 4, output: 6 },
+        trace: { clusters: 0 },
+      }),
+      reviewer: async (input) => ({
+        output: { continue: false, input },
+        costUsd: 0.04,
+        tokenUsage: { input: 7, output: 8 },
+        trace: { confidence: 0.9 },
+      }),
+    })
+
+    expect(result.output).toMatchObject({
+      app: { files: ['src/App.tsx'] },
+      verdict: { pass: true },
+      findings: { failures: [] },
+      decision: { continue: false },
+    })
+    expect(result.costUsd).toBeCloseTo(0.1, 6)
+    expect(result.tokenUsage).toEqual({ input: 24, output: 21 })
+    expect(result.events.map((event) => event.kind)).toEqual([
+      'workflow.started',
+      'workflow.phase',
+      'workflow.agent.started',
+      'workflow.agent.ended',
+      'workflow.phase',
+      'workflow.verifier.started',
+      'workflow.verifier.ended',
+      'workflow.analyst.started',
+      'workflow.analyst.ended',
+      'workflow.reviewer.started',
+      'workflow.reviewer.ended',
+      'workflow.ended',
+    ])
+    expect(
+      result.events.find((event) => event.kind === 'workflow.verifier.ended')?.payload,
+    ).toMatchObject({ label: 'acceptance', costUsd: 0.02, tokenUsage: { input: 3, output: 2 } })
+  })
+
+  it('fails loudly when a workflow calls an unwired verifier delegate', async () => {
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'missing_verify', description: 'Missing verifier' }
+return verify({ ok: true })
+`,
+        agent: async () => ({ output: null }),
+      }),
+    ).rejects.toThrow(/verify\(\) delegate is not configured/)
+  })
+
   it('enforces nested workflow depth at runtime boundary', async () => {
     await expect(
       runWorkflow({
