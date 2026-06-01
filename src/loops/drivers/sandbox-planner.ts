@@ -76,16 +76,26 @@ export function createSandboxPlanner<Task, Output>(
 
   return async (ctx) => {
     const box = await opts.client.create(buildSandboxOptions(opts.profile, opts.sandboxOverrides))
-    const prompt = await buildPrompt(ctx)
-    const events: SandboxEvent[] = []
-    for await (const event of box.streamPrompt(prompt, { signal: opts.signal })) {
-      events.push(event)
+    try {
+      const prompt = await buildPrompt(ctx)
+      const events: SandboxEvent[] = []
+      for await (const event of box.streamPrompt(prompt, { signal: opts.signal })) {
+        events.push(event)
+      }
+      const envelope = parseEnvelope(events)
+      if (!envelope) {
+        throw new PlannerError('sandbox planner emitted no parseable topology-move envelope')
+      }
+      return envelopeToMove(envelope, ctx, opts.decodeTask)
+    } finally {
+      // The planner owns its box for exactly one move — tear it down so driver
+      // sandboxes don't leak (one per plan() round). Best-effort.
+      try {
+        if (typeof (box as { delete?: unknown }).delete === 'function') await box.delete()
+      } catch {
+        // ignore — platform reaps on expiry
+      }
     }
-    const envelope = parseEnvelope(events)
-    if (!envelope) {
-      throw new PlannerError('sandbox planner emitted no parseable topology-move envelope')
-    }
-    return envelopeToMove(envelope, ctx, opts.decodeTask)
   }
 }
 
@@ -186,30 +196,51 @@ function defaultBuildPrompt<Task, Output>(ctx: PlannerContext<Task, Output>): st
   ].join('\n')
 }
 
+const TERMINAL_EVENT_TYPES = new Set(['result', 'final', 'planner.move', 'done'])
+
+/**
+ * Harness-agnostic move extraction. The move arrives one of two ways and we must
+ * not assume which harness/SDK-version we're on (opencode emits `data.finalText`,
+ * others `data.result`/`data.text`/…) — so we cover all text-bearing fields and
+ * prefer (1) a STRUCTURED payload, then (2) a fenced move in a TERMINAL event's
+ * final text, then (3) the latest schema-valid fenced/bare envelope anywhere.
+ * Reverse iteration is load-bearing: the agent's real move is the LAST envelope
+ * emitted; the JSON *examples* echoed from the prompt appear earlier, so latest-
+ * first never mistakes an example for the answer.
+ *
+ * The reliable long-term path is a structured-output tool the planner CALLS (no
+ * prose scraping at all); this text extractor is the resilient fallback for
+ * harnesses without one.
+ */
 function defaultParseEnvelope(events: SandboxEvent[]): TopologyMoveEnvelope | undefined {
-  // Structured payload on a terminal event wins — sandbox SDKs lift emitted
-  // JSON onto data.result / data.output / data of a result|final event.
+  const moveText = (data: Record<string, unknown>): string | undefined =>
+    pickString(data.finalText) ??
+    pickString(data.text) ??
+    pickString(data.delta) ??
+    pickString(data.content) ??
+    pickString(data.message)
+
+  // 1) Terminal events, latest first: structured payload, else a fenced move in the final text.
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
     if (!event) continue
-    const type = String(event.type ?? '')
     const data = isRecord(event.data) ? event.data : undefined
     if (!data) continue
-    if (type === 'result' || type === 'final' || type === 'planner.move') {
-      const direct = coerceEnvelope(data.result ?? data.output ?? data)
-      if (direct) return direct
-    }
+    if (!TERMINAL_EVENT_TYPES.has(String(event.type ?? ''))) continue
+    const structured = coerceEnvelope(data.result ?? data.output ?? data.move ?? data)
+    if (structured) return structured
+    const fromText = coerceEnvelope(extractFencedJson(moveText(data) ?? ''))
+    if (fromText) return fromText
   }
-  // Fall back to a fenced JSON block in the most recent text delta.
+  // 2) Any text-bearing event, latest first: the last schema-valid fenced/bare envelope.
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
     if (!event) continue
     const data = isRecord(event.data) ? event.data : undefined
     if (!data) continue
-    const text = pickString(data.text) ?? pickString(data.delta) ?? pickString(data.content)
+    const text = moveText(data)
     if (!text) continue
-    const fenced = extractFencedJson(text)
-    const coerced = coerceEnvelope(fenced)
+    const coerced = coerceEnvelope(extractFencedJson(text))
     if (coerced) return coerced
   }
   return undefined
