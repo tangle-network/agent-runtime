@@ -278,18 +278,66 @@ return parallel([
       emitted
         .filter((event) => event.kind === 'workflow.branch.failed')
         .map((event) => event.payload),
-    ).toEqual([
-      expect.objectContaining({
-        operation: 'parallel',
-        branchIndex: 1,
-        message: 'branch exploded',
-        code: 'Error',
-        phase: 'Race',
-      }),
-    ])
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: 'parallel',
+          branchIndex: 1,
+          message: 'branch exploded',
+          code: 'Error',
+          phase: 'Race',
+        }),
+      ]),
+    )
     expect(emitted.at(-1)).toMatchObject({
       kind: 'workflow.failed',
       payload: { message: 'branch exploded', phase: 'Race' },
+    })
+  })
+
+  it('aborts sibling branches and drains branch failures before workflow failure', async () => {
+    const emitted: WorkflowTraceEvent[] = []
+    const branchSignals: AbortSignal[] = []
+    const delegate: WorkflowAgentDelegate = async (prompt, _options, ctx) => {
+      if (prompt !== 'slow') return { output: prompt }
+      branchSignals.push(ctx.signal)
+      return await new Promise((_, reject) => {
+        ctx.signal.addEventListener(
+          'abort',
+          () => reject(new Error('slow branch observed abort')),
+          { once: true },
+        )
+      })
+    }
+
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'branch_cancel', description: 'Abort siblings on fanout failure' }
+return parallel([
+  () => agent('slow'),
+  async () => {
+    await agent('fast')
+    throw new Error('trigger failure')
+  },
+])
+`,
+        agent: delegate,
+        caps: { maxFanout: 2, maxAgentCalls: 3, maxWallMs: 1_000 },
+        traceEmitter: { emit: (event) => emitted.push(event) },
+      }),
+    ).rejects.toThrow(/trigger failure/)
+
+    expect(branchSignals[0]?.aborted).toBe(true)
+    const workflowFailedIndex = emitted.findIndex((event) => event.kind === 'workflow.failed')
+    const branchFailedIndices = emitted
+      .map((event, index) => (event.kind === 'workflow.branch.failed' ? index : -1))
+      .filter((index) => index >= 0)
+    expect(branchFailedIndices).toHaveLength(2)
+    expect(branchFailedIndices.every((index) => index < workflowFailedIndex)).toBe(true)
+    expect(emitted.at(-1)).toMatchObject({
+      kind: 'workflow.failed',
+      payload: { message: 'trigger failure' },
     })
   })
 

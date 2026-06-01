@@ -43,6 +43,7 @@ export async function runWorkflow<TOutput = unknown>(
 
   const now = options.now ?? Date.now
   const budget = new WorkflowBudget(caps, now)
+  const workflowSignal = createWorkflowSignal(options.signal)
   const events: WorkflowTraceEvent[] = []
   const startedAt = now()
   let currentPhase: string | undefined
@@ -61,7 +62,7 @@ export async function runWorkflow<TOutput = unknown>(
     workflowRunId: runId,
     depth,
     phase: currentPhase,
-    signal: options.signal ?? neverAbortSignal(),
+    signal: workflowSignal.signal,
     caps,
     metadata: options.metadata,
   })
@@ -100,7 +101,8 @@ export async function runWorkflow<TOutput = unknown>(
           payload: { branchCount: thunks.length, phase: operationPhase },
         }),
       )
-      const results = await Promise.all(
+      let firstFailure: Error | undefined
+      const settled = await Promise.allSettled(
         thunks.map(async (thunk, index) => {
           const branchStarted = now()
           await emit(
@@ -125,6 +127,8 @@ export async function runWorkflow<TOutput = unknown>(
             return value
           } catch (err) {
             const normalized = normalizeRuntimeError(err)
+            firstFailure ??= normalized
+            workflowSignal.abort()
             await emit(
               emitNow({
                 kind: 'workflow.branch.failed',
@@ -142,6 +146,8 @@ export async function runWorkflow<TOutput = unknown>(
           }
         }),
       )
+      const rejected = settled.find(isRejected)
+      if (rejected) throw firstFailure ?? normalizeRuntimeError(rejected.reason)
       await emit(
         emitNow({
           kind: 'workflow.parallel.ended',
@@ -152,7 +158,7 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      return results
+      return fulfilledValues(settled)
     },
     async pipeline(items, ...stages) {
       if (!Array.isArray(items)) throw new ValidationError('pipeline() expects an item array')
@@ -171,7 +177,8 @@ export async function runWorkflow<TOutput = unknown>(
           payload: { itemCount: items.length, stageCount: stages.length, phase: operationPhase },
         }),
       )
-      const results = await Promise.all(
+      let firstFailure: Error | undefined
+      const settled = await Promise.allSettled(
         items.map(async (item, index) => {
           const branchStarted = now()
           await emit(
@@ -207,6 +214,8 @@ export async function runWorkflow<TOutput = unknown>(
             return value as never
           } catch (err) {
             const normalized = normalizeRuntimeError(err)
+            firstFailure ??= normalized
+            workflowSignal.abort()
             await emit(
               emitNow({
                 kind: 'workflow.branch.failed',
@@ -225,6 +234,8 @@ export async function runWorkflow<TOutput = unknown>(
           }
         }),
       )
+      const rejected = settled.find(isRejected)
+      if (rejected) throw firstFailure ?? normalizeRuntimeError(rejected.reason)
       await emit(
         emitNow({
           kind: 'workflow.pipeline.ended',
@@ -236,7 +247,7 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      return results
+      return fulfilledValues(settled) as never[]
     },
     async agent(prompt, agentOptions = {}) {
       assertString(prompt, 'agent prompt')
@@ -258,7 +269,8 @@ export async function runWorkflow<TOutput = unknown>(
       const result = await waitForBudget(
         () => options.agent(prompt, agentOptions, delegateCtx()),
         budget,
-        options.signal,
+        workflowSignal.signal,
+        workflowSignal.abort,
       )
       const output = decodeResult(result, agentOptions)
       const usage = budget.observe(result)
@@ -297,7 +309,8 @@ export async function runWorkflow<TOutput = unknown>(
       const result = await waitForBudget(
         () => options.loop!(input, loopOptions, delegateCtx()),
         budget,
-        options.signal,
+        workflowSignal.signal,
+        workflowSignal.abort,
       )
       const output = decodeResult(result, loopOptions)
       const usage = budget.observe(result)
@@ -376,7 +389,8 @@ export async function runWorkflow<TOutput = unknown>(
     const result = await waitForBudget(
       () => args.delegate(args.input, args.checkpointOptions, delegateCtx()),
       budget,
-      options.signal,
+      workflowSignal.signal,
+      workflowSignal.abort,
     )
     const output = decodeResult(result, args.checkpointOptions)
     const usage = budget.observe(result)
@@ -403,6 +417,7 @@ export async function runWorkflow<TOutput = unknown>(
       () => runBody(parsed.body, parsed.meta.name, globals, options.syncTimeoutMs),
       budget,
       options.signal,
+      workflowSignal.abort,
       'body',
     )) as TOutput
     const spent = budget.spent()
@@ -432,6 +447,7 @@ export async function runWorkflow<TOutput = unknown>(
     return { ...result, events }
   } catch (err) {
     const normalized = normalizeRuntimeError(err)
+    workflowSignal.abort()
     await emit(
       emitNow({
         kind: 'workflow.failed',
@@ -443,6 +459,8 @@ export async function runWorkflow<TOutput = unknown>(
       }),
     )
     throw normalized
+  } finally {
+    workflowSignal.cleanup()
   }
 }
 
@@ -500,6 +518,7 @@ async function waitForBudget<T>(
   run: () => Promise<T>,
   budget: WorkflowBudget,
   signal: AbortSignal | undefined,
+  abortWorkflow?: () => void,
   scope: 'delegate' | 'body' = 'delegate',
 ): Promise<T> {
   budget.assertWall()
@@ -516,10 +535,10 @@ async function waitForBudget<T>(
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new ValidationError(`workflow ${scope} timed out`)),
-          wallMs,
-        )
+        timeout = setTimeout(() => {
+          reject(new ValidationError(`workflow ${scope} timed out`))
+          abortWorkflow?.()
+        }, wallMs)
         abort = () => reject(new ValidationError(`workflow aborted before ${scope} completed`))
         signal?.addEventListener('abort', abort, { once: true })
       }),
@@ -528,6 +547,37 @@ async function waitForBudget<T>(
     if (timeout) clearTimeout(timeout)
     if (abort) signal?.removeEventListener('abort', abort)
   }
+}
+
+function createWorkflowSignal(external: AbortSignal | undefined): {
+  signal: AbortSignal
+  abort: () => void
+  cleanup: () => void
+} {
+  const controller = new AbortController()
+  const abort = () => {
+    if (!controller.signal.aborted) controller.abort()
+  }
+  if (external) {
+    if (external.aborted) {
+      abort()
+    } else {
+      external.addEventListener('abort', abort, { once: true })
+    }
+  }
+  return {
+    signal: controller.signal,
+    abort,
+    cleanup: () => external?.removeEventListener('abort', abort),
+  }
+}
+
+function isRejected<T>(settled: PromiseSettledResult<T>): settled is PromiseRejectedResult {
+  return settled.status === 'rejected'
+}
+
+function fulfilledValues<T>(settled: readonly PromiseSettledResult<T>[]): T[] {
+  return settled.map((item) => (item as PromiseFulfilledResult<T>).value)
 }
 
 function normalizeCap(
@@ -576,8 +626,4 @@ function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new ValidationError(`workflow ${name} must be a non-empty string`)
   }
-}
-
-function neverAbortSignal(): AbortSignal {
-  return new AbortController().signal
 }
