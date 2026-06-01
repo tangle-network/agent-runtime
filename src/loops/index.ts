@@ -52,6 +52,12 @@ export {
   steerAttributionSignal,
 } from './drivers/steer-attribution'
 export type {
+  AttributionToEntryOptions,
+  CreateSteeringMemoryOptions,
+  SteeringMemory,
+} from './drivers/steering-memory'
+export { attributionToPlaybookEntry, createSteeringMemory } from './drivers/steering-memory'
+export type {
   CreateSteeringPlannerOptions,
   SteeringFindingLike,
   SteeringSignal,
