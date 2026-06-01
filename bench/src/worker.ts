@@ -6,6 +6,7 @@
  * sandbox → opencode agent → router model), so it also exercises provisioning.
  */
 
+import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
 
@@ -27,6 +28,8 @@ export interface ShotResult {
 
 const PATCH_PATH = '/tmp/solution.patch'
 
+const randomSuffix = () => Math.random().toString(36).slice(2, 10)
+
 /** Run one resolution shot. `steer` (optional) carries guidance from a prior attempt. */
 export async function solveShot(
   task: BenchTask,
@@ -38,7 +41,10 @@ export async function solveShot(
   const base = String(md.base_commit)
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
 
-  const box = await client.create({
+  // Cold-start-resilient: tolerates scale-from-zero node provisioning behind the
+  // gateway's ~100s limit (a timed-out create is recovered by name lookup).
+  const box = await acquireSandbox(client, {
+    name: `bench-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
     environment: 'universal',
     backend: {
       type: 'opencode',

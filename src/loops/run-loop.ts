@@ -30,6 +30,7 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import { acquireSandbox } from './sandbox-acquire'
 import { extractLlmCallEvent } from './sandbox-events'
 import type {
   AgentRunSpec,
@@ -470,10 +471,11 @@ export async function createSandboxForSpec<Task>(
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
   }
-  // Cooperative cancellation: if the abort signal fires while .create is
-  // pending, the promise itself is not abortable but the inflight prompt is.
+  // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
+  // host-agent registration) can't surface as a failure — readiness is observed
+  // from sandbox status, and a gateway-timed-out create is recovered by lookup.
   if (signal.aborted) throwAbort()
-  return client.create(opts)
+  return acquireSandbox(client, opts, { signal })
 }
 
 function inferBackendType(
