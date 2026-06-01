@@ -80,7 +80,8 @@
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:package": "node scripts/verify-package-exports.mjs"
   },
   "dependencies": {},
   "devDependencies": {

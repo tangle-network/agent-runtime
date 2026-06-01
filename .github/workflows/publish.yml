@@ -35,6 +35,9 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Verify packed package exports
+        run: pnpm run verify:package
+
       - name: Verify tag/version lock
         run: |
           NPM_VERSION=$(node -p "require('./package.json').version")
