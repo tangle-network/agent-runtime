@@ -1,0 +1,384 @@
+import { randomUUID } from 'node:crypto'
+import vm from 'node:vm'
+import { ValidationError } from '../errors'
+import { WorkflowBudget } from './budget'
+import { validateJsonSchema } from './schema'
+import type {
+  WorkflowAgentOptions,
+  WorkflowBudgetCaps,
+  WorkflowBudgetView,
+  WorkflowDelegateContext,
+  WorkflowDelegateResult,
+  WorkflowLoopOptions,
+  WorkflowResult,
+  WorkflowRuntimeOptions,
+  WorkflowTraceEvent,
+} from './types'
+import { parseWorkflowScript } from './validate'
+
+const DEFAULT_CAPS: Required<WorkflowBudgetCaps> = {
+  maxCostUsd: Number.POSITIVE_INFINITY,
+  maxTokens: Number.POSITIVE_INFINITY,
+  maxWallMs: 10 * 60_000,
+  maxAgentCalls: 32,
+  maxLoopCalls: 16,
+  maxFanout: 8,
+  maxDepth: 1,
+}
+
+interface RuntimeGlobals {
+  agent(prompt: string, options?: WorkflowAgentOptions): Promise<unknown>
+  loop(input: unknown, options?: WorkflowLoopOptions): Promise<unknown>
+  parallel<T>(thunks: Array<() => Promise<T> | T>): Promise<T[]>
+  pipeline<T, R>(
+    items: T[],
+    ...stages: Array<(value: unknown, original: T, index: number) => R>
+  ): Promise<R[]>
+  phase(title: string): void
+  log(message: string): void
+  budget: WorkflowBudgetView
+}
+
+export async function runWorkflow<TOutput = unknown>(
+  options: WorkflowRuntimeOptions,
+): Promise<WorkflowResult<TOutput>> {
+  const parsed = parseWorkflowScript(options.source)
+  const runId = options.runId ?? `workflow-${randomUUID()}`
+  const depth = options.depth ?? 0
+  const caps = normalizeCaps(options.caps)
+  if (depth > caps.maxDepth) {
+    throw new ValidationError(`workflow depth ${depth} exceeds maxDepth=${caps.maxDepth}`)
+  }
+
+  const now = options.now ?? Date.now
+  const budget = new WorkflowBudget(caps, now)
+  const events: WorkflowTraceEvent[] = []
+  const startedAt = now()
+  let currentPhase: string | undefined
+
+  const emit = async (event: WorkflowTraceEvent): Promise<void> => {
+    events.push(event)
+    await options.traceEmitter?.emit(event)
+  }
+
+  const delegateCtx = (): WorkflowDelegateContext => ({
+    workflowRunId: runId,
+    depth,
+    phase: currentPhase,
+    signal: options.signal ?? neverAbortSignal(),
+    caps,
+    metadata: options.metadata,
+  })
+
+  const emitNow = (event: Omit<WorkflowTraceEvent, 'runId' | 'timestamp'>): WorkflowTraceEvent =>
+    ({
+      ...event,
+      runId,
+      timestamp: now(),
+    }) as WorkflowTraceEvent
+
+  const globals: RuntimeGlobals = {
+    budget,
+    phase(title) {
+      assertString(title, 'phase title')
+      currentPhase = title
+      void emit(emitNow({ kind: 'workflow.phase', payload: { title } }))
+    },
+    log(message) {
+      assertString(message, 'log message')
+      void emit(emitNow({ kind: 'workflow.log', payload: { message, phase: currentPhase } }))
+    },
+    async parallel(thunks) {
+      if (!Array.isArray(thunks)) throw new ValidationError('parallel() expects an array')
+      budget.assertFanout(thunks.length)
+      const opStarted = now()
+      await emit(
+        emitNow({
+          kind: 'workflow.parallel.started',
+          payload: { branchCount: thunks.length, phase: currentPhase },
+        }),
+      )
+      const results = await Promise.all(
+        thunks.map((thunk, index) => {
+          if (typeof thunk !== 'function') {
+            throw new ValidationError(`parallel() branch ${index} is not a function`)
+          }
+          return thunk()
+        }),
+      )
+      await emit(
+        emitNow({
+          kind: 'workflow.parallel.ended',
+          payload: {
+            branchCount: thunks.length,
+            durationMs: now() - opStarted,
+            phase: currentPhase,
+          },
+        }),
+      )
+      return results
+    },
+    async pipeline(items, ...stages) {
+      if (!Array.isArray(items)) throw new ValidationError('pipeline() expects an item array')
+      budget.assertFanout(items.length)
+      if (stages.length === 0) throw new ValidationError('pipeline() expects at least one stage')
+      stages.forEach((stage, index) => {
+        if (typeof stage !== 'function') {
+          throw new ValidationError(`pipeline() stage ${index} is not a function`)
+        }
+      })
+      const opStarted = now()
+      await emit(
+        emitNow({
+          kind: 'workflow.pipeline.started',
+          payload: { itemCount: items.length, stageCount: stages.length, phase: currentPhase },
+        }),
+      )
+      const results = await Promise.all(
+        items.map(async (item, index) => {
+          let value: unknown = item
+          for (const stage of stages) value = await stage(value, item, index)
+          return value as never
+        }),
+      )
+      await emit(
+        emitNow({
+          kind: 'workflow.pipeline.ended',
+          payload: {
+            itemCount: items.length,
+            stageCount: stages.length,
+            durationMs: now() - opStarted,
+            phase: currentPhase,
+          },
+        }),
+      )
+      return results
+    },
+    async agent(prompt, agentOptions = {}) {
+      assertString(prompt, 'agent prompt')
+      const index = budget.nextAgentIndex()
+      const label = agentOptions.label
+      const opStarted = now()
+      await emit(
+        emitNow({
+          kind: 'workflow.agent.started',
+          payload: {
+            index,
+            label,
+            promptChars: prompt.length,
+            phase: currentPhase,
+            metadata: agentOptions.metadata,
+          },
+        }),
+      )
+      const result = await waitForBudget(
+        options.agent(prompt, agentOptions, delegateCtx()),
+        budget,
+        options.signal,
+      )
+      const output = decodeResult(result, agentOptions)
+      const usage = budget.observe(result)
+      await emit(
+        emitNow({
+          kind: 'workflow.agent.ended',
+          payload: {
+            index,
+            label,
+            durationMs: now() - opStarted,
+            costUsd: usage.costUsd,
+            tokenUsage: usage.tokenUsage,
+            phase: currentPhase,
+            trace: result.trace,
+          },
+        }),
+      )
+      return output
+    },
+    async loop(input, loopOptions = {}) {
+      if (!options.loop) throw new ValidationError('workflow loop() delegate is not configured')
+      const index = budget.nextLoopIndex()
+      const label = loopOptions.label
+      const opStarted = now()
+      await emit(
+        emitNow({
+          kind: 'workflow.loop.started',
+          payload: {
+            index,
+            label,
+            phase: currentPhase,
+            metadata: loopOptions.metadata,
+          },
+        }),
+      )
+      const result = await waitForBudget(
+        options.loop(input, loopOptions, delegateCtx()),
+        budget,
+        options.signal,
+      )
+      const output = decodeResult(result, loopOptions)
+      const usage = budget.observe(result)
+      await emit(
+        emitNow({
+          kind: 'workflow.loop.ended',
+          payload: {
+            index,
+            label,
+            durationMs: now() - opStarted,
+            costUsd: usage.costUsd,
+            tokenUsage: usage.tokenUsage,
+            phase: currentPhase,
+            trace: result.trace,
+          },
+        }),
+      )
+      return output
+    },
+  }
+
+  await emit(emitNow({ kind: 'workflow.started', payload: { meta: parsed.meta, depth, caps } }))
+  try {
+    const output = (await runBody(
+      parsed.body,
+      parsed.meta.name,
+      globals,
+      options.syncTimeoutMs,
+    )) as TOutput
+    const spent = budget.spent()
+    const result: WorkflowResult<TOutput> = {
+      runId,
+      meta: parsed.meta,
+      output,
+      events,
+      durationMs: now() - startedAt,
+      costUsd: spent.costUsd,
+      tokenUsage: spent.tokens,
+      agentCalls: spent.agentCalls,
+      loopCalls: spent.loopCalls,
+    }
+    await emit(
+      emitNow({
+        kind: 'workflow.ended',
+        payload: {
+          durationMs: result.durationMs,
+          costUsd: result.costUsd,
+          tokenUsage: result.tokenUsage,
+          agentCalls: result.agentCalls,
+          loopCalls: result.loopCalls,
+        },
+      }),
+    )
+    return { ...result, events }
+  } catch (err) {
+    await emit(
+      emitNow({
+        kind: 'workflow.failed',
+        payload: {
+          message: err instanceof Error ? err.message : String(err),
+          code: err instanceof Error ? err.name : undefined,
+          phase: currentPhase,
+        },
+      }),
+    )
+    throw err
+  }
+}
+
+async function runBody(
+  body: string,
+  workflowName: string,
+  globals: RuntimeGlobals,
+  syncTimeoutMs = 1000,
+): Promise<unknown> {
+  const context = vm.createContext(
+    {
+      agent: globals.agent,
+      loop: globals.loop,
+      parallel: globals.parallel,
+      pipeline: globals.pipeline,
+      phase: globals.phase,
+      log: globals.log,
+      budget: globals.budget,
+      JSON,
+      Object,
+      Array,
+      String,
+      Number,
+      Boolean,
+    },
+    {
+      name: `workflow:${workflowName}`,
+      codeGeneration: { strings: false, wasm: false },
+    },
+  )
+  const script = new vm.Script(
+    `
+'use strict'
+const __workflowMain = async () => {
+${body}
+}
+__workflowMain()
+`,
+    { filename: `${workflowName}.workflow.js` },
+  )
+  return script.runInContext(context, { timeout: syncTimeoutMs })
+}
+
+function decodeResult<TOptions extends { schema?: unknown; decode?: (value: unknown) => unknown }>(
+  result: WorkflowDelegateResult,
+  options: TOptions,
+): unknown {
+  if (options.schema) validateJsonSchema(result.output, options.schema as never)
+  return options.decode ? options.decode(result.output) : result.output
+}
+
+function normalizeCaps(caps: WorkflowBudgetCaps = {}): Required<WorkflowBudgetCaps> {
+  return {
+    maxCostUsd: caps.maxCostUsd ?? DEFAULT_CAPS.maxCostUsd,
+    maxTokens: caps.maxTokens ?? DEFAULT_CAPS.maxTokens,
+    maxWallMs: caps.maxWallMs ?? DEFAULT_CAPS.maxWallMs,
+    maxAgentCalls: caps.maxAgentCalls ?? DEFAULT_CAPS.maxAgentCalls,
+    maxLoopCalls: caps.maxLoopCalls ?? DEFAULT_CAPS.maxLoopCalls,
+    maxFanout: caps.maxFanout ?? DEFAULT_CAPS.maxFanout,
+    maxDepth: caps.maxDepth ?? DEFAULT_CAPS.maxDepth,
+  }
+}
+
+async function waitForBudget<T>(
+  promise: Promise<T>,
+  budget: WorkflowBudget,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  budget.assertWall()
+  const wallMs = budget.remainingWallMs()
+  if (signal?.aborted) throw new ValidationError('workflow aborted before delegate completed')
+  if (wallMs === undefined || !Number.isFinite(wallMs)) return promise
+  if (wallMs <= 0) throw new ValidationError('workflow budget exhausted: maxWallMs reached')
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let abort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new ValidationError('workflow delegate timed out')),
+          wallMs,
+        )
+        abort = () => reject(new ValidationError('workflow aborted before delegate completed'))
+        signal?.addEventListener('abort', abort, { once: true })
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    if (abort) signal?.removeEventListener('abort', abort)
+  }
+}
+
+function assertString(value: unknown, name: string): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ValidationError(`workflow ${name} must be a non-empty string`)
+  }
+}
+
+function neverAbortSignal(): AbortSignal {
+  return new AbortController().signal
+}

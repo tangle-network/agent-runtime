@@ -8,6 +8,7 @@ export default defineConfig({
     improvement: 'src/improvement/index.ts',
     agent: 'src/agent/index.ts',
     loops: 'src/loops/index.ts',
+    workflow: 'src/workflow/index.ts',
     profiles: 'src/profiles/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',

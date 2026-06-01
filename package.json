@@ -44,6 +44,11 @@
       "import": "./dist/loops.js",
       "default": "./dist/loops.js"
     },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
       "import": "./dist/profiles.js",
