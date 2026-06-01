@@ -9,6 +9,7 @@ import {
 } from '../../src/loops'
 import {
   createRunLoopWorkflowDelegate,
+  createSandboxWorkflowAgentDelegate,
   parseWorkflowScript,
   runWorkflow,
   type WorkflowAgentDelegate,
@@ -231,5 +232,124 @@ return out
     expect(result.loopCalls).toBe(1)
     expect(result.costUsd).toBe(0)
     expect(result.events.map((e) => e.kind)).toContain('workflow.loop.ended')
+  })
+
+  it('lets workflow agent() run a sandbox-backed worker delegate', async () => {
+    const profile: AgentProfile = { name: 'sandbox-worker' }
+    const prompts: string[] = []
+    const signals: AbortSignal[] = []
+    const createOptions: unknown[] = []
+    const sandboxClient = {
+      async create(options?: unknown) {
+        createOptions.push(options)
+        return {
+          id: 'box-1',
+          async *streamPrompt(message: string, options?: { signal?: AbortSignal }) {
+            prompts.push(message)
+            if (options?.signal) signals.push(options.signal)
+            yield {
+              type: 'llm_call',
+              data: { model: 'zai/kimi-k2.6', tokensIn: 11, tokensOut: 7, costUsd: 0.07 },
+            } satisfies SandboxEvent
+            yield {
+              type: 'result',
+              data: { finalText: 'built' },
+            } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+      describePlacement() {
+        return {
+          kind: 'fleet' as const,
+          sandboxId: 'box-1',
+          fleetId: 'fleet-1',
+          machineId: 'machine-1',
+        }
+      },
+    }
+    const output: OutputAdapter<{ ok: boolean; response: string }> = {
+      parse(events) {
+        const result = events.find((event) => event.type === 'result')
+        const data = result?.data as { finalText?: string } | undefined
+        return { ok: true, response: data?.finalText ?? '' }
+      },
+    }
+
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'sandbox_agent', description: 'Run a sandbox worker' }
+const out = await agent('build the project', { label: 'builder' })
+return out
+`,
+      runId: 'wf-sandbox-agent',
+      agent: createSandboxWorkflowAgentDelegate({
+        client: sandboxClient,
+        profile,
+        output,
+      }),
+    })
+
+    expect(result.output).toEqual({ ok: true, response: 'built' })
+    expect(prompts).toEqual(['build the project'])
+    expect(signals).toHaveLength(1)
+    expect(createOptions[0]).toMatchObject({
+      backend: { type: 'opencode', profile },
+    })
+    expect(result.costUsd).toBeCloseTo(0.07, 6)
+    expect(result.tokenUsage).toEqual({ input: 11, output: 7 })
+    const ended = result.events.find((event) => event.kind === 'workflow.agent.ended')
+    expect(ended?.payload.trace).toMatchObject({
+      stream: 'prompt',
+      placement: 'fleet',
+      sandboxId: 'box-1',
+      fleetId: 'fleet-1',
+      machineId: 'machine-1',
+      profileName: 'sandbox-worker',
+      eventCount: 2,
+      eventTypes: ['llm_call', 'result'],
+    })
+    expect((ended?.payload.trace as { events?: unknown } | undefined)?.events).toBeUndefined()
+  })
+
+  it('supports streamTask for autonomous sandbox workers', async () => {
+    const taskCalls: Array<{ prompt: string; maxTurns?: number; signal?: AbortSignal }> = []
+    const sandboxClient = {
+      async create() {
+        return {
+          id: 'box-task',
+          async *streamTask(prompt: string, options?: { maxTurns?: number; signal?: AbortSignal }) {
+            taskCalls.push({ prompt, maxTurns: options?.maxTurns, signal: options?.signal })
+            yield { type: 'result', data: { response: 'done' } } satisfies SandboxEvent
+            yield {
+              type: 'done',
+              data: {
+                tokenUsage: { inputTokens: 2, outputTokens: 3, reasoningTokens: 1 },
+                totalCostUsd: 0.02,
+              },
+            } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'sandbox_task_agent', description: 'Run a sandbox task worker' }
+return agent('finish the app', { label: 'task-worker' })
+`,
+      agent: createSandboxWorkflowAgentDelegate({
+        client: sandboxClient,
+        profile: { name: 'task-worker' },
+        stream: 'task',
+        taskOptions: { maxTurns: 2 },
+      }),
+    })
+
+    expect(result.output).toBe('done')
+    expect(taskCalls).toHaveLength(1)
+    expect(taskCalls[0]).toMatchObject({ prompt: 'finish the app', maxTurns: 2 })
+    expect(taskCalls[0]?.signal).toBeInstanceOf(AbortSignal)
+    expect(result.costUsd).toBeCloseTo(0.02, 6)
+    expect(result.tokenUsage).toEqual({ input: 2, output: 4 })
   })
 })

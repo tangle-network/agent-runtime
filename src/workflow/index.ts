@@ -1,3 +1,15 @@
+export type {
+  CreateSandboxWorkflowAgentDelegateOptions,
+  WorkflowSandboxAgentDefaultTrace,
+  WorkflowSandboxAgentProfileResolver,
+  WorkflowSandboxAgentStream,
+  WorkflowSandboxAgentTrace,
+  WorkflowSandboxPromptOptionsResolver,
+} from './agent-delegate'
+export {
+  createSandboxWorkflowAgentDelegate,
+  parseSandboxAgentDefaultOutput,
+} from './agent-delegate'
 export { WorkflowBudget } from './budget'
 export type { CreateRunLoopWorkflowDelegateOptions } from './loop-delegate'
 export { createRunLoopWorkflowDelegate } from './loop-delegate'

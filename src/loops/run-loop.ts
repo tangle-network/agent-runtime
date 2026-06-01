@@ -303,7 +303,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
   let box: SandboxInstance | undefined
   try {
     box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
-    const placement = describePlacementSafe(args.ctx.sandboxClient, box)
+    const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {
       kind: 'loop.iteration.dispatch',
       runId: args.runId,
@@ -417,7 +417,7 @@ function previewOutput(output: unknown): string {
   return s.length > 280 ? `${s.slice(0, 280)}…` : s
 }
 
-function describePlacementSafe(
+export function describeSandboxPlacement(
   client: LoopSandboxClient,
   box: SandboxInstance,
 ): LoopSandboxPlacement {
