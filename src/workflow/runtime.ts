@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { ValidationError } from '../errors'
 import { WorkflowBudget } from './budget'
+import {
+  normalizeWorkflowAgentOptions,
+  normalizeWorkflowCheckpointOptions,
+  normalizeWorkflowLoopOptions,
+} from './options'
 import { normalizeRuntimeError, type WorkflowRuntimeGlobals } from './realm'
 import {
   assertWorkflowString,
@@ -279,8 +284,9 @@ export async function runWorkflow<TOutput = unknown>(
       )
       return fulfilledValues(settled) as never[]
     },
-    async agent(prompt, agentOptions = {}) {
+    async agent(prompt, rawAgentOptions) {
       assertWorkflowString(prompt, 'agent prompt')
+      const agentOptions = normalizeWorkflowAgentOptions(rawAgentOptions)
       const index = budget.nextAgentIndex()
       const label = agentOptions.label
       const opStarted = now()
@@ -329,8 +335,9 @@ export async function runWorkflow<TOutput = unknown>(
         })
       }
     },
-    async loop(input, loopOptions = {}) {
+    async loop(input, rawLoopOptions) {
       if (!options.loop) throw new ValidationError('workflow loop() delegate is not configured')
+      const loopOptions = normalizeWorkflowLoopOptions(rawLoopOptions)
       const index = budget.nextLoopIndex()
       const label = loopOptions.label
       const opStarted = now()
@@ -378,10 +385,11 @@ export async function runWorkflow<TOutput = unknown>(
         })
       }
     },
-    verify(input, verifierOptions = {}) {
+    verify(input, rawVerifierOptions) {
       if (!options.verifier) {
         throw new ValidationError('workflow verify() delegate is not configured')
       }
+      const verifierOptions = normalizeWorkflowCheckpointOptions(rawVerifierOptions, 'verify')
       return runCheckpoint({
         kind: 'verifier',
         input,
@@ -389,10 +397,11 @@ export async function runWorkflow<TOutput = unknown>(
         delegate: options.verifier,
       })
     },
-    analyzeTrace(input, analystOptions = {}) {
+    analyzeTrace(input, rawAnalystOptions) {
       if (!options.analyst) {
         throw new ValidationError('workflow analyzeTrace() delegate is not configured')
       }
+      const analystOptions = normalizeWorkflowCheckpointOptions(rawAnalystOptions, 'analyzeTrace')
       return runCheckpoint({
         kind: 'analyst',
         input,
@@ -400,10 +409,11 @@ export async function runWorkflow<TOutput = unknown>(
         delegate: options.analyst,
       })
     },
-    review(input, reviewerOptions = {}) {
+    review(input, rawReviewerOptions) {
       if (!options.reviewer) {
         throw new ValidationError('workflow review() delegate is not configured')
       }
+      const reviewerOptions = normalizeWorkflowCheckpointOptions(rawReviewerOptions, 'review')
       return runCheckpoint({
         kind: 'reviewer',
         input,

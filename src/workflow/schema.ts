@@ -1,7 +1,72 @@
 import { ValidationError } from '../errors'
 import type { JsonSchema } from './types'
 
+export function validateJsonSchemaDefinition(
+  schema: unknown,
+  path = '$',
+): asserts schema is JsonSchema {
+  const record = assertSchemaRecord(schema, path)
+  const type = record.type
+  switch (type) {
+    case 'string':
+      requireAllowedKeys(record, path, ['type', 'minLength', 'maxLength', 'enum'])
+      optionalNonNegativeNumber(record.minLength, `${path}.minLength`, { integer: true })
+      optionalNonNegativeNumber(record.maxLength, `${path}.maxLength`, { integer: true })
+      optionalEnum(record.enum, path, 'string')
+      return
+    case 'number':
+    case 'integer':
+      requireAllowedKeys(record, path, ['type', 'minimum', 'maximum', 'enum'])
+      optionalFiniteNumber(record.minimum, `${path}.minimum`)
+      optionalFiniteNumber(record.maximum, `${path}.maximum`)
+      optionalEnum(record.enum, path, type)
+      return
+    case 'boolean':
+      requireAllowedKeys(record, path, ['type', 'enum'])
+      optionalEnum(record.enum, path, 'boolean')
+      return
+    case 'null':
+      requireAllowedKeys(record, path, ['type'])
+      return
+    case 'array':
+      requireAllowedKeys(record, path, ['type', 'items', 'minItems', 'maxItems'])
+      optionalNonNegativeNumber(record.minItems, `${path}.minItems`, { integer: true })
+      optionalNonNegativeNumber(record.maxItems, `${path}.maxItems`, { integer: true })
+      if (record.items !== undefined) validateJsonSchemaDefinition(record.items, `${path}.items`)
+      return
+    case 'object': {
+      requireAllowedKeys(record, path, ['type', 'properties', 'required', 'additionalProperties'])
+      if (record.properties !== undefined) {
+        const properties = assertSchemaPlainRecord(record.properties, `${path}.properties`)
+        for (const [key, child] of Object.entries(properties)) {
+          validateJsonSchemaDefinition(child, `${path}.properties.${key}`)
+        }
+      }
+      if (record.required !== undefined) {
+        if (!Array.isArray(record.required)) {
+          throw new ValidationError(`${path}.required: expected string array`)
+        }
+        for (const [index, value] of record.required.entries()) {
+          if (typeof value !== 'string' || value.length === 0) {
+            throw new ValidationError(`${path}.required[${index}]: expected non-empty string`)
+          }
+        }
+      }
+      if (
+        record.additionalProperties !== undefined &&
+        typeof record.additionalProperties !== 'boolean'
+      ) {
+        throw new ValidationError(`${path}.additionalProperties: expected boolean`)
+      }
+      return
+    }
+    default:
+      throw new ValidationError(`${path}.type: expected supported JSON schema type`)
+  }
+}
+
 export function validateJsonSchema(value: unknown, schema: JsonSchema, path = '$'): void {
+  validateJsonSchemaDefinition(schema)
   switch (schema.type) {
     case 'string':
       assertType(typeof value === 'string', path, 'string')
@@ -97,5 +162,72 @@ function assertNumberBounds(
 function assertEnum<T>(value: T, allowed: readonly T[] | undefined, path: string): void {
   if (allowed && !allowed.includes(value)) {
     throw new ValidationError(`${path}: expected one of ${allowed.map(String).join(', ')}`)
+  }
+}
+
+function assertSchemaRecord(value: unknown, path: string): Record<string, unknown> {
+  const record = assertSchemaPlainRecord(value, path)
+  if (typeof record.type !== 'string' || record.type.length === 0) {
+    throw new ValidationError(`${path}.type: expected non-empty string`)
+  }
+  return record
+}
+
+function assertSchemaPlainRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationError(`${path}: expected object`)
+  }
+  return value as Record<string, unknown>
+}
+
+function requireAllowedKeys(
+  record: Record<string, unknown>,
+  path: string,
+  allowedKeys: readonly string[],
+): void {
+  const allowed = new Set(allowedKeys)
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) throw new ValidationError(`${path}.${key}: unsupported schema keyword`)
+  }
+}
+
+function optionalFiniteNumber(value: unknown, path: string): void {
+  if (value === undefined) return
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new ValidationError(`${path}: expected finite number`)
+  }
+}
+
+function optionalNonNegativeNumber(
+  value: unknown,
+  path: string,
+  options: { integer?: boolean } = {},
+): void {
+  optionalFiniteNumber(value, path)
+  if (value === undefined) return
+  if ((value as number) < 0) throw new ValidationError(`${path}: expected non-negative number`)
+  if (options.integer && !Number.isInteger(value)) {
+    throw new ValidationError(`${path}: expected integer`)
+  }
+}
+
+function optionalEnum(
+  value: unknown,
+  path: string,
+  expected: 'string' | 'number' | 'integer' | 'boolean',
+): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) throw new ValidationError(`${path}.enum: expected array`)
+  for (const [index, item] of value.entries()) {
+    const itemPath = `${path}.enum[${index}]`
+    if (expected === 'integer') {
+      if (!Number.isInteger(item)) throw new ValidationError(`${itemPath}: expected integer`)
+    } else if (expected === 'number') {
+      if (typeof item !== 'number' || !Number.isFinite(item)) {
+        throw new ValidationError(`${itemPath}: expected finite number`)
+      }
+    } else if (typeof item !== expected) {
+      throw new ValidationError(`${itemPath}: expected ${expected}`)
+    }
   }
 }

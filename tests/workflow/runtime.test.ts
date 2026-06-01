@@ -441,6 +441,75 @@ return agent('bad schema', {
     })
   })
 
+  it('rejects invalid JSON schema definitions before dispatching delegates', async () => {
+    let called = false
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'bad_schema_definition', description: 'Schema definitions must be strict' }
+return agent('should not run', {
+  schema: {
+    type: 'object',
+    required: ['ok'],
+    properties: { ok: {} },
+  },
+})
+`,
+        agent: async () => {
+          called = true
+          return { output: { ok: true } }
+        },
+      }),
+    ).rejects.toThrow(/agent\.schema\.properties\.ok\.type/)
+
+    expect(called).toBe(false)
+  })
+
+  it('rejects driver-supplied decode callbacks instead of executing them in host delegate handling', async () => {
+    let called = false
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'decode_callback', description: 'Decode callbacks are host code only' }
+return agent('should not run', {
+  decode: function(value) {
+    return value
+  },
+})
+`,
+        agent: async () => {
+          called = true
+          return { output: { ok: true } }
+        },
+      }),
+    ).rejects.toThrow(/decode/)
+
+    expect(called).toBe(false)
+  })
+
+  it('rejects workflow option accessors without invoking them', async () => {
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'accessor_options', description: 'Accessors must not cross VM boundary' }
+const options = {}
+Object.defineProperty(options, 'label', {
+  get: function() {
+    throw new Error('getter executed')
+  },
+})
+try {
+  await agent('should not run', options)
+} catch (err) {
+  return err.message
+}
+return 'unexpected'
+`,
+      agent: async () => ({ output: { ok: true } }),
+    })
+
+    expect(result.output).toBe('agent options.label: accessor properties are not allowed')
+  })
+
   it('emits loop failure context before failing the workflow', async () => {
     const emitted: WorkflowTraceEvent[] = []
     await expect(
