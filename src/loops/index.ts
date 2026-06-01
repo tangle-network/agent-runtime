@@ -41,6 +41,17 @@ export type {
 } from './drivers/sandbox-planner'
 export { createSandboxPlanner } from './drivers/sandbox-planner'
 export type {
+  AttributeSteerOptions,
+  CreateAttributionAnalyzeOptions,
+  SteerAttribution,
+  SteerAttributionVerdict,
+} from './drivers/steer-attribution'
+export {
+  attributeSteer,
+  createAttributionAnalyze,
+  steerAttributionSignal,
+} from './drivers/steer-attribution'
+export type {
   CreateSteeringPlannerOptions,
   SteeringFindingLike,
   SteeringSignal,
