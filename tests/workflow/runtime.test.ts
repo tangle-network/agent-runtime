@@ -403,6 +403,7 @@ return 1
   })
 
   it('validates structured subagent output against JSON schema', async () => {
+    const emitted: WorkflowTraceEvent[] = []
     await expect(
       runWorkflow({
         source: `
@@ -417,8 +418,66 @@ return agent('bad schema', {
 })
 `,
         agent: async () => ({ output: { nope: true } }),
+        traceEmitter: { emit: (event) => emitted.push(event) },
       }),
     ).rejects.toThrow(ValidationError)
+
+    expect(emitted.map((event) => event.kind)).toEqual([
+      'workflow.started',
+      'workflow.agent.started',
+      'workflow.agent.failed',
+      'workflow.failed',
+    ])
+    expect(
+      (
+        emitted.find((event) => event.kind === 'workflow.agent.failed') as
+          | Extract<WorkflowTraceEvent, { kind: 'workflow.agent.failed' }>
+          | undefined
+      )?.payload,
+    ).toMatchObject({
+      index: 0,
+      message: '$: missing required property ok',
+      code: 'ValidationError',
+    })
+  })
+
+  it('emits loop failure context before failing the workflow', async () => {
+    const emitted: WorkflowTraceEvent[] = []
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'loop_failure', description: 'Trace failed loop delegate' }
+phase('Improve')
+return loop({ task: 'finish' }, { label: 'refine' })
+`,
+        agent: async () => ({ output: null }),
+        loop: async () => {
+          throw new ValidationError('loop validator rejected output')
+        },
+        traceEmitter: { emit: (event) => emitted.push(event) },
+      }),
+    ).rejects.toThrow(/loop validator rejected output/)
+
+    expect(emitted.map((event) => event.kind)).toEqual([
+      'workflow.started',
+      'workflow.phase',
+      'workflow.loop.started',
+      'workflow.loop.failed',
+      'workflow.failed',
+    ])
+    expect(
+      (
+        emitted.find((event) => event.kind === 'workflow.loop.failed') as
+          | Extract<WorkflowTraceEvent, { kind: 'workflow.loop.failed' }>
+          | undefined
+      )?.payload,
+    ).toMatchObject({
+      index: 0,
+      label: 'refine',
+      message: 'loop validator rejected output',
+      code: 'ValidationError',
+      phase: 'Improve',
+    })
   })
 
   it('runs verifier, analyst, and reviewer delegates with typed trace events', async () => {
@@ -491,6 +550,51 @@ return { app, verdict, findings, decision }
     expect(
       result.events.find((event) => event.kind === 'workflow.verifier.ended')?.payload,
     ).toMatchObject({ label: 'acceptance', costUsd: 0.02, tokenUsage: { input: 3, output: 2 } })
+  })
+
+  it('emits checkpoint failure context before failing the workflow', async () => {
+    const emitted: WorkflowTraceEvent[] = []
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'checkpoint_failure', description: 'Trace failed feedback delegate' }
+phase('Assess')
+await verify({ ok: true }, { label: 'acceptance' })
+await analyzeTrace({ ok: true }, { label: 'trace-analyst' })
+return review({ ok: true }, { label: 'next-shot' })
+`,
+        agent: async () => ({ output: null }),
+        verifier: async () => ({ output: { pass: true } }),
+        analyst: async () => {
+          throw new Error('analyst could not cluster trace')
+        },
+        reviewer: async () => ({ output: { continue: false } }),
+        traceEmitter: { emit: (event) => emitted.push(event) },
+      }),
+    ).rejects.toThrow(/analyst could not cluster trace/)
+
+    expect(emitted.map((event) => event.kind)).toEqual([
+      'workflow.started',
+      'workflow.phase',
+      'workflow.verifier.started',
+      'workflow.verifier.ended',
+      'workflow.analyst.started',
+      'workflow.analyst.failed',
+      'workflow.failed',
+    ])
+    expect(
+      (
+        emitted.find((event) => event.kind === 'workflow.analyst.failed') as
+          | Extract<WorkflowTraceEvent, { kind: 'workflow.analyst.failed' }>
+          | undefined
+      )?.payload,
+    ).toMatchObject({
+      index: 0,
+      label: 'trace-analyst',
+      message: 'analyst could not cluster trace',
+      code: 'Error',
+      phase: 'Assess',
+    })
   })
 
   it('fails loudly when a workflow calls an unwired verifier delegate', async () => {

@@ -150,6 +150,19 @@ export function checkpointEndedKind(
   }
 }
 
+export function checkpointFailedKind(
+  kind: WorkflowCheckpointRuntimeKind,
+): 'workflow.verifier.failed' | 'workflow.analyst.failed' | 'workflow.reviewer.failed' {
+  switch (kind) {
+    case 'verifier':
+      return 'workflow.verifier.failed'
+    case 'analyst':
+      return 'workflow.analyst.failed'
+    case 'reviewer':
+      return 'workflow.reviewer.failed'
+  }
+}
+
 export function assertWorkflowString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new ValidationError(`workflow ${name} must be a non-empty string`)

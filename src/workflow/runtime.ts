@@ -5,6 +5,7 @@ import { normalizeRuntimeError, type WorkflowRuntimeGlobals } from './realm'
 import {
   assertWorkflowString,
   checkpointEndedKind,
+  checkpointFailedKind,
   checkpointStartedKind,
   createWorkflowSignal,
   decodeWorkflowDelegateResult,
@@ -71,6 +72,37 @@ export async function runWorkflow<TOutput = unknown>(
       runId,
       timestamp: now(),
     }) as WorkflowTraceEvent
+
+  const emitDelegateFailure = async (
+    kind:
+      | 'workflow.agent.failed'
+      | 'workflow.loop.failed'
+      | 'workflow.verifier.failed'
+      | 'workflow.analyst.failed'
+      | 'workflow.reviewer.failed',
+    args: {
+      err: unknown
+      index: number
+      label?: string
+      startedAt: number
+    },
+  ): Promise<never> => {
+    const normalized = normalizeRuntimeError(args.err)
+    await emit(
+      emitNow({
+        kind,
+        payload: {
+          index: args.index,
+          label: args.label,
+          durationMs: now() - args.startedAt,
+          message: normalized.message,
+          code: normalized.name,
+          phase: currentPhase,
+        },
+      }),
+    )
+    throw normalized
+  }
 
   const globals: WorkflowRuntimeGlobals = {
     budget,
@@ -264,29 +296,38 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      const result = await waitForWorkflowBudget(
-        () => options.agent(prompt, agentOptions, delegateCtx()),
-        budget,
-        workflowSignal.signal,
-        workflowSignal.abort,
-      )
-      const output = decodeWorkflowDelegateResult(result, agentOptions)
-      const usage = budget.observe(result)
-      await emit(
-        emitNow({
-          kind: 'workflow.agent.ended',
-          payload: {
-            index,
-            label,
-            durationMs: now() - opStarted,
-            costUsd: usage.costUsd,
-            tokenUsage: usage.tokenUsage,
-            phase: currentPhase,
-            trace: result.trace,
-          },
-        }),
-      )
-      return output
+      try {
+        const result = await waitForWorkflowBudget(
+          () => options.agent(prompt, agentOptions, delegateCtx()),
+          budget,
+          workflowSignal.signal,
+          workflowSignal.abort,
+        )
+        const output = decodeWorkflowDelegateResult(result, agentOptions)
+        const usage = budget.observe(result)
+        await emit(
+          emitNow({
+            kind: 'workflow.agent.ended',
+            payload: {
+              index,
+              label,
+              durationMs: now() - opStarted,
+              costUsd: usage.costUsd,
+              tokenUsage: usage.tokenUsage,
+              phase: currentPhase,
+              trace: result.trace,
+            },
+          }),
+        )
+        return output
+      } catch (err) {
+        return emitDelegateFailure('workflow.agent.failed', {
+          err,
+          index,
+          label,
+          startedAt: opStarted,
+        })
+      }
     },
     async loop(input, loopOptions = {}) {
       if (!options.loop) throw new ValidationError('workflow loop() delegate is not configured')
@@ -304,29 +345,38 @@ export async function runWorkflow<TOutput = unknown>(
           },
         }),
       )
-      const result = await waitForWorkflowBudget(
-        () => options.loop!(input, loopOptions, delegateCtx()),
-        budget,
-        workflowSignal.signal,
-        workflowSignal.abort,
-      )
-      const output = decodeWorkflowDelegateResult(result, loopOptions)
-      const usage = budget.observe(result)
-      await emit(
-        emitNow({
-          kind: 'workflow.loop.ended',
-          payload: {
-            index,
-            label,
-            durationMs: now() - opStarted,
-            costUsd: usage.costUsd,
-            tokenUsage: usage.tokenUsage,
-            phase: currentPhase,
-            trace: result.trace,
-          },
-        }),
-      )
-      return output
+      try {
+        const result = await waitForWorkflowBudget(
+          () => options.loop!(input, loopOptions, delegateCtx()),
+          budget,
+          workflowSignal.signal,
+          workflowSignal.abort,
+        )
+        const output = decodeWorkflowDelegateResult(result, loopOptions)
+        const usage = budget.observe(result)
+        await emit(
+          emitNow({
+            kind: 'workflow.loop.ended',
+            payload: {
+              index,
+              label,
+              durationMs: now() - opStarted,
+              costUsd: usage.costUsd,
+              tokenUsage: usage.tokenUsage,
+              phase: currentPhase,
+              trace: result.trace,
+            },
+          }),
+        )
+        return output
+      } catch (err) {
+        return emitDelegateFailure('workflow.loop.failed', {
+          err,
+          index,
+          label,
+          startedAt: opStarted,
+        })
+      }
     },
     verify(input, verifierOptions = {}) {
       if (!options.verifier) {
@@ -384,29 +434,38 @@ export async function runWorkflow<TOutput = unknown>(
         },
       }),
     )
-    const result = await waitForWorkflowBudget(
-      () => args.delegate(args.input, args.checkpointOptions, delegateCtx()),
-      budget,
-      workflowSignal.signal,
-      workflowSignal.abort,
-    )
-    const output = decodeWorkflowDelegateResult(result, args.checkpointOptions)
-    const usage = budget.observe(result)
-    await emit(
-      emitNow({
-        kind: checkpointEndedKind(args.kind),
-        payload: {
-          index,
-          label,
-          durationMs: now() - opStarted,
-          costUsd: usage.costUsd,
-          tokenUsage: usage.tokenUsage,
-          phase: currentPhase,
-          trace: result.trace,
-        },
-      }),
-    )
-    return output
+    try {
+      const result = await waitForWorkflowBudget(
+        () => args.delegate(args.input, args.checkpointOptions, delegateCtx()),
+        budget,
+        workflowSignal.signal,
+        workflowSignal.abort,
+      )
+      const output = decodeWorkflowDelegateResult(result, args.checkpointOptions)
+      const usage = budget.observe(result)
+      await emit(
+        emitNow({
+          kind: checkpointEndedKind(args.kind),
+          payload: {
+            index,
+            label,
+            durationMs: now() - opStarted,
+            costUsd: usage.costUsd,
+            tokenUsage: usage.tokenUsage,
+            phase: currentPhase,
+            trace: result.trace,
+          },
+        }),
+      )
+      return output
+    } catch (err) {
+      return emitDelegateFailure(checkpointFailedKind(args.kind), {
+        err,
+        index,
+        label,
+        startedAt: opStarted,
+      })
+    }
   }
 
   await emit(emitNow({ kind: 'workflow.started', payload: { meta: parsed.meta, depth, caps } }))

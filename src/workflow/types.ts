@@ -207,6 +207,12 @@ export type WorkflowTraceEvent =
       payload: WorkflowAgentEndedPayload
     }
   | {
+      kind: 'workflow.agent.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowDelegateFailedPayload
+    }
+  | {
       kind: 'workflow.loop.started'
       runId: string
       timestamp: number
@@ -217,6 +223,12 @@ export type WorkflowTraceEvent =
       runId: string
       timestamp: number
       payload: WorkflowLoopEndedPayload
+    }
+  | {
+      kind: 'workflow.loop.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowDelegateFailedPayload
     }
   | {
       kind: 'workflow.verifier.started'
@@ -231,6 +243,12 @@ export type WorkflowTraceEvent =
       payload: WorkflowCheckpointEndedPayload
     }
   | {
+      kind: 'workflow.verifier.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowDelegateFailedPayload
+    }
+  | {
       kind: 'workflow.analyst.started'
       runId: string
       timestamp: number
@@ -243,6 +261,12 @@ export type WorkflowTraceEvent =
       payload: WorkflowCheckpointEndedPayload
     }
   | {
+      kind: 'workflow.analyst.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowDelegateFailedPayload
+    }
+  | {
       kind: 'workflow.reviewer.started'
       runId: string
       timestamp: number
@@ -253,6 +277,12 @@ export type WorkflowTraceEvent =
       runId: string
       timestamp: number
       payload: WorkflowCheckpointEndedPayload
+    }
+  | {
+      kind: 'workflow.reviewer.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowDelegateFailedPayload
     }
   | { kind: 'workflow.failed'; runId: string; timestamp: number; payload: WorkflowFailedPayload }
   | { kind: 'workflow.ended'; runId: string; timestamp: number; payload: WorkflowEndedPayload }
@@ -373,6 +403,15 @@ export interface WorkflowCheckpointEndedPayload {
   tokenUsage: WorkflowTokenUsage
   phase?: string
   trace?: unknown
+}
+
+export interface WorkflowDelegateFailedPayload {
+  index: number
+  label?: string
+  durationMs: number
+  message: string
+  code?: string
+  phase?: string
 }
 
 export interface WorkflowFailedPayload {
