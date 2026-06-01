@@ -87,16 +87,19 @@ describe('acquireSandbox — cold-start resilience', () => {
     )
   })
 
-  it('times out if the named sandbox never appears after a gateway failure', async () => {
+  it('retries create on gateway failure and times out loud if no host ever comes up', async () => {
+    let creates = 0
     const client = {
       create: async () => {
+        creates += 1
         throw Object.assign(new Error('522 gateway'), { status: 522 })
       },
-      list: async () => [], // never appears
+      list: async () => [], // orchestrator rolled back — nothing to attach to
     }
     await expect(
       acquireSandbox(client, OPTS, { ...clock(), readyTimeoutMs: 10_000, pollIntervalMs: 3000 }),
-    ).rejects.toThrow(/no sandbox named "sbx-1" appeared/)
+    ).rejects.toThrow(/could not acquire a running sandbox "sbx-1"/)
+    expect(creates).toBeGreaterThan(1) // retried create, not a single wait-then-fail
   })
 
   it('honors an aborted signal', async () => {

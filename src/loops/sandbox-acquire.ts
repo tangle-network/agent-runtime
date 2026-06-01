@@ -73,25 +73,34 @@ export async function acquireSandbox(
   const createOpts: CreateSandboxOptions = { ...options, name }
   const c = client as PollableClient
 
-  throwIfAborted(acquire.signal)
-  try {
-    const box = await client.create(createOpts)
-    return await waitUntilReady(box, deadline, pollMs, acquire.signal, now, sleep)
-  } catch (err) {
+  let lastErr: unknown
+  let attempt = 0
+  while (now() < deadline) {
     throwIfAborted(acquire.signal)
-    // A retryable gateway/transport failure means the create call gave up, but
-    // the orchestrator is still provisioning. Recover by finding the named box.
-    if (!isRetryable(err)) throw err
-    if (typeof c.list !== 'function') throw err // can't recover without lookup
-    const found = await pollForNamed(c, name, deadline, pollMs, acquire.signal, now, sleep)
-    if (!found) {
-      throw new ValidationError(
-        `acquireSandbox: create timed out and no sandbox named "${name}" appeared within budget`,
-        { cause: err instanceof Error ? err : undefined },
-      )
+    try {
+      const box = await client.create(createOpts)
+      return await waitUntilReady(box, deadline, pollMs, acquire.signal, now, sleep)
+    } catch (err) {
+      throwIfAborted(acquire.signal)
+      // Non-retryable (auth/validation/budget) fails loud immediately.
+      if (!isRetryable(err)) throw err
+      lastErr = err
+      // Two recoveries for a gateway-timed-out create, in order:
+      //  (a) some orchestrators leave a pending sandbox behind — attach to it;
+      //  (b) others roll the create back — so retry create with backoff (a
+      //      retry lands once a warm host exists / the autoscaler caught up).
+      if (typeof c.list === 'function') {
+        const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
+        if (found) return await waitUntilReady(found, deadline, pollMs, acquire.signal, now, sleep)
+      }
+      attempt += 1
+      await sleep(Math.min(pollMs * attempt, 15_000))
     }
-    return await waitUntilReady(found, deadline, pollMs, acquire.signal, now, sleep)
   }
+  throw new ValidationError(
+    `acquireSandbox: could not acquire a running sandbox "${name}" within budget`,
+    { cause: lastErr instanceof Error ? lastErr : undefined },
+  )
 }
 
 /** Wait for `running`. No status (minimal fakes) = ready. Terminal status throws. */
@@ -119,26 +128,6 @@ async function waitUntilReady(
     }
     await sleep(pollMs)
     if (typeof box.refresh === 'function') await box.refresh()
-  }
-}
-
-/** Poll `list()` until a sandbox with `name` appears (provisioning recorded it). */
-async function pollForNamed(
-  client: PollableClient,
-  name: string,
-  deadline: number,
-  pollMs: number,
-  signal: AbortSignal | undefined,
-  now: () => number,
-  sleep: (ms: number) => Promise<void>,
-): Promise<SandboxInstance | undefined> {
-  for (;;) {
-    throwIfAborted(signal)
-    const list = (await client.list?.()) ?? []
-    const match = list.find((b) => b.name === name)
-    if (match) return match
-    if (now() >= deadline) return undefined
-    await sleep(pollMs)
   }
 }
 
