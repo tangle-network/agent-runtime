@@ -172,6 +172,24 @@ export type WorkflowTraceEvent =
       payload: WorkflowPipelineEndedPayload
     }
   | {
+      kind: 'workflow.branch.started'
+      runId: string
+      timestamp: number
+      payload: WorkflowBranchStartedPayload
+    }
+  | {
+      kind: 'workflow.branch.ended'
+      runId: string
+      timestamp: number
+      payload: WorkflowBranchEndedPayload
+    }
+  | {
+      kind: 'workflow.branch.failed'
+      runId: string
+      timestamp: number
+      payload: WorkflowBranchFailedPayload
+    }
+  | {
       kind: 'workflow.agent.started'
       runId: string
       timestamp: number
@@ -271,6 +289,33 @@ export interface WorkflowPipelineEndedPayload {
   stageCount: number
   durationMs: number
   phase?: string
+}
+
+export type WorkflowBranchOperation = 'parallel' | 'pipeline'
+
+export interface WorkflowBranchStartedPayload {
+  operation: WorkflowBranchOperation
+  branchIndex: number
+  phase?: string
+  stageCount?: number
+}
+
+export interface WorkflowBranchEndedPayload {
+  operation: WorkflowBranchOperation
+  branchIndex: number
+  durationMs: number
+  phase?: string
+  stageCount?: number
+}
+
+export interface WorkflowBranchFailedPayload {
+  operation: WorkflowBranchOperation
+  branchIndex: number
+  durationMs: number
+  message: string
+  code?: string
+  phase?: string
+  stageIndex?: number
 }
 
 export interface WorkflowAgentStartedPayload {

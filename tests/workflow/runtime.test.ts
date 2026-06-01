@@ -90,6 +90,8 @@ describe('workflow runtime', () => {
     expect(result.tokenUsage).toEqual({ input: 24, output: 16 })
     expect(result.events.map((e) => e.kind)).toEqual(emitted.map((e) => e.kind))
     expect(result.events.map((e) => e.kind)).toContain('workflow.parallel.started')
+    expect(result.events.filter((e) => e.kind === 'workflow.branch.started')).toHaveLength(2)
+    expect(result.events.filter((e) => e.kind === 'workflow.branch.ended')).toHaveLength(2)
     expect(result.events.map((e) => e.kind)).toContain('workflow.loop.ended')
     expect(result.events.at(-1)?.kind).toBe('workflow.ended')
   })
@@ -202,6 +204,93 @@ return parallel([
         caps: { maxFanout: 2 },
       }),
     ).rejects.toThrow(/exceeds maxFanout=2/)
+  })
+
+  it('emits per-branch trace events for pipeline branches', async () => {
+    const result = await runWorkflow({
+      source: `
+export const meta = { name: 'pipeline_branches', description: 'Trace each pipeline item branch' }
+phase('Fanout')
+return pipeline(
+  ['a', 'b'],
+  (value) => value + ':scan',
+  async (value) => agent(value, { label: value }),
+)
+`,
+      agent: async (prompt) => ({
+        output: { prompt },
+        costUsd: 0.01,
+        tokenUsage: { input: 1, output: 1 },
+      }),
+      caps: { maxFanout: 2, maxAgentCalls: 2 },
+    })
+
+    expect(result.output).toEqual([{ prompt: 'a:scan' }, { prompt: 'b:scan' }])
+    expect(
+      result.events
+        .filter((event) => event.kind === 'workflow.branch.started')
+        .map((event) => event.payload),
+    ).toEqual([
+      { operation: 'pipeline', branchIndex: 0, stageCount: 2, phase: 'Fanout' },
+      { operation: 'pipeline', branchIndex: 1, stageCount: 2, phase: 'Fanout' },
+    ])
+    expect(
+      result.events
+        .filter((event) => event.kind === 'workflow.branch.ended')
+        .map((event) => event.payload),
+    ).toEqual([
+      expect.objectContaining({
+        operation: 'pipeline',
+        branchIndex: 0,
+        stageCount: 2,
+        phase: 'Fanout',
+      }),
+      expect.objectContaining({
+        operation: 'pipeline',
+        branchIndex: 1,
+        stageCount: 2,
+        phase: 'Fanout',
+      }),
+    ])
+  })
+
+  it('emits branch failure context before failing the workflow', async () => {
+    const emitted: WorkflowTraceEvent[] = []
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'branch_failure', description: 'Trace failed branch' }
+phase('Race')
+return parallel([
+  () => agent('ok'),
+  () => {
+    throw new Error('branch exploded')
+  },
+])
+`,
+        agent: async (prompt) => ({ output: prompt }),
+        caps: { maxFanout: 2 },
+        traceEmitter: { emit: (event) => emitted.push(event) },
+      }),
+    ).rejects.toThrow(/branch exploded/)
+
+    expect(
+      emitted
+        .filter((event) => event.kind === 'workflow.branch.failed')
+        .map((event) => event.payload),
+    ).toEqual([
+      expect.objectContaining({
+        operation: 'parallel',
+        branchIndex: 1,
+        message: 'branch exploded',
+        code: 'Error',
+        phase: 'Race',
+      }),
+    ])
+    expect(emitted.at(-1)).toMatchObject({
+      kind: 'workflow.failed',
+      payload: { message: 'branch exploded', phase: 'Race' },
+    })
   })
 
   it('applies wall-time caps to workflow body waits before any delegate call', async () => {

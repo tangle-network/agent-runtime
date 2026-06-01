@@ -87,19 +87,59 @@ export async function runWorkflow<TOutput = unknown>(
     async parallel(thunks) {
       if (!Array.isArray(thunks)) throw new ValidationError('parallel() expects an array')
       budget.assertFanout(thunks.length)
+      thunks.forEach((thunk, index) => {
+        if (typeof thunk !== 'function') {
+          throw new ValidationError(`parallel() branch ${index} is not a function`)
+        }
+      })
       const opStarted = now()
+      const operationPhase = currentPhase
       await emit(
         emitNow({
           kind: 'workflow.parallel.started',
-          payload: { branchCount: thunks.length, phase: currentPhase },
+          payload: { branchCount: thunks.length, phase: operationPhase },
         }),
       )
       const results = await Promise.all(
-        thunks.map((thunk, index) => {
-          if (typeof thunk !== 'function') {
-            throw new ValidationError(`parallel() branch ${index} is not a function`)
+        thunks.map(async (thunk, index) => {
+          const branchStarted = now()
+          await emit(
+            emitNow({
+              kind: 'workflow.branch.started',
+              payload: { operation: 'parallel', branchIndex: index, phase: operationPhase },
+            }),
+          )
+          try {
+            const value = await thunk()
+            await emit(
+              emitNow({
+                kind: 'workflow.branch.ended',
+                payload: {
+                  operation: 'parallel',
+                  branchIndex: index,
+                  durationMs: now() - branchStarted,
+                  phase: operationPhase,
+                },
+              }),
+            )
+            return value
+          } catch (err) {
+            const normalized = normalizeRuntimeError(err)
+            await emit(
+              emitNow({
+                kind: 'workflow.branch.failed',
+                payload: {
+                  operation: 'parallel',
+                  branchIndex: index,
+                  durationMs: now() - branchStarted,
+                  message: normalized.message,
+                  code: normalized.name,
+                  phase: operationPhase,
+                },
+              }),
+            )
+            throw normalized
           }
-          return thunk()
         }),
       )
       await emit(
@@ -124,17 +164,65 @@ export async function runWorkflow<TOutput = unknown>(
         }
       })
       const opStarted = now()
+      const operationPhase = currentPhase
       await emit(
         emitNow({
           kind: 'workflow.pipeline.started',
-          payload: { itemCount: items.length, stageCount: stages.length, phase: currentPhase },
+          payload: { itemCount: items.length, stageCount: stages.length, phase: operationPhase },
         }),
       )
       const results = await Promise.all(
         items.map(async (item, index) => {
-          let value: unknown = item
-          for (const stage of stages) value = await stage(value, item, index)
-          return value as never
+          const branchStarted = now()
+          await emit(
+            emitNow({
+              kind: 'workflow.branch.started',
+              payload: {
+                operation: 'pipeline',
+                branchIndex: index,
+                stageCount: stages.length,
+                phase: operationPhase,
+              },
+            }),
+          )
+          let stageIndex = -1
+          try {
+            let value: unknown = item
+            for (const stage of stages) {
+              stageIndex += 1
+              value = await stage(value, item, index)
+            }
+            await emit(
+              emitNow({
+                kind: 'workflow.branch.ended',
+                payload: {
+                  operation: 'pipeline',
+                  branchIndex: index,
+                  durationMs: now() - branchStarted,
+                  stageCount: stages.length,
+                  phase: operationPhase,
+                },
+              }),
+            )
+            return value as never
+          } catch (err) {
+            const normalized = normalizeRuntimeError(err)
+            await emit(
+              emitNow({
+                kind: 'workflow.branch.failed',
+                payload: {
+                  operation: 'pipeline',
+                  branchIndex: index,
+                  durationMs: now() - branchStarted,
+                  message: normalized.message,
+                  code: normalized.name,
+                  phase: operationPhase,
+                  ...(stageIndex >= 0 ? { stageIndex } : {}),
+                },
+              }),
+            )
+            throw normalized
+          }
         }),
       )
       await emit(
