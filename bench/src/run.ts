@@ -89,7 +89,29 @@ async function main() {
     return
   }
 
-  throw new Error(`unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one`)
+  if (cmd === 'solve-one-local') {
+    const { solveShotLocal } = await import('./worker-local')
+    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const id = rest[0] ?? 'astropy__astropy-12907'
+    await adapter.preflight()
+    const [task] = await adapter.loadTasks({ ids: [id] })
+    if (!task) throw new Error(`instance not found: ${id}`)
+    console.log(`[local] solving ${task.id} with opencode model=${model}…`)
+    const shot = await solveShotLocal(task, { model })
+    console.log(`worker: ok=${shot.ok} patchBytes=${shot.patch.length}${shot.detail ? ` (${shot.detail})` : ''}`)
+    if (!shot.ok) {
+      console.log('❌ no patch produced — nothing to judge')
+      process.exit(1)
+    }
+    console.log('→ judging the agent-produced patch (real SWE-bench harness)…')
+    const score = await adapter.judge(task, shot.patch)
+    console.log(`\n${score.resolved ? '✅ RESOLVED' : '⚠️  NOT resolved'} — ${task.id} (score=${score.score})`)
+    return
+  }
+
+  throw new Error(
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local`,
+  )
 }
 
 main().catch((err) => {
