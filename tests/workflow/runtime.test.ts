@@ -204,6 +204,66 @@ return parallel([
     ).rejects.toThrow(/exceeds maxFanout=2/)
   })
 
+  it('applies wall-time caps to workflow body waits before any delegate call', async () => {
+    const emitted: WorkflowTraceEvent[] = []
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'body_timeout', description: 'body should not hang forever' }
+return await new Promise(() => {})
+`,
+        agent: async () => ({ output: null }),
+        caps: { maxWallMs: 5 },
+        traceEmitter: { emit: (event) => emitted.push(event) },
+      }),
+    ).rejects.toThrow(/workflow body timed out/)
+
+    expect(emitted.map((event) => event.kind)).toEqual(['workflow.started', 'workflow.failed'])
+    expect(
+      (emitted.at(-1) as Extract<WorkflowTraceEvent, { kind: 'workflow.failed' }>).payload.message,
+    ).toBe('workflow body timed out')
+  })
+
+  it('aborts workflow body waits even when no delegate has started', async () => {
+    const controller = new AbortController()
+    const promise = runWorkflow({
+      source: `
+export const meta = { name: 'body_abort', description: 'body should observe cancellation' }
+return await new Promise(() => {})
+`,
+      agent: async () => ({ output: null }),
+      caps: { maxWallMs: 1_000 },
+      signal: controller.signal,
+    })
+
+    controller.abort()
+    await expect(promise).rejects.toThrow(/workflow aborted before body completed/)
+  })
+
+  it('rejects invalid budget caps instead of silently disabling limits', async () => {
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'bad_caps', description: 'invalid budget caps' }
+return 1
+`,
+        agent: async () => ({ output: null }),
+        caps: { maxWallMs: Number.NaN },
+      }),
+    ).rejects.toThrow(/caps.maxWallMs/)
+
+    await expect(
+      runWorkflow({
+        source: `
+export const meta = { name: 'bad_count_cap', description: 'invalid count caps' }
+return 1
+`,
+        agent: async () => ({ output: null }),
+        caps: { maxFanout: 1.5 },
+      }),
+    ).rejects.toThrow(/caps.maxFanout must be an integer/)
+  })
+
   it('validates structured subagent output against JSON schema', async () => {
     await expect(
       runWorkflow({

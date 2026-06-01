@@ -311,11 +311,11 @@ export async function runWorkflow<TOutput = unknown>(
 
   await emit(emitNow({ kind: 'workflow.started', payload: { meta: parsed.meta, depth, caps } }))
   try {
-    const output = (await runBody(
-      parsed.body,
-      parsed.meta.name,
-      globals,
-      options.syncTimeoutMs,
+    const output = (await waitForBudget(
+      () => runBody(parsed.body, parsed.meta.name, globals, options.syncTimeoutMs),
+      budget,
+      options.signal,
+      'body',
     )) as TOutput
     const spent = budget.spent()
     const result: WorkflowResult<TOutput> = {
@@ -392,13 +392,19 @@ function decodeResult<TOptions extends { schema?: unknown; decode?: (value: unkn
 
 function normalizeCaps(caps: WorkflowBudgetCaps = {}): Required<WorkflowBudgetCaps> {
   return {
-    maxCostUsd: caps.maxCostUsd ?? DEFAULT_CAPS.maxCostUsd,
-    maxTokens: caps.maxTokens ?? DEFAULT_CAPS.maxTokens,
-    maxWallMs: caps.maxWallMs ?? DEFAULT_CAPS.maxWallMs,
-    maxAgentCalls: caps.maxAgentCalls ?? DEFAULT_CAPS.maxAgentCalls,
-    maxLoopCalls: caps.maxLoopCalls ?? DEFAULT_CAPS.maxLoopCalls,
-    maxFanout: caps.maxFanout ?? DEFAULT_CAPS.maxFanout,
-    maxDepth: caps.maxDepth ?? DEFAULT_CAPS.maxDepth,
+    maxCostUsd: normalizeCap(caps.maxCostUsd, DEFAULT_CAPS.maxCostUsd, 'maxCostUsd'),
+    maxTokens: normalizeCap(caps.maxTokens, DEFAULT_CAPS.maxTokens, 'maxTokens'),
+    maxWallMs: normalizeCap(caps.maxWallMs, DEFAULT_CAPS.maxWallMs, 'maxWallMs'),
+    maxAgentCalls: normalizeCap(caps.maxAgentCalls, DEFAULT_CAPS.maxAgentCalls, 'maxAgentCalls', {
+      integer: true,
+    }),
+    maxLoopCalls: normalizeCap(caps.maxLoopCalls, DEFAULT_CAPS.maxLoopCalls, 'maxLoopCalls', {
+      integer: true,
+    }),
+    maxFanout: normalizeCap(caps.maxFanout, DEFAULT_CAPS.maxFanout, 'maxFanout', {
+      integer: true,
+    }),
+    maxDepth: normalizeCap(caps.maxDepth, DEFAULT_CAPS.maxDepth, 'maxDepth', { integer: true }),
   }
 }
 
@@ -406,10 +412,11 @@ async function waitForBudget<T>(
   run: () => Promise<T>,
   budget: WorkflowBudget,
   signal: AbortSignal | undefined,
+  scope: 'delegate' | 'body' = 'delegate',
 ): Promise<T> {
   budget.assertWall()
   const wallMs = budget.remainingWallMs()
-  if (signal?.aborted) throw new ValidationError('workflow aborted before delegate completed')
+  if (signal?.aborted) throw new ValidationError(`workflow aborted before ${scope} completed`)
   if (wallMs !== undefined && wallMs <= 0) {
     throw new ValidationError('workflow budget exhausted: maxWallMs reached')
   }
@@ -422,10 +429,10 @@ async function waitForBudget<T>(
       promise,
       new Promise<never>((_, reject) => {
         timeout = setTimeout(
-          () => reject(new ValidationError('workflow delegate timed out')),
+          () => reject(new ValidationError(`workflow ${scope} timed out`)),
           wallMs,
         )
-        abort = () => reject(new ValidationError('workflow aborted before delegate completed'))
+        abort = () => reject(new ValidationError(`workflow aborted before ${scope} completed`))
         signal?.addEventListener('abort', abort, { once: true })
       }),
     ])
@@ -433,6 +440,22 @@ async function waitForBudget<T>(
     if (timeout) clearTimeout(timeout)
     if (abort) signal?.removeEventListener('abort', abort)
   }
+}
+
+function normalizeCap(
+  value: number | undefined,
+  fallback: number,
+  field: keyof WorkflowBudgetCaps,
+  options: { integer?: boolean } = {},
+): number {
+  const cap = value ?? fallback
+  if (typeof cap !== 'number' || Number.isNaN(cap) || cap < 0) {
+    throw new ValidationError(`workflow caps.${field} must be a non-negative number`)
+  }
+  if (options.integer && Number.isFinite(cap) && !Number.isInteger(cap)) {
+    throw new ValidationError(`workflow caps.${field} must be an integer`)
+  }
+  return cap
 }
 
 function checkpointStartedKind(
