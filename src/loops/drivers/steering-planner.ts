@@ -44,6 +44,40 @@ export interface SteeringSignal {
   severity?: 'critical' | 'high' | 'medium' | 'low' | 'info'
 }
 
+/**
+ * Structural shape of an analyst finding — compatible with agent-eval's
+ * `AnalystFinding` without importing it, so agent-runtime stays decoupled from
+ * the substrate's concrete type (the dep direction allows the import, but the
+ * structural seam keeps this planner usable with any finding source).
+ */
+export interface SteeringFindingLike {
+  severity?: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  claim: string
+  subject?: string
+  area?: string
+  recommended_action?: string
+}
+
+/**
+ * Map analyst findings → steering signals. The production wiring for
+ * `analyze`:
+ *
+ *   analyze: async (latest) =>
+ *     steeringSignalsFromFindings(await behavioralAnalyst(latest.events))
+ *
+ * Carries the finding's claim (+ recommended action) as the steer detail so the
+ * driver gets the concrete fix, not a collapsed grade.
+ */
+export function steeringSignalsFromFindings(
+  findings: readonly SteeringFindingLike[],
+): SteeringSignal[] {
+  return findings.map((f) => ({
+    label: f.subject ?? f.area ?? 'finding',
+    detail: f.recommended_action ? `${f.claim} → ${f.recommended_action}` : f.claim,
+    severity: f.severity ?? 'medium',
+  }))
+}
+
 /** @experimental */
 export interface CreateSteeringPlannerOptions<Task, Output>
   extends CreateSandboxPlannerOptions<Task, Output> {
@@ -59,6 +93,18 @@ export interface CreateSteeringPlannerOptions<Task, Output>
   ) => SteeringSignal[] | Promise<SteeringSignal[]>
   /** Max chars of the worker's raw output shown to the driver (default 4000). */
   maxOutputChars?: number
+  /**
+   * Observability hook: fires once per planning round with the signals the
+   * driver was shown (after `analyze`, before the driver runs). This is the
+   * research seam — recording what the driver saw lets downstream analysts
+   * judge whether it steered well. The chosen move is already on the loop's
+   * `loop.plan` trace; `iterationIndex` correlates the two. Never throws into
+   * the loop (errors are swallowed).
+   */
+  onSteer?: (info: {
+    iterationIndex: number
+    signals: SteeringSignal[]
+  }) => void
 }
 
 /** @experimental */
@@ -73,7 +119,28 @@ export function createSteeringPlanner<Task, Output>(
     opts.buildPrompt ??
     (async (ctx: PlannerContext<Task, Output>): Promise<string> => {
       const latest = ctx.history.at(-1)
-      const signals = latest ? await analyze(latest, ctx.history) : []
+      // Graceful degradation: a failing analyst must NOT crash the loop — the
+      // driver flies blind for this round with an explicit signal saying so,
+      // rather than the whole pursuit aborting on a transient analyst fault.
+      let signals: SteeringSignal[] = []
+      if (latest) {
+        try {
+          signals = await analyze(latest, ctx.history)
+        } catch (err) {
+          signals = [
+            {
+              label: 'analyst-unavailable',
+              detail: `steering analyst failed (${err instanceof Error ? err.message : String(err)}); steering this round without signals`,
+              severity: 'info',
+            },
+          ]
+        }
+      }
+      try {
+        opts.onSteer?.({ iterationIndex: ctx.iterationsSpent, signals })
+      } catch {
+        // Observability must never break the loop.
+      }
       return buildSteeringPrompt(ctx, signals, maxOutputChars)
     })
   return createSandboxPlanner({ ...opts, buildPrompt })

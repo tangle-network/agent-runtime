@@ -14,6 +14,7 @@ import {
   type Iteration,
   type OutputAdapter,
   runLoop,
+  steeringSignalsFromFindings,
   type Validator,
 } from '../../src/loops'
 
@@ -212,5 +213,85 @@ describe('defaultAnalyze — zero-model signal derivation', () => {
 
   it('stays quiet on a valid attempt', () => {
     expect(defaultAnalyze(iter({ verdict: { valid: true, score: 0.9 } }), [])).toEqual([])
+  })
+})
+
+describe('createSteeringPlanner — production hardening', () => {
+  it('degrades gracefully when the injected analyst throws (loop must not crash)', async () => {
+    const worker = workerClient()
+    const driver = driverClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner: createSteeringPlanner<Task, Out>({
+          client: driver.client,
+          profile: { name: 'driver' } as AgentProfile,
+          decodeTask,
+          analyze: () => {
+            throw new Error('analyst backend 503')
+          },
+        }),
+        maxIterations: 6,
+      }),
+      agentRuns: workerSpecs(['worker']),
+      output,
+      validator,
+      task: { goal: GOAL, strategy: 'naive' },
+      ctx: { sandboxClient: worker.client },
+      maxIterations: 6,
+    })
+    // The loop completes (did not throw); the driver was told the analyst was
+    // unavailable rather than the pursuit aborting on a transient fault.
+    expect(result.iterations.length).toBeGreaterThan(0)
+    const steerPrompt = driver.prompts.find((p) => /analyst-unavailable/.test(p)) ?? ''
+    expect(steerPrompt).toMatch(/analyst backend 503/)
+  })
+
+  it('fires onSteer with the signals the driver was shown (research observability)', async () => {
+    const seen: Array<{ iterationIndex: number; labels: string[] }> = []
+    const worker = workerClient()
+    const driver = driverClient()
+    await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner: createSteeringPlanner<Task, Out>({
+          client: driver.client,
+          profile: { name: 'driver' } as AgentProfile,
+          decodeTask,
+          onSteer: ({ iterationIndex, signals }) =>
+            seen.push({ iterationIndex, labels: signals.map((s) => s.label) }),
+        }),
+        maxIterations: 6,
+      }),
+      agentRuns: workerSpecs(['worker']),
+      output,
+      validator,
+      task: { goal: GOAL, strategy: 'naive' },
+      ctx: { sandboxClient: worker.client },
+      maxIterations: 6,
+    })
+    // Round 1 saw no signal (empty history); a later round saw invalid-attempt.
+    expect(seen.length).toBeGreaterThanOrEqual(2)
+    expect(seen.some((s) => s.labels.includes('invalid-attempt'))).toBe(true)
+  })
+
+  it('steeringSignalsFromFindings maps analyst findings to signals (real-analyst wiring)', () => {
+    const signals = steeringSignalsFromFindings([
+      {
+        severity: 'high',
+        subject: 'tool-monoculture',
+        claim: '7 calls to one tool, 0 to the calculator',
+        recommended_action: 'call calc_qbi on line 13',
+      },
+      { area: 'failure-mode', claim: 'output decayed 157→75 tokens' },
+    ])
+    expect(signals[0]).toEqual({
+      label: 'tool-monoculture',
+      detail: '7 calls to one tool, 0 to the calculator → call calc_qbi on line 13',
+      severity: 'high',
+    })
+    expect(signals[1]).toEqual({
+      label: 'failure-mode',
+      detail: 'output decayed 157→75 tokens',
+      severity: 'medium', // default when finding omits severity
+    })
   })
 })

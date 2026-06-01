@@ -40,9 +40,14 @@ export type {
 export { createSandboxPlanner } from './drivers/sandbox-planner'
 export type {
   CreateSteeringPlannerOptions,
+  SteeringFindingLike,
   SteeringSignal,
 } from './drivers/steering-planner'
-export { createSteeringPlanner, defaultAnalyze } from './drivers/steering-planner'
+export {
+  createSteeringPlanner,
+  defaultAnalyze,
+  steeringSignalsFromFindings,
+} from './drivers/steering-planner'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
