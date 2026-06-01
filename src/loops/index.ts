@@ -17,6 +17,8 @@ export type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+export type { CreateAnalystSteeringOptions } from './drivers/analyst-steering'
+export { createAnalystSteering } from './drivers/analyst-steering'
 export type {
   CreateDynamicDriverOptions,
   DynamicDecision,

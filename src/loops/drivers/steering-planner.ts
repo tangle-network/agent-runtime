@@ -27,10 +27,7 @@
 
 import type { Iteration } from '../types'
 import type { PlannerContext, TopologyPlanner } from './dynamic'
-import {
-  type CreateSandboxPlannerOptions,
-  createSandboxPlanner,
-} from './sandbox-planner'
+import { type CreateSandboxPlannerOptions, createSandboxPlanner } from './sandbox-planner'
 
 /**
  * One analyst observation about the latest worker attempt the driver should act
@@ -101,10 +98,7 @@ export interface CreateSteeringPlannerOptions<Task, Output>
    * `loop.plan` trace; `iterationIndex` correlates the two. Never throws into
    * the loop (errors are swallowed).
    */
-  onSteer?: (info: {
-    iterationIndex: number
-    signals: SteeringSignal[]
-  }) => void
+  onSteer?: (info: { iterationIndex: number; signals: SteeringSignal[] }) => void
 }
 
 /** @experimental */

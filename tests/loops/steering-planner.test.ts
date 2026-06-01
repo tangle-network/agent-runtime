@@ -44,7 +44,10 @@ function scoreFor(strategy: string): number {
 const output: OutputAdapter<Out> = {
   parse(events) {
     const data = events.at(-1)?.data as Partial<Out> | undefined
-    return { strategy: data?.strategy ?? '', score: typeof data?.score === 'number' ? data.score : 0 }
+    return {
+      strategy: data?.strategy ?? '',
+      score: typeof data?.score === 'number' ? data.score : 0,
+    }
   },
 }
 const validator: Validator<Out> = {
@@ -105,7 +108,11 @@ function driverClient() {
                     tasks: [{ goal: GOAL, strategy: FIX_STRATEGY }],
                     rationale: 'signal says the attempt failed — steer to the tool strategy',
                   }
-                : { kind: 'refine', tasks: [{ goal: GOAL, strategy: 'naive' }], rationale: 'replay' }
+                : {
+                    kind: 'refine',
+                    tasks: [{ goal: GOAL, strategy: 'naive' }],
+                    rationale: 'replay',
+                  }
             yield { type: 'result', data: { result: move } } satisfies SandboxEvent
           },
         } as unknown as SandboxInstance
