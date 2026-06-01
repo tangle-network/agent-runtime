@@ -117,7 +117,7 @@ print(json.dumps(out))
           '--max_workers', '1',
           '--cache_level', 'env',
         ],
-        { cwd: dir, maxBuffer: 1024 * 1024 * 256, timeout: 1000 * 60 * 30 },
+        { cwd: dir, maxBuffer: 1024 * 1024 * 256 },
       )
       // Report file: agent-runtime-bench.<run_id>.json
       const reportPath = join(dir, `agent-runtime-bench.${runId}.json`)

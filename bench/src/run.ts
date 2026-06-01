@@ -68,7 +68,9 @@ async function main() {
       routerKey: must('ROUTER_KEY'),
       model: process.env.WORKER_MODEL ?? 'gpt-5',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
-      timeoutMs: Number(process.env.SHOT_TIMEOUT_MS ?? 1000 * 60 * 12),
+      // No timeout by default — the agent runs until it's done. Only honored if
+      // SHOT_TIMEOUT_MS is explicitly set.
+      timeoutMs: process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : undefined,
     }
     const id = rest[0] ?? 'astropy__astropy-12907'
     await adapter.preflight()
