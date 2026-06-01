@@ -202,6 +202,37 @@ describe('createAttributionAnalyze — gated, opt-in integration', () => {
     const signals = await analyze(latest, [prev, latest])
     expect(signals).toHaveLength(1)
     expect(signals[0]?.label).toBe('driver-attributable')
-    expect(w.dispatched).toEqual(['parallel-tools'])
+    // The production wrapper defaults to reps=3 (noise-robust verdict), so the
+    // steer is re-dispatched 3× and averaged.
+    expect(w.dispatched).toEqual(['parallel-tools', 'parallel-tools', 'parallel-tools'])
+  })
+})
+
+describe('attributeSteer — reps averaging (noise robustness lever)', () => {
+  it('averages reps re-dispatches per counterfactual', async () => {
+    // Worker returns a different score on each successive call for the steer;
+    // reps=2 must average them (0.4, 0.8 → 0.6), not take one sample.
+    const queue = [0.4, 0.8]
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        return {
+          async *streamPrompt() {
+            const score = queue.shift() ?? 0
+            yield { type: 'result', data: { strategy: 'x', score } } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+    const attr = await attributeSteer<Task, Out>({
+      client,
+      spec,
+      output,
+      validator,
+      iteration: failedShot('naive', 0.3),
+      counterfactualSteers: [t('x')],
+      reps: 2,
+    })
+    expect(attr.best?.score).toBeCloseTo(0.6, 6) // (0.4 + 0.8) / 2
+    expect(queue).toHaveLength(0) // both reps consumed
   })
 })

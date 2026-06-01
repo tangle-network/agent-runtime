@@ -71,6 +71,18 @@ export interface AttributeSteerOptions<Task, Output> {
   counterfactualSteers: readonly Task[]
   /** Max concurrent re-dispatches. Default 2 — attribution is expensive. */
   maxConcurrency?: number
+  /**
+   * Re-dispatch each counterfactual `reps` times and average the scores.
+   * Validator scores are noisy; averaging K reps shrinks the noise ~√K so the
+   * driver/worker verdict doesn't flip on measurement jitter. Default 1.
+   */
+  reps?: number
+  /**
+   * Decision margin: the driver/worker shares must differ by more than this to
+   * pick a side; closer than this is `mixed`. Default {@link ATTRIBUTION_MARGIN}
+   * (0.05). Raise it above the score noise floor to keep verdicts stable.
+   */
+  margin?: number
   signal?: AbortSignal
   log?: (msg: string) => void
   /** Label a counterfactual for its `CounterfactualResult.mutation`. Default: index. */
@@ -94,15 +106,18 @@ export async function attributeSteer<Task, Output>(
   }
   const signal = opts.signal ?? new AbortController().signal
   const maxConcurrency = Math.max(1, Math.floor(opts.maxConcurrency ?? 2))
+  const reps = Math.max(1, Math.floor(opts.reps ?? 1))
+  const margin = opts.margin ?? ATTRIBUTION_MARGIN
   const actualScore = opts.iteration.verdict?.score ?? null
   const originalRunId = `iter-${opts.iteration.index}`
   const describe = opts.describeSteer ?? ((_t, i) => `counterfactual-steer-${i}`)
 
   // Bounded counterfactual re-dispatch. Each goes through the SAME exec path as
   // a real shot; a failure scores `null` (per-CF isolation) so one bad steer
-  // doesn't sink the attribution.
+  // doesn't sink the attribution. With `reps > 1` each steer is re-dispatched K
+  // times and averaged, shrinking validator-score noise so the verdict is stable.
   const scores = await mapBounded(opts.counterfactualSteers, maxConcurrency, (steer, index) =>
-    reDispatchShot(opts, steer, signal, index),
+    reDispatchAveraged(opts, steer, signal, index, reps),
   )
 
   const results: CounterfactualResult[] = scores.map((score, index) => ({
@@ -139,7 +154,7 @@ export async function attributeSteer<Task, Output>(
     : actualScore !== null
       ? clamp01(1 - actualScore)
       : 1
-  const verdict = decideVerdict(best !== null, driverShare, workerShare)
+  const verdict = decideVerdict(best !== null, driverShare, workerShare, margin)
 
   opts.log?.(
     `steer attribution for iter ${opts.iteration.index}: verdict=${verdict} driverShare=${driverShare.toFixed(2)} workerShare=${workerShare.toFixed(2)} (ran ${opts.counterfactualSteers.length} counterfactual${opts.counterfactualSteers.length === 1 ? '' : 's'})`,
@@ -160,10 +175,11 @@ function decideVerdict(
   hasBest: boolean,
   driverShare: number,
   workerShare: number,
+  margin: number,
 ): SteerAttributionVerdict {
   if (!hasBest) return 'inconclusive'
-  if (driverShare >= workerShare + ATTRIBUTION_MARGIN) return 'driver-attributable'
-  if (workerShare >= driverShare + ATTRIBUTION_MARGIN) return 'worker-attributable'
+  if (driverShare >= workerShare + margin) return 'driver-attributable'
+  if (workerShare >= driverShare + margin) return 'worker-attributable'
   return 'mixed'
 }
 
@@ -246,6 +262,12 @@ export function createAttributionAnalyze<Task, Output>(
       iteration: latest,
       counterfactualSteers: steers,
       maxConcurrency: opts.maxConcurrency,
+      // Default 3 reps on this gated production path: averaging shrinks
+      // validator-score noise ~√3 so the verdict doesn't flip on jitter (a flip
+      // mis-steers the loop). The caller already opted into attribution cost here;
+      // the raw `attributeSteer` primitive stays reps=1 for cheap one-offs.
+      reps: opts.reps ?? 3,
+      margin: opts.margin,
       signal: opts.signal,
       log: opts.log,
       describeSteer: opts.describeSteer,
@@ -265,6 +287,24 @@ function defaultShouldAttribute<Task, Output>(
   const prevScore = prev?.verdict?.score
   const score = latest.verdict?.score
   return typeof prevScore !== 'number' || typeof score !== 'number' || score <= prevScore
+}
+
+/** Re-dispatch a steer `reps` times and average the non-null scores (null if all failed). */
+async function reDispatchAveraged<Task, Output>(
+  opts: AttributeSteerOptions<Task, Output>,
+  steer: Task,
+  signal: AbortSignal,
+  index: number,
+  reps: number,
+): Promise<number | null> {
+  if (reps <= 1) return reDispatchShot(opts, steer, signal, index)
+  const samples: number[] = []
+  for (let r = 0; r < reps; r += 1) {
+    const score = await reDispatchShot(opts, steer, signal, index)
+    if (score !== null) samples.push(score)
+  }
+  if (samples.length === 0) return null
+  return samples.reduce((a, b) => a + b, 0) / samples.length
 }
 
 // ── Re-dispatch one shot through the kernel's exact exec path ─────────────────
