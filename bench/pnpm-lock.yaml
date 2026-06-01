@@ -10,10 +10,13 @@ importers:
     dependencies:
       '@tangle-network/agent-eval':
         specifier: ^0.61.0
-        version: 0.61.0(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
+        version: 0.61.0(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
       '@tangle-network/agent-runtime':
         specifier: file:..
-        version: file:..(@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3))(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))
+        version: file:..(@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3))(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))
+      '@tangle-network/sandbox':
+        specifier: ^0.4.0
+        version: 0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))
     devDependencies:
       tsx:
         specifier: ^4.19.0
@@ -294,6 +297,26 @@ packages:
       viem:
         optional: true
 
+  '@tangle-network/sandbox@0.4.2':
+    resolution: {integrity: sha512-+S9Wnrdvc1pD1cVuu6GBVT9UE+p7FVmjCj9JWU06zvZu6bdcpf4ehMUaxoTgY9/3NlykCIlaWO4mrH89/k3/5Q==}
+    peerDependencies:
+      '@mastra/core': ^1.36.0
+      '@modelcontextprotocol/sdk': ^1.29.0
+      ai: ^6.0.175
+      openai: ^6.36.0
+      viem: ^2.0.0
+    peerDependenciesMeta:
+      '@mastra/core':
+        optional: true
+      '@modelcontextprotocol/sdk':
+        optional: true
+      ai:
+        optional: true
+      openai:
+        optional: true
+      viem:
+        optional: true
+
   '@tangle-network/tcloud-attestation@0.1.1':
     resolution: {integrity: sha512-+TAF9s5t1jOWGyGHvKhIWe2FYmG7puVaxmmg0Et67ylAjGa7GqUAvISXGjG/6dzld7A170V0kQHK0WVdh2Wh0Q==}
     engines: {node: '>=18'}
@@ -532,7 +555,7 @@ snapshots:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
 
-  '@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)':
+  '@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
       '@ax-llm/ax': 19.0.45(zod@4.4.3)
@@ -541,7 +564,7 @@ snapshots:
       hono: 4.12.23
       zod: 4.4.3
     optionalDependencies:
-      '@tangle-network/sandbox': 0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))
+      '@tangle-network/sandbox': 0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))
     transitivePeerDependencies:
       - '@mastra/core'
       - '@modelcontextprotocol/sdk'
@@ -553,15 +576,19 @@ snapshots:
 
   '@tangle-network/agent-integrations@0.29.0': {}
 
-  '@tangle-network/agent-runtime@file:..(@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3))(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))':
+  '@tangle-network/agent-runtime@file:..(@tangle-network/agent-eval@0.61.0(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3))(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))':
     dependencies:
-      '@tangle-network/agent-eval': 0.61.0(@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
+      '@tangle-network/agent-eval': 0.61.0(@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
     optionalDependencies:
-      '@tangle-network/sandbox': 0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))
+      '@tangle-network/sandbox': 0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))
 
   '@tangle-network/sandbox@0.3.0(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))':
     dependencies:
       '@tangle-network/agent-integrations': 0.29.0
+    optionalDependencies:
+      viem: 2.52.0(typescript@5.9.3)(zod@4.4.3)
+
+  '@tangle-network/sandbox@0.4.2(viem@2.52.0(typescript@5.9.3)(zod@4.4.3))':
     optionalDependencies:
       viem: 2.52.0(typescript@5.9.3)(zod@4.4.3)
 

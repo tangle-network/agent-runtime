@@ -15,6 +15,12 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   appworld: createAppWorldAdapter,
 }
 
+function must(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`env ${name} is required`)
+  return v
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2)
   const adapter = ADAPTERS[process.env.BENCH ?? 'swe-bench']?.()
@@ -53,7 +59,35 @@ async function main() {
     process.exit(ok ? 0 : 1)
   }
 
-  throw new Error(`unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge`)
+  if (cmd === 'solve-one') {
+    const { solveShot } = await import('./worker')
+    const cfg = {
+      sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
+      sandboxKey: must('SANDBOX_KEY'),
+      routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+      routerKey: must('ROUTER_KEY'),
+      model: process.env.WORKER_MODEL ?? 'gpt-5',
+      provider: process.env.WORKER_PROVIDER ?? 'openai',
+      timeoutMs: Number(process.env.SHOT_TIMEOUT_MS ?? 1000 * 60 * 12),
+    }
+    const id = rest[0] ?? 'astropy__astropy-12907'
+    await adapter.preflight()
+    const [task] = await adapter.loadTasks({ ids: [id] })
+    if (!task) throw new Error(`instance not found: ${id}`)
+    console.log(`solving ${task.id} with ${cfg.model} on ${cfg.sandboxBaseUrl}…`)
+    const shot = await solveShot(task, cfg)
+    console.log(`worker: ok=${shot.ok} patchBytes=${shot.patch.length}${shot.detail ? ` (${shot.detail})` : ''}`)
+    if (!shot.ok) {
+      console.log('❌ worker produced no patch — nothing to judge')
+      process.exit(1)
+    }
+    console.log('→ judging the agent-produced patch…')
+    const score = await adapter.judge(task, shot.patch)
+    console.log(`\n${score.resolved ? '✅ RESOLVED' : '⚠️  NOT resolved'} — ${task.id} (real SWE-bench judge, score=${score.score})`)
+    return
+  }
+
+  throw new Error(`unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one`)
 }
 
 main().catch((err) => {
