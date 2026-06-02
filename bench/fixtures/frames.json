@@ -1,0 +1,26 @@
+[
+  {
+    "Prompt": "If my future wife has the same first name as the 15th first lady of the United States' mother and her surname is the same as the second assassinated president's mother's maiden name, what is my future wife's name?",
+    "Answer": "Jane Ballou",
+    "wiki_links": "['https://en.wikipedia.org/wiki/Harriet_Lane', 'https://en.wikipedia.org/wiki/James_A._Garfield', 'https://en.wikipedia.org/wiki/Eliza_Ballou']",
+    "reasoning_types": "multiple constraints"
+  },
+  {
+    "Prompt": "How many years after the publication of the first novel by the author who wrote 'The Old Man and the Sea' did that author win the Nobel Prize in Literature?",
+    "Answer": "28",
+    "wiki_links": "['https://en.wikipedia.org/wiki/Ernest_Hemingway', 'https://en.wikipedia.org/wiki/The_Sun_Also_Rises']",
+    "reasoning_types": "numerical | temporal"
+  },
+  {
+    "Prompt": "What is the capital city of the country whose flag was the inspiration for the flag of the nation that hosted the 2016 Summer Olympics?",
+    "Answer": "Lisbon",
+    "wiki_links": "['https://en.wikipedia.org/wiki/Flag_of_Brazil', 'https://en.wikipedia.org/wiki/Flag_of_Portugal', 'https://en.wikipedia.org/wiki/Lisbon']",
+    "reasoning_types": "multiple constraints"
+  },
+  {
+    "Prompt": "In what year was the company that owns the search engine Bing founded?",
+    "Answer": "1975",
+    "wiki_links": "['https://en.wikipedia.org/wiki/Bing_(search_engine)', 'https://en.wikipedia.org/wiki/Microsoft']",
+    "reasoning_types": "temporal"
+  }
+]
