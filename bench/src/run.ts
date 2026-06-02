@@ -11,7 +11,7 @@ import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
-import type { BenchmarkAdapter } from './benchmarks/types'
+import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
@@ -168,8 +168,22 @@ async function main() {
     // so it can't be 403-killed. The oracle column is the gate: if oracle@k ≈
     // pass@1, multi-shot has no headroom and the driver direction is dead; if
     // oracle@k ≫ pass@1, a real selector is worth building.
-    const { solveShotLocal } = await import('./worker-local')
     const fs = await import('node:fs/promises')
+    // RESEARCH=1 swaps the code-patch worker for the research answer worker, so the
+    // same headroom machinery measures answer-variance domains (where a driver might
+    // find the headroom coding lacks). loadTasks carries the answer contract; the
+    // adapter judges the captured answer.
+    const research = process.env.RESEARCH === '1'
+    const { solveShotLocal } = await import('./worker-local')
+    const { solveResearchLocal } = await import('./worker-research')
+    const runShot = async (task: BenchTask, m: string, l?: number): Promise<string> => {
+      if (research) {
+        const s = await solveResearchLocal(task, { model: m, livenessMs: l })
+        return s.ok ? s.answer : ''
+      }
+      const s = await solveShotLocal(task, { model: m, livenessMs: l })
+      return s.ok ? s.patch : ''
+    }
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
     // MODELS (comma list) = the diversity lever: shot i uses models[i % len]. With a
     // single near-deterministic model, oracle@k trivially equals pass@1 (the k shots
@@ -194,8 +208,8 @@ async function main() {
           const resolved: boolean[] = []
           for (let i = 0; i < k; i += 1) {
             const shotModel = models[i % models.length] as string
-            const shot = await solveShotLocal(task, { model: shotModel, livenessMs })
-            const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
+            const artifact = await runShot(task, shotModel, livenessMs)
+            const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
             resolved.push(score.resolved === true)
           }
           const nResolved = resolved.filter(Boolean).length
