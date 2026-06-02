@@ -16,17 +16,25 @@
  * minutes) can no longer surface as a create failure behind a ~100s proxy
  * limit. The loop becomes indifferent to whether the host pool is warm or cold.
  *
- * Backward-compatible: an instance that reports no `status` (the minimal fakes
- * the loop tests use) is treated as ready — only an explicit `pending`/
- * `provisioning` status triggers waiting, and only a retryable THROW triggers
- * the find-by-name path. Real errors (auth, validation, budget) fail loud.
+ * Invariant: an instance reporting no `status` (the minimal test fakes) is
+ * treated as ready; only an explicit `pending`/`provisioning` status triggers
+ * waiting, and only a retryable THROW triggers the find-by-name path. Real
+ * errors (auth, validation, budget) fail loud. A box that is created (or found)
+ * but never reaches `running` (abort, terminal status, budget) is torn down
+ * before the failure propagates, so an abort storm during cold start does not
+ * leak live sandboxes.
  */
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { LoopSandboxClient } from './types'
+import { sleep as abortableSleep, deleteBoxSafe, randomUuid, throwIfAborted } from './util'
 
-/** Gateway/transport statuses where the create call returned but provisioning continues. */
+/**
+ * HTTP statuses where create should be retried — gateway timeouts
+ * (502/503/504/522/524) where provisioning may continue server-side, plus
+ * request-level retryables (408/425/429).
+ */
 const RETRYABLE_HTTP = new Set([502, 503, 504, 522, 524, 408, 425, 429])
 const TERMINAL_STATUS = new Set(['failed', 'expired', 'stopped'])
 
@@ -66,10 +74,12 @@ export async function acquireSandbox(
     throw new ValidationError('acquireSandbox: client.create is required')
   }
   const now = acquire.now ?? Date.now
-  const sleep = acquire.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
+  const sleep = acquire.sleep ?? ((ms: number) => abortableSleep(ms, acquire.signal))
   const pollMs = acquire.pollIntervalMs ?? 3000
   const deadline = now() + (acquire.readyTimeoutMs ?? 600_000)
-  const name = options.name ?? acquire.name ?? `loop-sbx-${randomSuffix()}`
+  // crypto.randomUUID is collision-resistant — find-by-name recovery scans
+  // list() for this exact name, so two concurrent acquires must never collide.
+  const name = options.name ?? acquire.name ?? `loop-sbx-${randomUuid()}`
   const createOpts: CreateSandboxOptions = { ...options, name }
   const c = client as PollableClient
 
@@ -79,7 +89,9 @@ export async function acquireSandbox(
     throwIfAborted(acquire.signal)
     try {
       const box = await client.create(createOpts)
-      return await waitUntilReady(box, deadline, pollMs, acquire.signal, now, sleep)
+      // Tear the just-created box down if it never reaches `running` (abort,
+      // terminal status, budget) so a failed wait never leaks a live sandbox.
+      return await waitReadyOrDestroy(box, deadline, pollMs, acquire.signal, now, sleep)
     } catch (err) {
       throwIfAborted(acquire.signal)
       // Non-retryable (auth/validation/budget) fails loud immediately.
@@ -91,7 +103,8 @@ export async function acquireSandbox(
       //      retry lands once a warm host exists / the autoscaler caught up).
       if (typeof c.list === 'function') {
         const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
-        if (found) return await waitUntilReady(found, deadline, pollMs, acquire.signal, now, sleep)
+        if (found)
+          return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
       }
       attempt += 1
       await sleep(Math.min(pollMs * attempt, 15_000))
@@ -101,6 +114,24 @@ export async function acquireSandbox(
     `acquireSandbox: could not acquire a running sandbox "${name}" within budget`,
     { cause: lastErr instanceof Error ? lastErr : undefined },
   )
+}
+
+/** `waitUntilReady`, tearing the box down (best-effort) on any throw so a box
+ *  that never reaches `running` (abort, terminal status, budget) does not leak. */
+async function waitReadyOrDestroy(
+  box: SandboxInstance,
+  deadline: number,
+  pollMs: number,
+  signal: AbortSignal | undefined,
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<SandboxInstance> {
+  try {
+    return await waitUntilReady(box, deadline, pollMs, signal, now, sleep)
+  } catch (err) {
+    await deleteBoxSafe(box)
+    throw err
+  }
 }
 
 /** Wait for `running`. No status (minimal fakes) = ready. Terminal status throws. */
@@ -146,18 +177,4 @@ function isRetryable(err: unknown): boolean {
   return /\b(timed out|timeout|gateway|temporarily unavailable|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b/i.test(
     e.message ?? '',
   )
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) {
-    const err = new Error('aborted')
-    err.name = 'AbortError'
-    throw err
-  }
-}
-
-function randomSuffix(len = 10): string {
-  return Math.random()
-    .toString(36)
-    .slice(2, 2 + len)
 }

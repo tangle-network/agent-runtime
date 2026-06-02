@@ -241,6 +241,12 @@ export type LoopTraceEvent =
     }
   | { kind: 'loop.decision'; runId: string; timestamp: number; payload: LoopDecisionPayload }
   | { kind: 'loop.ended'; runId: string; timestamp: number; payload: LoopEndedPayload }
+  | {
+      kind: 'loop.teardown.failed'
+      runId: string
+      timestamp: number
+      payload: LoopTeardownFailedPayload
+    }
 
 /** @experimental */
 export interface LoopStartedPayload {
@@ -345,6 +351,15 @@ export interface LoopEndedPayload {
   totalCostUsd: number
   durationMs: number
   iterations: number
+}
+
+/** Emitted when a box's `delete()` throws or times out during teardown — the
+ *  loop swallows the failure (platform reaps on expiry) but surfaces it here so
+ *  a real leak (e.g. mid-loop auth expiry) is observable. @experimental */
+export interface LoopTeardownFailedPayload {
+  sandboxId?: string
+  /** `'timeout'` or the delete error message. */
+  reason: string
 }
 
 /** @experimental */

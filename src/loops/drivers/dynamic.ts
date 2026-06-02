@@ -26,7 +26,8 @@
  */
 
 import { PlannerError, ValidationError } from '../../errors'
-import type { Driver, Iteration } from '../types'
+import type { Driver, Iteration, LoopPlanDescription } from '../types'
+import { stringifySafe } from '../util'
 
 /** Terminal once `decide` returns `'done'` (a kernel terminal decision). */
 export type DynamicDecision = 'continue' | 'done'
@@ -42,6 +43,8 @@ export type DynamicDecision = 'continue' | 'done'
 export type TopologyMove<Task> =
   | { kind: 'refine'; task: Task; rationale?: string; parentIndex?: number }
   | { kind: 'fanout'; tasks: Task[]; rationale?: string; parentIndex?: number }
+  // `stop` carries no parentIndex — it never produces an edge, so the
+  // describePlan guard below reads parentIndex only on refine/fanout.
   | { kind: 'stop'; rationale?: string }
 
 /** @experimental */
@@ -141,7 +144,7 @@ export function createDynamicDriver<Task, Output>(
       // branched off a specific (non-winner) iteration. `pending` is the move
       // set by the preceding plan().
       if (!pending) return undefined
-      const out: { kind: string; rationale?: string; parentIndex?: number } = { kind: pending.kind }
+      const out: LoopPlanDescription = { kind: pending.kind }
       if (pending.rationale !== undefined) out.rationale = pending.rationale
       if (pending.kind !== 'stop' && pending.parentIndex !== undefined) {
         out.parentIndex = pending.parentIndex
@@ -153,7 +156,7 @@ export function createDynamicDriver<Task, Output>(
 
 function validateMove<Task>(move: TopologyMove<Task>, maxFanout: number): TopologyMove<Task> {
   if (!move || typeof move !== 'object' || typeof (move as { kind?: unknown }).kind !== 'string') {
-    throw new PlannerError(`dynamic planner returned a non-move value: ${describe(move)}`)
+    throw new PlannerError(`dynamic planner returned a non-move value: ${stringifySafe(move)}`)
   }
   switch (move.kind) {
     case 'refine':
@@ -175,17 +178,19 @@ function validateMove<Task>(move: TopologyMove<Task>, maxFanout: number): Topolo
     }
     default:
       throw new PlannerError(
-        `dynamic planner returned unknown move kind: ${describe((move as { kind: unknown }).kind)}`,
+        `dynamic planner returned unknown move kind: ${stringifySafe((move as { kind: unknown }).kind)}`,
       )
   }
 }
 
-function describe(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? String(value)
-  } catch {
-    return String(value)
-  }
+/** One row of the planner-facing history summary. @experimental */
+export interface HistorySummaryRow {
+  index: number
+  agentRunName: string
+  valid?: boolean
+  score?: number
+  error?: string
+  output?: string
 }
 
 /**
@@ -198,33 +203,17 @@ function describe(value: unknown): string {
 export function summarizeHistory<Task, Output>(
   history: ReadonlyArray<Iteration<Task, Output>>,
   opts: { maxOutputChars?: number } = {},
-): Array<{
-  index: number
-  agentRunName: string
-  valid?: boolean
-  score?: number
-  error?: string
-  output?: string
-}> {
+): HistorySummaryRow[] {
   const maxOutputChars = opts.maxOutputChars ?? 600
   return history.map((iter) => {
-    const row: {
-      index: number
-      agentRunName: string
-      valid?: boolean
-      score?: number
-      error?: string
-      output?: string
-    } = { index: iter.index, agentRunName: iter.agentRunName }
+    const row: HistorySummaryRow = { index: iter.index, agentRunName: iter.agentRunName }
     if (iter.verdict) {
       row.valid = iter.verdict.valid
       if (typeof iter.verdict.score === 'number') row.score = iter.verdict.score
     }
     if (iter.error) row.error = iter.error.message
     if (iter.output !== undefined) {
-      const serialized = describe(iter.output)
-      row.output =
-        serialized.length > maxOutputChars ? `${serialized.slice(0, maxOutputChars)}…` : serialized
+      row.output = stringifySafe(iter.output, { max: maxOutputChars })
     }
     return row
   })

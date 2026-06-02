@@ -23,14 +23,10 @@
  * scored (validator), or topology (driver).
  */
 
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
+import { buildBackendOptions } from './sandbox-backend'
 import { extractLlmCallEvent } from './sandbox-events'
 import type {
   AgentRunSpec,
@@ -40,12 +36,22 @@ import type {
   LoopResult,
   LoopSandboxClient,
   LoopSandboxPlacement,
+  LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
   OutputAdapter,
   Validator,
 } from './types'
+import {
+  addTokenUsage,
+  deleteBoxSafe,
+  randomSuffix,
+  stringifySafe,
+  throwAbort,
+  withTimeout,
+  zeroTokenUsage,
+} from './util'
 
 const DEFAULT_MAX_ITERATIONS = 10
 const DEFAULT_MAX_CONCURRENCY = 4
@@ -88,17 +94,20 @@ export interface RunLoopOptions<Task, Output, Decision> {
    */
   selectWinner?: (iterations: Iteration<Task, Output>[]) => LoopWinner<Task, Output> | undefined
   /**
-   * Same-sandbox driver mode. Pass a setter and the kernel keeps each worker box
-   * alive across the `plan()` boundary and hands the latest one here, so a
-   * same-sandbox planner (`createSandboxPlanner` with `reuseBox`) can stream its
-   * move INTO the worker's live box — steering from the worker's real filesystem
-   * and state, not just a history summary. The kernel owns teardown: every box
-   * kept alive this way is destroyed at loop end (and the setter is called with
-   * `undefined` then). Without it, worker boxes are torn down per-iteration
-   * (default) and a same-sandbox planner has nothing to reuse. Intended for
-   * single-worker (refine) loops; under fanout the most-recent box is shared.
+   * Same-sandbox driver mode — a kernel→caller out-channel, not a value handed
+   * in. When set, the kernel keeps each finished worker box alive across the
+   * `plan()` boundary and hands it here, so a same-sandbox planner
+   * (`createSandboxPlanner` with `reuseBox`) can stream its move INTO the
+   * worker's live box — steering from the worker's real filesystem and state,
+   * not just a history summary. The kernel owns teardown: every box kept alive
+   * this way is destroyed at loop end (and the callback is invoked with
+   * `undefined` then as a teardown sentinel). Without it, worker boxes are torn
+   * down per-iteration (default) and a same-sandbox planner has nothing to
+   * reuse. Intended for single-worker (refine) loops: under fanout every box is
+   * still kept for teardown, but only the last-finishing box is handed here, so
+   * a planner sees an arbitrary branch's filesystem — pair it with refine.
    */
-  shareWorkerBox?: (box: SandboxInstance | undefined) => void
+  onWorkerBox?: (box: SandboxInstance | undefined) => void
 }
 
 /** @experimental */
@@ -126,10 +135,10 @@ export async function runLoop<Task, Output, Decision>(
   // Same-sandbox mode: worker boxes are kept alive (not torn down per-iteration)
   // so the planner can stream into the latest; the kernel destroys them at loop end.
   const ownedBoxes: SandboxInstance[] = []
-  const collectBox = options.shareWorkerBox
+  const collectBox = options.onWorkerBox
     ? (box: SandboxInstance) => {
         ownedBoxes.push(box)
-        options.shareWorkerBox?.(box)
+        options.onWorkerBox?.(box)
       }
     : undefined
 
@@ -156,6 +165,9 @@ export async function runLoop<Task, Output, Decision>(
     while (iterations.length < maxIterations) {
       if (controller.signal.aborted) throwAbort()
       const planned = await options.driver.plan(options.task, iterations)
+      // plan() may be a long LLM call (sandbox planner); an abort during it must
+      // not launch a fresh batch of workers on an already-cancelled loop.
+      if (controller.signal.aborted) throwAbort()
       const planDesc = options.driver.describePlan?.()
       const roundIndex = round
       const baseIndex = iterations.length
@@ -197,7 +209,7 @@ export async function runLoop<Task, Output, Decision>(
           startedAt: now(),
           endedAt: 0,
           costUsd: 0,
-          tokenUsage: { input: 0, output: 0 },
+          tokenUsage: zeroTokenUsage(),
         })
       }
 
@@ -225,47 +237,28 @@ export async function runLoop<Task, Output, Decision>(
         kind: 'loop.decision',
         runId,
         timestamp: now(),
-        payload: { decision: serializeDecision(decision), historyLength: iterations.length },
+        payload: { decision: stringifySafe(decision), historyLength: iterations.length },
       })
+      // Terminal decision ends the loop; a non-terminal one falls through to the
+      // next plan() round, so this must return rather than continue.
       if (isTerminalDecision(decision)) {
-        return finalize({
-          options,
-          decision,
-          iterations,
-          startMs: loopStart,
-          now,
-          runId,
-        })
+        return await finalizeAndEmitEnded(options, decision, iterations, loopStart, now, runId)
       }
     }
 
-    if (iterations.length >= maxIterations) {
-      // Cap reached without a terminal decision — ask the driver one more time
-      // for its final state, then close out.
-      const decision = await options.driver.decide(iterations)
-      await emitTrace(options.ctx.traceEmitter, {
-        kind: 'loop.decision',
-        runId,
-        timestamp: now(),
-        payload: { decision: serializeDecision(decision), historyLength: iterations.length },
-      })
-      return finalize({ options, decision, iterations, startMs: loopStart, now, runId })
-    }
-    // `plan()` returned `[]` before `decide()` reached a terminal state.
-    const decision = await options.driver.decide(iterations)
-    await emitTrace(options.ctx.traceEmitter, {
-      kind: 'loop.decision',
-      runId,
-      timestamp: now(),
-      payload: { decision: serializeDecision(decision), historyLength: iterations.length },
-    })
-    return finalize({ options, decision, iterations, startMs: loopStart, now, runId })
+    // Either the cap was reached without a terminal decision, or plan() returned
+    // [] first — both ask the driver for its final state and close out identically.
+    return await decideAndFinalize(options, iterations, loopStart, now, runId)
   } finally {
     if (options.ctx.signal) options.ctx.signal.removeEventListener('abort', onOuterAbort)
     // Same-sandbox mode kept worker boxes alive across plan() so the planner could
-    // stream into them — the kernel owns their teardown, so destroy them all now.
-    for (const b of ownedBoxes) await destroySandboxSafe(b)
-    if (options.shareWorkerBox) options.shareWorkerBox(undefined)
+    // stream into them — the kernel owns their teardown. Destroy in parallel so a
+    // large fanout's deletes don't serialize, and bound each so a hung platform
+    // delete cannot wedge loop return after the caller aborted.
+    await Promise.allSettled(
+      ownedBoxes.map((b) => destroySandboxSafe(b, options.ctx.traceEmitter, runId, now)),
+    )
+    if (options.onWorkerBox) options.onWorkerBox(undefined)
   }
 }
 
@@ -296,15 +289,37 @@ interface RunBatchArgs<Task, Output> {
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
   const queue = args.slice.map((task, offset) => ({ task, index: args.baseIndex + offset }))
   const inflight = new Set<Promise<void>>()
-  while (queue.length > 0 || inflight.size > 0) {
-    while (inflight.size < args.maxConcurrency && queue.length > 0) {
-      const item = queue.shift()!
-      const p = executeIteration({ ...args, item }).finally(() => inflight.delete(p))
-      inflight.add(p)
+  // Every started worker, so a rejecting iteration (abort short-circuit, or a
+  // throwing trace emitter) cannot orphan its still-running siblings: we always
+  // drain ALL of them before propagating the first error.
+  const started: Promise<void>[] = []
+  let firstError: unknown
+  try {
+    while (queue.length > 0 || inflight.size > 0) {
+      while (inflight.size < args.maxConcurrency && queue.length > 0) {
+        const item = queue.shift()!
+        const p = executeIteration({ ...args, item }).finally(() => inflight.delete(p))
+        started.push(p)
+        inflight.add(p)
+      }
+      if (inflight.size === 0) break
+      try {
+        await Promise.race(inflight)
+      } catch (err) {
+        if (firstError === undefined) firstError = err
+        // Stop scheduling new work; drain the rest in the finally below.
+        queue.length = 0
+        break
+      }
     }
-    if (inflight.size === 0) break
-    await Promise.race(inflight)
+  } finally {
+    const settled = await Promise.allSettled(started)
+    if (firstError === undefined) {
+      const rejected = settled.find((s) => s.status === 'rejected')
+      if (rejected && rejected.status === 'rejected') firstError = rejected.reason
+    }
   }
+  if (firstError !== undefined) throw firstError
 }
 
 interface ExecuteIterationArgs<Task, Output> extends RunBatchArgs<Task, Output> {
@@ -359,8 +374,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         slot.costUsd += llmCall.costUsd ?? 0
-        slot.tokenUsage.input += llmCall.tokensIn ?? 0
-        slot.tokenUsage.output += llmCall.tokensOut ?? 0
+        addTokenUsage(slot.tokenUsage, { input: llmCall.tokensIn, output: llmCall.tokensOut })
         args.ctx.runHandle?.observe(llmCall)
       }
     }
@@ -393,28 +407,59 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
           slot.tokenUsage.input || slot.tokenUsage.output ? { ...slot.tokenUsage } : undefined,
         groupId: args.roundIndex,
         parentIndex: args.parentIndex,
-        outputPreview: slot.output !== undefined ? previewOutput(slot.output) : undefined,
+        outputPreview:
+          slot.output !== undefined ? stringifySafe(slot.output, { max: 280 }) : undefined,
       },
     })
     // The loop owns the per-shot box lifecycle. Default: tear it down now so
     // sandboxes don't leak. Same-sandbox mode: hand it to the kernel to keep
     // alive for the planner (it tears these down at loop end instead).
     if (args.collectBox && box) args.collectBox(box)
-    else await destroySandboxSafe(box)
+    else await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+  }
+  // An abort caught above is NOT a soft per-iteration failure — it must
+  // short-circuit the batch, not degrade to a recorded empty iteration. The
+  // trace was already emitted in the finally, so re-throw it now.
+  if (isAbortError(slot.error) || args.signal.aborted) {
+    if (slot.error) throw slot.error
+    throwAbort()
   }
 }
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError'
+}
+
+const TEARDOWN_TIMEOUT_MS = 15_000
 
 /**
  * Best-effort sandbox teardown. A failed delete must never surface as a loop
  * error, and instances without a `delete` (the loop's test fakes) are skipped.
+ * A delete that throws or hangs (bounded by `TEARDOWN_TIMEOUT_MS`) is recorded
+ * as a `loop.teardown.failed` trace so a silently-leaking box is observable —
+ * distinct from a fake with no `delete`, which is expected and stays silent.
  */
-export async function destroySandboxSafe(box: SandboxInstance | undefined): Promise<void> {
+async function destroySandboxSafe(
+  box: SandboxInstance | undefined,
+  trace?: LoopTraceEmitter,
+  runId?: string,
+  now?: () => number,
+): Promise<void> {
   if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return
-  try {
-    await box.delete()
-  } catch {
-    // ignore — platform reaps on expiry
+  const emitFailed = async (reason: string) => {
+    if (!trace || !runId) return
+    await emitTrace(trace, {
+      kind: 'loop.teardown.failed',
+      runId,
+      timestamp: (now ?? Date.now)(),
+      payload: { sandboxId: readSandboxId(box), reason },
+    })
   }
+  // Bound the delete so a hung platform delete can't wedge loop return after an
+  // abort. `undefined` = timed out; `false` = delete threw; `true` = deleted.
+  const outcome = await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
+  if (outcome === undefined) await emitFailed('timeout')
+  else if (outcome === false) await emitFailed('delete threw')
 }
 
 /**
@@ -438,18 +483,6 @@ function branchPoint<Task, Output>(
     }
   }
   return best
-}
-
-/** Bounded string preview of a parsed output for a viewer's drawer — never the
- *  full payload. JSON when serializable, else `String()`, truncated to 280. */
-function previewOutput(output: unknown): string {
-  let s: string
-  try {
-    s = typeof output === 'string' ? output : (JSON.stringify(output) ?? String(output))
-  } catch {
-    s = String(output)
-  }
-  return s.length > 280 ? `${s.slice(0, 280)}…` : s
 }
 
 export function describeSandboxPlacement(
@@ -494,39 +527,12 @@ export async function createSandboxForSpec<Task>(
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
 ): Promise<SandboxInstance> {
-  const overrides = spec.sandboxOverrides ?? {}
-  const overrideBackend = overrides.backend
-  const opts: CreateSandboxOptions = {
-    ...overrides,
-    backend: {
-      type: overrideBackend?.type ?? inferBackendType(spec.profile),
-      profile: spec.profile satisfies AgentProfile,
-      ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
-      ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
-    },
-  }
+  const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
   // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
   // host-agent registration) can't surface as a failure — readiness is observed
   // from sandbox status, and a gateway-timed-out create is recovered by lookup.
   if (signal.aborted) throwAbort()
   return acquireSandbox(client, opts, { signal })
-}
-
-function inferBackendType(
-  profile: AgentProfile,
-): CreateSandboxOptions['backend'] extends infer B
-  ? B extends { type: infer T }
-    ? T
-    : never
-  : never {
-  // The sandbox SDK accepts profile-driven backend selection by name. When the
-  // profile has no explicit hint we fall through to the SDK's default
-  // ('opencode' on the platform side). Returning a literal here would lie
-  // about provenance — let the SDK pick.
-  type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
-  const explicit = profile.metadata?.backendType
-  if (typeof explicit === 'string') return explicit as BackendType
-  return 'opencode' as BackendType
 }
 
 interface FinalizeArgs<Task, Output, Decision> {
@@ -543,14 +549,10 @@ function finalize<Task, Output, Decision>(
 ): LoopResult<Task, Output, Decision> {
   const winner = (args.options.selectWinner ?? defaultSelectWinner)(args.iterations)
   const costUsd = args.iterations.reduce((sum, iter) => sum + (iter.costUsd || 0), 0)
-  const tokenUsage = args.iterations.reduce(
-    (acc, iter) => {
-      acc.input += iter.tokenUsage?.input ?? 0
-      acc.output += iter.tokenUsage?.output ?? 0
-      return acc
-    },
-    { input: 0, output: 0 },
-  )
+  const tokenUsage = args.iterations.reduce((acc: LoopTokenUsage, iter) => {
+    addTokenUsage(acc, iter.tokenUsage)
+    return acc
+  }, zeroTokenUsage())
   const result: LoopResult<Task, Output, Decision> = {
     decision: args.decision,
     iterations: args.iterations,
@@ -559,15 +561,53 @@ function finalize<Task, Output, Decision>(
     costUsd,
     tokenUsage,
   }
-  void emitTrace(args.options.ctx.traceEmitter, {
+  return result
+}
+
+/**
+ * Run `decide`, emit the `loop.decision` trace, then finalize and emit
+ * `loop.ended`. The two post-while exits (cap reached / `plan()` returned `[]`)
+ * share this exact sequence.
+ */
+async function decideAndFinalize<Task, Output, Decision>(
+  options: RunLoopOptions<Task, Output, Decision>,
+  iterations: Iteration<Task, Output>[],
+  startMs: number,
+  now: () => number,
+  runId: string,
+): Promise<LoopResult<Task, Output, Decision>> {
+  const decision = await options.driver.decide(iterations)
+  await emitTrace(options.ctx.traceEmitter, {
+    kind: 'loop.decision',
+    runId,
+    timestamp: now(),
+    payload: { decision: stringifySafe(decision), historyLength: iterations.length },
+  })
+  return finalizeAndEmitEnded(options, decision, iterations, startMs, now, runId)
+}
+
+/** Finalize the loop and emit the terminal `loop.ended` span. Used by the
+ *  in-loop terminal path (decision trace already emitted) and decideAndFinalize. */
+async function finalizeAndEmitEnded<Task, Output, Decision>(
+  options: RunLoopOptions<Task, Output, Decision>,
+  decision: Decision,
+  iterations: Iteration<Task, Output>[],
+  startMs: number,
+  now: () => number,
+  runId: string,
+): Promise<LoopResult<Task, Output, Decision>> {
+  const result = finalize({ options, decision, iterations, startMs, now, runId })
+  // Await the terminal span (unlike a fire-and-forget) so a process exiting
+  // right after runLoop resolves (MCP subprocess / CLI dispatch) can't drop it.
+  await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.ended',
-    runId: args.runId,
-    timestamp: args.now(),
+    runId,
+    timestamp: now(),
     payload: {
-      winnerIterationIndex: winner?.iterationIndex,
-      totalCostUsd: costUsd,
+      winnerIterationIndex: result.winner?.iterationIndex,
+      totalCostUsd: result.costUsd,
       durationMs: result.durationMs,
-      iterations: args.iterations.length,
+      iterations: iterations.length,
     },
   })
   return result
@@ -611,34 +651,12 @@ function isTerminalDecision(decision: unknown): boolean {
   )
 }
 
-function serializeDecision(decision: unknown): string {
-  if (typeof decision === 'string') return decision
-  if (decision === null || decision === undefined) return 'null'
-  try {
-    return JSON.stringify(decision)
-  } catch {
-    return String(decision)
-  }
-}
-
 async function emitTrace(
   emitter: LoopTraceEmitter | undefined,
   event: LoopTraceEvent,
 ): Promise<void> {
   if (!emitter) return
   await emitter.emit(event)
-}
-
-function randomSuffix(len = 8): string {
-  return Math.random()
-    .toString(36)
-    .slice(2, 2 + len)
-}
-
-function throwAbort(): never {
-  const err = new Error('aborted')
-  err.name = 'AbortError'
-  throw err
 }
 
 /**

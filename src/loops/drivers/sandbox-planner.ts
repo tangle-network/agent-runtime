@@ -31,14 +31,11 @@
  * loop never silently runs a topology the agent did not choose.
  */
 
-import type {
-  AgentProfile,
-  CreateSandboxOptions,
-  SandboxEvent,
-  SandboxInstance,
-} from '@tangle-network/sandbox'
+import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { PlannerError, ValidationError } from '../../errors'
+import { buildBackendOptions } from '../sandbox-backend'
 import type { AgentRunSpec, LoopSandboxClient } from '../types'
+import { deleteBoxSafe, stringifySafe } from '../util'
 import type { PlannerContext, TopologyMove, TopologyPlanner } from './dynamic'
 import { summarizeHistory } from './dynamic'
 
@@ -99,8 +96,9 @@ export function createSandboxPlanner<Task, Output>(
   return async (ctx) => {
     // Same-sandbox mode: reuse the caller-owned box; else spin a planner-owned one.
     const reused = opts.reuseBox ? await opts.reuseBox() : undefined
+    if (reused !== undefined) assertReusableBox(reused)
     const box =
-      reused ?? (await opts.client.create(buildSandboxOptions(opts.profile, opts.sandboxOverrides)))
+      reused ?? (await opts.client.create(buildBackendOptions(opts.profile, opts.sandboxOverrides)))
     const plannerOwnsBox = reused === undefined
     try {
       const prompt = await buildPrompt(ctx)
@@ -116,13 +114,7 @@ export function createSandboxPlanner<Task, Output>(
     } finally {
       // Tear down only a box WE created (one per plan() round, so it doesn't
       // leak). A reused (same-sandbox) box belongs to the caller — never delete it.
-      if (plannerOwnsBox) {
-        try {
-          if (typeof (box as { delete?: unknown }).delete === 'function') await box.delete()
-        } catch {
-          // ignore — platform reaps on expiry
-        }
-      }
+      if (plannerOwnsBox) await deleteBoxSafe(box)
     }
   }
 }
@@ -153,17 +145,26 @@ function envelopeToMove<Task, Output>(
   )
 }
 
+// Hard ceiling on materialized fanout branches BEFORE the dynamic driver's
+// maxFanout clamp runs — an LLM emitting `n: 1e6` (or a million-element tasks[])
+// must not allocate the array first and OOM. The driver clamps the survivors to
+// its own (lower) maxFanout afterward; this only caps the allocation.
+const HARD_FANOUT_CEILING = 64
+
 function resolveFanoutTasks<Task, Output>(
   envelope: TopologyMoveEnvelope,
   ctx: PlannerContext<Task, Output>,
   decodeTask: (raw: unknown, ctx: PlannerContext<Task, Output>) => Task,
 ): Task[] {
   if (Array.isArray(envelope.tasks) && envelope.tasks.length > 0) {
-    return envelope.tasks.map((raw) => decodeTaskGuarded(decodeTask, raw, ctx))
+    return envelope.tasks
+      .slice(0, HARD_FANOUT_CEILING)
+      .map((raw) => decodeTaskGuarded(decodeTask, raw, ctx))
   }
   // `n` shorthand: N copies of the root task, leaning on `agentRuns` diversity.
   if (typeof envelope.n === 'number' && Number.isFinite(envelope.n) && envelope.n >= 1) {
-    return Array.from({ length: Math.floor(envelope.n) }, () => ctx.task)
+    const count = Math.min(Math.floor(envelope.n), HARD_FANOUT_CEILING)
+    return Array.from({ length: count }, () => ctx.task)
   }
   throw new PlannerError('sandbox planner fanout envelope needs a non-empty tasks[] or n >= 1')
 }
@@ -182,22 +183,18 @@ function decodeTaskGuarded<Task, Output>(
   }
 }
 
-function buildSandboxOptions(
-  profile: AgentProfile,
-  overrides: AgentRunSpec<unknown>['sandboxOverrides'],
-): CreateSandboxOptions {
-  const base = overrides ?? {}
-  const overrideBackend = base.backend
-  const explicitType = profile.metadata?.backendType
-  type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
-  return {
-    ...base,
-    backend: {
-      type: (overrideBackend?.type ?? explicitType ?? 'opencode') as BackendType,
-      profile,
-      ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
-      ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
-    },
+const TERMINAL_BOX_STATUS = new Set(['failed', 'expired', 'stopped'])
+
+/**
+ * Same-sandbox guard: a `reuseBox` is only valid when the kernel's `onWorkerBox`
+ * kept it alive. Reject a box the kernel already tore down (terminal status)
+ * with a typed error instead of streaming into a dead sandbox, where the failure
+ * would surface as a confusing "no parseable envelope".
+ */
+function assertReusableBox(box: SandboxInstance): void {
+  const status = (box as { status?: unknown }).status
+  if (typeof status === 'string' && TERMINAL_BOX_STATUS.has(status)) {
+    throw new PlannerError(`sandbox planner reuseBox returned a non-live box (status: ${status})`)
   }
 }
 
@@ -206,13 +203,13 @@ function defaultBuildPrompt<Task, Output>(ctx: PlannerContext<Task, Output>): st
   return [
     'You are the loop planner. You do not do the work — you decide the topology of the next round.',
     '',
-    `Root task:\n${safeJson(ctx.task)}`,
+    `Root task:\n${stringifySafe(ctx.task, { pretty: true })}`,
     '',
     `Iterations spent: ${ctx.iterationsSpent}. Remaining before the hard cap: ${ctx.iterationsRemaining}.`,
     '',
     ctx.history.length === 0
       ? 'No attempts yet.'
-      : `Attempts so far (index, agent, verdict, output):\n${safeJson(summary)}`,
+      : `Attempts so far (index, agent, verdict, output):\n${stringifySafe(summary, { pretty: true })}`,
     '',
     'Choose ONE move and emit it as a fenced JSON block:',
     '  - {"kind":"refine","tasks":[<task>],"rationale":"..."} — one more attempt; omit tasks to replay the root task.',
@@ -257,7 +254,7 @@ function defaultParseEnvelope(events: SandboxEvent[]): TopologyMoveEnvelope | un
     if (!TERMINAL_EVENT_TYPES.has(String(event.type ?? ''))) continue
     const structured = coerceEnvelope(data.result ?? data.output ?? data.move ?? data)
     if (structured) return structured
-    const fromText = coerceEnvelope(extractFencedJson(moveText(data) ?? ''))
+    const fromText = coerceLatestFenced(moveText(data) ?? '')
     if (fromText) return fromText
   }
   // 2) Any text-bearing event, latest first: the last schema-valid fenced/bare envelope.
@@ -268,7 +265,7 @@ function defaultParseEnvelope(events: SandboxEvent[]): TopologyMoveEnvelope | un
     if (!data) continue
     const text = moveText(data)
     if (!text) continue
-    const coerced = coerceEnvelope(extractFencedJson(text))
+    const coerced = coerceLatestFenced(text)
     if (coerced) return coerced
   }
   return undefined
@@ -292,21 +289,30 @@ function pickString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function extractFencedJson(text: string): unknown | undefined {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  const body = (match?.[1] ?? text).trim()
+/**
+ * Pick the LAST schema-valid envelope from `text`. A harness that echoes the
+ * prompt's example fences and then appends its real answer in one message puts
+ * the chosen move LAST — so when multiple fenced blocks exist we take the last
+ * that coerces, never the first (which would silently run an example move). The
+ * bare body (no fence) is the fallback.
+ */
+function coerceLatestFenced(text: string): TopologyMoveEnvelope | undefined {
+  const fences = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+  let latest: TopologyMoveEnvelope | undefined
+  for (const fence of fences) {
+    const coerced = coerceEnvelope(parseJsonSafe(fence[1]))
+    if (coerced) latest = coerced
+  }
+  if (latest) return latest
+  return coerceEnvelope(parseJsonSafe(text))
+}
+
+function parseJsonSafe(text: string | undefined): unknown | undefined {
+  const body = (text ?? '').trim()
   if (!body) return undefined
   try {
     return JSON.parse(body)
   } catch {
     return undefined
-  }
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value)
-  } catch {
-    return String(value)
   }
 }

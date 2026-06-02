@@ -33,7 +33,6 @@ import type { AgentProfile } from '@tangle-network/agent-eval'
 import type {
   CampaignTraceWriter,
   DispatchContext,
-  DispatchFn,
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
@@ -116,22 +115,4 @@ export function loopDispatch<Task, Output, Decision, TScenario extends Scenario,
   opts: LoopDispatchOptions<Task, Output, Decision, TScenario, TArtifact>,
 ): ProfileDispatchFn<TScenario, TArtifact> {
   return (profile, scenario, ctx) => runLoopForCell(opts, scenario, profile, ctx)
-}
-
-/**
- * Adapter for `runCampaign` (no profile axis). `toLoopOptions` receives only
- * the scenario; the `profile` passed to the shared core is a stable sentinel
- * so a single `runLoop` config is reused across cells.
- */
-export function loopCampaignDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(
-  opts: Omit<LoopDispatchOptions<Task, Output, Decision, TScenario, TArtifact>, 'toLoopOptions'> & {
-    toLoopOptions: (scenario: TScenario) => LoopOptionsForDispatch<Task, Output, Decision>
-  },
-): DispatchFn<TScenario, TArtifact> {
-  const profileSentinel = { id: 'loop-campaign', model: 'n/a@loop-campaign' } as AgentProfile
-  const profiled: LoopDispatchOptions<Task, Output, Decision, TScenario, TArtifact> = {
-    ...opts,
-    toLoopOptions: (scenario) => opts.toLoopOptions(scenario),
-  }
-  return (scenario, ctx) => runLoopForCell(profiled, scenario, profileSentinel, ctx)
 }

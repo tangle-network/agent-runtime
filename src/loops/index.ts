@@ -20,6 +20,7 @@ export type {
 export type {
   CreateDynamicDriverOptions,
   DynamicDecision,
+  HistorySummaryRow,
   PlannerContext,
   TopologyMove,
   TopologyPlanner,
@@ -43,7 +44,6 @@ export { createSandboxPlanner } from './drivers/sandbox-planner'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
-  loopCampaignDispatch,
   loopDispatch,
 } from './loop-dispatch'
 export { reportLoopUsage, type UsageSink } from './report-usage'
@@ -68,6 +68,7 @@ export type {
   LoopSandboxClient,
   LoopSandboxPlacement,
   LoopStartedPayload,
+  LoopTeardownFailedPayload,
   LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
