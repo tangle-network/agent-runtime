@@ -27,6 +27,56 @@ fresh sibling                    worker-c  ←─┘
                                       coordinator's FS in place
 ```
 
+```mermaid
+flowchart TD
+    subgraph SIBLING["SIBLING mode — no TANGLE_FLEET_ID"]
+        S_parent["parent sandbox<br/>createSiblingSandboxExecutor(client)"]
+        S_d0["delegate_* #0"]
+        S_d1["delegate_* #1"]
+        S_d2["delegate_* #2"]
+        S_b0["fresh sibling<br/>client.create()"]
+        S_b1["fresh sibling<br/>client.create()"]
+        S_b2["fresh sibling<br/>client.create()"]
+        S_parent --> S_d0 & S_d1 & S_d2
+        S_d0 -->|"1:1 spawn"| S_b0
+        S_d1 -->|"1:1 spawn"| S_b1
+        S_d2 -->|"1:1 spawn"| S_b2
+        S_tag(["loop.iteration.dispatch<br/>{ placement: 'sibling', sandboxId }"])
+        S_b0 -.-> S_tag
+        S_b1 -.-> S_tag
+        S_b2 -.-> S_tag
+        S_note["no shared filesystem —<br/>output returns via MCP response"]
+        S_tag -.-> S_note
+    end
+
+    subgraph FLEET["FLEET mode — TANGLE_FLEET_ID set"]
+        F_coord["coordinator-0<br/>(EXCLUDED via excludeMachineIds)"]
+        F_sel{"round-robin selector<br/>fleet.ids ∖ exclude set"}
+        F_d0["delegate_* #0"]
+        F_d1["delegate_* #1"]
+        F_d2["delegate_* #2"]
+        F_wa["worker-a"]
+        F_wb["worker-b"]
+        F_wc["worker-c"]
+        F_coord -.->|"skipped"| F_sel
+        F_coord --> F_d0 & F_d1 & F_d2
+        F_d0 --> F_sel
+        F_d1 --> F_sel
+        F_d2 --> F_sel
+        F_sel -->|"#0"| F_wa
+        F_sel -->|"#1"| F_wb
+        F_sel -->|"#2"| F_wc
+        F_ws[("shared fleet workspace<br/>diffs land in-place on coordinator FS")]
+        F_wa --> F_ws
+        F_wb --> F_ws
+        F_wc --> F_ws
+        F_tag(["loop.iteration.dispatch<br/>{ placement: 'fleet', fleetId, machineId, sandboxId }"])
+        F_wa -.-> F_tag
+        F_wb -.-> F_tag
+        F_wc -.-> F_tag
+    end
+```
+
 - **Sibling** (default): each `delegate_code` / `delegate_research` spawns
   a fresh sandbox via `sandboxClient.create()`. Worker output flows back
   through the MCP response — there is no shared filesystem.
