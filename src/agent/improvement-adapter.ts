@@ -32,11 +32,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import {
-  type AnalystFinding,
-  type FindingSubject,
-  parseFindingSubject,
-} from '@tangle-network/agent-eval'
+import type { AnalystFinding, FindingSubject } from '@tangle-network/agent-eval'
+import { parseFindingSubject } from '@tangle-network/agent-eval/analyst'
 import type { ImprovementAdapter } from '../analyst-loop/types'
 import type { AgentSurfaces, ResolvedSurface } from './surfaces'
 import { resolveSubjectPath } from './surfaces'

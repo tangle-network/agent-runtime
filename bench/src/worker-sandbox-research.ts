@@ -26,7 +26,13 @@ export interface SandboxResearchConfig {
   rounds?: number
   /** Per-round stream timeout. Default 6min. */
   perRoundMs?: number
+  /** Refine directive (the GEPA-optimizable surface). Defaults to the hand-written gated one. */
+  refineDirective?: string
 }
+
+/** Default gated refine directive (hand-written). GEPA optimizes this surface. */
+export const DEFAULT_SANDBOX_REFINE_DIRECTIVE =
+  'Double-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.'
 
 export interface SandboxResearchShot {
   round1Answer: string
@@ -74,6 +80,7 @@ export async function solveSandboxResearch(
   const rounds = Math.max(1, cfg.rounds ?? 3)
   // Generous hang-backstop default (20min); real research rounds finish in minutes.
   const perRoundMs = cfg.perRoundMs ?? 1_200_000
+  const directive = cfg.refineDirective ?? DEFAULT_SANDBOX_REFINE_DIRECTIVE
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey, timeoutMs: 180_000 } as never)
   const box = await createWithRetry(client, {
     name: `finsearch-${Math.random().toString(36).slice(2, 10)}`,
@@ -103,7 +110,7 @@ export async function solveSandboxResearch(
       const prompt =
         r === 1
           ? task.prompt
-          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-3000)}\n\nDouble-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.`
+          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-3000)}\n\n${directive}`
       let answer = ''
       try {
         answer = await streamAnswer(box, prompt, perRoundMs)
