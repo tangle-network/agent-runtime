@@ -99,6 +99,15 @@ export interface CreateSteeringPlannerOptions<Task, Output>
    * the loop (errors are swallowed).
    */
   onSteer?: (info: { iterationIndex: number; signals: SteeringSignal[] }) => void
+  /**
+   * Additive prompt context shown to the driver under a "Prior steering
+   * knowledge" header — independent of per-shot signals. The seam for
+   * cross-run memory: wire a {@link SteeringMemory}'s `render()` here so the
+   * driver sees what attribution PROVED worked on past runs and can adopt a
+   * known-good steer immediately. Returning `''` injects nothing. Never throws
+   * into the loop (errors degrade to no prior context).
+   */
+  priorContext?: (ctx: PlannerContext<Task, Output>) => string | Promise<string>
 }
 
 /** @experimental */
@@ -135,7 +144,17 @@ export function createSteeringPlanner<Task, Output>(
       } catch {
         // Observability must never break the loop.
       }
-      return buildSteeringPrompt(ctx, signals, maxOutputChars)
+      // Cross-run memory: a failing memory render must not crash the loop —
+      // degrade to no prior context (the driver just steers from this run).
+      let prior = ''
+      if (opts.priorContext) {
+        try {
+          prior = await opts.priorContext(ctx)
+        } catch {
+          prior = ''
+        }
+      }
+      return buildSteeringPrompt(ctx, signals, maxOutputChars, prior)
     })
   return createSandboxPlanner({ ...opts, buildPrompt })
 }
@@ -187,6 +206,7 @@ function buildSteeringPrompt<Task, Output>(
   ctx: PlannerContext<Task, Output>,
   signals: SteeringSignal[],
   maxOutputChars: number,
+  priorContext = '',
 ): string {
   const latest = ctx.history.at(-1)
   const fullOutput =
@@ -215,6 +235,9 @@ function buildSteeringPrompt<Task, Output>(
       ? `Analyst signals on the latest attempt — your steer MUST address these:\n${safeJson(signals)}`
       : 'No analyst signals on the latest attempt.',
     '',
+    priorContext
+      ? `Prior steering knowledge (what attribution PROVED worked on past runs — prefer a matching steer):\n${priorContext}\n`
+      : '',
     'Choose ONE move and emit it as a fenced JSON block:',
     '  - {"kind":"refine","tasks":[<task>],"rationale":"..."} — ONE more attempt. The task you put here IS the steer: rewrite the root task to direct the worker at the concrete fix the signals point to (name the tool, section, or value to change). Do NOT replay the root task unchanged — that repeats the failure.',
     '  - {"kind":"fanout","tasks":[<task>,<task>],"rationale":"..."} — N divergent steered attempts when the signals are ambiguous (or "n": N for N copies of the root task).',

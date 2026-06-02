@@ -33,3 +33,6 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Verify packed package exports
+        run: pnpm run verify:package

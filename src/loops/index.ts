@@ -41,6 +41,23 @@ export type {
 } from './drivers/sandbox-planner'
 export { createSandboxPlanner } from './drivers/sandbox-planner'
 export type {
+  AttributeSteerOptions,
+  CreateAttributionAnalyzeOptions,
+  SteerAttribution,
+  SteerAttributionVerdict,
+} from './drivers/steer-attribution'
+export {
+  attributeSteer,
+  createAttributionAnalyze,
+  steerAttributionSignal,
+} from './drivers/steer-attribution'
+export type {
+  AttributionToEntryOptions,
+  CreateSteeringMemoryOptions,
+  SteeringMemory,
+} from './drivers/steering-memory'
+export { attributionToPlaybookEntry, createSteeringMemory } from './drivers/steering-memory'
+export type {
   CreateSteeringPlannerOptions,
   SteeringFindingLike,
   SteeringSignal,
@@ -59,6 +76,7 @@ export {
 export { reportLoopUsage, type UsageSink } from './report-usage'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, runLoop } from './run-loop'
+export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
 export type {
   AgentRunSpec,
