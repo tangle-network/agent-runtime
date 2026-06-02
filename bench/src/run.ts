@@ -258,11 +258,25 @@ async function main() {
     // (blind pass@1) and the final patch (refine). Reports blind% vs refine% + the
     // delta — does steering-by-refinement beat one shot on a representative set?
     // Router-free: local opencode worker + the deterministic SWE-bench judge.
-    const { solveRefineLocal } = await import('./worker-refine')
     const fs = await import('node:fs/promises')
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
     const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
     const rounds = Number(process.env.ROUNDS ?? 3)
+    // RESEARCH=1 swaps the code-patch refine worker for the research-answer refine
+    // worker, so the same blind-vs-refine comparison runs on answer-variance domains.
+    const research = process.env.RESEARCH === '1'
+    const { solveRefineLocal } = await import('./worker-refine')
+    const { solveRefineResearchLocal } = await import('./worker-research')
+    const runRefine = async (
+      task: BenchTask,
+    ): Promise<{ first: string; final: string; detail?: string }> => {
+      if (research) {
+        const s = await solveRefineResearchLocal(task, { model, rounds, livenessMs })
+        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
+      }
+      const s = await solveRefineLocal(task, { model, rounds, livenessMs })
+      return { first: s.round1Patch, final: s.finalPatch, detail: s.detail }
+    }
     const conc = Number(process.env.CONCURRENCY ?? 3)
     const out = process.env.SCORECARD ?? '/tmp/swebench-compare.jsonl'
     await adapter.preflight()
@@ -279,12 +293,12 @@ async function main() {
         const task = tasks[next++] as (typeof tasks)[number]
         const started = Date.now()
         try {
-          const shot = await solveRefineLocal(task, { model, rounds, livenessMs })
-          const blind = shot.round1Patch.trim()
-            ? (await adapter.judge(task, shot.round1Patch)).resolved === true
+          const shot = await runRefine(task)
+          const blind = shot.first.trim()
+            ? (await adapter.judge(task, shot.first)).resolved === true
             : false
-          const refine = shot.finalPatch.trim()
-            ? (await adapter.judge(task, shot.finalPatch)).resolved === true
+          const refine = shot.final.trim()
+            ? (await adapter.judge(task, shot.final)).resolved === true
             : false
           agg.n += 1
           if (blind) agg.blind += 1
@@ -298,7 +312,7 @@ async function main() {
           )
           await fs.appendFile(
             out,
-            `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds: shot.rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+            `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
           )
         } catch (err) {
           done += 1

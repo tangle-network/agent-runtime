@@ -69,6 +69,63 @@ function runOpencodeCapture(
   })
 }
 
+export interface ResearchRefineShot {
+  /** Answer after round 1 — the blind artifact. */
+  round1Answer: string
+  /** Answer after the final refine round. */
+  finalAnswer: string
+  rounds: number
+  ok: boolean
+  detail?: string
+}
+
+/**
+ * Sequential-refine research worker — the research analogue of worker-refine.
+ * Round 1 answers (= blind). Rounds 2..k feed the PRIOR answer back in (there's no
+ * shared workspace for a question, so the prior answer is carried in the prompt)
+ * and ask the agent to critically review + correct it. Tests whether self-review
+ * improves a factual answer — the steering mode oracle-headroom can't measure.
+ */
+export async function solveRefineResearchLocal(
+  task: BenchTask,
+  cfg: ResearchWorkerConfig & { rounds?: number },
+): Promise<ResearchRefineShot> {
+  const rounds = Math.max(1, cfg.rounds ?? 3)
+  const livenessMs = cfg.livenessMs ?? DEFAULT_LIVENESS_MS
+  const dir = await mkdtemp(join(tmpdir(), 'research-refine-'))
+  try {
+    let round1Answer = ''
+    let finalAnswer = ''
+    let prev = ''
+    const notes: string[] = []
+    for (let r = 1; r <= rounds; r += 1) {
+      const prompt =
+        r === 1
+          ? task.prompt
+          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\nReview it critically: is the reasoning sound and is the final answer correct? If anything is wrong or unsupported, fix it. Then give your improved response, ending with the FINAL ANSWER line.`
+      const { stdout, killed } = await runOpencodeCapture(
+        ['run', prompt, '-m', cfg.model, '--dangerously-skip-permissions'],
+        dir,
+        livenessMs,
+      )
+      const answer = stdout.replace(ANSI, '')
+      if (killed) notes.push(`round ${r}: liveness backstop`)
+      if (r === 1) round1Answer = answer
+      finalAnswer = answer
+      prev = answer
+    }
+    return {
+      round1Answer,
+      finalAnswer,
+      rounds,
+      ok: finalAnswer.trim().length > 0,
+      detail: notes.length ? notes.join(' · ') : undefined,
+    }
+  } finally {
+    if (!cfg.keep) await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 export async function solveResearchLocal(
   task: BenchTask,
   cfg: ResearchWorkerConfig,
