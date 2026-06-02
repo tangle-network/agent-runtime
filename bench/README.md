@@ -15,7 +15,7 @@ Every "proof" of the steering loop so far is a deterministic unit test where we 
 - `judge(task, artifact)` → `BenchScore` (the benchmark's own harness; deterministic)
 - `goldArtifact(task)` → the oracle solution (to self-verify the judge before spending tokens)
 
-The plan: A/B the loop's **drivers as variants** — `blind` (`createSandboxPlanner` / single-shot) vs `steering` (`createSteeringPlanner`) vs `steering+memory` — over a held-out task subset, via agent-eval's `runHarnessExperiment` / `summarizeHarnessResults`. The worker calls a model through the **Tangle router** (all models behind it).
+The plan: A/B the loop's **drivers as variants** — `blind` (single attempt, no steering) vs an agentic driver (`createSandboxPlanner`, in a different or the same sandbox as the worker) — over a held-out task subset, against the benchmark's own judge. The worker calls a model through the **Tangle router** (all models behind it).
 
 ## Status
 

@@ -13,6 +13,13 @@
  * the planner never names which harness runs a branch — the kernel's
  * `agentRuns` round-robin decides that.
  *
+ * Three execution modes, all the same code path:
+ *   - LLM call        — a cheap-model `profile`; one prompt → one move.
+ *   - different sandbox (default) — a fresh planner-owned box per round.
+ *   - same sandbox     — pass `reuseBox` to stream the move into the worker's
+ *                        own box (a session against its live filesystem/state),
+ *                        so the driver steers from what the worker actually did.
+ *
  * Envelope contract the agent must emit (fenced ```json or a structured
  * `result`/`final` event payload):
  *   { "kind": "refine" | "fanout" | "stop",
@@ -24,7 +31,12 @@
  * loop never silently runs a topology the agent did not choose.
  */
 
-import type { AgentProfile, CreateSandboxOptions, SandboxEvent } from '@tangle-network/sandbox'
+import type {
+  AgentProfile,
+  CreateSandboxOptions,
+  SandboxEvent,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
 import { PlannerError, ValidationError } from '../../errors'
 import type { AgentRunSpec, LoopSandboxClient } from '../types'
 import type { PlannerContext, TopologyMove, TopologyPlanner } from './dynamic'
@@ -59,6 +71,16 @@ export interface CreateSandboxPlannerOptions<Task, Output> {
   sandboxOverrides?: AgentRunSpec<Task>['sandboxOverrides']
   /** Cancellation for the planner's own LLM call. */
   signal?: AbortSignal
+  /**
+   * Same-sandbox mode. Return an existing box and the planner streams its move
+   * INTO that box (a session against the worker's environment) instead of
+   * spinning its own — so the driver can inspect the worker's real filesystem
+   * and state, not just the history summary. The returned box's lifecycle is
+   * the CALLER's: the planner neither creates nor deletes it. Return
+   * `undefined` to fall back to the default (a fresh, planner-owned box =
+   * different-sandbox mode). Omit entirely for the default.
+   */
+  reuseBox?: () => SandboxInstance | undefined | Promise<SandboxInstance | undefined>
 }
 
 /** @experimental */
@@ -75,7 +97,11 @@ export function createSandboxPlanner<Task, Output>(
   const parseEnvelope = opts.parseEnvelope ?? defaultParseEnvelope
 
   return async (ctx) => {
-    const box = await opts.client.create(buildSandboxOptions(opts.profile, opts.sandboxOverrides))
+    // Same-sandbox mode: reuse the caller-owned box; else spin a planner-owned one.
+    const reused = opts.reuseBox ? await opts.reuseBox() : undefined
+    const box =
+      reused ?? (await opts.client.create(buildSandboxOptions(opts.profile, opts.sandboxOverrides)))
+    const plannerOwnsBox = reused === undefined
     try {
       const prompt = await buildPrompt(ctx)
       const events: SandboxEvent[] = []
@@ -88,12 +114,14 @@ export function createSandboxPlanner<Task, Output>(
       }
       return envelopeToMove(envelope, ctx, opts.decodeTask)
     } finally {
-      // The planner owns its box for exactly one move — tear it down so driver
-      // sandboxes don't leak (one per plan() round). Best-effort.
-      try {
-        if (typeof (box as { delete?: unknown }).delete === 'function') await box.delete()
-      } catch {
-        // ignore — platform reaps on expiry
+      // Tear down only a box WE created (one per plan() round, so it doesn't
+      // leak). A reused (same-sandbox) box belongs to the caller — never delete it.
+      if (plannerOwnsBox) {
+        try {
+          if (typeof (box as { delete?: unknown }).delete === 'function') await box.delete()
+        } catch {
+          // ignore — platform reaps on expiry
+        }
       }
     }
   }
