@@ -58,7 +58,13 @@ const answerOutput: OutputAdapter<string> = {
  * Later rounds carry the prior answer forward (fresh box each iteration) + the
  * gated directive. Stops on the first valid verdict or when the budget runs out.
  */
-function refinePlanner(rootQuestion: string, maxRounds: number): TopologyPlanner<string, string> {
+/** GEPA-learned refine directive (bycd31l10, +7.1pp held-out vs hand-written on the
+ *  GEPA run). Fixes the hand-written directive's blank-reply failure mode by
+ *  separating the verification note from the (verbatim-preserved) final answer. */
+const GEPA_LEARNED_DIRECTIVE =
+  'Double-check it: re-verify the fact/value against a reliable, citable source. Provide a brief Verification note naming the source you used (link or title); this note is not part of the final answer. Confirm the requested units/precision/tolerance exactly. If the prior answer is correct, copy the SAME final answer text verbatim with identical formatting—do not add or remove words. Change it ONLY if you find a concrete error in the value or in the cited source; in that case, briefly describe the specific error in the Verification note and provide the corrected value with the requested units/precision/tolerance. If you cannot verify, state that in the Verification note, but do not alter or omit the final answer. Always place the final answer as the last line of your reply, containing only the answer text.'
+
+function refinePlanner(rootQuestion: string, maxRounds: number, directive: string): TopologyPlanner<string, string> {
   return ({ history }): TopologyMove<string> => {
     if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
     if (history.length === 0) return { kind: 'refine', task: rootQuestion, rationale: 'blind attempt' }
@@ -66,7 +72,7 @@ function refinePlanner(rootQuestion: string, maxRounds: number): TopologyPlanner
     const prior = history.at(-1)?.output ?? ''
     return {
       kind: 'refine',
-      task: `${rootQuestion}\n\n--- Your previous answer ---\n${prior.slice(-3000)}\n\n${DEFAULT_SANDBOX_REFINE_DIRECTIVE}`,
+      task: `${rootQuestion}\n\n--- Your previous answer ---\n${prior.slice(-3000)}\n\n${directive}`,
       rationale: 'evidence-gated refine',
     }
   }
@@ -104,8 +110,10 @@ async function main() {
     `[finsearch-loop] ${tasks.length} instances · THROUGH runLoop+createDynamicDriver · rounds=${rounds} · model=${model} · conc=${conc}`,
   )
 
-  const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: sandboxKey, timeoutMs: 180_000 } as never)
-  const agg = { n: 0, blind: 0, randomK: 0, refine: 0, errored: 0 }
+  // 20-min transport timeout — a multi-turn web-research agent legitimately takes
+  // minutes; a 3-min cap guillotines deep research and understates every condition.
+  const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: sandboxKey, timeoutMs: 1_200_000 } as never)
+  const agg = { n: 0, blind: 0, randomK: 0, refineHand: 0, refineGepa: 0, errored: 0 }
   let next = 0
   let done = 0
 
@@ -150,26 +158,29 @@ async function main() {
     while (next < tasks.length) {
       const task = tasks[next++] as BenchTask
       try {
-        // Paired: same task/model/judge, only the planner differs. random@k = compute control.
+        // Paired 3-way: same task/model/judge, only the planner differs.
+        //   random@k = compute control · refineHand = hand-written directive · refineGepa = GEPA-learned.
         const rnd = await runCondition(task, randomPlanner(task.prompt, rounds))
-        const ref = await runCondition(task, refinePlanner(task.prompt, rounds))
+        const refH = await runCondition(task, refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE))
+        const refG = await runCondition(task, refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE))
         done += 1
-        if (rnd.infraError || ref.infraError) {
+        if (rnd.infraError || refH.infraError || refG.infraError) {
           agg.errored += 1
           console.log(`  [${done}/${tasks.length}] ${task.id}: INFRA-ERROR (excluded)`)
           await fs.appendFile(out, `${JSON.stringify({ id: task.id, infraError: true })}\n`)
           continue
         }
         agg.n += 1
-        if (ref.blind) agg.blind += 1
+        if (refH.blind) agg.blind += 1
         if (rnd.resolved) agg.randomK += 1
-        if (ref.resolved) agg.refine += 1
+        if (refH.resolved) agg.refineHand += 1
+        if (refG.resolved) agg.refineGepa += 1
         console.log(
-          `  [${done}/${tasks.length}] ${task.id}: blind=${ref.blind ? '✓' : '·'} random@${rounds}=${rnd.resolved ? '✓' : '·'} refine@${rounds}=${ref.resolved ? '✓' : '·'}`,
+          `  [${done}/${tasks.length}] ${task.id}: blind=${refH.blind ? '✓' : '·'} random@${rounds}=${rnd.resolved ? '✓' : '·'} refineHand=${refH.resolved ? '✓' : '·'} refineGepa=${refG.resolved ? '✓' : '·'}`,
         )
         await fs.appendFile(
           out,
-          `${JSON.stringify({ id: task.id, blind: ref.blind, randomK: rnd.resolved, refineK: ref.resolved })}\n`,
+          `${JSON.stringify({ id: task.id, blind: refH.blind, randomK: rnd.resolved, refineHand: refH.resolved, refineGepa: refG.resolved })}\n`,
         )
       } catch (err) {
         done += 1
@@ -184,13 +195,15 @@ async function main() {
 
   const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
   const dlt = (x: number) => `${(((x) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp`
-  console.log(`\n=== FinSearchComp THROUGH runLoop — refine@k vs random@k (clean n=${agg.n}, excluded ${agg.errored} infra-errored, rounds=${rounds}) ===`)
-  console.log(`  blind     (1 attempt):        ${pct(agg.blind)}  (${agg.blind}/${agg.n})`)
-  console.log(`  random@${rounds} (k tries, no steer): ${pct(agg.randomK)}  (${agg.randomK}/${agg.n})  ← compute control`)
-  console.log(`  refine@${rounds} (k tries, steered):  ${pct(agg.refine)}  (${agg.refine}/${agg.n})`)
-  console.log(`  ► more-compute effect (random@k − blind): ${dlt(agg.randomK - agg.blind)}`)
-  console.log(`  ► STEERING effect (refine@k − random@k):  ${dlt(agg.refine - agg.randomK)}  ← the isolated driver-loop contribution`)
-  console.log(`scorecard: ${out}`)
+  console.log(`\n=== FinSearchComp THROUGH runLoop — 3-way (clean n=${agg.n}, excluded ${agg.errored} infra-errored, rounds=${rounds}) ===`)
+  console.log(`  blind          (1 attempt):         ${pct(agg.blind)}  (${agg.blind}/${agg.n})`)
+  console.log(`  random@${rounds}      (k tries, no steer):  ${pct(agg.randomK)}  (${agg.randomK}/${agg.n})  ← compute control`)
+  console.log(`  refineHand@${rounds}  (hand directive):    ${pct(agg.refineHand)}  (${agg.refineHand}/${agg.n})`)
+  console.log(`  refineGepa@${rounds}  (GEPA directive):    ${pct(agg.refineGepa)}  (${agg.refineGepa}/${agg.n})`)
+  console.log(`  ► more-compute (random − blind):          ${dlt(agg.randomK - agg.blind)}`)
+  console.log(`  ► STEERING hand (refineHand − random):    ${dlt(agg.refineHand - agg.randomK)}`)
+  console.log(`  ► STEERING GEPA (refineGepa − random):    ${dlt(agg.refineGepa - agg.randomK)}  ← does the LEARNED directive beat just-more-compute?`)
+  console.log(`scorecard: ${out} · CI: tsx src/analyze-paired.mts ${out}`)
 }
 
 main().catch((err) => {
