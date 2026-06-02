@@ -53,9 +53,13 @@ async function createWithRetry(client: Sandbox, opts: unknown, attempts = 4): Pr
 }
 
 async function streamAnswer(box: Box, prompt: string, perRoundMs: number): Promise<string> {
-  const signal = AbortSignal.timeout(perRoundMs)
+  // perRoundMs is a true-HANG backstop, not a work cap: deep multi-step web
+  // research legitimately takes minutes, and cutting it mid-research understates
+  // the agent (it's why blind looked artificially weak). Default it generous;
+  // perRoundMs <= 0 disables the cap entirely (run to completion).
+  const signal = perRoundMs > 0 ? AbortSignal.timeout(perRoundMs) : undefined
   let answer = ''
-  for await (const ev of box.streamPrompt(prompt, { signal })) {
+  for await (const ev of box.streamPrompt(prompt, signal ? { signal } : {})) {
     const d = ev?.data as Record<string, unknown> | undefined
     const t = d?.finalText ?? d?.text ?? d?.result
     if (typeof t === 'string' && t.length > 0) answer = t
@@ -68,7 +72,8 @@ export async function solveSandboxResearch(
   cfg: SandboxResearchConfig,
 ): Promise<SandboxResearchShot> {
   const rounds = Math.max(1, cfg.rounds ?? 3)
-  const perRoundMs = cfg.perRoundMs ?? 360_000
+  // Generous hang-backstop default (20min); real research rounds finish in minutes.
+  const perRoundMs = cfg.perRoundMs ?? 1_200_000
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey, timeoutMs: 180_000 } as never)
   const box = await createWithRetry(client, {
     name: `finsearch-${Math.random().toString(36).slice(2, 10)}`,
