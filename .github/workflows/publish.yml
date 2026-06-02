@@ -52,7 +52,7 @@ jobs:
 
   publish-npm:
     needs: verify
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,21 +66,25 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          registry-url: https://registry.npmjs.org
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
-      # Idempotent: re-running a tag whose npm version is already published
-      # must not fail the workflow.
-      - name: Publish to npm (skip if already published)
+      # Tokenless OIDC trusted publishing — no NPM_TOKEN to expire. The
+      # id-token→credential exchange is an npm-CLI feature (>= 11.5.1; Node 22
+      # bundles npm 10) and pnpm only signs provenance (the PUT then 404s on
+      # auth), so upgrade npm and publish with it. This package has no
+      # `workspace:` deps, so npm publish is safe. No setup-node registry-url:
+      # it writes an empty-authToken .npmrc that blocks OIDC. Idempotent.
+      # Requires the npmjs Trusted Publisher: org tangle-network, repo
+      # agent-runtime, workflow publish.yml.
+      - name: Publish to npm (OIDC trusted publishing)
         run: |
+          npm install -g npm@latest
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "$NAME@$VERSION already on registry; skipping publish"
           else
-            pnpm publish --no-git-checks --access public --provenance
+            npm publish --provenance --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
