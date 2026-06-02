@@ -171,14 +171,18 @@ async function main() {
     const { solveShotLocal } = await import('./worker-local')
     const fs = await import('node:fs/promises')
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    // MODELS (comma list) = the diversity lever: shot i uses models[i % len]. With a
+    // single near-deterministic model, oracle@k trivially equals pass@1 (the k shots
+    // are identical), so the only real headroom is heterogeneous (cross-model) fanout.
+    const models = process.env.MODELS ? process.env.MODELS.split(',').map((m) => m.trim()) : [model]
     const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
-    const k = Number(process.env.K ?? 3)
+    const k = Number(process.env.K ?? models.length)
     const conc = Number(process.env.CONCURRENCY ?? 2)
     const out = process.env.SCORECARD ?? '/tmp/swebench-oracle.jsonl'
     await adapter.preflight()
     const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
-    console.log(`[batch-oracle] ${tasks.length} instances · k=${k} · model=${model} · conc=${conc} (router-free)`)
+    console.log(`[batch-oracle] ${tasks.length} instances · k=${k} · models=[${models.join(', ')}] · conc=${conc} (router-free)`)
     const agg = { n: 0, pass1: 0, randomExp: 0, oracle: 0 }
     let next = 0
     let done = 0
@@ -189,7 +193,8 @@ async function main() {
         try {
           const resolved: boolean[] = []
           for (let i = 0; i < k; i += 1) {
-            const shot = await solveShotLocal(task, { model, livenessMs })
+            const shotModel = models[i % models.length] as string
+            const shot = await solveShotLocal(task, { model: shotModel, livenessMs })
             const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
             resolved.push(score.resolved === true)
           }
