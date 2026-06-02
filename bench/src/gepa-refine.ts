@@ -17,8 +17,12 @@
  */
 
 import { optimizePrompt } from '@tangle-network/agent-runtime/improvement'
-import type { JudgeConfig, Scenario } from '@tangle-network/agent-eval/campaign'
-import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
+import type { JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
+import {
+  heldoutSignificance,
+  inMemoryCampaignStorage,
+  pairHoldout,
+} from '@tangle-network/agent-eval/campaign'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
@@ -69,7 +73,13 @@ async function main() {
   )
 
   // Domain seam: run the refine worker under the CANDIDATE directive → final answer.
-  const runWithPrompt = async (directive: string, scenario: RefineScenario): Promise<string> => {
+  // Reports REAL token usage to ctx.cost (sandbox path) so the campaign's
+  // backend-integrity guard sees a real backend, not a stub — never fabricated.
+  const runWithPrompt = async (
+    directive: string,
+    scenario: RefineScenario,
+    ctx: { cost: { observe(usd: number, source: string): void; observeTokens(u: { input: number; output: number }): void } },
+  ): Promise<string> => {
     if (useSandbox) {
       const s = await solveSandboxResearch(scenario.task, {
         sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
@@ -82,6 +92,8 @@ async function main() {
         perRoundMs: livenessMs,
         refineDirective: directive,
       })
+      if (s.costUsd > 0) ctx.cost.observe(s.costUsd, 'sandbox-research')
+      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
       return s.finalAnswer
     }
     const s = await solveRefineResearchLocal(scenario.task, { model, rounds, livenessMs, refineDirective: directive })
@@ -134,6 +146,28 @@ async function main() {
   console.log(`  winner   held-out composite: ${(result.winnerComposite * 100).toFixed(1)}%`)
   console.log(`  ► held-out delta:            ${(result.delta * 100).toFixed(1)} pp`)
   console.log(`  gate decision: ${result.decision} (improved=${result.improved})`)
+
+  // 0.76 heldoutSignificance: a bootstrap CI on the PAIRED winner−baseline held-out
+  // delta — turns a bare "+X pp" (a few-instance swing at thin n) into a CI + a
+  // significance verdict, so we know whether to trust/promote or just scale n.
+  try {
+    const cellsToMap = (cells: ReadonlyArray<{ scenarioId: string; judgeScores: Record<string, JudgeScore> }>) => {
+      const m = new Map<string, Record<string, JudgeScore>>()
+      for (const c of cells) m.set(c.scenarioId, c.judgeScores)
+      return m
+    }
+    const baseMap = cellsToMap(result.raw.baselineOnHoldout.cells)
+    const winMap = cellsToMap(result.raw.winnerOnHoldout.cells)
+    const ids = new Set([...baseMap.keys()].filter((id) => winMap.has(id)))
+    const paired = pairHoldout(winMap, baseMap, ids, (s) => s.composite)
+    const sig = heldoutSignificance(paired)
+    console.log(
+      `  ► held-out delta 95% CI (n=${sig.n}): [${(sig.bootstrap.low * 100).toFixed(1)}, ${(sig.bootstrap.high * 100).toFixed(1)}] pp · median ${(sig.bootstrap.median * 100).toFixed(1)}pp · significant=${sig.significant}`,
+    )
+    if (!sig.significant) console.log(`    (CI spans 0 or n below the productive-runs floor — scale n before promoting)`)
+  } catch (err) {
+    console.log(`  (held-out significance unavailable: ${(err instanceof Error ? err.message : String(err)).slice(0, 100)})`)
+  }
   if (result.improved) {
     console.log(`\n  LEARNED DIRECTIVE:\n${result.prompt}`)
     if (result.rationale) console.log(`\n  rationale: ${result.rationale}`)

@@ -13,6 +13,7 @@
  * round-1 answer (blind) and the final answer (refine) so one run scores both.
  */
 
+import { extractLlmCallEvent } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
 
@@ -40,6 +41,10 @@ export interface SandboxResearchShot {
   rounds: number
   ok: boolean
   detail?: string
+  /** REAL token usage summed from the sandbox stream events (never fabricated). */
+  usage: { input: number; output: number }
+  /** REAL cost summed from the sandbox stream events. */
+  costUsd: number
 }
 
 /* biome-ignore lint/suspicious/noExplicitAny: the sandbox SDK box is loosely typed across versions */
@@ -58,19 +63,36 @@ async function createWithRetry(client: Sandbox, opts: unknown, attempts = 4): Pr
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr))
 }
 
-async function streamAnswer(box: Box, prompt: string, perRoundMs: number): Promise<string> {
+interface RoundResult {
+  answer: string
+  input: number
+  output: number
+  costUsd: number
+}
+
+async function streamAnswer(box: Box, prompt: string, perRoundMs: number): Promise<RoundResult> {
   // perRoundMs is a true-HANG backstop, not a work cap: deep multi-step web
   // research legitimately takes minutes, and cutting it mid-research understates
   // the agent (it's why blind looked artificially weak). Default it generous;
   // perRoundMs <= 0 disables the cap entirely (run to completion).
   const signal = perRoundMs > 0 ? AbortSignal.timeout(perRoundMs) : undefined
   let answer = ''
+  let input = 0
+  let output = 0
+  let costUsd = 0
   for await (const ev of box.streamPrompt(prompt, signal ? { signal } : {})) {
     const d = ev?.data as Record<string, unknown> | undefined
     const t = d?.finalText ?? d?.text ?? d?.result
     if (typeof t === 'string' && t.length > 0) answer = t
+    // REAL usage from the stream — same extractor the loop kernel uses. No fabrication.
+    const llm = extractLlmCallEvent(ev as never, 'sandbox-research')
+    if (llm) {
+      input += llm.tokensIn ?? 0
+      output += llm.tokensOut ?? 0
+      costUsd += llm.costUsd ?? 0
+    }
   }
-  return answer
+  return { answer, input, output, costUsd }
 }
 
 export async function solveSandboxResearch(
@@ -105,6 +127,9 @@ export async function solveSandboxResearch(
     let round1Answer = ''
     let finalAnswer = ''
     let prev = ''
+    let input = 0
+    let output = 0
+    let costUsd = 0
     const notes: string[] = []
     for (let r = 1; r <= rounds; r += 1) {
       const prompt =
@@ -113,7 +138,11 @@ export async function solveSandboxResearch(
           : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-3000)}\n\n${directive}`
       let answer = ''
       try {
-        answer = await streamAnswer(box, prompt, perRoundMs)
+        const round = await streamAnswer(box, prompt, perRoundMs)
+        answer = round.answer
+        input += round.input
+        output += round.output
+        costUsd += round.costUsd
       } catch (err) {
         notes.push(`round ${r}: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`)
       }
@@ -129,6 +158,8 @@ export async function solveSandboxResearch(
       rounds,
       ok: finalAnswer.trim().length > 0,
       detail: notes.length ? notes.join(' · ') : undefined,
+      usage: { input, output },
+      costUsd,
     }
   } finally {
     try {
