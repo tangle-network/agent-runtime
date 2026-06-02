@@ -511,6 +511,77 @@ describe('createSandboxPlanner', () => {
     expect(created).toBe(0) // streamed into the worker's box, did not spin its own
     expect(deleted).toBe(0) // the caller owns the reused box's lifecycle
   })
+
+  it('same-sandbox end-to-end: runLoop keeps the worker box alive so the planner streams into it', async () => {
+    let created = 0
+    const deleted: string[] = []
+    const plannerStreamedIn: string[] = []
+    const workerStreamedIn: string[] = []
+    // shareWorkerBox captures the latest worker box; the planner's reuseBox returns it.
+    let workerBox: SandboxInstance | undefined
+
+    const makeBox = (id: string): SandboxInstance =>
+      ({
+        id,
+        async *streamPrompt(message: string) {
+          if (message.includes('loop planner')) {
+            plannerStreamedIn.push(id)
+            // refine on the first planner call (no worker box yet → own box),
+            // stop on the second (which reuses the worker box).
+            const move =
+              plannerStreamedIn.length === 1
+                ? { kind: 'refine', tasks: [{ goal: 'g', strategy: 'careful' }] }
+                : { kind: 'stop' }
+            yield { type: 'result', data: { result: move } } satisfies SandboxEvent
+          } else {
+            workerStreamedIn.push(id)
+            const task = JSON.parse(message) as Task
+            yield {
+              type: 'result',
+              data: { strategy: task.strategy, harness: 'worker', score: scoreFor(task.strategy) },
+            } satisfies SandboxEvent
+          }
+        },
+        async delete() {
+          deleted.push(id)
+        },
+      }) as unknown as SandboxInstance
+
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        created += 1
+        return makeBox(`box-${created}`)
+      },
+    }
+
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+      reuseBox: () => workerBox, // same-sandbox: stream the move into the worker's box
+    })
+
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRun: workerSpecs(['worker'])[0],
+      output,
+      validator,
+      task: { goal: 'g', strategy: 'naive' },
+      ctx: { sandboxClient: client },
+      shareWorkerBox: (box) => {
+        workerBox = box
+      },
+    })
+
+    expect(result.decision).toBe('done')
+    // Round 0 planner had no worker box yet → its own box; the worker then ran in box-2.
+    expect(workerStreamedIn).toEqual(['box-2'])
+    // Round 1 planner reused the worker's box: it streamed into the SAME id the worker used.
+    expect(plannerStreamedIn).toEqual(['box-1', 'box-2'])
+    expect(plannerStreamedIn[1]).toBe(workerStreamedIn[0]) // same-sandbox proven
+    // The kernel kept the worker box alive across plan(), then tore it down at loop end.
+    expect(deleted).toContain('box-2')
+  })
 })
 
 describe('runLoop dynamic driver — trace emission for topology viewers', () => {

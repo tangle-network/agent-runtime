@@ -87,6 +87,18 @@ export interface RunLoopOptions<Task, Output, Decision> {
    * by earliest iteration).
    */
   selectWinner?: (iterations: Iteration<Task, Output>[]) => LoopWinner<Task, Output> | undefined
+  /**
+   * Same-sandbox driver mode. Pass a setter and the kernel keeps each worker box
+   * alive across the `plan()` boundary and hands the latest one here, so a
+   * same-sandbox planner (`createSandboxPlanner` with `reuseBox`) can stream its
+   * move INTO the worker's live box — steering from the worker's real filesystem
+   * and state, not just a history summary. The kernel owns teardown: every box
+   * kept alive this way is destroyed at loop end (and the setter is called with
+   * `undefined` then). Without it, worker boxes are torn down per-iteration
+   * (default) and a same-sandbox planner has nothing to reuse. Intended for
+   * single-worker (refine) loops; under fanout the most-recent box is shared.
+   */
+  shareWorkerBox?: (box: SandboxInstance | undefined) => void
 }
 
 /** @experimental */
@@ -111,6 +123,15 @@ export async function runLoop<Task, Output, Decision>(
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
   let round = 0
+  // Same-sandbox mode: worker boxes are kept alive (not torn down per-iteration)
+  // so the planner can stream into the latest; the kernel destroys them at loop end.
+  const ownedBoxes: SandboxInstance[] = []
+  const collectBox = options.shareWorkerBox
+    ? (box: SandboxInstance) => {
+        ownedBoxes.push(box)
+        options.shareWorkerBox?.(box)
+      }
+    : undefined
 
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.started',
@@ -194,6 +215,7 @@ export async function runLoop<Task, Output, Decision>(
         now,
         roundIndex,
         parentIndex,
+        collectBox,
       })
 
       if (controller.signal.aborted) throwAbort()
@@ -240,6 +262,10 @@ export async function runLoop<Task, Output, Decision>(
     return finalize({ options, decision, iterations, startMs: loopStart, now, runId })
   } finally {
     if (options.ctx.signal) options.ctx.signal.removeEventListener('abort', onOuterAbort)
+    // Same-sandbox mode kept worker boxes alive across plan() so the planner could
+    // stream into them — the kernel owns their teardown, so destroy them all now.
+    for (const b of ownedBoxes) await destroySandboxSafe(b)
+    if (options.shareWorkerBox) options.shareWorkerBox(undefined)
   }
 }
 
@@ -259,6 +285,12 @@ interface RunBatchArgs<Task, Output> {
   roundIndex: number
   /** Iteration this round branched from — stamped as `parentIndex`. */
   parentIndex?: number
+  /**
+   * Same-sandbox mode: when set, a finished iteration's box is handed here
+   * (kept alive for the planner) instead of being torn down. `undefined` =
+   * default per-iteration teardown.
+   */
+  collectBox?: (box: SandboxInstance) => void
 }
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
@@ -364,9 +396,11 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         outputPreview: slot.output !== undefined ? previewOutput(slot.output) : undefined,
       },
     })
-    // The loop owns the per-shot box lifecycle — tear it down so sandboxes don't
-    // leak (one per shot, plus the planner's). Best-effort; platform expiry backstops.
-    await destroySandboxSafe(box)
+    // The loop owns the per-shot box lifecycle. Default: tear it down now so
+    // sandboxes don't leak. Same-sandbox mode: hand it to the kernel to keep
+    // alive for the planner (it tears these down at loop end instead).
+    if (args.collectBox && box) args.collectBox(box)
+    else await destroySandboxSafe(box)
   }
 }
 
