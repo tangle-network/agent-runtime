@@ -10,7 +10,7 @@
     "compare": "tsx src/run.ts compare"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.61.0",
+    "@tangle-network/agent-eval": "^0.76.0",
     "@tangle-network/agent-runtime": "file:..",
     "@tangle-network/sandbox": "^0.4.0"
   },
