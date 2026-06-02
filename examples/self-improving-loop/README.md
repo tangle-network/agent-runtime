@@ -4,54 +4,46 @@ The full 4-package composition in one runnable file: `@tangle-network/agent-runt
 
 ## What it shows
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   AgentProfile v0  ─┐                                               │
-│   (from @tangle/    │                                               │
-│   sandbox)          │                                               │
-│                     ▼                                               │
-│              ┌──────────────┐                                       │
-│              │ runMultishot │ ◄── @tangle/agent-eval/multishot     │
-│              │  3 personas  │     (driver-agent loop + judges)    │
-│              │  1 judge     │                                       │
-│              └──────┬───────┘                                       │
-│                     │                                               │
-│                v0 transcripts + scores                              │
-│                     │                                               │
-│                     ▼                                               │
-│              ┌──────────────┐                                       │
-│              │   analyst    │ ◄── runAnalystLoop pattern from      │
-│              │  finds root  │     @tangle/agent-runtime/analyst-   │
-│              │  cause +     │     loop (in production)             │
-│              │  mutation    │                                       │
-│              └──────┬───────┘                                       │
-│                     │                                               │
-│                proposed mutation                                    │
-│                     │                                               │
-│                     ▼                                               │
-│              ┌──────────────┐                                       │
-│              │ apply()      │  ← creates AgentProfile v1            │
-│              │  mutation    │    (same substrate type)              │
-│              └──────┬───────┘                                       │
-│                     │                                               │
-│                     ▼                                               │
-│              ┌──────────────┐                                       │
-│              │ runMultishot │  ← re-runs with v1                    │
-│              │  (same set)  │                                       │
-│              └──────┬───────┘                                       │
-│                     │                                               │
-│                v1 transcripts + scores                              │
-│                     │                                               │
-│                     ▼                                               │
-│              ┌──────────────┐                                       │
-│              │     gate     │  ← compares v0 vs v1 means            │
-│              │  (delta>=N?) │    + delta threshold                  │
-│              └──────┬───────┘                                       │
-│                     │                                               │
-│                  ship / hold                                        │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+The 7-phase evolution loop in `self-improving-loop.ts`. Each phase is annotated with the substrate package that owns it (per the *Where each substrate piece lives* table below). The load-bearing join is the gate: it compares the v0 and v1 means and is the only thing that decides whether the mutation ships.
+
+```mermaid
+flowchart TD
+  v0["AgentProfile v0<br/>weak systemPrompt: 'Give general advice.'<br/><i>@tangle-network/sandbox</i>"]
+
+  subgraph P1["Phase 1 — runMultishot over v0 · @tangle-network/agent-eval/multishot"]
+    direction TB
+    m0maya["runMultishot(Maya · cpg-founder)<br/>maxTurns:1"] --> j0maya["runJudge<br/>concreteness + audience_fit"]
+    m0theo["runMultishot(Theo · b2b-saas)<br/>maxTurns:1"] --> j0theo["runJudge<br/>concreteness + audience_fit"]
+    m0aur["runMultishot(Aurora · creator)<br/>maxTurns:1"] --> j0aur["runJudge<br/>concreteness + audience_fit"]
+  end
+
+  v0 --> P1
+  j0maya --> v0mean["v0 runs + composite mean (~3.0)"]
+  j0theo --> v0mean
+  j0aur --> v0mean
+
+  v0mean --> P2["Phase 2 — runAnalyst<br/>sort runs, take worst (b2b-saas)<br/>emit AnalystFinding{rootCause, proposedMutation}<br/><i>@tangle-network/agent-runtime/analyst-loop (in prod)</i>"]
+
+  P2 --> P3["Phase 3 — applyMutation<br/>append mutation as systemPrompt suffix<br/><i>(this file)</i>"]
+  P3 --> v1["AgentProfile v1<br/>baseline + 'IMPROVED v1: ...'<br/><i>@tangle-network/sandbox</i>"]
+
+  subgraph P4["Phase 4 — runMultishot over v1 · @tangle-network/agent-eval/multishot"]
+    direction TB
+    m1maya["runMultishot(Maya · cpg-founder)<br/>maxTurns:1"] --> j1maya["runJudge<br/>concreteness + audience_fit"]
+    m1theo["runMultishot(Theo · b2b-saas)<br/>maxTurns:1"] --> j1theo["runJudge<br/>concreteness + audience_fit"]
+    m1aur["runMultishot(Aurora · creator)<br/>maxTurns:1"] --> j1aur["runJudge<br/>concreteness + audience_fit"]
+  end
+
+  v1 --> P4
+  j1maya --> v1mean["v1 runs + composite mean (~8.5)"]
+  j1theo --> v1mean
+  j1aur --> v1mean
+
+  v0mean -.v0 baseline.-> gate
+  v1mean --> gate{"Phase 5 — gate<br/>v1Mean − v0Mean ≥ requiredDelta (0.5)?<br/><i>(this file)</i>"}
+
+  gate -->|"ship: true"| promoted["PROMOTED v1 → production"]
+  gate -->|"hold (delta < 0.5)"| held["HELD — keep v0"]
 ```
 
 This is the loop every product wires for evolution — the substrate makes each piece composable, this example shows them snapping together.
