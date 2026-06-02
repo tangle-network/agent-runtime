@@ -252,8 +252,110 @@ async function main() {
     return
   }
 
+  if (cmd === 'batch-compare') {
+    // THE driver-vs-blind experiment. Per instance, run the sequential-refine worker
+    // (round 1 = blind; rounds 2..k refine in place) and judge BOTH the round-1 patch
+    // (blind pass@1) and the final patch (refine). Reports blind% vs refine% + the
+    // delta — does steering-by-refinement beat one shot on a representative set?
+    // Router-free: local opencode worker + the deterministic SWE-bench judge.
+    const fs = await import('node:fs/promises')
+    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
+    const rounds = Number(process.env.ROUNDS ?? 3)
+    // Worker selection:
+    //   SANDBOX=1  → sandbox research worker (web-search capable agent; THE FinSearchComp path)
+    //   RESEARCH=1 → local research-answer refine worker (no web; knowledge QA)
+    //   default    → local code-patch refine worker
+    const research = process.env.RESEARCH === '1'
+    const useSandbox = process.env.SANDBOX === '1'
+    const { solveRefineLocal } = await import('./worker-refine')
+    const { solveRefineResearchLocal } = await import('./worker-research')
+    const runRefine = async (
+      task: BenchTask,
+    ): Promise<{ first: string; final: string; detail?: string }> => {
+      if (useSandbox) {
+        const { solveSandboxResearch } = await import('./worker-sandbox-research')
+        const s = await solveSandboxResearch(task, {
+          sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+          sandboxKey: must('SANDBOX_KEY'),
+          routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+          routerKey: must('ROUTER_KEY'),
+          model,
+          provider: process.env.WORKER_PROVIDER ?? 'openai',
+          rounds,
+          perRoundMs: livenessMs,
+        })
+        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
+      }
+      if (research) {
+        const s = await solveRefineResearchLocal(task, { model, rounds, livenessMs })
+        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
+      }
+      const s = await solveRefineLocal(task, { model, rounds, livenessMs })
+      return { first: s.round1Patch, final: s.finalPatch, detail: s.detail }
+    }
+    const conc = Number(process.env.CONCURRENCY ?? 3)
+    const out = process.env.SCORECARD ?? '/tmp/swebench-compare.jsonl'
+    await adapter.preflight()
+    const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
+    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
+    console.log(
+      `[batch-compare] ${tasks.length} instances · rounds=${rounds} (blind=r1 vs refine=r${rounds}) · model=${model} · conc=${conc}`,
+    )
+    const agg = { n: 0, blind: 0, refine: 0, gained: 0, lost: 0 }
+    let next = 0
+    let done = 0
+    const worker = async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++] as (typeof tasks)[number]
+        const started = Date.now()
+        try {
+          const shot = await runRefine(task)
+          const blind = shot.first.trim()
+            ? (await adapter.judge(task, shot.first)).resolved === true
+            : false
+          const refine = shot.final.trim()
+            ? (await adapter.judge(task, shot.final)).resolved === true
+            : false
+          agg.n += 1
+          if (blind) agg.blind += 1
+          if (refine) agg.refine += 1
+          if (refine && !blind) agg.gained += 1 // refinement RESCUED a blind failure
+          if (blind && !refine) agg.lost += 1 // refinement BROKE a blind success
+          done += 1
+          const tag = refine && !blind ? '↑GAINED' : blind && !refine ? '↓LOST' : blind ? '=both✓' : '=both·'
+          console.log(
+            `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} refine=${refine ? '✓' : '·'} ${tag}`,
+          )
+          await fs.appendFile(
+            out,
+            `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+          )
+        } catch (err) {
+          done += 1
+          const msg = err instanceof Error ? err.message : String(err)
+          console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
+          await fs.appendFile(
+            out,
+            `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+          )
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+    const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
+    console.log(`\n=== BLIND vs REFINE (n=${agg.n}, rounds=${rounds}) ===`)
+    console.log(`  blind  (pass@1):        ${pct(agg.blind)}  (${agg.blind}/${agg.n})`)
+    console.log(`  refine (r${rounds} final):     ${pct(agg.refine)}  (${agg.refine}/${agg.n})`)
+    console.log(
+      `  ► delta (refine − blind): ${(((agg.refine - agg.blind) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp   [rescued ${agg.gained}, broke ${agg.lost}]`,
+    )
+    console.log(`scorecard: ${out}`)
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind | batch-oracle`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind | batch-oracle | batch-compare`,
   )
 }
 
