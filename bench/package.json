@@ -7,7 +7,8 @@
   "scripts": {
     "preflight": "tsx src/run.ts preflight",
     "verify-judge": "tsx src/run.ts verify-judge",
-    "compare": "tsx src/run.ts compare"
+    "compare": "tsx src/run.ts compare",
+    "terminal-compare": "tsx src/terminal-compare.ts"
   },
   "dependencies": {
     "@tangle-network/agent-eval": "^0.76.0",
