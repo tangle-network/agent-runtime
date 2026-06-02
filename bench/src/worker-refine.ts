@@ -111,10 +111,12 @@ export async function solveRefineLocal(
               issue,
             ].join('\n')
           : [
-              'You are refining your own in-progress fix for the issue below. Your current',
-              'changes are already in the working tree. Critically review them against the',
-              'issue: missed requirements, unhandled edge cases, or bugs you introduced. Then',
-              'IMPROVE the patch. Run the repository\'s existing tests if useful. Do NOT edit test files.',
+              'You have an in-progress fix for the issue below; your changes are already in',
+              'the working tree. VERIFY it: re-read the issue and run the repository\'s existing',
+              'tests. If the patch correctly and completely resolves the issue, leave it',
+              'UNCHANGED. Change it ONLY if you find a CONCRETE problem — a failing test, a',
+              'missed requirement, or a clear bug. Do not churn a working patch. Do NOT edit',
+              'test files.',
               '',
               issue,
             ].join('\n')

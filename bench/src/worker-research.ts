@@ -102,7 +102,7 @@ export async function solveRefineResearchLocal(
       const prompt =
         r === 1
           ? task.prompt
-          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\nReview it critically: is the reasoning sound and is the final answer correct? If anything is wrong or unsupported, fix it. Then give your improved response, ending with the FINAL ANSWER line.`
+          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\nDouble-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.`
       const { stdout, killed } = await runOpencodeCapture(
         ['run', prompt, '-m', cfg.model, '--dangerously-skip-permissions'],
         dir,
