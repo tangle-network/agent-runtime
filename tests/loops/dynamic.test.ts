@@ -474,6 +474,43 @@ describe('createSandboxPlanner', () => {
       }),
     ).rejects.toThrow(PlannerError)
   })
+
+  it('same-sandbox mode reuses the caller box and never creates or deletes it', async () => {
+    let created = 0
+    let deleted = 0
+    const reusedBox = {
+      async *streamPrompt() {
+        yield {
+          type: 'result',
+          data: { result: { kind: 'stop', rationale: 'inspected the worker box' } },
+        } satisfies SandboxEvent
+      },
+      async delete() {
+        deleted += 1
+      },
+    } as unknown as SandboxInstance
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        created += 1
+        return {} as SandboxInstance
+      },
+    }
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+      reuseBox: () => reusedBox,
+    })
+    const move = await planner({
+      task: { goal: 'g', strategy: 'naive' },
+      history: [],
+      iterationsSpent: 0,
+      iterationsRemaining: 5,
+    })
+    expect(move.kind).toBe('stop')
+    expect(created).toBe(0) // streamed into the worker's box, did not spin its own
+    expect(deleted).toBe(0) // the caller owns the reused box's lifecycle
+  })
 })
 
 describe('runLoop dynamic driver — trace emission for topology viewers', () => {
