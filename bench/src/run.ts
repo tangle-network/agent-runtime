@@ -262,14 +262,31 @@ async function main() {
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
     const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
     const rounds = Number(process.env.ROUNDS ?? 3)
-    // RESEARCH=1 swaps the code-patch refine worker for the research-answer refine
-    // worker, so the same blind-vs-refine comparison runs on answer-variance domains.
+    // Worker selection:
+    //   SANDBOX=1  → sandbox research worker (web-search capable agent; THE FinSearchComp path)
+    //   RESEARCH=1 → local research-answer refine worker (no web; knowledge QA)
+    //   default    → local code-patch refine worker
     const research = process.env.RESEARCH === '1'
+    const useSandbox = process.env.SANDBOX === '1'
     const { solveRefineLocal } = await import('./worker-refine')
     const { solveRefineResearchLocal } = await import('./worker-research')
     const runRefine = async (
       task: BenchTask,
     ): Promise<{ first: string; final: string; detail?: string }> => {
+      if (useSandbox) {
+        const { solveSandboxResearch } = await import('./worker-sandbox-research')
+        const s = await solveSandboxResearch(task, {
+          sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+          sandboxKey: must('SANDBOX_KEY'),
+          routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+          routerKey: must('ROUTER_KEY'),
+          model,
+          provider: process.env.WORKER_PROVIDER ?? 'openai',
+          rounds,
+          perRoundMs: livenessMs,
+        })
+        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
+      }
       if (research) {
         const s = await solveRefineResearchLocal(task, { model, rounds, livenessMs })
         return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
