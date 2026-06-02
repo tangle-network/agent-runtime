@@ -5,6 +5,7 @@
  *   tsx src/run.ts verify-judge [id]      # gold patch must RESOLVE; empty must FAIL
  */
 import { createAppWorldAdapter } from './benchmarks/appworld'
+import { createFramesAdapter } from './benchmarks/frames'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter } from './benchmarks/types'
@@ -13,6 +14,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
   'terminal-bench': createTerminalBenchAdapter,
   appworld: createAppWorldAdapter,
+  frames: createFramesAdapter,
 }
 
 function must(name: string): string {
@@ -92,12 +94,13 @@ async function main() {
   if (cmd === 'solve-one-local') {
     const { solveShotLocal } = await import('./worker-local')
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
     const id = rest[0] ?? 'astropy__astropy-12907'
     await adapter.preflight()
     const [task] = await adapter.loadTasks({ ids: [id] })
     if (!task) throw new Error(`instance not found: ${id}`)
     console.log(`[local] solving ${task.id} with opencode model=${model}…`)
-    const shot = await solveShotLocal(task, { model })
+    const shot = await solveShotLocal(task, { model, livenessMs })
     console.log(`worker: ok=${shot.ok} patchBytes=${shot.patch.length}${shot.detail ? ` (${shot.detail})` : ''}`)
     if (!shot.ok) {
       console.log('❌ no patch produced — nothing to judge')
@@ -113,12 +116,17 @@ async function main() {
     const { solveShotLocal } = await import('./worker-local')
     const fs = await import('node:fs/promises')
     const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
     const limit = Number(rest[0] ?? process.env.N ?? 10)
     const conc = Number(process.env.CONCURRENCY ?? 5)
     const out = process.env.SCORECARD ?? '/tmp/swebench-blind-scorecard.jsonl'
     await adapter.preflight()
-    const tasks = await adapter.loadTasks({ limit })
-    console.log(`[batch-blind] ${tasks.length} instances · model=${model} · concurrency=${conc} · NO caps`)
+    const _ids = process.env.IDS ? process.env.IDS.split(",") : undefined
+    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit })
+    const livenessLabel = livenessMs === 0 ? 'disabled' : `${Math.round((livenessMs ?? 1_800_000) / 1000)}s`
+    console.log(
+      `[batch-blind] ${tasks.length} instances · model=${model} · concurrency=${conc} · liveness backstop=${livenessLabel}`,
+    )
     let next = 0
     let done = 0
     let resolved = 0
@@ -129,7 +137,7 @@ async function main() {
         const started = Date.now()
         let rec: { id: string; resolved: boolean; patchBytes: number; error?: string }
         try {
-          const shot = await solveShotLocal(task, { model }) // no caps — runs to convergence
+          const shot = await solveShotLocal(task, { model, livenessMs }) // liveness backstop reaps hangs only
           const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
           rec = { id: task.id, resolved: score.resolved, patchBytes: shot.patch.length }
         } catch (err) {
