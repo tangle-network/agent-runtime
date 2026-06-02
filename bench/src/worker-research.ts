@@ -86,11 +86,16 @@ export interface ResearchRefineShot {
  * and ask the agent to critically review + correct it. Tests whether self-review
  * improves a factual answer — the steering mode oracle-headroom can't measure.
  */
+/** Default gated refine directive (hand-written). GEPA optimizes this surface. */
+export const DEFAULT_RESEARCH_REFINE_DIRECTIVE =
+  'Double-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.'
+
 export async function solveRefineResearchLocal(
   task: BenchTask,
-  cfg: ResearchWorkerConfig & { rounds?: number },
+  cfg: ResearchWorkerConfig & { rounds?: number; refineDirective?: string },
 ): Promise<ResearchRefineShot> {
   const rounds = Math.max(1, cfg.rounds ?? 3)
+  const directive = cfg.refineDirective ?? DEFAULT_RESEARCH_REFINE_DIRECTIVE
   const livenessMs = cfg.livenessMs ?? DEFAULT_LIVENESS_MS
   const dir = await mkdtemp(join(tmpdir(), 'research-refine-'))
   try {
@@ -102,7 +107,7 @@ export async function solveRefineResearchLocal(
       const prompt =
         r === 1
           ? task.prompt
-          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\nDouble-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.`
+          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\n${directive}`
       const { stdout, killed } = await runOpencodeCapture(
         ['run', prompt, '-m', cfg.model, '--dangerously-skip-permissions'],
         dir,
