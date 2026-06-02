@@ -475,6 +475,96 @@ describe('createSandboxPlanner', () => {
     ).rejects.toThrow(PlannerError)
   })
 
+  it('prefers the LAST fenced envelope when one event echoes an example then the real move', async () => {
+    // A harness that echoes the prompt's example fence FIRST and appends its
+    // real answer LAST in one message must not run the example.
+    const fenced = [
+      'Here is an example of a refine move:',
+      '```json\n{"kind":"refine","tasks":[{"goal":"g","strategy":"naive"}]}\n```',
+      'After reviewing the attempts, my real decision is:',
+      '```json\n{"kind":"stop","rationale":"a valid result already exists"}\n```',
+    ].join('\n')
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        return {
+          async *streamPrompt() {
+            yield { type: 'result', data: { finalText: fenced } } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+    })
+    const move = await planner({
+      task: { goal: 'g', strategy: 'naive' },
+      history: [],
+      iterationsSpent: 0,
+      iterationsRemaining: 5,
+    })
+    expect(move.kind).toBe('stop')
+    if (move.kind === 'stop') expect(move.rationale).toBe('a valid result already exists')
+  })
+
+  it('caps a runaway fanout n before materializing the task array', async () => {
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        return {
+          async *streamPrompt() {
+            yield {
+              type: 'result',
+              data: { result: { kind: 'fanout', n: 1_000_000 } },
+            } satisfies SandboxEvent
+          },
+        } as unknown as SandboxInstance
+      },
+    }
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+    })
+    const move = await planner({
+      task: { goal: 'g', strategy: 'parallel-root' },
+      history: [],
+      iterationsSpent: 0,
+      iterationsRemaining: 5,
+    })
+    expect(move.kind).toBe('fanout')
+    // Capped at the module ceiling (64), not a million-element array.
+    if (move.kind === 'fanout') expect(move.tasks).toHaveLength(64)
+  })
+
+  it('rejects a reuseBox that returns a dead (terminal-status) box', async () => {
+    const deadBox = {
+      status: 'stopped',
+      async *streamPrompt() {
+        yield { type: 'result', data: { result: { kind: 'stop' } } } satisfies SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        return {} as SandboxInstance
+      },
+    }
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+      reuseBox: () => deadBox,
+    })
+    await expect(
+      planner({
+        task: { goal: 'g', strategy: 'naive' },
+        history: [],
+        iterationsSpent: 0,
+        iterationsRemaining: 5,
+      }),
+    ).rejects.toThrow(/non-live box/i)
+  })
+
   it('same-sandbox mode reuses the caller box and never creates or deletes it', async () => {
     let created = 0
     let deleted = 0
@@ -517,7 +607,7 @@ describe('createSandboxPlanner', () => {
     const deleted: string[] = []
     const plannerStreamedIn: string[] = []
     const workerStreamedIn: string[] = []
-    // shareWorkerBox captures the latest worker box; the planner's reuseBox returns it.
+    // onWorkerBox captures the latest worker box; the planner's reuseBox returns it.
     let workerBox: SandboxInstance | undefined
 
     const makeBox = (id: string): SandboxInstance =>
@@ -568,7 +658,7 @@ describe('createSandboxPlanner', () => {
       validator,
       task: { goal: 'g', strategy: 'naive' },
       ctx: { sandboxClient: client },
-      shareWorkerBox: (box) => {
+      onWorkerBox: (box) => {
         workerBox = box
       },
     })

@@ -112,4 +112,69 @@ describe('acquireSandbox — cold-start resilience', () => {
       }),
     ).rejects.toThrow(/aborted/)
   })
+
+  it('tears down a created box that never reaches running on abort (no leak)', async () => {
+    // Regression: an abort firing while waiting for `running` must delete the
+    // already-created box, or the loop leaks a live sandbox per aborted acquire.
+    const ctrl = new AbortController()
+    let deleted = false
+    let polls = 0
+    const provisioning = box({
+      id: 'sbx-9',
+      name: 'sbx-1',
+      status: 'provisioning',
+      refresh: async () => {},
+    })
+    Object.defineProperty(provisioning, 'status', { get: () => 'provisioning' })
+    ;(provisioning as unknown as { delete: () => Promise<void> }).delete = async () => {
+      deleted = true
+    }
+    const c = clock()
+    await expect(
+      acquireSandbox({ create: async () => provisioning }, OPTS, {
+        ...c,
+        signal: ctrl.signal,
+        // Abort mid-wait: the second poll throwIfAborted must tear the box down.
+        sleep: async (ms: number) => {
+          polls += 1
+          if (polls === 1) ctrl.abort()
+          await c.sleep(ms)
+        },
+      }),
+    ).rejects.toThrow(/aborted/)
+    expect(deleted).toBe(true)
+  })
+
+  it('tears down a list()-recovered box that never reaches running on abort (no leak)', async () => {
+    const ctrl = new AbortController()
+    let deleted = false
+    const recovered = box({ id: 'sbx-r', name: 'sbx-1', status: 'provisioning' })
+    Object.defineProperty(recovered, 'status', { get: () => 'provisioning' })
+    ;(
+      recovered as unknown as { delete: () => Promise<void>; refresh: () => Promise<void> }
+    ).delete = async () => {
+      deleted = true
+    }
+    ;(recovered as unknown as { refresh: () => Promise<void> }).refresh = async () => {}
+    const c = clock()
+    let polls = 0
+    const client = {
+      create: async () => {
+        throw Object.assign(new Error('522 gateway'), { status: 522 })
+      },
+      list: async () => [recovered],
+    }
+    await expect(
+      acquireSandbox(client, OPTS, {
+        ...c,
+        signal: ctrl.signal,
+        sleep: async (ms: number) => {
+          polls += 1
+          if (polls === 1) ctrl.abort()
+          await c.sleep(ms)
+        },
+      }),
+    ).rejects.toThrow(/aborted/)
+    expect(deleted).toBe(true)
+  })
 })

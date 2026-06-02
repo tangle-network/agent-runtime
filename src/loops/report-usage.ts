@@ -18,12 +18,12 @@
  * `observe` + `observeTokens`.
  */
 
-import type { LoopResult } from './types'
+import type { LoopResult, LoopTokenUsage } from './types'
 
 /** The slice of an agent-eval campaign `DispatchContext.cost` this needs. */
 export interface UsageSink {
   observe(amountUsd: number, source: string): void
-  observeTokens(usage: { input: number; output: number }): void
+  observeTokens(usage: LoopTokenUsage): void
 }
 
 /**
@@ -37,5 +37,5 @@ export function reportLoopUsage<Task, Output, Decision>(
   source = 'loop',
 ): void {
   cost.observe(result.costUsd, source)
-  cost.observeTokens({ input: result.tokenUsage.input, output: result.tokenUsage.output })
+  cost.observeTokens(result.tokenUsage)
 }

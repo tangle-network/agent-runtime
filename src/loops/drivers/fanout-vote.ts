@@ -8,18 +8,17 @@
  */
 
 import { ValidationError } from '../../errors'
-import type { DefaultVerdict, Driver, Iteration } from '../types'
+import type { Driver, Iteration, LoopWinner } from '../types'
 
 export type FanoutVoteDecision = 'pick-winner' | 'fail'
 
-/** @experimental */
-export interface FanoutVoteScored<Task, Output> {
-  task: Task
-  output: Output
-  verdict?: DefaultVerdict
-  iterationIndex: number
-  agentRunName: string
-}
+/**
+ * A scored fanout entry — structurally the kernel's `LoopWinner` (one record
+ * per candidate output a custom `selector` chooses among).
+ *
+ * @experimental
+ */
+export type FanoutVoteScored<Task, Output> = LoopWinner<Task, Output>
 
 /** @experimental */
 export interface CreateFanoutVoteDriverOptions<Task, Output> {
