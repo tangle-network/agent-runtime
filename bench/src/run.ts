@@ -5,7 +5,10 @@
  *   tsx src/run.ts verify-judge [id]      # gold patch must RESOLVE; empty must FAIL
  */
 import { createAppWorldAdapter } from './benchmarks/appworld'
+import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
+import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
+import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter } from './benchmarks/types'
@@ -15,6 +18,9 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'terminal-bench': createTerminalBenchAdapter,
   appworld: createAppWorldAdapter,
   frames: createFramesAdapter,
+  finsearchcomp: createFinsearchcompAdapter,
+  simpleqa: createSimpleQaAdapter,
+  hotpotqa: createHotpotqaAdapter,
 }
 
 function must(name: string): string {
