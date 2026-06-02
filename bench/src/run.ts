@@ -162,8 +162,79 @@ async function main() {
     return
   }
 
+  if (cmd === 'batch-oracle') {
+    // Router-free headroom measurement: k blind shots per instance, judge ALL of
+    // them, report pass@1 / pass@k-random / pass@k-oracle. No critic, no router —
+    // so it can't be 403-killed. The oracle column is the gate: if oracle@k ≈
+    // pass@1, multi-shot has no headroom and the driver direction is dead; if
+    // oracle@k ≫ pass@1, a real selector is worth building.
+    const { solveShotLocal } = await import('./worker-local')
+    const fs = await import('node:fs/promises')
+    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
+    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
+    const k = Number(process.env.K ?? 3)
+    const conc = Number(process.env.CONCURRENCY ?? 2)
+    const out = process.env.SCORECARD ?? '/tmp/swebench-oracle.jsonl'
+    await adapter.preflight()
+    const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
+    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
+    console.log(`[batch-oracle] ${tasks.length} instances · k=${k} · model=${model} · conc=${conc} (router-free)`)
+    const agg = { n: 0, pass1: 0, randomExp: 0, oracle: 0 }
+    let next = 0
+    let done = 0
+    const worker = async () => {
+      while (next < tasks.length) {
+        const task = tasks[next++] as (typeof tasks)[number]
+        const started = Date.now()
+        try {
+          const resolved: boolean[] = []
+          for (let i = 0; i < k; i += 1) {
+            const shot = await solveShotLocal(task, { model, livenessMs })
+            const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
+            resolved.push(score.resolved === true)
+          }
+          const nResolved = resolved.filter(Boolean).length
+          const pass1 = resolved[0] === true
+          const oracle = nResolved > 0
+          const randomExpected = k > 0 ? nResolved / k : 0
+          agg.n += 1
+          if (pass1) agg.pass1 += 1
+          if (oracle) agg.oracle += 1
+          agg.randomExp += randomExpected
+          done += 1
+          console.log(
+            `  [${done}/${tasks.length}] ${task.id}: ${nResolved}/${k} resolved · pass1=${pass1 ? '✓' : '·'} oracle=${oracle ? '✓' : '·'}`,
+          )
+          await fs.appendFile(
+            out,
+            `${JSON.stringify({ id: task.id, k, nResolved, pass1, oracle, randomExpected, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+          )
+        } catch (err) {
+          done += 1
+          const msg = err instanceof Error ? err.message : String(err)
+          console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
+          await fs.appendFile(
+            out,
+            `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+          )
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+    const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
+    console.log(`\n=== ORACLE HEADROOM (n=${agg.n}, k=${k}) ===`)
+    console.log(`  pass@1 (blind):               ${pct(agg.pass1)}`)
+    console.log(`  pass@${k} random-pick:           ${pct(agg.randomExp)}`)
+    console.log(`  pass@${k} oracle (ceiling):      ${pct(agg.oracle)}`)
+    console.log(
+      `  ► headroom (oracle − pass@1):  ${(((agg.oracle - agg.pass1) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp  ← is multi-shot worth pursuing?`,
+    )
+    console.log(`scorecard: ${out}`)
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind | batch-oracle`,
   )
 }
 
