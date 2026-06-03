@@ -72,6 +72,7 @@ export interface BrowserContextHandle {
 
 /** @experimental */
 export interface PageHandle {
+  setViewportSize(size: { width: number; height: number }): Promise<void>
   goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<unknown>
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>
   waitForTimeout(ms: number): Promise<void>
@@ -138,6 +139,9 @@ async function captureOne(
   navPolicy: 'strict' | 'spa',
 ): Promise<void> {
   signal.throwIfAborted()
+  // Apply the per-capture viewport before navigation. The capture metadata
+  // and filename both encode this viewport; the rendered page must match.
+  await page.setViewportSize(viewportOf(req))
   const waitUntil = navPolicy === 'spa' ? 'domcontentloaded' : 'networkidle'
   await page.goto(req.url, { waitUntil, timeout: NAV_TIMEOUT_MS })
   if (req.waitFor) {
