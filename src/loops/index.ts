@@ -47,6 +47,15 @@ export {
   type LoopOptionsForDispatch,
   loopDispatch,
 } from './loop-dispatch'
+export type { Agent, Program, ProgramResult, RunProgramOptions } from './program'
+export {
+  agentProgramPlanner,
+  compileProgram,
+  flattenProgram,
+  isStraightLine,
+  runAgent,
+  runProgram,
+} from './program'
 export { reportLoopUsage, type UsageSink } from './report-usage'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, runLoop } from './run-loop'
