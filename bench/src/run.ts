@@ -16,6 +16,7 @@ import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
+import type { BrowserTask } from './browser/agent-adapter'
 import { randomAtK, summarizeCompare } from './compare-decomp'
 import { appendRunRecord } from './corpus'
 import { runPool } from './run-pool'
@@ -41,6 +42,11 @@ function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
+}
+
+/** Escape a string for literal inclusion in a RegExp source. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
@@ -597,8 +603,62 @@ async function main() {
     return
   }
 
+  if (cmd === 'solve-web-live') {
+    // A LIVE interactive browser agent navigates a real site (the `bad` CLI drives
+    // a real headless Chromium), the DETERMINISTIC judge attests the outcome from
+    // the run's final observable state (NOT the agent's self-report), and the
+    // multi-step navigation — each turn's real screenshot — becomes a run-capsule
+    // film. This is the live-agent path; distinct from solve-browser's single-step
+    // action-prediction over a pre-captured dataset frame. Router-only.
+    const fs = await import('node:fs/promises')
+    const { badBrowserAdapter } = await import('./browser/adapters/bad')
+    const { judgeBrowserRun } = await import('./browser/agent-adapter')
+    const { browserRunToSpans } = await import('./browser/run-to-spans')
+    const goal = rest[0] ?? process.env.WEB_GOAL
+    const startUrl = rest[1] ?? process.env.WEB_URL
+    if (!goal || !startUrl) {
+      throw new Error('solve-web-live needs a goal + url: `tsx src/run.ts solve-web-live "<goal>" <startUrl>` (or WEB_GOAL/WEB_URL)')
+    }
+    // SuccessSpec is REQUIRED + non-empty — the judge throws on an empty spec
+    // rather than silent-attest. Default: the agent must leave the start origin
+    // (a generic "it navigated" floor); override with WEB_SUCCESS (JSON SuccessSpec[]).
+    const success = process.env.WEB_SUCCESS
+      ? (JSON.parse(process.env.WEB_SUCCESS) as BrowserTask['success'])
+      : [{ type: 'url-matches' as const, value: '^(?!' + escapeRegExp(startUrl) + '$).+' }]
+    const task: BrowserTask = {
+      id: process.env.WEB_TASK_ID ?? 'web-live',
+      goal,
+      startUrl,
+      maxSteps: process.env.WEB_MAX_STEPS ? Number(process.env.WEB_MAX_STEPS) : 12,
+      success,
+    }
+    const adapter = badBrowserAdapter({
+      baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+      apiKey: must('ROUTER_KEY'),
+      model: process.env.WORKER_MODEL ?? 'gpt-4o',
+      captureScreenshots: true,
+    })
+    console.log(`[solve-web-live] ${task.id}: "${goal}" @ ${startUrl} with ${process.env.WORKER_MODEL ?? 'gpt-4o'}…`)
+    const run = await adapter.run(task)
+    console.log(`steps=${run.steps.length} finalUrl=${run.finalUrl} cost=$${(run.costUsd ?? 0).toFixed(3)} selfReported=${run.selfReportedSuccess}`)
+    const verdict = judgeBrowserRun(task, run)
+    console.log(`\n${verdict.resolved ? '✅ RESOLVED' : `⚠️  score=${verdict.score}`} — ${task.id} (attestable deterministic judge, NOT the agent's self-report)`) // eslint-disable-line
+    console.log(`detail: ${verdict.detail}`)
+    const spans = await browserRunToSpans(run, { startTs: Date.now() })
+    const tracePath = process.env.TRACE_OUT ?? `/tmp/web-live-trace-${task.id}.json`
+    await fs.writeFile(tracePath, JSON.stringify(spans, null, 2))
+    const framed = spans.filter((s) => (s.attributes as { screenshot?: string } | undefined)?.screenshot).length
+    console.log(`trace (${spans.length} spans, ${framed} framed) → ${tracePath}`)
+    if (process.env.VIDEO !== '0' && spans.length > 1) {
+      console.log(`\n[video] rendering run-capsule film…`)
+      const link = await renderCapsuleVideo(tracePath, `Agent navigates ${new URL(startUrl).hostname}`)
+      console.log(link ? `🎬 video → ${link}` : `🎬 video step finished (no link captured — see run-capsule output)`) // eslint-disable-line
+    }
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | ui-review | batch-blind | batch-oracle | batch-compare`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | solve-web-live | ui-review | batch-blind | batch-oracle | batch-compare`,
   )
 }
 

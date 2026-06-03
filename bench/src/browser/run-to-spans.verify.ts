@@ -66,6 +66,14 @@ check('step 2 carries the actionBounds overlay', JSON.stringify(s2?.attributes?.
 check('the answer span closes the film', answer?.kind === 'custom' && answer?.name === 'final answer' && (answer?.attributes as { answer?: string })?.answer === 'Delivered')
 check('timestamps are monotonic from startTs', (s1?.startedAt ?? 0) >= 1000 && (answer?.startedAt ?? 0) > (s1?.startedAt ?? 0))
 
+// Inline base64 screenshot (the real `bad` case — state.screenshot, no disk path):
+// used directly, no file read.
+const inlineRun = await browserRunToSpans({
+  taskId: 't', driverId: 'bad', finalUrl: 'https://x.test',
+  steps: [{ index: 1, url: 'https://x.test', action: 'click', screenshot: 'data:image/jpeg;base64,/9j/INLINE' }],
+})
+check('inline step.screenshot is carried through directly (no disk read)', (inlineRun[0]?.attributes?.screenshot as string) === 'data:image/jpeg;base64,/9j/INLINE')
+
 // A run whose only screenshot path is unreadable: span stays, image drops (fail-soft).
 const ghost = await browserRunToSpans({
   taskId: 't', driverId: 'bad', finalUrl: '', steps: [{ index: 1, url: 'about:blank', action: 'navigate', screenshotPath: '/no/such/frame.png' }],

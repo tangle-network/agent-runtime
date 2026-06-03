@@ -14,7 +14,7 @@
 
 import { readFile } from 'node:fs/promises'
 import type { Span } from '@tangle-network/agent-eval'
-import type { BrowserRun } from './agent-adapter'
+import type { BrowserRun, BrowserStep } from './agent-adapter'
 
 export interface BrowserRunToSpansOptions {
   /** Base timestamp; each emitted span advances by 1ms. Default 0 (deterministic). */
@@ -33,12 +33,17 @@ function imageMime(buf: Buffer): string {
   return 'image/png'
 }
 
-/** Read a per-step screenshot into an inline `data:` URI, or undefined when the
- *  path is unset / unreadable / oversized. Fail-soft: a missing frame drops that
- *  step's image, never the span (the navigation step still belongs in the film). */
-async function inlineScreenshot(path: string | undefined, maxBytes: number): Promise<string | undefined> {
-  if (!path) return undefined
-  const buf = await readFile(path).catch(() => undefined)
+/** Resolve a step's frame to an inline `data:` URI for the film. Prefers an
+ *  already-inline `step.screenshot` (e.g. bad's base64, whose sink is reaped),
+ *  else reads `step.screenshotPath` off disk. Fail-soft: an unset / unreadable /
+ *  oversized frame drops the image, never the span — the navigation step still
+ *  belongs in the film. */
+async function resolveFrame(step: BrowserStep, maxBytes: number): Promise<string | undefined> {
+  if (step.screenshot) {
+    return step.screenshot.length <= maxBytes * 2 ? step.screenshot : undefined
+  }
+  if (!step.screenshotPath) return undefined
+  const buf = await readFile(step.screenshotPath).catch(() => undefined)
   if (!buf || buf.length === 0 || buf.length > maxBytes) return undefined
   return `data:${imageMime(buf)};base64,${buf.toString('base64')}`
 }
@@ -61,7 +66,7 @@ export async function browserRunToSpans(
   const spans: Span[] = []
   for (const step of run.steps) {
     const action = step.action || 'navigate'
-    const screenshot = await inlineScreenshot(step.screenshotPath, maxBytes)
+    const screenshot = await resolveFrame(step, maxBytes)
     const startedAt = tick()
     spans.push({
       spanId: `s-${step.index}`,

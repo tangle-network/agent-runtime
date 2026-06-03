@@ -28,17 +28,27 @@ export interface BadAdapterConfig {
   apiKey?: string
   maxTurns?: number
   timeoutMs?: number
+  /** Capture a per-turn screenshot into each turn's state.screenshot (bad
+   *  full-evidence mode). Off by default — opt in for the navigation film. */
+  captureScreenshots?: boolean
 }
 
 interface BadReport {
   results?: Array<{
     testCase?: { id?: string }
+    // Real token/cost telemetry (bad >=0.33 reports these per result) — forwarded to
+    // BrowserRun so a real run never reads as a {0,0} backend-integrity stub.
+    estimatedCostUsd?: number
+    inputTokens?: number
+    outputTokens?: number
     agentResult?: {
       success?: boolean
       result?: string
       turns?: Array<{
         turn?: number
-        state?: { url?: string; title?: string; snapshot?: string }
+        // state.screenshot is INLINE base64 (no data: prefix) — the durable frame
+        // source for the film, since the adapter's temp sink is reaped after the run.
+        state?: { url?: string; title?: string; snapshot?: string; screenshot?: string }
         action?: { action?: string; selector?: string; text?: string; result?: string }
       }>
     }
@@ -57,8 +67,12 @@ export function badReportToRun(report: BadReport, taskId: string): BrowserRun {
     url: t.state?.url ?? '',
     action: t.action?.action ?? 'decide',
     target: t.action?.selector ?? (t.action?.text ? `"${t.action.text}"` : undefined),
+    // The frame for the film: bad's per-turn base64 JPEG, normalized to a data: URI.
+    screenshot: t.state?.screenshot ? `data:image/jpeg;base64,${t.state.screenshot}` : undefined,
   }))
   const last = turns[turns.length - 1]
+  const input = typeof res?.inputTokens === 'number' ? res.inputTokens : undefined
+  const output = typeof res?.outputTokens === 'number' ? res.outputTokens : undefined
   return {
     taskId,
     steps,
@@ -66,6 +80,8 @@ export function badReportToRun(report: BadReport, taskId: string): BrowserRun {
     finalDom: typeof last?.state?.snapshot === 'string' ? last.state.snapshot : undefined,
     answer: typeof ar.result === 'string' ? ar.result : undefined,
     selfReportedSuccess: typeof ar.success === 'boolean' ? ar.success : undefined,
+    usage: input !== undefined || output !== undefined ? { input: input ?? 0, output: output ?? 0 } : undefined,
+    costUsd: typeof res?.estimatedCostUsd === 'number' ? res.estimatedCostUsd : undefined,
     driverId: 'bad',
   }
 }
@@ -110,6 +126,9 @@ export function badBrowserAdapter(cfg: BadAdapterConfig = {}): BrowserAgentAdapt
         String(task.maxSteps ?? cfg.maxTurns ?? 20),
         '--headless',
       ]
+      // full-evidence + every-turn capture populates each turn's state.screenshot,
+      // which badReportToRun lifts into BrowserStep.screenshot for the film.
+      if (cfg.captureScreenshots) args.push('--mode', 'full-evidence', '--screenshot-interval', '1')
       if (cfg.baseUrl) args.push('--base-url', cfg.baseUrl)
       if (cfg.apiKey) args.push('--api-key', cfg.apiKey)
       if (task.storageState) args.push('--storage-state', task.storageState)
