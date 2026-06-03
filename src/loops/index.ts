@@ -17,6 +17,16 @@ export type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+export {
+  type CompletionAnalyst,
+  type CompletionEvidence,
+  type CompletionPolicy,
+  type CompletionVerdict,
+  completionAuthorizes,
+  deterministicCompletion,
+  sentinelCompletion,
+  stopSentinel,
+} from './completion'
 export type {
   AnalyzeInput,
   CreateDynamicDriverOptions,

@@ -5,9 +5,13 @@
   "type": "module",
   "description": "External-benchmark harness for the agent-runtime loop: run blind vs steering vs steering+memory drivers against real benchmarks (SWE-bench, Terminal-Bench, AppWorld) and their DETERMINISTIC judges.",
   "scripts": {
+    "help": "tsx src/run.ts help",
     "preflight": "tsx src/run.ts preflight",
     "verify-judge": "tsx src/run.ts verify-judge",
-    "compare": "tsx src/run.ts compare",
+    "batch-compare": "tsx src/run.ts batch-compare",
+    "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
+    "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
+    "gepa-refine": "tsx src/gepa-refine.ts",
     "terminal-compare": "tsx src/terminal-compare.ts"
   },
   "dependencies": {

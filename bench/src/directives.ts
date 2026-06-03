@@ -14,6 +14,37 @@
  * as an optional param defaulting to the relevant constant below.
  */
 
+/**
+ * APPROACH-diversity strategy lenses — a DIFFERENT family from the verify-and-revise
+ * directives above. The caveat names why verify-and-revise loses: k identical-directive
+ * shots cluster on the SAME reasoning path, so they share a failure mode and a random
+ * pick among them gains nothing. These lenses make the k shots take DIFFERENT reasoning
+ * paths, so a deployable self-consistency selector can pick the consensus across
+ * genuinely independent attempts. That is the gate hypothesis runProgram's `parallel`
+ * is built to deploy: diverse@k (parallel of distinct lenses) vs random@k (blind
+ * sample of identical) at EQUAL k. Each lens is a PREFIX to the task; it changes HOW
+ * the model reasons, never the answer the judge scores. GEPA optimizes the shared base
+ * (`gepa-refine`); these lenses layer on top via `composeStrategies`.
+ */
+export const DIVERSE_STRATEGY_LENSES: ReadonlyArray<string> = [
+  'Answer directly and decisively from what you already know. State the single best answer without hedging.',
+  'Decompose the question into the sub-facts it depends on. Establish each sub-fact explicitly, then compose them into the answer.',
+  'Reason from first principles. Ignore the most obvious or popular guess; derive the answer from underlying facts and relationships.',
+  'Name the most plausible WRONG answer and the trap that makes it tempting. Rule it out, then commit to the answer that survives.',
+]
+
+/** Compose the k diverse strategies for a run: each = an approach lens layered on the
+ *  (optionally GEPA-learned) shared base. Returns exactly `k` distinct strategy prefixes
+ *  (lenses cycle if k exceeds the lens count, but each carries its index so prompts differ). */
+export function composeStrategies(base: string, k: number): string[] {
+  const lenses = DIVERSE_STRATEGY_LENSES
+  return Array.from({ length: k }, (_, i) => {
+    const lens = lenses[i % lenses.length] as string
+    const tag = i < lenses.length ? '' : ` (variant ${Math.floor(i / lenses.length) + 1})`
+    return `${lens}${tag}\n\n${base}`
+  })
+}
+
 /** Research (local opencode, model-knowledge) refine directive — hand-written. */
 export const DEFAULT_RESEARCH_REFINE_DIRECTIVE =
   'Double-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.'

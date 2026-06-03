@@ -116,3 +116,14 @@ export class PlannerError extends AgentEvalError {
     super('validation', message, options)
   }
 }
+
+/**
+ * The analyst loop could not read or run over a round's trace — e.g. an empty round
+ * (no iterations to analyze) or a malformed trace projection. Fail loud: a silent empty
+ * store would mask a broken capture path and the driver would steer on nothing.
+ */
+export class AnalystError extends AgentEvalError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('validation', message, options)
+  }
+}
