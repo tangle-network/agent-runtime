@@ -12,8 +12,8 @@
  *        more-compute effect = random@k_rate - blind_rate
  *        steering effect     = refineX@k_rate - random@k_rate   (per refine directive)
  *   3. a 95% PAIRED BOOTSTRAP CI + two-sided bootstrap p on each lift (mulberry32
- *      resample of instanceIds - same approach as analyze-paired.mts), with the
- *      discordant-pair count (power scales with it, not with n).
+ *      resample of instanceIds), with the discordant-pair count (power scales
+ *      with it, not with n).
  *   4. a BENJAMINI-HOCHBERG family correction across the contrasts: the ablation
  *      tests many (steering arms x directives x benchmarks, plus compute controls),
  *      so each independent CI inflates the family-wise false-positive rate. The
@@ -171,7 +171,7 @@ function cleanTrace(records: RunRecord[]): CleanTrace {
   }
 }
 
-// -- paired bootstrap CI (mulberry32, identical recipe to analyze-paired.mts) ----
+// -- paired bootstrap CI (mulberry32) ----
 
 interface PairedLift {
   point: number

@@ -289,7 +289,7 @@ carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted po
    corpus capture + infra-retry. Each worker collapses to a `solveShot` domain hook + config;
    the `batch-*` pools unify into one `runPool`. Then wire the analyst report into the driver's
    `context` — closing the blind-driver gap. ~500 LOC deleted; every benchmark on one atom.
-2. **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR). *(Lands with the lift — it shares the bench branch's files; deleting it off `main` would collide with the open integrity PR.)*
+2. **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR). ✅ done (this PR).
 3. **One `/run-benchmark-loop` skill** — the "implement a `BenchmarkAdapter`, run the shared loop"
    recipe, so agents (here and in other repos) stop forking a new `*-loop.ts`.
 4. **CAD workers** (`worker-cad/blender/build123d`) migrate onto `runRefineLoop` too — but

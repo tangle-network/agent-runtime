@@ -246,6 +246,6 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
 
 - Kernel + controller seam: `src/loops/` (`runLoop`, `createDynamicDriver`, `createSandboxPlanner`).
 - Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`, `finsearch-loop.ts`,
-  `terminal-compare.ts`, `analyze-paired.mts`).
+  `terminal-compare.ts`, `corpus-report.mts`).
 - Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`gepaDriver`,
   `heldOutGate`, `runImprovementLoop`, `RunRecord`/trace-store, `./rl`).

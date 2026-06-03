@@ -262,7 +262,7 @@ async function main() {
   console.log(`  ► more-compute (random − blind):          ${dlt(agg.randomK - agg.blind)}`)
   console.log(`  ► STEERING hand (refineHand − random):    ${dlt(agg.refineHand - agg.randomK)}`)
   console.log(`  ► STEERING GEPA (refineGepa − random):    ${dlt(agg.refineGepa - agg.randomK)}  ← does the LEARNED directive beat just-more-compute?`)
-  console.log(`scorecard: ${out} · CI: tsx src/analyze-paired.mts ${out}`)
+  console.log(`scorecard: ${out} · analysis: tsx src/corpus-report.mts (durable corpus + BH-FDR)`)
 }
 
 main().catch((err) => {
