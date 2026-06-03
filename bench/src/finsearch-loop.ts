@@ -30,6 +30,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
+import { appendRunRecord, buildRunRecord } from './corpus'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './worker-sandbox-research'
 
@@ -101,6 +102,8 @@ async function main() {
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('ROUTER_KEY')
   const out = process.env.SCORECARD ?? '/tmp/finsearch-loop.jsonl'
+  // The durable learning-flywheel corpus (full RunRecords; see docs/learning-flywheel.md).
+  const corpus = process.env.CORPUS ?? '/home/drew/code/agent-runtime/bench/corpus/finsearch.jsonl'
   const fs = await import('node:fs/promises')
 
   await adapter.preflight()
@@ -126,8 +129,10 @@ async function main() {
     },
   }
 
-  // Run one condition through the real kernel; return {resolved, blind(iter0), infraError}.
-  const runCondition = async (task: BenchTask, planner: TopologyPlanner<string, string>) => {
+  // Run one condition through the real kernel; persist a full RunRecord to the
+  // flywheel corpus (state·steer·trace·output·verdict·cost — not a boolean); return
+  // {resolved, blind(iter0), infraError}.
+  const runCondition = async (task: BenchTask, planner: TopologyPlanner<string, string>, condition: string) => {
     const validator: Validator<string> = {
       async validate(answer) {
         if (!answer.trim()) return { valid: false, score: 0 }
@@ -147,11 +152,32 @@ async function main() {
     const iter0 = result.iterations[0]
     // Infra error = round-1 iteration itself threw (stream drop / sandbox), not a wrong answer.
     const infraError = iter0?.error !== undefined && iter0.output === undefined
-    return {
-      resolved: result.winner?.verdict?.valid === true,
-      blind: iter0?.verdict?.valid === true,
-      infraError,
-    }
+    const resolved = result.winner?.verdict?.valid === true
+    // The flywheel fuel: every attempt's trace+outcome, durably, for cross-run learning.
+    await appendRunRecord(
+      corpus,
+      buildRunRecord({
+        benchmark: 'finsearchcomp',
+        instanceId: task.id,
+        condition,
+        model,
+        iterations: result.iterations,
+        resolved,
+        infraError,
+      }),
+    ).catch(() => {})
+    return { resolved, blind: iter0?.verdict?.valid === true, infraError }
+  }
+
+  // Retry a condition on TRANSIENT infra failure (sandbox stream drop) — a dropped
+  // stream is infra noise, not a failed attempt. Up to `tries` fresh runLoops; only a
+  // persistent infra error (all tries drop) marks the cell infra-errored. The runLoop
+  // path creates a fresh box per iteration → high stream-drop exposure; this is the fix.
+  const tries = Number(process.env.INFRA_RETRIES ?? 3)
+  const runConditionRetried = async (task: BenchTask, planner: TopologyPlanner<string, string>, condition: string) => {
+    let last = await runCondition(task, planner, condition)
+    for (let t = 1; t < tries && last.infraError; t++) last = await runCondition(task, planner, condition)
+    return last
   }
 
   const worker = async () => {
@@ -160,9 +186,9 @@ async function main() {
       try {
         // Paired 3-way: same task/model/judge, only the planner differs.
         //   random@k = compute control · refineHand = hand-written directive · refineGepa = GEPA-learned.
-        const rnd = await runCondition(task, randomPlanner(task.prompt, rounds))
-        const refH = await runCondition(task, refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE))
-        const refG = await runCondition(task, refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE))
+        const rnd = await runConditionRetried(task, randomPlanner(task.prompt, rounds), `random@${rounds}`)
+        const refH = await runConditionRetried(task, refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE), `refineHand@${rounds}`)
+        const refG = await runConditionRetried(task, refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE), `refineGepa@${rounds}`)
         done += 1
         if (rnd.infraError || refH.infraError || refG.infraError) {
           agg.errored += 1
