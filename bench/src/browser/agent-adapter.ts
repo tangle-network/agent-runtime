@@ -59,6 +59,10 @@ export interface BrowserStep {
   reasoning?: string
   /** Path to a per-step screenshot on disk (for the run-capsule film). */
   screenshotPath?: string
+  /** Inline base64 `data:` URI of the per-step frame, when the driver carries the
+   *  image in its report rather than on disk (e.g. `bad`'s state.screenshot, whose
+   *  sink is reaped post-run). Preferred over `screenshotPath` by the film converter. */
+  screenshot?: string
   /** Target element box at action time, if known — for replay cursor overlays. */
   actionBounds?: { x: number; y: number; width: number; height: number }
 }
