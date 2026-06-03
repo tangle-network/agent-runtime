@@ -21,7 +21,7 @@ import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
-import { DEFAULT_CAD_DIRECTIVE } from './directives'
+import { DEFAULT_CAD_DIRECTIVE, DEFAULT_CAD_SANDBOX_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
 
 export { DEFAULT_CAD_DIRECTIVE } from './directives'
@@ -250,7 +250,7 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
   const tick = () => (ts += 1)
   // The authoring system prompt for the orchestrated sandbox path — kept verbatim,
   // distinct from DEFAULT_CAD_DIRECTIVE (the local path's GEPA surface).
-  const sys = 'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model must compile with `openscad -o out.stl model.scad`.'
+  const sys = DEFAULT_CAD_SANDBOX_DIRECTIVE
   // Carried across rounds in closures (the round Artifact is the .scad source; the
   // lastErr steer + resolved early-stop persist outside the loop).
   let lastErr = ''

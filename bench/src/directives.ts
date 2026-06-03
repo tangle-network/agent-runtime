@@ -40,6 +40,12 @@ export const GEPA_LEARNED_DIRECTIVE =
 export const DEFAULT_CAD_DIRECTIVE =
   'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model MUST compile with `openscad -o out.stl model.scad`. Match the brief as closely as you can.'
 
+/** OpenSCAD authoring directive for the SANDBOX path (solveCadRefine) — a terser
+ *  variant of DEFAULT_CAD_DIRECTIVE (no "match the brief" tail). Kept distinct
+ *  rather than unified to preserve that path's exact prompt. */
+export const DEFAULT_CAD_SANDBOX_DIRECTIVE =
+  'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model must compile with `openscad -o out.stl model.scad`.'
+
 /** Blender bpy authoring directive (BlenderLLM/CADBench) — the GEPA-optimizable
  *  system prompt. States the contract (runs headless, builds mesh(es) at origin,
  *  no cameras/lights) but not how to satisfy the criteria. */
