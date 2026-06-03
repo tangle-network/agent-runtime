@@ -285,9 +285,14 @@ async function main() {
     // Pair with a SINGLE model (MODELS=one) to isolate strategy-diversity from model-diversity.
     const diverse = process.env.DIVERSE === '1'
     const { composeStrategies } = await import('./directives')
-    const diverseStrategies = diverse
-      ? composeStrategies('Give your single best, final answer to the question.', k)
-      : null
+    // DIVERSE_BASE_FILE (a learned directive, e.g. gepa-refine's winner from #145) or
+    // DIVERSE_BASE (inline) becomes the shared base the lenses layer on — this is where the
+    // directive-optimization surface (#145) composes with the diversification surface:
+    // GEPA-best-base × diverse-lenses × selection. Defaults to a neutral answer instruction.
+    const diverseBase = process.env.DIVERSE_BASE_FILE
+      ? (await import('node:fs')).readFileSync(process.env.DIVERSE_BASE_FILE, 'utf8').trim()
+      : (process.env.DIVERSE_BASE ?? 'Give your single best, final answer to the question.')
+    const diverseStrategies = diverse ? composeStrategies(diverseBase, k) : null
     await adapter.preflight()
     const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
