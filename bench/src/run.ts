@@ -16,6 +16,7 @@ import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
+import { randomAtK, summarizeCompare } from './compare-decomp'
 import { runPool } from './run-pool'
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -329,15 +330,45 @@ async function main() {
       const s = await solveRefineLocal(task, { model, rounds, livenessMs })
       return { first: s.round1Patch, final: s.finalPatch, detail: s.detail }
     }
+    // Equal-k compute control: `rounds` INDEPENDENT bare attempts (no steering),
+    // same budget as the refine arm. Without it the headline "refine − blind"
+    // confounds steering with extra compute; the confound-free steering effect is
+    // refine@k − random@k. Always run (never flag-gated) — the same un-forgettable-
+    // control discipline runSteeringExperiment enforces for the runLoop path, here
+    // for the worker-fn path that harness doesn't fit. One bare shot per mode.
+    const { solveShotLocal } = await import('./worker-local')
+    const { solveResearchLocal } = await import('./worker-research')
+    const runBareShot = async (task: BenchTask): Promise<string> => {
+      if (useSandbox) {
+        const { solveSandboxResearch } = await import('./worker-sandbox-research')
+        const s = await solveSandboxResearch(task, {
+          sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+          sandboxKey: must('SANDBOX_KEY'),
+          routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+          routerKey: must('ROUTER_KEY'),
+          model,
+          provider: process.env.WORKER_PROVIDER ?? 'openai',
+          rounds: 1,
+          perRoundMs: livenessMs,
+        })
+        return s.finalAnswer
+      }
+      if (research) {
+        const s = await solveResearchLocal(task, { model, livenessMs })
+        return s.ok ? s.answer : ''
+      }
+      const s = await solveShotLocal(task, { model, livenessMs })
+      return s.ok ? s.patch : ''
+    }
     const conc = Number(process.env.CONCURRENCY ?? 3)
     const out = process.env.SCORECARD ?? '/tmp/swebench-compare.jsonl'
     await adapter.preflight()
     const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
     console.log(
-      `[batch-compare] ${tasks.length} instances · rounds=${rounds} (blind=r1 vs refine=r${rounds}) · model=${model} · conc=${conc}`,
+      `[batch-compare] ${tasks.length} instances · rounds=${rounds} (blind=r1 · random@${rounds} compute-control · refine=r${rounds}) · model=${model} · conc=${conc} · ~${2 * rounds} worker calls/instance`,
     )
-    const agg = { n: 0, blind: 0, refine: 0, gained: 0, lost: 0 }
+    const agg = { n: 0, blind: 0, randomExp: 0, oracle: 0, refine: 0, gained: 0, lost: 0 }
     let done = 0
     await runPool(tasks, conc, async (task) => {
       const started = Date.now()
@@ -349,19 +380,30 @@ async function main() {
         const refine = shot.final.trim()
           ? (await adapter.judge(task, shot.final)).resolved === true
           : false
+        // equal-k compute control: `rounds` independent bare attempts, no steering
+        const bare: boolean[] = []
+        for (let i = 0; i < rounds; i += 1) {
+          const artifact = await runBareShot(task)
+          bare.push(artifact.trim() ? (await adapter.judge(task, artifact)).resolved === true : false)
+        }
+        const nBare = bare.filter(Boolean).length
+        const randomExpected = randomAtK(nBare, rounds) // expected pass of a random pick among k
+        const oracleK = nBare > 0 // any-pass ceiling over the k bare shots
         agg.n += 1
         if (blind) agg.blind += 1
+        agg.randomExp += randomExpected
+        if (oracleK) agg.oracle += 1
         if (refine) agg.refine += 1
         if (refine && !blind) agg.gained += 1 // refinement RESCUED a blind failure
         if (blind && !refine) agg.lost += 1 // refinement BROKE a blind success
         done += 1
         const tag = refine && !blind ? '↑GAINED' : blind && !refine ? '↓LOST' : blind ? '=both✓' : '=both·'
         console.log(
-          `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} refine=${refine ? '✓' : '·'} ${tag}`,
+          `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} rand@${rounds}=${nBare}/${rounds} refine=${refine ? '✓' : '·'} ${tag}`,
         )
         await fs.appendFile(
           out,
-          `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+          `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, nBare, randomExpected, oracleK, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
         )
       } catch (err) {
         done += 1
@@ -373,12 +415,17 @@ async function main() {
         )
       }
     })
-    const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
-    console.log(`\n=== BLIND vs REFINE (n=${agg.n}, rounds=${rounds}) ===`)
-    console.log(`  blind  (pass@1):        ${pct(agg.blind)}  (${agg.blind}/${agg.n})`)
-    console.log(`  refine (r${rounds} final):     ${pct(agg.refine)}  (${agg.refine}/${agg.n})`)
+    const rep = summarizeCompare(agg)
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+    const pp = (x: number) => `${(x * 100).toFixed(1)} pp`
+    console.log(`\n=== BLIND vs RANDOM@${rounds} vs REFINE (n=${agg.n}, k=${rounds}) ===`)
+    console.log(`  blind     (pass@1):           ${pct(rep.blindRate)}  (${agg.blind}/${agg.n})`)
+    console.log(`  random@${rounds}  (compute control):  ${pct(rep.randomRate)}`)
+    console.log(`  oracle@${rounds}  (ceiling):          ${pct(rep.oracleRate)}`)
+    console.log(`  refine    (r${rounds} final):           ${pct(rep.refineRate)}  (${agg.refine}/${agg.n})`)
+    console.log(`  ► Δ compute (random@${rounds} − blind):   ${pp(rep.dCompute)}   (more compute, no steering)`)
     console.log(
-      `  ► delta (refine − blind): ${(((agg.refine - agg.blind) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp   [rescued ${agg.gained}, broke ${agg.lost}]`,
+      `  ► Δ steer   (refine − random@${rounds}):  ${pp(rep.dSteer)}   ← steering effect, confound-free  [rescued ${agg.gained}, broke ${agg.lost} vs blind]`,
     )
     console.log(`scorecard: ${out}`)
     return
