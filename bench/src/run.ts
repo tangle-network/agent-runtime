@@ -5,6 +5,7 @@
  *   tsx src/run.ts verify-judge [id]      # gold patch must RESOLVE; empty must FAIL
  */
 import { createAppWorldAdapter } from './benchmarks/appworld'
+import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
@@ -17,6 +18,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
   'terminal-bench': createTerminalBenchAdapter,
   appworld: createAppWorldAdapter,
+  'cad-design': createCadDesignAdapter,
   frames: createFramesAdapter,
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
@@ -27,6 +29,35 @@ function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
+}
+
+/**
+ * Turn a run's trace into a shareable video + temp link by invoking the
+ * @tangle-network/run-capsule CLI, returning the litterbox URL it prints. This
+ * is the "a video falls out of every run" seam: a benchmark run writes its
+ * trace, and the link drops out e2e. Prefers a local build (RUN_CAPSULE_CLI or
+ * ~/code/run-capsule/dist/cli.js) and falls back to the published package.
+ * Fail-soft: a missing/broken video tool never fails the eval — returns null.
+ */
+async function renderCapsuleVideo(tracePath: string, title: string): Promise<string | null> {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const { existsSync } = await import('node:fs')
+  const execFileAsync = promisify(execFile)
+  const local = process.env.RUN_CAPSULE_CLI ?? `${process.env.HOME}/code/run-capsule/dist/cli.js`
+  const useLocal = existsSync(local)
+  const bin = useLocal ? 'node' : 'npx'
+  const head = useLocal ? [local] : ['-y', '@tangle-network/run-capsule']
+  const { tmpdir } = await import('node:os')
+  const outDir = process.env.VIDEO_OUT ?? `${tmpdir()}/cad-video`
+  const args = [...head, '--trace', tracePath, '--kinds', 'composed', '--narrate', '--music', '--title', title, '--out', outDir]
+  try {
+    const { stdout } = await execFileAsync(bin, args, { timeout: 360_000, maxBuffer: 1 << 26, env: process.env })
+    return /https?:\/\/\S+\.mp4/.exec(stdout)?.[0] ?? null
+  } catch (err) {
+    console.warn(`[video] run-capsule failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`)
+    return null
+  }
 }
 
 async function main() {
@@ -354,8 +385,68 @@ async function main() {
     return
   }
 
+  if (cmd === 'solve-cad') {
+    // Full rounded CAD run: agent authors OpenSCAD in a real 'universal' sandbox,
+    // the box's own openscad gates + renders it, we judge the artifact and write
+    // the screenshot-rich trace for run-capsule to turn into a video.
+    const fs = await import('node:fs/promises')
+    const { solveCadShot, solveCadRefine, solveCadRefineLocal } = await import('./worker-cad')
+    // solve-cad is CAD-specific — don't depend on the BENCH-selected adapter.
+    const adapter = createCadDesignAdapter()
+    // LOCAL=1 → author via router + gate/render with the LOCAL openscad kernel
+    // (staging-independent). Default → orchestrated refine in a BARE sandbox;
+    // IN_SANDBOX_AGENT=1 → opencode-agent-in-box. Only the sandbox paths need a
+    // SANDBOX_KEY, so don't demand it in local mode.
+    const local = process.env.LOCAL === '1'
+    const inBoxAgent = process.env.IN_SANDBOX_AGENT === '1'
+    // Run a specific authoring directive (e.g. one a GEPA run learned): inline
+    // via CAD_DIRECTIVE or from a file via CAD_DIRECTIVE_FILE. Local path only.
+    const directive = process.env.CAD_DIRECTIVE_FILE
+      ? await fs.readFile(process.env.CAD_DIRECTIVE_FILE, 'utf8')
+      : process.env.CAD_DIRECTIVE
+    const cfg = {
+      sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
+      sandboxKey: local ? (process.env.SANDBOX_KEY ?? '') : must('SANDBOX_KEY'),
+      routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+      routerKey: must('ROUTER_KEY'),
+      model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+      provider: process.env.WORKER_PROVIDER ?? 'openai',
+      timeoutMs: process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : undefined,
+      rounds: process.env.ROUNDS ? Number(process.env.ROUNDS) : undefined,
+      directive,
+    }
+    const id = rest[0] ?? 'two-story-house'
+    await adapter.preflight()
+    const [task] = await adapter.loadTasks({ ids: [id] })
+    if (!task) throw new Error(`task not found: ${id}`)
+    const mode = local ? 'local-refine' : inBoxAgent ? 'opencode-in-box' : 'orchestrated-refine'
+    console.log(`[solve-cad] ${task.id} with ${cfg.model} (${mode}${local ? '' : ` · ${cfg.sandboxBaseUrl}`})…`)
+    const shot = local
+      ? await solveCadRefineLocal(task, cfg)
+      : inBoxAgent
+        ? await solveCadShot(task, cfg)
+        : await solveCadRefine(task, cfg)
+    console.log(`worker: ok=${shot.ok} scadBytes=${shot.artifact.length}${shot.detail ? ` (${shot.detail})` : ''}`)
+    const tracePath = process.env.TRACE_OUT ?? `/tmp/cad-trace-${task.id}.json`
+    await fs.writeFile(tracePath, JSON.stringify(shot.trace, null, 2))
+    console.log(`trace (${shot.trace.length} spans) → ${tracePath}`)
+    if (shot.artifact.trim()) {
+      const score = await adapter.judge(task, shot.artifact)
+      console.log(`\n${score.resolved ? '✅ RESOLVED' : `⚠️  score=${score.score}`} — ${task.id} (real openscad geometry judge)`) // eslint-disable-line
+      console.log(`detail: ${score.detail}`)
+    }
+    // A video falls out of the run, e2e: render the trace into a film and drop a
+    // shareable litterbox link. Opt out with VIDEO=0; narration uses ROUTER_KEY.
+    if (process.env.VIDEO !== '0' && shot.trace.length > 1) {
+      console.log(`\n[video] rendering run-capsule film…`)
+      const link = await renderCapsuleVideo(tracePath, `Agent designs a ${task.id.replace(/-/g, ' ')}`)
+      console.log(link ? `🎬 video → ${link}` : `🎬 video step finished (no link captured — see run-capsule output)`) // eslint-disable-line
+    }
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | batch-blind | batch-oracle | batch-compare`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | batch-blind | batch-oracle | batch-compare`,
   )
 }
 

@@ -23,9 +23,11 @@ import {
   inMemoryCampaignStorage,
   pairHoldout,
 } from '@tangle-network/agent-eval/campaign'
+import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
+import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, solveRefineResearchLocal } from './worker-research'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, solveSandboxResearch } from './worker-sandbox-research'
 
@@ -42,21 +44,28 @@ function must(name: string): string {
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   hotpotqa: createHotpotqaAdapter,
   finsearchcomp: createFinsearchcompAdapter,
+  cad: createCadDesignAdapter,
 }
 
 async function main() {
   const benchKey = process.env.BENCH ?? 'hotpotqa'
   const adapter = ADAPTERS[benchKey]?.()
-  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp, got ${benchKey}`)
+  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad, got ${benchKey}`)
+  const isCad = benchKey === 'cad'
   const useSandbox = process.env.SANDBOX === '1'
-  const model = process.env.WORKER_MODEL ?? (useSandbox ? 'gpt-5' : 'deepseek/deepseek-v4-pro')
+  const model =
+    process.env.WORKER_MODEL ?? (isCad ? 'claude-sonnet-4-6' : useSandbox ? 'gpt-5' : 'deepseek/deepseek-v4-pro')
   const rounds = Number(process.env.K_ROUNDS ?? 3)
   const trainN = Number(process.env.TRAIN_N ?? 8)
   const holdoutN = Number(process.env.HOLDOUT_N ?? 8)
   const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('ROUTER_KEY')
-  const baseDirective = useSandbox ? DEFAULT_SANDBOX_REFINE_DIRECTIVE : DEFAULT_RESEARCH_REFINE_DIRECTIVE
+  const baseDirective = isCad
+    ? DEFAULT_CAD_DIRECTIVE
+    : useSandbox
+      ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
+      : DEFAULT_RESEARCH_REFINE_DIRECTIVE
 
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
@@ -80,6 +89,14 @@ async function main() {
     scenario: RefineScenario,
     ctx: { cost: { observe(usd: number, source: string): void; observeTokens(u: { input: number; output: number }): void } },
   ): Promise<string> => {
+    if (isCad) {
+      // The CAD authoring loop: author .scad under the candidate directive,
+      // gate+render with the LOCAL openscad kernel (staging-independent), refine
+      // k rounds on compiler feedback. The artifact is the produced source.
+      const s = await solveCadRefineLocal(scenario.task, { routerBaseUrl, routerKey, model, rounds, directive })
+      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
+      return s.artifact
+    }
     if (useSandbox) {
       const s = await solveSandboxResearch(scenario.task, {
         sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
@@ -100,17 +117,46 @@ async function main() {
     return s.finalAnswer
   }
 
-  // The benchmark's own judge → 0/1 composite. Throw on failure (never silent zero).
+  // The benchmark's own judge → composite. For CAD the geometric gate returns a
+  // FRACTION of checks passed — use it directly so the optimizer sees a smooth
+  // gradient (0.57 → 1.0), not a flat 0/1. For QA the judge is binary resolved.
+  // Throw on failure (never silent zero).
   const judge: JudgeConfig<string, RefineScenario> = {
     name: `${benchKey}-judge`,
-    dimensions: [{ key: 'resolved', description: 'benchmark judge marks the answer resolved' }],
-    async score({ artifact, scenario }) {
-      if (!artifact.trim()) return { dimensions: { resolved: 0 }, composite: 0, notes: 'empty answer' }
+    dimensions: isCad
+      ? [
+          { key: 'score', description: 'fraction of geometric spec checks the produced solid passes' },
+          { key: 'resolved', description: 'all geometric checks pass' },
+        ]
+      : [{ key: 'resolved', description: 'benchmark judge marks the answer resolved' }],
+    async score({ artifact, scenario }): Promise<JudgeScore> {
+      if (!artifact.trim()) return { dimensions: { resolved: 0 }, composite: 0, notes: 'empty artifact' }
       const verdict = await adapter.judge(scenario.task, artifact)
+      if (isCad) {
+        const sc = typeof verdict.score === 'number' ? verdict.score : verdict.resolved ? 1 : 0
+        const dimensions: Record<string, number> = { score: sc, resolved: verdict.resolved ? 1 : 0 }
+        return { dimensions, composite: sc, notes: verdict.detail ?? '' }
+      }
       const v = verdict.resolved ? 1 : 0
       return { dimensions: { resolved: v }, composite: v, notes: verdict.detail ?? '' }
     },
   }
+
+  const reflectionTarget = isCad
+    ? 'an OpenSCAD AUTHORING DIRECTIVE: the system instruction given to an agent that writes OpenSCAD source for a geometry brief. The produced solid is scored by a deterministic CAD kernel gate: it must compile, hit the brief\'s bounding box, have enough triangle detail, present a PITCHED roof (the top z-band footprint far smaller than the base), and be a HOLLOW shell (printed solid volume well under the bounding-box volume). The directive must make the agent reliably satisfy ALL of these checks.'
+    : 'a REFINE DIRECTIVE: the instruction given to an agent to re-examine its own prior answer and improve it. It must make the agent KEEP a correct answer and fix only concrete errors — never churn a right answer.'
+  const reflectionPrimitives = isCad
+    ? [
+        'instruct the agent to build the roof as a tapering gable or hip (linear_extrude of a triangular profile, or hull() from a wide base to a narrow ridge) so the top footprint is far smaller than the base',
+        'instruct the agent to build the walls as a hollow shell via difference() — an outer solid minus an inset inner cavity — rather than a filled block',
+        'instruct the agent to declare explicit parametric dimensions matching the brief\'s footprint and height, and to keep the overall bounding box within those numbers',
+        'instruct the agent to cut the required openings (a door, several windows) by subtracting boxes from the walls while keeping the model a small number of connected solids',
+      ]
+    : [
+        'demand explicit re-verification of the figure/fact against a cited source before asserting it',
+        'require checking the answer against the exact units/precision/tolerance the question requests',
+        'instruct the agent to keep a correct answer verbatim and change ONLY on a concrete identified error',
+      ]
 
   const result = await optimizePrompt<RefineScenario, string>({
     baselinePrompt: baseDirective,
@@ -123,13 +169,8 @@ async function main() {
     reflection: {
       llm: { baseUrl: routerBaseUrl, apiKey: routerKey },
       model: process.env.REFLECT_MODEL ?? 'gpt-5',
-      target:
-        'a REFINE DIRECTIVE: the instruction given to an agent to re-examine its own prior answer and improve it. It must make the agent KEEP a correct answer and fix only concrete errors — never churn a right answer.',
-      mutationPrimitives: [
-        'demand explicit re-verification of the figure/fact against a cited source before asserting it',
-        'require checking the answer against the exact units/precision/tolerance the question requests',
-        'instruct the agent to keep a correct answer verbatim and change ONLY on a concrete identified error',
-      ],
+      target: reflectionTarget,
+      mutationPrimitives: reflectionPrimitives,
     },
     deltaThreshold: Number(process.env.DELTA_THRESHOLD ?? 0.05),
     populationSize: Number(process.env.POP ?? 3),
