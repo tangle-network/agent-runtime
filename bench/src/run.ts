@@ -481,8 +481,43 @@ async function main() {
     return
   }
 
+  if (cmd === 'ui-review') {
+    // Run a PANEL of UI reviewers over a live URL and print the deduped union of
+    // their subjective findings PLUS the attestable deterministic-floor verdict
+    // (axe a11y + WCAG contrast — re-derived by judgeUiFloor, never a reviewer's
+    // self-reported healthScore). Driver-agnostic: add more UiReviewerAdapters to
+    // the panel. Router-backed `bad design-audit` reviewer, so ROUTER_KEY needed.
+    const url = rest[0] ?? process.env.UI_REVIEW_URL
+    if (!url) throw new Error('ui-review needs a URL: `tsx src/run.ts ui-review https://example.com`')
+    const { runUiReviewerPanel } = await import('./browser/ui-reviewer')
+    const { badDesignAuditReviewer } = await import('./browser/adapters/bad-design-audit')
+    const reviewers = [
+      badDesignAuditReviewer({
+        baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+        apiKey: must('ROUTER_KEY'),
+        model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+        profile: process.env.UI_REVIEW_PROFILE,
+        pages: process.env.UI_REVIEW_PAGES ? Number(process.env.UI_REVIEW_PAGES) : undefined,
+      }),
+    ]
+    console.log(`[ui-review] panel of ${reviewers.length} over ${url}…`)
+    const panel = await runUiReviewerPanel({ url }, reviewers)
+    for (const [id, runs] of Object.entries(panel.perReviewer)) {
+      console.log(`  reviewer ${id}: ${runs.length} run(s), ${runs.reduce((n, r) => n + r.findings.length, 0)} finding(s)`)
+    }
+    const top = [...panel.findings].sort((a, b) => b.flaggedBy.length - a.flaggedBy.length).slice(0, 10)
+    console.log(`\nfindings (deduped union, ${panel.findings.length} total — top ${top.length}):`)
+    for (const f of top) {
+      console.log(`  [${f.severity}] ${f.lens} @ ${f.route}: ${f.title}${f.flaggedBy.length > 1 ? ` (×${f.flaggedBy.length} reviewers)` : ''}`)
+    }
+    const v = panel.verdict
+    console.log(`\n${v.resolved ? '✅ FLOOR OK' : '⛔ FLOOR BLOCKING'} — score=${v.score} (attestable deterministic floor, NOT a self-reported score)`) // eslint-disable-line
+    console.log(`detail: ${v.detail}`)
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | batch-blind | batch-oracle | batch-compare`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | ui-review | batch-blind | batch-oracle | batch-compare`,
   )
 }
 
