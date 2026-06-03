@@ -22,6 +22,7 @@
  *
  * Run:
  *   tsx src/corpus-replay.mts [corpusPath] [BENCH=finsearchcomp] [--judge]
+ *   tsx src/corpus-replay.mts [corpusPath] --selector [--condition=random]
  *
  * Fail-loud: an empty or unreadable corpus is an error, never a silent zero.
  */
@@ -33,6 +34,7 @@ import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import type { RunRecord } from './corpus'
+import { selfConsistencySelect, summarizeSelector } from './selector'
 
 /** Adapter factories keyed by the `benchmark` field a RunRecord carries. */
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -147,6 +149,42 @@ async function main(): Promise<void> {
     const list = byBench.get(bench)
     if (list) list.push(r)
     else byBench.set(bench, [r])
+  }
+
+  // --selector: score a deployable, non-oracle selector OFFLINE over the corpus.
+  // Each condition-run's k attempts are the candidates; the selector picks one by
+  // OUTPUT TEXT only and the pick's stored verdict is its score (zero new calls).
+  // Default to the random@k condition (independent attempts = the population where
+  // "can a selector beat a blind random draw?" is the honest question).
+  if (args.includes('--selector')) {
+    const condArg = args.find((a) => a.startsWith('--condition='))
+    const condFilter = condArg ? condArg.slice('--condition='.length) : 'random'
+    const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+    const pp = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}pp`
+    let any = false
+    for (const [bench, recs] of byBench) {
+      const slice = recs.filter((r) => r.condition.includes(condFilter))
+      if (slice.length === 0) continue
+      any = true
+      const rep = summarizeSelector(slice, selfConsistencySelect)
+      console.log(
+        `\n[${bench}] selector=self-consistency · condition~="${condFilter}" · n=${rep.n}` +
+          (rep.skipped > 0 ? ` (${rep.skipped} unscoreable)` : ''),
+      )
+      console.log(`  blind    (pass@1):        ${pct(rep.blindRate)}`)
+      console.log(`  random@k (control):       ${pct(rep.randomRate)}`)
+      console.log(`  selector@k (deployable):  ${pct(rep.selectorRate)}`)
+      console.log(`  oracle@k (ceiling):       ${pct(rep.oracleRate)}`)
+      console.log(`  ► selector − random:  ${pp(rep.dVsRandom)}   ← Phase-1 gate: does picking beat a blind draw at equal k?`)
+      console.log(`  ► oracle  − selector: ${pp(rep.gapToOracle)}   (ceiling left on the table)`)
+    }
+    if (!any) {
+      const conds = [...new Set(records.map((r) => r.condition))]
+      throw new Error(
+        `corpus-replay --selector: no records match condition~="${condFilter}". Available conditions: ${conds.join(', ') || '(none)'}`,
+      )
+    }
+    return
   }
 
   let totalRecords = 0
