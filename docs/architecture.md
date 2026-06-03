@@ -9,6 +9,20 @@
 > wins**; the older docs are being consolidated into this spine (§12). If you are
 > an agent in another repo building a new benchmark: **read §1, §6, §9 — you only
 > write an adapter, never a new loop.**
+>
+> **Status — built vs designed (verified against `origin/main`).** The *scaffold*
+> is real: the recursive atom (`createDynamicDriver` + `runLoop`), the shared
+> `runRefineLoop`, GEPA over static directives, the corpus + external judge. The
+> *load-bearing intelligence* is **designed, not wired**: `PlannerContext`
+> (`src/loops/drivers/dynamic.ts:51-60`) has no `analyses` channel, so the driver
+> decides from a verdict score, not a diagnosis; `TopologyMove` (`dynamic.ts:43-48`)
+> is a flat 3-opcode enum (`refine|fanout|stop`) — `select`/`seq` are not
+> emittable; `runAnalystLoop` has zero consumers under `src/loops/drivers/`; the
+> selector is currently faked with the judge (oracle). The coherence analysis
+> ("does this even make sense?") is in
+> [architecture-interpretations.md](./architecture-interpretations.md); the
+> dependency-ordered build + cleanup sequence is in [roadmap-rsi.md](./roadmap-rsi.md);
+> the empirics are §11. Doc map: [docs/README.md](./README.md).
 
 ---
 
