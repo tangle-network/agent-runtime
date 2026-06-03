@@ -197,6 +197,17 @@ export {
 export { InMemoryRuntimeSessionStore } from './sessions'
 // ── SSE ───────────────────────────────────────────────────────────────
 export { readinessServerSentEvent, runtimeStreamServerSentEvent } from './sse'
+export {
+  type RunToolLoopOptions,
+  runToolLoop,
+  type StreamToolLoopOptions,
+  type StreamToolLoopYield,
+  streamToolLoop,
+  type ToolCallOutcome,
+  type ToolLoopCall,
+  type ToolLoopEvent,
+  type ToolLoopResult,
+} from './tool-loop'
 // ── Core types ───────────────────────────────────────────────────────
 export type {
   AgentAdapter,
