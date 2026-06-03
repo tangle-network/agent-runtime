@@ -5,6 +5,7 @@
  *   tsx src/run.ts verify-judge [id]      # gold patch must RESOLVE; empty must FAIL
  */
 import { createAppWorldAdapter } from './benchmarks/appworld'
+import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
@@ -19,6 +20,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'terminal-bench': createTerminalBenchAdapter,
   appworld: createAppWorldAdapter,
   'cad-design': createCadDesignAdapter,
+  cadbench: createCadBenchAdapter,
   frames: createFramesAdapter,
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
