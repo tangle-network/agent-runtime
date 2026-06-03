@@ -36,6 +36,7 @@
  */
 
 import { PlannerError } from '../errors'
+import type { CompletionAnalyst, CompletionPolicy } from './completion'
 import type { TopologyMove, TopologyPlanner } from './drivers/dynamic'
 import { createDynamicDriver } from './drivers/dynamic'
 import { defaultSelectWinner, runLoop } from './run-loop'
@@ -165,6 +166,9 @@ export function agentProgramPlanner<Task, Output>(
 // ── runProgram: the tree-walking executor (loop-layer parallelism) ──────────
 
 const DEFAULT_PROGRAM_MAX_ITERATIONS = 10
+/** Recursion-depth ceiling for the tree executor — the guard against ~k^depth sub-loop
+ *  blowup. Matches the agent-bus depth ceiling; raise opts.maxDepth deliberately. */
+const DEFAULT_PROGRAM_MAX_DEPTH = 4
 
 /**
  * @experimental Result of executing a `Program` tree. Structurally a `LoopResult`
@@ -211,6 +215,22 @@ export interface RunProgramOptions<Task, Output> {
    * earliest index) — single-sourced, not a forked copy.
    */
   selectWinner?: (iterations: Iteration<Task, Output>[]) => LoopWinner<Task, Output> | undefined
+  /**
+   * Max recursion DEPTH of the tree (nesting of `parallel` / `seq`-with-`parallel`). The
+   * executor FAILS LOUD past this — the only guard against a driver-of-drivers blowing up to
+   * ~k^depth live sub-loops. Default 4 (the agent-bus depth ceiling). A straight-line program
+   * is depth 0; a `parallel` of straight-lines is depth 1; a parallel-of-parallels is depth 2.
+   * Raise it DELIBERATELY — recursion multiplies the per-layer factor, so deep trees should
+   * be earned by a per-layer win, not defaulted on.
+   */
+  maxDepth?: number
+  /**
+   * Deployable completion stop (the non-oracle "is it done?") applied at every leaf sub-loop,
+   * so an N-deep tree is stoppable PER NODE, not just at the root. One analyst is shared
+   * across nodes here; per-node-distinct completion is a follow-on (a path→analyst resolver).
+   */
+  complete?: CompletionAnalyst<Task, Output>
+  completionPolicy?: CompletionPolicy
 }
 
 /** A program with no `parallel` anywhere — executable as ONE `runLoop` via
@@ -244,10 +264,17 @@ export async function runProgram<Task, Output>(
   program: Program<Task>,
   opts: RunProgramOptions<Task, Output>,
   idSuffix = 'root',
+  depth = 0,
 ): Promise<ProgramResult<Task, Output>> {
+  const maxDepth = opts.maxDepth ?? DEFAULT_PROGRAM_MAX_DEPTH
+  if (depth > maxDepth) {
+    throw new PlannerError(
+      `runProgram: recursion depth ${depth} exceeds maxDepth ${maxDepth} — a driver-of-drivers tree this deep risks ~k^depth live sub-loops; raise opts.maxDepth deliberately or flatten the program`,
+    )
+  }
   if (isStraightLine(program)) return runStraightLine(program, opts, idSuffix)
-  if (program.op === 'parallel') return runParallel(program.branches, opts, idSuffix)
-  if (program.op === 'seq') return runSeq(program.steps, opts, idSuffix)
+  if (program.op === 'parallel') return runParallel(program.branches, opts, idSuffix, depth)
+  if (program.op === 'seq') return runSeq(program.steps, opts, idSuffix, depth)
   throw new PlannerError(`runProgram: no executor for op ${stringifySafe(program.op)}`)
 }
 
@@ -278,6 +305,8 @@ async function runStraightLine<Task, Output>(
   const driver = createDynamicDriver<Task, Output>({
     planner: compileProgram<Task, Output>(program),
     maxIterations,
+    complete: opts.complete,
+    completionPolicy: opts.completionPolicy,
   })
   const result = await runLoop<Task, Output, unknown>({
     driver,
@@ -310,13 +339,14 @@ async function runParallel<Task, Output>(
   branches: Program<Task>[],
   opts: RunProgramOptions<Task, Output>,
   idSuffix: string,
+  depth: number,
 ): Promise<ProgramResult<Task, Output>> {
   if (!Array.isArray(branches) || branches.length === 0) {
     throw new PlannerError('Program parallel{} must carry a non-empty branches[]')
   }
   const limit = opts.maxParallel ?? branches.length
   const runs = await mapPool(branches, limit, (branch, i) =>
-    runProgram(branch, opts, `${idSuffix}/p${i}`),
+    runProgram(branch, opts, `${idSuffix}/p${i}`, depth + 1),
   )
   return concatRuns(runs, 'max', opts)
 }
@@ -328,6 +358,7 @@ async function runSeq<Task, Output>(
   steps: Program<Task>[],
   opts: RunProgramOptions<Task, Output>,
   idSuffix: string,
+  depth: number,
 ): Promise<ProgramResult<Task, Output>> {
   if (!Array.isArray(steps) || steps.length === 0) {
     throw new PlannerError('Program seq must carry a non-empty steps[]')
@@ -354,7 +385,7 @@ async function runSeq<Task, Output>(
     const seg = segments[i]!
     let segResult: ProgramResult<Task, Output>
     if ('recurse' in seg) {
-      segResult = await runProgram(seg.recurse, opts, `${idSuffix}.s${i}`)
+      segResult = await runProgram(seg.recurse, opts, `${idSuffix}.s${i}`, depth + 1)
     } else {
       const sub: Program<Task> =
         seg.line.length === 1 ? seg.line[0]! : { op: 'seq', steps: seg.line }

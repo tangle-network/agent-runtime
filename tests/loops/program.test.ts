@@ -5,6 +5,7 @@ import {
   agentProgramPlanner,
   compileProgram,
   createDynamicDriver,
+  deterministicCompletion,
   flattenProgram,
   isStraightLine,
   type OutputAdapter,
@@ -315,6 +316,40 @@ describe('runProgram — the tree executor (loop-layer parallelism)', () => {
       baseOpts(client),
     )
     expect(state.maxActive).toBe(2)
+    expect(r.winner?.output).toBe('good')
+  })
+
+  it('fails loud past maxDepth — the ~k^depth recursion guard (deep trees must be earned)', async () => {
+    // top-level parallel runs its branch at depth 1; maxDepth 0 forbids descending.
+    await expect(
+      runProgram<string, string>(
+        { op: 'parallel', branches: [{ op: 'sample', task: 'a' }] },
+        { ...baseOpts(echoClient()), maxDepth: 0 },
+      ),
+    ).rejects.toThrow(/maxDepth/)
+  })
+
+  it('a completion analyst stops a runProgram sub-loop before the program is exhausted', async () => {
+    // always-invalid so the ORACLE never short-circuits — the stop is the completion analyst's.
+    const alwaysInvalid: Validator<string> = {
+      async validate() {
+        return { valid: false, score: 0 }
+      },
+    }
+    const complete = deterministicCompletion<string, string>((out) => ({ passed: out === 'good' }))
+    const r = await runProgram<string, string>(
+      {
+        op: 'seq',
+        steps: [
+          { op: 'steer', task: 'good' },
+          { op: 'steer', task: 'x' },
+          { op: 'steer', task: 'x' },
+          { op: 'steer', task: 'x' },
+        ],
+      },
+      { ...baseOpts(echoClient()), validator: alwaysInvalid, complete },
+    )
+    expect(r.iterations).toHaveLength(1) // round 0 produced 'good'; round 1 stops on completion, not steer #2-4
     expect(r.winner?.output).toBe('good')
   })
 })
