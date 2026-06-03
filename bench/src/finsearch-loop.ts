@@ -128,6 +128,11 @@ async function main() {
     name: 'finsearch-worker',
     taskToPrompt: (q) => q,
     sandboxOverrides: {
+      // Box-level env so opencode's provider finds the key. In @tangle-network/sandbox
+      // 0.4.x the BYOK `backend.model.apiKey` below is NOT wired into opencode's provider
+      // auth — without these vars the in-box agent dies with ProviderAuthError and every
+      // round returns empty (silent 0). Mirrors worker-sandbox-research.ts.
+      env: { OPENAI_API_KEY: routerKey, OPENAI_BASE_URL: routerBaseUrl },
       backend: { type: 'opencode', model: { provider: 'openai', model, baseUrl: routerBaseUrl, apiKey: routerKey } },
     },
   }
