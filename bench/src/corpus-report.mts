@@ -11,13 +11,21 @@
  *      BOTH conditions:
  *        more-compute effect = random@k_rate - blind_rate
  *        steering effect     = refineX@k_rate - random@k_rate   (per refine directive)
- *   3. a 95% PAIRED BOOTSTRAP CI on each lift (mulberry32 resample of instanceIds -
- *      same approach as analyze-paired.mts), with discordant-pair count (power scales
- *      with it, not with n).
- *   4. the MULTI-OBJECTIVE / clean-trace axis per condition: attempts-to-resolve,
+ *   3. a 95% PAIRED BOOTSTRAP CI + two-sided bootstrap p on each lift (mulberry32
+ *      resample of instanceIds - same approach as analyze-paired.mts), with the
+ *      discordant-pair count (power scales with it, not with n).
+ *   4. a BENJAMINI-HOCHBERG family correction across the contrasts: the ablation
+ *      tests many (steering arms x directives x benchmarks, plus compute controls),
+ *      so each independent CI inflates the family-wise false-positive rate. The
+ *      PRIMARY hypothesis (steering = refineX - random > 0) is pre-registered and
+ *      BH-corrected within its own family; more-compute is EXPLORATORY, corrected
+ *      separately. A contrast is significant ONLY if it clears its family FDR -
+ *      never on its own CI (a lone "CI excludes 0" across the grid is forking-paths).
+ *   5. the MULTI-OBJECTIVE / clean-trace axis per condition: attempts-to-resolve,
  *      total tokens, costUsd, total eventCount - so we see correct-AND-clean, not just
  *      "did it resolve" (the doc's Pareto axis).
- *   5. honest caveats: n per group, infra-errored excluded, small n -> wide CI.
+ *   6. honest caveats: n per group, infra-errored excluded, small n -> wide CI,
+ *      and a loud "UNINFORMATIVE" flag when a family has 0 discordant pairs.
  *
  * Fails loud on an empty/unreadable corpus - a silent zero would feed the flywheel noise.
  *
@@ -29,9 +37,17 @@ import { readFile, stat } from 'node:fs/promises'
 import { glob } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { RunRecord, AttemptRecord } from './corpus.ts'
+import { benjaminiHochberg } from '@tangle-network/agent-eval'
 
 const DEFAULT_CORPUS = resolve(import.meta.dirname, '..', 'corpus', 'finsearch.jsonl')
 const BOOTSTRAP_N = Number(process.env.BOOTSTRAP_N ?? 10000)
+/** Benjamini-Hochberg false-discovery rate for the multiple-comparison correction
+ *  applied across the lift family. The ablation tests MANY contrasts (steering arms
+ *  x refine directives x benchmarks, plus the compute controls); each independent CI
+ *  inflates the family-wise false-positive rate (garden of forking paths). Correcting
+ *  the family is what keeps a lone "CI excludes 0" from being read as a real effect.
+ *  Override with FDR=… ; 0.05 by default. */
+const FDR = Number(process.env.FDR ?? 0.05)
 
 // -- corpus loading -------------------------------------------------------------
 
@@ -162,11 +178,24 @@ interface PairedLift {
   low: number
   high: number
   median: number
-  significant: boolean
+  /** Two-sided percentile bootstrap p-value for lift != 0. Fed to the
+   *  Benjamini-Hochberg family correction — NOT read as an independent verdict. */
+  p: number
   /** instanceIds present in BOTH conditions. */
   pairs: number
   /** pairs where the two conditions' outcomes differ - power scales with this. */
   discordant: number
+}
+
+/** One hypothesis test in the ablation family, tagged by which family it belongs
+ *  to so the BH correction is applied WITHIN a family (primary vs exploratory). */
+interface TestEntry {
+  benchmark: string
+  label: string
+  /** 'steering' = the pre-registered PRIMARY contrast (refineX - random); the
+   *  reason the experiment exists. 'more-compute' = EXPLORATORY (random - blind). */
+  family: 'steering' | 'more-compute'
+  lift: PairedLift
 }
 
 /** Deterministic mulberry32 - Math.imul, no >2^53 overflow (a naive LCG gives
@@ -208,9 +237,19 @@ function pairedLift(
   const low = boots[Math.floor(0.025 * BOOTSTRAP_N)] ?? Number.NaN
   const high = boots[Math.floor(0.975 * BOOTSTRAP_N)] ?? Number.NaN
   const median = boots[Math.floor(0.5 * BOOTSTRAP_N)] ?? Number.NaN
-  // Significant iff the CI excludes 0 on the side matching the point estimate's sign.
-  const significant = point > 0 ? low > 0 : point < 0 ? high < 0 : false
-  return { point, low, high, median, significant, pairs: n, discordant }
+  // Two-sided percentile bootstrap p-value for lift != 0: twice the bootstrap mass
+  // on the side of 0 opposite the point estimate. This becomes a per-comparison
+  // p that the Benjamini-Hochberg pass corrects across the whole family — it is
+  // NOT a standalone verdict (a lone CI excluding 0 across many contrasts is the
+  // forking-paths false positive the correction exists to catch).
+  let le = 0
+  let ge = 0
+  for (const b of boots) {
+    if (b <= 0) le++
+    if (b >= 0) ge++
+  }
+  const p = Math.min(1, (2 * Math.min(le, ge)) / BOOTSTRAP_N)
+  return { point, low, high, median, p, pairs: n, discordant }
 }
 
 // -- formatting ------------------------------------------------------------------
@@ -219,15 +258,49 @@ const pct = (x: number) => (Number.isNaN(x) ? '  n/a' : `${(x * 100).toFixed(1)}
 const pp = (x: number) => (Number.isNaN(x) ? 'n/a' : `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}pp`)
 const num = (x: number, d = 2) => (Number.isNaN(x) ? 'n/a' : x.toFixed(d))
 
-function printLift(label: string, lift: PairedLift | undefined): void {
-  if (lift === undefined) {
-    console.log(`    ${label.padEnd(34)} - (no shared instances)`)
+/** One FDR-corrected test row: point + CI (descriptive) + raw p + BH q-value +
+ *  the FDR-controlled verdict. The verdict is NEVER a bare "CI excludes 0" — it
+ *  is the family-corrected decision. `q = 0` with `discordant = 0` is flagged as
+ *  uninformative (a degenerate zero-variance CI), not as a null result. */
+function printTestRow(e: TestEntry, q: number, sig: boolean): void {
+  const verdict = sig
+    ? `SIGNIF @FDR<${FDR}`
+    : e.lift.discordant === 0
+      ? 'UNINFORMATIVE (0 discordant)'
+      : 'n.s.'
+  console.log(
+    `    ${e.benchmark.padEnd(13)} ${e.label.padEnd(30)} ${pp(e.lift.point).padStart(7)}  CI [${pp(e.lift.low)}, ${pp(e.lift.high)}]  p=${e.lift.p.toFixed(3)} q=${q.toFixed(3)}  ${verdict}  (paired ${e.lift.pairs}, disc ${e.lift.discordant})`,
+  )
+}
+
+/** Print one hypothesis family with a Benjamini-Hochberg correction applied
+ *  WITHIN it — so the pre-registered primary test is not diluted by exploratory
+ *  contrasts, and neither family's multiplicity inflates the false-discovery rate. */
+function printFamily(title: string, entries: TestEntry[]): void {
+  console.log(`\n== ${title} ==`)
+  if (entries.length === 0) {
+    console.log('    (no measurable contrasts in this family)')
     return
   }
-  const verdict = lift.significant ? 'SIGNIFICANT' : 'spans 0'
-  console.log(
-    `    ${label.padEnd(34)} ${pp(lift.point).padStart(7)}  95% CI [${pp(lift.low)}, ${pp(lift.high)}] median ${pp(lift.median)}  ${verdict}  (paired ${lift.pairs}, discordant ${lift.discordant})`,
+  const { qValues, significant } = benjaminiHochberg(
+    entries.map((e) => e.lift.p),
+    FDR,
   )
+  let nSig = 0
+  entries.forEach((e, i) => {
+    const sig = significant[i] === true
+    if (sig) nSig++
+    printTestRow(e, qValues[i] as number, sig)
+  })
+  const totalDiscordant = entries.reduce((s, e) => s + e.lift.discordant, 0)
+  console.log(
+    `    family: ${entries.length} contrast(s), ${nSig} significant at FDR<${FDR}; total discordant pairs ${totalDiscordant}`,
+  )
+  if (totalDiscordant === 0) {
+    console.log(
+      '    * 0 discordant pairs across the family — nothing is measurable; any CI is degenerate. Not a null: UNINFORMATIVE (need discordant pairs, i.e. cases where the conditions disagree).',
+    )
+  }
 }
 
 // -- main ----------------------------------------------------------------------
@@ -263,6 +336,11 @@ async function main(): Promise<void> {
     arr.push(r)
     benchmarks.set(r.benchmark, arr)
   }
+
+  // The ablation contrasts accumulate ACROSS benchmarks into one family so the
+  // Benjamini-Hochberg correction sees the full set of tests, not one benchmark
+  // at a time (the forking-paths inflation is across the whole grid).
+  const tests: TestEntry[] = []
 
   for (const benchmark of [...benchmarks.keys()].sort()) {
     const benchRecords = benchmarks.get(benchmark) as RunRecord[]
@@ -320,13 +398,16 @@ async function main(): Promise<void> {
     const randomConditions = conditions.filter((c) => conditionFamily(c).startsWith('random'))
     const refineConditions = conditions.filter((c) => conditionFamily(c).startsWith('refine'))
 
-    console.log('  ablation (paired lift * 95% bootstrap CI):')
+    // Collect the contrasts into the cross-benchmark family. Significance is NOT
+    // decided here per-contrast — it is decided after the loop by one BH pass per
+    // family (printFamily), which is what controls the false-discovery rate.
     if (randomConditions.length === 0) {
-      console.log('    (no random@k condition - cannot isolate the compute control; lifts unmeasurable)')
+      console.log('  ablation: (no random@k condition - cannot isolate the compute control; lifts unmeasurable)')
     }
     for (const rc of randomConditions) {
       const recs = byCondition.get(rc) as RunRecord[]
-      printLift(`more-compute (${rc} - blind)`, pairedLift(blindById(recs), resolvedById(recs)))
+      const lift = pairedLift(blindById(recs), resolvedById(recs))
+      if (lift) tests.push({ benchmark, label: `more-compute (${rc} - blind)`, family: 'more-compute', lift })
     }
 
     // steering = refineX@k.resolved - random@k.resolved, paired across shared instances.
@@ -342,7 +423,8 @@ async function main(): Promise<void> {
       }
       const baseline = resolvedById(byCondition.get(matchRandom) as RunRecord[])
       const treatment = resolvedById(byCondition.get(refc) as RunRecord[])
-      printLift(`steering (${refc} - ${matchRandom})`, pairedLift(baseline, treatment))
+      const lift = pairedLift(baseline, treatment)
+      if (lift) tests.push({ benchmark, label: `steering (${refc} - ${matchRandom})`, family: 'steering', lift })
     }
 
     // (5) honest caveats for this benchmark.
@@ -355,6 +437,25 @@ async function main(): Promise<void> {
       console.log(`    * small n (min ${minCondN}) -> wide CI; power scales with the discordant-pair count above, not n`)
     }
   }
+
+  // ── Family-corrected hypothesis tests (Benjamini-Hochberg, FDR<%) ──────────
+  // Pre-registration: the PRIMARY hypothesis the whole experiment exists to test
+  // is steering > 0 — does a steer (refineX) beat the compute-matched random@k
+  // control. Everything else (more-compute = random - blind) is EXPLORATORY. BH
+  // is applied WITHIN each family: the primary verdict is not diluted by the
+  // exploratory contrasts, and neither family's multiplicity inflates the FDR.
+  // A contrast is "significant" ONLY if it clears its family's BH threshold —
+  // never on its own CI alone (that's the forking-paths false positive).
+  console.log(`\n${'='.repeat(78)}`)
+  console.log(`HYPOTHESIS TESTS - Benjamini-Hochberg family correction, FDR<${FDR}`)
+  printFamily(
+    'PRIMARY (pre-registered): steering = refineX@k - random@k > 0',
+    tests.filter((t) => t.family === 'steering'),
+  )
+  printFamily(
+    'EXPLORATORY: more-compute = random@k - blind',
+    tests.filter((t) => t.family === 'more-compute'),
+  )
 
   if (superseded > 0) {
     console.log(`\nnote: ${superseded} record(s) superseded by a later run for the same (benchmark, instance, condition) - kept the latest by ts`)

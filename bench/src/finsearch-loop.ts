@@ -32,6 +32,15 @@ import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { appendRunRecord, buildRunRecord } from './corpus'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './worker-sandbox-research'
+import { runSteeringExperiment } from './steering-experiment'
+
+/** One condition's outcome: did the k-attempt loop resolve, was the blind (iter0)
+ *  attempt valid, and did infra (not a wrong answer) fail the run. */
+interface ConditionResult {
+  resolved: boolean
+  blind: boolean
+  infraError: boolean
+}
 
 function must(name: string): string {
   const v = process.env[name]
@@ -131,7 +140,11 @@ async function main() {
   // Run one condition through the real kernel; persist a full RunRecord to the
   // flywheel corpus (state·steer·trace·output·verdict·cost — not a boolean); return
   // {resolved, blind(iter0), infraError}.
-  const runCondition = async (task: BenchTask, planner: TopologyPlanner<string, string>, condition: string) => {
+  const runCondition = async (
+    task: BenchTask,
+    planner: TopologyPlanner<string, string>,
+    condition: string,
+  ): Promise<ConditionResult> => {
     const validator: Validator<string> = {
       async validate(answer) {
         if (!answer.trim()) return { valid: false, score: 0 }
@@ -183,11 +196,23 @@ async function main() {
     while (next < tasks.length) {
       const task = tasks[next++] as BenchTask
       try {
-        // Paired 3-way: same task/model/judge, only the planner differs.
-        //   random@k = compute control · refineHand = hand-written directive · refineGepa = GEPA-learned.
-        const rnd = await runConditionRetried(task, randomPlanner(task.prompt, rounds), `random@${rounds}`)
-        const refH = await runConditionRetried(task, refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE), `refineHand@${rounds}`)
-        const refG = await runConditionRetried(task, refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE), `refineGepa@${rounds}`)
+        // Paired 3-way through runSteeringExperiment: same task/model/judge, only
+        // the planner differs. The compute control (random@k) is a REQUIRED field
+        // — it cannot be dropped without a type error, so no steering delta is ever
+        // reported uncontrolled. refineHand = hand directive · refineGepa = learned.
+        const { control, treatments } = await runSteeringExperiment<string, string, ConditionResult>(
+          {
+            control: { label: `random@${rounds}`, planner: randomPlanner(task.prompt, rounds) },
+            treatments: [
+              { label: `refineHand@${rounds}`, planner: refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE) },
+              { label: `refineGepa@${rounds}`, planner: refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE) },
+            ],
+          },
+          (arm) => runConditionRetried(task, arm.planner, arm.label),
+        )
+        const rnd = control.result
+        const refH = treatments[0]?.result as ConditionResult // refineHand (stable order)
+        const refG = treatments[1]?.result as ConditionResult // refineGepa
         done += 1
         if (rnd.infraError || refH.infraError || refG.infraError) {
           agg.errored += 1

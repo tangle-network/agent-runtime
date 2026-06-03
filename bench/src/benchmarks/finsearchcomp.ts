@@ -248,9 +248,33 @@ function selectRecords(records: FinSearchRecord[], opts: LoadOptions): BenchTask
     const want = new Set(opts.ids)
     tasks = tasks.filter((t) => want.has(t.id))
   } else if (opts.limit !== undefined) {
-    tasks = tasks.slice(0, opts.limit)
+    tasks = balanceByType(tasks, opts.limit)
   }
   return tasks
+}
+
+/** Round-robin across task types (T2/T3) so a `limit` pulls a balanced mix
+ *  rather than slicing the type-ordered dataset's first N (which yields all
+ *  T2). Deterministic — preserves dataset order within each type. */
+function balanceByType(tasks: BenchTask[], limit: number): BenchTask[] {
+  const queues = new Map<TaskType, BenchTask[]>()
+  for (const t of tasks) {
+    const k = parseTaskType(t.id)
+    const q = queues.get(k)
+    if (q) q.push(t)
+    else queues.set(k, [t])
+  }
+  const lanes = [...queues.values()]
+  const out: BenchTask[] = []
+  for (let i = 0; out.length < limit; i++) {
+    const before = out.length
+    for (const lane of lanes) {
+      if (i < lane.length) out.push(lane[i])
+      if (out.length >= limit) break
+    }
+    if (out.length === before) break // all lanes exhausted
+  }
+  return out
 }
 
 async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {

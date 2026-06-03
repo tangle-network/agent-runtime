@@ -123,6 +123,20 @@ The same `f(trace)` plugs into **two places**: (1) runtime — what the worker s
 (2) **GEPA reflection input** — what the optimizer sees to rewrite the steer (canonical,
 trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
 
+**The firewall — observations, never verdicts.** `f(trace)` may read the trace, which means a
+steer can legitimately report the same *property* the judge scores (e.g. realness): an analyst
+that observes "the agent imported a stub" or "used a non-crypto PRNG where encryption was
+required" is steering on **observable behavior**, which is fair game. What it may NOT do is
+carry the judge's **verdict** — "this output is fake / will fail" — because that is `J` leaking
+into the loop, and the optimizer then games realness exactly as it games pass-rate. The line is
+*observation vs. verdict*, not *which property*: a steer must cite what the agent **did** (a
+span / event / produced artifact), never a predicted score. This is enforced, not just stated —
+`ProposeContext.judgeScores?: never` (a compile-time tripwire) and
+`assertTraceObservable(findings)` (every steer-admitted finding must cite observable evidence)
+in the substrate. The firewall is *necessary but not sufficient alone*: if the steer-detector
+and `J` measure a correlated property, optimizing the observable can still inflate `J` on the
+**training** split — only a frozen holdout (below) catches that. Gaps 4 and 2 interlock.
+
 ## Architecture layers (ranked by leverage)
 
 1. **Eval + corpus substrate (the GATE).** Cheap, reliable, **trace-rich** evaluation; the
@@ -150,10 +164,21 @@ trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
   pile of noise with false confidence. **Clean data > more data.** Rigor is what makes the
   corpus *learnable*, not bureaucracy.
 - **Confounds before causal claims.** A delta where treatment gets more compute than control
-  is not a causal result. Always run the **`random@k` compute control**; isolate steering as
-  `refine@k − random@k`. Verify the judge is deterministic (re-judge test). Exclude
-  infra-errored cells; retry transient drops. (See the false "+20pp = steering proven" — it
-  was compute + infra + an untested judge.)
+  is not a causal result. The **`random@k` compute control** is no longer a thing to *remember*:
+  `runSteeringExperiment` (bench) makes it a **required field** — a steering experiment cannot be
+  constructed or run without its compute-matched control, so isolating steering as
+  `refine@k − random@k` is structural, and omitting the control is a type error. Verify the judge
+  is deterministic (re-judge test). Exclude infra-errored cells; retry transient drops. (See the
+  false "+20pp = steering proven" — it was compute + infra + an untested judge.)
+- **Pre-register the primary metric; correct the family; spend the holdout once.** The ablation
+  grid (steering arms × directives × benchmarks, plus compute controls) tests *many* contrasts —
+  each independent "CI excludes 0" inflates the family-wise false-positive rate (garden of forking
+  paths). The PRIMARY hypothesis (`steering = refineX − random > 0`) is pre-registered; every
+  reported contrast is **Benjamini-Hochberg corrected within its family** (`corpus-report.mts`),
+  and a result counts only if it clears the family FDR — never on its own CI. Separate a reusable
+  **exploration** set (rank candidates freely, BH-corrected) from a **frozen confirmation holdout**
+  spent once per *locked* candidate; this is what `runImprovementLoop` enforces by refusing
+  train ∩ holdout overlap (memorization read as generalization is the default failure otherwise).
 - **"Validates the concept" ≠ "validates the product."** A hand-rolled refine loop proves
   refinement helps, NOT that `runLoop`/the controller does. Route through the real kernel.
 - **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
