@@ -104,16 +104,19 @@ export function createUiAuditorValidator(task: UiAuditTask): Validator<UiAuditOu
 
       const withSelector = findings.filter((f) => typeof f.selector === 'string').length
       const specificity = withSelector / findings.length
-      const evidenceRatio = 1
       const generic = findings.filter((f) => isGenericTitle(f.title)).length
       const titles = 1 - generic / findings.length
-      const score = Number((0.4 * specificity + 0.4 * evidenceRatio + 0.2 * titles).toFixed(4))
+      // Evidence weight is 1 by the time we reach here: the missing-screenshot
+      // and unresolved-screenshot guards above hard-fail any finding without
+      // resolvable evidence. Inlining keeps a future relaxation of either
+      // guard from silently inflating the score via a stale constant.
+      const score = Number((0.4 * specificity + 0.4 * 1 + 0.2 * titles).toFixed(4))
 
       const verdict: DefaultVerdict = {
         valid: true,
         score,
         notes: `${findings.length} finding(s) — specificity=${specificity.toFixed(2)} titles=${titles.toFixed(2)}`,
-        scores: { specificity, evidence: evidenceRatio, titles },
+        scores: { specificity, evidence: 1, titles },
       }
       return verdict
     },
