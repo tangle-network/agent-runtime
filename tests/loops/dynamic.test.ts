@@ -1036,3 +1036,80 @@ describe('runLoop dynamic driver — emittable select (Phase 3a)', () => {
     expect(result.winner?.iterationIndex).toBe(0)
   })
 })
+
+describe('runLoop dynamic driver — steer-firewall (selector ≠ judge, Gen-1)', () => {
+  // The driver may steer from a TRACE-derived diagnosis but never from the
+  // judge: a finding whose evidence is a judge/verdict score must be rejected
+  // before it reaches the planner. Provenance, not content.
+  const refineThenStop = (goal: string): TopologyPlanner<Task, Out> => {
+    let r = 0
+    return () =>
+      r++ === 0 ? { kind: 'refine', task: { goal, strategy: 'naive' } } : { kind: 'stop' }
+  }
+
+  it('PASSES a finding with trace-derived (artifact) evidence', async () => {
+    const { client } = workerClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner: refineThenStop('fw-pass'),
+        analyze: () => [finding({ evidence_refs: [{ kind: 'artifact', uri: 'attempt:run1#0' }] })],
+      }),
+      agentRun: workerSpecs(['solo'])[0],
+      output,
+      validator,
+      task: { goal: 'fw-pass', strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+    expect(result.decision).toBe('done') // analyze ran on round 1; the finding cleared the firewall
+  })
+
+  it('PASSES a finding with empty evidence_refs (existing fixtures stay legal)', async () => {
+    const { client } = workerClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner: refineThenStop('fw-empty'),
+        analyze: () => [finding({ evidence_refs: [] })],
+      }),
+      agentRun: workerSpecs(['solo'])[0],
+      output,
+      validator,
+      task: { goal: 'fw-empty', strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+    expect(result.decision).toBe('done')
+  })
+
+  it('REJECTS a judge-derived finding (metric ref with a verdict/score uri scheme)', async () => {
+    const { client } = workerClient()
+    await expect(
+      runLoop({
+        driver: createDynamicDriver<Task, Out>({
+          planner: refineThenStop('fw-reject'),
+          analyze: () => [finding({ evidence_refs: [{ kind: 'metric', uri: 'verdict:score' }] })],
+        }),
+        agentRun: workerSpecs(['solo'])[0],
+        output,
+        validator,
+        task: { goal: 'fw-reject', strategy: 'naive' },
+        ctx: { sandboxClient: client },
+      }),
+    ).rejects.toThrow(/steer-firewall/)
+  })
+
+  it('REJECTS a score-scheme metric ref but ALLOWS a non-judge metric ref', async () => {
+    const { client } = workerClient()
+    // a 'metric' ref that is NOT judge-scheme (e.g. latency) is trace-derived → allowed
+    const ok = await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner: refineThenStop('fw-latency'),
+        analyze: () => [finding({ evidence_refs: [{ kind: 'metric', uri: 'latency_ms:1200' }] })],
+      }),
+      agentRun: workerSpecs(['solo'])[0],
+      output,
+      validator,
+      task: { goal: 'fw-latency', strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+    expect(ok.decision).toBe('done')
+  })
+})

@@ -32,6 +32,7 @@ import {
 } from './improvement/optimize-prompt'
 import {
   type AgentRunSpec,
+  type CreateDynamicDriverOptions,
   createDynamicDriver,
   type DynamicDecision,
   type LoopResult,
@@ -183,6 +184,10 @@ export interface DynamicLoopRunnerOptions<Task, Output> {
   agentRuns?: AgentRunSpec<Task>[]
   maxIterations?: number
   maxFanout?: number
+  /** Optional trace-analyst hook forwarded to the dynamic driver so the loop runs
+   *  `f(trace, findings)` — see `CreateDynamicDriverOptions.analyze`. Caller-side
+   *  seam to `runAnalystLoop`; keeps this runner analyst-free. */
+  analyze?: CreateDynamicDriverOptions<Task, Output>['analyze']
 }
 
 /** @experimental `dynamic` mode — agent-authored topology over `runLoop`. */
@@ -195,6 +200,7 @@ export function dynamicLoopRunner<Task, Output>(
         planner: o.planner,
         ...(o.maxIterations !== undefined ? { maxIterations: o.maxIterations } : {}),
         ...(o.maxFanout !== undefined ? { maxFanout: o.maxFanout } : {}),
+        ...(o.analyze ? { analyze: o.analyze } : {}),
       }),
       ...(o.agentRun ? { agentRun: o.agentRun } : {}),
       ...(o.agentRuns ? { agentRuns: o.agentRuns } : {}),

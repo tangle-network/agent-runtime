@@ -277,7 +277,30 @@ async function runAnalyze<Task, Output>(
       `createDynamicDriver: analyze hook must return AnalystFinding[], got ${stringifySafe(findings)}`,
     )
   }
+  assertTraceDerivedFindings(findings)
   return findings
+}
+
+/**
+ * Steer-firewall (selector ≠ judge). The diagnosis the driver steers from must be
+ * TRACE-derived, never JUDGE-derived. A finding whose evidence is a judge/verdict
+ * score (an EvidenceRef of `kind:'metric'` with a verdict/judge/score uri scheme)
+ * would smuggle the external write-only judge back into steering — the one coupling
+ * the architecture forbids. This is a PROVENANCE check, not a content check:
+ * span/event/artifact/finding refs and empty-evidence findings are allowed; only a
+ * judge-scheme metric ref is rejected. Fail loud — a tainted finding aborts the round.
+ */
+const JUDGE_EVIDENCE_URI = /^(verdict|judge|score)\b/i
+function assertTraceDerivedFindings(findings: ReadonlyArray<AnalystFinding>): void {
+  for (const f of findings) {
+    for (const ref of f.evidence_refs ?? []) {
+      if (ref.kind === 'metric' && JUDGE_EVIDENCE_URI.test(ref.uri)) {
+        throw new PlannerError(
+          `steer-firewall: finding ${stringifySafe(f.finding_id)} cites judge-derived evidence (${stringifySafe(ref.uri)}); analyses fed to the driver must be trace-derived, not judge-derived (selector ≠ judge)`,
+        )
+      }
+    }
+  }
 }
 
 /**
