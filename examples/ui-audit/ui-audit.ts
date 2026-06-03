@@ -70,17 +70,21 @@ function lensCyclingDriver(
 ): Driver<UiAuditTask, UiAuditOutput, 'complete' | 'failed'> {
   let cursor = 0
   return {
-    plan(_taskIn, history) {
-      if (history.length >= lenses.length || cursor >= lenses.length) return { tasks: [] }
+    // plan() returns Task[] — one lens per iteration, [] once all lenses are
+    // cycled. The empty plan is what ends the loop: neither 'complete' nor
+    // 'failed' is a terminal Decision (isTerminalDecision = stop|fail|done|
+    // pick-winner), so plan-exhaustion + maxIterations are what stop it.
+    async plan(_taskIn, history) {
+      if (history.length >= lenses.length || cursor >= lenses.length) return []
       const next = lenses[cursor]
-      if (!next) return { tasks: [] }
+      if (!next) return []
       cursor += 1
-      return { tasks: [{ ...task, lens: next }] }
+      return [{ ...task, lens: next }]
     },
+    // decide() returns the bare Decision recording the outcome; termination is
+    // driven by plan() → [].
     decide(history) {
-      if (history.length < lenses.length) return { kind: 'continue' }
-      const ok = history.some((it) => it.verdict?.valid)
-      return { kind: 'terminal', decision: ok ? 'complete' : 'failed' }
+      return history.some((it) => it.verdict?.valid) ? 'complete' : 'failed'
     },
   }
 }

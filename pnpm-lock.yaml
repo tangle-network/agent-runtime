@@ -11,9 +11,6 @@ importers:
       '@tangle-network/agent-knowledge':
         specifier: '>=1.3.0 <2.0.0'
         version: 1.4.0(typescript@5.9.3)(viem@2.48.8(typescript@5.9.3)(zod@4.4.2))
-      playwright:
-        specifier: ^1.40.0
-        version: 1.60.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.0
@@ -27,6 +24,9 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
+      playwright:
+        specifier: ^1.40.0
+        version: 1.60.0
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.13)(typescript@5.9.3)(yaml@2.8.4)
