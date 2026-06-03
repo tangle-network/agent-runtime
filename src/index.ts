@@ -139,6 +139,18 @@ export {
 // the model. Sandbox-SDK callers discover tools via the runtime's MCP
 // mount and don't need this projection.
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './mcp/openai-tools'
+
+export {
+  runToolLoop,
+  streamToolLoop,
+  type ToolLoopCall,
+  type ToolCallOutcome,
+  type ToolLoopEvent,
+  type ToolLoopResult,
+  type RunToolLoopOptions,
+  type StreamToolLoopYield,
+  type StreamToolLoopOptions,
+} from './tool-loop'
 // ── Chat-model resolution ────────────────────────────────────────────
 // Router catalog fetch + fail-closed id validation + precedence resolver.
 export type { ModelInfo, ResolvedChatModel, RouterEnv } from './model-resolution'
