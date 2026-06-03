@@ -346,4 +346,94 @@ describe('createInProcessUiAuditClient — sandbox surface', () => {
     await client.close()
     expect(mock.newContextCalls).toBe(0)
   })
+
+  it('rejects streamPrompt after close instead of silently re-launching the browser', async () => {
+    const mock = makeMockBrowser()
+    const client = createInProcessUiAuditClient({
+      workspaceDir,
+      judge: okJudgeFn,
+      launchBrowser: async () => mock.browser,
+    })
+    const box = await client.create()
+    await client.close()
+    await expect(
+      drain(
+        box.streamPrompt(encodeAuditTaskEnvelope(stubTask()), {
+          signal: new AbortController().signal,
+        }),
+      ),
+    ).rejects.toThrow(/client is closed/)
+    // Nothing should have been newly allocated — the closed guard fires
+    // before browser launch.
+    expect(mock.newContextCalls).toBe(0)
+  })
+})
+
+describe('createInProcessUiAuditClient — AggregateError on dual failure', () => {
+  it('throws AggregateError when both the judge and context.close() fail', async () => {
+    const judge: UiJudge = async () => {
+      throw new Error('judge blew up')
+    }
+    // Build a custom mock whose context.close() also throws.
+    const page: PageHandle = {
+      async setViewportSize() {},
+      async goto() {
+        return undefined
+      },
+      async waitForSelector() {
+        return undefined
+      },
+      async waitForTimeout() {},
+      async screenshot({ path: outPath }) {
+        await fs.writeFile(outPath, 'fake-png')
+      },
+      locator() {
+        return {
+          first() {
+            return {
+              async screenshot({ path: outPath }) {
+                await fs.writeFile(outPath, 'fake-png')
+              },
+            }
+          },
+        }
+      },
+    }
+    const context: BrowserContextHandle = {
+      async newPage() {
+        return page
+      },
+      async close() {
+        throw new Error('close blew up')
+      },
+    }
+    const browser: BrowserHandle = {
+      async newContext() {
+        return context
+      },
+      async close() {},
+    }
+    const client = createInProcessUiAuditClient({
+      workspaceDir,
+      judge,
+      launchBrowser: async () => browser,
+    })
+    const box = await client.create()
+    let caught: unknown
+    try {
+      await drain(
+        box.streamPrompt(encodeAuditTaskEnvelope(stubTask()), {
+          signal: new AbortController().signal,
+        }),
+      )
+    } catch (err) {
+      caught = err
+    }
+    expect(caught).toBeInstanceOf(AggregateError)
+    const agg = caught as AggregateError
+    const messages = agg.errors.map((e) => (e instanceof Error ? e.message : String(e)))
+    expect(messages).toContain('judge blew up')
+    expect(messages).toContain('close blew up')
+    await client.close()
+  })
 })

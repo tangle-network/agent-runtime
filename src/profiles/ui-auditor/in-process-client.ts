@@ -174,8 +174,12 @@ export function createInProcessUiAuditClient(
   const launch = options.launchBrowser ?? defaultLaunch
   const navPolicy = options.navPolicy ?? 'strict'
   let browserPromise: Promise<BrowserHandle> | undefined
+  let closed = false
 
   async function getBrowser(): Promise<BrowserHandle> {
+    if (closed) {
+      throw new Error('ui-auditor: client is closed; create a new client to run another iteration')
+    }
     if (!browserPromise) browserPromise = launch()
     return browserPromise
   }
@@ -270,6 +274,15 @@ export function createInProcessUiAuditClient(
         closeError = err
       }
     }
+    // When both the iteration and the cleanup fail, surface both via
+    // AggregateError so a leaked context bug is not silently masked by an
+    // earlier iteration failure (per the fail-loud doctrine).
+    if (primaryError !== undefined && closeError !== undefined) {
+      throw new AggregateError(
+        [primaryError, closeError],
+        'ui-auditor: iteration failed AND context.close() failed; both errors attached.',
+      )
+    }
     if (primaryError !== undefined) throw primaryError
     if (closeError !== undefined) throw closeError
   }
@@ -300,6 +313,7 @@ export function createInProcessUiAuditClient(
       return { kind: 'sibling', sandboxId: typeof id === 'string' ? id : undefined }
     },
     async close() {
+      closed = true
       const pending = browserPromise
       browserPromise = undefined
       if (pending) {
