@@ -25,10 +25,12 @@ import {
 } from '@tangle-network/agent-eval/campaign'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
+import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { DEFAULT_BLENDER_DIRECTIVE, solveBlenderLocal } from './worker-blender'
+import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, solveRefineResearchLocal } from './worker-research'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, solveSandboxResearch } from './worker-sandbox-research'
@@ -48,17 +50,20 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   finsearchcomp: createFinsearchcompAdapter,
   cad: createCadDesignAdapter,
   cadbench: createCadBenchAdapter,
+  cadgenbench: createCadGenBenchAdapter,
 }
 
 async function main() {
   const benchKey = process.env.BENCH ?? 'hotpotqa'
   const adapter = ADAPTERS[benchKey]?.()
-  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad|cadbench, got ${benchKey}`)
+  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad|cadbench|cadgenbench, got ${benchKey}`)
   const isCad = benchKey === 'cad'
   const isCadbench = benchKey === 'cadbench'
-  // CAD (openscad gate) + CADBench (criteria vision judge) both return a FRACTION
-  // score → optimize against the partial-credit gradient, not flat 0/1.
-  const scoreBased = isCad || isCadbench
+  const isCadgenbench = benchKey === 'cadgenbench'
+  // CAD (openscad gate) + CADBench (criteria vision judge) + CADGenBench
+  // (geometric cad_score) all return a FRACTION score → optimize against the
+  // partial-credit gradient, not flat 0/1.
+  const scoreBased = isCad || isCadbench || isCadgenbench
   const useSandbox = process.env.SANDBOX === '1'
   const model =
     process.env.WORKER_MODEL ?? (scoreBased ? 'claude-sonnet-4-6' : useSandbox ? 'gpt-5' : 'deepseek/deepseek-v4-pro')
@@ -68,13 +73,15 @@ async function main() {
   const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('ROUTER_KEY')
-  const baseDirective = isCadbench
-    ? DEFAULT_BLENDER_DIRECTIVE
-    : isCad
-      ? DEFAULT_CAD_DIRECTIVE
-      : useSandbox
-        ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
-        : DEFAULT_RESEARCH_REFINE_DIRECTIVE
+  const baseDirective = isCadgenbench
+    ? DEFAULT_BUILD123D_DIRECTIVE
+    : isCadbench
+      ? DEFAULT_BLENDER_DIRECTIVE
+      : isCad
+        ? DEFAULT_CAD_DIRECTIVE
+        : useSandbox
+          ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
+          : DEFAULT_RESEARCH_REFINE_DIRECTIVE
 
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
@@ -98,6 +105,13 @@ async function main() {
     scenario: RefineScenario,
     ctx: { cost: { observe(usd: number, source: string): void; observeTokens(u: { input: number; output: number }): void } },
   ): Promise<string> => {
+    if (isCadgenbench) {
+      // Author build123d → export output.step; the artifact IS the STEP text,
+      // which the CADGenBench geometric scorer (judge) grades vs ground truth.
+      const s = await solveBuild123dLocal(scenario.task, { routerBaseUrl, routerKey, model, rounds, directive })
+      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
+      return s.artifact
+    }
     if (isCadbench) {
       // Author a bpy script under the candidate directive, render headless in
       // Blender; the artifact is the script. The judge re-renders + vision-scores.
@@ -158,12 +172,21 @@ async function main() {
     },
   }
 
-  const reflectionTarget = isCadbench
+  const reflectionTarget = isCadgenbench
+    ? 'a build123d AUTHORING DIRECTIVE: the system instruction given to an agent that writes build123d (Python, OpenCascade BREP) to produce a STEP solid for a part description. The result is scored by a deterministic CAD-kernel metric: it must be a VALID watertight manifold solid, then align to the ground truth with a high point-cloud F1 + volume IoU + edge F1 + matching topology. The directive must make the agent produce a valid solid whose shape + exact dimensions match the description.'
+    : isCadbench
     ? 'a BLENDER bpy AUTHORING DIRECTIVE: the system instruction given to an agent that writes a Blender Python (bpy) script to build a described 3D object. The result is rendered to images and a vision judge scores per-task criteria — correct recognizable shape, accurate proportions, sensible size, reasonable color/material, clean three-dimensional structure, faithful execution of the instruction. The directive must make the agent reliably produce a script that builds a correct, well-proportioned, clearly-recognizable model.'
     : isCad
       ? 'an OpenSCAD AUTHORING DIRECTIVE: the system instruction given to an agent that writes OpenSCAD source for a geometry brief. The produced solid is scored by a deterministic CAD kernel gate: it must compile, hit the brief\'s bounding box, have enough triangle detail, present a PITCHED roof (the top z-band footprint far smaller than the base), and be a HOLLOW shell (printed solid volume well under the bounding-box volume). The directive must make the agent reliably satisfy ALL of these checks.'
       : 'a REFINE DIRECTIVE: the instruction given to an agent to re-examine its own prior answer and improve it. It must make the agent KEEP a correct answer and fix only concrete errors — never churn a right answer.'
-  const reflectionPrimitives = isCadbench
+  const reflectionPrimitives = isCadgenbench
+    ? [
+        'instruct the agent to translate every explicit dimension in the description into exact build123d parameters (mm), so the produced solid matches the ground-truth size, not just the shape',
+        'instruct the agent to build a single closed watertight manifold solid (use clean primitives + boolean unions/cuts; avoid open shells or self-intersections that fail the validity gate)',
+        'instruct the agent to center/orient the part sensibly and verify the export with export_step(part, "output.step") at the end',
+        'instruct the agent to prefer parametric primitives + fillets/holes that reproduce the described features precisely rather than approximate freeform geometry',
+      ]
+    : isCadbench
     ? [
         'instruct the agent to identify the object\'s essential shape primitives and build them at correct relative proportions and a sensible real-world scale',
         'instruct the agent to assign a reasonable material/base color to each part so the render reads as the intended object',

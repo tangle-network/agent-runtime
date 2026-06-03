@@ -7,6 +7,7 @@
 import { createAppWorldAdapter } from './benchmarks/appworld'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
+import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
@@ -21,6 +22,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   appworld: createAppWorldAdapter,
   'cad-design': createCadDesignAdapter,
   cadbench: createCadBenchAdapter,
+  cadgenbench: createCadGenBenchAdapter,
   frames: createFramesAdapter,
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
