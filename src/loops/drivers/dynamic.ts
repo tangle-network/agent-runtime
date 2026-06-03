@@ -27,6 +27,12 @@
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { PlannerError, ValidationError } from '../../errors'
+import {
+  type CompletionAnalyst,
+  type CompletionPolicy,
+  type CompletionVerdict,
+  completionAuthorizes,
+} from '../completion'
 import type { Driver, Iteration, LoopPlanDescription } from '../types'
 import { stringifySafe } from '../util'
 
@@ -109,6 +115,18 @@ export interface CreateDynamicDriverOptions<Task, Output> {
     input: AnalyzeInput<Task, Output>,
   ) => ReadonlyArray<AnalystFinding> | Promise<ReadonlyArray<AnalystFinding>>
   /**
+   * Optional completion analyst — the DEPLOYABLE, non-oracle stop. Each round (after a
+   * trace exists) the driver asks "is it done?"; if the verdict AUTHORIZES ending
+   * (deterministic = trust ground truth; probabilistic = clears `completionPolicy`'s
+   * confidence), the driver stops BEFORE consulting the planner. This is the satisfiability
+   * primitive — usable at 1 deep, composing to any depth (one per node). Fail-loud: a
+   * throwing or non-verdict assess aborts the round. Distinct from `analyze` (the steer
+   * channel) though one analyst node may back both.
+   */
+  complete?: CompletionAnalyst<Task, Output>
+  /** Validation policy for a probabilistic completion verdict (the driver's check). */
+  completionPolicy?: CompletionPolicy
+  /**
    * Hard safety cap on total iterations. When reached, the driver stops before
    * consulting the planner. Default 8. Set the kernel's `runLoop`
    * `maxIterations >= ` this so the driver's cap governs and the loop closes on
@@ -157,6 +175,19 @@ export function createDynamicDriver<Task, Output>(
         options.analyze && history.length > 0
           ? await runAnalyze(options.analyze, task, history)
           : undefined
+      // Deployable, non-oracle stop: ask the completion analyst "is it done?" BEFORE the
+      // planner. If the verdict authorizes ending (deterministic trust / probabilistic
+      // threshold), terminate now. This is the satisfiability primitive at this node.
+      if (options.complete && history.length > 0) {
+        const verdict = await runComplete(options.complete, task, history)
+        if (completionAuthorizes(verdict, options.completionPolicy)) {
+          pending = {
+            kind: 'stop',
+            rationale: `complete (${verdict.determinism}): ${verdict.reasons ?? 'satisfied'}`,
+          }
+          return []
+        }
+      }
       const move = await options.planner({
         task,
         history,
@@ -279,6 +310,25 @@ async function runAnalyze<Task, Output>(
   }
   assertTraceDerivedFindings(findings)
   return findings
+}
+
+/** Call the completion analyst and fail loud on a non-verdict return (no silent "not done"). */
+async function runComplete<Task, Output>(
+  complete: CompletionAnalyst<Task, Output>,
+  task: Task,
+  history: ReadonlyArray<Iteration<Task, Output>>,
+): Promise<CompletionVerdict> {
+  const verdict = await complete.assess({ task, history })
+  if (
+    !verdict ||
+    typeof verdict.done !== 'boolean' ||
+    (verdict.determinism !== 'deterministic' && verdict.determinism !== 'probabilistic')
+  ) {
+    throw new PlannerError(
+      `createDynamicDriver: complete.assess must return a CompletionVerdict {done, determinism}, got ${stringifySafe(verdict)}`,
+    )
+  }
+  return verdict
 }
 
 /**
