@@ -133,4 +133,36 @@ describe('optimizePrompt — identity-gated prompt optimization', () => {
       }),
     ).rejects.toThrow(/holdoutScenarios/)
   })
+
+  it('forwards findings + analyzeGeneration into the driver ctx (EYES→HANDS wire)', async () => {
+    // A driver that records the findings it receives each generation, proving the
+    // seed findings reach generation 0 and the per-generation analysis REPLACES them
+    // for generation 1 — the facade passthrough this PR opens.
+    const seenFindings: unknown[][] = []
+    const capturingDriver: ImprovementDriver = {
+      kind: 'test-capture',
+      async propose(ctx: { findings?: unknown[] }) {
+        seenFindings.push(ctx.findings ?? [])
+        return ['Summarize the text. Be PRECISE.']
+      },
+    }
+    let analyzeCalls = 0
+    await optimizePrompt<SumScenario, SumArtifact>({
+      ...baseOpts,
+      maxGenerations: 2, // analyzeGeneration only fires when a NEXT generation exists
+      runDir: 'mem://optimize-findings',
+      storage: inMemoryCampaignStorage(),
+      driver: capturingDriver,
+      findings: [{ claim: 'seed', severity: 'high' }],
+      analyzeGeneration: async () => {
+        analyzeCalls += 1
+        return [{ claim: 'diagnosed gen0', severity: 'medium' }]
+      },
+    })
+
+    expect(seenFindings.length).toBeGreaterThanOrEqual(2)
+    expect(seenFindings[0]).toEqual([{ claim: 'seed', severity: 'high' }])
+    expect(analyzeCalls).toBeGreaterThanOrEqual(1)
+    expect(seenFindings[1]).toEqual([{ claim: 'diagnosed gen0', severity: 'medium' }])
+  })
 })
