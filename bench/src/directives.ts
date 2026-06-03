@@ -22,6 +22,12 @@ export const DEFAULT_RESEARCH_REFINE_DIRECTIVE =
 export const DEFAULT_SANDBOX_REFINE_DIRECTIVE =
   'Double-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.'
 
+/** SWE-bench refine steer (filesystem-carry): the round-2+ "verify in place"
+ *  directive. The task framing + rules (edit source not tests, minimal) live in the
+ *  swe-bench adapter's task.prompt; this is only the steer appended on later rounds. */
+export const SWE_REFINE_DIRECTIVE =
+  "You have an in-progress fix; your changes are already in the working tree. VERIFY it: re-read the issue above and run the repository's existing tests. If the patch correctly and completely resolves the issue, leave it UNCHANGED. Change it ONLY if you find a CONCRETE problem — a failing test, a missed requirement, or a clear bug. Do not churn a working patch."
+
 /** GEPA-learned sandbox refine directive (bycd31l10, +7.1pp held-out vs the
  *  hand-written one on the GEPA run, n=8/noisy). Separates the verification note
  *  from the verbatim-preserved final answer, fixing the blank-reply failure mode. */
