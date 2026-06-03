@@ -77,7 +77,14 @@ export function createCadGenBenchAdapter(): BenchmarkAdapter {
     },
 
     async loadTasks(opts: LoadOptions = {}) {
+      // CGB_HARD_DIR (a dir with tasks.json = [{id,prompt,gtStep}]) overrides the
+      // trivial fixture primitives with hard multi-feature parts (real headroom).
       let tasks = fixtureTasks()
+      const hard = process.env.CGB_HARD_DIR
+      if (hard) {
+        const { readFile } = await import('node:fs/promises')
+        tasks = JSON.parse(await readFile(join(hard, 'tasks.json'), 'utf8')) as Array<{ id: string; prompt: string; gtStep: string }>
+      }
       if (opts.ids) tasks = tasks.filter((t) => opts.ids!.includes(t.id))
       if (opts.limit != null) tasks = tasks.slice(0, opts.limit)
       const meta = (gtStep: string): CgbMeta => ({ gtStep, resolveThreshold: Number(process.env.CGB_RESOLVE_THRESHOLD ?? 0.9) })
