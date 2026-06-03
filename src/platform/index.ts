@@ -18,6 +18,16 @@ export {
 } from './auth.js'
 
 export {
+  type AppSummary,
+  type BrokerToken,
+  PlatformAppsClient,
+  type PlatformAppsClientOptions,
+  PlatformAppsError,
+  type RegisterAppInput,
+  type RegisteredApp,
+} from './apps.js'
+
+export {
   type BundleCapabilityInput,
   type BundleCapabilityResult,
   type HealthCheck,
