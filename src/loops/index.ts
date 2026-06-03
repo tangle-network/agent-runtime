@@ -18,6 +18,7 @@ export type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 export type {
+  AnalyzeInput,
   CreateDynamicDriverOptions,
   DynamicDecision,
   HistorySummaryRow,
@@ -25,7 +26,7 @@ export type {
   TopologyMove,
   TopologyPlanner,
 } from './drivers/dynamic'
-export { createDynamicDriver, summarizeHistory } from './drivers/dynamic'
+export { createDynamicDriver, renderAnalyses, summarizeHistory } from './drivers/dynamic'
 export type {
   CreateFanoutVoteDriverOptions,
   FanoutVoteDecision,

@@ -25,6 +25,7 @@
  * including fanning a single round across several at once.
  */
 
+import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { PlannerError, ValidationError } from '../../errors'
 import type { Driver, Iteration, LoopPlanDescription } from '../types'
 import { stringifySafe } from '../util'
@@ -57,6 +58,14 @@ export interface PlannerContext<Task, Output> {
   iterationsSpent: number
   /** Iterations left before the driver's `maxIterations` cap forces a stop. */
   iterationsRemaining: number
+  /**
+   * Trace-analyst findings about the attempts so far — populated only when an
+   * `analyze` hook is wired into the driver (see CreateDynamicDriverOptions).
+   * This is the channel that lets the planner steer from the DIAGNOSIS
+   * (`f(trace, findings)`), not the verdict score alone. Undefined = no analyst
+   * wired (the planner runs exactly as before). @experimental
+   */
+  analyses?: ReadonlyArray<AnalystFinding>
 }
 
 /**
@@ -69,10 +78,32 @@ export type TopologyPlanner<Task, Output> = (
   ctx: PlannerContext<Task, Output>,
 ) => TopologyMove<Task> | Promise<TopologyMove<Task>>
 
+/**
+ * Input to the optional `analyze` hook: the root task + the trace so far. The
+ * hook turns this into `AnalystFinding[]` — the caller's seam to `runAnalystLoop`.
+ * @experimental
+ */
+export interface AnalyzeInput<Task, Output> {
+  task: Task
+  history: ReadonlyArray<Iteration<Task, Output>>
+}
+
 /** @experimental */
 export interface CreateDynamicDriverOptions<Task, Output> {
   /** The agent-authored topology policy. Invoked once per round in `plan`. */
   planner: TopologyPlanner<Task, Output>
+  /**
+   * Optional trace-analyst hook. When set, the driver calls it each round AFTER
+   * the first (a trace must exist) and BEFORE the planner, then passes the
+   * findings to the planner via `PlannerContext.analyses` — so the planner
+   * decides from the diagnosis, not the verdict score alone. This is the seam to
+   * `runAnalystLoop`; it lives on the driver so `run-loop` stays analyst-free
+   * (the layering rule). Fail-loud: a throwing or non-array hook aborts the round
+   * (no silent empty findings).
+   */
+  analyze?: (
+    input: AnalyzeInput<Task, Output>,
+  ) => ReadonlyArray<AnalystFinding> | Promise<ReadonlyArray<AnalystFinding>>
   /**
    * Hard safety cap on total iterations. When reached, the driver stops before
    * consulting the planner. Default 8. Set the kernel's `runLoop`
@@ -115,11 +146,19 @@ export function createDynamicDriver<Task, Output>(
         pending = { kind: 'stop', rationale: `maxIterations (${maxIterations}) reached` }
         return []
       }
+      // The wire: turn the trace into a diagnosis BEFORE the planner decides, so
+      // the move is f(trace, findings), not f(verdict-score). Skipped on round 0
+      // (no trace to analyze). Fail-loud — a broken analyst aborts the round.
+      const analyses =
+        options.analyze && history.length > 0
+          ? await runAnalyze(options.analyze, task, history)
+          : undefined
       const move = await options.planner({
         task,
         history,
         iterationsSpent: history.length,
         iterationsRemaining: maxIterations - history.length,
+        ...(analyses ? { analyses } : {}),
       })
       pending = validateMove(move, maxFanout)
       switch (pending.kind) {
@@ -181,6 +220,37 @@ function validateMove<Task>(move: TopologyMove<Task>, maxFanout: number): Topolo
         `dynamic planner returned unknown move kind: ${stringifySafe((move as { kind: unknown }).kind)}`,
       )
   }
+}
+
+/** Call the analyze hook and fail loud on a non-array return (no silent empty). */
+async function runAnalyze<Task, Output>(
+  analyze: NonNullable<CreateDynamicDriverOptions<Task, Output>['analyze']>,
+  task: Task,
+  history: ReadonlyArray<Iteration<Task, Output>>,
+): Promise<ReadonlyArray<AnalystFinding>> {
+  const findings = await analyze({ task, history })
+  if (!Array.isArray(findings)) {
+    throw new PlannerError(
+      `createDynamicDriver: analyze hook must return AnalystFinding[], got ${stringifySafe(findings)}`,
+    )
+  }
+  return findings
+}
+
+/**
+ * Compact, planner-facing rendering of trace-analyst findings — the diagnosis the
+ * planner steers from. Empty input renders to '' (callers omit the section). Shows
+ * severity·area·claim·recommended_action·confidence; raw evidence_refs/metadata are
+ * for renderers that know the analyst, not the topology decision.
+ * @experimental
+ */
+export function renderAnalyses(findings: ReadonlyArray<AnalystFinding>): string {
+  if (findings.length === 0) return ''
+  const rows = findings.map((f) => {
+    const action = f.recommended_action ? ` → ${f.recommended_action}` : ''
+    return `  - [${f.severity}/${f.area}] ${f.claim}${action} (conf ${f.confidence.toFixed(2)})`
+  })
+  return `Trace-analyst findings (diagnosis of the attempts so far — steer from these, not the verdict score alone):\n${rows.join('\n')}`
 }
 
 /** One row of the planner-facing history summary. @experimental */

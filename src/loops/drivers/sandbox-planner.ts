@@ -37,7 +37,7 @@ import { buildBackendOptions } from '../sandbox-backend'
 import type { AgentRunSpec, LoopSandboxClient } from '../types'
 import { deleteBoxSafe, stringifySafe } from '../util'
 import type { PlannerContext, TopologyMove, TopologyPlanner } from './dynamic'
-import { summarizeHistory } from './dynamic'
+import { renderAnalyses, summarizeHistory } from './dynamic'
 
 /** Raw, pre-decode envelope an agent emits to choose the next move. */
 export interface TopologyMoveEnvelope {
@@ -211,6 +211,9 @@ function defaultBuildPrompt<Task, Output>(ctx: PlannerContext<Task, Output>): st
       ? 'No attempts yet.'
       : `Attempts so far (index, agent, verdict, output):\n${stringifySafe(summary, { pretty: true })}`,
     '',
+    // The analyses wire: when an analyze hook is fed in, the planner sees the
+    // trace diagnosis here and steers from it, not the verdict score alone.
+    ...(ctx.analyses && ctx.analyses.length > 0 ? [renderAnalyses(ctx.analyses), ''] : []),
     'Choose ONE move and emit it as a fenced JSON block:',
     '  - {"kind":"refine","tasks":[<task>],"rationale":"..."} — one more attempt; omit tasks to replay the root task.',
     '  - {"kind":"fanout","tasks":[<task>,<task>],"rationale":"..."} — N parallel branches (or "n": N for N copies of the root task).',
