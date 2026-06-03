@@ -16,6 +16,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BenchTask } from './benchmarks/types'
+import { DEFAULT_RESEARCH_REFINE_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
 
 /** See worker-local: a hang backstop, not a step cap. 0 disables. */
@@ -86,10 +87,9 @@ export interface ResearchRefineShot {
  * shared workspace for a question, so the prior answer is carried in the prompt)
  * and ask the agent to critically review + correct it. Tests whether self-review
  * improves a factual answer — the steering mode oracle-headroom can't measure.
+ * The directive (the steer) lives in directives.ts, not here — a worker is a
+ * substrate; it takes the directive as an optional param defaulting to the surface.
  */
-/** Default gated refine directive (hand-written). GEPA optimizes this surface. */
-export const DEFAULT_RESEARCH_REFINE_DIRECTIVE =
-  'Double-check it for a specific factual or reasoning error. If it is correct, restate the SAME answer unchanged. Change it ONLY if you identify a concrete, specific error — do not change a correct answer. End with the FINAL ANSWER line.'
 
 export async function solveRefineResearchLocal(
   task: BenchTask,

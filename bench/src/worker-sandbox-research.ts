@@ -16,6 +16,7 @@
 import { extractLlmCallEvent } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
+import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
 
 export interface SandboxResearchConfig {
   sandboxBaseUrl: string
@@ -30,10 +31,6 @@ export interface SandboxResearchConfig {
   /** Refine directive (the GEPA-optimizable surface). Defaults to the hand-written gated one. */
   refineDirective?: string
 }
-
-/** Default gated refine directive (hand-written). GEPA optimizes this surface. */
-export const DEFAULT_SANDBOX_REFINE_DIRECTIVE =
-  'Double-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.'
 
 export interface SandboxResearchShot {
   round1Answer: string

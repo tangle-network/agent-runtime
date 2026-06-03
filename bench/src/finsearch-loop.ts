@@ -31,7 +31,7 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { appendRunRecord, buildRunRecord } from './corpus'
 import type { BenchTask } from './benchmarks/types'
-import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './worker-sandbox-research'
+import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, GEPA_LEARNED_DIRECTIVE } from './directives'
 import { runSteeringExperiment } from './steering-experiment'
 
 /** One condition's outcome: did the k-attempt loop resolve, was the blind (iter0)
@@ -67,11 +67,6 @@ const answerOutput: OutputAdapter<string> = {
  * Later rounds carry the prior answer forward (fresh box each iteration) + the
  * gated directive. Stops on the first valid verdict or when the budget runs out.
  */
-/** GEPA-learned refine directive (bycd31l10, +7.1pp held-out vs hand-written on the
- *  GEPA run). Fixes the hand-written directive's blank-reply failure mode by
- *  separating the verification note from the (verbatim-preserved) final answer. */
-const GEPA_LEARNED_DIRECTIVE =
-  'Double-check it: re-verify the fact/value against a reliable, citable source. Provide a brief Verification note naming the source you used (link or title); this note is not part of the final answer. Confirm the requested units/precision/tolerance exactly. If the prior answer is correct, copy the SAME final answer text verbatim with identical formatting—do not add or remove words. Change it ONLY if you find a concrete error in the value or in the cited source; in that case, briefly describe the specific error in the Verification note and provide the corrected value with the requested units/precision/tolerance. If you cannot verify, state that in the Verification note, but do not alter or omit the final answer. Always place the final answer as the last line of your reply, containing only the answer text.'
 
 function refinePlanner(rootQuestion: string, maxRounds: number, directive: string): TopologyPlanner<string, string> {
   return ({ history }): TopologyMove<string> => {
