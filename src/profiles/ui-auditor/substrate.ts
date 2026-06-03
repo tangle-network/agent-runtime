@@ -1,27 +1,15 @@
 /**
  * @experimental
  *
- * UI audit finding substrate types — canonical home in this package for now.
+ * UI audit finding shapes — the unit of evidence a contributor can act on.
  *
- * These shapes describe data that makes sense WITHOUT a running agent loop
- * (load a saved finding, ship-gate against a set of them, render in a
- * dashboard), so per the CLAUDE.md substrate test they will eventually
- * migrate into `@tangle-network/agent-eval`. They live here for now to
- * keep this PR self-contained; the substrate-promotion PR replaces every
- * `from './substrate'` import in this directory with
- * `from '@tangle-network/agent-eval'` and deletes this file.
+ * A finding describes a single, actionable UI problem: lens, severity,
+ * route, observation, impact, suggested fix, and screenshot evidence.
+ * Findings are produced by the auditor profile, persisted by the issue
+ * writer as self-contained GitHub-issue Markdown, and surfaced over MCP.
  *
- * Promotion checklist (single follow-up PR):
- *   1. Land the agent-eval PR that adds these same types under
- *      `src/ui-finding.ts`.
- *   2. Bump `@tangle-network/agent-eval` to `^0.77.0` in
- *      `package.json` (dev + peer).
- *   3. Replace this file's contents with:
- *        export type {
- *          UiFinding, UiFindingScreenshot, UiFindingSeverity, UiLens,
- *        } from '@tangle-network/agent-eval'
- *        export { UI_FINDING_SEVERITIES, UI_LENSES } from '@tangle-network/agent-eval'
- *   4. Drop this file once consumers import directly from the substrate.
+ * The shapes are deliberately constraining — the validator + writer
+ * hard-fail on missing screenshot evidence, missing lens, missing title.
  */
 
 /**
