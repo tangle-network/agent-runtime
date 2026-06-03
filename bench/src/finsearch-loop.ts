@@ -32,6 +32,7 @@ import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { appendRunRecord, buildRunRecord } from './corpus'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, GEPA_LEARNED_DIRECTIVE } from './directives'
+import { runPool } from './run-pool'
 import { runSteeringExperiment } from './steering-experiment'
 
 /** One condition's outcome: did the k-attempt loop resolve, was the blind (iter0)
@@ -120,7 +121,6 @@ async function main() {
   // minutes; a 3-min cap guillotines deep research and understates every condition.
   const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: sandboxKey, timeoutMs: 1_200_000 } as never)
   const agg = { n: 0, blind: 0, randomK: 0, refineHand: 0, refineGepa: 0, errored: 0 }
-  let next = 0
   let done = 0
 
   const agentRun: AgentRunSpec<string> = {
@@ -196,56 +196,52 @@ async function main() {
     return last
   }
 
-  const worker = async () => {
-    while (next < tasks.length) {
-      const task = tasks[next++] as BenchTask
-      try {
-        // Paired 3-way through runSteeringExperiment: same task/model/judge, only
-        // the planner differs. The compute control (random@k) is a REQUIRED field
-        // — it cannot be dropped without a type error, so no steering delta is ever
-        // reported uncontrolled. refineHand = hand directive · refineGepa = learned.
-        const { control, treatments } = await runSteeringExperiment<string, string, ConditionResult>(
-          {
-            control: { label: `random@${rounds}`, planner: randomPlanner(task.prompt, rounds) },
-            treatments: [
-              { label: `refineHand@${rounds}`, planner: refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE) },
-              { label: `refineGepa@${rounds}`, planner: refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE) },
-            ],
-          },
-          (arm) => runConditionRetried(task, arm.planner, arm.label),
-        )
-        const rnd = control.result
-        const refH = treatments[0]?.result as ConditionResult // refineHand (stable order)
-        const refG = treatments[1]?.result as ConditionResult // refineGepa
-        done += 1
-        if (rnd.infraError || refH.infraError || refG.infraError) {
-          agg.errored += 1
-          console.log(`  [${done}/${tasks.length}] ${task.id}: INFRA-ERROR (excluded)`)
-          await fs.appendFile(out, `${JSON.stringify({ id: task.id, infraError: true })}\n`)
-          continue
-        }
-        agg.n += 1
-        if (refH.blind) agg.blind += 1
-        if (rnd.resolved) agg.randomK += 1
-        if (refH.resolved) agg.refineHand += 1
-        if (refG.resolved) agg.refineGepa += 1
-        console.log(
-          `  [${done}/${tasks.length}] ${task.id}: blind=${refH.blind ? '✓' : '·'} random@${rounds}=${rnd.resolved ? '✓' : '·'} refineHand=${refH.resolved ? '✓' : '·'} refineGepa=${refG.resolved ? '✓' : '·'}`,
-        )
-        await fs.appendFile(
-          out,
-          `${JSON.stringify({ id: task.id, blind: refH.blind, randomK: rnd.resolved, refineHand: refH.resolved, refineGepa: refG.resolved })}\n`,
-        )
-      } catch (err) {
-        done += 1
+  await runPool(tasks, conc, async (task) => {
+    try {
+      // Paired 3-way through runSteeringExperiment: same task/model/judge, only
+      // the planner differs. The compute control (random@k) is a REQUIRED field
+      // — it cannot be dropped without a type error, so no steering delta is ever
+      // reported uncontrolled. refineHand = hand directive · refineGepa = learned.
+      const { control, treatments } = await runSteeringExperiment<string, string, ConditionResult>(
+        {
+          control: { label: `random@${rounds}`, planner: randomPlanner(task.prompt, rounds) },
+          treatments: [
+            { label: `refineHand@${rounds}`, planner: refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE) },
+            { label: `refineGepa@${rounds}`, planner: refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE) },
+          ],
+        },
+        (arm) => runConditionRetried(task, arm.planner, arm.label),
+      )
+      const rnd = control.result
+      const refH = treatments[0]?.result as ConditionResult // refineHand (stable order)
+      const refG = treatments[1]?.result as ConditionResult // refineGepa
+      done += 1
+      if (rnd.infraError || refH.infraError || refG.infraError) {
         agg.errored += 1
-        const msg = err instanceof Error ? err.message : String(err)
-        console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)} (excluded)`)
-        await fs.appendFile(out, `${JSON.stringify({ id: task.id, error: msg })}\n`)
+        console.log(`  [${done}/${tasks.length}] ${task.id}: INFRA-ERROR (excluded)`)
+        await fs.appendFile(out, `${JSON.stringify({ id: task.id, infraError: true })}\n`)
+        return
       }
+      agg.n += 1
+      if (refH.blind) agg.blind += 1
+      if (rnd.resolved) agg.randomK += 1
+      if (refH.resolved) agg.refineHand += 1
+      if (refG.resolved) agg.refineGepa += 1
+      console.log(
+        `  [${done}/${tasks.length}] ${task.id}: blind=${refH.blind ? '✓' : '·'} random@${rounds}=${rnd.resolved ? '✓' : '·'} refineHand=${refH.resolved ? '✓' : '·'} refineGepa=${refG.resolved ? '✓' : '·'}`,
+      )
+      await fs.appendFile(
+        out,
+        `${JSON.stringify({ id: task.id, blind: refH.blind, randomK: rnd.resolved, refineHand: refH.resolved, refineGepa: refG.resolved })}\n`,
+      )
+    } catch (err) {
+      done += 1
+      agg.errored += 1
+      const msg = err instanceof Error ? err.message : String(err)
+      console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)} (excluded)`)
+      await fs.appendFile(out, `${JSON.stringify({ id: task.id, error: msg })}\n`)
     }
-  }
-  await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+  })
 
   const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
   const dlt = (x: number) => `${(((x) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp`

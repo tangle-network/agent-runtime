@@ -16,6 +16,7 @@ import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
+import { runPool } from './run-pool'
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
@@ -173,13 +174,13 @@ async function main() {
     console.log(
       `[batch-blind] ${tasks.length} instances · model=${model} · concurrency=${conc} · liveness backstop=${livenessLabel}`,
     )
-    let next = 0
     let done = 0
     let resolved = 0
     const results: Array<{ id: string; resolved: boolean; patchBytes: number; error?: string }> = []
-    const worker = async () => {
-      while (next < tasks.length) {
-        const task = tasks[next++] as (typeof tasks)[number]
+    await runPool(
+      tasks,
+      conc,
+      async (task) => {
         const started = Date.now()
         let rec: { id: string; resolved: boolean; patchBytes: number; error?: string }
         try {
@@ -194,9 +195,8 @@ async function main() {
         done += 1
         if (rec.resolved) resolved += 1
         console.log(`  [${done}/${tasks.length}] ${rec.id}: ${rec.resolved ? '✅ RESOLVED' : rec.error ? `ERR ${rec.error.slice(0, 60)}` : '⚠️  no'} (${resolved}/${done} so far)`)
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+      },
+    )
     console.log(`\n=== BLIND resolve rate: ${resolved}/${tasks.length} = ${((resolved / tasks.length) * 100).toFixed(1)}% ===`)
     console.log(`scorecard: ${out}`)
     return
@@ -238,48 +238,43 @@ async function main() {
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
     console.log(`[batch-oracle] ${tasks.length} instances · k=${k} · models=[${models.join(', ')}] · conc=${conc} (router-free)`)
     const agg = { n: 0, pass1: 0, randomExp: 0, oracle: 0 }
-    let next = 0
     let done = 0
-    const worker = async () => {
-      while (next < tasks.length) {
-        const task = tasks[next++] as (typeof tasks)[number]
-        const started = Date.now()
-        try {
-          const resolved: boolean[] = []
-          for (let i = 0; i < k; i += 1) {
-            const shotModel = models[i % models.length] as string
-            const artifact = await runShot(task, shotModel, livenessMs)
-            const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
-            resolved.push(score.resolved === true)
-          }
-          const nResolved = resolved.filter(Boolean).length
-          const pass1 = resolved[0] === true
-          const oracle = nResolved > 0
-          const randomExpected = k > 0 ? nResolved / k : 0
-          agg.n += 1
-          if (pass1) agg.pass1 += 1
-          if (oracle) agg.oracle += 1
-          agg.randomExp += randomExpected
-          done += 1
-          console.log(
-            `  [${done}/${tasks.length}] ${task.id}: ${nResolved}/${k} resolved · pass1=${pass1 ? '✓' : '·'} oracle=${oracle ? '✓' : '·'}`,
-          )
-          await fs.appendFile(
-            out,
-            `${JSON.stringify({ id: task.id, k, nResolved, pass1, oracle, randomExpected, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-          )
-        } catch (err) {
-          done += 1
-          const msg = err instanceof Error ? err.message : String(err)
-          console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
-          await fs.appendFile(
-            out,
-            `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-          )
+    await runPool(tasks, conc, async (task) => {
+      const started = Date.now()
+      try {
+        const resolved: boolean[] = []
+        for (let i = 0; i < k; i += 1) {
+          const shotModel = models[i % models.length] as string
+          const artifact = await runShot(task, shotModel, livenessMs)
+          const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
+          resolved.push(score.resolved === true)
         }
+        const nResolved = resolved.filter(Boolean).length
+        const pass1 = resolved[0] === true
+        const oracle = nResolved > 0
+        const randomExpected = k > 0 ? nResolved / k : 0
+        agg.n += 1
+        if (pass1) agg.pass1 += 1
+        if (oracle) agg.oracle += 1
+        agg.randomExp += randomExpected
+        done += 1
+        console.log(
+          `  [${done}/${tasks.length}] ${task.id}: ${nResolved}/${k} resolved · pass1=${pass1 ? '✓' : '·'} oracle=${oracle ? '✓' : '·'}`,
+        )
+        await fs.appendFile(
+          out,
+          `${JSON.stringify({ id: task.id, k, nResolved, pass1, oracle, randomExpected, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+        )
+      } catch (err) {
+        done += 1
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
+        await fs.appendFile(
+          out,
+          `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+        )
       }
-    }
-    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+    })
     const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
     console.log(`\n=== ORACLE HEADROOM (n=${agg.n}, k=${k}) ===`)
     console.log(`  pass@1 (blind):               ${pct(agg.pass1)}`)
@@ -343,46 +338,41 @@ async function main() {
       `[batch-compare] ${tasks.length} instances · rounds=${rounds} (blind=r1 vs refine=r${rounds}) · model=${model} · conc=${conc}`,
     )
     const agg = { n: 0, blind: 0, refine: 0, gained: 0, lost: 0 }
-    let next = 0
     let done = 0
-    const worker = async () => {
-      while (next < tasks.length) {
-        const task = tasks[next++] as (typeof tasks)[number]
-        const started = Date.now()
-        try {
-          const shot = await runRefine(task)
-          const blind = shot.first.trim()
-            ? (await adapter.judge(task, shot.first)).resolved === true
-            : false
-          const refine = shot.final.trim()
-            ? (await adapter.judge(task, shot.final)).resolved === true
-            : false
-          agg.n += 1
-          if (blind) agg.blind += 1
-          if (refine) agg.refine += 1
-          if (refine && !blind) agg.gained += 1 // refinement RESCUED a blind failure
-          if (blind && !refine) agg.lost += 1 // refinement BROKE a blind success
-          done += 1
-          const tag = refine && !blind ? '↑GAINED' : blind && !refine ? '↓LOST' : blind ? '=both✓' : '=both·'
-          console.log(
-            `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} refine=${refine ? '✓' : '·'} ${tag}`,
-          )
-          await fs.appendFile(
-            out,
-            `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-          )
-        } catch (err) {
-          done += 1
-          const msg = err instanceof Error ? err.message : String(err)
-          console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
-          await fs.appendFile(
-            out,
-            `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-          )
-        }
+    await runPool(tasks, conc, async (task) => {
+      const started = Date.now()
+      try {
+        const shot = await runRefine(task)
+        const blind = shot.first.trim()
+          ? (await adapter.judge(task, shot.first)).resolved === true
+          : false
+        const refine = shot.final.trim()
+          ? (await adapter.judge(task, shot.final)).resolved === true
+          : false
+        agg.n += 1
+        if (blind) agg.blind += 1
+        if (refine) agg.refine += 1
+        if (refine && !blind) agg.gained += 1 // refinement RESCUED a blind failure
+        if (blind && !refine) agg.lost += 1 // refinement BROKE a blind success
+        done += 1
+        const tag = refine && !blind ? '↑GAINED' : blind && !refine ? '↓LOST' : blind ? '=both✓' : '=both·'
+        console.log(
+          `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} refine=${refine ? '✓' : '·'} ${tag}`,
+        )
+        await fs.appendFile(
+          out,
+          `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+        )
+      } catch (err) {
+        done += 1
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
+        await fs.appendFile(
+          out,
+          `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
+        )
       }
-    }
-    await Promise.all(Array.from({ length: Math.min(conc, tasks.length) }, worker))
+    })
     const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
     console.log(`\n=== BLIND vs REFINE (n=${agg.n}, rounds=${rounds}) ===`)
     console.log(`  blind  (pass@1):        ${pct(agg.blind)}  (${agg.blind}/${agg.n})`)

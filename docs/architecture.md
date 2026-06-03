@@ -284,13 +284,20 @@ The audit found the atom is **forked, not shared**: `runLoop`+`createDynamicDriv
 `solveRefine*` workers each hand-roll the identical `for(round 1..k){ shot → judge → decide →
 carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted pools.
 
-1. **Lift `runRefineLoop<Artifact>`** (the abstraction lift): one execution-agnostic loop —
-   `{rounds, judge, decide, steer}` + an opaque `runShot` — owns iteration + carry-forward +
-   corpus capture + infra-retry. Each worker collapses to a `solveShot` domain hook + config;
-   the `batch-*` pools unify into one `runPool`. Then wire the analyst report into the driver's
-   `context` — closing the blind-driver gap. ~500 LOC deleted; every benchmark on one atom.
-2. **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR). ✅ done (this PR).
-3. **One `/run-benchmark-loop` skill** — the "implement a `BenchmarkAdapter`, run the shared loop"
-   recipe, so agents (here and in other repos) stop forking a new `*-loop.ts`.
-4. **CAD workers** (`worker-cad/blender/build123d`) migrate onto `runRefineLoop` too — but
-   **coordinate with the in-flight CAD branch** before landing, to avoid clobbering concurrent edits.
+1. ✅ **`runRefineLoop<Artifact, Ctx>`** (the loop atom): one execution-agnostic loop —
+   `{rounds, setup, prompt, runShot, judge?, decide?, teardown}`, the worker an opaque `runShot`.
+   **All six refine workers** (research / sandbox-research / SWE-refine / cad / blender / build123d)
+   run it — **zero hand-rolled `for(round)` loops**. Both carry-forward channels (execution `Ctx`
+   + prompt) are first-class.
+2. ✅ **`runPool<T, R>`** (the pool atom): one generic bounded-concurrency pool. **All five batch
+   runners** (`batch-blind` / `batch-oracle` / `batch-compare` / `finsearch-loop` / `terminal-compare`)
+   use it — **zero hand-rolled `Promise.all` drains**.
+3. ✅ **`directives.ts`** (the steer surface): every refine directive + authoring system prompt lives
+   here; **zero worker-owned prompt text**. Task framing lives in the benchmark adapters.
+4. ✅ **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR).
+5. **CANONICAL LAW (everyone follows):** a worker is an opaque **substrate plug** (`runShot`); the
+   **loop** (`runRefineLoop`), the **pool** (`runPool`), the **steer** (`directives.ts`), and the
+   **corpus** are first-class and shared; **a new benchmark is just an adapter** (loader + worker
+   profile + judge + SOTA). Do not fork a `*-loop.ts` or a `Promise.all` drain — extend the atom.
+6. ⏳ **Open follow-ups:** wire the analyst report into the driver's `context` (close the blind-driver
+   gap — the adaptive driver); a `/run-benchmark-loop` skill encoding the adapter recipe.
