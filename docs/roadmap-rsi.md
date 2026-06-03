@@ -99,7 +99,7 @@ No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
 | `architecture-interpretations.md` | new | ADD the 5-lens coherence doc + diagrams | **this PR** |
 | `roadmap-rsi.md` | new | ADD this roadmap | **this PR** |
 | `architecture.md` | canonical | ADD a "Built vs Designed" callout + cross-refs | **this PR** |
-| `agent-spine.md` | overlaps | MERGE the `ExecutionEnvironment` seam into `architecture.md`, retire to a pointer — **OR** keep, if `ExecutionEnvironment` is still the intended keystone | **needs decision** |
+| `agent-spine.md` | dropped | DELETE — the recursive-atom framing supersedes the `ExecutionEnvironment` seam (confirmed absent from `src/`); not a build target | **this PR** |
 | `agent-bus-protocol.md` | needs-update | Fix the 429-vs-413 contradiction (`:51,:56`), correct the subpath list vs `package.json` exports, bump the 0.26.0 pin | follow-up |
 | `refactor-roadmap.md` | needs-update | Prune closed R-items (R5 verifiably stale) per its own close-by-deletion rule | follow-up |
 | `/workflow`, `/audit` subpaths | undocumented | Document in README's subpath table or mark intentionally private | follow-up |
@@ -108,10 +108,11 @@ No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
 
 ## Open decisions (need the lead)
 
-1. **`agent-spine.md` vs `architecture.md`.** Is the `ExecutionEnvironment`/`WorkerEnv`/`SandboxEnv`/`DispatchEnv` seam (agent-spine's keystone, currently *unbuilt* — absent from `src/`) still the intended Phase-1 keystone, or has the "one recursive Agent atom" framing superseded it? This decides the doc merge direction **and** whether `ExecutionEnvironment` is a build target at all.
-2. **`analyses` source (Phase 2).** Caller-side closure threading (keeps `run-loop.ts` dependency-clean, leans with the layering rule) vs a kernel `RunLoopOptions.analyze` hook (generic but couples `run-loop` to the analyst import). Roadmap assumes caller-side.
-3. **First selector signal (Phase 1).** Self-consistency vs pairwise answer-agreement vs a learned PRM (the `agent-eval/prm` subpath is unexplored).
-4. **Home of `architecture-interpretations.md`.** Here, or in `agent-eval` (the selector/judge substrate spans both packages)?
+1. **`analyses` source (Phase 2).** Caller-side closure threading (keeps `run-loop.ts` dependency-clean, leans with the layering rule) vs a kernel `RunLoopOptions.analyze` hook (generic but couples `run-loop` to the analyst import). Roadmap assumes caller-side.
+2. **First selector signal (Phase 1).** Self-consistency vs pairwise answer-agreement vs a learned PRM (the `agent-eval/prm` subpath is unexplored).
+3. **Home of `architecture-interpretations.md`.** Here, or in `agent-eval` (the selector/judge substrate spans both packages)?
+
+*Resolved:* `agent-spine.md` / `ExecutionEnvironment` — **dropped**; the recursive-atom framing supersedes it and it is absent from `src/`.
 
 ## Evidence anchors
 
