@@ -32,10 +32,18 @@ import { fileURLToPath } from 'node:url'
 
 import { homedir } from 'node:os'
 
+import { appendRunRecord, type AttemptRecord, type RunRecord } from './corpus'
+
 const BENCH_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TB = join(BENCH_ROOT, '.venv', 'bin', 'tb')
 const RUNS_DIR = join(BENCH_ROOT, 'runs')
 const REFINE_IMPORT = 'tb_agents.opencode_refine_agent:OpenCodeRefineAgent'
+// The durable learning-flywheel corpus (docs/learning-flywheel.md). terminal-bench
+// is bench-orchestrated (tb owns the containers) so it cannot use buildRunRecord,
+// which consumes runLoop Iterations; instead each task's per-round tb artifacts are
+// folded into one RunRecord here so the corpus is genuinely cross-benchmark
+// (finsearch-loop.ts writes the same store from the runLoop path).
+const CORPUS = process.env.CORPUS ?? join(BENCH_ROOT, 'corpus', 'terminal.jsonl')
 
 const DATASET = process.env.TB_DATASET ?? 'terminal-bench-core==0.1.1'
 const MODEL = process.env.TB_MODEL ?? 'deepseek/deepseek-v4-pro'
@@ -62,6 +70,10 @@ interface BenchmarkResults {
     task_id?: string
     is_resolved?: boolean
     parser_results?: Record<string, string>
+    instruction?: string
+    failure_mode?: string
+    total_input_tokens?: number
+    total_output_tokens?: number
   }>
 }
 
@@ -205,6 +217,125 @@ async function buildPriorSummary(outcome: RoundOutcome, taskId: string): Promise
   return parts.join('\n\n')
 }
 
+const TRACE_TAIL_MAX = 600
+const OUTPUT_TAIL_MAX = 2000
+
+/** The fields the corpus reads from tb's top-level results.json per round. */
+interface TbRoundFacts {
+  instruction: string
+  failureMode?: string
+  tokensIn: number
+  tokensOut: number
+}
+
+/** Pull the bare task instruction, failure mode, and token counts tb recorded for
+ *  this round. The instruction tb records is always the unmodified task statement —
+ *  the refine directive is injected inside the agent, after tb captures it — so the
+ *  refine steer is taken from `priorSteer`, not from here. */
+async function readRoundFacts(outcome: RoundOutcome, taskId: string): Promise<TbRoundFacts> {
+  const raw = await readFileSafe(join(outcome.outputDir, 'results.json'))
+  if (!raw) return { instruction: '', tokensIn: 0, tokensOut: 0 }
+  let parsed: BenchmarkResults
+  try {
+    parsed = JSON.parse(raw) as BenchmarkResults
+  } catch {
+    return { instruction: '', tokensIn: 0, tokensOut: 0 }
+  }
+  const trial = parsed.results?.find((r) => r.task_id === taskId)
+  return {
+    instruction: typeof trial?.instruction === 'string' ? trial.instruction : '',
+    failureMode: typeof trial?.failure_mode === 'string' ? trial.failure_mode : undefined,
+    // tb's own counts; the opencode path commonly reports 0 — report the real number,
+    // never a fabricated one. 0 here means tb surfaced 0, not that we invented it.
+    tokensIn: typeof trial?.total_input_tokens === 'number' ? trial.total_input_tokens : 0,
+    tokensOut: typeof trial?.total_output_tokens === 'number' ? trial.total_output_tokens : 0,
+  }
+}
+
+/**
+ * Fold one tb round into a corpus AttemptRecord. `priorSteer` is the evidence-gated
+ * refine payload the runner injected for this round (empty for round 1, which is the
+ * bare blind attempt). tb does not expose a structured event stream, so eventCount /
+ * eventTypes are 0/{}; costUsd is 0 (tb reports no cost). traceTail = the failing-test
+ * + terminal-state evidence summary (the same one fed forward as the next steer).
+ */
+async function roundToAttempt(
+  outcome: RoundOutcome,
+  taskId: string,
+  priorSteer: string,
+): Promise<AttemptRecord> {
+  const facts = await readRoundFacts(outcome, taskId)
+  // Round 1 = the bare task instruction (blind). Refine rounds = the steer actually
+  // injected: the evidence-gated prior summary carrying the round's failure info.
+  const prompt =
+    outcome.round === 1 || !priorSteer
+      ? facts.instruction
+      : `REFINE STEER (prepended to the task instruction):\n${priorSteer}\n\n--- ORIGINAL TASK ---\n${facts.instruction}`
+  const transcript = outcome.trialDir
+    ? await readFileSafe(join(outcome.trialDir, 'panes', 'post-agent.txt'), OUTPUT_TAIL_MAX)
+    : ''
+  const traceSummary = await buildPriorSummary(outcome, taskId)
+  return {
+    round: outcome.round,
+    prompt,
+    output: transcript.trim(),
+    valid: outcome.resolved,
+    score: outcome.resolved ? 1 : 0,
+    costUsd: 0,
+    tokensIn: facts.tokensIn,
+    tokensOut: facts.tokensOut,
+    eventCount: 0,
+    eventTypes: {},
+    traceTail: traceSummary.slice(-TRACE_TAIL_MAX),
+    // A failed round is a wrong answer, not an attempt error; surface only a concrete
+    // tb-reported failure mode (e.g. agent_timeout). tb writes 'unset'/'none' when it
+    // has no specific mode — that carries no signal, so it is not an error.
+    error: informativeFailureMode(facts.failureMode),
+  }
+}
+
+/** tb's failure_mode, normalized: undefined for its no-signal sentinels. */
+function informativeFailureMode(mode: string | undefined): string | undefined {
+  if (!mode) return undefined
+  const m = mode.trim().toLowerCase()
+  if (m === '' || m === 'unset' || m === 'none') return undefined
+  return `failure_mode=${mode}`
+}
+
+/**
+ * Build and persist one flywheel RunRecord per task from terminal-compare's own
+ * round data — no buildRunRecord (that consumes runLoop Iterations; tb is not
+ * runLoop-shaped). condition = 'refine@k' when a refine budget was available,
+ * 'blind' when only the single blind round can run (ROUNDS===1). Appended once
+ * per task; never throws into the run (corpus capture must not fail the bench).
+ */
+async function captureRunRecord(
+  taskId: string,
+  rounds: RoundOutcome[],
+  priorSteers: string[],
+): Promise<void> {
+  const attempts: AttemptRecord[] = []
+  for (const outcome of rounds) {
+    // priorSteers[i] is the steer injected for rounds[i] ('' for round 1).
+    const steer = priorSteers[outcome.round - 1] ?? ''
+    attempts.push(await roundToAttempt(outcome, taskId, steer))
+  }
+  const blindResolved = rounds[0]?.resolved === true
+  const last = rounds[rounds.length - 1]
+  const record: RunRecord = {
+    ts: new Date().toISOString(),
+    benchmark: 'terminal-bench',
+    instanceId: taskId,
+    condition: ROUNDS > 1 ? `refine@${ROUNDS}` : 'blind',
+    model: MODEL,
+    blindResolved,
+    resolved: last ? last.resolved : blindResolved,
+    attempts,
+    infraError: false,
+  }
+  await appendRunRecord(CORPUS, record)
+}
+
 /**
  * Serially `docker compose build` each task image before the concurrent fan-out.
  * tb builds per-task images on first use; building two cold images concurrently
@@ -291,6 +422,9 @@ async function solveTask(taskId: string): Promise<{
   rounds: RoundOutcome[]
 }> {
   const history: RoundOutcome[] = []
+  // The evidence-gated steer injected per round, indexed by round number (round 1 has
+  // none). Captured here so the corpus records the exact steer each refine round saw.
+  const priorSteers: string[] = ['']
   const r1 = await runRound(taskId, 1, '')
   history.push(r1)
   const blind = r1.resolved
@@ -298,6 +432,7 @@ async function solveTask(taskId: string): Promise<{
 
   for (let round = 2; round <= ROUNDS && !prev.resolved; round++) {
     const prior = await buildPriorSummary(prev, taskId)
+    priorSteers[round - 1] = prior
     const r = await runRound(taskId, round, prior)
     history.push(r)
     prev = r
@@ -305,6 +440,15 @@ async function solveTask(taskId: string): Promise<{
   // refine = the final round's outcome (blind itself when no refine round fired).
   const last = history[history.length - 1]
   const refine = last ? last.resolved : blind
+  // Persist the full per-attempt tuple to the durable cross-benchmark flywheel corpus.
+  // Capture is observability over the primary bench result: a write failure is logged
+  // loudly (never silently swallowed) but does not abort an expensive container run.
+  try {
+    await captureRunRecord(taskId, history, priorSteers)
+  } catch (err) {
+    const msg = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    console.error(`  [corpus] WARN: failed to persist RunRecord for ${taskId}: ${msg}`)
+  }
   return { taskId, blind, refine, rounds: history }
 }
 
