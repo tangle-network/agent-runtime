@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { UiFinding } from '@tangle-network/agent-eval'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   appendFindings,
@@ -11,6 +10,7 @@ import {
   summarizeRegistry,
   writeAuditIndex,
 } from '../../src/audit'
+import type { UiFinding } from '../../src/profiles/ui-auditor/substrate'
 
 let workspaceDir: string
 

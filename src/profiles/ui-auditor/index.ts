@@ -31,6 +31,13 @@ export {
   formatAuditorPrompt,
 } from './prompt'
 export type {
+  UiFinding,
+  UiFindingScreenshot,
+  UiFindingSeverity,
+  UiLens,
+} from './substrate'
+export { UI_FINDING_SEVERITIES, UI_LENSES } from './substrate'
+export type {
   UiAuditCapture,
   UiAuditCaptureRequest,
   UiAuditOutput,

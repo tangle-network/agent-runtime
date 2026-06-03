@@ -18,7 +18,7 @@
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
+import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
 
 /** @experimental */
 export interface AuditRegistry {

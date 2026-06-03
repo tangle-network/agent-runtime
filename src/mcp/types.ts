@@ -12,8 +12,8 @@
  * task queue + feedback store.
  */
 
-import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
 import type { CoderOutput, CoderTask } from '../profiles/coder'
+import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
 
 /** @experimental */
 export type DelegationProfile = 'coder' | 'researcher' | 'ui-auditor'

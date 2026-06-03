@@ -10,7 +10,7 @@
  * and asks a vision judge to identify findings under that lens.
  */
 
-import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
+import type { UiFinding, UiLens } from './substrate'
 
 /** @experimental */
 export interface UiAuditViewport {

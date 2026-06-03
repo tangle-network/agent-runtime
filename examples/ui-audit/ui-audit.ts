@@ -19,7 +19,6 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { UiFinding } from '@tangle-network/agent-eval'
 import {
   appendFindings,
   initAuditWorkspace,
@@ -31,6 +30,7 @@ import {
   createInProcessUiAuditClient,
   type UiAuditOutput,
   type UiAuditTask,
+  type UiFinding,
   type UiJudge,
   uiAuditorProfile,
 } from '@tangle-network/agent-runtime/profiles'

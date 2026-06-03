@@ -16,7 +16,7 @@
  * with a few lines.
  */
 
-import { UI_LENSES, type UiLens } from '@tangle-network/agent-eval'
+import { UI_LENSES, type UiLens } from '../../profiles/ui-auditor/substrate'
 import type { UiAuditorDelegate } from '../delegates'
 import {
   type DelegateUiAuditArgs,

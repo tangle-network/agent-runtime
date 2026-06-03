@@ -23,7 +23,7 @@
  *     surfacing the error to the kernel beats producing a silent zero.
  */
 
-import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
+import type { UiFinding, UiLens } from './substrate'
 import type { UiAuditCapture } from './task'
 
 /** @experimental */

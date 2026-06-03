@@ -14,8 +14,8 @@
  * folds an already-collected event array into a UiAuditOutput.
  */
 
-import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
 import type { SandboxEvent } from '@tangle-network/sandbox'
+import type { UiFinding, UiLens } from './substrate'
 import type { UiAuditCapture, UiAuditOutput } from './task'
 
 const KNOWN_LENS_VALUES = new Set<UiLens>([

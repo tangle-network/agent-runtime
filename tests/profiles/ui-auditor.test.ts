@@ -1,4 +1,3 @@
-import type { UiFinding } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import {
   createUiAuditorValidator,
@@ -8,6 +7,7 @@ import {
   type UiAuditCapture,
   type UiAuditOutput,
   type UiAuditTask,
+  type UiFinding,
   uiAuditorProfile,
 } from '../../src/profiles/ui-auditor'
 

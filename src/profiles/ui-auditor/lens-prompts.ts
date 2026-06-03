@@ -11,7 +11,7 @@
  * pile-on findings under generic labels.
  */
 
-import type { UiLens } from '@tangle-network/agent-eval'
+import type { UiLens } from './substrate'
 
 /** @experimental */
 export const SHARED_AUDITOR_RULES = `
