@@ -1,5 +1,10 @@
 # The Continual Cross-Benchmark Learning Flywheel
 
+> **Canonical entry point is now [`architecture.md`](./architecture.md)** — the single spine
+> (recursive `Agent` atom · two timescales · benchmark-as-adapter · selector ≠ judge). Read it
+> first. This doc is the *deep-dive on the theory and moat*: the `(π,τ,J,D,O)` recursion and the
+> hard-won discipline. Where the two differ, the spine wins.
+
 > The core thesis of this project. There are **two loops, and the product is the outer one.**
 >
 > - **Inner loop (within-run):** a controller steers a worker over k attempts on a single
