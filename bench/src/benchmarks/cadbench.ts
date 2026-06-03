@@ -8,7 +8,7 @@
  * Data: the published dataset's `criteria` flattened to a bullet list (700 tasks,
  * 500 Simulative + 200 Wild). Point CADBENCH_PATH at the cleaned JSONL
  * ({id,name,instruction,type,criteria:string[]} per line). Judge creds from
- * ROUTER_KEY / ROUTER_BASE / JUDGE_MODEL (default gpt-4o).
+ * TANGLE_API_KEY / ROUTER_BASE / JUDGE_MODEL (default gpt-4o).
  */
 
 import { readFile } from 'node:fs/promises'
@@ -38,7 +38,7 @@ async function judgeCriteria(
   renders: string[],
 ): Promise<{ passed: boolean[]; note: string }> {
   const base = (process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1').replace(/\/$/, '')
-  const key = must('ROUTER_KEY')
+  const key = must('TANGLE_API_KEY')
   const model = process.env.JUDGE_MODEL ?? 'gpt-4o'
   const numbered = criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
   const text =

@@ -20,7 +20,7 @@
  *
  * Requires for a live run: the bench `.venv` with `datasets`/`requests` not
  * needed — the test set is a single public CSV fetched over HTTP — plus a
- * grader-router key (ROUTER_KEY). For offline/CI verification set
+ * grader key (TANGLE_API_KEY). For offline/CI verification set
  * SIMPLEQA_FIXTURES=1 to load the committed fixtures
  * (bench/fixtures/simpleqa.json) — no network.
  */
@@ -181,8 +181,8 @@ interface GraderRouter {
 }
 
 function graderRouter(): GraderRouter {
-  const key = process.env.ROUTER_KEY
-  if (!key) throw new Error('ROUTER_KEY is required for the SimpleQA grader (set the router API key)')
+  const key = process.env.TANGLE_API_KEY
+  if (!key) throw new Error('TANGLE_API_KEY is required for the SimpleQA grader (set the Tangle API key)')
   const model = process.env.JUDGE_MODEL ?? 'gpt-5'
   const baseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   return { baseUrl, key, model }
