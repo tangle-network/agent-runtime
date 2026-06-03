@@ -10,6 +10,7 @@ export default defineConfig({
     loops: 'src/loops/index.ts',
     workflow: 'src/workflow/index.ts',
     profiles: 'src/profiles/index.ts',
+    audit: 'src/audit/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',
     'loop-runner-bin': 'src/loop-runner-bin.ts',
