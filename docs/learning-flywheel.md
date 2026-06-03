@@ -129,13 +129,18 @@ that observes "the agent imported a stub" or "used a non-crypto PRNG where encry
 required" is steering on **observable behavior**, which is fair game. What it may NOT do is
 carry the judge's **verdict** — "this output is fake / will fail" — because that is `J` leaking
 into the loop, and the optimizer then games realness exactly as it games pass-rate. The line is
-*observation vs. verdict*, not *which property*: a steer must cite what the agent **did** (a
-span / event / produced artifact), never a predicted score. This is enforced, not just stated —
-`ProposeContext.judgeScores?: never` (a compile-time tripwire) and
-`assertTraceObservable(findings)` (every steer-admitted finding must cite observable evidence)
-in the substrate. The firewall is *necessary but not sufficient alone*: if the steer-detector
-and `J` measure a correlated property, optimizing the observable can still inflate `J` on the
-**training** split — only a frozen holdout (below) catches that. Gaps 4 and 2 interlock.
+*observation vs. verdict*, not *which property* — and the correct discriminator is **provenance,
+not evidence presence**: an evidence-less trace-analyst bullet is an observation, while a judge
+verdict that happens to cite an artifact is still a verdict. The substrate enforces this by
+keying on origin, set at the source: `AnalystFinding.derived_from_judge` (tagged where a judge
+score is lifted into a finding), `assertNoJudgeVerdict(findings)` (the steer gate — rejects
+judge-derived findings), and `ProposeContext.judgeScores?: never` (a compile-time tripwire on the
+direct channel). It is *necessary, not sufficient*: it stops provenance-tagged verdicts, so
+provenance must be set at every judge→finding lift, and the dual-role consumer must call the gate
+when it assembles findings for steering (the generic optimizer boundary is finding-type-agnostic,
+so it cannot auto-enforce). And it is *not sufficient alone* for a second reason: if the
+steer-detector and `J` measure a correlated property, optimizing the observable can still inflate
+`J` on the **training** split — only a frozen holdout (below) catches that. Gaps 4 and 2 interlock.
 
 ## Architecture layers (ranked by leverage)
 

@@ -166,6 +166,11 @@ async function main() {
     const infraError = iter0?.error !== undefined && iter0.output === undefined
     const resolved = result.winner?.verdict?.valid === true
     // The flywheel fuel: every attempt's trace+outcome, durably, for cross-run learning.
+    // A failed append is logged LOUD, never swallowed — a silent drop would leave the
+    // corpus with treatment rows but a missing control row for an instance (fail-loud
+    // doctrine). Downstream corpus-report pairs on the instanceId INTERSECTION, so a
+    // dropped row excludes that instance from the contrast rather than scoring it 0 —
+    // but the loss must still be visible, not silent.
     await appendRunRecord(
       corpus,
       buildRunRecord({
@@ -177,7 +182,11 @@ async function main() {
         resolved,
         infraError,
       }),
-    ).catch(() => {})
+    ).catch((err) =>
+      console.error(
+        `[corpus] append FAILED for ${task.id} [${condition}] — row dropped: ${err instanceof Error ? err.message : err}`,
+      ),
+    )
     return { resolved, blind: iter0?.verdict?.valid === true, infraError }
   }
 

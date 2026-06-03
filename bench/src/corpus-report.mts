@@ -457,6 +457,16 @@ async function main(): Promise<void> {
     tests.filter((t) => t.family === 'more-compute'),
   )
 
+  // What BH does NOT protect against — stated loud so a clean family table is not
+  // mistaken for more rigor than it carries.
+  console.log('\n  what the BH correction does NOT defend against:')
+  console.log(
+    '    * optional stopping / holdout reuse: BH controls one evaluation of a FIXED contrast set. Re-running this report on a GROWING corpus (same instanceIds, more samples added over time) inflates the FDR across the sequence. Pre-register the contrast set; spend a FROZEN confirmation holdout ONCE per locked candidate (explore on a separate reusable set).',
+  )
+  console.log(
+    '    * family re-allocation: the steering/exploratory tag is derived from the condition label (refine* vs random*), not chosen per run, so it is not gameable at runtime — but moving a contrast between families post-hoc would dodge the within-family correction.',
+  )
+
   if (superseded > 0) {
     console.log(`\nnote: ${superseded} record(s) superseded by a later run for the same (benchmark, instance, condition) - kept the latest by ts`)
   }
