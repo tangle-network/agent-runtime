@@ -267,10 +267,22 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
         name: `cad-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
         environment: 'universal',
       })
-      await box.exec('mkdir -p /work', { timeoutMs: 30_000 })
-      // The brief frames the title card (understood_task).
-      trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-      return box
+      // If init fails AFTER acquire, reap the box here — setup throwing before it
+      // returns the Ctx means runRefineLoop's teardown never runs, so an unguarded
+      // mkdir failure would leak the sandbox (the pre-migration finally deleted it).
+      try {
+        await box.exec('mkdir -p /work', { timeoutMs: 30_000 })
+        // The brief frames the title card (understood_task).
+        trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
+        return box
+      } catch (err) {
+        try {
+          await box.delete?.()
+        } catch {
+          // platform reaps on expiry
+        }
+        throw err
+      }
     },
     prompt: (round, history) =>
       round === 1
