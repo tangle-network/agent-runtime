@@ -1,3 +1,4 @@
+import type { AnalystFinding } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
   CreateSandboxOptions,
@@ -14,11 +15,28 @@ import {
   type LoopTraceEmitter,
   type LoopTraceEvent,
   type OutputAdapter,
+  renderAnalyses,
   runLoop,
   type TopologyMove,
   type TopologyPlanner,
   type Validator,
 } from '../../src/loops'
+
+function finding(over: Partial<AnalystFinding> = {}): AnalystFinding {
+  return {
+    schema_version: '1.0.0',
+    finding_id: 'f1',
+    analyst_id: 'test-analyst',
+    produced_at: '2026-01-01T00:00:00Z',
+    severity: 'high',
+    area: 'verification',
+    claim: 'the answer omits the required unit',
+    evidence_refs: [],
+    confidence: 0.8,
+    recommended_action: 'restate with the exact unit',
+    ...over,
+  }
+}
 
 interface Task {
   goal: string
@@ -785,5 +803,112 @@ describe('runLoop dynamic driver — planner-declared edge lineage (#82)', () =>
     expect(planPayloads[0]?.parentIndex).toBeUndefined()
     expect(planPayloads[1]?.moveKind).toBe('refine')
     expect(planPayloads[1]?.parentIndex).toBe(0)
+  })
+})
+
+describe('runLoop dynamic driver — analyses→planner wire (Phase 2)', () => {
+  it('feeds analyze-hook findings to the planner via PlannerContext.analyses, skipping round 0', async () => {
+    const goal = 'wire'
+    const seen: Array<ReadonlyArray<AnalystFinding> | undefined> = []
+    const planner: TopologyPlanner<Task, Out> = ({ history, analyses }) => {
+      seen.push(analyses)
+      if (history.some((h) => h.verdict?.valid === true)) return { kind: 'stop' }
+      return {
+        kind: 'refine',
+        task: { goal, strategy: history.length === 0 ? 'naive' : 'parallel-x' },
+      }
+    }
+    let analyzeCalls = 0
+    const { client } = workerClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner,
+        analyze: ({ history }) => {
+          analyzeCalls += 1
+          return [finding({ claim: `attempt ${history.length} missed the unit` })]
+        },
+        maxIterations: 8,
+      }),
+      agentRun: workerSpecs(['solo'])[0],
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+
+    expect(result.decision).toBe('done')
+    // round 0 has no trace yet → analyze is NOT called, planner sees undefined.
+    expect(seen[0]).toBeUndefined()
+    // round 1+ : the diagnosis reached the planner's decision input.
+    expect(seen[1]).toBeDefined()
+    expect(seen[1]?.[0]?.claim).toContain('missed the unit')
+    expect(analyzeCalls).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders the findings into the live sandbox-planner prompt (and not before any trace)', async () => {
+    const goal = 'render'
+    const { client, plannerPrompts } = plannerAndWorkerClient((spent) =>
+      spent === 0 ? { kind: 'refine', tasks: [{ goal, strategy: 'naive' }] } : { kind: 'stop' },
+    )
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+    })
+    await runLoop({
+      driver: createDynamicDriver<Task, Out>({
+        planner,
+        analyze: () => [finding({ claim: 'UNIT MISSING from the answer' })],
+      }),
+      agentRun: workerSpecs(['worker-a'])[0],
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+
+    // round 0 prompt (empty history): no analyses section.
+    expect(plannerPrompts[0]).not.toContain('UNIT MISSING')
+    // round 1 prompt: the analyst diagnosis is in the prompt the planner decides from.
+    expect(plannerPrompts[1]).toContain('Trace-analyst findings')
+    expect(plannerPrompts[1]).toContain('UNIT MISSING')
+  })
+
+  it('fails loud when the analyze hook returns a non-array (no silent empty)', async () => {
+    const planner: TopologyPlanner<Task, Out> = ({ history }) =>
+      history.length === 0
+        ? { kind: 'refine', task: { goal: 'x', strategy: 'naive' } }
+        : { kind: 'stop' }
+    const { client } = workerClient()
+    await expect(
+      runLoop({
+        driver: createDynamicDriver<Task, Out>({
+          planner,
+          analyze: (() => ({ not: 'an array' })) as unknown as () => ReadonlyArray<AnalystFinding>,
+        }),
+        agentRun: workerSpecs(['solo'])[0],
+        output,
+        validator,
+        task: { goal: 'x', strategy: 'naive' },
+        ctx: { sandboxClient: client },
+      }),
+    ).rejects.toThrow(PlannerError)
+  })
+
+  it('renderAnalyses formats severity/area/claim/action/confidence and is empty for none', () => {
+    expect(renderAnalyses([])).toBe('')
+    const s = renderAnalyses([
+      finding({
+        severity: 'critical',
+        area: 'cost',
+        claim: 'overspent the budget',
+        recommended_action: 'cap retries',
+        confidence: 0.91,
+      }),
+    ])
+    expect(s).toContain('[critical/cost]')
+    expect(s).toContain('overspent the budget')
+    expect(s).toContain('cap retries')
+    expect(s).toContain('0.91')
   })
 })
