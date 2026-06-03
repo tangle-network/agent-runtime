@@ -618,7 +618,14 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
   return result
 }
 
-function defaultSelectWinner<Task, Output>(
+/**
+ * The kernel's winner argmax — best-valid-score, ties broken by earliest index,
+ * falling back to the best-scoring non-errored output when none is valid. Exported
+ * so the `runProgram` tree executor selects across merged sub-loop iterations with
+ * the SAME semantics the kernel uses at a single loop's finalize (one selector, not
+ * a forked copy).
+ */
+export function defaultSelectWinner<Task, Output>(
   iterations: Iteration<Task, Output>[],
 ): LoopWinner<Task, Output> | undefined {
   const candidates = iterations.filter((iter) => iter.output !== undefined && !iter.error)
