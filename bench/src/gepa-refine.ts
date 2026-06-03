@@ -108,7 +108,7 @@ async function main() {
       if (!artifact.trim()) return { dimensions: { resolved: 0 }, composite: 0, notes: 'empty answer' }
       const verdict = await adapter.judge(scenario.task, artifact)
       const v = verdict.resolved ? 1 : 0
-      return { dimensions: { resolved: v }, composite: v }
+      return { dimensions: { resolved: v }, composite: v, notes: verdict.detail ?? '' }
     },
   }
 

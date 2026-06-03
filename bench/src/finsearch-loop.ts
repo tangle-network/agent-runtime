@@ -20,7 +20,6 @@
 
 import {
   type AgentRunSpec,
-  blind,
   createDynamicDriver,
   type OutputAdapter,
   runLoop,
@@ -125,7 +124,7 @@ async function main() {
     name: 'finsearch-worker',
     taskToPrompt: (q) => q,
     sandboxOverrides: {
-      backend: { model: { provider: 'openai', model, baseUrl: routerBaseUrl, apiKey: routerKey } },
+      backend: { type: 'opencode', model: { provider: 'openai', model, baseUrl: routerBaseUrl, apiKey: routerKey } },
     },
   }
 
