@@ -18,6 +18,7 @@
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { slugify } from '../profiles/ui-auditor/slugify'
 import {
   UI_FINDING_SEVERITIES,
   UI_LENSES,
@@ -151,16 +152,7 @@ function nextFindingId(reg: AuditRegistry): number {
 }
 
 function slugifyTitle(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80)
-  if (slug.length === 0) {
-    throw new Error(`audit-writer: title slugified to empty string (got ${JSON.stringify(title)})`)
-  }
-  return slug
+  return slugify(title, 'title')
 }
 
 function renderFinding(finding: UiFinding): string {

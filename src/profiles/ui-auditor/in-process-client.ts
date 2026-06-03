@@ -27,7 +27,19 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import type { LoopSandboxClient } from '../../loops/types'
 import type { UiJudge } from './judge'
 import { decodeAuditTaskEnvelope } from './prompt'
+import { slugify } from './slugify'
 import type { UiAuditCapture, UiAuditCaptureRequest } from './task'
+
+// All synthetic events the auditor emits flow through this helper. Reason:
+// `SandboxEvent.data` is a sandbox-SDK shape (effectively `Record<string,
+// unknown>`) that our typed payloads (`UiAuditCapture`, `UiFinding`, …) do not
+// satisfy structurally. The cast moves the type-system smell into a single,
+// named, documented call site so the call sites in `runIteration` stay clean.
+// The runtime contract — `{ type, data }` — is what the output adapter reads;
+// the static type is what the kernel collects into `SandboxEvent[]`.
+function asSandboxEvent<T>(type: string, data: T): SandboxEvent {
+  return { type, data } as unknown as SandboxEvent
+}
 
 /** @experimental */
 export interface InProcessUiAuditClientOptions {
@@ -104,21 +116,6 @@ function nowStamp(): string {
     `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-` +
     `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`
   )
-}
-
-function slugify(value: string, fieldName: string): string {
-  const slug = value
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80)
-  if (slug.length === 0) {
-    throw new Error(
-      `ui-auditor: ${fieldName} slugified to empty string. Provide a non-empty value (got ${JSON.stringify(value)}).`,
-    )
-  }
-  return slug
 }
 
 function viewportOf(req: UiAuditCaptureRequest): { width: number; height: number } {
@@ -198,7 +195,7 @@ export function createInProcessUiAuditClient(
       throw new Error('ui-auditor: task has zero captures; nothing to audit.')
     }
 
-    yield { type: 'audit.lens', data: { lens: task.lens } } as unknown as SandboxEvent
+    yield asSandboxEvent('audit.lens', { lens: task.lens })
 
     const browser = await getBrowser()
     const context = await browser.newContext({ viewport: DEFAULT_VIEWPORT })
@@ -235,7 +232,7 @@ export function createInProcessUiAuditClient(
         if (req.elementSelector) cap.elementSelector = req.elementSelector
         if (req.label) cap.label = req.label
         captures.push(cap)
-        yield { type: 'audit.capture', data: cap } as unknown as SandboxEvent
+        yield asSandboxEvent('audit.capture', cap)
       }
 
       const judgeOut = await options.judge({
@@ -248,23 +245,20 @@ export function createInProcessUiAuditClient(
       })
 
       for (const finding of judgeOut.findings) {
-        yield { type: 'audit.finding', data: finding } as unknown as SandboxEvent
+        yield asSandboxEvent('audit.finding', finding)
       }
       if (judgeOut.notes && judgeOut.notes.trim().length > 0) {
-        yield { type: 'audit.notes', data: { notes: judgeOut.notes } } as unknown as SandboxEvent
+        yield asSandboxEvent('audit.notes', { notes: judgeOut.notes })
       }
 
       const usage = judgeOut.tokenUsage ?? { input: 0, output: 0 }
-      yield {
-        type: 'done',
-        data: {
-          tokenUsage: {
-            inputTokens: usage.input,
-            outputTokens: usage.output,
-          },
-          totalCostUsd: judgeOut.costUsd ?? 0,
+      yield asSandboxEvent('done', {
+        tokenUsage: {
+          inputTokens: usage.input,
+          outputTokens: usage.output,
         },
-      } as unknown as SandboxEvent
+        totalCostUsd: judgeOut.costUsd ?? 0,
+      })
     } catch (err) {
       primaryError = err
     } finally {
