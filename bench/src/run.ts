@@ -17,6 +17,7 @@ import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { randomAtK, summarizeCompare } from './compare-decomp'
+import { appendRunRecord } from './corpus'
 import { runPool } from './run-pool'
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -234,6 +235,11 @@ async function main() {
     const k = Number(process.env.K ?? models.length)
     const conc = Number(process.env.CONCURRENCY ?? 2)
     const out = process.env.SCORECARD ?? '/tmp/swebench-oracle.jsonl'
+    // CORPUS (opt-in): also persist a selector-readable RunRecord per instance, so
+    // the deployable selector is scored OFFLINE via `corpus-replay --selector` — the
+    // local, sandbox-free path to the selector@k vs random@k gate.
+    const corpusPath = process.env.CORPUS
+    const benchName = process.env.BENCH ?? 'swe-bench'
     await adapter.preflight()
     const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
@@ -243,17 +249,45 @@ async function main() {
     await runPool(tasks, conc, async (task) => {
       const started = Date.now()
       try {
-        const resolved: boolean[] = []
+        const shots: Array<{ output: string; valid: boolean; score: number }> = []
         for (let i = 0; i < k; i += 1) {
           const shotModel = models[i % models.length] as string
           const artifact = await runShot(task, shotModel, livenessMs)
           const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
-          resolved.push(score.resolved === true)
+          shots.push({ output: artifact, valid: score.resolved === true, score: score.score })
         }
+        const resolved = shots.map((s) => s.valid)
         const nResolved = resolved.filter(Boolean).length
         const pass1 = resolved[0] === true
         const oracle = nResolved > 0
         const randomExpected = k > 0 ? nResolved / k : 0
+        if (corpusPath) {
+          // local-research worker returns no token usage (it spawns opencode +
+          // reads stdout), so cost/tokens are 0 here — the selector reads output +
+          // valid only, which is what we capture faithfully.
+          await appendRunRecord(corpusPath, {
+            ts: new Date().toISOString(),
+            benchmark: benchName,
+            instanceId: task.id,
+            condition: `random@${k}`,
+            model: models.join('+'),
+            blindResolved: shots[0]?.valid === true,
+            resolved: oracle,
+            attempts: shots.map((s, i) => ({
+              round: i,
+              prompt: String((task as { prompt?: unknown }).prompt ?? ''),
+              output: s.output,
+              valid: s.valid,
+              score: s.score,
+              costUsd: 0,
+              tokensIn: 0,
+              tokensOut: 0,
+              eventCount: 0,
+              eventTypes: {},
+            })),
+            infraError: false,
+          })
+        }
         agg.n += 1
         if (pass1) agg.pass1 += 1
         if (oracle) agg.oracle += 1
