@@ -115,6 +115,26 @@ describe('createUiAuditorValidator', () => {
     expect(verdict.score).toBe(0.5)
   })
 
+  it('reports evidence ratio honestly even when the score path is reached', async () => {
+    // Guards above hard-fail when any finding's screenshots are unresolvable,
+    // so the score path always sees evidence=1 today. This test pins that
+    // contract: when the score path runs, scores.evidence reflects the
+    // resolved-screenshots ratio computed from the actual data, not a
+    // hardcoded constant. If the guards are ever relaxed, the validator
+    // produces a truthful evidence dimension automatically.
+    const task = baseTask()
+    const validator = createUiAuditorValidator(task)
+    const output: UiAuditOutput = {
+      lens: 'consistency',
+      captures: [baseCapture()],
+      findings: [baseFinding({ selector: '.btn-primary' })],
+    }
+    const verdict = await validator.validate(output, ctx)
+    expect(verdict.valid).toBe(true)
+    expect(verdict.scores?.evidence).toBe(1)
+    expect(verdict.notes).toContain('evidence=1.00')
+  })
+
   it('penalizes generic titles', async () => {
     const task = baseTask()
     const validator = createUiAuditorValidator(task)

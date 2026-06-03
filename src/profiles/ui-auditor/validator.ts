@@ -106,17 +106,26 @@ export function createUiAuditorValidator(task: UiAuditTask): Validator<UiAuditOu
       const specificity = withSelector / findings.length
       const generic = findings.filter((f) => isGenericTitle(f.title)).length
       const titles = 1 - generic / findings.length
-      // Evidence weight is 1 by the time we reach here: the missing-screenshot
-      // and unresolved-screenshot guards above hard-fail any finding without
-      // resolvable evidence. Inlining keeps a future relaxation of either
-      // guard from silently inflating the score via a stale constant.
-      const score = Number((0.4 * specificity + 0.4 * 1 + 0.2 * titles).toFixed(4))
+      // Compute evidence honestly from the data: proportion of findings whose
+      // screenshots are all resolvable against this iteration's captures. The
+      // guards above hard-fail when this would be < 1, so today the result is
+      // always 1; if a future change relaxes those guards into a soft-fail
+      // mode, this still produces a truthful evidence ratio rather than a
+      // stale constant inflating the score.
+      const withFullEvidence = findings.filter(
+        (f) =>
+          Array.isArray(f.screenshots) &&
+          f.screenshots.length > 0 &&
+          f.screenshots.every((s) => capturePaths.has(s.path)),
+      ).length
+      const evidence = withFullEvidence / findings.length
+      const score = Number((0.4 * specificity + 0.4 * evidence + 0.2 * titles).toFixed(4))
 
       const verdict: DefaultVerdict = {
         valid: true,
         score,
-        notes: `${findings.length} finding(s) — specificity=${specificity.toFixed(2)} titles=${titles.toFixed(2)}`,
-        scores: { specificity, evidence: 1, titles },
+        notes: `${findings.length} finding(s) — specificity=${specificity.toFixed(2)} evidence=${evidence.toFixed(2)} titles=${titles.toFixed(2)}`,
+        scores: { specificity, evidence, titles },
       }
       return verdict
     },
