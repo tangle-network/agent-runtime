@@ -104,6 +104,9 @@ export function buildRunRecord<Task, Output>(args: {
 
 /** Append one RunRecord to the durable corpus (creating the dir if needed). */
 export async function appendRunRecord(corpusPath: string, record: RunRecord): Promise<void> {
-  await mkdir(dirname(corpusPath), { recursive: true }).catch(() => {})
+  // Fail loud on a real mkdir failure (EACCES, disk-full): recursive:true is
+  // idempotent when the dir already exists, so this throws ONLY on genuine errors
+  // — a silent swallow just made the append fail later with a confusing message.
+  await mkdir(dirname(corpusPath), { recursive: true })
   await appendFile(corpusPath, `${JSON.stringify(record)}\n`)
 }

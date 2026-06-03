@@ -77,11 +77,23 @@ export async function solveShot(
       if (ev?.type === 'error') lastErr = JSON.stringify(ev.data).slice(0, 300)
     }
 
-    const patch = await box.fs.read(PATCH_PATH).catch(() => '')
+    // A MISSING patch file is a real "agent produced no patch" outcome; any OTHER
+    // read failure (permissions, stream) is surfaced in `detail`, never silently
+    // masked as an empty patch — so a judge sees agent-failure vs fs-failure.
+    let patch = ''
+    let readErr: string | undefined
+    try {
+      patch = await box.fs.read(PATCH_PATH)
+    } catch (err) {
+      readErr = err instanceof Error ? err.message : String(err)
+    }
+    const empty = patch.trim().length === 0
     return {
       patch,
-      ok: patch.trim().length > 0,
-      detail: patch.trim().length > 0 ? undefined : `empty patch${lastErr ? `; lastError=${lastErr}` : ''}`,
+      ok: !empty,
+      detail: empty
+        ? `empty patch${readErr ? ` (patch read failed: ${readErr.slice(0, 120)})` : ''}${lastErr ? `; lastError=${lastErr}` : ''}`
+        : undefined,
     }
   } finally {
     try {
