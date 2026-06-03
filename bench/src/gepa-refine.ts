@@ -17,7 +17,7 @@
  */
 
 import { optimizePrompt } from '@tangle-network/agent-runtime/improvement'
-import type { JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
+import type { CampaignResult, JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
 import {
   heldoutSignificance,
   inMemoryCampaignStorage,
@@ -46,6 +46,65 @@ function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
+}
+
+/** A diagnosed root cause the gepaDriver renders into its reflection prompt
+ *  (renderAnalystEvidence reads claim/severity/area/recommended_action). */
+interface DiagnosedFinding {
+  claim: string
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info'
+  area?: string
+  recommended_action?: string
+}
+
+/** One OpenAI-compatible chat call against the Tangle router. Fail loud. */
+async function chatComplete(
+  routerBaseUrl: string,
+  key: string,
+  model: string,
+  system: string,
+  user: string,
+): Promise<string> {
+  const res = await fetch(`${routerBaseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  })
+  if (!res.ok) throw new Error(`diagnose LLM ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  const content = j.choices?.[0]?.message?.content
+  if (!content) throw new Error('diagnose LLM returned empty content')
+  return content
+}
+
+/** Extract the JSON array of findings from a model reply; coerce to the
+ *  reflection-prompt shape. Returns [] on unparseable output (logged by caller). */
+function parseFindings(content: string): DiagnosedFinding[] {
+  const start = content.indexOf('[')
+  const end = content.lastIndexOf(']')
+  if (start < 0 || end <= start) return []
+  let arr: unknown
+  try {
+    arr = JSON.parse(content.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(arr)) return []
+  const sev = new Set(['critical', 'high', 'medium', 'low', 'info'])
+  return arr
+    .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null && typeof (x as { claim?: unknown }).claim === 'string')
+    .map((x) => ({
+      claim: String(x.claim),
+      severity: (sev.has(String(x.severity)) ? String(x.severity) : 'medium') as DiagnosedFinding['severity'],
+      area: x.area !== undefined ? String(x.area) : 'failure-mode',
+      recommended_action: x.recommended_action !== undefined ? String(x.recommended_action) : undefined,
+    }))
 }
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -196,7 +255,7 @@ async function main() {
     ? 'a BLENDER bpy AUTHORING DIRECTIVE: the system instruction given to an agent that writes a Blender Python (bpy) script to build a described 3D object. The result is rendered to images and a vision judge scores per-task criteria — correct recognizable shape, accurate proportions, sensible size, reasonable color/material, clean three-dimensional structure, faithful execution of the instruction. The directive must make the agent reliably produce a script that builds a correct, well-proportioned, clearly-recognizable model.'
     : isCad
       ? 'an OpenSCAD AUTHORING DIRECTIVE: the system instruction given to an agent that writes OpenSCAD source for a geometry brief. The produced solid is scored by a deterministic CAD kernel gate: it must compile, hit the brief\'s bounding box, have enough triangle detail, present a PITCHED roof (the top z-band footprint far smaller than the base), and be a HOLLOW shell (printed solid volume well under the bounding-box volume). The directive must make the agent reliably satisfy ALL of these checks.'
-      : 'a REFINE DIRECTIVE: the instruction given to an agent to re-examine its own prior answer and improve it. It must make the agent KEEP a correct answer and fix only concrete errors — never churn a right answer.'
+      : 'a REFINE DIRECTIVE: the instruction given to a research agent to re-examine its own prior answer and MAXIMIZE the chance the FINAL answer is correct. The dominant failure mode is a confidently-wrong first answer that the agent then restates unchanged. The directive must make the agent treat its prior answer as a HYPOTHESIS to confirm or replace — independently re-deriving the value from primary sources and REPLACING the prior answer whenever it cannot cite a source that confirms the exact value, units, and precision requested. It must keep a verified-correct answer unchanged, but must never lock in an unverifiable or unsupported prior answer.'
   const reflectionPrimitives = isMind2web
     ? [
         'instruct the agent to choose the candidate whose role/label/text most directly names the current task step, not the most prominent, first, or top-of-page element',
@@ -226,10 +285,70 @@ async function main() {
         'instruct the agent to cut the required openings (a door, several windows) by subtracting boxes from the walls while keeping the model a small number of connected solids',
       ]
     : [
-        'demand explicit re-verification of the figure/fact against a cited source before asserting it',
-        'require checking the answer against the exact units/precision/tolerance the question requests',
-        'instruct the agent to keep a correct answer verbatim and change ONLY on a concrete identified error',
+        'instruct the agent to treat the prior answer as a hypothesis, not a default — independently re-derive the value from primary sources rather than restating it',
+        'instruct the agent to REPLACE the prior answer with a freshly-researched one whenever it cannot cite a reliable source confirming the exact value/units/precision requested',
+        'require checking the answer against the exact units/precision/tolerance the question requests, and correcting the value when the prior answer is off',
+        'instruct the agent to keep a verified-correct answer verbatim, but to prefer a new well-sourced answer over an unverifiable prior one',
       ]
+
+  // EYES→HANDS: after each generation, diagnose the FAILED runs (question + gold +
+  // the agent's wrong answer + judge note) into structured findings that gepaDriver
+  // renders into the NEXT reflection prompt — so the directive is rewritten against
+  // WHAT WENT WRONG, not just trial scores. Answer-level for now (the worker does not
+  // yet surface a step transcript); a trace-analyst over captured steps is the next tier.
+  const taskById = new Map(tasks.map((t) => [t.id, t]))
+  const analyzeGeneration = async (input: {
+    generation: number
+    runDir: string
+    candidates: Array<{ surfaceHash: string; campaign: CampaignResult<string, RefineScenario>; composite: number }>
+    history: unknown[]
+  }): Promise<DiagnosedFinding[]> => {
+    const failures = new Map<string, { question: string; gold: string; answer: string; note: string }>()
+    for (const cand of input.candidates) {
+      for (const cell of cand.campaign.cells) {
+        const js = cell.judgeScores?.[judge.name]
+        if ((js?.composite ?? 0) >= 1) continue // resolved — only learn from failures
+        if (failures.has(cell.scenarioId)) continue
+        const task = taskById.get(cell.scenarioId)
+        if (!task) continue
+        const md = task.metadata as Record<string, unknown> | undefined
+        failures.set(cell.scenarioId, {
+          question: task.prompt.slice(0, 1200),
+          gold: String(md?.responseReference ?? md?.gold ?? '').slice(0, 600),
+          answer: (typeof cell.artifact === 'string' ? cell.artifact : '').slice(-1500),
+          note: (js?.notes ?? '').slice(0, 400),
+        })
+      }
+    }
+    const items = [...failures.values()].slice(0, 8)
+    if (items.length === 0) {
+      console.log(`[gepa-refine] gen ${input.generation}: 0 failures to diagnose`)
+      return []
+    }
+    const user = items
+      .map(
+        (f, i) =>
+          `### Failure ${i + 1}\nQUESTION: ${f.question}\nGOLD ANSWER (with tolerance/criteria): ${f.gold}\nAGENT'S WRONG ANSWER: ${f.answer}${f.note ? `\nJUDGE NOTE: ${f.note}` : ''}`,
+      )
+      .join('\n\n')
+    const system =
+      'You are a failure analyst for a financial-research agent. It researches live sources and gives a final answer; a judge marks it right/wrong vs the gold answer. ' +
+      'Below are FAILED runs. Diagnose the COMMON, recurring failure modes (e.g. answered from memory without verifying, used a wrong/secondary source, wrong fiscal period, wrong units/precision, gave up early, restated a wrong prior answer unchanged). ' +
+      "For each, recommend a CONCRETE change to the agent's REFINE DIRECTIVE — the instruction telling it how to re-examine and fix its prior answer to maximize final-answer correctness. " +
+      'Return ONLY a JSON array (no prose) of objects {"claim","severity":"high"|"medium"|"low","area","recommended_action"}. Max 6, most impactful first.'
+    let content: string
+    try {
+      content = await chatComplete(routerBaseUrl, routerKey, process.env.REFLECT_MODEL ?? 'gpt-5', system, user)
+    } catch (err) {
+      console.error(`[gepa-refine] analyzeGeneration LLM failed (gen ${input.generation}): ${(err as Error).message}`)
+      return []
+    }
+    const findings = parseFindings(content)
+    console.log(
+      `[gepa-refine] gen ${input.generation}: ${items.length} failures → ${findings.length} diagnosed findings fed to reflection`,
+    )
+    return findings
+  }
 
   const result = await optimizePrompt<RefineScenario, string>({
     baselinePrompt: baseDirective,
@@ -253,6 +372,7 @@ async function main() {
     maxConcurrency: Number(process.env.CONCURRENCY ?? 2),
     seed: 42,
     autoOnPromote: 'none',
+    analyzeGeneration,
   })
 
   console.log(`\n=== GEPA REFINE-DIRECTIVE RESULT (${benchKey}) ===`)

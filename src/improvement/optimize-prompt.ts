@@ -30,6 +30,7 @@ import type {
   DispatchContext,
   Gate,
   GateResult,
+  GenerationRecord,
   ImprovementDriver,
   JudgeConfig,
   RunImprovementLoopResult,
@@ -110,6 +111,25 @@ export interface OptimizePromptOptions<TScenario extends Scenario, TArtifact> {
   autoOnPromote?: 'pr' | 'none'
   ghOwner?: string
   ghRepo?: string
+  /** Static findings seeded into the first generation's `propose()` as
+   *  `ctx.findings` — diagnosed root causes a findings-grounded driver (the
+   *  default gepaDriver renders them into its reflection prompt) acts on. */
+  findings?: unknown[]
+  /** Per-generation findings producer — the EYES→HANDS closure. After each
+   *  generation's candidates are scored, it receives that generation's results
+   *  (per-candidate `campaign` + `runDir`); whatever it returns REPLACES
+   *  `ctx.findings` for the NEXT generation's reflection. Plug a trace-analyst
+   *  here to feed "what the agent did wrong" back into the optimizer. */
+  analyzeGeneration?: (input: {
+    generation: number
+    runDir: string
+    candidates: Array<{
+      surfaceHash: string
+      campaign: CampaignResult<TArtifact, TScenario>
+      composite: number
+    }>
+    history: GenerationRecord[]
+  }) => Promise<unknown[]>
 }
 
 /** @experimental */
@@ -209,6 +229,8 @@ export async function optimizePrompt<TScenario extends Scenario, TArtifact>(
     ...(opts.reps !== undefined ? { reps: opts.reps } : {}),
     ...(opts.maxConcurrency !== undefined ? { maxConcurrency: opts.maxConcurrency } : {}),
     ...(opts.now !== undefined ? { now: opts.now } : {}),
+    ...(opts.findings !== undefined ? { findings: opts.findings } : {}),
+    ...(opts.analyzeGeneration !== undefined ? { analyzeGeneration: opts.analyzeGeneration } : {}),
   })
 
   const improved = result.gateResult.decision === 'ship'
