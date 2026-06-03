@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 
 import { appendRunRecord, type AttemptRecord, type RunRecord } from './corpus'
+import { runPool } from './run-pool'
 
 const BENCH_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TB = join(BENCH_ROOT, '.venv', 'bin', 'tb')
@@ -473,29 +474,21 @@ async function main(): Promise<void> {
   console.log('')
 
   const results: Array<Awaited<ReturnType<typeof solveTask>>> = []
-  let next = 0
   let done = 0
-  const worker = async () => {
-    while (next < IDS.length) {
-      const taskId = IDS[next++]
-      if (!taskId) break
-      const started = Date.now()
-      const r = await solveTask(taskId)
-      results.push(r)
-      done += 1
-      const secs = Math.round((Date.now() - started) / 1000)
-      const perRound = r.rounds
-        .map((x) => `r${x.round}=${x.resolved ? '✓' : '·'}`)
-        .join(' ')
-      const tag =
-        r.refine && !r.blind ? '↑RESCUED' : r.blind && !r.refine ? '↓BROKE' : r.blind ? '=both✓' : '=both·'
-      console.log(
-        `  [${done}/${IDS.length}] ${taskId}: blind=${r.blind ? '✓' : '·'} refine=${r.refine ? '✓' : '·'} ${tag}  (${perRound}, ${secs}s)`,
-      )
-      for (const rd of r.rounds) console.log(`        round ${rd.round} run dir: ${rd.outputDir}`)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, IDS.length) }, worker))
+  await runPool(IDS, CONCURRENCY, async (taskId) => {
+    const started = Date.now()
+    const r = await solveTask(taskId)
+    results.push(r)
+    done += 1
+    const secs = Math.round((Date.now() - started) / 1000)
+    const perRound = r.rounds.map((x) => `r${x.round}=${x.resolved ? '✓' : '·'}`).join(' ')
+    const tag =
+      r.refine && !r.blind ? '↑RESCUED' : r.blind && !r.refine ? '↓BROKE' : r.blind ? '=both✓' : '=both·'
+    console.log(
+      `  [${done}/${IDS.length}] ${taskId}: blind=${r.blind ? '✓' : '·'} refine=${r.refine ? '✓' : '·'} ${tag}  (${perRound}, ${secs}s)`,
+    )
+    for (const rd of r.rounds) console.log(`        round ${rd.round} run dir: ${rd.outputDir}`)
+  })
 
   const n = results.length
   const nBlind = results.filter((r) => r.blind).length
