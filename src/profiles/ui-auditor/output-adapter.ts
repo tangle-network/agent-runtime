@@ -15,23 +15,14 @@
  */
 
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import type { UiFinding, UiLens } from './substrate'
+import { UI_LENSES, type UiFinding, type UiLens } from './substrate'
 import type { UiAuditCapture, UiAuditOutput } from './task'
 
-const KNOWN_LENS_VALUES = new Set<UiLens>([
-  'consistency',
-  'hierarchy',
-  'layout',
-  'ux-flow',
-  'duplication',
-  'accessibility',
-  'responsive',
-  'states',
-  'content',
-  'interaction',
-  'performance-perceived',
-  'other',
-])
+// Build the lens-validation set from the canonical UI_LENSES tuple so adding
+// a lens to the substrate automatically extends the parser; otherwise a new
+// lens would silently fail isUiLens() and parseAuditorEvents would drop
+// every event using it.
+const KNOWN_LENS_VALUES = new Set<UiLens>(UI_LENSES)
 
 function isUiLens(v: unknown): v is UiLens {
   return typeof v === 'string' && KNOWN_LENS_VALUES.has(v as UiLens)
