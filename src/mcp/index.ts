@@ -23,6 +23,7 @@ export type {
   CreateDefaultCoderDelegateOptions,
   DelegateRunCtx,
   ResearcherDelegate,
+  UiAuditorDelegate,
 } from './delegates'
 export { createDefaultCoderDelegate } from './delegates'
 export type {
@@ -97,6 +98,13 @@ export {
   validateDelegateResearchArgs,
 } from './tools/delegate-research'
 export {
+  createDelegateUiAuditHandler,
+  DELEGATE_UI_AUDIT_DESCRIPTION,
+  DELEGATE_UI_AUDIT_INPUT_SCHEMA,
+  DELEGATE_UI_AUDIT_TOOL_NAME,
+  validateDelegateUiAuditArgs,
+} from './tools/delegate-ui-audit'
+export {
   createDelegationHistoryHandler,
   DELEGATION_HISTORY_DESCRIPTION,
   DELEGATION_HISTORY_INPUT_SCHEMA,
@@ -125,6 +133,10 @@ export type {
   DelegateResearchArgs,
   DelegateResearchConfig,
   DelegateResearchResult,
+  DelegateUiAuditArgs,
+  DelegateUiAuditConfig,
+  DelegateUiAuditResult,
+  DelegateUiAuditRoute,
   DelegationError,
   DelegationFeedbackSnapshot,
   DelegationHistoryArgs,
@@ -140,6 +152,7 @@ export type {
   FeedbackRefersTo,
   ResearchOutputShape,
   ResearchSource,
+  UiAuditorDelegationOutput,
 } from './types'
 export type {
   CreateWorktreeOptions,

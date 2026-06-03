@@ -14,3 +14,37 @@ export type {
   MultiHarnessCoderFanoutOptions,
 } from './coder'
 export { coderProfile, createCoderValidator, multiHarnessCoderFanout } from './coder'
+export type {
+  BrowserContextHandle,
+  BrowserHandle,
+  InProcessUiAuditClientOptions,
+  PageHandle,
+  UiAuditCapture,
+  UiAuditCaptureRequest,
+  UiAuditOutput,
+  UiAuditorProfileOptions,
+  UiAuditTask,
+  UiAuditViewport,
+  UiFinding,
+  UiFindingScreenshot,
+  UiFindingSeverity,
+  UiJudge,
+  UiJudgeInput,
+  UiJudgeOutput,
+  UiJudgeTokenUsage,
+  UiLens,
+} from './ui-auditor'
+export {
+  buildAuditorSystemPrompt,
+  createInProcessUiAuditClient,
+  createUiAuditorValidator,
+  decodeAuditTaskEnvelope,
+  encodeAuditTaskEnvelope,
+  formatAuditorPrompt,
+  LENS_BRIEFS,
+  parseAuditorEvents,
+  SHARED_AUDITOR_RULES,
+  UI_FINDING_SEVERITIES,
+  UI_LENSES,
+  uiAuditorProfile,
+} from './ui-auditor'

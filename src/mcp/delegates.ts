@@ -24,8 +24,10 @@ import type {
   CoderTask,
   DelegateCodeArgs,
   DelegateResearchArgs,
+  DelegateUiAuditArgs,
   DelegationProgress,
   ResearchOutputShape,
+  UiAuditorDelegationOutput,
 } from './types'
 
 /** @experimental */
@@ -45,6 +47,20 @@ export type ResearcherDelegate = (
   args: DelegateResearchArgs,
   ctx: DelegateRunCtx,
 ) => Promise<ResearchOutputShape>
+
+/**
+ * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
+ * default factory because the inputs are workspace path + judge function
+ * + (optionally) a `LoopSandboxClient`, and the judge is the consumer's
+ * model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
+ * `@tangle-network/agent-runtime/profiles` for the canonical wiring.
+ *
+ * @experimental
+ */
+export type UiAuditorDelegate = (
+  args: DelegateUiAuditArgs,
+  ctx: DelegateRunCtx,
+) => Promise<UiAuditorDelegationOutput>
 
 /** @experimental Structured review verdict over a coder candidate. */
 export interface CoderReview {
