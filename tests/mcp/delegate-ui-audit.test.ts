@@ -23,6 +23,26 @@ describe('validateDelegateUiAuditArgs', () => {
     expect(() => validateDelegateUiAuditArgs({ workspaceDir: '/ws', routes: [] })).toThrow(/routes/)
   })
 
+  it('rejects relative workspaceDir at the wire boundary', () => {
+    for (const wsDir of ['.', './tmp', '../parent', 'relative/path', 'tmp']) {
+      expect(() =>
+        validateDelegateUiAuditArgs({
+          workspaceDir: wsDir,
+          routes: [{ name: 'home', url: 'https://example.com' }],
+        }),
+      ).toThrow(/must be an absolute path/)
+    }
+  })
+
+  it('accepts an absolute workspaceDir', () => {
+    expect(() =>
+      validateDelegateUiAuditArgs({
+        workspaceDir: '/tmp/audits/foo',
+        routes: [{ name: 'home', url: 'https://example.com' }],
+      }),
+    ).not.toThrow()
+  })
+
   it('rejects routes missing name or url', () => {
     expect(() =>
       validateDelegateUiAuditArgs({ workspaceDir: '/ws', routes: [{ name: 'home' }] }),

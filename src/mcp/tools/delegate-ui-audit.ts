@@ -16,6 +16,7 @@
  * with a few lines.
  */
 
+import path from 'node:path'
 import { UI_LENSES, type UiLens } from '../../profiles/ui-auditor/substrate'
 import type { UiAuditorDelegate } from '../delegates'
 import {
@@ -118,6 +119,15 @@ export function validateDelegateUiAuditArgs(raw: unknown): DelegateUiAuditArgs {
   const workspaceDir = value.workspaceDir
   if (typeof workspaceDir !== 'string' || workspaceDir.trim().length === 0) {
     throw new TypeError('delegate_ui_audit: `workspaceDir` must be a non-empty string')
+  }
+  // Reject relative paths at the boundary. Without this, the writer joins a
+  // relative workspaceDir against the process CWD, so the same MCP call
+  // produces different file layouts depending on where the server was
+  // launched — a silent fail-loud violation for a public API.
+  if (!path.isAbsolute(workspaceDir.trim())) {
+    throw new TypeError(
+      `delegate_ui_audit: \`workspaceDir\` must be an absolute path (got ${JSON.stringify(workspaceDir)})`,
+    )
   }
   const routesRaw = value.routes
   if (!Array.isArray(routesRaw) || routesRaw.length === 0) {
