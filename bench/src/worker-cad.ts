@@ -194,7 +194,11 @@ export async function solveCadRefineLocal(task: BenchTask, cfg: CadLocalConfig):
 
       let screenshot: string | undefined
       if (compileOk) {
-        const render = await runLocal('xvfb-run', ['-a', 'openscad', '-o', pngPath, '--imgsize=1200,900', '--colorscheme=Cornfield', '--projection=perspective', '--camera=40,30,45,60,0,25,300', scadPath], dir)
+        // Full CGAL --render (not preview): clean coplanar faces, no z-fighting
+        // speckle on the window/door cutouts. Dark Tomorrow-Night palette to match
+        // the film; --autocenter --viewall frames any model regardless of its
+        // dimensions (so the same command flatters every task in the set).
+        const render = await runLocal('xvfb-run', ['-a', 'openscad', '-o', pngPath, '--render', '--imgsize=1280,960', '--colorscheme=Tomorrow Night', '--projection=perspective', '--autocenter', '--viewall', '--camera=0,0,0,60,0,25,0', scadPath], dir)
         if (render.code === 0) {
           const buf = await readFile(pngPath).catch(() => undefined)
           if (buf) {
