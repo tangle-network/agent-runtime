@@ -44,6 +44,37 @@ describe('validateDelegateUiAuditArgs', () => {
     ).toThrow(/parseable URL/)
   })
 
+  it('rejects non-http(s) URL schemes (SSRF defense)', () => {
+    for (const url of [
+      'file:///etc/passwd',
+      'data:text/html,<script>alert(1)</script>',
+      'javascript:alert(1)',
+      'ftp://example.com/x',
+    ]) {
+      expect(() =>
+        validateDelegateUiAuditArgs({
+          workspaceDir: '/ws',
+          routes: [{ name: 'home', url }],
+        }),
+      ).toThrow(/must use http or https/)
+    }
+  })
+
+  it('accepts both http and https', () => {
+    expect(() =>
+      validateDelegateUiAuditArgs({
+        workspaceDir: '/ws',
+        routes: [{ name: 'home', url: 'http://localhost:3000' }],
+      }),
+    ).not.toThrow()
+    expect(() =>
+      validateDelegateUiAuditArgs({
+        workspaceDir: '/ws',
+        routes: [{ name: 'home', url: 'https://example.com/path?q=1' }],
+      }),
+    ).not.toThrow()
+  })
+
   it('rejects unknown lenses', () => {
     expect(() =>
       validateDelegateUiAuditArgs({

@@ -148,13 +148,21 @@ function validateRoute(raw: unknown, index: number): DelegateUiAuditArgs['routes
   if (typeof v.url !== 'string' || v.url.trim().length === 0) {
     throw new TypeError(`delegate_ui_audit: routes[${index}].url must be a non-empty string`)
   }
-  // Surface invalid URLs immediately — the auditor would fail later but the
-  // tool wire is the right error boundary.
+  // Parse + restrict to http/https. The in-process auditor client navigates
+  // to whatever URL the MCP caller supplies; permitting `file://`, `data:`,
+  // `javascript:` would let an attacker controlling the tool input pull
+  // local files or run inline scripts.
+  let parsedUrl: URL
   try {
-    void new URL(v.url)
+    parsedUrl = new URL(v.url)
   } catch {
     throw new TypeError(
       `delegate_ui_audit: routes[${index}].url is not a parseable URL (got ${JSON.stringify(v.url)})`,
+    )
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new TypeError(
+      `delegate_ui_audit: routes[${index}].url must use http or https (got ${parsedUrl.protocol})`,
     )
   }
   const out: DelegateUiAuditArgs['routes'][number] = { name: v.name.trim(), url: v.url.trim() }
