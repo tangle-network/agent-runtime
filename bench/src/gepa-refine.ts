@@ -28,8 +28,10 @@ import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
+import { createMind2WebAdapter } from './benchmarks/mind2web'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { DEFAULT_BLENDER_DIRECTIVE, solveBlenderLocal } from './worker-blender'
+import { DEFAULT_MIND2WEB_DIRECTIVE, solveBrowserLocal } from './worker-browser'
 import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, solveRefineResearchLocal } from './worker-research'
@@ -51,19 +53,22 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   cad: createCadDesignAdapter,
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
+  mind2web: createMind2WebAdapter,
 }
 
 async function main() {
   const benchKey = process.env.BENCH ?? 'hotpotqa'
   const adapter = ADAPTERS[benchKey]?.()
-  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad|cadbench|cadgenbench, got ${benchKey}`)
+  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad|cadbench|cadgenbench|mind2web, got ${benchKey}`)
   const isCad = benchKey === 'cad'
   const isCadbench = benchKey === 'cadbench'
   const isCadgenbench = benchKey === 'cadgenbench'
+  const isMind2web = benchKey === 'mind2web'
   // CAD (openscad gate) + CADBench (criteria vision judge) + CADGenBench
-  // (geometric cad_score) all return a FRACTION score → optimize against the
-  // partial-credit gradient, not flat 0/1.
-  const scoreBased = isCad || isCadbench || isCadgenbench
+  // (geometric cad_score) + Mind2Web (element 0.6 + operation 0.4 partial credit)
+  // all return a FRACTION score → optimize against the partial-credit gradient,
+  // not flat 0/1.
+  const scoreBased = isCad || isCadbench || isCadgenbench || isMind2web
   const useSandbox = process.env.SANDBOX === '1'
   const model =
     process.env.WORKER_MODEL ?? (scoreBased ? 'claude-sonnet-4-6' : useSandbox ? 'gpt-5' : 'deepseek/deepseek-v4-pro')
@@ -73,15 +78,17 @@ async function main() {
   const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('ROUTER_KEY')
-  const baseDirective = isCadgenbench
-    ? DEFAULT_BUILD123D_DIRECTIVE
-    : isCadbench
-      ? DEFAULT_BLENDER_DIRECTIVE
-      : isCad
-        ? DEFAULT_CAD_DIRECTIVE
-        : useSandbox
-          ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
-          : DEFAULT_RESEARCH_REFINE_DIRECTIVE
+  const baseDirective = isMind2web
+    ? DEFAULT_MIND2WEB_DIRECTIVE
+    : isCadgenbench
+      ? DEFAULT_BUILD123D_DIRECTIVE
+      : isCadbench
+        ? DEFAULT_BLENDER_DIRECTIVE
+        : isCad
+          ? DEFAULT_CAD_DIRECTIVE
+          : useSandbox
+            ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
+            : DEFAULT_RESEARCH_REFINE_DIRECTIVE
 
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
@@ -105,6 +112,14 @@ async function main() {
     scenario: RefineScenario,
     ctx: { cost: { observe(usd: number, source: string): void; observeTokens(u: { input: number; output: number }): void } },
   ): Promise<string> => {
+    if (isMind2web) {
+      // One element-selection shot under the candidate directive; the artifact is
+      // the ELEMENT/ACTION/VALUE the model commits to, scored by the deterministic
+      // Mind2Web judge. Single shot — element prediction is one step, no refine.
+      const s = await solveBrowserLocal(scenario.task, { routerBaseUrl, routerKey, model, directive })
+      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
+      return s.artifact
+    }
     if (isCadgenbench) {
       // Author build123d → export output.step; the artifact IS the STEP text,
       // which the CADGenBench geometric scorer (judge) grades vs ground truth.
@@ -172,14 +187,23 @@ async function main() {
     },
   }
 
-  const reflectionTarget = isCadgenbench
+  const reflectionTarget = isMind2web
+    ? 'a WEB ELEMENT-SELECTION DIRECTIVE: the system instruction given to a web agent that, shown a task goal and a numbered list of candidate page elements, must choose the SINGLE correct element to act on and the action (CLICK, or TYPE/SELECT with a value). It is scored by a deterministic step metric: the chosen element id must match the ground-truth target AND the action type (and the TYPE/SELECT value) must match. The directive must improve WHICH element the agent picks — favoring the candidate whose role/label/text matches the current task step and disambiguating look-alikes — without ever breaking the required ELEMENT/ACTION/VALUE output format.'
+    : isCadgenbench
     ? 'a build123d AUTHORING DIRECTIVE: the system instruction given to an agent that writes build123d (Python, OpenCascade BREP) to produce a STEP solid for a part description. The result is scored by a deterministic CAD-kernel metric: it must be a VALID watertight manifold solid, then align to the ground truth with a high point-cloud F1 + volume IoU + edge F1 + matching topology. The directive must make the agent produce a valid solid whose shape + exact dimensions match the description.'
     : isCadbench
     ? 'a BLENDER bpy AUTHORING DIRECTIVE: the system instruction given to an agent that writes a Blender Python (bpy) script to build a described 3D object. The result is rendered to images and a vision judge scores per-task criteria — correct recognizable shape, accurate proportions, sensible size, reasonable color/material, clean three-dimensional structure, faithful execution of the instruction. The directive must make the agent reliably produce a script that builds a correct, well-proportioned, clearly-recognizable model.'
     : isCad
       ? 'an OpenSCAD AUTHORING DIRECTIVE: the system instruction given to an agent that writes OpenSCAD source for a geometry brief. The produced solid is scored by a deterministic CAD kernel gate: it must compile, hit the brief\'s bounding box, have enough triangle detail, present a PITCHED roof (the top z-band footprint far smaller than the base), and be a HOLLOW shell (printed solid volume well under the bounding-box volume). The directive must make the agent reliably satisfy ALL of these checks.'
       : 'a REFINE DIRECTIVE: the instruction given to an agent to re-examine its own prior answer and improve it. It must make the agent KEEP a correct answer and fix only concrete errors — never churn a right answer.'
-  const reflectionPrimitives = isCadgenbench
+  const reflectionPrimitives = isMind2web
+    ? [
+        'instruct the agent to choose the candidate whose role/label/text most directly names the current task step, not the most prominent, first, or top-of-page element',
+        'instruct the agent to disambiguate look-alike candidates using their attributes (role, type, name, placeholder, aria-label) before committing',
+        'instruct the agent to make the action type follow from the element kind — a textbox/searchbox → TYPE with the exact requested value; a link/button/menuitem → CLICK; a dropdown/listbox → SELECT the named option',
+        'instruct the agent to read the value to type or select directly from the task goal (names, dates, codes, zip) and copy it verbatim into VALUE',
+      ]
+    : isCadgenbench
     ? [
         'instruct the agent to translate every explicit dimension in the description into exact build123d parameters (mm), so the produced solid matches the ground-truth size, not just the shape',
         'instruct the agent to build a single closed watertight manifold solid (use clean primitives + boolean unions/cuts; avoid open shells or self-intersections that fail the validity gate)',

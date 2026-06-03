@@ -11,6 +11,7 @@ import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
+import { createMind2WebAdapter } from './benchmarks/mind2web'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
@@ -30,6 +31,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
   hotpotqa: createHotpotqaAdapter,
+  mind2web: createMind2WebAdapter,
 }
 
 function must(name: string): string {
@@ -452,8 +454,45 @@ async function main() {
     return
   }
 
+  if (cmd === 'solve-browser') {
+    // One Mind2Web step: the agent picks the next element + action under the
+    // (optionally learned) directive; the deterministic judge scores element +
+    // operation; the screenshot-rich trace becomes a run-capsule film — the real
+    // page the agent acted on. Router-only (no sandbox), so no SANDBOX_KEY needed.
+    const fs = await import('node:fs/promises')
+    const { solveBrowserLocal } = await import('./worker-browser')
+    const m2w = createMind2WebAdapter()
+    const directive = process.env.M2W_DIRECTIVE_FILE
+      ? await fs.readFile(process.env.M2W_DIRECTIVE_FILE, 'utf8')
+      : process.env.M2W_DIRECTIVE
+    const cfg = {
+      routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+      routerKey: must('ROUTER_KEY'),
+      model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+      directive,
+    }
+    await m2w.preflight()
+    const [task] = rest[0] ? await m2w.loadTasks({ ids: [rest[0]] }) : await m2w.loadTasks({ limit: 1 })
+    if (!task) throw new Error('no mind2web task loaded')
+    console.log(`[solve-browser] ${task.id} with ${cfg.model}…`)
+    const shot = await solveBrowserLocal(task, cfg)
+    console.log(`worker: ok=${shot.ok} (${shot.detail})`)
+    const tracePath = process.env.TRACE_OUT ?? `/tmp/m2w-trace-${task.id}.json`
+    await fs.writeFile(tracePath, JSON.stringify(shot.trace, null, 2))
+    console.log(`trace (${shot.trace.length} spans) → ${tracePath}`)
+    const score = await m2w.judge(task, shot.artifact)
+    console.log(`\n${score.resolved ? '✅ RESOLVED' : `⚠️  score=${score.score}`} — ${task.id} (deterministic mind2web step judge)`) // eslint-disable-line
+    console.log(`detail: ${score.detail}`)
+    if (process.env.VIDEO !== '0' && shot.trace.length > 1) {
+      console.log(`\n[video] rendering run-capsule film…`)
+      const link = await renderCapsuleVideo(tracePath, `Agent navigates ${String(task.metadata?.website ?? 'the web')}`)
+      console.log(link ? `🎬 video → ${link}` : `🎬 video step finished (no link captured — see run-capsule output)`) // eslint-disable-line
+    }
+    return
+  }
+
   throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | batch-blind | batch-oracle | batch-compare`,
+    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | batch-blind | batch-oracle | batch-compare`,
   )
 }
 
