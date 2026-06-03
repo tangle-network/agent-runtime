@@ -18,7 +18,12 @@
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
+import {
+  UI_FINDING_SEVERITIES,
+  UI_LENSES,
+  type UiFinding,
+  type UiLens,
+} from '../profiles/ui-auditor/substrate'
 
 /** @experimental */
 export interface AuditRegistry {
@@ -74,7 +79,67 @@ export async function readAuditRegistry(workspaceDir: string): Promise<AuditRegi
 
 async function writeAuditRegistry(workspaceDir: string, reg: AuditRegistry): Promise<void> {
   const regPath = path.join(workspaceDir, 'registry.json')
-  await fs.writeFile(regPath, JSON.stringify(reg, null, 2))
+  // Write to a sibling temp file and rename. POSIX rename is atomic, so a
+  // reader at any instant sees either the pre-write OR post-write registry,
+  // never a half-written file. Prevents corruption on crash mid-write.
+  const tmpPath = `${regPath}.tmp-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  await fs.writeFile(tmpPath, JSON.stringify(reg, null, 2))
+  await fs.rename(tmpPath, regPath)
+}
+
+// Per-workspace serialization. The writer reads registry.json, mutates it
+// in memory, then writes it back; concurrent calls would race on the
+// monotonic-id assignment and clobber each other's findings. Each
+// workspace key holds the Promise of the most-recently-enqueued operation;
+// new operations chain off it so they run strictly serially.
+const workspaceLocks = new Map<string, Promise<unknown>>()
+
+async function withWorkspaceLock<T>(workspaceDir: string, fn: () => Promise<T>): Promise<T> {
+  const key = path.resolve(workspaceDir)
+  const prev = workspaceLocks.get(key) ?? Promise.resolve()
+  let signalDone!: () => void
+  const done = new Promise<void>((resolve) => {
+    signalDone = resolve
+  })
+  workspaceLocks.set(key, done)
+  try {
+    await prev
+    return await fn()
+  } finally {
+    signalDone()
+    // Only delete if no later caller has overwritten the slot — preserves
+    // the chain for any concurrent callers still waiting.
+    if (workspaceLocks.get(key) === done) workspaceLocks.delete(key)
+  }
+}
+
+function assertFindingShape(f: UiFinding, index: number): void {
+  const where = `audit-writer: findings[${index}]`
+  if (!UI_LENSES.includes(f.lens)) {
+    throw new Error(
+      `${where}: invalid lens ${JSON.stringify(f.lens)}; one of ${UI_LENSES.join('|')}`,
+    )
+  }
+  if (!UI_FINDING_SEVERITIES.includes(f.severity)) {
+    throw new Error(
+      `${where}: invalid severity ${JSON.stringify(f.severity)}; one of ${UI_FINDING_SEVERITIES.join('|')}`,
+    )
+  }
+  for (const field of ['title', 'route', 'observation', 'impact', 'suggestedFix'] as const) {
+    const v = f[field]
+    if (typeof v !== 'string' || v.trim().length === 0) {
+      throw new Error(`${where}: ${field} must be a non-empty string`)
+    }
+  }
+  if (!Array.isArray(f.screenshots) || f.screenshots.length === 0) {
+    throw new Error(`${where}: screenshots must be a non-empty array`)
+  }
+  for (let i = 0; i < f.screenshots.length; i += 1) {
+    const s = f.screenshots[i]
+    if (!s || typeof s.path !== 'string' || s.path.length === 0) {
+      throw new Error(`${where}.screenshots[${i}].path must be a non-empty string`)
+    }
+  }
 }
 
 function nextFindingId(reg: AuditRegistry): number {
@@ -183,48 +248,62 @@ export async function appendFindings(
   workspaceDir: string,
   findings: readonly UiFinding[],
 ): Promise<AppendFindingsResult> {
-  await initAuditWorkspace(workspaceDir)
-  const reg = await readAuditRegistry(workspaceDir)
-  const usedIds = new Set<number>()
-  for (const f of reg.findings) {
-    if (typeof f.id === 'number') usedIds.add(f.id)
+  // Validate every finding BEFORE acquiring the lock so callers see a fast
+  // input-shape error without blocking concurrent writers. Validation is
+  // the only defense against path traversal via crafted `lens` values
+  // (the filename interpolates lens directly) and against malformed
+  // Markdown from missing required fields — TypeScript types are erased
+  // at runtime, so this boundary cannot trust its callers.
+  for (let i = 0; i < findings.length; i += 1) {
+    const f = findings[i]
+    if (!f) throw new Error(`audit-writer: findings[${i}] is undefined`)
+    assertFindingShape(f, i)
   }
 
-  const written: UiFinding[] = []
-  const files: string[] = []
-  let nextId = nextFindingId(reg)
-
-  for (const incoming of findings) {
-    let id = incoming.id
-    if (id !== undefined) {
-      if (usedIds.has(id)) {
-        throw new Error(
-          `audit-writer: incoming finding id ${id} (title=${JSON.stringify(incoming.title)}) collides with an existing registry entry`,
-        )
-      }
-    } else {
-      id = nextId
-      while (usedIds.has(id)) id += 1
-      nextId = id + 1
+  return withWorkspaceLock(workspaceDir, async () => {
+    await initAuditWorkspace(workspaceDir)
+    const reg = await readAuditRegistry(workspaceDir)
+    const usedIds = new Set<number>()
+    for (const f of reg.findings) {
+      if (typeof f.id === 'number') usedIds.add(f.id)
     }
-    usedIds.add(id)
 
-    const createdAt = incoming.createdAt ?? new Date().toISOString()
-    const persisted: UiFinding = { ...incoming, id, createdAt }
+    const written: UiFinding[] = []
+    const files: string[] = []
+    let nextId = nextFindingId(reg)
 
-    const slug = slugifyTitle(persisted.title)
-    const fileName = `${String(id).padStart(3, '0')}--${persisted.lens}--${slug}.md`
-    const filePathAbs = path.join(workspaceDir, 'issues', fileName)
-    const filePathRel = `issues/${fileName}`
+    for (const incoming of findings) {
+      let id = incoming.id
+      if (id !== undefined) {
+        if (usedIds.has(id)) {
+          throw new Error(
+            `audit-writer: incoming finding id ${id} (title=${JSON.stringify(incoming.title)}) collides with an existing registry entry`,
+          )
+        }
+      } else {
+        id = nextId
+        while (usedIds.has(id)) id += 1
+        nextId = id + 1
+      }
+      usedIds.add(id)
 
-    await fs.writeFile(filePathAbs, renderFinding(persisted))
-    reg.findings.push(persisted)
-    written.push(persisted)
-    files.push(filePathRel)
-  }
+      const createdAt = incoming.createdAt ?? new Date().toISOString()
+      const persisted: UiFinding = { ...incoming, id, createdAt }
 
-  await writeAuditRegistry(workspaceDir, reg)
-  return { written, files }
+      const slug = slugifyTitle(persisted.title)
+      const fileName = `${String(id).padStart(3, '0')}--${persisted.lens}--${slug}.md`
+      const filePathAbs = path.join(workspaceDir, 'issues', fileName)
+      const filePathRel = `issues/${fileName}`
+
+      await fs.writeFile(filePathAbs, renderFinding(persisted))
+      reg.findings.push(persisted)
+      written.push(persisted)
+      files.push(filePathRel)
+    }
+
+    await writeAuditRegistry(workspaceDir, reg)
+    return { written, files }
+  })
 }
 
 /** @experimental */
@@ -245,13 +324,18 @@ export async function registerCaptures(
   workspaceDir: string,
   options: RegisterCapturesOptions,
 ): Promise<void> {
-  await initAuditWorkspace(workspaceDir)
-  const reg = await readAuditRegistry(workspaceDir)
-  const slot = reg.routes[options.route] ?? { captures: [] }
-  if (options.url) slot.url = options.url
-  slot.captures = [...slot.captures, ...options.captures]
-  reg.routes[options.route] = slot
-  await writeAuditRegistry(workspaceDir, reg)
+  if (typeof options.route !== 'string' || options.route.trim().length === 0) {
+    throw new Error('audit-writer: registerCaptures: route must be a non-empty string')
+  }
+  return withWorkspaceLock(workspaceDir, async () => {
+    await initAuditWorkspace(workspaceDir)
+    const reg = await readAuditRegistry(workspaceDir)
+    const slot = reg.routes[options.route] ?? { captures: [] }
+    if (options.url) slot.url = options.url
+    slot.captures = [...slot.captures, ...options.captures]
+    reg.routes[options.route] = slot
+    await writeAuditRegistry(workspaceDir, reg)
+  })
 }
 
 /** @experimental */

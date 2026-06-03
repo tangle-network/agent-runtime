@@ -100,8 +100,60 @@ describe('appendFindings', () => {
 
   it('throws when a finding has no screenshots', async () => {
     await expect(appendFindings(workspaceDir, [finding({ screenshots: [] })])).rejects.toThrow(
-      /no screenshots/i,
+      /screenshots must be a non-empty array/,
     )
+  })
+
+  it('rejects invalid lens at the public boundary (path-traversal defense)', async () => {
+    await expect(
+      appendFindings(workspaceDir, [
+        finding({ lens: '../../etc' as unknown as UiFinding['lens'] }),
+      ]),
+    ).rejects.toThrow(/invalid lens/)
+    // The malicious file must not have been written.
+    const issuesDir = path.join(workspaceDir, 'issues')
+    const entries = await fs.readdir(issuesDir).catch(() => [])
+    expect(entries).toHaveLength(0)
+  })
+
+  it('rejects invalid severity', async () => {
+    await expect(
+      appendFindings(workspaceDir, [
+        finding({ severity: 'nuclear' as unknown as UiFinding['severity'] }),
+      ]),
+    ).rejects.toThrow(/invalid severity/)
+  })
+
+  it('rejects empty required string fields', async () => {
+    for (const field of ['title', 'route', 'observation', 'impact', 'suggestedFix'] as const) {
+      await expect(
+        appendFindings(workspaceDir, [
+          finding({ [field]: '   ' } as unknown as Partial<UiFinding>),
+        ]),
+      ).rejects.toThrow(new RegExp(`${field} must be a non-empty string`))
+    }
+  })
+
+  it('serialises concurrent calls and assigns distinct monotonic ids', async () => {
+    const batchA = [finding({ title: 'A1' }), finding({ title: 'A2' })]
+    const batchB = [finding({ title: 'B1' }), finding({ title: 'B2' })]
+    const [resA, resB] = await Promise.all([
+      appendFindings(workspaceDir, batchA),
+      appendFindings(workspaceDir, batchB),
+    ])
+    const ids = [...resA.written, ...resB.written].map((f) => f.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    const reg = await readAuditRegistry(workspaceDir)
+    expect(reg.findings).toHaveLength(4)
+    const regIds = reg.findings.map((f) => f.id)
+    expect([...regIds].sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([1, 2, 3, 4])
+  })
+
+  it('uses an atomic registry write — no `.tmp` leftover after success', async () => {
+    await appendFindings(workspaceDir, [finding()])
+    const entries = await fs.readdir(workspaceDir)
+    expect(entries.some((e) => e.startsWith('registry.json.tmp-'))).toBe(false)
+    expect(entries).toContain('registry.json')
   })
 
   it('encodes blockquote meta lines on every line so the GitHub preview holds together', async () => {
