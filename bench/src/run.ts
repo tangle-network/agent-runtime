@@ -114,9 +114,9 @@ async function main() {
     const { solveShot } = await import('./worker')
     const cfg = {
       sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
-      sandboxKey: must('SANDBOX_KEY'),
+      sandboxKey: must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      routerKey: must('ROUTER_KEY'),
+      routerKey: must('TANGLE_API_KEY'),
       model: process.env.WORKER_MODEL ?? 'gpt-5',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       // No timeout by default — the agent runs until it's done. Only honored if
@@ -347,9 +347,9 @@ async function main() {
         const { solveSandboxResearch } = await import('./worker-sandbox-research')
         const s = await solveSandboxResearch(task, {
           sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-          sandboxKey: must('SANDBOX_KEY'),
+          sandboxKey: must('TANGLE_API_KEY'),
           routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-          routerKey: must('ROUTER_KEY'),
+          routerKey: must('TANGLE_API_KEY'),
           model,
           provider: process.env.WORKER_PROVIDER ?? 'openai',
           rounds,
@@ -377,9 +377,9 @@ async function main() {
         const { solveSandboxResearch } = await import('./worker-sandbox-research')
         const s = await solveSandboxResearch(task, {
           sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-          sandboxKey: must('SANDBOX_KEY'),
+          sandboxKey: must('TANGLE_API_KEY'),
           routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-          routerKey: must('ROUTER_KEY'),
+          routerKey: must('TANGLE_API_KEY'),
           model,
           provider: process.env.WORKER_PROVIDER ?? 'openai',
           rounds: 1,
@@ -476,7 +476,7 @@ async function main() {
     // LOCAL=1 → author via router + gate/render with the LOCAL openscad kernel
     // (staging-independent). Default → orchestrated refine in a BARE sandbox;
     // IN_SANDBOX_AGENT=1 → opencode-agent-in-box. Only the sandbox paths need a
-    // SANDBOX_KEY, so don't demand it in local mode.
+    // TANGLE_API_KEY, so don't demand it in local mode.
     const local = process.env.LOCAL === '1'
     const inBoxAgent = process.env.IN_SANDBOX_AGENT === '1'
     // Run a specific authoring directive (e.g. one a GEPA run learned): inline
@@ -486,9 +486,9 @@ async function main() {
       : process.env.CAD_DIRECTIVE
     const cfg = {
       sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
-      sandboxKey: local ? (process.env.SANDBOX_KEY ?? '') : must('SANDBOX_KEY'),
+      sandboxKey: local ? (process.env.TANGLE_API_KEY ?? '') : must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      routerKey: must('ROUTER_KEY'),
+      routerKey: must('TANGLE_API_KEY'),
       model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       timeoutMs: process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : undefined,
@@ -516,7 +516,7 @@ async function main() {
       console.log(`detail: ${score.detail}`)
     }
     // A video falls out of the run, e2e: render the trace into a film and drop a
-    // shareable litterbox link. Opt out with VIDEO=0; narration uses ROUTER_KEY.
+    // shareable litterbox link. Opt out with VIDEO=0; narration uses TANGLE_API_KEY.
     if (process.env.VIDEO !== '0' && shot.trace.length > 1) {
       console.log(`\n[video] rendering run-capsule film…`)
       const link = await renderCapsuleVideo(tracePath, `Agent designs a ${task.id.replace(/-/g, ' ')}`)
@@ -529,7 +529,7 @@ async function main() {
     // One Mind2Web step: the agent picks the next element + action under the
     // (optionally learned) directive; the deterministic judge scores element +
     // operation; the screenshot-rich trace becomes a run-capsule film — the real
-    // page the agent acted on. Router-only (no sandbox), so no SANDBOX_KEY needed.
+    // page the agent acted on. Router-only (no sandbox) — still the one TANGLE_API_KEY.
     const fs = await import('node:fs/promises')
     const { solveBrowserLocal } = await import('./worker-browser')
     const m2w = createMind2WebAdapter()
@@ -538,7 +538,7 @@ async function main() {
       : process.env.M2W_DIRECTIVE
     const cfg = {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      routerKey: must('ROUTER_KEY'),
+      routerKey: must('TANGLE_API_KEY'),
       model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
       directive,
     }
@@ -567,7 +567,7 @@ async function main() {
     // their subjective findings PLUS the attestable deterministic-floor verdict
     // (axe a11y + WCAG contrast — re-derived by judgeUiFloor, never a reviewer's
     // self-reported healthScore). Driver-agnostic: add more UiReviewerAdapters to
-    // the panel. Router-backed `bad design-audit` reviewer, so ROUTER_KEY needed.
+    // the panel. Router-backed `bad design-audit` reviewer, so TANGLE_API_KEY needed.
     const url = rest[0] ?? process.env.UI_REVIEW_URL
     if (!url) throw new Error('ui-review needs a URL: `tsx src/run.ts ui-review https://example.com`')
     const { runUiReviewerPanel } = await import('./browser/ui-reviewer')
@@ -575,7 +575,7 @@ async function main() {
     const reviewers = [
       badDesignAuditReviewer({
         baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-        apiKey: must('ROUTER_KEY'),
+        apiKey: must('TANGLE_API_KEY'),
         model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
         profile: process.env.UI_REVIEW_PROFILE,
         pages: process.env.UI_REVIEW_PAGES ? Number(process.env.UI_REVIEW_PAGES) : undefined,

@@ -78,7 +78,7 @@ async function main() {
   const holdoutN = Number(process.env.HOLDOUT_N ?? 8)
   const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const routerKey = must('ROUTER_KEY')
+  const routerKey = must('TANGLE_API_KEY')
   const baseDirective = isMind2web
     ? DEFAULT_MIND2WEB_DIRECTIVE
     : isCadgenbench
@@ -146,7 +146,7 @@ async function main() {
     if (useSandbox) {
       const s = await solveSandboxResearch(scenario.task, {
         sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-        sandboxKey: must('SANDBOX_KEY'),
+        sandboxKey: must('TANGLE_API_KEY'),
         routerBaseUrl,
         routerKey,
         model,

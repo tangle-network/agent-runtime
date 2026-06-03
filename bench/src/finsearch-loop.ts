@@ -102,9 +102,9 @@ async function main() {
   const rounds = Number(process.env.ROUNDS ?? 3)
   const conc = Number(process.env.CONCURRENCY ?? 3)
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
-  const sandboxKey = must('SANDBOX_KEY')
+  const sandboxKey = must('TANGLE_API_KEY')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const routerKey = must('ROUTER_KEY')
+  const routerKey = must('TANGLE_API_KEY')
   const out = process.env.SCORECARD ?? '/tmp/finsearch-loop.jsonl'
   // The durable learning-flywheel corpus (full RunRecords; see docs/learning-flywheel.md).
   const corpus = process.env.CORPUS ?? '/home/drew/code/agent-runtime/bench/corpus/finsearch.jsonl'
@@ -128,6 +128,11 @@ async function main() {
     name: 'finsearch-worker',
     taskToPrompt: (q) => q,
     sandboxOverrides: {
+      // Box-level env so opencode's provider finds the key. In @tangle-network/sandbox
+      // 0.4.x the BYOK `backend.model.apiKey` below is NOT wired into opencode's provider
+      // auth — without these vars the in-box agent dies with ProviderAuthError and every
+      // round returns empty (silent 0). Mirrors worker-sandbox-research.ts.
+      env: { OPENAI_API_KEY: routerKey, OPENAI_BASE_URL: routerBaseUrl },
       backend: { type: 'opencode', model: { provider: 'openai', model, baseUrl: routerBaseUrl, apiKey: routerKey } },
     },
   }

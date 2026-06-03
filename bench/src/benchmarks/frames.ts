@@ -309,8 +309,8 @@ interface JudgeRouter {
 function judgeRouter(): JudgeRouter {
   const model = process.env.JUDGE_MODEL
   if (!model) throw new Error('JUDGE_MODEL is required for the FRAMES Tier-2 equivalence judge')
-  const key = process.env.JUDGE_ROUTER_KEY ?? process.env.ROUTER_KEY
-  if (!key) throw new Error('JUDGE_ROUTER_KEY (or ROUTER_KEY) is required for the FRAMES Tier-2 judge')
+  const key = process.env.TANGLE_API_KEY
+  if (!key) throw new Error('TANGLE_API_KEY is required for the FRAMES Tier-2 judge')
   const baseUrl = process.env.JUDGE_ROUTER_BASE ?? process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   return { baseUrl, key, model }
 }

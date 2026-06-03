@@ -24,7 +24,7 @@
  * See {@link T1Seam}.
  *
  * Requires for a live run: network access to the GitHub-hosted dataset JSON and
- * a ROUTER_KEY for the judge. For offline/CI verification, loadTasks falls back
+ * a TANGLE_API_KEY for the judge. For offline/CI verification, loadTasks falls back
  * to the committed fixtures (bench/fixtures/finsearchcomp.json) with an explicit
  * console.warn — never a silent fallback.
  */
@@ -153,8 +153,8 @@ interface JudgeRouter {
 }
 
 function judgeRouter(): JudgeRouter {
-  const key = process.env.ROUTER_KEY
-  if (!key) throw new Error('ROUTER_KEY is required for the FinSearchComp per-record LLM judge')
+  const key = process.env.TANGLE_API_KEY
+  if (!key) throw new Error('TANGLE_API_KEY is required for the FinSearchComp per-record LLM judge')
   const model = process.env.JUDGE_MODEL ?? 'gpt-5'
   const baseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   return { baseUrl, key, model }
