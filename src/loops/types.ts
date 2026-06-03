@@ -146,6 +146,18 @@ export interface Driver<Task, Output, Decision> {
    * (`createDynamicDriver`) return their chosen move's kind + rationale.
    */
   describePlan?(): LoopPlanDescription | undefined
+  /**
+   * Optional: the driver AUTHORS the winner instead of the kernel's argmax. The
+   * kernel consults this at finalize ONLY when the caller did not pass an explicit
+   * `selectWinner` to runLoop. Return the driver-declared winner (e.g. from a
+   * `select` topology move) or `undefined` to fall through to the default
+   * (best-valid-score, earliest index). This is the SELECTOR role made
+   * agent-authorable — the planner runs the selection, not the kernel.
+   * @experimental
+   */
+  selectWinner?(
+    history: ReadonlyArray<Iteration<Task, Output>>,
+  ): LoopWinner<Task, Output> | undefined
 }
 
 /** @experimental Driver-supplied description of the just-planned move. */
