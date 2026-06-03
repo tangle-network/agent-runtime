@@ -67,6 +67,7 @@ async function chatComplete(
 ): Promise<string> {
   const res = await fetch(`${routerBaseUrl}/chat/completions`, {
     method: 'POST',
+    signal: AbortSignal.timeout(120_000),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model,
@@ -328,13 +329,16 @@ async function main() {
     const user = items
       .map(
         (f, i) =>
-          `### Failure ${i + 1}\nQUESTION: ${f.question}\nGOLD ANSWER (with tolerance/criteria): ${f.gold}\nAGENT'S WRONG ANSWER: ${f.answer}${f.note ? `\nJUDGE NOTE: ${f.note}` : ''}`,
+          `### Failure ${i + 1}\nTASK: ${f.question}\nGOLD / CRITERIA: ${f.gold}\nAGENT'S ARTIFACT (judged wrong): ${f.answer}${f.note ? `\nJUDGE NOTE: ${f.note}` : ''}`,
       )
       .join('\n\n')
+    // Domain framing comes from the benchKey-conditional reflectionTarget (the same
+    // description the optimizer mutates against) — NOT hardcoded to finance — so the
+    // analyst diagnoses CAD/web/QA failures in their own terms, not a research framing.
     const system =
-      'You are a failure analyst for a financial-research agent. It researches live sources and gives a final answer; a judge marks it right/wrong vs the gold answer. ' +
-      'Below are FAILED runs. Diagnose the COMMON, recurring failure modes (e.g. answered from memory without verifying, used a wrong/secondary source, wrong fiscal period, wrong units/precision, gave up early, restated a wrong prior answer unchanged). ' +
-      "For each, recommend a CONCRETE change to the agent's REFINE DIRECTIVE — the instruction telling it how to re-examine and fix its prior answer to maximize final-answer correctness. " +
+      `You are a failure analyst. An agent performs a task and produces an artifact that a judge scores against a gold answer / criteria. The artifact is governed by ${reflectionTarget} ` +
+      "Below are FAILED runs (task + gold/criteria + the agent's artifact + judge note). Diagnose the COMMON, recurring failure modes specific to THIS task domain. " +
+      'For each, recommend a CONCRETE change to that directive that would make the agent score higher on future runs. ' +
       'Return ONLY a JSON array (no prose) of objects {"claim","severity":"high"|"medium"|"low","area","recommended_action"}. Max 6, most impactful first.'
     let content: string
     try {
