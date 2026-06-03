@@ -43,6 +43,17 @@ describe('validateDelegateUiAuditArgs', () => {
     ).not.toThrow()
   })
 
+  it('rejects absolute workspaceDirs containing `..` segments (path-traversal defense)', () => {
+    for (const wsDir of ['/tmp/../etc', '/tmp/../../etc', '/var/log/../../etc/audits', '/..']) {
+      expect(() =>
+        validateDelegateUiAuditArgs({
+          workspaceDir: wsDir,
+          routes: [{ name: 'home', url: 'https://example.com' }],
+        }),
+      ).toThrow(/must not contain '\.\.' segments/)
+    }
+  })
+
   it('rejects route names containing path separators, dots, or NUL', () => {
     for (const name of ['../escape', 'with/slash', 'with\\backslash', 'home.bak', 'has\u0000nul']) {
       expect(() =>

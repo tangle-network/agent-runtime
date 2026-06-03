@@ -124,9 +124,20 @@ export function validateDelegateUiAuditArgs(raw: unknown): DelegateUiAuditArgs {
   // relative workspaceDir against the process CWD, so the same MCP call
   // produces different file layouts depending on where the server was
   // launched — a silent fail-loud violation for a public API.
-  if (!path.isAbsolute(workspaceDir.trim())) {
+  const trimmedWs = workspaceDir.trim()
+  if (!path.isAbsolute(trimmedWs)) {
     throw new TypeError(
       `delegate_ui_audit: \`workspaceDir\` must be an absolute path (got ${JSON.stringify(workspaceDir)})`,
+    )
+  }
+  // Reject `..` segments. An absolute path like `/tmp/../../etc` passes
+  // `isAbsolute`, then `path.join(workspaceDir, 'issues', …)` normalises it
+  // to `/etc/issues/…`, escaping the intended workspace. Check the RAW
+  // input split on the platform separator; `path.resolve` already collapses
+  // `..` and would silently launder a traversal attempt past us.
+  if (trimmedWs.split(path.sep).includes('..')) {
+    throw new TypeError(
+      `delegate_ui_audit: \`workspaceDir\` must not contain '..' segments (got ${JSON.stringify(workspaceDir)})`,
     )
   }
   const routesRaw = value.routes
