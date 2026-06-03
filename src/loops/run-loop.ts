@@ -547,7 +547,12 @@ interface FinalizeArgs<Task, Output, Decision> {
 function finalize<Task, Output, Decision>(
   args: FinalizeArgs<Task, Output, Decision>,
 ): LoopResult<Task, Output, Decision> {
-  const winner = (args.options.selectWinner ?? defaultSelectWinner)(args.iterations)
+  // Precedence: an explicit caller `selectWinner` wins; else a driver-AUTHORED
+  // winner (a `select` topology move); else the default argmax. A driver that
+  // declares nothing returns undefined and falls through — existing behavior.
+  const winner = args.options.selectWinner
+    ? args.options.selectWinner(args.iterations)
+    : (args.options.driver.selectWinner?.(args.iterations) ?? defaultSelectWinner(args.iterations))
   const costUsd = args.iterations.reduce((sum, iter) => sum + (iter.costUsd || 0), 0)
   const tokenUsage = args.iterations.reduce((acc: LoopTokenUsage, iter) => {
     addTokenUsage(acc, iter.tokenUsage)

@@ -44,6 +44,8 @@ export interface TopologyMoveEnvelope {
   kind: string
   tasks?: unknown[]
   n?: number
+  /** Winner iteration index for a `select` move (0-based). */
+  index?: number
   rationale?: string
 }
 
@@ -140,6 +142,12 @@ function envelopeToMove<Task, Output>(
     const tasks = resolveFanoutTasks(envelope, ctx, decodeTask)
     return { kind: 'fanout', tasks, rationale }
   }
+  if (kind === 'select') {
+    // Range/output are validated against history in the dynamic driver's plan();
+    // a missing/non-numeric index becomes NaN and is rejected there (non-integer).
+    const index = typeof envelope.index === 'number' ? envelope.index : Number.NaN
+    return { kind: 'select', index, rationale }
+  }
   throw new PlannerError(
     `sandbox planner emitted unknown move kind: ${JSON.stringify(envelope.kind)}`,
   )
@@ -218,6 +226,7 @@ function defaultBuildPrompt<Task, Output>(ctx: PlannerContext<Task, Output>): st
     '  - {"kind":"refine","tasks":[<task>],"rationale":"..."} — one more attempt; omit tasks to replay the root task.',
     '  - {"kind":"fanout","tasks":[<task>,<task>],"rationale":"..."} — N parallel branches (or "n": N for N copies of the root task).',
     '  - {"kind":"stop","rationale":"..."} — a valid result exists or further attempts will not help.',
+    '  - {"kind":"select","index":N,"rationale":"..."} — declare iteration N (0-based, from the attempts above) the WINNER instead of the default best-score pick. Use when your judgment of the best attempt differs from the verdict score.',
     '',
     'Stop as soon as an attempt is valid. Prefer refine when an attempt is close; fan out when attempts disagree or the approach is uncertain.',
     'Emit ONLY the JSON block.',
@@ -280,6 +289,7 @@ function coerceEnvelope(value: unknown): TopologyMoveEnvelope | undefined {
   const out: TopologyMoveEnvelope = { kind: value.kind }
   if (Array.isArray(value.tasks)) out.tasks = value.tasks
   if (typeof value.n === 'number') out.n = value.n
+  if (typeof value.index === 'number') out.index = value.index
   if (typeof value.rationale === 'string') out.rationale = value.rationale
   return out
 }

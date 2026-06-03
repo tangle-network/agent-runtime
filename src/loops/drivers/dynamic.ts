@@ -47,6 +47,10 @@ export type TopologyMove<Task> =
   // `stop` carries no parentIndex — it never produces an edge, so the
   // describePlan guard below reads parentIndex only on refine/fanout.
   | { kind: 'stop'; rationale?: string }
+  // `select` — the planner AUTHORS the winner: terminal like stop, but the kernel
+  // uses iteration `index` as the winner instead of its argmax. The selector role
+  // made emittable. No edge → no parentIndex.
+  | { kind: 'select'; index: number; rationale?: string }
 
 /** @experimental */
 export interface PlannerContext<Task, Output> {
@@ -161,20 +165,32 @@ export function createDynamicDriver<Task, Output>(
         ...(analyses ? { analyses } : {}),
       })
       pending = validateMove(move, maxFanout)
+      if (pending.kind === 'select') {
+        // The planner may override the kernel's argmax, but not invent a winner:
+        // the selected iteration must be a completed attempt that produced output.
+        // Range + output are checked here, where history is in scope. Fail loud.
+        const iter = history[pending.index]
+        if (!iter || iter.output === undefined) {
+          throw new PlannerError(
+            `dynamic planner select.index ${pending.index} is not a completed iteration with output (history length ${history.length})`,
+          )
+        }
+      }
       switch (pending.kind) {
         case 'refine':
           return [pending.task]
         case 'fanout':
           return pending.tasks
         case 'stop':
+        case 'select':
           return []
       }
     },
     decide() {
       // pending is set by the plan() call that immediately precedes every
-      // decide(). Only a `stop` move terminates; refine/fanout keep looping so
+      // decide(). `stop` and `select` terminate; refine/fanout keep looping so
       // plan() — and thus the planner — runs again next round.
-      return pending?.kind === 'stop' ? 'done' : 'continue'
+      return pending?.kind === 'stop' || pending?.kind === 'select' ? 'done' : 'continue'
     },
     describePlan() {
       // Surface the move the planner just chose (kind + rationale + an optional
@@ -185,10 +201,29 @@ export function createDynamicDriver<Task, Output>(
       if (!pending) return undefined
       const out: LoopPlanDescription = { kind: pending.kind }
       if (pending.rationale !== undefined) out.rationale = pending.rationale
-      if (pending.kind !== 'stop' && pending.parentIndex !== undefined) {
+      if (
+        (pending.kind === 'refine' || pending.kind === 'fanout') &&
+        pending.parentIndex !== undefined
+      ) {
         out.parentIndex = pending.parentIndex
       }
       return out
+    },
+    selectWinner(history) {
+      // Authored winner: only when the last move was `select`. The kernel calls
+      // this at finalize (absent a caller-supplied selectWinner); returning
+      // undefined for every other move falls through to the default argmax. The
+      // selected iteration's output presence was enforced in plan().
+      if (pending?.kind !== 'select') return undefined
+      const iter = history[pending.index]
+      if (!iter || iter.output === undefined) return undefined
+      return {
+        task: iter.task,
+        output: iter.output,
+        verdict: iter.verdict,
+        iterationIndex: iter.index,
+        agentRunName: iter.agentRunName,
+      }
     },
   }
 }
@@ -202,6 +237,14 @@ function validateMove<Task>(move: TopologyMove<Task>, maxFanout: number): Topolo
       return move
     case 'stop':
       return move
+    case 'select': {
+      if (!Number.isInteger(move.index) || move.index < 0) {
+        throw new PlannerError(
+          `dynamic planner select move must carry a non-negative integer index, got ${stringifySafe(move.index)}`,
+        )
+      }
+      return move
+    }
     case 'fanout': {
       if (!Array.isArray(move.tasks) || move.tasks.length === 0) {
         throw new PlannerError('dynamic planner fanout move must carry a non-empty tasks[]')

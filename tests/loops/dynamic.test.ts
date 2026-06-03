@@ -912,3 +912,127 @@ describe('runLoop dynamic driver — analyses→planner wire (Phase 2)', () => {
     expect(s).toContain('0.91')
   })
 })
+
+describe('runLoop dynamic driver — emittable select (Phase 3a)', () => {
+  it('a select move authors the winner, overriding the kernel argmax', async () => {
+    const goal = 'select'
+    // round 0 fanout: iter0 naive (0.3, invalid), iter1 parallel-a (0.9, valid).
+    // round 1 select index 0 — the WEAK iteration; the kernel argmax would pick iter1.
+    const moves: TopologyMove<Task>[] = [
+      {
+        kind: 'fanout',
+        tasks: [
+          { goal, strategy: 'naive' },
+          { goal, strategy: 'parallel-a' },
+        ],
+      },
+      { kind: 'select', index: 0, rationale: 'I judge attempt 0 best despite its score' },
+    ]
+    let round = 0
+    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+    const { client } = workerClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRuns: workerSpecs(['a', 'b']),
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+
+    expect(result.decision).toBe('done')
+    // The planner authored the winner — index 0, NOT the argmax (index 1, score 0.9).
+    expect(result.winner?.iterationIndex).toBe(0)
+    expect(result.winner?.verdict?.score).toBeCloseTo(0.3, 6)
+  })
+
+  it('fails loud on a select index out of range', async () => {
+    const goal = 'oob'
+    const moves: TopologyMove<Task>[] = [
+      { kind: 'refine', task: { goal, strategy: 'naive' } },
+      { kind: 'select', index: 9 },
+    ]
+    let round = 0
+    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+    const { client } = workerClient()
+    await expect(
+      runLoop({
+        driver: createDynamicDriver<Task, Out>({ planner }),
+        agentRun: workerSpecs(['solo'])[0],
+        output,
+        validator,
+        task: { goal, strategy: 'naive' },
+        ctx: { sandboxClient: client },
+      }),
+    ).rejects.toThrow(PlannerError)
+  })
+
+  it('a caller-supplied selectWinner overrides a planner select (precedence)', async () => {
+    const goal = 'precedence'
+    const moves: TopologyMove<Task>[] = [
+      {
+        kind: 'fanout',
+        tasks: [
+          { goal, strategy: 'naive' },
+          { goal, strategy: 'parallel-a' },
+        ],
+      },
+      { kind: 'select', index: 0 },
+    ]
+    let round = 0
+    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+    const { client } = workerClient()
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRuns: workerSpecs(['a', 'b']),
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client },
+      selectWinner: (iters) => {
+        const i = iters.find((x) => x.index === 1)
+        return i?.output === undefined
+          ? undefined
+          : {
+              task: i.task,
+              output: i.output,
+              verdict: i.verdict,
+              iterationIndex: 1,
+              agentRunName: i.agentRunName,
+            }
+      },
+    })
+    // The caller forced index 1, overriding the planner's select(0).
+    expect(result.winner?.iterationIndex).toBe(1)
+  })
+
+  it('createSandboxPlanner decodes a select envelope and authors the winner', async () => {
+    const goal = 'sbx-select'
+    const { client } = plannerAndWorkerClient((spent) =>
+      spent === 0
+        ? {
+            kind: 'fanout',
+            tasks: [
+              { goal, strategy: 'naive' },
+              { goal, strategy: 'parallel-a' },
+            ],
+          }
+        : { kind: 'select', index: 0 },
+    )
+    const planner = createSandboxPlanner<Task, Out>({
+      client,
+      profile: profile('planner'),
+      decodeTask: (raw) => raw as Task,
+    })
+    const result = await runLoop({
+      driver: createDynamicDriver<Task, Out>({ planner }),
+      agentRuns: workerSpecs(['worker-a', 'worker-b']),
+      output,
+      validator,
+      task: { goal, strategy: 'naive' },
+      ctx: { sandboxClient: client },
+    })
+    expect(result.decision).toBe('done')
+    expect(result.winner?.iterationIndex).toBe(0)
+  })
+})
