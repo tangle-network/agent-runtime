@@ -318,6 +318,27 @@ describe('createInProcessUiAuditClient — error handling', () => {
     await client.close()
   })
 
+  it('rejects non-http(s) capture URLs as SSRF defense at the client boundary', async () => {
+    const mock = makeMockBrowser()
+    const client = createInProcessUiAuditClient({
+      workspaceDir,
+      judge: okJudgeFn,
+      launchBrowser: async () => mock.browser,
+    })
+    for (const url of ['file:///etc/passwd', 'data:text/html,x', 'javascript:alert(1)']) {
+      const box = await client.create()
+      await expect(
+        drain(
+          box.streamPrompt(
+            encodeAuditTaskEnvelope(stubTask({ captures: [{ route: 'home', url }] })),
+            { signal: new AbortController().signal },
+          ),
+        ),
+      ).rejects.toThrow(/must use http or https/)
+    }
+    await client.close()
+  })
+
   it('honours AbortSignal — aborting before the first capture rejects the stream', async () => {
     const mock = makeMockBrowser()
     const client = createInProcessUiAuditClient({

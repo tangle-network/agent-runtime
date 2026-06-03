@@ -132,6 +132,25 @@ function captureFilename(req: UiAuditCaptureRequest): string {
   return `${slugify(req.route, 'route')}--${vp.width}x${vp.height}${labelPart}--${nowStamp()}.png`
 }
 
+function assertHttpUrl(url: string): void {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(`ui-auditor: capture url is not parseable (got ${JSON.stringify(url)})`)
+  }
+  // SSRF defense at the client boundary. The MCP tool already restricts to
+  // http(s), but `createInProcessUiAuditClient` is exported and can be wired
+  // up directly by consumers (the example does this). A crafted task envelope
+  // could otherwise navigate Playwright to `file://`, `data:`, `javascript:`
+  // and read local files or execute inline content.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(
+      `ui-auditor: capture url must use http or https (got ${parsed.protocol} in ${JSON.stringify(url)})`,
+    )
+  }
+}
+
 async function captureOne(
   page: PageHandle,
   req: UiAuditCaptureRequest,
@@ -140,6 +159,7 @@ async function captureOne(
   navPolicy: 'strict' | 'spa',
 ): Promise<void> {
   signal.throwIfAborted()
+  assertHttpUrl(req.url)
   // Apply the per-capture viewport before navigation. The capture metadata
   // and filename both encode this viewport; the rendered page must match.
   await page.setViewportSize(viewportOf(req))
@@ -169,7 +189,18 @@ function makeSandboxId(): string {
 export function createInProcessUiAuditClient(
   options: InProcessUiAuditClientOptions,
 ): LoopSandboxClient & {
-  /** Close the underlying browser. Idempotent. */
+  /**
+   * Close the underlying browser. Idempotent.
+   *
+   * Contract: callers MUST ensure no iterations are in flight when this is
+   * called. The kernel respects this — `runLoop` awaits every iteration
+   * before returning, so `await runLoop(...); await client.close()` is the
+   * intended pattern (see `examples/ui-audit`). If `close()` is invoked
+   * concurrently with a running iteration, the browser teardown will race
+   * against in-flight page operations; the iteration will surface an
+   * AggregateError carrying both the iteration error and the close error,
+   * but no work is lost silently.
+   */
   close(): Promise<void>
 } {
   const launch = options.launchBrowser ?? defaultLaunch
