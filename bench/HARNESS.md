@@ -1,0 +1,89 @@
+# bench harness — START HERE (the map, so you don't re-read 15 files)
+
+If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
+do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
+with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
+Verified against source 2026-06-03 · agent-eval pinned `^0.76.0` (the optimizePrompt /
+heldoutSignificance API is version-coupled).
+
+## What this harness answers
+The decision gate (docs/roadmap-rsi.md): **does any non-blind topology beat blind compute
+at EQUAL k, under a DEPLOYABLE (non-oracle) selector, at significant n?**
+- Within-run STEER (verify-and-revise family) **LOSES** (rung-0, n=40: blind 37.5% →
+  random@3 60.0% → refineGepa@3 45.0%; the earlier +20pp was confounded compute).
+- On the COMMITTED finsearch corpus, the self-consistency selector also **loses**:
+  selector@k − random@k = **−8.2pp** (n=51). So "pick the consensus among k identical-ish
+  attempts" does not beat a random draw here.
+- **UNTESTED**: parallel **DIVERSE strategies** (different reasoning paths, `directives.ts`
+  → `DIVERSE_STRATEGY_LENSES` / `composeStrategies`) @k vs blind sample(n=k). A distinct
+  family from what rung-0 falsified — this is the open gate, and what runProgram's
+  `parallel` is built to deploy.
+
+## Data flow (the whole experiment in one line)
+`rollout (worker → answer) → adapter.judge (valid?) → CORPUS RunRecord (k attempts, output+valid each) → corpus-replay --selector (pick WITHOUT the judge) → corpus-report CI → gate verdict`
+The expensive part (rollouts) produces a **reusable corpus**; selection + stats are free
+and offline (zero new rollouts, zero judge calls).
+
+## Commands (mirrored by `pnpm help` / `tsx src/run.ts help` — keep in sync)
+run.ts:  help · preflight · verify-judge · solve-one · solve-one-local · solve-cad ·
+         solve-browser · ui-review · batch-blind · batch-oracle · batch-compare
+standalone tools (NOT in run.ts — the gate lives here):
+  corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
+  corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
+  gepa-refine.ts     GEPA-optimize a directive vs a held-out gate + paired CI (optimizePrompt)
+  finsearch-loop.ts  the real runLoop+createDynamicDriver closed loop on FinSearchComp
+  terminal-compare.ts  Terminal-Bench compare (own main, not in run.ts)
+unit tests (the only fully-green, cred-free runnable surface besides offline replay):
+  node --test --import tsx src/{selector,compare-decomp,steering-experiment,refine-loop}.test.mts
+
+## Run the GATE — today, zero creds (it already runs)
+```
+cd bench
+pnpm gate                                              # = corpus-replay.mts corpus/finsearch.jsonl --selector
+tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector --condition=refine   # other arms
+pnpm gate-report                                       # paired-bootstrap CI + BH-FDR
+```
+The committed `corpus/finsearch.jsonl` (152 records: random@3 / refineHand@3 / refineGepa@3)
+makes the gate replayable with no rollouts. To gate the DIVERSE arm you must first generate
+a diverse-strategy corpus (k different `composeStrategies` prefixes per instance) — that
+generator is the in-progress work; the identical-directive control corpus is `batch-oracle`.
+
+## Generate a fresh corpus (local, no router/sandbox key — opencode at ~/.local/bin/opencode)
+```
+BENCH=hotpotqa HOTPOTQA_FIXTURES=1 RESEARCH=1 CORPUS=/tmp/identical.jsonl K=4 tsx src/run.ts batch-oracle 30
+tsx src/corpus-replay.mts /tmp/identical.jsonl --selector
+```
+(hotpotqa is cheap + deterministic-judge but near-ceiling/weak-signal; simpleqa similar;
+finsearchcomp is the strong-signal domain but needs the sandbox/local-web worker.)
+
+## GEPA-optimize (so the gate tests BEST-effort, not strawman, prompts)
+```
+BENCH=hotpotqa RESEARCH=1 ROUTER_KEY=… tsx src/gepa-refine.ts   # POP/GENS/TRAIN_N/HOLDOUT_N envs
+```
+GEPA optimizes the shared base directive; the diverse lenses (`directives.ts`) layer on top.
+
+## Workers (the rollout substrate) — pick via env
+- `RESEARCH=1` → local opencode, model-knowledge QA (cheap; **works today**, conc≤2)
+- `SANDBOX=1`  → prod-sandbox web-search worker (FinSearchComp real path; historically infra-flaky)
+- default      → local code-patch worker (SWE-bench; judge needs bench/.venv + Docker)
+The steer text lives in `directives.ts`, NOT in the worker (the worker is substrate). A
+strategy is a prompt PREFIX; the judge is unchanged.
+
+## Adapters (benchmarks/) — all wired (loadTasks + judge): hotpotqa, finsearchcomp, frames,
+simpleqa, swe-bench, terminal-bench, appworld, mind2web, cad*, cadgenbench.
+
+## Is it runnable RIGHT NOW? (verify the map, don't trust it blindly)
+```
+tsx src/run.ts help        # the real command list (source of truth)
+tsx src/run.ts preflight   # harness/worker reachable for BENCH?
+```
+Creds: the router/sandbox paths read `ROUTER_KEY`/`SANDBOX_KEY` (+ `ROUTER_BASE`/`SANDBOX_BASE_URL`)
+from the environment. Source them from the operator's private secret store (documented in the
+global agent config, NOT here — this repo is public) into the run process; never print them.
+NOT needed for the offline selector gate, the hotpotqa/swe-bench deterministic judges, or
+RESEARCH=1 local-opencode rollouts — if unset, those paths are cred-blocked, not code-blocked.
+
+## Durable next step (so this stops drifting)
+`run.ts help` is now real (the command map). Next: lift the standalone tools into a single
+command registry + a test asserting every `cmd === 'X'` and every package.json script
+appears in `help`. Then `help` IS the map and this page is just the narrative.

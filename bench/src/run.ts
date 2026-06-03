@@ -78,8 +78,41 @@ async function renderCapsuleVideo(tracePath: string, title: string): Promise<str
   }
 }
 
+// The command map, printed by `help` — the source of truth HARNESS.md + CLAUDE.md cite.
+// Keep in sync with the dispatch below and the standalone .mts/.ts tools (the gate lives
+// in those, not here). Drift here is the re-discovery tax; fix this string when you add a command.
+const HELP = `bench harness — commands (full map + data flow: bench/HARNESS.md)
+
+run.ts  (BENCH=<adapter> selects the benchmark; default swe-bench):
+  help                   this map
+  preflight              is the harness/worker/judge reachable for BENCH?
+  verify-judge [id]      judge sanity: gold artifact RESOLVES, empty FAILS
+  batch-oracle <N>       k shots/instance; CORPUS=path persists a selector-readable corpus
+  batch-blind <N>        one shot/instance (pass@1)
+  batch-compare <N>      blind / random@k / refine decomposition (RESEARCH=1 | SANDBOX=1 | default)
+  solve-one <id>         one sandbox-backed solve (SANDBOX_KEY + ROUTER_KEY)
+  solve-one-local <id>   one local-opencode solve
+  solve-cad <id>         CAD authoring + render (LOCAL=1 | default sandbox)
+  solve-browser [id]     Mind2Web one-step element selection (ROUTER_KEY)
+  solve-web-live <goal> <url>   live browser agent → attested verdict → run-capsule film (ROUTER_KEY)
+  ui-review <url>        design-audit reviewer over a live URL (ROUTER_KEY)
+
+standalone tools (NOT dispatched here — run directly):
+  tsx src/corpus-replay.mts <corpus.jsonl> --selector   selector@k vs random@k vs oracle@k, OFFLINE (zero creds)
+  tsx src/corpus-report.mts <corpus.jsonl...>           paired-bootstrap CI + Benjamini-Hochberg
+  tsx src/gepa-refine.ts                                 GEPA-optimize a directive vs a held-out gate (ROUTER_KEY)
+  tsx src/finsearch-loop.ts                              real runLoop closed loop on FinSearchComp (SANDBOX_KEY + ROUTER_KEY)
+  tsx src/terminal-compare.ts                            Terminal-Bench compare
+
+data flow: rollout -> adapter.judge -> CORPUS RunRecord -> corpus-replay --selector -> corpus-report CI -> gate verdict
+THE GATE, runnable today with zero creds:  tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector`
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2)
+  if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
+    console.log(HELP)
+    return
+  }
   const adapter = ADAPTERS[process.env.BENCH ?? 'swe-bench']?.()
   if (!adapter) throw new Error(`unknown BENCH=${process.env.BENCH}`)
 
@@ -246,6 +279,15 @@ async function main() {
     // local, sandbox-free path to the selector@k vs random@k gate.
     const corpusPath = process.env.CORPUS
     const benchName = process.env.BENCH ?? 'swe-bench'
+    // DIVERSE=1: each of the k shots gets a DIFFERENT strategy lens (composeStrategies)
+    // prepended to the prompt → a diverse@k corpus to gate against the identical-directive
+    // random@k control. corpus-replay --selector then compares selector@k on diverse vs random.
+    // Pair with a SINGLE model (MODELS=one) to isolate strategy-diversity from model-diversity.
+    const diverse = process.env.DIVERSE === '1'
+    const { composeStrategies } = await import('./directives')
+    const diverseStrategies = diverse
+      ? composeStrategies('Give your single best, final answer to the question.', k)
+      : null
     await adapter.preflight()
     const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
     const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
@@ -255,12 +297,17 @@ async function main() {
     await runPool(tasks, conc, async (task) => {
       const started = Date.now()
       try {
-        const shots: Array<{ output: string; valid: boolean; score: number }> = []
+        const shots: Array<{ output: string; valid: boolean; score: number; prompt: string }> = []
+        const origPrompt = String((task as { prompt?: unknown }).prompt ?? '')
         for (let i = 0; i < k; i += 1) {
           const shotModel = models[i % models.length] as string
-          const artifact = await runShot(task, shotModel, livenessMs)
+          // The sent prompt IS the steer: a diverse shot carries its lens prefix, recorded
+          // faithfully so the corpus captures what was actually steered (not the bare task).
+          const sentPrompt = diverseStrategies ? `${diverseStrategies[i] ?? ''}\n\n${origPrompt}` : origPrompt
+          const shotTask = diverseStrategies ? { ...task, prompt: sentPrompt } : task
+          const artifact = await runShot(shotTask, shotModel, livenessMs)
           const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
-          shots.push({ output: artifact, valid: score.resolved === true, score: score.score })
+          shots.push({ output: artifact, valid: score.resolved === true, score: score.score, prompt: sentPrompt })
         }
         const resolved = shots.map((s) => s.valid)
         const nResolved = resolved.filter(Boolean).length
@@ -275,13 +322,13 @@ async function main() {
             ts: new Date().toISOString(),
             benchmark: benchName,
             instanceId: task.id,
-            condition: `random@${k}`,
+            condition: diverse ? `diverse@${k}` : `random@${k}`,
             model: models.join('+'),
             blindResolved: shots[0]?.valid === true,
             resolved: oracle,
             attempts: shots.map((s, i) => ({
               round: i,
-              prompt: String((task as { prompt?: unknown }).prompt ?? ''),
+              prompt: s.prompt,
               output: s.output,
               valid: s.valid,
               score: s.score,
@@ -657,9 +704,7 @@ async function main() {
     return
   }
 
-  throw new Error(
-    `unknown command: ${cmd ?? '(none)'} — use preflight | verify-judge | solve-one | solve-one-local | solve-cad | solve-browser | solve-web-live | ui-review | batch-blind | batch-oracle | batch-compare`,
-  )
+  throw new Error(`unknown command: ${cmd} — run \`tsx src/run.ts help\` for the command map`)
 }
 
 main().catch((err) => {
