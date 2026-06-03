@@ -317,6 +317,38 @@ describe('createInProcessUiAuditClient — error handling', () => {
     ).rejects.toThrow(/zero captures/)
     await client.close()
   })
+
+  it('honours AbortSignal — aborting before the first capture rejects the stream', async () => {
+    const mock = makeMockBrowser()
+    const client = createInProcessUiAuditClient({
+      workspaceDir,
+      judge: okJudgeFn,
+      launchBrowser: async () => mock.browser,
+    })
+    const controller = new AbortController()
+    controller.abort()
+    const box = await client.create()
+    await expect(
+      drain(
+        box.streamPrompt(
+          encodeAuditTaskEnvelope(
+            stubTask({
+              captures: [
+                { route: 'home', url: 'https://example.test/a' },
+                { route: 'home', url: 'https://example.test/b' },
+              ],
+            }),
+          ),
+          { signal: controller.signal },
+        ),
+      ),
+    ).rejects.toThrowError()
+    // No goto should have run — the signal is checked before each capture.
+    expect(mock.log.gotoUrls).toHaveLength(0)
+    // And the context was created then closed (cleanup ran).
+    expect(mock.contextCloseCalls).toBe(1)
+    await client.close()
+  })
 })
 
 describe('createInProcessUiAuditClient — sandbox surface', () => {
