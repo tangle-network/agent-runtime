@@ -160,6 +160,80 @@ union(){
 `.trim()
 }
 
+/** Build a building-family task (prompt + spec + gold) from its dimensions.
+ *  The spec's bbox is derived from the dims with a ±~18% tolerance so the agent
+ *  must respect the brief's size; the gold (buildingGold) lands exactly on the
+ *  nominal dims, so it passes by construction. Keep rh > ns*sh/3 (else the roof
+ *  base sits inside the top-25% band and pitchedRoof fails). */
+function buildingTask(o: { id: string; desc: string; w: number; d: number; sh: number; ns: number; rh: number }): {
+  id: string
+  prompt: string
+  meta: CadTaskMeta
+} {
+  const { id, desc, w, d, sh, ns, rh } = o
+  const totalWall = ns * sh
+  const totalH = totalWall + rh
+  const r = Math.round
+  const spec: CadSpec = {
+    volumes: [1, ns * 4 + 6],
+    bbox: {
+      x: [r(w * 0.82), r(w * 1.18)],
+      y: [r(d * 0.82), r((d + 1) * 1.2)],
+      z: [r(totalH * 0.82), r((totalH + 1) * 1.2)],
+    },
+    minTriangles: 50,
+    pitchedRoof: 0.55,
+    hollowBelow: 0.72,
+  }
+  const prompt = [
+    `Write OpenSCAD source for ${desc}.`,
+    'Requirements:',
+    `- footprint roughly ${w} (X) by ${d} (Y) units`,
+    ns > 1 ? `- ${ns} stories, total wall height ~${totalWall} units` : `- one story, wall height ~${sh} units`,
+    '- a PITCHED / gabled roof on top that tapers toward a ridge (NOT flat)',
+    '- hollow shell (walls with an interior cavity), not a solid block',
+    '- a door opening and several windows',
+    'Output ONLY the .scad source, no prose, no code fences.',
+  ].join('\n')
+  return { id, prompt, meta: { spec, gold: buildingGold(w, d, sh, ns, rh) } }
+}
+
+/** The building family — one parametric skill (hit the bbox + pitched roof +
+ *  hollow shell), sampled across footprints, heights, story counts, roof rises. */
+const BUILDING_CONFIGS: Array<{ id: string; desc: string; w: number; d: number; sh: number; ns: number; rh: number }> = [
+  { id: 'cottage', desc: 'a single-story cottage', w: 50, d: 40, sh: 30, ns: 1, rh: 18 },
+  { id: 'cabin', desc: 'a small one-room cabin', w: 44, d: 36, sh: 26, ns: 1, rh: 22 },
+  { id: 'bungalow', desc: 'a wide single-story bungalow', w: 70, d: 52, sh: 28, ns: 1, rh: 20 },
+  { id: 'barn', desc: 'a long deep barn', w: 60, d: 96, sh: 42, ns: 1, rh: 26 },
+  { id: 'warehouse', desc: 'a large warehouse', w: 110, d: 80, sh: 40, ns: 1, rh: 26 },
+  { id: 'chapel', desc: 'a narrow tall chapel with a steep roof', w: 40, d: 72, sh: 48, ns: 1, rh: 34 },
+  { id: 'farmhouse', desc: 'a two-story farmhouse', w: 72, d: 56, sh: 30, ns: 2, rh: 26 },
+  { id: 'two-story-manor', desc: 'a wide two-story manor', w: 96, d: 64, sh: 32, ns: 2, rh: 28 },
+  { id: 'townhouse', desc: 'a narrow three-story townhouse', w: 42, d: 52, sh: 30, ns: 3, rh: 34 },
+  { id: 'watchtower', desc: 'a tall narrow three-story watchtower', w: 34, d: 34, sh: 30, ns: 3, rh: 32 },
+]
+
+/** A hollow cylindrical water tower with a conical roof — a non-box shape that
+ *  still exercises pitched-roof (the cone tapers to an apex) + hollow + bbox. */
+const WATER_TOWER_GOLD = `
+$fn=48; r=24; bh=72; t=3; ch=26;
+union(){
+  difference(){ cylinder(h=bh, r=r); translate([0,0,t]) cylinder(h=bh, r=r-t); }
+  translate([0,0,bh]) cylinder(h=ch, r1=r, r2=0);
+}
+`.trim()
+
+/** An A-frame: the steep roof IS the walls — a hollow triangular prism. The most
+ *  extreme taper in the set; tests that the agent can build a non-rectangular shell. */
+const AFRAME_GOLD = `
+w=44; d=60; h=66; t=3;
+module tri(w,d,h){ rotate([90,0,90]) linear_extrude(height=w) polygon([[0,0],[d,0],[d/2,h]]); }
+union(){
+  difference(){ tri(w,d,h); translate([t,0,0]) tri(w-2*t,d,h-2*t*h/d); }
+  translate([w/2-7,-1,0]) cube([14,t+2,24]);
+}
+`.trim()
+
 const TASKS: Array<{ id: string; prompt: string; meta: CadTaskMeta }> = [
   {
     id: 'two-story-house',
@@ -195,96 +269,48 @@ union(){
 `.trim(),
     },
   },
+  ...BUILDING_CONFIGS.map(buildingTask),
   {
-    id: 'cottage',
+    id: 'water-tower',
     prompt: [
-      'Write OpenSCAD source for a single-story cottage.',
+      'Write OpenSCAD source for a water tower: a tall hollow cylindrical tank with a conical roof.',
       'Requirements:',
-      '- footprint roughly 50 (X) by 40 (Y) units',
-      '- one story, wall height ~30 units',
-      '- a PITCHED / gabled roof on top that tapers toward a ridge (NOT flat)',
-      '- hollow shell (walls with an interior cavity), not a solid block',
-      '- a front door opening and at least one window',
+      '- a hollow cylindrical tank, ~48 units in diameter, ~72 units tall, with an interior cavity',
+      '- a CONICAL roof on top that tapers to a point (a pitched roof)',
+      '- wall thickness around 3 units',
       'Output ONLY the .scad source, no prose, no code fences.',
     ].join('\n'),
     meta: {
       spec: {
-        volumes: [1, 12],
-        bbox: { x: [44, 58], y: [34, 46], z: [40, 58] },
-        minTriangles: 50,
+        volumes: [1, 4],
+        bbox: { x: [40, 56], y: [40, 56], z: [88, 110] },
+        minTriangles: 60,
         pitchedRoof: 0.55,
-        hollowBelow: 0.72,
+        hollowBelow: 0.8,
       },
-      gold: buildingGold(50, 40, 30, 1, 18),
+      gold: WATER_TOWER_GOLD,
     },
   },
   {
-    id: 'barn',
+    id: 'a-frame-cabin',
     prompt: [
-      'Write OpenSCAD source for a barn.',
+      'Write OpenSCAD source for an A-frame cabin: a steep triangular shell where the roof forms the walls.',
       'Requirements:',
-      '- footprint roughly 60 (X) by 96 (Y) units (long and deep)',
-      '- one tall story, wall height ~42 units',
-      '- a PITCHED / gabled roof on top that tapers toward a ridge (NOT flat)',
-      '- hollow shell (walls with an interior cavity), not a solid block',
-      '- a large door opening and several windows',
+      '- footprint roughly 44 (X) by 60 (Y) units',
+      '- a STEEP triangular cross-section ~66 units tall that tapers to a ridge at the top',
+      '- hollow inside (an interior cavity), not a solid wedge',
+      '- a door opening at the front',
       'Output ONLY the .scad source, no prose, no code fences.',
     ].join('\n'),
     meta: {
       spec: {
-        volumes: [1, 12],
-        bbox: { x: [52, 72], y: [84, 108], z: [58, 84] },
-        minTriangles: 50,
-        pitchedRoof: 0.55,
-        hollowBelow: 0.72,
+        volumes: [1, 4],
+        bbox: { x: [36, 52], y: [50, 74], z: [56, 80] },
+        minTriangles: 30,
+        pitchedRoof: 0.45,
+        hollowBelow: 0.8,
       },
-      gold: buildingGold(60, 96, 42, 1, 26),
-    },
-  },
-  {
-    id: 'townhouse',
-    prompt: [
-      'Write OpenSCAD source for a narrow three-story townhouse.',
-      'Requirements:',
-      '- footprint roughly 42 (X) by 52 (Y) units',
-      '- three stories, total wall height ~90 units',
-      '- a PITCHED / gabled roof on top that tapers toward a ridge (NOT flat)',
-      '- hollow shell (walls with an interior cavity), not a solid block',
-      '- a front door opening and several windows per floor',
-      'Output ONLY the .scad source, no prose, no code fences.',
-    ].join('\n'),
-    meta: {
-      spec: {
-        volumes: [1, 16],
-        bbox: { x: [36, 52], y: [44, 62], z: [112, 138] },
-        minTriangles: 50,
-        pitchedRoof: 0.55,
-        hollowBelow: 0.72,
-      },
-      gold: buildingGold(42, 52, 30, 3, 34),
-    },
-  },
-  {
-    id: 'chapel',
-    prompt: [
-      'Write OpenSCAD source for a small chapel.',
-      'Requirements:',
-      '- footprint roughly 40 (X) by 72 (Y) units (narrow and long)',
-      '- one tall story, wall height ~48 units',
-      '- a STEEP pitched / gabled roof on top that tapers toward a ridge (NOT flat)',
-      '- hollow shell (walls with an interior cavity), not a solid block',
-      '- a tall door opening and several windows',
-      'Output ONLY the .scad source, no prose, no code fences.',
-    ].join('\n'),
-    meta: {
-      spec: {
-        volumes: [1, 12],
-        bbox: { x: [34, 50], y: [62, 84], z: [68, 96] },
-        minTriangles: 50,
-        pitchedRoof: 0.55,
-        hollowBelow: 0.72,
-      },
-      gold: buildingGold(40, 72, 48, 1, 30),
+      gold: AFRAME_GOLD,
     },
   },
   {
