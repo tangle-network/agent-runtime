@@ -155,6 +155,16 @@ function validateRoute(raw: unknown, index: number): DelegateUiAuditArgs['routes
   if (typeof v.name !== 'string' || v.name.trim().length === 0) {
     throw new TypeError(`delegate_ui_audit: routes[${index}].name must be a non-empty string`)
   }
+  // Defense-in-depth: the slug helpers downstream strip non-alphanumerics, so
+  // a route name with `..`, `/`, `\`, or NUL cannot actually escape the
+  // workspace. Rejecting them at the wire boundary keeps the invariant
+  // explicit and matches the lens-allowlist style of validation.
+  const trimmedName = v.name.trim()
+  if (/[./\\]/.test(trimmedName) || trimmedName.includes('\u0000')) {
+    throw new TypeError(
+      `delegate_ui_audit: routes[${index}].name must not contain path separators, dots, or NUL (got ${JSON.stringify(v.name)})`,
+    )
+  }
   if (typeof v.url !== 'string' || v.url.trim().length === 0) {
     throw new TypeError(`delegate_ui_audit: routes[${index}].url must be a non-empty string`)
   }

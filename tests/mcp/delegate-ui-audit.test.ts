@@ -43,6 +43,17 @@ describe('validateDelegateUiAuditArgs', () => {
     ).not.toThrow()
   })
 
+  it('rejects route names containing path separators, dots, or NUL', () => {
+    for (const name of ['../escape', 'with/slash', 'with\\backslash', 'home.bak', 'has\u0000nul']) {
+      expect(() =>
+        validateDelegateUiAuditArgs({
+          workspaceDir: '/ws',
+          routes: [{ name, url: 'https://example.com' }],
+        }),
+      ).toThrow(/path separators, dots, or NUL/)
+    }
+  })
+
   it('rejects routes missing name or url', () => {
     expect(() =>
       validateDelegateUiAuditArgs({ workspaceDir: '/ws', routes: [{ name: 'home' }] }),
