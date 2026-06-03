@@ -23,6 +23,7 @@
 import type {
   DelegateCodeArgs,
   DelegateResearchArgs,
+  DelegateUiAuditArgs,
   DelegationError,
   DelegationFeedbackSnapshot,
   DelegationHistoryArgs,
@@ -34,12 +35,14 @@ import type {
   DelegationStatusResult,
 } from './types'
 
+type AnyDelegateArgs = DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
+
 /** @experimental */
 export interface DelegationRecord {
   taskId: string
   profile: DelegationProfile
   namespace?: string
-  args: DelegateCodeArgs | DelegateResearchArgs
+  args: AnyDelegateArgs
   status: DelegationStatus
   progress?: DelegationProgress
   result?: DelegationResultPayload
@@ -54,7 +57,7 @@ export interface DelegationRecord {
 }
 
 /** @experimental */
-export interface SubmitInput<Args extends DelegateCodeArgs | DelegateResearchArgs> {
+export interface SubmitInput<Args extends AnyDelegateArgs> {
   profile: DelegationProfile
   args: Args
   namespace?: string
@@ -103,9 +106,7 @@ export class DelegationTaskQueue {
    * Kick off a delegation in the background. Returns immediately. The
    * `taskId` is queryable via `status` once this method returns.
    */
-  submit<Args extends DelegateCodeArgs | DelegateResearchArgs>(
-    input: SubmitInput<Args>,
-  ): SubmitOutput {
+  submit<Args extends AnyDelegateArgs>(input: SubmitInput<Args>): SubmitOutput {
     if (input.idempotencyKey) {
       const existing = this.byIdempotencyKey.get(input.idempotencyKey)
       if (existing && this.records.has(existing)) {
@@ -207,7 +208,7 @@ export class DelegationTaskQueue {
     return n
   }
 
-  private async execute<Args extends DelegateCodeArgs | DelegateResearchArgs>(
+  private async execute<Args extends AnyDelegateArgs>(
     taskId: string,
     input: SubmitInput<Args>,
     controller: AbortController,
@@ -344,6 +345,10 @@ export type {
   DelegateFeedbackResult,
   DelegateResearchArgs,
   DelegateResearchResult,
+  DelegateUiAuditArgs,
+  DelegateUiAuditConfig,
+  DelegateUiAuditResult,
+  DelegateUiAuditRoute,
   DelegationError,
   DelegationFeedbackSnapshot,
   DelegationHistoryArgs,
@@ -355,4 +360,5 @@ export type {
   DelegationStatus,
   DelegationStatusArgs,
   DelegationStatusResult,
+  UiAuditorDelegationOutput,
 } from './types'

@@ -12,10 +12,11 @@
  * task queue + feedback store.
  */
 
+import type { UiFinding, UiLens } from '@tangle-network/agent-eval'
 import type { CoderOutput, CoderTask } from '../profiles/coder'
 
 /** @experimental */
-export type DelegationProfile = 'coder' | 'researcher'
+export type DelegationProfile = 'coder' | 'researcher' | 'ui-auditor'
 
 /** @experimental */
 export type DelegationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -146,6 +147,73 @@ export interface DelegationError {
 export type DelegationResultPayload =
   | { profile: 'coder'; output: CoderOutput }
   | { profile: 'researcher'; output: ResearchOutputShape }
+  | { profile: 'ui-auditor'; output: UiAuditorDelegationOutput }
+
+/**
+ * Wire-shape of a completed UI-audit delegation. The `findings` array
+ * contains every finding persisted to the workspace during the run,
+ * already enriched with `id` and `createdAt` by the writer. `workspaceDir`
+ * is the absolute path to the workspace; `indexFile` is the workspace-
+ * relative path to the regenerated index.md.
+ *
+ * @experimental
+ */
+export interface UiAuditorDelegationOutput {
+  workspaceDir: string
+  indexFile: string
+  findings: UiFinding[]
+  /** Total iterations the loop ran for this delegation. */
+  iterations: number
+}
+
+/** @experimental */
+export type UiAuditLensFilter = readonly UiLens[]
+
+/** Optional per-route capture spec the agent surfaces over the wire. */
+export interface DelegateUiAuditRoute {
+  /** Stable route name (used in screenshot filenames + finding metadata). */
+  name: string
+  /** Fully-qualified URL. */
+  url: string
+  /** Viewports to capture at. Defaults to `[{ width: 1280, height: 800 }]`. */
+  viewports?: readonly { width: number; height: number }[]
+  /** Default false. Full-page captures for the broad lenses. */
+  fullPage?: boolean
+  /** Selector to wait for before capture. */
+  waitFor?: string
+}
+
+/** @experimental */
+export interface DelegateUiAuditConfig {
+  /**
+   * Lenses to iterate. Default: every lens except `'other'`. Order is
+   * preserved — the driver iterates lens-by-lens.
+   */
+  lenses?: UiAuditLensFilter
+  /** Maximum total iterations across all (lens × route) pairs. Default 33 (11 lenses × 3 routes). */
+  maxIterations?: number
+  /** Maximum concurrent iterations within a single plan() round. Default 2. */
+  maxConcurrency?: number
+  /** Free-form product context surfaced to the judge. */
+  productContext?: string
+}
+
+/** @experimental */
+export interface DelegateUiAuditArgs {
+  /** Workspace root for the audit (absolute path). */
+  workspaceDir: string
+  /** Routes to audit. Must be non-empty. */
+  routes: readonly DelegateUiAuditRoute[]
+  /** Multi-tenant scope. */
+  namespace?: string
+  config?: DelegateUiAuditConfig
+}
+
+/** @experimental */
+export interface DelegateUiAuditResult {
+  taskId: string
+  estimatedDurationMs?: number
+}
 
 /**
  * Loose shape of a research output over the wire — the substrate cannot
@@ -201,7 +269,7 @@ export interface DelegationHistoryEntry {
   taskId: string
   profile: DelegationProfile
   namespace?: string
-  args: DelegateCodeArgs | DelegateResearchArgs
+  args: DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
   status: DelegationStatus
   feedback?: DelegationFeedbackSnapshot[]
   costUsd?: number

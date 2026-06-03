@@ -18,7 +18,7 @@
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { Readable, Writable } from 'node:stream'
-import type { CoderDelegate, ResearcherDelegate } from './delegates'
+import type { CoderDelegate, ResearcherDelegate, UiAuditorDelegate } from './delegates'
 import { type FeedbackStore, InMemoryFeedbackStore } from './feedback-store'
 import { DelegationTaskQueue } from './task-queue'
 import {
@@ -39,6 +39,12 @@ import {
   DELEGATE_RESEARCH_INPUT_SCHEMA,
   DELEGATE_RESEARCH_TOOL_NAME,
 } from './tools/delegate-research'
+import {
+  createDelegateUiAuditHandler,
+  DELEGATE_UI_AUDIT_DESCRIPTION,
+  DELEGATE_UI_AUDIT_INPUT_SCHEMA,
+  DELEGATE_UI_AUDIT_TOOL_NAME,
+} from './tools/delegate-ui-audit'
 import {
   createDelegationHistoryHandler,
   DELEGATION_HISTORY_DESCRIPTION,
@@ -63,6 +69,13 @@ export interface McpServerOptions {
    * `researcherProfile` / `multiHarnessResearcherFanout`).
    */
   researcherDelegate?: ResearcherDelegate
+  /**
+   * Required to enable delegate_ui_audit. Wire one that closes over your
+   * `runLoop` + `uiAuditorProfile` + a `LoopSandboxClient` (the
+   * canonical in-process choice is `createInProcessUiAuditClient` from
+   * `@tangle-network/agent-runtime/profiles`) + your vision judge.
+   */
+  uiAuditorDelegate?: UiAuditorDelegate
   /** Override the default in-memory feedback store. */
   feedbackStore?: FeedbackStore
   /** Override the default in-memory task queue. */
@@ -146,6 +159,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       description: DELEGATE_RESEARCH_DESCRIPTION,
       inputSchema: DELEGATE_RESEARCH_INPUT_SCHEMA as unknown as Record<string, unknown>,
       handler: createDelegateResearchHandler({ queue, delegate: options.researcherDelegate }),
+    })
+  }
+  if (options.uiAuditorDelegate) {
+    tools.set(DELEGATE_UI_AUDIT_TOOL_NAME, {
+      name: DELEGATE_UI_AUDIT_TOOL_NAME,
+      description: DELEGATE_UI_AUDIT_DESCRIPTION,
+      inputSchema: DELEGATE_UI_AUDIT_INPUT_SCHEMA as unknown as Record<string, unknown>,
+      handler: createDelegateUiAuditHandler({ queue, delegate: options.uiAuditorDelegate }),
     })
   }
   tools.set(DELEGATE_FEEDBACK_TOOL_NAME, {
