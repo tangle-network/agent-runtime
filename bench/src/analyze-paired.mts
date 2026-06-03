@@ -52,7 +52,11 @@ const pp = (x: number) => `${(x * 100).toFixed(1)}pp`
 const line = (label: string, delta: (i: number) => number, discA: number[], discB: number[]) => {
   const [d, lc, hc] = ci(delta)
   const disc = rows.filter((_, i) => discA[i] !== discB[i]).length
-  console.log(`  ${label.padEnd(28)} ${pp(d).padStart(7)}  95% CI [${pp(lc)}, ${pp(hc)}]  ${lc > 0 ? 'SIGNIFICANT' : 'spans 0'}  (discordant ${disc}/${n})`)
+  // Significant iff the CI excludes 0 on EITHER side — a CI entirely below 0 is a
+  // significant NEGATIVE effect (steering that HARMS), not "spans 0". The prior
+  // `lc > 0` check silently mislabeled harm as non-significant.
+  const significant = lc > 0 || hc < 0
+  console.log(`  ${label.padEnd(28)} ${pp(d).padStart(7)}  95% CI [${pp(lc)}, ${pp(hc)}]  ${significant ? 'SIGNIFICANT' : 'spans 0'}  (discordant ${disc}/${n})`)
 }
 console.log(`paired bootstrap (clean n=${n}, B=${B})`)
 console.log(`  blind: ${(mean(b) * 100).toFixed(1)}%  random@k: ${(mean(rnd) * 100).toFixed(1)}%  refineHand: ${(mean(refH) * 100).toFixed(1)}%${hasGepa ? `  refineGepa: ${(mean(refG) * 100).toFixed(1)}%` : ''}`)
