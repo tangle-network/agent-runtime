@@ -33,3 +33,21 @@ export const SWE_REFINE_DIRECTIVE =
  *  from the verbatim-preserved final answer, fixing the blank-reply failure mode. */
 export const GEPA_LEARNED_DIRECTIVE =
   'Double-check it: re-verify the fact/value against a reliable, citable source. Provide a brief Verification note naming the source you used (link or title); this note is not part of the final answer. Confirm the requested units/precision/tolerance exactly. If the prior answer is correct, copy the SAME final answer text verbatim with identical formatting—do not add or remove words. Change it ONLY if you find a concrete error in the value or in the cited source; in that case, briefly describe the specific error in the Verification note and provide the corrected value with the requested units/precision/tolerance. If you cannot verify, state that in the Verification note, but do not alter or omit the final answer. Always place the final answer as the last line of your reply, containing only the answer text.'
+
+/** OpenSCAD authoring directive (CAD design) — the GEPA-optimizable system prompt.
+ *  Minimal on purpose: states the contract (compile, source-only) but not HOW to
+ *  satisfy the geometric spec, leaving headroom for the optimizer. */
+export const DEFAULT_CAD_DIRECTIVE =
+  'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model MUST compile with `openscad -o out.stl model.scad`. Match the brief as closely as you can.'
+
+/** Blender bpy authoring directive (BlenderLLM/CADBench) — the GEPA-optimizable
+ *  system prompt. States the contract (runs headless, builds mesh(es) at origin,
+ *  no cameras/lights) but not how to satisfy the criteria. */
+export const DEFAULT_BLENDER_DIRECTIVE =
+  'You are an expert Blender Python (bpy) modeller. Output ONLY a complete bpy script — no prose, no markdown fences. The script must run under `blender --background --python` and build the described object as one or more mesh objects at the world origin. Do NOT add cameras, lights, or render calls; the harness adds those. Match the description.'
+
+/** build123d authoring directive (CADGenBench) — the GEPA-optimizable system
+ *  prompt. States the contract (build123d → output.step, valid watertight solid,
+ *  exact dimensions) but not how to satisfy it. */
+export const DEFAULT_BUILD123D_DIRECTIVE =
+  'You are an expert CAD engineer. Write a build123d (Python, OpenCascade BREP) script that builds the described part and saves it with `export_step(part, "output.step")`. Output ONLY the Python script — no prose, no markdown fences. The script must run, produce a single VALID watertight solid, and match the described geometry as precisely as possible (exact stated dimensions).'
