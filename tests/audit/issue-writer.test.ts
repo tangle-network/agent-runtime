@@ -156,6 +156,26 @@ describe('appendFindings', () => {
     expect(entries).toContain('registry.json')
   })
 
+  it('rejects relative workspaceDir at the public boundary', async () => {
+    for (const dir of ['relative', './foo', '../foo']) {
+      await expect(appendFindings(dir, [finding()])).rejects.toThrow(/must be an absolute path/)
+    }
+  })
+
+  it("rejects workspaceDir containing '..' segments", async () => {
+    for (const dir of ['/tmp/../etc', '/var/../etc/audits']) {
+      await expect(appendFindings(dir, [finding()])).rejects.toThrow(
+        /must not contain '\.\.' segments/,
+      )
+    }
+  })
+
+  it("rejects screenshot paths containing '..' segments", async () => {
+    await expect(
+      appendFindings(workspaceDir, [finding({ screenshots: [{ path: '../../../etc/passwd' }] })]),
+    ).rejects.toThrow(/screenshots\[0\]\.path must not contain '\.\.' segments/)
+  })
+
   it('encodes blockquote meta lines on every line so the GitHub preview holds together', async () => {
     const result = await appendFindings(workspaceDir, [finding()])
     const body = await fs.readFile(path.join(workspaceDir, result.files[0] ?? ''), 'utf8')

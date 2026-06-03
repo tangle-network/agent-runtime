@@ -50,8 +50,33 @@ const SEVERITY_ORDER: Record<UiFinding['severity'], number> = {
   low: 3,
 }
 
+// Validate workspaceDir at every public entry point. The MCP tool checks
+// the same shape at the wire boundary, but the writer is independently
+// exported via `@tangle-network/agent-runtime/audit`, so direct callers
+// would otherwise bypass that defense. Absolute + no `..` segments matches
+// the MCP tool's contract — any path that the writer joins for I/O must be
+// rooted at a deterministic location chosen by the caller.
+function assertValidWorkspaceDir(dir: string): void {
+  if (typeof dir !== 'string' || dir.length === 0) {
+    throw new Error(
+      `audit-writer: workspaceDir must be a non-empty string (got ${JSON.stringify(dir)})`,
+    )
+  }
+  if (!path.isAbsolute(dir)) {
+    throw new Error(
+      `audit-writer: workspaceDir must be an absolute path (got ${JSON.stringify(dir)})`,
+    )
+  }
+  if (dir.split(path.sep).includes('..')) {
+    throw new Error(
+      `audit-writer: workspaceDir must not contain '..' segments (got ${JSON.stringify(dir)})`,
+    )
+  }
+}
+
 /** @experimental */
 export async function initAuditWorkspace(workspaceDir: string): Promise<void> {
+  assertValidWorkspaceDir(workspaceDir)
   await fs.mkdir(path.join(workspaceDir, 'issues'), { recursive: true })
   await fs.mkdir(path.join(workspaceDir, 'screenshots'), { recursive: true })
   const regPath = path.join(workspaceDir, 'registry.json')
@@ -65,6 +90,7 @@ export async function initAuditWorkspace(workspaceDir: string): Promise<void> {
 
 /** @experimental */
 export async function readAuditRegistry(workspaceDir: string): Promise<AuditRegistry> {
+  assertValidWorkspaceDir(workspaceDir)
   const regPath = path.join(workspaceDir, 'registry.json')
   const text = await fs.readFile(regPath, 'utf8')
   const parsed = JSON.parse(text) as unknown
@@ -139,6 +165,13 @@ function assertFindingShape(f: UiFinding, index: number): void {
     const s = f.screenshots[i]
     if (!s || typeof s.path !== 'string' || s.path.length === 0) {
       throw new Error(`${where}.screenshots[${i}].path must be a non-empty string`)
+    }
+    // Defense-in-depth: screenshot paths are written verbatim into Markdown
+    // and the registry; a downstream consumer that joins workspaceDir with
+    // them would otherwise be exposed to traversal-read. Reject `..`
+    // segments at the validation boundary.
+    if (s.path.split(/[/\\]/).includes('..')) {
+      throw new Error(`${where}.screenshots[${i}].path must not contain '..' segments`)
     }
   }
 }
@@ -240,6 +273,7 @@ export async function appendFindings(
   workspaceDir: string,
   findings: readonly UiFinding[],
 ): Promise<AppendFindingsResult> {
+  assertValidWorkspaceDir(workspaceDir)
   // Validate every finding BEFORE acquiring the lock so callers see a fast
   // input-shape error without blocking concurrent writers. Validation is
   // the only defense against path traversal via crafted `lens` values
@@ -316,6 +350,7 @@ export async function registerCaptures(
   workspaceDir: string,
   options: RegisterCapturesOptions,
 ): Promise<void> {
+  assertValidWorkspaceDir(workspaceDir)
   if (typeof options.route !== 'string' || options.route.trim().length === 0) {
     throw new Error('audit-writer: registerCaptures: route must be a non-empty string')
   }
@@ -363,6 +398,7 @@ export function summarizeRegistry(reg: AuditRegistry): AuditIndex {
  * @experimental
  */
 export async function writeAuditIndex(workspaceDir: string): Promise<string> {
+  assertValidWorkspaceDir(workspaceDir)
   const reg = await readAuditRegistry(workspaceDir)
   const summary = summarizeRegistry(reg)
 
