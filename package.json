@@ -86,6 +86,7 @@
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit",
+    "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "verify:package": "node scripts/verify-package-exports.mjs"
   },
   "dependencies": {},
@@ -94,6 +95,7 @@
     "@tangle-network/agent-eval": "^0.76.0",
     "@tangle-network/sandbox": "^0.4.0",
     "@types/node": "^25.6.0",
+    "playwright": "^1.40.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
