@@ -193,24 +193,37 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   agentic-driver. Each rung must beat *compute-matched* random before the next is justified.
   Don't jump to the unbounded agentic driver to (expensively) re-derive that more-compute ≈ 0.
 
-## Honest status (2026-06-02)
+## Honest status (2026-06-03)
 
 - **Coding (SWE-bench):** refine ≈ blind (net 1 rescue / 1 break, n=23). Directional, NOT
   proven — high blind baseline (~74%, likely *contamination* on popular repos) leaves ~no
   correctable middle band, and there was no `random@k` control. SWE-bench is a weak instrument
   here.
-- **Research (FinSearchComp):** judge verified deterministic (60 re-judgments, 0 flips). A
-  confound-controlled 3-way (`random@k` vs `refineHand@k` vs `refineGepa@k`) through the real
-  `runLoop` is the first trustworthy test; early signal had `random ≥ refineHand` (the inner
-  agent already self-corrects; the hand directive caused blank replies, which GEPA fixed →
-  +7.1pp held-out, noisy/n=8). Infra (sandbox stream drops) is the binding constraint; fixed
-  via condition-level retry.
+- **Research (FinSearchComp): rung-0 settled, and the answer is NO.** The first
+  adequately-powered, confound-controlled, judge-verified 3-way through the real `runLoop`
+  (n=40, 20 T2 + 20 T3, gpt-5 worker + verified-deterministic judge, 0 infra-excluded):
+  - blind 37.5% → random@3 **60.0%** → refineHand@3 50.0% → refineGepa@3 45.0%.
+  - **more-compute** (random − blind) = **+22.5pp**, 95% CI [+7.5, +40.0], p=0.008 (13/40
+    discordant) — trying again robustly helps.
+  - **steering** (refineX − random) is **negative on every slice, both directives**:
+    refineHand −10.0pp (CI [−25, +5], p=0.25), refineGepa −15.0pp (CI [−27.5, −2.5], p=0.032).
+    The GEPA harm is nominally significant but does **not** survive BH across the 2 steering
+    arms (q≈0.064) — so the disciplined claim is *no benefit + a consistent negative trend*,
+    NOT "significantly harms". Mechanism: the inner opencode agent already self-corrects in its
+    own rollout; an external refine directive adds a chance to BREAK a correct answer, while
+    `random@k` (independent retries, any-pass) captures the more-attempts benefit without that
+    downside. The earlier "+7.1pp held-out" was n=8 noise; this supersedes it.
+  - Subtype splits (n=20 each) are underpowered — even more-compute is not significant on T3
+    alone (CI [−5, +35]). T2 mirrors the aggregate (more-compute +30pp sig; steering ≤0).
 - **Terminal-Bench:** adapter+judge + blind-vs-refine wired (reuses tb's open-source opencode
   agent + verifier). Bench-orchestrated (tb owns containers) — the exception that does NOT
   route through `runLoop`.
-- **Net:** no clean evidence yet that an outer steering loop beats compute-matched random on
-  *any* domain. That is the rung-0 question. The flywheel is the destination; rung-0 + the
-  corpus are what's being built now.
+- **Net:** the first clean rung-0 measurement **contradicts** the flywheel's core premise on
+  this domain — a within-run steer does NOT beat compute-matched random; compute does. This is
+  one benchmark, one worker, two directives (incl. a GEPA-learned one that also fails), so it
+  bounds the *within-run inner loop*, not the cross-run outer flywheel. But it is a real,
+  controlled NO where there was only confounded YES before — the instrument now works, and it
+  says: do not escalate to costlier steers on this benchmark to re-derive that more-compute wins.
 
 ## Build sequence
 
