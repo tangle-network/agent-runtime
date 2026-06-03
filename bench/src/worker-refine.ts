@@ -22,6 +22,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { BenchTask } from './benchmarks/types'
+import { SWE_REFINE_DIRECTIVE } from './directives'
+import { runRefineLoop } from './refine-loop'
 
 const execFileAsync = promisify(execFile)
 const BIG = 1024 * 1024 * 256
@@ -88,60 +90,50 @@ export async function solveRefineLocal(
   const md = task.metadata ?? {}
   const repo = String(md.repo)
   const base = String(md.base_commit)
-  const issue = String(md.problem_statement ?? task.prompt)
   const rounds = Math.max(1, cfg.rounds ?? 3)
   const livenessMs = cfg.livenessMs ?? DEFAULT_LIVENESS_MS
-  const dir = await mkdtemp(join(tmpdir(), 'swebench-refine-'))
-  try {
-    await execFileAsync('git', ['clone', '--quiet', `https://github.com/${repo}.git`, dir], {
-      maxBuffer: BIG,
-    })
-    await execFileAsync('git', ['-C', dir, 'checkout', '--quiet', base], { maxBuffer: BIG })
-
-    let round1Patch = ''
-    let finalPatch = ''
-    const notes: string[] = []
-    for (let r = 1; r <= rounds; r += 1) {
-      const prompt =
-        r === 1
-          ? [
-              'Resolve this GitHub issue by editing the repository SOURCE. Do NOT edit test files.',
-              'Make the failing behavior correct. Keep the change minimal.',
-              '',
-              issue,
-            ].join('\n')
-          : [
-              'You have an in-progress fix for the issue below; your changes are already in',
-              'the working tree. VERIFY it: re-read the issue and run the repository\'s existing',
-              'tests. If the patch correctly and completely resolves the issue, leave it',
-              'UNCHANGED. Change it ONLY if you find a CONCRETE problem — a failing test, a',
-              'missed requirement, or a clear bug. Do not churn a working patch. Do NOT edit',
-              'test files.',
-              '',
-              issue,
-            ].join('\n')
+  // Migrated onto runRefineLoop (docs/architecture.md §12), prompt-free:
+  //  - FILESYSTEM carry — the cloned repo is the Ctx; the round's edits persist.
+  //  - TASK FRAMING is the ADAPTER's (task.prompt: "edit source not tests, minimal");
+  //    the worker no longer re-frames the issue.
+  //  - the round-2+ STEER is SWE_REFINE_DIRECTIVE (directives.ts), not owned here.
+  //  - artifact = the cumulative diff captured after each shot.
+  const res = await runRefineLoop<string, string>({
+    rounds,
+    setup: async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'swebench-refine-'))
+      await execFileAsync('git', ['clone', '--quiet', `https://github.com/${repo}.git`, dir], {
+        maxBuffer: BIG,
+      })
+      await execFileAsync('git', ['-C', dir, 'checkout', '--quiet', base], { maxBuffer: BIG })
+      return dir
+    },
+    prompt: (r) => (r === 1 ? task.prompt : `${task.prompt}\n\n${SWE_REFINE_DIRECTIVE}`),
+    runShot: async (prompt, _r, dir) => {
+      let note: string | undefined
       try {
         const { killed } = await runOpencode(
           ['run', prompt, '-m', cfg.model, '--dangerously-skip-permissions'],
           dir,
           livenessMs,
         )
-        if (killed) notes.push(`round ${r}: liveness backstop`)
+        if (killed) note = 'liveness backstop'
       } catch (err) {
-        notes.push(`round ${r}: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`)
+        note = (err instanceof Error ? err.message : String(err)).slice(0, 80)
       }
-      const patch = await captureDiff(dir)
-      if (r === 1) round1Patch = patch
-      finalPatch = patch
-    }
-    return {
-      round1Patch,
-      finalPatch,
-      rounds,
-      ok: finalPatch.trim().length > 0,
-      detail: notes.length ? notes.join(' · ') : undefined,
-    }
-  } finally {
-    if (!cfg.keep) await rm(dir, { recursive: true, force: true }).catch(() => {})
+      // Capture the cumulative diff regardless of how the shot exited.
+      return { artifact: await captureDiff(dir), note }
+    },
+    teardown: cfg.keep
+      ? undefined
+      : (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
+  })
+  const notes = res.rounds.filter((rr) => rr.note).map((rr) => `round ${rr.round}: ${rr.note}`)
+  return {
+    round1Patch: res.blind.artifact,
+    finalPatch: res.final.artifact,
+    rounds,
+    ok: res.final.artifact.trim().length > 0,
+    detail: notes.length ? notes.join(' · ') : undefined,
   }
 }

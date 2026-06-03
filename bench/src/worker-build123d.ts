@@ -19,6 +19,10 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
+import { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
+import { runRefineLoop } from './refine-loop'
+
+export { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 
 const execFileAsync = promisify(execFile)
 
@@ -68,12 +72,6 @@ function cheatSheet(): string {
   return _cheat
 }
 
-/** The hand-written baseline build123d authoring directive — the GEPA surface.
- *  Minimal: states the contract (build123d → output.step, valid solid, match the
- *  spec) but not HOW, leaving headroom for the optimizer. */
-export const DEFAULT_BUILD123D_DIRECTIVE =
-  'You are an expert CAD engineer. Write a build123d (Python, OpenCascade BREP) script that builds the described part and saves it with `export_step(part, "output.step")`. Output ONLY the Python script — no prose, no markdown fences. The script must run, produce a single VALID watertight solid, and match the described geometry as precisely as possible (exact stated dimensions).'
-
 export interface Build123dConfig {
   routerBaseUrl: string
   routerKey: string
@@ -101,34 +99,39 @@ export async function solveBuild123dLocal(task: BenchTask, cfg: Build123dConfig)
   const rounds = Math.max(1, cfg.rounds ?? 2)
   const directive = cfg.directive ?? DEFAULT_BUILD123D_DIRECTIVE
   const sys = `${directive}\n\nbuild123d API reference:\n${cheatSheet()}`
-  const dir = await mkdtemp(join(tmpdir(), 'b123d-'))
-  const scriptPath = join(dir, 'build.py')
-  const stepPath = join(dir, 'output.step')
   const trace: Span[] = []
   const runId = `cadgenbench-${task.id}`
   let ts = Date.now()
   const tick = () => (ts += 1)
   const usage = { input: 0, output: 0 }
-  let source = ''
+  // Carried across rounds in closures (the round Artifact is the Python source; the
+  // STEP text + built flag + lastErr persist outside the loop). usage is REAL.
   let step = ''
   let built = false
   let lastErr = ''
 
   trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
-  try {
-    for (let round = 1; round <= rounds && !built; round++) {
-      const user =
-        round === 1
-          ? task.prompt
-          : `Your previous build123d script failed:\n${lastErr}\n\nPrevious script:\n${source}\n\nFix it so it runs in python and writes a valid output.step. Brief:\n${task.prompt}`
+  // Migrated onto runRefineLoop: the mkdtemp scratch dir is the Ctx; built (STEP
+  // produced) is the early-stop, modeled as a judge so default-decide stops the
+  // loop. The round-2+ steer carries lastErr + the prior source verbatim.
+  const res = await runRefineLoop<string, string>({
+    rounds,
+    setup: () => mkdtemp(join(tmpdir(), 'b123d-')),
+    prompt: (round, history) =>
+      round === 1
+        ? task.prompt
+        : `Your previous build123d script failed:\n${lastErr}\n\nPrevious script:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it runs in python and writes a valid output.step. Brief:\n${task.prompt}`,
+    runShot: async (user, round, dir) => {
+      const scriptPath = join(dir, 'build.py')
+      const stepPath = join(dir, 'output.step')
       const { content, usage: u } = await routerChatWithUsage(cfg, [
         { role: 'system', content: sys },
         { role: 'user', content: user },
       ])
       usage.input += u.input
       usage.output += u.output
-      source = extractPy(content)
+      const source = extractPy(content)
       trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'build.py', content: source }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
@@ -139,17 +142,19 @@ export async function solveBuild123dLocal(task: BenchTask, cfg: Build123dConfig)
       lastErr = built ? '' : `${run.stdout}\n${run.stderr}`.trim().slice(-800) || 'no output.step written'
       if (built) step = got
       trace.push({ spanId: `s-exec-${round}`, runId, kind: 'tool', name: `build123d r${round}`, toolName: 'shell.exec', args: 'python build.py', result: (built ? 'wrote output.step' : lastErr).slice(0, 1500), startedAt: tick(), endedAt: tick(), status: built ? 'ok' : 'error', error: built ? undefined : `exit ${run.code}` } as Span)
-    }
-    return {
-      artifact: step,
-      source,
-      trace,
-      usage,
-      ok: source.trim().length > 0,
-      built,
-      detail: built ? 'exported output.step' : `did not produce a STEP in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 140)}` : ''}`,
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
+      return { artifact: source }
+    },
+    judge: async () => ({ valid: built }),
+    teardown: (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
+  })
+
+  return {
+    artifact: step,
+    source: res.final.artifact,
+    trace,
+    usage,
+    ok: res.final.artifact.trim().length > 0,
+    built,
+    detail: built ? 'exported output.step' : `did not produce a STEP in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 140)}` : ''}`,
   }
 }

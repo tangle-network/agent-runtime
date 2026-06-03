@@ -79,7 +79,7 @@ print(json.dumps(out))
           prompt: [
             `Repository: ${r.repo} @ ${r.base_commit}`,
             '',
-            'Resolve this issue by editing the repository. Output a unified git diff (the patch) that makes the failing tests pass without breaking the passing ones.',
+            'Resolve this issue by editing the repository SOURCE. Output a unified git diff (the patch) that makes the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests, so editing tests does not count. Keep the change minimal.',
             '',
             '--- Issue ---',
             String(r.problem_statement ?? ''),

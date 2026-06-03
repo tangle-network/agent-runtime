@@ -34,8 +34,9 @@ import { DEFAULT_BLENDER_DIRECTIVE, solveBlenderLocal } from './worker-blender'
 import { DEFAULT_MIND2WEB_DIRECTIVE, solveBrowserLocal } from './worker-browser'
 import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
-import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, solveRefineResearchLocal } from './worker-research'
-import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, solveSandboxResearch } from './worker-sandbox-research'
+import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
+import { solveRefineResearchLocal } from './worker-research'
+import { solveSandboxResearch } from './worker-sandbox-research'
 
 interface RefineScenario extends Scenario {
   task: BenchTask

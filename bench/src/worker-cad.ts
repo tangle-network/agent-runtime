@@ -21,6 +21,10 @@ import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
+import { DEFAULT_CAD_DIRECTIVE, DEFAULT_CAD_SANDBOX_DIRECTIVE } from './directives'
+import { runRefineLoop } from './refine-loop'
+
+export { DEFAULT_CAD_DIRECTIVE } from './directives'
 
 export interface CadWorkerConfig {
   sandboxBaseUrl: string
@@ -44,6 +48,9 @@ export interface CadShotResult {
 const SCAD_PATH = '/work/model.scad'
 const STL_PATH = '/work/model.stl'
 const PNG_PATH = '/work/model.png'
+
+/** The acquired sandbox instance — the per-task execution Ctx for solveCadRefine. */
+type SandboxBox = Awaited<ReturnType<typeof acquireSandbox>>
 
 const randomSuffix = () => Math.random().toString(36).slice(2, 10)
 
@@ -109,16 +116,6 @@ async function runLocal(
   }
 }
 
-/**
- * The hand-written baseline OpenSCAD authoring directive — the SURFACE the
- * GEPA loop optimizes. Deliberately minimal: it states the contract (compile,
- * source-only) but not HOW to satisfy the geometric spec, leaving headroom for
- * the optimizer to learn the architectural moves (taper the roof, hollow the
- * shell, hit the bbox) that make the deterministic gate pass.
- */
-export const DEFAULT_CAD_DIRECTIVE =
-  'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model MUST compile with `openscad -o out.stl model.scad`. Match the brief as closely as you can.'
-
 export interface CadLocalConfig {
   routerBaseUrl: string
   routerKey: string
@@ -152,37 +149,40 @@ export interface CadLocalShot {
 export async function solveCadRefineLocal(task: BenchTask, cfg: CadLocalConfig): Promise<CadLocalShot> {
   const rounds = Math.max(1, cfg.rounds ?? 3)
   const directive = cfg.directive ?? DEFAULT_CAD_DIRECTIVE
-  const dir = await mkdtemp(join(tmpdir(), 'cad-local-'))
-  const scadPath = join(dir, 'model.scad')
-  const stlPath = join(dir, 'model.stl')
-  const pngPath = join(dir, 'model.png')
   const trace: Span[] = []
   const renders: string[] = []
   const runId = `cad-${task.id}`
   let ts = Date.now()
   const tick = () => (ts += 1)
   const usage = { input: 0, output: 0 }
-  let scad = ''
-  let round1 = ''
+  // Carried across rounds in closures (the round Artifact is the .scad source; the
+  // lastErr steer + resolved early-stop persist outside the loop). usage is REAL.
   let lastErr = ''
   let resolved = false
 
   trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
-  try {
-    for (let round = 1; round <= rounds && !resolved; round++) {
-      const user =
-        round === 1
-          ? task.prompt
-          : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${scad}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`
+  // Migrated onto runRefineLoop: the mkdtemp dir is the Ctx; resolved (compiles AND
+  // has geometry) is the early-stop, modeled as a judge so default-decide stops the
+  // loop. The round-2+ steer carries lastErr + the prior source verbatim.
+  const res = await runRefineLoop<string, string>({
+    rounds,
+    setup: () => mkdtemp(join(tmpdir(), 'cad-local-')),
+    prompt: (round, history) =>
+      round === 1
+        ? task.prompt
+        : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`,
+    runShot: async (user, round, dir) => {
+      const scadPath = join(dir, 'model.scad')
+      const stlPath = join(dir, 'model.stl')
+      const pngPath = join(dir, 'model.png')
       const { content, usage: u } = await routerChatWithUsage(cfg, [
         { role: 'system', content: directive },
         { role: 'user', content: user },
       ])
       usage.input += u.input
       usage.output += u.output
-      scad = extractScad(content)
-      if (round === 1) round1 = scad
+      const scad = extractScad(content)
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.scad', content: scad }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
@@ -210,19 +210,20 @@ export async function solveCadRefineLocal(task: BenchTask, cfg: CadLocalConfig):
         resolved = stl.length > 0 && /facet normal/.test(stl)
       }
       trace.push({ spanId: `s-render-${round}`, runId, kind: 'tool', name: `render r${round}`, toolName: 'render.screenshot', args: { action: `rendered round ${round}`, url: 'model.png' }, attributes: screenshot ? { screenshot } : {}, startedAt: tick(), endedAt: tick(), status: screenshot ? 'ok' : 'error', error: screenshot ? undefined : (compileOk ? 'render produced no image' : 'skipped — did not compile') } as Span)
-    }
+      return { artifact: scad }
+    },
+    judge: async () => ({ valid: resolved }),
+    teardown: (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
+  })
 
-    return {
-      artifact: scad,
-      round1Artifact: round1,
-      trace,
-      renders,
-      usage,
-      ok: scad.trim().length > 0,
-      detail: resolved ? `compiled in ≤${rounds} rounds` : `did not compile cleanly in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 120)}` : ''}`,
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  return {
+    artifact: res.final.artifact,
+    round1Artifact: res.blind.artifact,
+    trace,
+    renders,
+    usage,
+    ok: res.final.artifact.trim().length > 0,
+    detail: resolved ? `compiled in ≤${rounds} rounds` : `did not compile cleanly in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 120)}` : ''}`,
   }
 }
 
@@ -242,38 +243,57 @@ export interface CadRefineConfig extends CadWorkerConfig {
 export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Promise<CadShotResult> {
   const rounds = cfg.rounds ?? 3
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
-  const box = await acquireSandbox(client, {
-    name: `cad-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-    environment: 'universal',
-  })
   const t0 = Date.now()
   const trace: Span[] = []
   const runId = `cad-${task.id}`
   let ts = t0
   const tick = () => (ts += 1)
-  let artifact = ''
+  // The authoring system prompt for the orchestrated sandbox path — kept verbatim,
+  // distinct from DEFAULT_CAD_DIRECTIVE (the local path's GEPA surface).
+  const sys = DEFAULT_CAD_SANDBOX_DIRECTIVE
+  // Carried across rounds in closures (the round Artifact is the .scad source; the
+  // lastErr steer + resolved early-stop persist outside the loop).
   let lastErr = ''
+  let resolved = false
 
-  try {
-    await box.exec('mkdir -p /work', { timeoutMs: 30_000 })
-    // The brief frames the title card (understood_task).
-    trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
-
-    const sys = 'You are an expert OpenSCAD engineer. Output ONLY valid OpenSCAD source — no prose, no markdown fences. The model must compile with `openscad -o out.stl model.scad`.'
-    let scad = ''
-    let resolved = false
-
-    for (let round = 1; round <= rounds && !resolved; round++) {
-      const user =
-        round === 1
-          ? task.prompt
-          : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${scad}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`
+  // Migrated onto runRefineLoop: the universal sandbox box is the Ctx (acquired once,
+  // /work created in setup, torn down in teardown). resolved (compiles AND has
+  // geometry) is the early-stop, modeled as a judge so default-decide stops the loop.
+  // The round-2+ steer carries lastErr + the prior source verbatim.
+  const res = await runRefineLoop<string, SandboxBox>({
+    rounds,
+    setup: async () => {
+      const box = await acquireSandbox(client, {
+        name: `cad-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
+        environment: 'universal',
+      })
+      // If init fails AFTER acquire, reap the box here — setup throwing before it
+      // returns the Ctx means runRefineLoop's teardown never runs, so an unguarded
+      // mkdir failure would leak the sandbox (the pre-migration finally deleted it).
+      try {
+        await box.exec('mkdir -p /work', { timeoutMs: 30_000 })
+        // The brief frames the title card (understood_task).
+        trace.push({ spanId: 's-brief', runId, kind: 'llm', name: 'brief', model: cfg.model, messages: [{ role: 'user', content: task.prompt }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
+        return box
+      } catch (err) {
+        try {
+          await box.delete?.()
+        } catch {
+          // platform reaps on expiry
+        }
+        throw err
+      }
+    },
+    prompt: (round, history) =>
+      round === 1
+        ? task.prompt
+        : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`,
+    runShot: async (user, round, box) => {
       const reply = await routerChat(cfg, [
         { role: 'system', content: sys },
         { role: 'user', content: user },
       ])
-      scad = extractScad(reply)
-      artifact = scad
+      const scad = extractScad(reply)
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: reply.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.scad', content: scad }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
@@ -298,16 +318,20 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
         resolved = stl.length > 0 && /facet normal/.test(stl)
       }
       trace.push({ spanId: `s-render-${round}`, runId, kind: 'tool', name: `render r${round}`, toolName: 'render.screenshot', args: { action: `rendered round ${round}`, url: 'model.png' }, attributes: screenshot ? { screenshot } : {}, startedAt: tick(), endedAt: tick(), status: screenshot ? 'ok' : 'error', error: screenshot ? undefined : (compileOk ? 'render produced no image' : 'skipped — did not compile') } as Span)
-    }
+      return { artifact: scad }
+    },
+    judge: async () => ({ valid: resolved }),
+    teardown: async (box) => {
+      try {
+        await box.delete()
+      } catch {
+        // staging reaps on expiry
+      }
+    },
+  })
 
-    return { artifact, trace, ok: artifact.trim().length > 0, detail: resolved ? `resolved in ≤${rounds} rounds` : `did not fully resolve in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 120)}` : ''}` }
-  } finally {
-    try {
-      await box.delete()
-    } catch {
-      /* staging reaps on expiry */
-    }
-  }
+  const artifact = res.final.artifact
+  return { artifact, trace, ok: artifact.trim().length > 0, detail: resolved ? `resolved in ≤${rounds} rounds` : `did not fully resolve in ${rounds} rounds${lastErr ? `; last: ${lastErr.slice(0, 120)}` : ''}` }
 }
 
 /** Run one CAD authoring shot in a real sandbox, gating with the box's own

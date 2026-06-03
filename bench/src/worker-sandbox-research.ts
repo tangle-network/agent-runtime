@@ -16,6 +16,8 @@
 import { extractLlmCallEvent } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
+import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
+import { runRefineLoop } from './refine-loop'
 
 export interface SandboxResearchConfig {
   sandboxBaseUrl: string
@@ -30,10 +32,6 @@ export interface SandboxResearchConfig {
   /** Refine directive (the GEPA-optimizable surface). Defaults to the hand-written gated one. */
   refineDirective?: string
 }
-
-/** Default gated refine directive (hand-written). GEPA optimizes this surface. */
-export const DEFAULT_SANDBOX_REFINE_DIRECTIVE =
-  'Double-check it: re-verify the figure against live sources and the requested units/precision/tolerance. If it is correct, restate the SAME final answer unchanged. Change it ONLY if you find a concrete error in the value or the source. End with the explicit final answer.'
 
 export interface SandboxResearchShot {
   round1Answer: string
@@ -104,68 +102,73 @@ export async function solveSandboxResearch(
   const perRoundMs = cfg.perRoundMs ?? 1_200_000
   const directive = cfg.refineDirective ?? DEFAULT_SANDBOX_REFINE_DIRECTIVE
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey, timeoutMs: 180_000 } as never)
-  const box = await createWithRetry(client, {
-    name: `finsearch-${Math.random().toString(36).slice(2, 10)}`,
-    environment: 'universal',
-    backend: {
-      type: 'opencode',
-      model: {
-        provider: cfg.provider ?? 'openai',
-        model: cfg.model,
-        baseUrl: cfg.routerBaseUrl,
-        apiKey: cfg.routerKey,
-      },
-    },
-  })
-  try {
-    if (typeof box.refresh === 'function') {
-      for (let i = 0; i < 80 && box.status && box.status !== 'running'; i += 1) {
-        await new Promise((r) => setTimeout(r, 3000))
-        await box.refresh()
+
+  // Accumulated across rounds — the box is a shared session Ctx; usage/cost are REAL
+  // from the stream (never fabricated). Carry-forward is the LAST NON-EMPTY answer
+  // (an empty round must not overwrite a good prior or carry blank forward).
+  let input = 0
+  let output = 0
+  let costUsd = 0
+  const lastNonEmpty = (h: ReadonlyArray<{ artifact: string }>): string =>
+    [...h].reverse().find((x) => x.artifact.trim().length > 0)?.artifact ?? ''
+
+  const res = await runRefineLoop<string, Box>({
+    rounds,
+    setup: async () => {
+      const box = await createWithRetry(client, {
+        name: `finsearch-${Math.random().toString(36).slice(2, 10)}`,
+        environment: 'universal',
+        backend: {
+          type: 'opencode',
+          model: {
+            provider: cfg.provider ?? 'openai',
+            model: cfg.model,
+            baseUrl: cfg.routerBaseUrl,
+            apiKey: cfg.routerKey,
+          },
+        },
+      })
+      if (typeof box.refresh === 'function') {
+        for (let i = 0; i < 80 && box.status && box.status !== 'running'; i += 1) {
+          await new Promise((r) => setTimeout(r, 3000))
+          await box.refresh()
+        }
       }
-    }
-    let round1Answer = ''
-    let finalAnswer = ''
-    let prev = ''
-    let input = 0
-    let output = 0
-    let costUsd = 0
-    const notes: string[] = []
-    for (let r = 1; r <= rounds; r += 1) {
-      const prompt =
-        r === 1
-          ? task.prompt
-          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-3000)}\n\n${directive}`
-      let answer = ''
+      return box
+    },
+    prompt: (r, history) =>
+      r === 1
+        ? task.prompt
+        : `${task.prompt}\n\n--- Your previous answer ---\n${lastNonEmpty(history).slice(-3000)}\n\n${directive}`,
+    runShot: async (prompt, _r, box) => {
       try {
         const round = await streamAnswer(box, prompt, perRoundMs)
-        answer = round.answer
         input += round.input
         output += round.output
         costUsd += round.costUsd
+        return { artifact: round.answer }
       } catch (err) {
-        notes.push(`round ${r}: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)}`)
+        return { artifact: '', note: (err instanceof Error ? err.message : String(err)).slice(0, 80) }
       }
-      if (answer.trim().length > 0) {
-        if (r === 1) round1Answer = answer
-        finalAnswer = answer
-        prev = answer
+    },
+    teardown: async (box) => {
+      try {
+        await box.delete?.()
+      } catch {
+        // platform reaps on expiry
       }
-    }
-    return {
-      round1Answer,
-      finalAnswer,
-      rounds,
-      ok: finalAnswer.trim().length > 0,
-      detail: notes.length ? notes.join(' · ') : undefined,
-      usage: { input, output },
-      costUsd,
-    }
-  } finally {
-    try {
-      await box.delete?.()
-    } catch {
-      // platform reaps on expiry
-    }
+    },
+  })
+
+  const notes = res.rounds.filter((rr) => rr.note).map((rr) => `round ${rr.round}: ${rr.note}`)
+  const finalAnswer = lastNonEmpty(res.rounds)
+  return {
+    round1Answer: res.blind.artifact,
+    finalAnswer,
+    rounds,
+    ok: finalAnswer.trim().length > 0,
+    detail: notes.length ? notes.join(' · ') : undefined,
+    usage: { input, output },
+    costUsd,
   }
 }
