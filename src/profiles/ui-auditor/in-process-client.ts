@@ -112,9 +112,13 @@ async function defaultLaunch(): Promise<BrowserHandle> {
 function nowStamp(): string {
   const d = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
+  // Millisecond resolution so parallel fanout iterations capturing the same
+  // route/viewport/label within the same second don't collide on filename and
+  // silently overwrite each other.
   return (
     `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}-` +
-    `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}`
+    `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}` +
+    `-${String(d.getUTCMilliseconds()).padStart(3, '0')}`
   )
 }
 
