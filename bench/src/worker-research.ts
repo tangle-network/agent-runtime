@@ -16,6 +16,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BenchTask } from './benchmarks/types'
+import { runRefineLoop } from './refine-loop'
 
 /** See worker-local: a hang backstop, not a step cap. 0 disables. */
 const DEFAULT_LIVENESS_MS = 1_800_000
@@ -97,37 +98,35 @@ export async function solveRefineResearchLocal(
   const rounds = Math.max(1, cfg.rounds ?? 3)
   const directive = cfg.refineDirective ?? DEFAULT_RESEARCH_REFINE_DIRECTIVE
   const livenessMs = cfg.livenessMs ?? DEFAULT_LIVENESS_MS
-  const dir = await mkdtemp(join(tmpdir(), 'research-refine-'))
-  try {
-    let round1Answer = ''
-    let finalAnswer = ''
-    let prev = ''
-    const notes: string[] = []
-    for (let r = 1; r <= rounds; r += 1) {
-      const prompt =
-        r === 1
-          ? task.prompt
-          : `${task.prompt}\n\n--- Your previous answer ---\n${prev.slice(-4000)}\n\n${directive}`
+  // Migrated onto the shared runRefineLoop atom (docs/architecture.md §12).
+  // No shared workspace for a question — prior state carries in the prompt only;
+  // no per-round judge → all k rounds run (the orchestrator scores round1 vs final).
+  const res = await runRefineLoop<string, string>({
+    rounds,
+    setup: () => mkdtemp(join(tmpdir(), 'research-refine-')),
+    prompt: (r, history) =>
+      r === 1
+        ? task.prompt
+        : `${task.prompt}\n\n--- Your previous answer ---\n${(history[history.length - 1]?.artifact ?? '').slice(-4000)}\n\n${directive}`,
+    runShot: async (prompt, _r, dir) => {
       const { stdout, killed } = await runOpencodeCapture(
         ['run', prompt, '-m', cfg.model, '--dangerously-skip-permissions'],
         dir,
         livenessMs,
       )
-      const answer = stdout.replace(ANSI, '')
-      if (killed) notes.push(`round ${r}: liveness backstop`)
-      if (r === 1) round1Answer = answer
-      finalAnswer = answer
-      prev = answer
-    }
-    return {
-      round1Answer,
-      finalAnswer,
-      rounds,
-      ok: finalAnswer.trim().length > 0,
-      detail: notes.length ? notes.join(' · ') : undefined,
-    }
-  } finally {
-    if (!cfg.keep) await rm(dir, { recursive: true, force: true }).catch(() => {})
+      return { artifact: stdout.replace(ANSI, ''), note: killed ? 'liveness backstop' : undefined }
+    },
+    teardown: cfg.keep
+      ? undefined
+      : (dir) => rm(dir, { recursive: true, force: true }).then(() => {}, () => {}),
+  })
+  const notes = res.rounds.filter((rr) => rr.note).map((rr) => `round ${rr.round}: ${rr.note}`)
+  return {
+    round1Answer: res.blind.artifact,
+    finalAnswer: res.final.artifact,
+    rounds,
+    ok: res.final.artifact.trim().length > 0,
+    detail: notes.length ? notes.join(' · ') : undefined,
   }
 }
 

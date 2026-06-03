@@ -1,5 +1,10 @@
 # The Continual Cross-Benchmark Learning Flywheel
 
+> **Canonical entry point is now [`architecture.md`](./architecture.md)** — the single spine
+> (recursive `Agent` atom · two timescales · benchmark-as-adapter · selector ≠ judge). Read it
+> first. This doc is the *deep-dive on the theory and moat*: the `(π,τ,J,D,O)` recursion and the
+> hard-won discipline. Where the two differ, the spine wins.
+
 > The core thesis of this project. There are **two loops, and the product is the outer one.**
 >
 > - **Inner loop (within-run):** a controller steers a worker over k attempts on a single
@@ -123,6 +128,25 @@ The same `f(trace)` plugs into **two places**: (1) runtime — what the worker s
 (2) **GEPA reflection input** — what the optimizer sees to rewrite the steer (canonical,
 trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
 
+**The firewall — observations, never verdicts.** `f(trace)` may read the trace, which means a
+steer can legitimately report the same *property* the judge scores (e.g. realness): an analyst
+that observes "the agent imported a stub" or "used a non-crypto PRNG where encryption was
+required" is steering on **observable behavior**, which is fair game. What it may NOT do is
+carry the judge's **verdict** — "this output is fake / will fail" — because that is `J` leaking
+into the loop, and the optimizer then games realness exactly as it games pass-rate. The line is
+*observation vs. verdict*, not *which property* — and the correct discriminator is **provenance,
+not evidence presence**: an evidence-less trace-analyst bullet is an observation, while a judge
+verdict that happens to cite an artifact is still a verdict. The substrate enforces this by
+keying on origin, set at the source: `AnalystFinding.derived_from_judge` (tagged where a judge
+score is lifted into a finding), `assertNoJudgeVerdict(findings)` (the steer gate — rejects
+judge-derived findings), and `ProposeContext.judgeScores?: never` (a compile-time tripwire on the
+direct channel). It is *necessary, not sufficient*: it stops provenance-tagged verdicts, so
+provenance must be set at every judge→finding lift, and the dual-role consumer must call the gate
+when it assembles findings for steering (the generic optimizer boundary is finding-type-agnostic,
+so it cannot auto-enforce). And it is *not sufficient alone* for a second reason: if the
+steer-detector and `J` measure a correlated property, optimizing the observable can still inflate
+`J` on the **training** split — only a frozen holdout (below) catches that. Gaps 4 and 2 interlock.
+
 ## Architecture layers (ranked by leverage)
 
 1. **Eval + corpus substrate (the GATE).** Cheap, reliable, **trace-rich** evaluation; the
@@ -150,10 +174,21 @@ trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
   pile of noise with false confidence. **Clean data > more data.** Rigor is what makes the
   corpus *learnable*, not bureaucracy.
 - **Confounds before causal claims.** A delta where treatment gets more compute than control
-  is not a causal result. Always run the **`random@k` compute control**; isolate steering as
-  `refine@k − random@k`. Verify the judge is deterministic (re-judge test). Exclude
-  infra-errored cells; retry transient drops. (See the false "+20pp = steering proven" — it
-  was compute + infra + an untested judge.)
+  is not a causal result. The **`random@k` compute control** is no longer a thing to *remember*:
+  `runSteeringExperiment` (bench) makes it a **required field** — a steering experiment cannot be
+  constructed or run without its compute-matched control, so isolating steering as
+  `refine@k − random@k` is structural, and omitting the control is a type error. Verify the judge
+  is deterministic (re-judge test). Exclude infra-errored cells; retry transient drops. (See the
+  false "+20pp = steering proven" — it was compute + infra + an untested judge.)
+- **Pre-register the primary metric; correct the family; spend the holdout once.** The ablation
+  grid (steering arms × directives × benchmarks, plus compute controls) tests *many* contrasts —
+  each independent "CI excludes 0" inflates the family-wise false-positive rate (garden of forking
+  paths). The PRIMARY hypothesis (`steering = refineX − random > 0`) is pre-registered; every
+  reported contrast is **Benjamini-Hochberg corrected within its family** (`corpus-report.mts`),
+  and a result counts only if it clears the family FDR — never on its own CI. Separate a reusable
+  **exploration** set (rank candidates freely, BH-corrected) from a **frozen confirmation holdout**
+  spent once per *locked* candidate; this is what `runImprovementLoop` enforces by refusing
+  train ∩ holdout overlap (memorization read as generalization is the default failure otherwise).
 - **"Validates the concept" ≠ "validates the product."** A hand-rolled refine loop proves
   refinement helps, NOT that `runLoop`/the controller does. Route through the real kernel.
 - **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
@@ -163,24 +198,37 @@ trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
   agentic-driver. Each rung must beat *compute-matched* random before the next is justified.
   Don't jump to the unbounded agentic driver to (expensively) re-derive that more-compute ≈ 0.
 
-## Honest status (2026-06-02)
+## Honest status (2026-06-03)
 
 - **Coding (SWE-bench):** refine ≈ blind (net 1 rescue / 1 break, n=23). Directional, NOT
   proven — high blind baseline (~74%, likely *contamination* on popular repos) leaves ~no
   correctable middle band, and there was no `random@k` control. SWE-bench is a weak instrument
   here.
-- **Research (FinSearchComp):** judge verified deterministic (60 re-judgments, 0 flips). A
-  confound-controlled 3-way (`random@k` vs `refineHand@k` vs `refineGepa@k`) through the real
-  `runLoop` is the first trustworthy test; early signal had `random ≥ refineHand` (the inner
-  agent already self-corrects; the hand directive caused blank replies, which GEPA fixed →
-  +7.1pp held-out, noisy/n=8). Infra (sandbox stream drops) is the binding constraint; fixed
-  via condition-level retry.
+- **Research (FinSearchComp): rung-0 settled, and the answer is NO.** The first
+  adequately-powered, confound-controlled, judge-verified 3-way through the real `runLoop`
+  (n=40, 20 T2 + 20 T3, gpt-5 worker + verified-deterministic judge, 0 infra-excluded):
+  - blind 37.5% → random@3 **60.0%** → refineHand@3 50.0% → refineGepa@3 45.0%.
+  - **more-compute** (random − blind) = **+22.5pp**, 95% CI [+7.5, +40.0], p=0.008 (13/40
+    discordant) — trying again robustly helps.
+  - **steering** (refineX − random) is **negative on every slice, both directives**:
+    refineHand −10.0pp (CI [−25, +5], p=0.25), refineGepa −15.0pp (CI [−27.5, −2.5], p=0.032).
+    The GEPA harm is nominally significant but does **not** survive BH across the 2 steering
+    arms (q≈0.064) — so the disciplined claim is *no benefit + a consistent negative trend*,
+    NOT "significantly harms". Mechanism: the inner opencode agent already self-corrects in its
+    own rollout; an external refine directive adds a chance to BREAK a correct answer, while
+    `random@k` (independent retries, any-pass) captures the more-attempts benefit without that
+    downside. The earlier "+7.1pp held-out" was n=8 noise; this supersedes it.
+  - Subtype splits (n=20 each) are underpowered — even more-compute is not significant on T3
+    alone (CI [−5, +35]). T2 mirrors the aggregate (more-compute +30pp sig; steering ≤0).
 - **Terminal-Bench:** adapter+judge + blind-vs-refine wired (reuses tb's open-source opencode
   agent + verifier). Bench-orchestrated (tb owns containers) — the exception that does NOT
   route through `runLoop`.
-- **Net:** no clean evidence yet that an outer steering loop beats compute-matched random on
-  *any* domain. That is the rung-0 question. The flywheel is the destination; rung-0 + the
-  corpus are what's being built now.
+- **Net:** the first clean rung-0 measurement **contradicts** the flywheel's core premise on
+  this domain — a within-run steer does NOT beat compute-matched random; compute does. This is
+  one benchmark, one worker, two directives (incl. a GEPA-learned one that also fails), so it
+  bounds the *within-run inner loop*, not the cross-run outer flywheel. But it is a real,
+  controlled NO where there was only confounded YES before — the instrument now works, and it
+  says: do not escalate to costlier steers on this benchmark to re-derive that more-compute wins.
 
 ## Build sequence
 
@@ -198,6 +246,6 @@ trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
 
 - Kernel + controller seam: `src/loops/` (`runLoop`, `createDynamicDriver`, `createSandboxPlanner`).
 - Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`, `finsearch-loop.ts`,
-  `terminal-compare.ts`, `analyze-paired.mts`).
+  `terminal-compare.ts`, `corpus-report.mts`).
 - Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`gepaDriver`,
   `heldOutGate`, `runImprovementLoop`, `RunRecord`/trace-store, `./rl`).

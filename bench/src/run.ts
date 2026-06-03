@@ -19,6 +19,9 @@ import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
   'terminal-bench': createTerminalBenchAdapter,
+  // PLANNED (scaffolded): preflight is real; loadTasks/judge fail loud with the
+  // exact wiring step until integrated. Kept on purpose — the benchmark roster is
+  // the cross-benchmark-transfer asset; this is roadmap, not dead code.
   appworld: createAppWorldAdapter,
   'cad-design': createCadDesignAdapter,
   cadbench: createCadBenchAdapter,

@@ -32,6 +32,15 @@ import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { appendRunRecord, buildRunRecord } from './corpus'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './worker-sandbox-research'
+import { runSteeringExperiment } from './steering-experiment'
+
+/** One condition's outcome: did the k-attempt loop resolve, was the blind (iter0)
+ *  attempt valid, and did infra (not a wrong answer) fail the run. */
+interface ConditionResult {
+  resolved: boolean
+  blind: boolean
+  infraError: boolean
+}
 
 function must(name: string): string {
   const v = process.env[name]
@@ -131,7 +140,11 @@ async function main() {
   // Run one condition through the real kernel; persist a full RunRecord to the
   // flywheel corpus (state·steer·trace·output·verdict·cost — not a boolean); return
   // {resolved, blind(iter0), infraError}.
-  const runCondition = async (task: BenchTask, planner: TopologyPlanner<string, string>, condition: string) => {
+  const runCondition = async (
+    task: BenchTask,
+    planner: TopologyPlanner<string, string>,
+    condition: string,
+  ): Promise<ConditionResult> => {
     const validator: Validator<string> = {
       async validate(answer) {
         if (!answer.trim()) return { valid: false, score: 0 }
@@ -153,6 +166,11 @@ async function main() {
     const infraError = iter0?.error !== undefined && iter0.output === undefined
     const resolved = result.winner?.verdict?.valid === true
     // The flywheel fuel: every attempt's trace+outcome, durably, for cross-run learning.
+    // A failed append is logged LOUD, never swallowed — a silent drop would leave the
+    // corpus with treatment rows but a missing control row for an instance (fail-loud
+    // doctrine). Downstream corpus-report pairs on the instanceId INTERSECTION, so a
+    // dropped row excludes that instance from the contrast rather than scoring it 0 —
+    // but the loss must still be visible, not silent.
     await appendRunRecord(
       corpus,
       buildRunRecord({
@@ -164,7 +182,11 @@ async function main() {
         resolved,
         infraError,
       }),
-    ).catch(() => {})
+    ).catch((err) =>
+      console.error(
+        `[corpus] append FAILED for ${task.id} [${condition}] — row dropped: ${err instanceof Error ? err.message : err}`,
+      ),
+    )
     return { resolved, blind: iter0?.verdict?.valid === true, infraError }
   }
 
@@ -183,11 +205,23 @@ async function main() {
     while (next < tasks.length) {
       const task = tasks[next++] as BenchTask
       try {
-        // Paired 3-way: same task/model/judge, only the planner differs.
-        //   random@k = compute control · refineHand = hand-written directive · refineGepa = GEPA-learned.
-        const rnd = await runConditionRetried(task, randomPlanner(task.prompt, rounds), `random@${rounds}`)
-        const refH = await runConditionRetried(task, refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE), `refineHand@${rounds}`)
-        const refG = await runConditionRetried(task, refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE), `refineGepa@${rounds}`)
+        // Paired 3-way through runSteeringExperiment: same task/model/judge, only
+        // the planner differs. The compute control (random@k) is a REQUIRED field
+        // — it cannot be dropped without a type error, so no steering delta is ever
+        // reported uncontrolled. refineHand = hand directive · refineGepa = learned.
+        const { control, treatments } = await runSteeringExperiment<string, string, ConditionResult>(
+          {
+            control: { label: `random@${rounds}`, planner: randomPlanner(task.prompt, rounds) },
+            treatments: [
+              { label: `refineHand@${rounds}`, planner: refinePlanner(task.prompt, rounds, DEFAULT_SANDBOX_REFINE_DIRECTIVE) },
+              { label: `refineGepa@${rounds}`, planner: refinePlanner(task.prompt, rounds, GEPA_LEARNED_DIRECTIVE) },
+            ],
+          },
+          (arm) => runConditionRetried(task, arm.planner, arm.label),
+        )
+        const rnd = control.result
+        const refH = treatments[0]?.result as ConditionResult // refineHand (stable order)
+        const refG = treatments[1]?.result as ConditionResult // refineGepa
         done += 1
         if (rnd.infraError || refH.infraError || refG.infraError) {
           agg.errored += 1
@@ -228,7 +262,7 @@ async function main() {
   console.log(`  ► more-compute (random − blind):          ${dlt(agg.randomK - agg.blind)}`)
   console.log(`  ► STEERING hand (refineHand − random):    ${dlt(agg.refineHand - agg.randomK)}`)
   console.log(`  ► STEERING GEPA (refineGepa − random):    ${dlt(agg.refineGepa - agg.randomK)}  ← does the LEARNED directive beat just-more-compute?`)
-  console.log(`scorecard: ${out} · CI: tsx src/analyze-paired.mts ${out}`)
+  console.log(`scorecard: ${out} · analysis: tsx src/corpus-report.mts (durable corpus + BH-FDR)`)
 }
 
 main().catch((err) => {

@@ -251,18 +251,46 @@ judge, 0 infra-excluded):
 So rung-0 is **not** "steering is futile" — it is "the toy loses, and we have not
 yet run the machine we built."
 
+**The SOTA bar (where we actually stand — captured 2026-06-03):**
+- **FinSearchComp** (primary): frontier **Grok-4(web) 68.9%** (T1 87.3 / T2 68.1 / T3 51.2),
+  **GPT-5-Thinking(web) 63.9%**, Gemini-2.5-Pro 42.6%; human expert ~75%. Our gated-refine 60% is
+  the **oracle pass@3** (judge-selected) — ≈ Gemini-tier and **~9pp under frontier**; the deployable
+  (no-oracle) number is lower. Real headroom remains; **we are not at SOTA.**
+- **SWE-bench Verified** is a **judge fixture only** here (oracle headroom ≈ 0) — not a loop SOTA target.
+- **Honesty law:** our loop is **not a new method class** — sequential-refine = Reflexion / CRITIC /
+  FLARE; fanout-vote = self-consistency / best-of-N-with-verifier. We benchmark *against* those and
+  claim no novelty for the scaffold; the moat is transfer (§8).
+
 ---
 
-## 12. Relationship to the other docs (consolidation map — pending audit)
+## 12. Consolidation map + deep-clean (grounded by the cohesion audit, 2026-06-03)
 
 | Doc | Role going forward |
 |---|---|
 | **`docs/architecture.md` (this)** | **canonical spine** — the atom, timescales, cohesion law, moat, build order |
 | `docs/learning-flywheel.md` | theory/moat/discipline + the `(π,τ,J,D,O)` recursion → folds into §1, §5, §7, §8; reduce to a deep-dive or a pointer |
 | agent-eval `self-improvement-engine.md` | the **optimization-timescale engine** (Phases 1–5, `propose()`, the generator cost dial) — §2/§3 point here as the implementation; keep, reconcile vocabulary to this spine |
-| agent-eval `self-improvement-{roadmap,protocol}.md`, `product-self-improvement-loop.md`, `loop-taxonomy.md` | candidates to merge/retire into this spine + the engine doc (the in-flight `vision-cohesion-audit` produces the exact map) |
+| agent-eval `loop-taxonomy.md`, `self-improvement-{roadmap,protocol}.md`, `product-self-improvement-loop.md`, `primitives-integration-spec` | **retire/merge** into this spine + the engine doc — they carry the duplicate "Driver exists at two layers (trips people up)" confusion that this spine resolves |
 
 **Vocabulary law (ends the overload):** "driver" and "worker" are **roles of one
 `Agent`**; "driver↔worker loop" must always be qualified by **timescale**
 (inference vs optimization). A benchmark is an **adapter**. The thing that picks
 the answer is the **selector** (not the judge).
+
+### Deep-clean (the cohesion debt, ranked)
+
+The audit found the atom is **forked, not shared**: `runLoop`+`createDynamicDriver` is used in
+**one** file (`finsearch-loop.ts`); `run.ts`, `terminal-compare.ts`, `gepa-refine.ts`, and **seven
+`solveRefine*` workers each hand-roll the identical `for(round 1..k){ shot → judge → decide →
+carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted pools.
+
+1. **Lift `runRefineLoop<Artifact>`** (the abstraction lift): one execution-agnostic loop —
+   `{rounds, judge, decide, steer}` + an opaque `runShot` — owns iteration + carry-forward +
+   corpus capture + infra-retry. Each worker collapses to a `solveShot` domain hook + config;
+   the `batch-*` pools unify into one `runPool`. Then wire the analyst report into the driver's
+   `context` — closing the blind-driver gap. ~500 LOC deleted; every benchmark on one atom.
+2. **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR). ✅ done (this PR).
+3. **One `/run-benchmark-loop` skill** — the "implement a `BenchmarkAdapter`, run the shared loop"
+   recipe, so agents (here and in other repos) stop forking a new `*-loop.ts`.
+4. **CAD workers** (`worker-cad/blender/build123d`) migrate onto `runRefineLoop` too — but
+   **coordinate with the in-flight CAD branch** before landing, to avoid clobbering concurrent edits.
