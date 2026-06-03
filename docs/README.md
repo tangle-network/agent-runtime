@@ -12,8 +12,7 @@ Read top-to-bottom for the full picture.
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses (test-time-compute, active learning, program synthesis, two-timescale RSI, skeptic) + diagrams. Answers "does it cohere?" — and where it doesn't. |
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build + cleanup plan | The file-grounded, dependency-ordered sequence to go from *scaffold built, intelligence designed* to a measured surface. Phases, exit gates, cruft track, doc track, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
-| 5 | [agent-spine.md](./agent-spine.md) | older north-star *(pending merge)* | The earlier `AgentProfile × runLoop × ExecutionEnvironment` framing. Overlaps `architecture.md`; its unique `ExecutionEnvironment` seam is slated to merge in — see roadmap "Open decisions." |
-| 6 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
+| 5 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
 
 ## Reference track
 
