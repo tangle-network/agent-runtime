@@ -118,6 +118,12 @@ export async function solveSandboxResearch(
       const box = await createWithRetry(client, {
         name: `finsearch-${Math.random().toString(36).slice(2, 10)}`,
         environment: 'universal',
+        // Box-level env so opencode's provider finds the key. In @tangle-network/sandbox
+        // 0.4.0 the BYOK `backend.model.apiKey` below is NOT wired into opencode's
+        // provider auth — without these vars the in-box agent dies with
+        // ProviderAuthError ("OPENAI_API_KEY env var missing") and every round returns
+        // empty. The standard OpenAI-compatible env pair points opencode at the router.
+        env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
         backend: {
           type: 'opencode',
           model: {
