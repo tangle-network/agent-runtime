@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
-import { randomArm, refineArm, runExperiment, sandboxAgentRun } from './experiment'
+import { analystArm, randomArm, refineArm, runExperiment, sandboxAgentRun } from './experiment'
 
 // The developer-friendly verification seam: a LoopSandboxClient that yields
 // SCRIPTED events, so the WHOLE one flow (provision → stream → deliverable →
@@ -94,6 +94,38 @@ const agentRun = sandboxAgentRun({ model: 'mock-model', routerBaseUrl: 'http://x
   assert.equal(r.n, 1)
   assert.equal(r.arms[0]?.resolved, 0, 'judge fails on a non-PASS answer')
   assert.equal(r.arms[1]?.deltaVsControl, 0, 'refine − control = 0 here (both fail)')
+}
+
+// --- analystArm: the steer investigates the trace and frames TARGETED feedback ---
+{
+  // analyze is mocked (an LLM/sub-loop would go here) — the arm just frames its output.
+  const a = analystArm('analyst', async () => 'FIX: you missed the JOIN on user_id')
+  const planner = a.planner('solve it', 3)
+  // round 0: empty history → bare task (nothing to analyze yet)
+  // biome-ignore lint/suspicious/noExplicitAny: minimal PlannerContext for a unit test
+  const m0 = (await planner({ task: 'solve it', history: [] } as any)) as { kind: string; task?: string }
+  assert.equal(m0.kind, 'refine')
+  assert.equal(m0.task, 'solve it', 'round 0 is bare (no analysis yet)')
+  // round 1: a failed prior attempt → the next prompt carries the analyst's correction
+  // biome-ignore lint/suspicious/noExplicitAny: minimal PlannerContext for a unit test
+  const m1 = (await planner({ task: 'solve it', history: [{ output: 'wrong', verdict: { valid: false } }] } as any)) as {
+    kind: string
+    task?: string
+  }
+  assert.equal(m1.kind, 'refine')
+  assert.match(m1.task ?? '', /FIX: you missed the JOIN on user_id/, 'round 1 carries the analyst feedback')
+  assert.match(m1.task ?? '', /Analysis of your previous attempt/)
+}
+
+// --- analyst says "no change needed" → the steer leaves the task bare (no churn) ---
+{
+  const a = analystArm('analyst', async () => 'no change needed')
+  const planner = a.planner('solve it', 3)
+  // biome-ignore lint/suspicious/noExplicitAny: minimal PlannerContext for a unit test
+  const m1 = (await planner({ task: 'solve it', history: [{ output: 'fine', verdict: { valid: false } }] } as any)) as {
+    task?: string
+  }
+  assert.equal(m1.task, 'solve it', 'a no-op analysis does not churn the prompt')
 }
 
 console.log('experiment.test.mts: all assertions passed')

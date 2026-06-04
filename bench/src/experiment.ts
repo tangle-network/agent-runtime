@@ -32,6 +32,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { appendRunRecord, buildRunRecord } from './corpus'
+import { routerChatWithUsage } from './router-client'
 import { runPool } from './run-pool'
 import { runSteeringExperiment } from './steering-experiment'
 
@@ -64,16 +65,28 @@ export interface Arm {
  *  are identical across every arm, so they live ONCE in `arm`, not per-arm.
  *  ("refine"/"random"/"diverse" are just three points in steer-space; the RSI
  *  endgame is to LEARN this `f`, not hand-write it.) */
-export type Steer = (rootPrompt: string, history: ReadonlyArray<{ output?: string }>, round: number) => string
+/** What a steer sees of each prior attempt: its output, its verdict, and its raw
+ *  trace events. Structurally a subset of the kernel's `Iteration`, so the real
+ *  history passes straight in. The events are the trace an analyst reads. */
+export type SteerHistory = ReadonlyArray<{
+  output?: string
+  verdict?: { valid?: boolean; score?: number }
+  events?: readonly unknown[]
+}>
+
+/** The steer `f(trace)`. ASYNC, so a steer can DO work before emitting the next
+ *  prompt: a static string (refine/diverse), one LLM call over the trace
+ *  (llmAnalyst), or a whole sub-loop / sandbox execution (loopAnalyst). */
+export type Steer = (rootPrompt: string, history: SteerHistory, round: number) => string | Promise<string>
 
 /** An arm IS a steer wrapped in the shared stop/topology shell. */
 export const arm = (label: string, steer: Steer): Arm => ({
   label,
   planner: (rootPrompt, rounds) =>
-    ({ history }): TopologyMove<string> => {
+    async ({ history }): Promise<TopologyMove<string>> => {
       if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
       if (history.length >= rounds) return { kind: 'stop', rationale: 'round budget exhausted' }
-      return { kind: 'refine', task: steer(rootPrompt, history, history.length), rationale: `${label} step ${history.length}` }
+      return { kind: 'refine', task: await steer(rootPrompt, history, history.length), rationale: `${label} step ${history.length}` }
     },
 })
 
@@ -94,6 +107,79 @@ export const diverseArm = (label: string, lenses: string[]): Arm =>
     const lens = lenses[round % lenses.length] ?? ''
     return lens ? `${lens}\n\n${root}` : root
   })
+
+/**
+ * The investigation: read the prior attempt's trace, return targeted feedback for
+ * the next one. This is the `LLM(trace)` rung and up (docs/learning-flywheel.md) —
+ * "a targeted steer from the actual failure", where signal likely lives. It is an
+ * `Agent.act` over the history: a single model call (llmAnalyst), or a whole sub-loop
+ * (loopAnalyst). It observes BEHAVIOR (output, trace), never the judge's verdict —
+ * the selector != judge firewall.
+ */
+export type AnalystFn = (history: SteerHistory) => Promise<string>
+
+/** analyst@k — round 0 is bare; later rounds prepend a TARGETED correction the
+ *  analyst derived from the actual trace (not a fixed "double-check it" directive).
+ *  The honest open question vs blind compute; this is the seam to test it. */
+export const analystArm = (label: string, analyze: AnalystFn): Arm =>
+  arm(label, async (root, history, round) => {
+    if (round === 0) return root
+    const feedback = (await analyze(history)).trim()
+    return feedback && !/^no change needed/i.test(feedback)
+      ? `${root}\n\n--- Analysis of your previous attempt ---\n${feedback}\n\nApply this correction and give the final answer.`
+      : root
+  })
+
+/** Simple analyst: ONE model call reads a bounded view of the last attempt (its
+ *  output + a tail of its trace events) and returns a concrete correction. */
+export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; model: string }): AnalystFn =>
+  async (history) => {
+    const last = history.at(-1)
+    const traceTail = (last?.events ?? [])
+      .slice(-12)
+      .map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
+      .join('\n')
+      .slice(-2000)
+    const { content } = await routerChatWithUsage(cfg, [
+      {
+        role: 'system',
+        content:
+          "You review an AI agent's previous attempt at a task. Name the SPECIFIC error (a wrong value, a missing step, a misread requirement) and state the concrete correction in 1-3 sentences. If the attempt looks correct, reply exactly: no change needed.",
+      },
+      { role: 'user', content: `Previous answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}` },
+    ])
+    return content
+  }
+
+/** Agentic analyst: the steer is a WHOLE sub-loop. A sandbox agent investigates the
+ *  failed attempt (re-reads the task, checks sources/tests) and its conclusion IS the
+ *  steer. The recursive Agent atom in practice: one loop's steer is itself a `runLoop`
+ *  (max power, max cost). The rung the gate has not yet cleared — wire it, then test it. */
+export const loopAnalyst = (cfg: {
+  sandboxClient: LoopSandboxClient
+  agentRun: AgentRunSpec<string>
+  rounds?: number
+}): AnalystFn =>
+  async (history) => {
+    const last = history.at(-1)
+    const task =
+      `A prior attempt at the task FAILED or is unverified. Its output was:\n\n${last?.output ?? '(empty)'}\n\n` +
+      'Investigate WHY: re-read the requirements, check the relevant sources or tests, and find the specific error. ' +
+      'Produce a concise, targeted correction (what to change and why) for the next attempt.'
+    const result = await runLoop<string, string, 'continue' | 'done'>({
+      driver: createDynamicDriver<string, string>({
+        planner: randomArm('investigate').planner(task, cfg.rounds ?? 1),
+        maxIterations: cfg.rounds ?? 1,
+      }),
+      agentRun: cfg.agentRun,
+      output: answerOutput,
+      validator: { async validate(a) { return { valid: a.trim().length > 0, score: a.trim() ? 1 : 0 } } },
+      task,
+      ctx: { sandboxClient: cfg.sandboxClient },
+      maxIterations: cfg.rounds ?? 1,
+    })
+    return result.winner?.output ?? [...result.iterations].reverse().find((it) => (it.output ?? '').trim())?.output ?? ''
+  }
 
 /** Cost-dial backend types we drive (tcloud `BackendType`). `hermes` = the
  *  inference-router agent (the cheap "router llm-call" dial); the rest are agent

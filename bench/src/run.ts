@@ -20,8 +20,11 @@ import type { BrowserTask } from './browser/agent-adapter'
 import { Sandbox } from '@tangle-network/sandbox'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, GEPA_LEARNED_DIRECTIVE, composeStrategies } from './directives'
 import {
+  analystArm,
   type Arm,
   diverseArm,
+  llmAnalyst,
+  loopAnalyst,
   randomArm,
   refineArm,
   runExperiment,
@@ -98,8 +101,9 @@ run.ts  (BENCH=<adapter> selects the benchmark; default swe-bench):
   verify-judge [id]      judge sanity: gold artifact RESOLVES, empty FAILS
   batch-oracle <N>       k shots/instance through the one flow; CORPUS=path persists the corpus; DIVERSE=1 = diverse@k
   batch-blind <N>        one shot/instance (pass@1)
-  batch-compare <N>      random@k vs refine (hand + GEPA directives) — the steering experiment
-                         (all three = runExperiment presets; BACKEND=opencode|hermes|claude-code|… is the dial)
+  batch-compare <N>      random@k vs refine (hand + GEPA directives): the steering experiment.
+                         ANALYST=llm|loop adds a targeted-steer arm (LLM(trace) | a whole sub-loop).
+                         BACKEND=opencode|hermes|claude-code|... is the cost dial. All are runExperiment presets.
   solve-one <id>         one sandbox-backed solve (SANDBOX_KEY + ROUTER_KEY)
   solve-cad <id>         CAD authoring + render (LOCAL=1 | default sandbox)
   solve-browser [id]     Mind2Web one-step element selection (ROUTER_KEY)
@@ -135,11 +139,26 @@ async function runExperimentPreset(
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const backendType = (process.env.BACKEND as WorkerBackendType | undefined) ?? 'opencode'
   const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: routerKey, timeoutMs: 1_200_000 } as never)
+  const agentRun = sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType })
+  // ANALYST=llm|loop appends a targeted-steer arm (the LLM(trace) / agentic rung): llm =
+  // one model call over the trace, loop = a whole sub-loop investigates. The honest
+  // experiment vs the fixed-directive refine arm — refine@k vs analyst@k vs random@k.
+  const arms = process.env.ANALYST
+    ? ([
+        ...opts.arms,
+        analystArm(
+          `analyst-${process.env.ANALYST}`,
+          process.env.ANALYST === 'loop'
+            ? loopAnalyst({ sandboxClient: client, agentRun, rounds: 1 })
+            : llmAnalyst({ routerBaseUrl, routerKey, model }),
+        ),
+      ] as [Arm, ...Arm[]])
+    : opts.arms
   const r = await runExperiment({
     adapter,
     sandboxClient: client,
-    agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType }),
-    arms: opts.arms,
+    agentRun,
+    arms,
     model,
     rounds: opts.rounds,
     n: Number(rest[0] ?? process.env.N ?? 10),
