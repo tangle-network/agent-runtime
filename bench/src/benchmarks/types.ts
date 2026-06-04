@@ -8,6 +8,8 @@
  * from the benchmark's published evaluation harness.
  */
 
+import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+
 export interface BenchTask {
   /** Stable benchmark instance id. */
   id: string
@@ -41,4 +43,9 @@ export interface BenchmarkAdapter {
   judge(task: BenchTask, artifact: string): Promise<BenchScore>
   /** Gold/oracle artifact — lets us self-verify the judge before spending model tokens. */
   goldArtifact(task: BenchTask): Promise<string | undefined>
+  /** How to extract the judged artifact from a run's event stream. Optional —
+   *  defaults to the agent's final answer text (the research/QA case). SWE sets
+   *  it to a patch parser. This is `benchmark = adapter` owning its deliverable,
+   *  so the one flow (`runExperiment`) needs no per-benchmark branching. */
+  output?: OutputAdapter<string>
 }

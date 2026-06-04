@@ -1,7 +1,7 @@
 {
   "name": "@tangle-network/agent-runtime",
   "version": "0.44.0",
-  "description": "Runs domain agents and automates improving them from their own traces — chat turns and loop topologies, with an analyst→prompt/knowledge→eval-gated-ship self-improvement loop.",
+  "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
     "type": "git",

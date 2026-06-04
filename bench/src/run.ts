@@ -17,8 +17,20 @@ import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import type { BrowserTask } from './browser/agent-adapter'
-import { randomAtK, summarizeCompare } from './compare-decomp'
-import { appendRunRecord } from './corpus'
+import { Sandbox } from '@tangle-network/sandbox'
+import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, GEPA_LEARNED_DIRECTIVE, composeStrategies } from './directives'
+import {
+  analystArm,
+  type Arm,
+  diverseArm,
+  llmAnalyst,
+  loopAnalyst,
+  randomArm,
+  refineArm,
+  runExperiment,
+  sandboxAgentRun,
+  type WorkerBackendType,
+} from './experiment'
 import { runPool } from './run-pool'
 
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -87,11 +99,12 @@ run.ts  (BENCH=<adapter> selects the benchmark; default swe-bench):
   help                   this map
   preflight              is the harness/worker/judge reachable for BENCH?
   verify-judge [id]      judge sanity: gold artifact RESOLVES, empty FAILS
-  batch-oracle <N>       k shots/instance; CORPUS=path persists a selector-readable corpus
+  batch-oracle <N>       k shots/instance through the one flow; CORPUS=path persists the corpus; DIVERSE=1 = diverse@k
   batch-blind <N>        one shot/instance (pass@1)
-  batch-compare <N>      blind / random@k / refine decomposition (RESEARCH=1 | SANDBOX=1 | default)
+  batch-compare <N>      random@k vs refine (hand + GEPA directives): the steering experiment.
+                         ANALYST=llm|loop adds a targeted-steer arm (LLM(trace) | a whole sub-loop).
+                         BACKEND=opencode|hermes|claude-code|... is the cost dial. All are runExperiment presets.
   solve-one <id>         one sandbox-backed solve (SANDBOX_KEY + ROUTER_KEY)
-  solve-one-local <id>   one local-opencode solve
   solve-cad <id>         CAD authoring + render (LOCAL=1 | default sandbox)
   solve-browser [id]     Mind2Web one-step element selection (ROUTER_KEY)
   solve-web-live <goal> <url>   live browser agent → attested verdict → run-capsule film (ROUTER_KEY)
@@ -106,6 +119,64 @@ standalone tools (NOT dispatched here — run directly):
 
 data flow: rollout -> adapter.judge -> CORPUS RunRecord -> corpus-replay --selector -> corpus-report CI -> gate verdict
 THE GATE, runnable today with zero creds:  tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector`
+
+/**
+ * Run an experiment through the ONE flow (`runExperiment`): N instances × arms,
+ * each driven through the real kernel, judged by the adapter, written to the
+ * corpus. The old batch-* subcommands are thin presets of this — the four knobs
+ * (task=adapter · backend.type · arms · judge) are parameters, not commands.
+ * Deep stats (oracle/headroom, paired CI) come from the standalone
+ * corpus-report.mts over the written corpus — not reimplemented per subcommand.
+ */
+async function runExperimentPreset(
+  adapter: BenchmarkAdapter,
+  rest: string[],
+  opts: { arms: [Arm, ...Arm[]]; rounds: number; corpus?: string },
+): Promise<void> {
+  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
+  const routerKey = must('TANGLE_API_KEY')
+  const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
+  const backendType = (process.env.BACKEND as WorkerBackendType | undefined) ?? 'opencode'
+  const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: routerKey, timeoutMs: 1_200_000 } as never)
+  const agentRun = sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType })
+  // ANALYST=llm|loop appends a targeted-steer arm (the LLM(trace) / agentic rung): llm =
+  // one model call over the trace, loop = a whole sub-loop investigates. The honest
+  // experiment vs the fixed-directive refine arm — refine@k vs analyst@k vs random@k.
+  const arms = process.env.ANALYST
+    ? ([
+        ...opts.arms,
+        analystArm(
+          `analyst-${process.env.ANALYST}`,
+          process.env.ANALYST === 'loop'
+            ? loopAnalyst({ sandboxClient: client, agentRun, rounds: 1 })
+            : llmAnalyst({ routerBaseUrl, routerKey, model }),
+        ),
+      ] as [Arm, ...Arm[]])
+    : opts.arms
+  const r = await runExperiment({
+    adapter,
+    sandboxClient: client,
+    agentRun,
+    arms,
+    model,
+    rounds: opts.rounds,
+    n: Number(rest[0] ?? process.env.N ?? 10),
+    ids: process.env.IDS ? process.env.IDS.split(',') : undefined,
+    concurrency: Number(process.env.CONCURRENCY ?? 3),
+    ...(adapter.output ? { output: adapter.output } : {}),
+    ...(opts.corpus ? { corpusPath: opts.corpus } : {}),
+  })
+  const pct = (x: number) => (r.n > 0 ? `${((x / r.n) * 100).toFixed(1)}%` : 'n/a')
+  const dlt = (x: number) => `${((x / Math.max(r.n, 1)) * 100).toFixed(1)} pp`
+  console.log(`\n=== ${adapter.name} — ${r.arms.length}-arm (clean n=${r.n}, excluded ${r.errored}, rounds=${opts.rounds}) ===`)
+  console.log(`  blind (1 attempt):  ${pct(r.blind)}  (${r.blind}/${r.n})`)
+  for (const a of r.arms) {
+    const tag = a.label === r.arms[0]?.label ? '  ← compute control' : ` · Δ vs control ${dlt(a.deltaVsControl)}`
+    console.log(`  ${a.label}@${opts.rounds}:  ${pct(a.resolved)}  (${a.resolved}/${r.n})${tag}`)
+  }
+  if (opts.corpus) console.log(`corpus: ${opts.corpus} · analysis: tsx src/corpus-report.mts ${opts.corpus}`)
+}
 
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2)
@@ -179,342 +250,43 @@ async function main() {
     return
   }
 
-  if (cmd === 'solve-one-local') {
-    const { solveShotLocal } = await import('./worker-local')
-    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
-    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
-    const id = rest[0] ?? 'astropy__astropy-12907'
-    await adapter.preflight()
-    const [task] = await adapter.loadTasks({ ids: [id] })
-    if (!task) throw new Error(`instance not found: ${id}`)
-    console.log(`[local] solving ${task.id} with opencode model=${model}…`)
-    const shot = await solveShotLocal(task, { model, livenessMs })
-    console.log(`worker: ok=${shot.ok} patchBytes=${shot.patch.length}${shot.detail ? ` (${shot.detail})` : ''}`)
-    if (!shot.ok) {
-      console.log('❌ no patch produced — nothing to judge')
-      process.exit(1)
-    }
-    console.log('→ judging the agent-produced patch (real SWE-bench harness)…')
-    const score = await adapter.judge(task, shot.patch)
-    console.log(`\n${score.resolved ? '✅ RESOLVED' : '⚠️  NOT resolved'} — ${task.id} (score=${score.score})`)
-    return
-  }
-
   if (cmd === 'batch-blind') {
-    const { solveShotLocal } = await import('./worker-local')
-    const fs = await import('node:fs/promises')
-    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
-    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
-    const limit = Number(rest[0] ?? process.env.N ?? 10)
-    const conc = Number(process.env.CONCURRENCY ?? 5)
-    const out = process.env.SCORECARD ?? '/tmp/swebench-blind-scorecard.jsonl'
-    await adapter.preflight()
-    const _ids = process.env.IDS ? process.env.IDS.split(",") : undefined
-    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit })
-    const livenessLabel = livenessMs === 0 ? 'disabled' : `${Math.round((livenessMs ?? 1_800_000) / 1000)}s`
-    console.log(
-      `[batch-blind] ${tasks.length} instances · model=${model} · concurrency=${conc} · liveness backstop=${livenessLabel}`,
-    )
-    let done = 0
-    let resolved = 0
-    const results: Array<{ id: string; resolved: boolean; patchBytes: number; error?: string }> = []
-    await runPool(
-      tasks,
-      conc,
-      async (task) => {
-        const started = Date.now()
-        let rec: { id: string; resolved: boolean; patchBytes: number; error?: string }
-        try {
-          const shot = await solveShotLocal(task, { model, livenessMs }) // liveness backstop reaps hangs only
-          const score = shot.ok ? await adapter.judge(task, shot.patch) : { resolved: false, score: 0 }
-          rec = { id: task.id, resolved: score.resolved, patchBytes: shot.patch.length }
-        } catch (err) {
-          rec = { id: task.id, resolved: false, patchBytes: 0, error: err instanceof Error ? err.message : String(err) }
-        }
-        results.push(rec)
-        await fs.appendFile(out, `${JSON.stringify({ ...rec, secs: Math.round((Date.now() - started) / 1000) })}\n`)
-        done += 1
-        if (rec.resolved) resolved += 1
-        console.log(`  [${done}/${tasks.length}] ${rec.id}: ${rec.resolved ? '✅ RESOLVED' : rec.error ? `ERR ${rec.error.slice(0, 60)}` : '⚠️  no'} (${resolved}/${done} so far)`)
-      },
-    )
-    console.log(`\n=== BLIND resolve rate: ${resolved}/${tasks.length} = ${((resolved / tasks.length) * 100).toFixed(1)}% ===`)
-    console.log(`scorecard: ${out}`)
+    // pass@1: one shot per instance through the one flow (the control arm, rounds=1).
+    await runExperimentPreset(adapter, rest, { arms: [randomArm('blind')], rounds: 1 })
     return
   }
 
   if (cmd === 'batch-oracle') {
-    // Router-free headroom measurement: k blind shots per instance, judge ALL of
-    // them, report pass@1 / pass@k-random / pass@k-oracle. No critic, no router —
-    // so it can't be 403-killed. The oracle column is the gate: if oracle@k ≈
-    // pass@1, multi-shot has no headroom and the driver direction is dead; if
-    // oracle@k ≫ pass@1, a real selector is worth building.
-    const fs = await import('node:fs/promises')
-    // RESEARCH=1 swaps the code-patch worker for the research answer worker, so the
-    // same headroom machinery measures answer-variance domains (where a driver might
-    // find the headroom coding lacks). loadTasks carries the answer contract; the
-    // adapter judges the captured answer.
-    const research = process.env.RESEARCH === '1'
-    const { solveShotLocal } = await import('./worker-local')
-    const { solveResearchLocal } = await import('./worker-research')
-    const runShot = async (task: BenchTask, m: string, l?: number): Promise<string> => {
-      if (research) {
-        const s = await solveResearchLocal(task, { model: m, livenessMs: l })
-        return s.ok ? s.answer : ''
-      }
-      const s = await solveShotLocal(task, { model: m, livenessMs: l })
-      return s.ok ? s.patch : ''
-    }
-    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
-    // MODELS (comma list) = the diversity lever: shot i uses models[i % len]. With a
-    // single near-deterministic model, oracle@k trivially equals pass@1 (the k shots
-    // are identical), so the only real headroom is heterogeneous (cross-model) fanout.
-    const models = process.env.MODELS ? process.env.MODELS.split(',').map((m) => m.trim()) : [model]
-    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
-    const k = Number(process.env.K ?? models.length)
-    const conc = Number(process.env.CONCURRENCY ?? 2)
-    const out = process.env.SCORECARD ?? '/tmp/swebench-oracle.jsonl'
-    // CORPUS (opt-in): also persist a selector-readable RunRecord per instance, so
-    // the deployable selector is scored OFFLINE via `corpus-replay --selector` — the
-    // local, sandbox-free path to the selector@k vs random@k gate.
-    const corpusPath = process.env.CORPUS
-    const benchName = process.env.BENCH ?? 'swe-bench'
-    // DIVERSE=1: each of the k shots gets a DIFFERENT strategy lens (composeStrategies)
-    // prepended to the prompt → a diverse@k corpus to gate against the identical-directive
-    // random@k control. corpus-replay --selector then compares selector@k on diverse vs random.
-    // Pair with a SINGLE model (MODELS=one) to isolate strategy-diversity from model-diversity.
-    const diverse = process.env.DIVERSE === '1'
-    const { composeStrategies } = await import('./directives')
-    const diverseStrategies = diverse
-      ? composeStrategies('Give your single best, final answer to the question.', k)
-      : null
-    await adapter.preflight()
-    const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
-    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
-    console.log(`[batch-oracle] ${tasks.length} instances · k=${k} · models=[${models.join(', ')}] · conc=${conc} (router-free)`)
-    const agg = { n: 0, pass1: 0, randomExp: 0, oracle: 0 }
-    let done = 0
-    await runPool(tasks, conc, async (task) => {
-      const started = Date.now()
-      try {
-        const shots: Array<{ output: string; valid: boolean; score: number; prompt: string }> = []
-        const origPrompt = String((task as { prompt?: unknown }).prompt ?? '')
-        for (let i = 0; i < k; i += 1) {
-          const shotModel = models[i % models.length] as string
-          // The sent prompt IS the steer: a diverse shot carries its lens prefix, recorded
-          // faithfully so the corpus captures what was actually steered (not the bare task).
-          const sentPrompt = diverseStrategies ? `${diverseStrategies[i] ?? ''}\n\n${origPrompt}` : origPrompt
-          const shotTask = diverseStrategies ? { ...task, prompt: sentPrompt } : task
-          const artifact = await runShot(shotTask, shotModel, livenessMs)
-          const score = artifact ? await adapter.judge(task, artifact) : { resolved: false, score: 0 }
-          shots.push({ output: artifact, valid: score.resolved === true, score: score.score, prompt: sentPrompt })
-        }
-        const resolved = shots.map((s) => s.valid)
-        const nResolved = resolved.filter(Boolean).length
-        const pass1 = resolved[0] === true
-        const oracle = nResolved > 0
-        const randomExpected = k > 0 ? nResolved / k : 0
-        if (corpusPath) {
-          // local-research worker returns no token usage (it spawns opencode +
-          // reads stdout), so cost/tokens are 0 here — the selector reads output +
-          // valid only, which is what we capture faithfully.
-          await appendRunRecord(corpusPath, {
-            ts: new Date().toISOString(),
-            benchmark: benchName,
-            instanceId: task.id,
-            condition: diverse ? `diverse@${k}` : `random@${k}`,
-            model: models.join('+'),
-            blindResolved: shots[0]?.valid === true,
-            resolved: oracle,
-            attempts: shots.map((s, i) => ({
-              round: i,
-              prompt: s.prompt,
-              output: s.output,
-              valid: s.valid,
-              score: s.score,
-              costUsd: 0,
-              tokensIn: 0,
-              tokensOut: 0,
-              eventCount: 0,
-              eventTypes: {},
-            })),
-            infraError: false,
-          })
-        }
-        agg.n += 1
-        if (pass1) agg.pass1 += 1
-        if (oracle) agg.oracle += 1
-        agg.randomExp += randomExpected
-        done += 1
-        console.log(
-          `  [${done}/${tasks.length}] ${task.id}: ${nResolved}/${k} resolved · pass1=${pass1 ? '✓' : '·'} oracle=${oracle ? '✓' : '·'}`,
-        )
-        await fs.appendFile(
-          out,
-          `${JSON.stringify({ id: task.id, k, nResolved, pass1, oracle, randomExpected, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-        )
-      } catch (err) {
-        done += 1
-        const msg = err instanceof Error ? err.message : String(err)
-        console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
-        await fs.appendFile(
-          out,
-          `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-        )
-      }
-    })
-    const pct = (x: number) => (agg.n > 0 ? `${((x / agg.n) * 100).toFixed(1)}%` : 'n/a')
-    console.log(`\n=== ORACLE HEADROOM (n=${agg.n}, k=${k}) ===`)
-    console.log(`  pass@1 (blind):               ${pct(agg.pass1)}`)
-    console.log(`  pass@${k} random-pick:           ${pct(agg.randomExp)}`)
-    console.log(`  pass@${k} oracle (ceiling):      ${pct(agg.oracle)}`)
-    console.log(
-      `  ► headroom (oracle − pass@1):  ${(((agg.oracle - agg.pass1) / Math.max(agg.n, 1)) * 100).toFixed(1)} pp  ← is multi-shot worth pursuing?`,
-    )
-    console.log(`scorecard: ${out}`)
+    // k shots/instance through the one flow; CORPUS=path persists the canonical,
+    // selector-readable corpus. DIVERSE=1 gives each shot a distinct strategy lens
+    // (the diverse@k arm); else identical retries (random@k). The oracle/headroom +
+    // selector@k stats come from `corpus-report.mts`/`corpus-replay.mts` over that
+    // corpus — measured once, in one place, not reimplemented here.
+    const k = Number(process.env.K ?? 4)
+    const arms: [Arm, ...Arm[]] =
+      process.env.DIVERSE === '1'
+        ? [diverseArm('diverse', composeStrategies('Give your single best, final answer.', k))]
+        : [randomArm('random')]
+    await runExperimentPreset(adapter, rest, { arms, rounds: k, corpus: process.env.CORPUS })
     return
   }
 
   if (cmd === 'batch-compare') {
-    // THE driver-vs-blind experiment. Per instance, run the sequential-refine worker
-    // (round 1 = blind; rounds 2..k refine in place) and judge BOTH the round-1 patch
-    // (blind pass@1) and the final patch (refine). Reports blind% vs refine% + the
-    // delta — does steering-by-refinement beat one shot on a representative set?
-    // Router-free: local opencode worker + the deterministic SWE-bench judge.
-    const fs = await import('node:fs/promises')
-    const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-pro'
-    const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
+    // The steering experiment through the one flow: random@k (compute control) vs
+    // refine@k with a hand directive vs refine@k with the GEPA-learned directive.
+    // The compute-matched control is enforced by runExperiment/runSteeringExperiment;
+    // refine − random at equal k is the confound-free steering effect. Paired CI +
+    // BH come from corpus-report.mts over the corpus.
     const rounds = Number(process.env.ROUNDS ?? 3)
-    // Worker selection:
-    //   SANDBOX=1  → sandbox research worker (web-search capable agent; THE FinSearchComp path)
-    //   RESEARCH=1 → local research-answer refine worker (no web; knowledge QA)
-    //   default    → local code-patch refine worker
-    const research = process.env.RESEARCH === '1'
-    const useSandbox = process.env.SANDBOX === '1'
-    const { solveRefineLocal } = await import('./worker-refine')
-    const { solveRefineResearchLocal } = await import('./worker-research')
-    const runRefine = async (
-      task: BenchTask,
-    ): Promise<{ first: string; final: string; detail?: string }> => {
-      if (useSandbox) {
-        const { solveSandboxResearch } = await import('./worker-sandbox-research')
-        const s = await solveSandboxResearch(task, {
-          sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-          sandboxKey: must('TANGLE_API_KEY'),
-          routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-          routerKey: must('TANGLE_API_KEY'),
-          model,
-          provider: process.env.WORKER_PROVIDER ?? 'openai',
-          rounds,
-          perRoundMs: livenessMs,
-        })
-        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
-      }
-      if (research) {
-        const s = await solveRefineResearchLocal(task, { model, rounds, livenessMs })
-        return { first: s.round1Answer, final: s.finalAnswer, detail: s.detail }
-      }
-      const s = await solveRefineLocal(task, { model, rounds, livenessMs })
-      return { first: s.round1Patch, final: s.finalPatch, detail: s.detail }
-    }
-    // Equal-k compute control: `rounds` INDEPENDENT bare attempts (no steering),
-    // same budget as the refine arm. Without it the headline "refine − blind"
-    // confounds steering with extra compute; the confound-free steering effect is
-    // refine@k − random@k. Always run (never flag-gated) — the same un-forgettable-
-    // control discipline runSteeringExperiment enforces for the runLoop path, here
-    // for the worker-fn path that harness doesn't fit. One bare shot per mode.
-    const { solveShotLocal } = await import('./worker-local')
-    const { solveResearchLocal } = await import('./worker-research')
-    const runBareShot = async (task: BenchTask): Promise<string> => {
-      if (useSandbox) {
-        const { solveSandboxResearch } = await import('./worker-sandbox-research')
-        const s = await solveSandboxResearch(task, {
-          sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-          sandboxKey: must('TANGLE_API_KEY'),
-          routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-          routerKey: must('TANGLE_API_KEY'),
-          model,
-          provider: process.env.WORKER_PROVIDER ?? 'openai',
-          rounds: 1,
-          perRoundMs: livenessMs,
-        })
-        return s.finalAnswer
-      }
-      if (research) {
-        const s = await solveResearchLocal(task, { model, livenessMs })
-        return s.ok ? s.answer : ''
-      }
-      const s = await solveShotLocal(task, { model, livenessMs })
-      return s.ok ? s.patch : ''
-    }
-    const conc = Number(process.env.CONCURRENCY ?? 3)
-    const out = process.env.SCORECARD ?? '/tmp/swebench-compare.jsonl'
-    await adapter.preflight()
-    const _ids = process.env.IDS ? process.env.IDS.split(',') : undefined
-    const tasks = await adapter.loadTasks(_ids ? { ids: _ids } : { limit: Number(rest[0] ?? process.env.N ?? 10) })
-    console.log(
-      `[batch-compare] ${tasks.length} instances · rounds=${rounds} (blind=r1 · random@${rounds} compute-control · refine=r${rounds}) · model=${model} · conc=${conc} · ~${2 * rounds} worker calls/instance`,
-    )
-    const agg = { n: 0, blind: 0, randomExp: 0, oracle: 0, refine: 0, gained: 0, lost: 0 }
-    let done = 0
-    await runPool(tasks, conc, async (task) => {
-      const started = Date.now()
-      try {
-        const shot = await runRefine(task)
-        const blind = shot.first.trim()
-          ? (await adapter.judge(task, shot.first)).resolved === true
-          : false
-        const refine = shot.final.trim()
-          ? (await adapter.judge(task, shot.final)).resolved === true
-          : false
-        // equal-k compute control: `rounds` independent bare attempts, no steering
-        const bare: boolean[] = []
-        for (let i = 0; i < rounds; i += 1) {
-          const artifact = await runBareShot(task)
-          bare.push(artifact.trim() ? (await adapter.judge(task, artifact)).resolved === true : false)
-        }
-        const nBare = bare.filter(Boolean).length
-        const randomExpected = randomAtK(nBare, rounds) // expected pass of a random pick among k
-        const oracleK = nBare > 0 // any-pass ceiling over the k bare shots
-        agg.n += 1
-        if (blind) agg.blind += 1
-        agg.randomExp += randomExpected
-        if (oracleK) agg.oracle += 1
-        if (refine) agg.refine += 1
-        if (refine && !blind) agg.gained += 1 // refinement RESCUED a blind failure
-        if (blind && !refine) agg.lost += 1 // refinement BROKE a blind success
-        done += 1
-        const tag = refine && !blind ? '↑GAINED' : blind && !refine ? '↓LOST' : blind ? '=both✓' : '=both·'
-        console.log(
-          `  [${done}/${tasks.length}] ${task.id}: blind=${blind ? '✓' : '·'} rand@${rounds}=${nBare}/${rounds} refine=${refine ? '✓' : '·'} ${tag}`,
-        )
-        await fs.appendFile(
-          out,
-          `${JSON.stringify({ id: task.id, repo: String(task.metadata?.repo ?? ''), blind, refine, rounds, nBare, randomExpected, oracleK, detail: shot.detail, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-        )
-      } catch (err) {
-        done += 1
-        const msg = err instanceof Error ? err.message : String(err)
-        console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${msg.slice(0, 70)}`)
-        await fs.appendFile(
-          out,
-          `${JSON.stringify({ id: task.id, error: msg, secs: Math.round((Date.now() - started) / 1000) })}\n`,
-        )
-      }
+    await runExperimentPreset(adapter, rest, {
+      arms: [
+        randomArm('random'),
+        refineArm('refineHand', DEFAULT_SANDBOX_REFINE_DIRECTIVE),
+        refineArm('refineGepa', GEPA_LEARNED_DIRECTIVE),
+      ],
+      rounds,
+      corpus: process.env.CORPUS,
     })
-    const rep = summarizeCompare(agg)
-    const pct = (x: number) => `${(x * 100).toFixed(1)}%`
-    const pp = (x: number) => `${(x * 100).toFixed(1)} pp`
-    console.log(`\n=== BLIND vs RANDOM@${rounds} vs REFINE (n=${agg.n}, k=${rounds}) ===`)
-    console.log(`  blind     (pass@1):           ${pct(rep.blindRate)}  (${agg.blind}/${agg.n})`)
-    console.log(`  random@${rounds}  (compute control):  ${pct(rep.randomRate)}`)
-    console.log(`  oracle@${rounds}  (ceiling):          ${pct(rep.oracleRate)}`)
-    console.log(`  refine    (r${rounds} final):           ${pct(rep.refineRate)}  (${agg.refine}/${agg.n})`)
-    console.log(`  ► Δ compute (random@${rounds} − blind):   ${pp(rep.dCompute)}   (more compute, no steering)`)
-    console.log(
-      `  ► Δ steer   (refine − random@${rounds}):  ${pp(rep.dSteer)}   ← steering effect, confound-free  [rescued ${agg.gained}, broke ${agg.lost} vs blind]`,
-    )
-    console.log(`scorecard: ${out}`)
     return
   }
 
