@@ -70,15 +70,16 @@ async function main(): Promise<void> {
 
   console.log(`\n=== keystone gate: ${report.benchmark} (k=${report.k}, n=${report.n}) ===`)
   console.log(
-    `VERDICT: diverse ${report.deltaPp >= 0 ? '+' : ''}${report.deltaPp.toFixed(1)}pp vs blind` +
-      ` (equal-k=${report.equalK.withinTolerance ? 'OK' : 'VIOLATED'}; token spread ${report.equalK.spread.tokens})`,
+    `VERDICT: diverse ${report.deltaScorePp >= 0 ? '+' : ''}${report.deltaScorePp.toFixed(1)}pp graded-score ` +
+      `(binary ${report.deltaPp >= 0 ? '+' : ''}${report.deltaPp.toFixed(1)}pp) vs blind` +
+      ` — equal-k=${report.equalK.withinTolerance ? 'OK' : 'VIOLATED'} (token spread ${report.equalK.spread.tokens})`,
   )
-  console.log('arm      resolved  errored  resolveRate  tokens')
+  console.log('arm      resolved  errored  resolveRate  meanScore  tokens')
   for (const a of [blind, diverse]) {
     const tok = a.totalSpend.tokens.input + a.totalSpend.tokens.output
     console.log(
       `${a.label.padEnd(8)} ${String(a.resolved).padStart(8)} ${String(a.errored).padStart(8)} ` +
-        `${pct(a.resolveRate).padStart(11)}  ${tok}`,
+        `${pct(a.resolveRate).padStart(11)}  ${pct(a.meanScore).padStart(9)}  ${tok}`,
     )
   }
   for (const a of [blind, diverse]) {

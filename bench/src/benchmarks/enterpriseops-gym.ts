@@ -28,7 +28,7 @@
  * a fabricated score. No portable gold artifact ships, so goldArtifact is undefined.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
 import { benchRoot, runVenvScriptStdin } from './_harness'
@@ -36,6 +36,9 @@ import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './typ
 
 const FIXTURES = join(benchRoot, 'fixtures', 'enterpriseops-gym.json')
 const JUDGE = join(benchRoot, 'scripts', 'enterpriseops_gym_judge.py')
+
+/** Monotonic discriminator so concurrent judge calls stage distinct task-cache files. */
+let judgeCallSeq = 0
 
 const DATASET = 'ServiceNow-AI/EnterpriseOps-Gym'
 /** Tool-set mode = HF config; oracle ships exact tools, plus_N adds N distractors. */
@@ -206,8 +209,13 @@ async function fetchRows(mode: string, domain: string, opts: LoadOptions): Promi
  */
 async function runJudge(meta: EopsMeta, artifact: string): Promise<BenchScore> {
   // Stage the full task record (servers + verifiers) so the driver has the live
-  // server URLs/contexts and the SQL it must run.
-  const taskJsonPath = join(benchRoot, '.eops-task-cache', `${meta.taskId}.json`)
+  // server URLs/contexts and the SQL it must run. The path is UNIQUE per call: the gate
+  // runs k judges for one task concurrently, so a `${taskId}.json` shared path would race.
+  const taskJsonPath = join(
+    benchRoot,
+    '.eops-task-cache',
+    `${meta.taskId}-${process.pid}-${judgeCallSeq++}.json`,
+  )
   await writeTaskCache(taskJsonPath, meta)
   let stdout: string
   try {
@@ -216,11 +224,14 @@ async function runJudge(meta: EopsMeta, artifact: string): Promise<BenchScore> {
     const e = err as { message?: string }
     throw new Error(
       `enterpriseops-gym judge failed for ${meta.taskId}: ${(e.message || String(err)).slice(0, 1500)}\n` +
-        `Fix: ensure the ${meta.domain} gym server is running — ` +
+        `Fix: (1) run the ${meta.domain} gym server — ` +
         `docker pull shivakrishnareddyma225/enterpriseops-gym-mcp-${meta.domain}:latest ; ` +
-        `docker run -d -p <port>:<port> shivakrishnareddyma225/enterpriseops-gym-mcp-${meta.domain}:latest ; ` +
-        `seed it from gym_dbs.zip (unzip into the gym's data dir).`,
+        `docker run -d -p <host>:8005 shivakrishnareddyma225/enterpriseops-gym-mcp-${meta.domain}:latest ; ` +
+        `(2) unzip gym_dbs.zip (ServiceNow/EnterpriseOps-Gym) and export EOPS_GYM_DBS_DIR to its dir ` +
+        `(the judge seeds each task's database from seed_database_file).`,
     )
+  } finally {
+    await rm(taskJsonPath, { force: true }).catch(() => {})
   }
   const report = JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as {
     success?: boolean
