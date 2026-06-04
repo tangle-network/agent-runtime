@@ -54,7 +54,9 @@ const steps = [
   {
     label: 'selector@k over the DIVERSE corpus (the beat-blind number)',
     cmd: 'npx',
-    args: ['tsx', 'src/corpus-replay.mts', DIVERSE_CORPUS, '--selector'],
+    // The diverse corpus records carry condition="diverse@4"; corpus-replay's
+    // selector filter defaults to "random", so match the diverse condition here.
+    args: ['tsx', 'src/corpus-replay.mts', DIVERSE_CORPUS, '--selector', '--condition=diverse'],
     env: passEnv,
   },
   {
