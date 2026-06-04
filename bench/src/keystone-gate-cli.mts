@@ -81,6 +81,13 @@ async function main(): Promise<void> {
         `${pct(a.resolveRate).padStart(11)}  ${tok}`,
     )
   }
+  for (const a of [blind, diverse]) {
+    if (a.errored > 0) console.log(`  ${a.label} first failure: ${a.sampleBlocker}`)
+  }
+  const erroredFrac = (blind.errored + diverse.errored) / (2 * report.n)
+  if (erroredFrac > 0.2) {
+    console.log(`\nWARNING: ${(erroredFrac * 100).toFixed(0)}% of runs ERRORED — this 0%/delta is NOT a clean gate result; fix the failure above first.`)
+  }
   if (!report.equalK.withinTolerance) {
     console.log('\nWARNING: arms are NOT at equal compute — the delta is confounded, not a gate result.')
   }

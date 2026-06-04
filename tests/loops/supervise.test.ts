@@ -182,6 +182,27 @@ describe('conserved budget pool', () => {
     expect(r).toEqual({ ok: false, reason: 'budget-exhausted' })
   })
 
+  it('commits OBSERVED usd spend under an uncapped root (maxUsd optional, not a hard $0 limit)', () => {
+    // Regression: a real priced leaf reports usd via estimateCost. With no root usd ceiling
+    // (the common case — usd is observed, not budgeted), reconcile must COMMIT that spend, not
+    // fail-close as if $0 were reserved. The earlier bug killed every real priced child here.
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500, label: '' } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(r.ticket.reserved.usd).toBe(0)
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0.000415,
+        ms: 0,
+      }),
+    ).not.toThrow()
+    // Tokens still conserve normally; usd is uncapped so usdLeft stays 0 (not budgeted).
+    expect(pool.readout().tokensLeft).toBe(900)
+    expect(pool.readout().usdLeft).toBe(0)
+  })
+
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
     const spend = spendFromUsageEvents([
       { kind: 'iteration' },

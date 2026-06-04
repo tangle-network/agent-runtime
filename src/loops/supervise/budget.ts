@@ -186,7 +186,11 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
         `budget pool: ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`,
       )
     }
-    if (spent.usd > rUsd) {
+    // USD is conserved ONLY when the root declared a ceiling. `maxUsd` is optional: when no
+    // root ceiling exists, usd is an OBSERVED quantity (committed for accounting), never a
+    // budgeted constraint — so an unset ceiling must not behave as a hard $0 limit that
+    // fail-closes a real priced spend. The over-spend clamp applies only to a capped pool.
+    if (usdCapped && spent.usd > rUsd) {
       throw new Error(`budget pool: ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`)
     }
 
@@ -200,10 +204,14 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     committedIterations += spent.iterations
     freeIterations += rIterations - spent.iterations
 
-    if (rUsd > 0) {
+    if (usdCapped && rUsd > 0) {
       reservedUsd -= rUsd
       committedUsd += spent.usd
       freeUsd += rUsd - spent.usd
+    } else {
+      // Uncapped (or a zero-ceiling child under a capped root): record the observed spend
+      // without touching the reservation channel — usd is accounted, not conserved here.
+      committedUsd += spent.usd
     }
   }
 
