@@ -21,6 +21,7 @@
  */
 
 import {
+  type AgentProfile,
   type AgentRunSpec,
   createDynamicDriver,
   type LoopSandboxClient,
@@ -196,11 +197,15 @@ export function sandboxAgentRun(opts: {
   backendType?: WorkerBackendType
   name?: string
   taskToPrompt?: (task: string) => string
+  /** The developer's AgentProfile — the one knob for "which agent" (prompt / model /
+   *  tools / mcp). Spread through verbatim; the backend cost-dial is tagged into
+   *  metadata. Omitted ⇒ a minimal worker profile. */
+  profile?: AgentProfile
 }): AgentRunSpec<string> {
   const backendType = opts.backendType ?? 'opencode'
-  const name = opts.name ?? `${backendType}-worker`
+  const name = opts.profile?.name ?? opts.name ?? `${backendType}-worker`
   return {
-    profile: { name, metadata: { backendType } },
+    profile: { ...opts.profile, name, metadata: { ...opts.profile?.metadata, backendType } },
     name,
     taskToPrompt: opts.taskToPrompt ?? ((t) => t),
     sandboxOverrides: {
