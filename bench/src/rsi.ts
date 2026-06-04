@@ -14,32 +14,13 @@
  * prompt-steering policies below (critical-audit, aggressive-push) are live now.
  */
 import { Sandbox } from '@tangle-network/sandbox'
-import { createAecBenchAdapter } from './benchmarks/aec-bench'
-import { createAppWorldAdapter } from './benchmarks/appworld'
-import { createCommit0Adapter } from './benchmarks/commit0'
-import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
-import { createProgrambenchAdapter } from './benchmarks/programbench'
-import { createSweBenchAdapter } from './benchmarks/swe-bench'
-import type { BenchmarkAdapter } from './benchmarks/types'
+import { ADAPTERS } from './adapters'
 import { type Arm, analystArm, arm, llmAnalyst, randomArm, runExperiment, sandboxAgentRun } from './experiment'
 
 const must = (k: string): string => {
   const v = process.env[k]
   if (!v) throw new Error(`env ${k} is required`)
   return v
-}
-
-// The benchmark roster. Long-horizon adapters slot in here as one entry each; the
-// loop below never changes. aec-bench carries a graded correctable middle band
-// with a deterministic (non-oracle) judge — the candidate for the open
-// diverse-strategy-vs-blind gate that SWE-bench (0 headroom) did not satisfy.
-const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
-  'swe-bench': createSweBenchAdapter,
-  finsearchcomp: createFinsearchcompAdapter,
-  'aec-bench': createAecBenchAdapter,
-  commit0: createCommit0Adapter,
-  programbench: createProgrambenchAdapter,
-  appworld: createAppWorldAdapter,
 }
 
 async function main() {

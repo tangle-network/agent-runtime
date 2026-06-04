@@ -31,16 +31,9 @@ import { readFile } from 'node:fs/promises'
 import { argv } from 'node:process'
 import { fileURLToPath } from 'node:url'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
-import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
-import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
+import { ADAPTERS } from './adapters'
 import type { RunRecord } from './corpus'
 import { selfConsistencySelect, summarizeSelector } from './selector'
-
-/** Adapter factories keyed by the `benchmark` field a RunRecord carries. */
-const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
-  finsearchcomp: createFinsearchcompAdapter,
-  hotpotqa: createHotpotqaAdapter,
-}
 
 /** The benchmark's own judge - the EXTERNAL, write-only anchor (learning-flywheel.md). */
 export type Judge = (task: BenchTask, artifact: string) => Promise<BenchScore>
