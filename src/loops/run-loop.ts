@@ -165,7 +165,7 @@ export async function runLoop<Task, Output, Decision>(
   // box+session handles so a refine continues the parent session and a fanout
   // forks the parent checkpoint. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
-  const lineageState = await setUpLineage(options)
+  const lineageState = await setUpLineage(options, maxConcurrency)
 
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.started',
@@ -278,6 +278,10 @@ export async function runLoop<Task, Output, Decision>(
       if (isTerminalDecision(decision)) {
         return await finalizeAndEmitEnded(options, decision, iterations, loopStart, now, runId)
       }
+      // The loop continues: free any lineage boxes no future round can descend
+      // from, so the live-box set tracks the active frontier instead of growing
+      // with every round. No-op unless pruning is provably safe (see canPrune).
+      if (lineageState) await pruneLineage(lineageState, iterations)
     }
 
     // Either the cap was reached without a terminal decision, or plan() returned
@@ -310,6 +314,15 @@ interface LineageState {
   options: LoopLineageOptions
   /** iteration index → its live box+session handle (kept alive across rounds). */
   handles: Map<number, SandboxLineageHandle>
+  /**
+   * Whether the kernel may free non-frontier boxes after each round. Safe only
+   * when the driver never authors its own branch point (`describePlan` absent),
+   * so the kernel-inferred `branchPoint` — which moves monotonically toward
+   * higher-scoring iterations — is the only descent source. A driver that
+   * declares `parentIndex` may descend from any prior iteration, so no box can
+   * be freed before loop end.
+   */
+  canPrune: boolean
 }
 
 /**
@@ -320,6 +333,7 @@ interface LineageState {
  */
 async function setUpLineage<Task, Output, Decision>(
   options: RunLoopOptions<Task, Output, Decision>,
+  maxConcurrency: number,
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
@@ -330,9 +344,10 @@ async function setUpLineage<Task, Output, Decision>(
   }
   const capabilities = await probeSandboxCapabilities(options.ctx.sandboxClient)
   return {
-    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities),
+    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, { maxConcurrency }),
     options: lineageOpts,
     handles: new Map(),
+    canPrune: typeof options.driver.describePlan !== 'function',
   }
 }
 
@@ -414,7 +429,8 @@ function planLineageRound<Task>(
       async acquire() {
         const branches = await ensureForked()
         const branch = branches[offset]
-        if (!branch) throw new ValidationError('runLoop: lineage fork produced no branch for offset')
+        if (!branch)
+          throw new ValidationError('runLoop: lineage fork produced no branch for offset')
         return branch
       },
     }))
@@ -427,6 +443,36 @@ function planLineageRound<Task>(
       return lineage.start(specAt(offset), promptFor(offset), signal)
     },
   }))
+}
+
+/**
+ * After a round, free lineage boxes no future round can descend from. The only
+ * descent source for a kernel-inferred topology is `branchPoint`, which moves
+ * monotonically toward higher-scoring iterations and never returns to one it has
+ * passed — so every box except the current branch point's is unreachable and can
+ * be torn down now instead of at loop end. Skipped entirely when the driver
+ * authors its own branch point (`canPrune` false): it may descend from any prior
+ * iteration. Also skipped when the branch point has no recorded handle (its
+ * acquire failed) — that conservative case keeps every box.
+ */
+async function pruneLineage<Task, Output>(
+  state: LineageState,
+  iterations: ReadonlyArray<Iteration<Task, Output>>,
+): Promise<void> {
+  if (!state.canPrune) return
+  const keepIndex = branchPoint(iterations)
+  if (keepIndex === undefined) return
+  const keep = state.handles.get(keepIndex)
+  if (!keep) return
+  await state.lineage.prune([keep])
+  // Drop handle entries pointing at the now-freed boxes so the map never hands a
+  // later round a deleted box. Entries sharing the kept box (a refine chain)
+  // stay.
+  const stale: number[] = []
+  for (const [index, handle] of state.handles) {
+    if (handle.box !== keep.box) stale.push(index)
+  }
+  for (const index of stale) state.handles.delete(index)
 }
 
 interface RunBatchArgs<Task, Output> {
@@ -626,6 +672,11 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     if (slot.error) throw slot.error
     throwAbort()
   }
+  // A structural lineage error (a dropped session, a fork-capability contract
+  // violation, a missing spec) is likewise not a soft worker failure: it
+  // invalidates the run's continuity/branching guarantee, so propagate it
+  // instead of degrading to a recorded empty iteration the driver might ignore.
+  if (slot.error instanceof ValidationError) throw slot.error
 }
 
 function isAbortError(err: unknown): boolean {

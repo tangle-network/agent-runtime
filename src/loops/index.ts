@@ -82,6 +82,7 @@ export {
   type ForkCapableBox,
   type SandboxLineage,
   type SandboxLineageHandle,
+  type SessionCapableBox,
 } from './sandbox-lineage'
 export type {
   AgentRunSpec,
@@ -91,10 +92,10 @@ export type {
   Iteration,
   LoopDecisionPayload,
   LoopEndedPayload,
-  LoopLineageOptions,
   LoopIterationDispatchPayload,
   LoopIterationEndedPayload,
   LoopIterationStartedPayload,
+  LoopLineageOptions,
   LoopPlanDescription,
   LoopPlanPayload,
   LoopResult,

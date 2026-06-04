@@ -12,28 +12,43 @@
  *      minted `sessionId` so later `continue` calls reuse the same server-side
  *      conversation instead of re-injecting prior context as prompt text.
  *   - `continue(handle, prompt)` → the SAME box, `streamPrompt({ sessionId })`.
- *      The context lives in the sandbox; the prompt is only the new turn.
+ *      The context lives in the sandbox; the prompt is only the new turn. Before
+ *      streaming it ASSERTS the session is still live server-side (via
+ *      `box.session(id).status()`): if the platform never honored the
+ *      client-minted id (or reaped it), `status()` is `null` and `continue`
+ *      fails loud rather than silently re-running the turn without prior context.
  *   - `fork(handle, n, ...)` → when `canFork`, `checkpoint({ leaveRunning })` on
  *      the parent then `fork(checkpointId)` × n so N branches inherit a shared
  *      context prefix; otherwise N independent fresh boxes (same result, no
- *      prefix). Either way each branch streams its own turn.
+ *      prefix). Either way each branch streams its own turn. Child-box creation
+ *      is bounded by the lineage's `maxConcurrency` — a 20-way fanout under a
+ *      concurrency cap of 2 provisions boxes in bounded waves, not all at once.
  *
  * Invariant: the lineage OWNS every box it starts or forks and tears them all
- * down on `teardown()`. It never tears down a box mid-flight — the kernel
- * decides when a handle is done. Streaming itself stays in `run-loop.ts`; the
- * lineage only hands back the live `streamPrompt` iterable so the kernel keeps
- * ownership of event collection, cost accounting, and trace emission.
+ * down on `teardown()` (or earlier via `prune`). It never tears down a box
+ * mid-flight — the kernel decides when a handle is done. Streaming itself stays
+ * in `run-loop.ts`; the lineage only hands back the live `streamPrompt` iterable
+ * so the kernel keeps ownership of event collection, cost accounting, and trace
+ * emission.
  */
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
-import type { SandboxCapabilities } from './sandbox-capabilities'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
+import type { SandboxCapabilities } from './sandbox-capabilities'
 import type { AgentRunSpec, LoopSandboxClient } from './types'
-import { deleteBoxSafe, randomUuid, throwAbort, withTimeout } from './util'
+import {
+  deleteBoxSafe,
+  mapWithConcurrency,
+  randomUuid,
+  throwAbort,
+  throwIfAborted,
+  withTimeout,
+} from './util'
 
 const TEARDOWN_TIMEOUT_MS = 15_000
+const DEFAULT_FORK_CONCURRENCY = 4
 
 /**
  * A live box plus the session that threads its iterations together. Handed back
@@ -72,7 +87,10 @@ export interface SandboxLineage {
   ): Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }>
   /**
    * Continue an existing handle's session with one more turn on the SAME box.
-   * The prior context is server-side; `prompt` is only the new turn.
+   * The prior context is server-side; `prompt` is only the new turn. Asserts the
+   * session is still known to the sandbox first (fail-loud) so a platform that
+   * silently dropped the client-minted session id surfaces as an error instead
+   * of a contextless turn the caller mistakes for a real continuation.
    */
   continue(
     handle: SandboxLineageHandle,
@@ -81,10 +99,14 @@ export interface SandboxLineage {
   ): Promise<AsyncIterable<SandboxEvent>>
   /**
    * Branch `count` children from `parent`. When the platform can fork, each
-   * child inherits `parent`'s checkpoint (shared context prefix); otherwise each
-   * is an independent fresh box. Each child's first turn streams `prompts[i]`.
-   * `specs[i]` supplies the fresh-box profile for child `i` (fork inherits the
-   * parent's image, so a degraded fork still round-robins specs).
+   * child inherits `parent`'s checkpoint — and therefore the parent's IMAGE and
+   * PROFILE: under a real fork `specs[i]` does NOT re-select a per-branch
+   * profile (the SDK forks the running box, it can't swap the image). `specs[i]`
+   * picks the per-branch profile ONLY on the degraded fresh-box path (no CRIU).
+   * A heterogeneous-profile fanout therefore homogenizes to the parent's profile
+   * when fork is available — pass a single shared spec for forked fanouts, or
+   * use `random@k` (no fork) when branches must differ. Each child's first turn
+   * streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
    */
   fork(
     parent: SandboxLineageHandle,
@@ -92,6 +114,14 @@ export interface SandboxLineage {
     specs: AgentRunSpec<unknown>[],
     signal: AbortSignal,
   ): Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
+  /**
+   * Destroy every owned box whose handle is NOT in `keep`, freeing it before
+   * loop end. The kernel calls this after a round when it can prove no future
+   * round will descend from the pruned boxes (deterministic, monotonic branch
+   * selection); boxes still reachable as a future branch source are retained.
+   * Best-effort, bounded, parallel — a failed delete never throws.
+   */
+  prune(keep: Iterable<SandboxLineageHandle>): Promise<void>
   /** Destroy every box this lineage owns. Best-effort, bounded, parallel. */
   teardown(): Promise<void>
 }
@@ -106,10 +136,17 @@ export interface SandboxLineage {
 export function createSandboxLineage(
   client: LoopSandboxClient,
   capabilities: SandboxCapabilities,
+  options: { maxConcurrency?: number } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
     throw new ValidationError('createSandboxLineage: client.create is required')
   }
+  // Bounds the burst of box creation inside `fork` so an N-way fanout doesn't
+  // provision N boxes simultaneously regardless of the loop's concurrency cap.
+  const forkConcurrency = Math.max(
+    1,
+    Math.floor(options.maxConcurrency ?? DEFAULT_FORK_CONCURRENCY),
+  )
   const owned: SandboxInstance[] = []
 
   const acquireFresh = async (
@@ -133,6 +170,9 @@ export function createSandboxLineage(
 
     async continue(handle, prompt, signal) {
       if (signal.aborted) throwAbort()
+      // Fail loud if the platform did not preserve the client-minted session:
+      // continuing a dead/unknown session would silently lose all prior context.
+      await assertSessionLive(handle.box, handle.sessionId)
       // Same box, same session id — the server continues the conversation; we do
       // NOT re-acquire and do NOT re-inject prior context as prompt text.
       return handle.box.streamPrompt(prompt, { sessionId: handle.sessionId, signal })
@@ -149,21 +189,43 @@ export function createSandboxLineage(
       // checkpointId === undefined ⇒ either the platform can't fork or the
       // checkpoint call yielded nothing usable: degrade to independent fresh
       // boxes. Never silently reuse the parent box for a branch.
-      return Promise.all(
-        prompts.map(async (prompt, i) => {
-          const spec = specs[i % specs.length]
-          if (!spec) throw new ValidationError('SandboxLineage.fork: no AgentRunSpec for branch')
-          if (checkpointId !== undefined) {
-            const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
-            owned.push(box)
-            const sessionId = mintSessionId()
-            return { handle: { box, sessionId }, events: box.streamPrompt(prompt, { sessionId, signal }) }
-          }
-          const box = await acquireFresh(spec, signal)
+      //
+      // Bounded by `forkConcurrency`: an N-way fanout creates child boxes in
+      // waves of at most `forkConcurrency`, not all N at once. Abort is checked
+      // per branch (between waves), since the SDK's `fork`/`create` calls take no
+      // signal and cannot be interrupted once in flight.
+      return mapWithConcurrency(prompts, forkConcurrency, async (prompt, i) => {
+        throwIfAborted(signal)
+        const spec = specs[i % specs.length]
+        if (!spec) throw new ValidationError('SandboxLineage.fork: no AgentRunSpec for branch')
+        if (checkpointId !== undefined) {
+          const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
+          owned.push(box)
           const sessionId = mintSessionId()
-          return { handle: { box, sessionId }, events: box.streamPrompt(prompt, { sessionId, signal }) }
-        }),
-      )
+          return {
+            handle: { box, sessionId },
+            events: box.streamPrompt(prompt, { sessionId, signal }),
+          }
+        }
+        const box = await acquireFresh(spec, signal)
+        const sessionId = mintSessionId()
+        return {
+          handle: { box, sessionId },
+          events: box.streamPrompt(prompt, { sessionId, signal }),
+        }
+      })
+    },
+
+    async prune(keep) {
+      const keepBoxes = new Set<SandboxInstance>()
+      for (const handle of keep) keepBoxes.add(handle.box)
+      const survivors: SandboxInstance[] = []
+      const doomed: SandboxInstance[] = []
+      for (const box of owned) (keepBoxes.has(box) ? survivors : doomed).push(box)
+      if (doomed.length === 0) return
+      owned.length = 0
+      owned.push(...survivors)
+      await Promise.allSettled(doomed.map((box) => destroyBounded(box)))
     },
 
     async teardown() {
@@ -200,6 +262,11 @@ async function checkpointForFork(
  * Fork a child box from `checkpointId`. The box exposes `fork` whenever the
  * platform advertised `canFork`; a missing `fork` here is a contract violation
  * (probe said yes, box says no) and fails loud rather than silently degrading.
+ *
+ * `signal` gates entry only: the SDK's `fork(checkpointId, options)` takes no
+ * abort signal (`ForkOptions` is name/env/resources/metadata), so an in-flight
+ * fork cannot be interrupted. The caller (`fork`) checks abort per branch, so
+ * cancellation is responsive at branch boundaries, not mid-fork.
  */
 async function forkFromCheckpoint(
   box: SandboxInstance,
@@ -214,6 +281,27 @@ async function forkFromCheckpoint(
   }
   if (signal.aborted) throwAbort()
   return fork.call(box, checkpointId)
+}
+
+/**
+ * Fail loud when a handle's session is no longer known to the sandbox. The real
+ * SDK box exposes `session(id).status()` which resolves `null` for an unknown /
+ * reaped id; a `null` here means a `continue` would run WITHOUT the prior
+ * context the caller believes is threaded — so refuse it. Boxes that expose no
+ * `session` method (the loop's test fakes, or an SDK without the session API)
+ * cannot be verified and are allowed through unchecked.
+ */
+async function assertSessionLive(box: SandboxInstance, sessionId: string): Promise<void> {
+  const session = (box as SessionCapableBox).session
+  if (typeof session !== 'function') return
+  const info = await session.call(box, sessionId).status()
+  if (info === null) {
+    throw new ValidationError(
+      `SandboxLineage.continue: session ${sessionId} is not known to the sandbox — the platform ` +
+        'did not preserve the client-minted session id (or it was reaped). Continuing would run ' +
+        'without prior context; refusing to silently lose conversation continuity.',
+    )
+  }
 }
 
 async function destroyBounded(box: SandboxInstance): Promise<void> {
@@ -235,4 +323,15 @@ export interface CheckpointCapableBox {
 /** Loop-side widening of the box's optional fork method. @experimental */
 export interface ForkCapableBox {
   fork?: (checkpointId: string, options?: { name?: string }) => Promise<SandboxInstance>
+}
+
+/**
+ * Loop-side widening of the box's optional session accessor. The real
+ * `SandboxInstance` exposes `session(id).status()`; the loop reads it optionally
+ * so `continue` can assert session liveness without requiring it of the test
+ * fakes. `status()` resolves `null` when the id is unknown to the sandbox.
+ * @experimental
+ */
+export interface SessionCapableBox {
+  session?: (id: string) => { status: () => Promise<unknown | null> }
 }

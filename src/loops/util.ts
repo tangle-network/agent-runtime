@@ -136,3 +136,39 @@ export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
 }
+
+/**
+ * Map `items` through `fn` with at most `limit` calls in flight at once,
+ * preserving input order in the result. On the first `fn` rejection no NEW
+ * items are picked up; already-in-flight calls are awaited, then the first
+ * error is rethrown. `limit` is clamped to ≥ 1.
+ *
+ * Used where a burst of provisioning (e.g. forking N child boxes) must respect
+ * the loop's concurrency bound instead of firing all N at once.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const bound = Math.max(1, Math.floor(limit))
+  const results = new Array<R>(items.length)
+  let next = 0
+  let failed = false
+  const worker = async (): Promise<void> => {
+    while (!failed) {
+      const i = next
+      next += 1
+      if (i >= items.length) return
+      try {
+        results[i] = await fn(items[i] as T, i)
+      } catch (err) {
+        failed = true
+        throw err
+      }
+    }
+  }
+  const workerCount = Math.min(bound, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
