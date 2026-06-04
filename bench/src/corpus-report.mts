@@ -144,19 +144,43 @@ function attemptsToResolve(attempts: AttemptRecord[]): number | undefined {
   return undefined
 }
 
-function sumAttempts(attempts: AttemptRecord[], pick: (a: AttemptRecord) => number): number {
-  return attempts.reduce((s, a) => s + pick(a), 0)
+/** Sum only the attempts where `pick` returns a real number — an unmeasured
+ *  (`undefined`) cost/token field is skipped, never coerced to 0. A `0`
+ *  re-coalesced here would understate per-resolve cost and read as "free". */
+function sumAttempts(attempts: AttemptRecord[], pick: (a: AttemptRecord) => number | undefined): number {
+  return attempts.reduce((s, a) => {
+    const v = pick(a)
+    return s + (typeof v === 'number' ? v : 0)
+  }, 0)
+}
+
+/** Count attempts that carry a measured value for `pick` (the denominator the
+ *  token/cost means should honestly divide by — not the full attempt count). */
+function countMeasured(attempts: AttemptRecord[], pick: (a: AttemptRecord) => number | undefined): number {
+  return attempts.reduce((c, a) => c + (typeof pick(a) === 'number' ? 1 : 0), 0)
 }
 
 function cleanTrace(records: RunRecord[]): CleanTrace {
   const n = records.length
+  // Tokens are measured as a PAIR (in+out) or not at all — an attempt counts as
+  // measured only when BOTH are present, and the sum includes only those (a
+  // one-sided `?? 0` would half-fabricate the total).
+  const bothTokens = (a: AttemptRecord): number | undefined =>
+    a.tokensIn === undefined || a.tokensOut === undefined ? undefined : a.tokensIn + a.tokensOut
   let tokens = 0
   let cost = 0
   let events = 0
+  // Coverage: the denominator the means honestly divide by. A fully-unmeasured
+  // condition (e.g. the local raw-stdout path) → NaN ("—"); partial coverage
+  // never understates by counting unmeasured attempts in the denominator.
+  let tokensMeasured = 0
+  let costMeasured = 0
   const resolveRounds: number[] = []
   for (const r of records) {
-    tokens += sumAttempts(r.attempts, (a) => a.tokensIn + a.tokensOut)
+    tokens += sumAttempts(r.attempts, bothTokens)
+    tokensMeasured += countMeasured(r.attempts, bothTokens)
     cost += sumAttempts(r.attempts, (a) => a.costUsd)
+    costMeasured += countMeasured(r.attempts, (a) => a.costUsd)
     events += sumAttempts(r.attempts, (a) => a.eventCount)
     const atr = attemptsToResolve(r.attempts)
     if (atr !== undefined) resolveRounds.push(atr)
@@ -164,8 +188,10 @@ function cleanTrace(records: RunRecord[]): CleanTrace {
   const meanOf = (xs: number[]) => (xs.length === 0 ? Number.NaN : xs.reduce((s, x) => s + x, 0) / xs.length)
   return {
     meanAttemptsToResolve: meanOf(resolveRounds),
-    meanTotalTokens: n === 0 ? Number.NaN : tokens / n,
-    meanCostUsd: n === 0 ? Number.NaN : cost / n,
+    // Per measured attempt (not per record) — dividing by `n` would understate
+    // whenever some attempts are unmeasured.
+    meanTotalTokens: tokensMeasured === 0 ? Number.NaN : tokens / tokensMeasured,
+    meanCostUsd: costMeasured === 0 ? Number.NaN : cost / costMeasured,
     meanEventCount: n === 0 ? Number.NaN : events / n,
     resolvedRuns: resolveRounds.length,
   }

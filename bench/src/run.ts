@@ -315,9 +315,13 @@ async function main() {
         const oracle = nResolved > 0
         const randomExpected = k > 0 ? nResolved / k : 0
         if (corpusPath) {
-          // local-research worker returns no token usage (it spawns opencode +
-          // reads stdout), so cost/tokens are 0 here — the selector reads output +
-          // valid only, which is what we capture faithfully.
+          // The local-research worker spawns opencode + reads stdout, so it
+          // reports NO token usage or cost. We OMIT costUsd/tokensIn/tokensOut
+          // rather than writing a fabricated 0 — absence honestly means
+          // "unmeasured on this path" (so `benchRecordToCorpusRecords` refuses
+          // to forge a canonical record from it; only the measured sandbox path
+          // can feed the gate). The selector reads output + valid only, which
+          // we capture faithfully.
           await appendRunRecord(corpusPath, {
             ts: new Date().toISOString(),
             benchmark: benchName,
@@ -332,9 +336,6 @@ async function main() {
               output: s.output,
               valid: s.valid,
               score: s.score,
-              costUsd: 0,
-              tokensIn: 0,
-              tokensOut: 0,
               eventCount: 0,
               eventTypes: {},
             })),

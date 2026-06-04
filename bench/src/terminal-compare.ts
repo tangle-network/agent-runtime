@@ -225,8 +225,11 @@ const OUTPUT_TAIL_MAX = 2000
 interface TbRoundFacts {
   instruction: string
   failureMode?: string
-  tokensIn: number
-  tokensOut: number
+  /** tb's own token counts. Absent (not 0) when tb didn't record them — a
+   *  missing/unparseable results.json or a non-numeric field is "unmeasured",
+   *  never a fabricated 0 (which would read as a free round downstream). */
+  tokensIn?: number
+  tokensOut?: number
 }
 
 /** Pull the bare task instruction, failure mode, and token counts tb recorded for
@@ -235,21 +238,20 @@ interface TbRoundFacts {
  *  refine steer is taken from `priorSteer`, not from here. */
 async function readRoundFacts(outcome: RoundOutcome, taskId: string): Promise<TbRoundFacts> {
   const raw = await readFileSafe(join(outcome.outputDir, 'results.json'))
-  if (!raw) return { instruction: '', tokensIn: 0, tokensOut: 0 }
+  if (!raw) return { instruction: '' }
   let parsed: BenchmarkResults
   try {
     parsed = JSON.parse(raw) as BenchmarkResults
   } catch {
-    return { instruction: '', tokensIn: 0, tokensOut: 0 }
+    return { instruction: '' }
   }
   const trial = parsed.results?.find((r) => r.task_id === taskId)
   return {
     instruction: typeof trial?.instruction === 'string' ? trial.instruction : '',
     failureMode: typeof trial?.failure_mode === 'string' ? trial.failure_mode : undefined,
-    // tb's own counts; the opencode path commonly reports 0 — report the real number,
-    // never a fabricated one. 0 here means tb surfaced 0, not that we invented it.
-    tokensIn: typeof trial?.total_input_tokens === 'number' ? trial.total_input_tokens : 0,
-    tokensOut: typeof trial?.total_output_tokens === 'number' ? trial.total_output_tokens : 0,
+    // Only set when tb actually surfaced a number — absence stays absent.
+    ...(typeof trial?.total_input_tokens === 'number' ? { tokensIn: trial.total_input_tokens } : {}),
+    ...(typeof trial?.total_output_tokens === 'number' ? { tokensOut: trial.total_output_tokens } : {}),
   }
 }
 
@@ -257,8 +259,9 @@ async function readRoundFacts(outcome: RoundOutcome, taskId: string): Promise<Tb
  * Fold one tb round into a corpus AttemptRecord. `priorSteer` is the evidence-gated
  * refine payload the runner injected for this round (empty for round 1, which is the
  * bare blind attempt). tb does not expose a structured event stream, so eventCount /
- * eventTypes are 0/{}; costUsd is 0 (tb reports no cost). traceTail = the failing-test
- * + terminal-state evidence summary (the same one fed forward as the next steer).
+ * eventTypes are 0/{}; costUsd is OMITTED (tb reports no cost — we never fabricate
+ * a 0). traceTail = the failing-test + terminal-state evidence summary (the same
+ * one fed forward as the next steer).
  */
 async function roundToAttempt(
   outcome: RoundOutcome,
@@ -282,7 +285,6 @@ async function roundToAttempt(
     output: transcript.trim(),
     valid: outcome.resolved,
     score: outcome.resolved ? 1 : 0,
-    costUsd: 0,
     tokensIn: facts.tokensIn,
     tokensOut: facts.tokensOut,
     eventCount: 0,

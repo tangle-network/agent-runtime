@@ -9,6 +9,10 @@
  *   - `optimizePrompt` (TEXT surface) — identity-gated optimization of any
  *     system / planner prompt. Defaults to agent-eval's `gepaDriver` +
  *     `heldOutGate`; returns the baseline unless the held-out gate ships a win.
+ *
+ * `reportOptimizationRun` ships an `optimizePrompt` run's proposal→verdict
+ * provenance to Tangle Intelligence (the otherwise-orphaned `exportEvalRuns`
+ * seam) so an RSI run shows up in the product instead of evaporating.
  */
 
 export { type AgenticGeneratorOptions, agenticGenerator } from './agentic-generator'
@@ -24,3 +28,8 @@ export {
   optimizePrompt,
 } from './optimize-prompt'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
+export {
+  type OptimizationRunMeta,
+  optimizePromptResultToEvalRunEvents,
+  reportOptimizationRun,
+} from './report-eval-runs'

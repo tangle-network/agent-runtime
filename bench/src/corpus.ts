@@ -14,19 +14,33 @@
 
 import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { hashContent, type RunSplitTag, validateRunRecord } from '@tangle-network/agent-eval'
+import type { CorpusRecord } from '@tangle-network/agent-eval/rl'
 import type { Iteration } from '@tangle-network/agent-runtime/loops'
 
 /** One attempt within a condition-run: the prompt/steer sent, the output, the
- *  verdict, the cost, and a bounded trace summary. */
+ *  verdict, the measured economics, and a bounded trace summary.
+ *
+ *  `costUsd`/`tokensIn`/`tokensOut`/`wallMs` are OPTIONAL on purpose: they are
+ *  present only when the worker actually reported them (the `runLoop`/kernel
+ *  path). A worker that reports no usage (e.g. a raw opencode-stdout shot)
+ *  OMITS them — it never writes a fabricated `0`. Absence means "unmeasured",
+ *  which is honest and lets the canonical bridge below refuse to forge a
+ *  RunRecord with phantom economics. (no-fallback: a silent `0` cost reads as a
+ *  free run downstream, which is a lie the gate would then act on.) */
 export interface AttemptRecord {
   round: number
   prompt: string
   output?: string
   valid?: boolean
   score?: number
-  costUsd: number
-  tokensIn: number
-  tokensOut: number
+  /** Measured USD cost of this attempt. Absent ⇒ the worker reported none. */
+  costUsd?: number
+  /** Measured input/output tokens. Absent ⇒ the worker reported none. */
+  tokensIn?: number
+  tokensOut?: number
+  /** Measured wall time (endedAt − startedAt). Absent ⇒ not timed. */
+  wallMs?: number
   eventCount: number
   eventTypes: Record<string, number>
   traceTail?: string
@@ -47,6 +61,12 @@ export interface RunRecord {
   resolved: boolean
   attempts: AttemptRecord[]
   infraError: boolean
+  /** Canonical-pairing provenance (optional; writers set when known). These are
+   *  what let a bench record project onto the substrate's `RunRecord` so it can
+   *  pair across sweeps and feed `analyzeRuns`/`HeldOutGate`/the RL exporters. */
+  seed?: number
+  splitTag?: RunSplitTag
+  commitSha?: string
 }
 
 const TRACE_TAIL_MAX = 600
@@ -61,6 +81,9 @@ function summarizeAttempt<Task, Output>(iter: Iteration<Task, Output>): AttemptR
     const txt = d?.finalText ?? d?.text ?? d?.result
     if (typeof txt === 'string' && txt.length > 0) tail = txt
   }
+  // The kernel measures these for every Iteration — carry them verbatim. A
+  // kernel-reported 0 (e.g. a loop that made no priced LLM call) is an honest
+  // measurement, NOT the fabricated 0 the raw-stdout path used to write.
   return {
     round: iter.index,
     prompt: typeof iter.task === 'string' ? iter.task : JSON.stringify(iter.task),
@@ -68,8 +91,9 @@ function summarizeAttempt<Task, Output>(iter: Iteration<Task, Output>): AttemptR
     valid: iter.verdict?.valid,
     score: iter.verdict?.score,
     costUsd: iter.costUsd,
-    tokensIn: iter.tokenUsage?.input ?? 0,
-    tokensOut: iter.tokenUsage?.output ?? 0,
+    tokensIn: iter.tokenUsage.input,
+    tokensOut: iter.tokenUsage.output,
+    wallMs: Math.max(0, iter.endedAt - iter.startedAt),
     eventCount: iter.events.length,
     eventTypes: types,
     traceTail: tail ? tail.slice(-TRACE_TAIL_MAX) : undefined,
@@ -87,6 +111,11 @@ export function buildRunRecord<Task, Output>(args: {
   resolved: boolean
   infraError: boolean
   now?: () => Date
+  /** Canonical-pairing provenance — set when the caller knows it, so the
+   *  record projects cleanly onto the substrate without the bridge guessing. */
+  seed?: number
+  splitTag?: RunSplitTag
+  commitSha?: string
 }): RunRecord {
   const attempts = args.iterations.map(summarizeAttempt)
   return {
@@ -99,7 +128,123 @@ export function buildRunRecord<Task, Output>(args: {
     resolved: args.resolved,
     attempts,
     infraError: args.infraError,
+    ...(args.seed !== undefined ? { seed: args.seed } : {}),
+    ...(args.splitTag !== undefined ? { splitTag: args.splitTag } : {}),
+    ...(args.commitSha !== undefined ? { commitSha: args.commitSha } : {}),
   }
+}
+
+/** Run-level provenance the caller asserts when projecting a bench record onto
+ *  the substrate. `commitSha` is required: a canonical `RunRecord` is a
+ *  reproducibility artifact and must name the code that produced it — the
+ *  bridge will not invent one. */
+export interface CorpusProjectionOpts {
+  commitSha: string
+  /** Defaults to the record's `benchmark`. */
+  experimentId?: string
+  /** Overrides the record's `seed`; falls back to the attempt ordinal. */
+  seed?: number
+  /** Which split these attempts belong to. Defaults to the record's `splitTag`,
+   *  else `'search'`. */
+  splitTag?: RunSplitTag
+  /** Snapshot-pinned model id (`name@YYYY-MM-DD` / `name-YYYYMMDD`) the caller
+   *  resolved for this run. `validateRunRecord` REJECTS bare aliases (`gpt-5`),
+   *  so a record whose `model` is unpinned — and that has no override here —
+   *  lands in `unmappable` rather than being forged with a guessed snapshot.
+   *  (Bench writers should record the resolved snapshot so this is unneeded.) */
+  model?: string
+}
+
+/** One attempt that could not become a canonical record, with the reason. */
+export interface UnmappableAttempt {
+  round: number
+  reason: string
+}
+
+export interface CorpusProjection {
+  records: CorpusRecord[]
+  /** Attempts dropped because they lacked the canonical-mandatory signal
+   *  (measured economics / an output). The caller decides whether a non-empty
+   *  list is acceptable — it is surfaced, never silently swallowed. */
+  unmappable: UnmappableAttempt[]
+}
+
+/**
+ * Project a bench condition-run onto the substrate's canonical `CorpusRecord[]`
+ * (one record per ATTEMPT — the rollout granularity the RL/replay/gate layers
+ * pair on). This is the bridge that turns the bench's experiment-shaped corpus
+ * into substrate fuel WITHOUT rewriting the bench readers.
+ *
+ * Fail-loud, never fabricate: an attempt missing the canonical-mandatory signal
+ * (`costUsd`/`tokensIn`/`tokensOut`/`wallMs`/`output`) is reported in
+ * `unmappable` rather than backfilled with phantom zeros. This is WHY the local
+ * raw-stdout path (which omits economics) cannot feed the gate — only the
+ * measured `runLoop`/sandbox path can, which is the correct, honest constraint.
+ */
+export async function benchRecordToCorpusRecords(
+  rec: RunRecord,
+  opts: CorpusProjectionOpts,
+): Promise<CorpusProjection> {
+  const records: CorpusRecord[] = []
+  const unmappable: UnmappableAttempt[] = []
+  const experimentId = opts.experimentId ?? rec.benchmark
+  const splitTag: RunSplitTag = opts.splitTag ?? rec.splitTag ?? 'search'
+  const configHash = await hashContent(`${rec.condition}|${rec.model}`)
+
+  for (const a of rec.attempts) {
+    const missing: string[] = []
+    if (typeof a.output !== 'string' || a.output.length === 0) missing.push('output')
+    if (a.costUsd === undefined) missing.push('costUsd')
+    if (a.tokensIn === undefined) missing.push('tokensIn')
+    if (a.tokensOut === undefined) missing.push('tokensOut')
+    if (a.wallMs === undefined) missing.push('wallMs')
+    if (missing.length > 0) {
+      unmappable.push({ round: a.round, reason: `unmeasured: ${missing.join(', ')}` })
+      continue
+    }
+
+    const score = a.score ?? (a.valid === true ? 1 : 0)
+    const promptHash = await hashContent(a.prompt)
+    const candidate: CorpusRecord = {
+      runId: `${rec.benchmark}:${rec.instanceId}:${rec.condition}:r${a.round}`,
+      experimentId,
+      candidateId: rec.condition,
+      // Each attempt needs a DISTINCT seed: the RL/preference layer pairs by
+      // (scenarioId, seed), so identical seeds across a run's k attempts would
+      // collapse them into one cell. A run-level seed is a BASE; the attempt
+      // ordinal offsets it. (rec.seed/ordinal fallbacks keep the same property.)
+      seed: opts.seed !== undefined ? opts.seed + a.round : (rec.seed ?? a.round),
+      model: opts.model ?? rec.model,
+      promptHash,
+      configHash,
+      commitSha: opts.commitSha,
+      wallMs: a.wallMs as number,
+      costUsd: a.costUsd as number,
+      tokenUsage: { input: a.tokensIn as number, output: a.tokensOut as number },
+      outcome: {
+        ...(splitTag === 'holdout' ? { holdoutScore: score } : { searchScore: score }),
+        raw: { valid: a.valid === true ? 1 : 0, score },
+      },
+      splitTag,
+      scenarioId: rec.instanceId,
+      prompt: a.prompt,
+      completion: a.output as string,
+    }
+    try {
+      // Validate for the assertion (throws on a malformed record) but keep the
+      // CorpusRecord superset — the validator returns a RunRecord and may drop
+      // the `prompt`/`completion` extras the RL exporters want.
+      validateRunRecord(candidate)
+      records.push(candidate)
+    } catch (err) {
+      unmappable.push({
+        round: a.round,
+        reason: `invalid RunRecord: ${err instanceof Error ? err.message : String(err)}`,
+      })
+    }
+  }
+
+  return { records, unmappable }
 }
 
 /** Append one RunRecord to the durable corpus (creating the dir if needed). */
