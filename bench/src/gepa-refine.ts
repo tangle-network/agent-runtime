@@ -23,7 +23,9 @@ import {
   inMemoryCampaignStorage,
   pairHoldout,
 } from '@tangle-network/agent-eval/campaign'
+import { join } from 'node:path'
 import { createAppWorldAdapter } from './benchmarks/appworld'
+import { benchRoot, runVenvScriptStdin } from './benchmarks/_harness'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
@@ -130,6 +132,7 @@ const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
  * Override with BASELINE_DIRECTIVE to test a stronger starting point.
  */
 const WEAK_APPWORLD_DIRECTIVE = 'Write a correct Python solution to the task.'
+const APPWORLD_DRIVER = join(benchRoot, 'scripts', 'appworld_driver.py')
 
 async function main() {
   const benchKey = process.env.BENCH ?? 'hotpotqa'
@@ -241,12 +244,60 @@ async function main() {
       return s.artifact
     }
     if (isAppworld) {
-      // Router worker — NO sandbox. The AppWorld judge executes the solution in
-      // the local venv engine, so the SSE streaming path is never touched. The
-      // worker writes the Python solution under the candidate directive and
-      // refines the SOLUTION over k rounds without execution feedback (identical
-      // discipline across arms), then returns the last fenced ```python block for
-      // the engine to run.
+      const meta = scenario.task.metadata as { taskId: string; split: string }
+      // Multi-turn REPL agent (default). The worker writes ONE python block per
+      // turn, the AppWorld engine EXECUTES it in a persistent world, the output is
+      // fed back, and it iterates — so the candidate directive's guidance (inspect
+      // api_docs, authenticate, paginate, verify) can actually be ACTED on, the
+      // thing a blind one-shot worker cannot do. The episode is scored in-process
+      // by AppWorld's own evaluator; the artifact carries that score and the judge
+      // passes it through. Set APPWORLD_REACT=0 for the blind one-shot control arm.
+      if (process.env.APPWORLD_REACT !== '0') {
+        const cfg = JSON.stringify({
+          directive,
+          model,
+          max_turns: Number(process.env.MAX_TURNS ?? 10),
+          router_base: routerBaseUrl,
+          router_key: routerKey,
+        })
+        const stdout = await runVenvScriptStdin(
+          APPWORLD_DRIVER,
+          ['react', '--task-id', meta.taskId, '--split', meta.split],
+          cfg,
+          { cwd: benchRoot },
+        )
+        const last = stdout.trim().split('\n').at(-1) ?? '{}'
+        const r = JSON.parse(last) as {
+          success?: boolean
+          passes?: number
+          num_tests?: number
+          input_tokens?: number
+          output_tokens?: number
+          turns?: number
+          transcript?: string
+          error?: string
+        }
+        if (r.error) throw new Error(`appworld react: ${r.error}`)
+        if ((r.input_tokens ?? 0) > 0 || (r.output_tokens ?? 0) > 0) {
+          ctx.cost.observeTokens({ input: r.input_tokens ?? 0, output: r.output_tokens ?? 0 })
+        }
+        // The episode is already scored; carry the result so the judge reads it
+        // (re-executing a multi-turn REPL episode from a single artifact is not
+        // possible — the world state lives across turns). The transcript rides
+        // along so the failure-analyst reflection can diagnose WHAT went wrong.
+        return JSON.stringify({
+          __appworldReact: true,
+          success: r.success === true,
+          passes: r.passes ?? 0,
+          num_tests: r.num_tests ?? 0,
+          turns: r.turns ?? 0,
+          transcript: r.transcript ?? '',
+        })
+      }
+      // Blind one-shot control (APPWORLD_REACT=0): NO sandbox, NO execution
+      // feedback — the worker writes the whole solution up front and refines it k
+      // rounds without seeing API output. The engine judge re-executes the last
+      // fenced ```python block in a fresh world.
       let answer = ''
       const taskText = scenario.task.prompt
       for (let r = 0; r < rounds; r += 1) {
@@ -329,6 +380,29 @@ async function main() {
         ]
       : [{ key: 'resolved', description: 'benchmark judge marks the answer resolved' }],
     async score({ artifact, scenario }): Promise<JudgeScore> {
+      if (isAppworld) {
+        // The REPL worker already ran + scored the episode in-process (AppWorld's
+        // evaluator); the artifact carries the score. Pass it through rather than
+        // re-executing. A non-react artifact (blind one-shot control) falls through.
+        try {
+          const r = JSON.parse(artifact) as {
+            __appworldReact?: boolean
+            success?: boolean
+            passes?: number
+            num_tests?: number
+          }
+          if (r.__appworldReact) {
+            const sc = (r.num_tests ?? 0) > 0 ? (r.passes ?? 0) / (r.num_tests as number) : 0
+            return {
+              dimensions: { score: sc, resolved: r.success ? 1 : 0 },
+              composite: sc,
+              notes: `react ${r.passes}/${r.num_tests} success=${r.success}`,
+            }
+          }
+        } catch {
+          // not a react artifact — fall through to the engine judge
+        }
+      }
       if (!artifact.trim()) return { dimensions: { resolved: 0 }, composite: 0, notes: 'empty artifact' }
       const verdict = await adapter.judge(scenario.task, artifact)
       if (scoreBased) {
