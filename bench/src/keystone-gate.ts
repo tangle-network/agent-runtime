@@ -259,6 +259,9 @@ export interface KeystoneArmResult {
   readonly errored: number
   /** resolved / (n - errored). */
   readonly resolveRate: number
+  /** Mean of the SELECTED child's graded score (passes/total partial credit) over non-errored
+   *  tasks — the middle-band signal a binary all-pass resolveRate hides. */
+  readonly meanScore: number
   readonly totalSpend: Spend
   /** First failure reason seen (blocked blockers / no-winner reason), when `errored > 0` —
    *  so a high error count is diagnosable, not a mute 0%. */
@@ -272,8 +275,11 @@ export interface KeystoneGateReport {
   /** Per-instance paired booleans — the input a paired-bootstrap / BH test consumes downstream. */
   readonly perTask: ReadonlyArray<{ readonly id: string; readonly blind: boolean; readonly diverse: boolean }>
   readonly arms: ReadonlyArray<KeystoneArmResult>
-  /** diverse.resolveRate − blind.resolveRate, in percentage points (the gate's headline delta). */
+  /** diverse.resolveRate − blind.resolveRate, in percentage points (binary all-pass delta). */
   readonly deltaPp: number
+  /** diverse.meanScore − blind.meanScore, in points (the graded middle-band delta — the more
+   *  sensitive gate signal on multi-verifier domains). */
+  readonly deltaScorePp: number
   /** Whether the two arms spent within tolerance on conserved cost — the equal-k proof. A `false`
    *  here means the delta is NOT at equal compute (a confound to report, never a win to publish). */
   readonly equalK: EqualKVerdict
@@ -297,7 +303,7 @@ function addSpend(a: Spend, b: Spend): Spend {
  * avoids a second judge pass over the deliverable — the deployable selector's chosen verdict IS
  * the arm's outcome on this task.
  */
-function selectedResolved(report: TrajectoryReport): boolean {
+function selectedOutcome(report: TrajectoryReport): { resolved: boolean; score: number } {
   let best: { score: number; valid: boolean } | undefined
   for (const node of report.nodes) {
     if (node.status !== 'done' || !node.verdict) continue
@@ -307,7 +313,7 @@ function selectedResolved(report: TrajectoryReport): boolean {
       best = { score: v.score, valid: v.valid === true }
     }
   }
-  return best?.valid === true
+  return { resolved: best?.valid === true, score: best?.score ?? 0 }
 }
 
 /**
@@ -349,9 +355,10 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
   ]
 
   const perTask: Array<{ id: string; blind: boolean; diverse: boolean }> = []
-  const acc = new Map<string, { resolved: number; errored: number; spend: Spend; sampleBlocker?: string }>(
-    armDefs.map((a) => [a.label, { resolved: 0, errored: 0, spend: zeroSpend() }]),
-  )
+  const acc = new Map<
+    string,
+    { resolved: number; scoreSum: number; errored: number; spend: Spend; sampleBlocker?: string }
+  >(armDefs.map((a) => [a.label, { resolved: 0, scoreSum: 0, errored: 0, spend: zeroSpend() }]))
 
   for (const task of tasks) {
     const row: { id: string; blind: boolean; diverse: boolean } = { id: task.id, blind: false, diverse: false }
@@ -380,10 +387,11 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
       // so a 0% that is really "everything failed" can't masquerade as a clean result.
       const gradeable = result.kind === 'winner' && result.out.kind === 'done'
       if (gradeable) {
-        const resolved = selectedResolved(report)
-        if (resolved) entry.resolved += 1
-        if (armDef.label === 'blind') row.blind = resolved
-        else row.diverse = resolved
+        const sel = selectedOutcome(report)
+        if (sel.resolved) entry.resolved += 1
+        entry.scoreSum += sel.score
+        if (armDef.label === 'blind') row.blind = sel.resolved
+        else row.diverse = sel.resolved
       } else {
         entry.errored += 1
         if (entry.sampleBlocker === undefined) {
@@ -406,6 +414,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
       resolved: e.resolved,
       errored: e.errored,
       resolveRate: e.resolved / denom,
+      meanScore: e.scoreSum / denom,
       totalSpend: e.spend,
       ...(e.sampleBlocker !== undefined ? { sampleBlocker: e.sampleBlocker } : {}),
     }
@@ -431,6 +440,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
     perTask,
     arms,
     deltaPp: (diverse.resolveRate - blind.resolveRate) * 100,
+    deltaScorePp: (diverse.meanScore - blind.meanScore) * 100,
     equalK,
   }
 }
