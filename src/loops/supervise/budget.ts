@@ -1,0 +1,225 @@
+/**
+ * @experimental
+ *
+ * The conserved budget reservation pool — the invariant the whole instrument
+ * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of three
+ * quantities (tokens, usd, iterations) plus an absolute deadline. Children RESERVE
+ * atomically at spawn and RECONCILE at settle:
+ *
+ *   total ≡ free + reserved + committed          (invariant, always)
+ *
+ * `reserve` moves a child's whole ceiling from `free` → `reserved` and FAILS CLOSED
+ * when `free` can't cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡
+ * Σk(blind)` by construction). `reconcile` releases the reservation, commits ACTUAL
+ * spend, and refunds the unspent remainder to `free`. Tokens and usd are SEPARATE
+ * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
+ *
+ * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
+ * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
+ * unknown reconcile) so a child can never refund twice.
+ */
+
+import { addTokenUsage, zeroTokenUsage } from '../util'
+import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
+
+export type { Budget, Spend, UsageEvent }
+
+/** Opaque, single-use reservation handle returned by `reserve` and consumed by
+ *  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup. */
+export interface ReservationTicket {
+  readonly id: number
+  readonly reserved: {
+    readonly tokens: number
+    readonly usd: number
+    readonly iterations: number
+  }
+}
+
+/** Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
+ *  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
+ *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none). */
+export type BudgetReadout = Readonly<{
+  tokensLeft: number
+  usdLeft: number
+  deadlineMs: number
+  reservedTokens: number
+}>
+
+export interface BudgetPool {
+  /**
+   * Atomically reserve a child's full ceiling from the free balance. Fails closed
+   * ({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
+   * caller inspects `ok` before `ticket`.
+   */
+  reserve(
+    b: Budget,
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' }
+  /**
+   * Release a reservation: commit the actual `spent`, refund the unspent remainder
+   * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
+   * a double refund would silently break conservation).
+   */
+  reconcile(ticket: ReservationTicket, spent: Spend): void
+  /** Fold a normalized `UsageEvent` stream (or array) into a `Spend`. Tokens via
+   *  `addTokenUsage`, usd on its own channel, iterations from `'iteration'` events.
+   *  `ms` is left zero — wall-clock duration is the caller's to record, not the pool's. */
+  spendFrom(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend>
+  /** The current readout, reflecting all outstanding reservations. */
+  readout(): BudgetReadout
+}
+
+/** Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
+ *  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
+ *  pool does not read wall-clock). */
+export function spendFromUsageEvents(events: UsageEvent[]): Spend {
+  const tokens = zeroTokenUsage()
+  let usd = 0
+  let iterations = 0
+  for (const ev of events) {
+    if (ev.kind === 'tokens') {
+      addTokenUsage(tokens, { input: ev.input, output: ev.output })
+    } else if (ev.kind === 'cost') {
+      usd += ev.usd
+    } else {
+      iterations += 1
+    }
+  }
+  return { iterations, tokens, usd, ms: 0 }
+}
+
+async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
+  if (Array.isArray(events)) return spendFromUsageEvents(events)
+  const tokens = zeroTokenUsage()
+  let usd = 0
+  let iterations = 0
+  for await (const ev of events) {
+    if (ev.kind === 'tokens') {
+      addTokenUsage(tokens, { input: ev.input, output: ev.output })
+    } else if (ev.kind === 'cost') {
+      usd += ev.usd
+    } else {
+      iterations += 1
+    }
+  }
+  return { iterations, tokens, usd, ms: 0 }
+}
+
+function totalTokens(usage: LoopTokenUsage): number {
+  return usage.input + usage.output
+}
+
+/**
+ * Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
+ * deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
+ * absolute deadline is fixed at construction (`now() + budget.deadlineMs`) so the
+ * readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder.
+ */
+export function createBudgetPool(root: Budget, now: () => number = Date.now): BudgetPool {
+  // free + reserved + committed ≡ root totals, per channel, always.
+  let freeTokens = root.maxTokens
+  let reservedTokens = 0
+  let committedTokens = 0
+
+  const usdCapped = root.maxUsd !== undefined
+  let freeUsd = root.maxUsd ?? 0
+  let reservedUsd = 0
+  let committedUsd = 0
+
+  let freeIterations = root.maxIterations
+  let reservedIterations = 0
+  let committedIterations = 0
+
+  const absoluteDeadlineMs = root.deadlineMs !== undefined ? now() + root.deadlineMs : 0
+
+  let nextTicketId = 0
+  const open = new Set<number>()
+
+  function reserve(
+    b: Budget,
+  ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: 'budget-exhausted' } {
+    const wantTokens = b.maxTokens
+    const wantUsd = b.maxUsd ?? 0
+    const wantIterations = b.maxIterations
+    // Fail-closed admission: every requested channel must fit the free balance. A
+    // usd request against an uncapped root is unsatisfiable (the root declared no $).
+    if (wantTokens > freeTokens) return { ok: false, reason: 'budget-exhausted' }
+    if (wantIterations > freeIterations) return { ok: false, reason: 'budget-exhausted' }
+    if (wantUsd > 0 && (!usdCapped || wantUsd > freeUsd)) {
+      return { ok: false, reason: 'budget-exhausted' }
+    }
+
+    freeTokens -= wantTokens
+    reservedTokens += wantTokens
+    freeIterations -= wantIterations
+    reservedIterations += wantIterations
+    if (wantUsd > 0) {
+      freeUsd -= wantUsd
+      reservedUsd += wantUsd
+    }
+
+    const id = nextTicketId++
+    open.add(id)
+    return {
+      ok: true,
+      ticket: { id, reserved: { tokens: wantTokens, usd: wantUsd, iterations: wantIterations } },
+    }
+  }
+
+  function reconcile(ticket: ReservationTicket, spent: Spend): void {
+    if (!open.has(ticket.id)) {
+      throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
+    }
+    open.delete(ticket.id)
+
+    const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
+
+    // Clamp actual spend to the reservation: a child must never commit more than it
+    // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
+    const spentTokens = totalTokens(spent.tokens)
+    if (spentTokens > rTokens) {
+      throw new Error(
+        `budget pool: ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`,
+      )
+    }
+    if (spent.iterations > rIterations) {
+      throw new Error(
+        `budget pool: ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`,
+      )
+    }
+    if (spent.usd > rUsd) {
+      throw new Error(`budget pool: ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`)
+    }
+
+    // Release the whole reservation, then commit actual spend; the difference is the
+    // refund that flows back to `free`.
+    reservedTokens -= rTokens
+    committedTokens += spentTokens
+    freeTokens += rTokens - spentTokens
+
+    reservedIterations -= rIterations
+    committedIterations += spent.iterations
+    freeIterations += rIterations - spent.iterations
+
+    if (rUsd > 0) {
+      reservedUsd -= rUsd
+      committedUsd += spent.usd
+      freeUsd += rUsd - spent.usd
+    }
+  }
+
+  function readout(): BudgetReadout {
+    return {
+      tokensLeft: freeTokens,
+      usdLeft: usdCapped ? freeUsd : 0,
+      deadlineMs: absoluteDeadlineMs,
+      reservedTokens,
+    }
+  }
+
+  return {
+    reserve,
+    reconcile,
+    spendFrom: foldUsage,
+    readout,
+  }
+}
