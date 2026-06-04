@@ -260,6 +260,9 @@ export interface KeystoneArmResult {
   /** resolved / (n - errored). */
   readonly resolveRate: number
   readonly totalSpend: Spend
+  /** First failure reason seen (blocked blockers / no-winner reason), when `errored > 0` —
+   *  so a high error count is diagnosable, not a mute 0%. */
+  readonly sampleBlocker?: string
 }
 
 export interface KeystoneGateReport {
@@ -346,7 +349,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
   ]
 
   const perTask: Array<{ id: string; blind: boolean; diverse: boolean }> = []
-  const acc = new Map<string, { resolved: number; errored: number; spend: Spend }>(
+  const acc = new Map<string, { resolved: number; errored: number; spend: Spend; sampleBlocker?: string }>(
     armDefs.map((a) => [a.label, { resolved: 0, errored: 0, spend: zeroSpend() }]),
   )
 
@@ -370,15 +373,26 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
       const report = await trajectoryReport(journal, blobs, runId, { withOutputs: true })
       const entry = acc.get(armDef.label)!
       entry.spend = addSpend(entry.spend, report.total)
-      if (result.kind === 'winner') {
+      // A run produces a GRADEABLE deliverable only when the shape returned `done`. A
+      // `winner` carrying a `blocked` Outcome (every child went down) or a `no-winner`
+      // means the arm produced NO candidate to grade on this task — that is an ERROR
+      // (excluded from the resolve denominator + surfaced), never a silent "not resolved",
+      // so a 0% that is really "everything failed" can't masquerade as a clean result.
+      const gradeable = result.kind === 'winner' && result.out.kind === 'done'
+      if (gradeable) {
         const resolved = selectedResolved(report)
         if (resolved) entry.resolved += 1
         if (armDef.label === 'blind') row.blind = resolved
         else row.diverse = resolved
-      } else if (result.reason === 'budget-exhausted' || result.reason === 'aborted') {
+      } else {
         entry.errored += 1
+        if (entry.sampleBlocker === undefined) {
+          entry.sampleBlocker =
+            result.kind === 'winner' && result.out.kind === 'blocked'
+              ? result.out.blockers.slice(0, 2).join(' | ')
+              : `no-winner: ${(result as { reason?: string }).reason ?? 'unknown'}`
+        }
       }
-      // all-children-down: kept in n as a genuine not-resolved (row stays false).
     }
     perTask.push(row)
   }
@@ -393,6 +407,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
       errored: e.errored,
       resolveRate: e.resolved / denom,
       totalSpend: e.spend,
+      ...(e.sampleBlocker !== undefined ? { sampleBlocker: e.sampleBlocker } : {}),
     }
   })
 
