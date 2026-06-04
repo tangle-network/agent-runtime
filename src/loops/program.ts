@@ -345,10 +345,35 @@ async function runParallel<Task, Output>(
     throw new PlannerError('Program parallel{} must carry a non-empty branches[]')
   }
   const limit = opts.maxParallel ?? branches.length
-  const runs = await mapPool(branches, limit, (branch, i) =>
+  const settled = await mapPool(branches, limit, (branch, i) =>
     runProgram(branch, opts, `${idSuffix}/p${i}`, depth + 1),
   )
-  return concatRuns(runs, 'max', opts)
+  // One-for-one: a branch that threw is a `down` record EXCLUDED from the merge `n`;
+  // survivors still merge. A real cancel (abort signal fired) is NOT a branch failure —
+  // it propagates so the abort cascade stays loud.
+  if (opts.ctx.signal?.aborted) {
+    const aborted = settled.find((r) => !r.ok)
+    if (aborted && !aborted.ok) throw aborted.error
+  }
+  const survivors = settled.filter(
+    (r): r is { ok: true; value: ProgramResult<Task, Output> } => r.ok,
+  )
+  if (survivors.length === 0) {
+    // Every branch went down: there is nothing to merge, so the program genuinely
+    // failed. Surface the FIRST branch's original error (its real type + message — e.g.
+    // a maxDepth guard) rather than a lossy summary; a structural guard must not be
+    // swallowed as an excluded infra `down`.
+    const firstDown = settled.find((r) => !r.ok)
+    if (firstDown && !firstDown.ok) throw firstDown.error
+    throw new PlannerError(
+      `Program parallel{} merged 0 branches — all ${branches.length} sub-loops went down`,
+    )
+  }
+  return concatRuns(
+    survivors.map((r) => r.value),
+    'max',
+    opts,
+  )
 }
 
 /** A `seq` containing a `parallel` → run maximal straight-line runs as single loops
@@ -404,32 +429,33 @@ async function runSeq<Task, Output>(
   return acc
 }
 
-/** Bounded-concurrency map preserving order. Drains all in-flight before throwing the
- *  first error, and stops scheduling NEW work once any branch fails (mirrors the
- *  kernel's `runBatch` discipline so a failure can't orphan running sub-loops). */
+type MapPoolOutcome<R> = { ok: true; value: R } | { ok: false; error: unknown }
+
+/** Bounded-concurrency map preserving order. One-for-one isolation: a thrown item is
+ *  CAPTURED as a per-item `{ ok: false }` outcome — it does NOT abort siblings or stop
+ *  scheduling, so survivors all run to completion. The caller decides whether a failed
+ *  outcome is an excluded branch (infra `down`) or a propagated cancel. */
 async function mapPool<T, R>(
   items: T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let firstError: unknown
+): Promise<MapPoolOutcome<R>[]> {
+  const results = new Array<MapPoolOutcome<R>>(items.length)
   let next = 0
   const workers = Math.max(1, Math.min(limit, items.length))
   const worker = async (): Promise<void> => {
-    while (firstError === undefined) {
+    while (true) {
       const i = next
       next += 1
       if (i >= items.length) return
       try {
-        results[i] = await fn(items[i] as T, i)
+        results[i] = { ok: true, value: await fn(items[i] as T, i) }
       } catch (err) {
-        if (firstError === undefined) firstError = err
+        results[i] = { ok: false, error: err }
       }
     }
   }
   await Promise.all(Array.from({ length: workers }, () => worker()))
-  if (firstError !== undefined) throw firstError
   return results
 }
 

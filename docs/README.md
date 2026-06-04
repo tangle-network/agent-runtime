@@ -14,6 +14,17 @@ Read top-to-bottom for the full picture.
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
 | 5 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
 
+## Research track
+
+Forward-looking design research — surveys, multi-agent design passes, decision logs. Not the canonical spine; promotions into `architecture.md` happen explicitly once a design ships.
+
+| Doc | Role | Purpose |
+|---|---|---|
+| [research/README.md](./research/README.md) | research index | The active design thread + decision log + source-artifact pointers. |
+| [research/recursive-execution-atom.md](./research/recursive-execution-atom.md) | design (in progress) | The next generation: one recursive `Agent` atom run as a durable, observable supervision tree (drivers-of-drivers, analyst-as-agent-with-runtime, async dynamic spawning). Plane B — contains the flat harness. |
+| [research/flat-harness-design.md](./research/flat-harness-design.md) | design synthesis | Plane A — the assumption-free experiment harness (profiles × steer × executionMode × allocation). Recovered as the simplest `act` body on Plane B. |
+| [research/long-horizon-benchmark-survey.md](./research/long-horizon-benchmark-survey.md) | survey | Adversarially-verified long-horizon + multi-turn benchmark survey. Top picks: Commit0, τ²-bench. |
+
 ## Reference track
 
 The package API and subsystems.
