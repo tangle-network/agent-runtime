@@ -1,0 +1,72 @@
+[
+  {
+    "instance_id": "commit-0/wcwidth",
+    "repo": "commit-0/wcwidth",
+    "original_repo": "jquast/wcwidth",
+    "base_commit": "0d0054189bdb0fc7b9de0456fc3cee2b67a6ceba",
+    "reference_commit": "36a625179ed2675287fe6b61c2ad319406449e60",
+    "setup": {
+      "install": "pip install -e .",
+      "packages": null,
+      "pip_packages": null,
+      "pre_install": null,
+      "python": "3.10",
+      "specification": "https://wcwidth.readthedocs.io/en/stable/"
+    },
+    "test": {
+      "test_cmd": "pytest",
+      "test_dir": "tests/"
+    },
+    "src_dir": "wcwidth/"
+  },
+  {
+    "instance_id": "commit-0/deprecated",
+    "repo": "commit-0/deprecated",
+    "original_repo": "laurent-laporte-pro/deprecated",
+    "base_commit": "b7e2114c046abb489e4e23ab9f829778b076650d",
+    "reference_commit": "378636d8a1e3d62d5894329c57f44ba0030c2dbd",
+    "setup": {
+      "install": "pip install -e .[dev]",
+      "packages": null,
+      "pip_packages": null,
+      "pre_install": null,
+      "python": "3.10",
+      "specification": "https://deprecated.readthedocs.io/en/latest/"
+    },
+    "test": {
+      "test_cmd": "pytest",
+      "test_dir": "tests/"
+    },
+    "src_dir": "deprecated/"
+  },
+  {
+    "instance_id": "commit-0/tinydb",
+    "repo": "commit-0/tinydb",
+    "original_repo": "msiemens/tinydb",
+    "base_commit": "ed761a72c8c1e1cb24ca4dbcc089f35c5264d357",
+    "reference_commit": "429b27a513f0ad301632379e55667dd99865fb16",
+    "setup": {
+      "install": "pip install -e .",
+      "packages": null,
+      "pip_packages": [
+        "pytest>=7.2.0,<8.0.0",
+        "pytest-pycodestyle>=2.3.1,<3.0.0",
+        "pytest-cov>=4.0.0,<5.0.0",
+        "pycodestyle>=2.10.0,<3.0.0",
+        "sphinx>=7.0.0,<8.0.0",
+        "coveralls>=3.3.1,<4.0.0",
+        "pyyaml>=6.0,<7.0",
+        "types-PyYAML>=6.0.0,<7.0.0",
+        "typing-extensions>=4.4.0,<5.0.0"
+      ],
+      "pre_install": null,
+      "python": "3.10",
+      "specification": "https://tinydb.readthedocs.io/_/downloads/en/v4.8.0/pdf/"
+    },
+    "test": {
+      "test_cmd": "pytest",
+      "test_dir": "tests/"
+    },
+    "src_dir": "tinydb/"
+  }
+]

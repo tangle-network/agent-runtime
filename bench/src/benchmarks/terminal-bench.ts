@@ -9,21 +9,26 @@
  * Requires: the bench `.venv` with `terminal-bench` installed + a running Docker
  * daemon (per-task images are built on first run). loadTasks caches the dataset
  * from the Terminal-Bench registry on first run.
+ *
+ * Process/Docker/report plumbing is shared via ./_harness; this file owns the
+ * Terminal-Bench-specific pieces: the Dataset enumeration, the ScriptAgent replay
+ * argv, and the results.json shape.
  */
 
-import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
+import {
+  benchRoot,
+  preflightVenvImports,
+  readJsonReport,
+  runStagedJudge,
+  runVenvPython,
+  safeRunId,
+  stageFile,
+  venvBin,
+} from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
-const execFileAsync = promisify(execFile)
-const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
-const PY = join(BENCH_ROOT, '.venv', 'bin', 'python')
-const TB = join(BENCH_ROOT, '.venv', 'bin', 'tb')
-const BIG = 1024 * 1024 * 256
+const TB = venvBin('tb')
 
 // Pinned dataset: the 0.1.1 core set is patched for terminal-bench >=0.2.4 (the
 // installed CLI) and is the published launch task set. name==version is what `tb
@@ -37,23 +42,19 @@ const DATASET_REF = `${DATASET}==${DATASET_VERSION}`
 // adapter is runnable without a large pull.
 const FIXTURE_IDS = ['hello-world']
 
-// Import path the harness uses to load our replay agent (cwd = BENCH_ROOT).
+// Import path the harness uses to load our replay agent (cwd = benchRoot).
 const SCRIPT_AGENT = 'tb_agents.script_agent:ScriptAgent'
-
-/** Run the bench venv python with a script on stdin; return stdout (throws on nonzero). */
-async function py(script: string, args: string[] = [], timeoutMs = 0): Promise<string> {
-  const { stdout } = await execFileAsync(PY, ['-c', script, ...args], {
-    maxBuffer: BIG,
-    timeout: timeoutMs,
-  })
-  return stdout
-}
 
 interface TbTaskRow {
   id: string
   instruction: string
   task_dir: string
   solution: string | null
+}
+
+interface TbReport {
+  resolved_ids?: string[]
+  results?: Array<{ task_id: string; is_resolved: boolean | null; parser_results?: unknown }>
 }
 
 /** Enumerate dataset tasks via tb's Dataset loader (caches from the registry on
@@ -89,7 +90,7 @@ for task_dir in ds:
     })
 print(json.dumps(out))
 `
-  const stdout = await py(script, [ids ? JSON.stringify(ids) : '', limit !== null ? String(limit) : ''])
+  const stdout = await runVenvPython(script, [ids ? JSON.stringify(ids) : '', limit !== null ? String(limit) : ''])
   return JSON.parse(stdout) as TbTaskRow[]
 }
 
@@ -98,17 +99,14 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
     name: 'terminal-bench',
 
     async preflight() {
-      try {
-        await py('import terminal_bench, docker; docker.from_env().ping(); print("ok")')
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `terminal-bench preflight failed: ${msg}\n` +
-            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install terminal-bench ; ` +
-            `(2) ensure the Docker daemon is running (the judge builds per-task images on first run). ` +
-            `The ${DATASET_REF} dataset is cached from the Terminal-Bench registry on first loadTasks.`,
-        )
-      }
+      await preflightVenvImports({
+        modules: ['terminal_bench'],
+        requireDocker: true,
+        fix:
+          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install terminal-bench ; ` +
+          `(2) ensure the Docker daemon is running (the judge builds per-task images on first run). ` +
+          `The ${DATASET_REF} dataset is cached from the Terminal-Bench registry on first loadTasks.`,
+      })
     },
 
     async loadTasks(opts: LoadOptions = {}) {
@@ -145,46 +143,40 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
     },
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
-      const runId = `bench-${task.id}-${Date.now()}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
-      const dir = await mkdtemp(join(tmpdir(), 'tbench-'))
-      const scriptPath = join(dir, 'attempt.sh')
-      const outPath = join(dir, 'runs')
-      try {
-        await writeFile(scriptPath, artifact)
+      const runId = safeRunId('bench', `${task.id}-${Date.now()}`)
+      return runStagedJudge({
+        tmpPrefix: 'tbench-',
+        bin: TB,
+        cwd: () => benchRoot,
+        async stage(dir) {
+          await stageFile(join(dir, 'attempt.sh'), artifact)
+        },
         // The harness builds a fresh task container, runs ScriptAgent (which replays
         // the artifact script), then runs the task's verifier. --no-livestream keeps
         // stdout sane; --cleanup removes the per-run images.
-        await execFileAsync(
-          TB,
-          [
-            'run',
-            '-d', DATASET_REF,
-            '-t', task.id,
-            '--agent-import-path', SCRIPT_AGENT,
-            '--agent-kwarg', `script_path=${scriptPath}`,
-            '--output-path', outPath,
-            '--run-id', runId,
-            '--n-concurrent', '1',
-            '--no-livestream',
-            '--cleanup',
-          ],
-          { cwd: BENCH_ROOT, maxBuffer: BIG },
-        )
-        const reportPath = join(outPath, runId, 'results.json')
-        const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
-          resolved_ids?: string[]
-          results?: Array<{ task_id: string; is_resolved: boolean | null; parser_results?: unknown }>
-        }
-        const resolved = (report.resolved_ids ?? []).includes(task.id)
-        const trial = report.results?.find((r) => r.task_id === task.id)
-        return {
-          resolved,
-          score: resolved ? 1 : 0,
-          detail: JSON.stringify(trial?.parser_results ?? report.resolved_ids ?? {}),
-        }
-      } finally {
-        await rm(dir, { recursive: true, force: true }).catch(() => {})
-      }
+        argv: (dir) => [
+          'run',
+          '-d', DATASET_REF,
+          '-t', task.id,
+          '--agent-import-path', SCRIPT_AGENT,
+          '--agent-kwarg', `script_path=${join(dir, 'attempt.sh')}`,
+          '--output-path', join(dir, 'runs'),
+          '--run-id', runId,
+          '--n-concurrent', '1',
+          '--no-livestream',
+          '--cleanup',
+        ],
+        async parseReport(dir) {
+          const report = await readJsonReport<TbReport>(join(dir, 'runs', runId, 'results.json'))
+          const resolved = (report.resolved_ids ?? []).includes(task.id)
+          const trial = report.results?.find((r) => r.task_id === task.id)
+          return {
+            resolved,
+            score: resolved ? 1 : 0,
+            detail: JSON.stringify(trial?.parser_results ?? report.resolved_ids ?? {}),
+          }
+        },
+      })
     },
   }
 }

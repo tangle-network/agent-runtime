@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "abishekvashok__cmatrix.5c082c6",
+    "image_name": "abishekvashok/cmatrix",
+    "note": "hidden behavioral tests live in programbench/ProgramBench-Tests tests/<hash>.tar.gz; fetch via `programbench blob sync`."
+  },
+  {
+    "instance_id": "agourlay__zip-password-finder.704700d",
+    "image_name": "agourlay/zip-password-finder",
+    "note": "hidden behavioral tests live in programbench/ProgramBench-Tests tests/<hash>.tar.gz; fetch via `programbench blob sync`."
+  },
+  {
+    "instance_id": "ajeetdsouza__zoxide.67ca1bc",
+    "image_name": "ajeetdsouza/zoxide",
+    "note": "hidden behavioral tests live in programbench/ProgramBench-Tests tests/<hash>.tar.gz; fetch via `programbench blob sync`."
+  }
+]
