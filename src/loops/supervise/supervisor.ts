@@ -73,6 +73,24 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
     const pool = createBudgetPool(opts.budget, now)
     await opts.journal.beginTree(opts.runId, new Date(now()).toISOString())
 
+    // Journal the root as its own `spawned` node (parent-less, the spawn-ordinal-0 marker), so a
+    // journal-based reader — `trajectoryReport`, `replaySpawnTree`, `materializeTreeView` — can
+    // reconstruct the WHOLE realized tree from a real run, not only hand-built journals. The root
+    // is never `scope.spawn`ed (the supervisor runs `act` directly), so without this the root node
+    // is absent and `trajectoryReport` fails its `nodes.has(root)` invariant. The uniqueness guard
+    // skips `spawned` events (only the cursor namespace must be unique), so sharing ordinal 0 with
+    // the first child's spawn is not a collision; replay ignores `spawned` events for settlement
+    // reconstruction, so the replayed `Settled[]` is unchanged.
+    await opts.journal.appendEvent(opts.runId, {
+      kind: 'spawned',
+      id: opts.runId,
+      label: 'root',
+      budget: opts.budget,
+      runtime: 'inline',
+      seq: 0,
+      at: new Date(now()).toISOString(),
+    })
+
     // ONE internal controller is the root scope's abort source. Every cascade path
     // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
     // fans it out to each live child's executor (acquire-aware reap included).

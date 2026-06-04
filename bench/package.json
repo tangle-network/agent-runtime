@@ -10,6 +10,7 @@
     "verify-judge": "tsx src/run.ts verify-judge",
     "batch-compare": "tsx src/run.ts batch-compare",
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
+    "keystone-gate": "tsx src/keystone-gate-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "gepa-refine": "tsx src/gepa-refine.ts",
     "terminal-compare": "tsx src/terminal-compare.ts"
