@@ -18,6 +18,7 @@
 import { readFile } from 'node:fs/promises'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
+import { routerChatWithUsage } from './router-client'
 
 export interface BrowserLocalConfig {
   routerBaseUrl: string
@@ -31,7 +32,7 @@ export interface BrowserShot {
   /** The ELEMENT/ACTION/VALUE the model produced — the artifact the judge scores. */
   artifact: string
   trace: Span[]
-  usage: { input: number; output: number }
+  usage?: { input: number; output: number }
   ok: boolean
   detail?: string
 }
@@ -48,28 +49,6 @@ interface Mind2WebMetaView {
   task?: string
   website?: string
   screenshotPath?: string
-}
-
-/** Router chat returning token usage — the backend-integrity guard needs REAL
- *  tokens reported, never a fabricated zero. */
-async function routerChatWithUsage(
-  cfg: BrowserLocalConfig,
-  messages: Array<{ role: string; content: string }>,
-): Promise<{ content: string; usage: { input: number; output: number } }> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2 }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
-  }
-  return {
-    content: data.choices?.[0]?.message?.content ?? '',
-    usage: { input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0 },
-  }
 }
 
 /**

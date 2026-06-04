@@ -57,53 +57,43 @@ export interface Arm {
   planner: (rootPrompt: string, rounds: number) => TopologyPlanner<string, string>
 }
 
-/** k INDEPENDENT bare attempts — the compute control (random@k). Isolates
- *  "more tries" from "steering": any treatment minus this at equal k is the
- *  steering-specific effect. */
-export const randomArm = (label = 'random'): Arm => ({
+/** The steer `f(trace)`: given the root prompt + the attempts so far, build the
+ *  NEXT attempt's prompt. This is the ONLY thing that varies between arms — the
+ *  docs' `steerPolicy: (trace, history) → steer` (learning-flywheel.md), "the
+ *  optimizable core". Stop (valid-or-budget) and topology (sequential, width 1)
+ *  are identical across every arm, so they live ONCE in `arm`, not per-arm.
+ *  ("refine"/"random"/"diverse" are just three points in steer-space; the RSI
+ *  endgame is to LEARN this `f`, not hand-write it.) */
+export type Steer = (rootPrompt: string, history: ReadonlyArray<{ output?: string }>, round: number) => string
+
+/** An arm IS a steer wrapped in the shared stop/topology shell. */
+export const arm = (label: string, steer: Steer): Arm => ({
   label,
   planner: (rootPrompt, rounds) =>
     ({ history }): TopologyMove<string> => {
       if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
       if (history.length >= rounds) return { kind: 'stop', rationale: 'round budget exhausted' }
-      return { kind: 'refine', task: rootPrompt, rationale: 'independent re-attempt (no steering)' }
+      return { kind: 'refine', task: steer(rootPrompt, history, history.length), rationale: `${label} step ${history.length}` }
     },
 })
 
-/** Evidence-gated refine: round 1 is bare (== blind); later rounds carry the
- *  prior answer forward + a directive. The steering arm. */
-export const refineArm = (label: string, directive: string): Arm => ({
-  label,
-  planner: (rootPrompt, rounds) =>
-    ({ history }): TopologyMove<string> => {
-      if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
-      if (history.length === 0) return { kind: 'refine', task: rootPrompt, rationale: 'blind attempt' }
-      if (history.length >= rounds) return { kind: 'stop', rationale: 'round budget exhausted' }
-      const prior = history.at(-1)?.output ?? ''
-      return {
-        kind: 'refine',
-        task: `${rootPrompt}\n\n--- Your previous answer ---\n${prior.slice(-3000)}\n\n${directive}`,
-        rationale: 'evidence-gated refine',
-      }
-    },
-})
+/** random@k — ignore history (the compute control: more tries, no steering). */
+export const randomArm = (label = 'random'): Arm => arm(label, (root) => root)
 
-/** k attempts, each prepended with a DIFFERENT strategy lens — the diverse@k arm
- *  (the bet that approach-diversity gives a selector signal identical retries don't). */
-export const diverseArm = (label: string, lenses: string[]): Arm => ({
-  label,
-  planner: (rootPrompt, rounds) =>
-    ({ history }): TopologyMove<string> => {
-      if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
-      if (history.length >= rounds) return { kind: 'stop', rationale: 'round budget exhausted' }
-      const lens = lenses[history.length % lenses.length] ?? ''
-      return {
-        kind: 'refine',
-        task: lens ? `${lens}\n\n${rootPrompt}` : rootPrompt,
-        rationale: `diverse lens ${history.length % lenses.length}`,
-      }
-    },
-})
+/** refine@k — round 0 bare (== blind); later rounds carry the prior answer + a directive. */
+export const refineArm = (label: string, directive: string): Arm =>
+  arm(label, (root, history, round) =>
+    round === 0
+      ? root
+      : `${root}\n\n--- Your previous answer ---\n${(history.at(-1)?.output ?? '').slice(-3000)}\n\n${directive}`,
+  )
+
+/** diverse@k — rotate a distinct strategy lens per attempt (approach diversity). */
+export const diverseArm = (label: string, lenses: string[]): Arm =>
+  arm(label, (root, _history, round) => {
+    const lens = lenses[round % lenses.length] ?? ''
+    return lens ? `${lens}\n\n${root}` : root
+  })
 
 /** Cost-dial backend types we drive (tcloud `BackendType`). `hermes` = the
  *  inference-router agent (the cheap "router llm-call" dial); the rest are agent

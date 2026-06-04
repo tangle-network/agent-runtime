@@ -180,7 +180,7 @@ async function main() {
       // the ELEMENT/ACTION/VALUE the model commits to, scored by the deterministic
       // Mind2Web judge. Single shot — element prediction is one step, no refine.
       const s = await solveBrowserLocal(scenario.task, { routerBaseUrl, routerKey, model, directive })
-      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
+      if (s.usage && (s.usage.input > 0 || s.usage.output > 0)) ctx.cost.observeTokens(s.usage)
       return s.artifact
     }
     if (isCadgenbench) {

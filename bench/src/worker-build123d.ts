@@ -21,6 +21,7 @@ import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
+import { routerChatWithUsage } from './router-client'
 
 export { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 
@@ -36,26 +37,6 @@ async function runLocal(cmd: string, args: string[], cwd: string, timeoutMs = 12
   } catch (err) {
     const e = err as { code?: number; stdout?: string; stderr?: string; message?: string }
     return { code: typeof e.code === 'number' ? e.code : 1, stdout: e.stdout ?? '', stderr: e.stderr ?? e.message ?? String(err) }
-  }
-}
-
-async function routerChatWithUsage(
-  cfg: { routerBaseUrl: string; routerKey: string; model: string },
-  messages: Array<{ role: string; content: string }>,
-): Promise<{ content: string; usage: { input: number; output: number } }> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2 }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
-  }
-  return {
-    content: data.choices?.[0]?.message?.content ?? '',
-    usage: { input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0 },
   }
 }
 
@@ -129,8 +110,10 @@ export async function solveBuild123dLocal(task: BenchTask, cfg: Build123dConfig)
         { role: 'system', content: sys },
         { role: 'user', content: user },
       ])
-      usage.input += u.input
-      usage.output += u.output
+      if (u) {
+        usage.input += u.input
+        usage.output += u.output
+      }
       const source = extractPy(content)
       trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'build.py', content: source }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)

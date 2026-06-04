@@ -23,6 +23,7 @@ import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_CAD_DIRECTIVE, DEFAULT_CAD_SANDBOX_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
+import { routerChatWithUsage } from './router-client'
 
 export { DEFAULT_CAD_DIRECTIVE } from './directives'
 
@@ -54,21 +55,6 @@ type SandboxBox = Awaited<ReturnType<typeof acquireSandbox>>
 
 const randomSuffix = () => Math.random().toString(36).slice(2, 10)
 
-/** Minimal openai-compatible chat call against the router (no new dep). */
-async function routerChat(
-  cfg: CadWorkerConfig,
-  messages: Array<{ role: string; content: string }>,
-): Promise<string> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2 }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return data.choices?.[0]?.message?.content ?? ''
-}
-
 /** Strip markdown fences / prose so we keep just the OpenSCAD source. */
 function extractScad(text: string): string {
   const fence = /```(?:openscad|scad|c|cpp)?\s*\n([\s\S]*?)```/i.exec(text)
@@ -76,29 +62,6 @@ function extractScad(text: string): string {
 }
 
 const execFileAsync = promisify(execFile)
-
-/** Router chat that also returns token usage — the campaign's backend-integrity
- *  guard needs REAL tokens reported (never a fabricated zero), so the optimizer
- *  sees a real backend, not a stub. */
-async function routerChatWithUsage(
-  cfg: { routerBaseUrl: string; routerKey: string; model: string },
-  messages: Array<{ role: string; content: string }>,
-): Promise<{ content: string; usage: { input: number; output: number } }> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.2 }),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
-  }
-  return {
-    content: data.choices?.[0]?.message?.content ?? '',
-    usage: { input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0 },
-  }
-}
 
 /** Run a local command, returning exit code + streams (never throws on nonzero —
  *  the geometry gate is the arbiter, so a failed compile still yields its error). */
@@ -180,8 +143,10 @@ export async function solveCadRefineLocal(task: BenchTask, cfg: CadLocalConfig):
         { role: 'system', content: directive },
         { role: 'user', content: user },
       ])
-      usage.input += u.input
-      usage.output += u.output
+      if (u) {
+        usage.input += u.input
+        usage.output += u.output
+      }
       const scad = extractScad(content)
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.scad', content: scad }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
@@ -289,7 +254,7 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
         ? task.prompt
         : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`,
     runShot: async (user, round, box) => {
-      const reply = await routerChat(cfg, [
+      const { content: reply } = await routerChatWithUsage(cfg, [
         { role: 'system', content: sys },
         { role: 'user', content: user },
       ])
