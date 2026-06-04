@@ -14,7 +14,30 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+
+/**
+ * The SWE deliverable, extracted from the agent's event STREAM (not the box FS).
+ * `runLoop`'s `OutputAdapter` only sees events, so the agent prints its unified
+ * diff in a fenced block and this pulls the last one out — the seam that lets the
+ * SWE benchmark run through the one flow (`runExperiment`) like any other.
+ */
+export const swePatchOutput: OutputAdapter<string> = {
+  parse(events) {
+    let text = ''
+    for (const ev of events) {
+      const d = (ev as { data?: Record<string, unknown> })?.data
+      const t = d?.finalText ?? d?.text ?? d?.result
+      if (typeof t === 'string' && t.length > 0) text = t
+    }
+    // Last ```diff/```patch fenced block (the contract the prompt asks for);
+    // fall back to the raw text so a fence-less but valid diff still reaches the judge.
+    const fences = [...text.matchAll(/```(?:diff|patch)?\s*\n([\s\S]*?)```/g)]
+    const last = fences.at(-1)?.[1]
+    return (last ?? text).trim()
+  },
+}
 
 const execFileAsync = promisify(execFile)
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -79,7 +102,8 @@ print(json.dumps(out))
           prompt: [
             `Repository: ${r.repo} @ ${r.base_commit}`,
             '',
-            'Resolve this issue by editing the repository SOURCE. Output a unified git diff (the patch) that makes the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests, so editing tests does not count. Keep the change minimal.',
+            'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests, so editing tests does not count. Keep the change minimal.',
+            'When done, END your reply with the COMPLETE unified git diff as the LAST thing, fenced exactly as ```diff … ``` (nothing after the closing fence). That fenced diff is the only deliverable.',
             '',
             '--- Issue ---',
             String(r.problem_statement ?? ''),

@@ -88,6 +88,55 @@ export const refineArm = (label: string, directive: string): Arm => ({
     },
 })
 
+/** k attempts, each prepended with a DIFFERENT strategy lens — the diverse@k arm
+ *  (the bet that approach-diversity gives a selector signal identical retries don't). */
+export const diverseArm = (label: string, lenses: string[]): Arm => ({
+  label,
+  planner: (rootPrompt, rounds) =>
+    ({ history }): TopologyMove<string> => {
+      if (history.some((h) => h.verdict?.valid)) return { kind: 'stop', rationale: 'a valid answer exists' }
+      if (history.length >= rounds) return { kind: 'stop', rationale: 'round budget exhausted' }
+      const lens = lenses[history.length % lenses.length] ?? ''
+      return {
+        kind: 'refine',
+        task: lens ? `${lens}\n\n${rootPrompt}` : rootPrompt,
+        rationale: `diverse lens ${history.length % lenses.length}`,
+      }
+    },
+})
+
+/** Cost-dial backend types we drive (tcloud `BackendType`). `hermes` = the
+ *  inference-router agent (the cheap "router llm-call" dial); the rest are agent
+ *  CLIs. This is the ONLY knob that changes which agent runs — no per-backend worker. */
+export type WorkerBackendType = 'opencode' | 'hermes' | 'claude-code' | 'codex' | 'kimi-code' | 'pi'
+
+/** Build the standard sandbox `AgentRunSpec` for a benchmark — the worker the
+ *  kernel injects. `backendType` is the cost dial; the router env wiring mirrors
+ *  every sandbox path (opencode's provider auth reads OPENAI_* in-box). */
+export function sandboxAgentRun(opts: {
+  model: string
+  routerBaseUrl: string
+  routerKey: string
+  backendType?: WorkerBackendType
+  name?: string
+  taskToPrompt?: (task: string) => string
+}): AgentRunSpec<string> {
+  const backendType = opts.backendType ?? 'opencode'
+  const name = opts.name ?? `${backendType}-worker`
+  return {
+    profile: { name, metadata: { backendType } },
+    name,
+    taskToPrompt: opts.taskToPrompt ?? ((t) => t),
+    sandboxOverrides: {
+      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl },
+      backend: {
+        type: backendType,
+        model: { provider: 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
+      },
+    },
+  }
+}
+
 export interface ExperimentConfig {
   /** The task — supplies prompt (`loadTasks`), judge, and (optionally) deliverable. */
   adapter: BenchmarkAdapter
