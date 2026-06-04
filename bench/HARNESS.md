@@ -48,6 +48,22 @@ makes the gate replayable with no rollouts. To gate the DIVERSE arm you must fir
 a diverse-strategy corpus (k different `composeStrategies` prefixes per instance) — that
 generator is the in-progress work; the identical-directive control corpus is `batch-oracle`.
 
+## Run the DIVERSE-vs-blind gate THROUGH the keystone (the recursive runtime, live)
+```
+cd bench
+export TANGLE_API_KEY=…                                 # router + the deployable judge
+BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 pnpm keystone-gate
+```
+`keystone-gate-cli.mts` → `runKeystoneGate` (`src/keystone-gate.ts`): a `Persona` + the generic
+`fanout` combinator over the budget-conserving `Supervisor`. Blind = K identical children, diverse
+= K distinct strategy directives — equal-k by construction (conserved pool), proven by
+`equalKOnCost`. The DEPLOYABLE selector is the benchmark's OWN `adapter.judge` (each child solves
+via the router, is graded by the runnable checker, and that `BenchScore` is the child's verdict
+`defaultSelectWinner` ranks on — selector ≠ oracle/LLM-judge). Pick a deployable-checker bench
+(enterpriseops-gym / swe-bench / terminal-bench), NOT finsearchcomp (LLM-judge → not deployable).
+Offline plumbing test (no creds): `tsx src/keystone-gate.test.mts`. This is the two-runtime
+reconciliation — the gate now runs through the SAME recursive atom every personified loop uses.
+
 ## Generate a fresh corpus (local, no router/sandbox key — opencode at ~/.local/bin/opencode)
 ```
 BENCH=hotpotqa HOTPOTQA_FIXTURES=1 RESEARCH=1 CORPUS=/tmp/identical.jsonl K=4 tsx src/run.ts batch-oracle 30
