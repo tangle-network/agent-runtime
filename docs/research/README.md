@@ -19,6 +19,8 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 | [recursive-execution-atom.md](./recursive-execution-atom.md) | **The main thread.** The vision (verbatim intent), the Plane-A-vs-B framing, the proposed surface (one atom + `Scope` + `Supervisor`), analyst-as-agent-with-runtime, what exists vs the gap (file-grounded), the open questions, and the decision log. |
 | [flat-harness-design.md](./flat-harness-design.md) | **Plane A.** The assumption-free experiment-harness synthesis (profiles × steer × executionMode × allocation; rip-out list; durability argument; migration phases). Recovered as the simplest `act` body on Plane B. |
 | [long-horizon-benchmark-survey.md](./long-horizon-benchmark-survey.md) | Adversarially-verified survey of long-horizon + multi-turn benchmarks. Top picks: **Commit0** (graded + natively multi-turn software build), **τ²-bench** (multi-turn agent↔user with tools). |
+| [observed-orchestration-patterns.md](./observed-orchestration-patterns.md) | Mining of 174 real workflows / 496 agent calls across 9 projects + Codex: the 6 orchestration shapes, driver=leaf confirmed, persona/policy needs NO new type, and the real bottleneck (cross-run memory + a leaf-fanout-confounded equal-k gate). |
+| [architecture-alternatives.md](./architecture-alternatives.md) | 6 paradigms (blackboard, market, active-inference, QD, Gödel-machine, debate) steelmanned vs the recursive-atom tree. **Verdict: keep the tree, graft 6 ideas, replace only when a domain has a total verifier.** The signal-first revised phase plan. |
 
 ## Source artifacts (multi-agent passes)
 

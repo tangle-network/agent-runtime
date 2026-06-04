@@ -70,6 +70,87 @@ export {
   type LoopOptionsForDispatch,
   loopDispatch,
 } from './loop-dispatch'
+// The personify layer + the RSI wave built on the recursive keystone: the persona content seam
+// (`definePersona`/`runPersonified`), the open shape registry, the content-free generic
+// combinators, the cross-run corpus, the analyst-on-scope steer firewall, and the trajectory +
+// equal-k-on-cost ledger. The wave's type contracts live in `./personify/wave-types`.
+export {
+  assertTraceDerivedFindings,
+  buildSteerContext,
+  type CreateScopeAnalystOptions,
+  createScopeAnalyst,
+} from './personify/analyst'
+export {
+  fanout,
+  flatWidenGate,
+  loopUntil,
+  panel,
+  pipeline,
+  verify,
+  widen,
+} from './personify/combinators'
+export {
+  FileCorpus,
+  InMemoryCorpus,
+  renderCorpusToInstructions,
+} from './personify/corpus'
+export { createShapeContext, definePersona, runPersonified } from './personify/persona'
+export { builtinShapes, createShapeRegistry, registerShape } from './personify/registry'
+export { equalKOnCost, trajectoryReport } from './personify/trajectory'
+export type {
+  DefinePersona,
+  DefinePersonaInput,
+  LoopShape,
+  Outcome,
+  Persona,
+  PersonaContext,
+  PersonaExecutors,
+  RunPersonified,
+  RunPersonifiedOptions,
+  ShapeBudget,
+  ShapeContext,
+  ShapeRegistry,
+} from './personify/types'
+export type {
+  AssertTraceDerivedFindings,
+  CombinatorShape,
+  Corpus,
+  CorpusFilter,
+  CorpusRecord,
+  EqualKArm,
+  EqualKOnCost,
+  EqualKOnCostOptions,
+  EqualKVerdict,
+  Fanout,
+  FanoutOptions,
+  FanoutSynthesis,
+  FlatWidenGate,
+  LoopUntil,
+  LoopUntilSpec,
+  LoopUntilState,
+  Panel,
+  PanelJudge,
+  PanelSpec,
+  PanelVerdict,
+  Pipeline,
+  PipelineStage,
+  RenderCorpusToInstructions,
+  RenderCorpusToInstructionsOptions,
+  ScopeAnalyst,
+  ScopeAnalyzeInput,
+  ScopeWidenGate,
+  SteerContext,
+  TrajectoryNode,
+  TrajectoryReport,
+  TrajectoryReportFn,
+  TrajectoryReportOptions,
+  Verify,
+  VerifySpec,
+  Widen,
+  WidenDecision,
+  WidenLineage,
+  WidenSpec,
+} from './personify/wave-types'
 // The recursive execution atom owns the headline `Agent` (re-exported from
 // `./supervise/types` below). The program op-set's static-tree atom is a distinct
 // concept (`act` returns a `Program`), surfaced as `ProgramAgent`.
