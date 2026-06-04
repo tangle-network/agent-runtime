@@ -186,14 +186,21 @@ rehydrates the exact `Settled` the driver branched on. The keystone is the **bud
 // One self-similar atom. A leaf is an Agent that never calls scope.spawn.
 interface Agent<Task, Out> { readonly name: string; act(task: Task, scope: Scope<Out>): Promise<Out> }
 
-// Runtime is the EXECUTION SUBSTRATE, selected per the agent's AgentProfile.harness (operator's call):
-//   harness: null/undefined -> 'inline'  (direct Router inference call, no box)
-//   harness: <sandbox>       -> 'sandbox' (the runLoop kernel as a leaf)
-//   harness: <cli>           -> 'cli'     (Halo/RLM subprocess; budgetExempt, excluded from equal-k)
-//   future: mastra | agno | ai-sdk harnesses register their own LeafExecutor.
-// The real unification is the LeafExecutor interface, NOT a magic union at the call site (M3).
+// The runtime is ONE OPEN INTERFACE, not a closed union (operator's refinement). A LeafExecutor
+// is anything with an `execute` that returns a Promise OR an async stream of normalized usage.
+// Our built-ins are just the initial IMPLEMENTATIONS; a user's own agent (mastra, agno, a raw
+// HTTP call, anything) is first-class the moment it implements the interface. NO per-vendor
+// adapters, no "future adapter" code — the interface IS the extension point.
+//   - router/inline : a direct Router/HTTP inference call, no box   (an agent with harness: null)
+//   - sandbox       : COMPOSES the existing runLoop kernel as a leaf (+ PR #150's `lineage`
+//                     passthrough for leaf-level continue/fork — does NOT reinvent checkpoint/fork)
+//   - cli           : Halo/RLM subprocess; budgetExempt, excluded from equal-k by construction
+// An agent selects its executor via its AgentProfile (harness: null => router/inline; harness:
+// <sandbox> => sandbox), OR carries a custom LeafExecutor / executor-factory directly (BYO).
 interface LeafExecutor<Out> {
-  run(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent>           // normalized usage -> one ledger
+  // returns a Promise<LeafResult> for one-shot executors, OR an async stream of UsageEvents for
+  // streaming ones; the architect picks the minimal shape that supports both with normalized usage.
+  execute(task: unknown, signal: AbortSignal): Promise<LeafResult<Out>> | AsyncIterable<UsageEvent>
   teardown(grace: number | 'brutalKill' | 'infinity'): Promise<{ destroyed: boolean }>
   resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }  // B1: replay source
 }
@@ -272,5 +279,17 @@ deleting `runProgram`'s loop-layer `parallel` op (supersede-vs-coexist is fork F
 
 - **Q1 — yes, event-sourced** (SpawnJournal + ResultBlobStore + replay; budget-pool conserved).
 - **Q2 — substrate now** (`TreeView` + `RootHandle.view`/`signal` + the event stream; chatbot/pi-viz is a later thin client).
-- **Q3 — LLM meta-driver built now** (operator call), as the treatment, with coded progressive-widening + flat-harness as controls; agents are `AgentProfile`s where `harness: null` = direct Router call and `harness: <sandbox>` = sandboxed (future: mastra/agno/ai-sdk harnesses).
+- **Q3 — LLM meta-driver built now** (operator call), as the treatment, with coded progressive-widening + flat-harness as controls. The runtime is **one open `LeafExecutor` interface** (`execute` → promise or async stream), not a closed union — built-ins (router/inline, sandbox, cli) are implementations, and any user agent (mastra/agno/HTTP/custom) is first-class by implementing it. An agent selects its executor via `AgentProfile` (`harness: null` = direct Router call; `harness: <sandbox>` = sandboxed) or carries a custom executor directly.
 - **Q4 — hard ceiling, yes — sharpened to a conserved *reservation* pool** (atomic reserve/refund, fail-closed), tokens + usd, enforced at the root.
+
+## Relationship to PR #150 (leaf-level continued-session + fork)
+
+PR #150 (`feat/runloop-session-continuation-and-fork`) adds `RunLoopOptions.lineage` — opt-in,
+default-OFF, backend-blind — so a *single* `runLoop` can continue a session across its iterations
+(`sessionContinuity`) or fork a parent checkpoint across a fanout (`forkFanout`, gated on
+`criuStatus().canFork`). That is the **leaf-level** depth/breadth dial. The recursive atom sits
+**on top**: the `sandbox` `LeafExecutor` *composes* `runLoop` and forwards this `lineage`
+passthrough — it does **not** reinvent checkpoint/fork. (Reviewed 2026-06-04: approve-to-land;
+before enabling, verify the platform honors a client-minted `sessionId` (else `continue` is a
+silent no-op), bound fork box-creation by `maxConcurrency`, and document that `forkFanout`
+inherits the parent image so heterogeneous-profile branches must not use it.)
