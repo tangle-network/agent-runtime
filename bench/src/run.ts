@@ -263,9 +263,15 @@ async function main() {
     // selector@k stats come from `corpus-report.mts`/`corpus-replay.mts` over that
     // corpus — measured once, in one place, not reimplemented here.
     const k = Number(process.env.K ?? 4)
+    // DIVERSE_BASE_FILE (a learned directive, e.g. gepa-refine's winner) or DIVERSE_BASE
+    // (inline) is the shared base the lenses layer on: GEPA-best-base x diverse-lenses x
+    // selection. This is where directive optimization composes with diversification.
+    const diverseBase = process.env.DIVERSE_BASE_FILE
+      ? (await import('node:fs')).readFileSync(process.env.DIVERSE_BASE_FILE, 'utf8').trim()
+      : (process.env.DIVERSE_BASE ?? 'Give your single best, final answer.')
     const arms: [Arm, ...Arm[]] =
       process.env.DIVERSE === '1'
-        ? [diverseArm('diverse', composeStrategies('Give your single best, final answer.', k))]
+        ? [diverseArm('diverse', composeStrategies(diverseBase, k))]
         : [randomArm('random')]
     await runExperimentPreset(adapter, rest, { arms, rounds: k, corpus: process.env.CORPUS })
     return

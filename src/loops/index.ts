@@ -91,7 +91,20 @@ export { reportLoopUsage, type UsageSink } from './report-usage'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, defaultSelectWinner, runLoop } from './run-loop'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
+export {
+  type CriuCapableClient,
+  probeSandboxCapabilities,
+  type SandboxCapabilities,
+} from './sandbox-capabilities'
 export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
+export {
+  type CheckpointCapableBox,
+  createSandboxLineage,
+  type ForkCapableBox,
+  type SandboxLineage,
+  type SandboxLineageHandle,
+  type SessionCapableBox,
+} from './sandbox-lineage'
 export {
   type BudgetPool,
   type BudgetReadout,
@@ -155,6 +168,7 @@ export type {
   LoopIterationDispatchPayload,
   LoopIterationEndedPayload,
   LoopIterationStartedPayload,
+  LoopLineageOptions,
   LoopPlanDescription,
   LoopPlanPayload,
   LoopResult,
