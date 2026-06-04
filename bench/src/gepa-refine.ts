@@ -35,8 +35,10 @@ import { DEFAULT_MIND2WEB_DIRECTIVE, solveBrowserLocal } from './worker-browser'
 import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
-import { solveRefineResearchLocal } from './worker-research'
-import { solveSandboxResearch } from './worker-sandbox-research'
+import { createDynamicDriver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { Sandbox } from '@tangle-network/sandbox'
+import { answerOutput, refineArm, sandboxAgentRun } from './experiment'
+import { routerChatWithUsage } from './router-client'
 
 interface RefineScenario extends Scenario {
   task: BenchTask
@@ -204,23 +206,55 @@ async function main() {
       return s.artifact
     }
     if (useSandbox) {
-      const s = await solveSandboxResearch(scenario.task, {
-        sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-        sandboxKey: must('TANGLE_API_KEY'),
-        routerBaseUrl,
-        routerKey,
-        model,
-        provider: process.env.WORKER_PROVIDER ?? 'openai',
-        rounds,
-        perRoundMs: livenessMs,
-        refineDirective: directive,
+      // Sandbox research through the KERNEL (runLoop), not a hand-rolled loop: a
+      // refine arm under the candidate directive, the kernel captures real usage.
+      // No in-loop judge (gepa scores the returned answer), so the validator never
+      // stops early — all `rounds` run; we return the last non-empty answer.
+      const client = new Sandbox({
+        baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+        apiKey: must('TANGLE_API_KEY'),
+        timeoutMs: 1_200_000,
+      } as never)
+      const result = await runLoop<string, string, 'continue' | 'done'>({
+        driver: createDynamicDriver<string, string>({
+          planner: refineArm('refine', directive).planner(scenario.task.prompt, rounds),
+          maxIterations: rounds,
+        }),
+        agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType: 'opencode' }),
+        output: answerOutput,
+        validator: { async validate() { return { valid: false, score: 0 } } },
+        task: scenario.task.prompt,
+        ctx: { sandboxClient: client },
+        maxIterations: rounds,
       })
-      if (s.costUsd > 0) ctx.cost.observe(s.costUsd, 'sandbox-research')
-      if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
-      return s.finalAnswer
+      let input = 0
+      let output = 0
+      let cost = 0
+      for (const it of result.iterations) {
+        input += it.tokenUsage.input
+        output += it.tokenUsage.output
+        cost += it.costUsd
+      }
+      if (cost > 0) ctx.cost.observe(cost, 'sandbox-research')
+      if (input > 0 || output > 0) ctx.cost.observeTokens({ input, output })
+      return [...result.iterations].reverse().find((it) => (it.output ?? '').trim())?.output ?? ''
     }
-    const s = await solveRefineResearchLocal(scenario.task, { model, rounds, livenessMs, refineDirective: directive })
-    return s.finalAnswer
+    // Default research path: a router-based refine (no sandbox, no spawn). Round 1
+    // is bare; rounds 2..k apply the candidate directive to the prior answer. Real
+    // usage/cost flow through the shared router client — never a fabricated 0.
+    let answer = ''
+    const taskText = scenario.task.prompt
+    for (let r = 0; r < rounds; r += 1) {
+      const prompt =
+        r === 0
+          ? taskText
+          : `${taskText}\n\n--- Your previous answer ---\n${answer.slice(-3000)}\n\n${directive}`
+      const res = await routerChatWithUsage({ routerBaseUrl, routerKey, model }, [{ role: 'user', content: prompt }])
+      if (res.content.trim()) answer = res.content
+      if (res.usage) ctx.cost.observeTokens(res.usage)
+      if (res.costUsd !== undefined) ctx.cost.observe(res.costUsd, 'router')
+    }
+    return answer
   }
 
   // The benchmark's own judge → composite. For CAD the geometric gate returns a

@@ -56,6 +56,7 @@ async function py(script: string, args: string[] = [], timeoutMs = 0): Promise<s
 export function createSweBenchAdapter(): BenchmarkAdapter {
   return {
     name: 'swe-bench-verified',
+    output: swePatchOutput,
 
     async preflight() {
       try {
