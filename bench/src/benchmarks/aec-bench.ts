@@ -28,12 +28,12 @@ const FIXTURES = join(benchRoot, 'fixtures', 'aec-bench.json')
 
 const REPO = 'TheodoreGalanos/aec-bench'
 const RAW = `https://raw.githubusercontent.com/${REPO}/main`
-const API = `https://api.github.com/repos/${REPO}/contents`
+const TREE = `https://api.github.com/repos/${REPO}/git/trees/main?recursive=1`
 
-/** Five disciplines under tasks/. A runnable instance ships tests/verify.py. */
-const DISCIPLINES = ['civil', 'electrical', 'ground', 'mechanical', 'structural'] as const
+/** Matches every runnable-instance task id at ANY depth under tasks/. */
+const verifyPathPattern = /^tasks\/(.+)\/tests\/verify\.py$/
 
-/** Default cap on tasks enumerated per discipline before a `limit` is applied. */
+/** Default cap on tasks enumerated before a `limit` is applied. */
 const DEFAULT_LIMIT = 10
 
 interface AecRecord {
@@ -46,8 +46,10 @@ interface AecRecord {
   task_toml: string
   /** tests/verify.py — the deterministic verifier (recomputes GT, scores fields). */
   verify_py: string
-  /** tests/fixtures/golden_pass.md — the oracle artifact that scores reward 1.0. */
-  golden_pass_md: string
+  /** tests/fixtures/golden_pass.md — the oracle artifact that scores reward 1.0,
+   *  when the task ships one. Null when the task only ships a non-md ground truth
+   *  (e.g. tests/ground_truth.json); the judge never needs it, only goldArtifact does. */
+  golden_pass_md: string | null
 }
 
 interface AecMeta {
@@ -55,7 +57,7 @@ interface AecMeta {
   discipline: string
   taskToml: string
   verifyPy: string
-  goldenPassMd: string
+  goldenPassMd: string | null
 }
 
 function recordToTask(rec: AecRecord): BenchTask {
@@ -79,12 +81,8 @@ function recordToTask(rec: AecRecord): BenchTask {
 
 function readMeta(task: BenchTask): AecMeta {
   const md = task.metadata
-  if (
-    !md ||
-    typeof md.verifyPy !== 'string' ||
-    typeof md.goldenPassMd !== 'string' ||
-    typeof md.taskId !== 'string'
-  ) {
+  // Gold is optional (goldenPassMd may be null) — only the verifier + id are required.
+  if (!md || typeof md.verifyPy !== 'string' || typeof md.taskId !== 'string') {
     throw new Error(`aec-bench task ${task.id} missing verifier metadata — loadTasks did not populate it`)
   }
   return md as unknown as AecMeta
@@ -96,23 +94,42 @@ async function fetchText(url: string): Promise<string> {
   return res.text()
 }
 
-interface GhEntry {
-  name: string
-  type: 'dir' | 'file'
+/** Like fetchText but returns null on a 404 (absent optional file); throws on any other non-OK. */
+async function fetchTextOrNull(url: string): Promise<string | null> {
+  const res = await fetch(url)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`aec-bench fetch ${res.status}: ${url}`)
+  return res.text()
 }
 
-/** List the runnable-instance task dirs under a discipline (those carrying tests/verify.py). */
-async function listInstances(discipline: string): Promise<string[]> {
-  const res = await fetch(`${API}/tasks/${discipline}`)
-  if (!res.ok) throw new Error(`aec-bench list ${res.status}: tasks/${discipline}`)
-  const entries = (await res.json()) as GhEntry[]
-  return entries.filter((e) => e.type === 'dir').map((e) => `${discipline}/${e.name}`)
+interface GitTree {
+  tree: Array<{ path: string; type: string }>
+}
+
+/**
+ * One recursive git-tree call enumerates EVERY runnable-instance id at any depth:
+ * a task is runnable iff it ships tests/verify.py. The captured group is the id
+ * `tasks/<id>/tests/verify.py` → `<id>` (e.g. 'electrical/pf-droop', or a deeper
+ * '<discipline>/<family>/<task>'). Throws loud on a non-OK tree response.
+ */
+async function listAllInstances(): Promise<string[]> {
+  const res = await fetch(TREE)
+  if (!res.ok) throw new Error(`aec-bench tree ${res.status}: ${TREE}`)
+  const { tree } = (await res.json()) as GitTree
+  const ids: string[] = []
+  for (const entry of tree) {
+    const m = verifyPathPattern.exec(entry.path)
+    if (m?.[1]) ids.push(m[1])
+  }
+  return ids
 }
 
 /**
  * Fetch one task's instruction.md + task.toml + tests/verify.py + golden_pass.md.
  * Returns null when the dir is a SEED (no runnable verify.py) so enumeration can
- * skip it without faking a task.
+ * skip it without faking a task. Gold is OPTIONAL — a task that ships a non-md
+ * ground truth (e.g. tests/ground_truth.json) yields golden_pass_md=null; the
+ * deterministic judge needs only verify.py.
  */
 async function fetchInstance(id: string): Promise<AecRecord | null> {
   const base = `${RAW}/tasks/${id}`
@@ -122,7 +139,7 @@ async function fetchInstance(id: string): Promise<AecRecord | null> {
   const [instruction, task_toml, golden_pass_md] = await Promise.all([
     fetchText(`${base}/instruction.md`),
     fetchText(`${base}/task.toml`),
-    fetchText(`${base}/tests/fixtures/golden_pass.md`),
+    fetchTextOrNull(`${base}/tests/fixtures/golden_pass.md`),
   ])
   return {
     id,
@@ -154,8 +171,10 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectFixtures(records, opts)
 }
 
-/** Enumerate live tasks: explicit ids, an explicit split's dir, or a balanced
- *  cross-discipline slice. Skips seed dirs (no verify.py) — never fabricates. */
+/** Enumerate live tasks: explicit ids (each required — throws on a bad id), or a
+ *  capped slice of the recursive tree (optionally filtered to one split). Per-task
+ *  resilient: a single fetch failure warns + SKIPS that task, never aborting the
+ *  batch. Skips seed dirs (no verify.py) — never fabricates. */
 async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
   if (opts.ids) {
     const records: AecRecord[] = []
@@ -166,22 +185,24 @@ async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
     }
     return records.map(recordToTask)
   }
-  const disciplines = opts.split ? [opts.split] : DISCIPLINES
   const limit = opts.limit ?? DEFAULT_LIMIT
+  let ids = await listAllInstances()
+  if (opts.split) ids = ids.filter((id) => id.startsWith(`${opts.split}/`))
   const records: AecRecord[] = []
-  for (const d of disciplines) {
-    const ids = await listInstances(d)
-    for (const id of ids) {
-      if (records.length >= limit) break
+  for (const id of ids) {
+    if (records.length >= limit) break
+    try {
       const rec = await fetchInstance(id)
       if (rec) records.push(rec)
+    } catch (err) {
+      // One bad task must NEVER abort the batch — warn and skip it.
+      console.warn(`[aec-bench] skipping ${id}: ${err instanceof Error ? err.message : String(err)}`)
     }
-    if (records.length >= limit) break
   }
   if (records.length === 0) {
     throw new Error(
       `aec-bench loadTasks found no runnable instances for ${JSON.stringify(opts)} ` +
-        `(no tests/verify.py under the requested discipline). Set AEC_FIXTURES=1 to run offline.`,
+        `(no tests/verify.py matched the requested split). Set AEC_FIXTURES=1 to run offline.`,
     )
   }
   return records.map(recordToTask)
@@ -282,9 +303,10 @@ export function createAecBenchAdapter(): BenchmarkAdapter {
 
     async goldArtifact(task: BenchTask) {
       // Gold = the task's own golden_pass.md (scores reward 1.0 through the SAME
-      // verify.py the real artifact takes), proving the judge end-to-end.
+      // verify.py the real artifact takes), proving the judge end-to-end. Tasks
+      // without a golden_pass.md (non-md ground truth) have no oracle artifact.
       const meta = readMeta(task)
-      return meta.goldenPassMd
+      return meta.goldenPassMd ?? undefined
     },
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
