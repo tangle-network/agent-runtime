@@ -11,6 +11,7 @@ import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createCommit0Adapter } from './benchmarks/commit0'
+import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
@@ -31,6 +32,7 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   commit0: createCommit0Adapter,
   programbench: createProgrambenchAdapter,
   appworld: createAppWorldAdapter,
+  'enterpriseops-gym': createEnterpriseOpsGymAdapter,
   'cad-design': createCadDesignAdapter,
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
