@@ -166,10 +166,111 @@ and the chat handle all fall out of it (or already exist).
 - **Analyst = Agent + `runtime`** (`cli`/`inline`/`sandbox`). _(2026-06-04)_
 - **Leaves = opaque self-parallelizing coding harnesses.** _(2026-06-04)_
 
-## Pending
+## Design pass `wnrxtvdta` — reconciled (the frozen contract)
 
-The `wnrxtvdta` design pass (6 prior-art lenses + 4 codebase mappers → synthesis → adversarial
-critique → reconcile) refines this surface, attacks it (replay-vs-async determinism,
-cancellation/orphans, budget blowout, analyst-runtime leakiness, `view()` consistency under
-concurrency, Plane-A equal-compute preservation, collision with `runProgram`/`maxDepth`), and
-distills the 5 sharpest user questions. **Its final surface + build order will be appended here.**
+6 prior-art lenses + 4 codebase mappers → synthesis → adversarial critique → reconcile.
+
+**BLUF.** The mechanism is agreed: `scope.next()` = a ray.wait cursor over a structured-concurrency
+nursery. The critique then landed **3 blockers + 3 majors**, all on one fault line: *the headline
+property (durable + queryable + reproducible replay) and the reason-to-exist (a clean equal-k gate)
+both break for the same root cause — budget was a **ceiling** not a **reservation**, and the journal
+recorded **decisions** but not the **evidence** those decisions consumed.* Two invariants make the
+keystone survive: (1) **budget is an atomically-reserved conserved pool**, so `Σk(treatment) ≡ Σk(blind)`
+by construction; (2) **the journal records a content-addressed `outRef`** per child result, so replay
+rehydrates the exact `Settled` the driver branched on. The keystone is the **budget-conserving reactive
+`Scope`** — not the LLM meta-driver.
+
+### The frozen surface (build against this)
+
+```ts
+// One self-similar atom. A leaf is an Agent that never calls scope.spawn.
+interface Agent<Task, Out> { readonly name: string; act(task: Task, scope: Scope<Out>): Promise<Out> }
+
+// Runtime is the EXECUTION SUBSTRATE, selected per the agent's AgentProfile.harness (operator's call):
+//   harness: null/undefined -> 'inline'  (direct Router inference call, no box)
+//   harness: <sandbox>       -> 'sandbox' (the runLoop kernel as a leaf)
+//   harness: <cli>           -> 'cli'     (Halo/RLM subprocess; budgetExempt, excluded from equal-k)
+//   future: mastra | agno | ai-sdk harnesses register their own LeafExecutor.
+// The real unification is the LeafExecutor interface, NOT a magic union at the call site (M3).
+interface LeafExecutor<Out> {
+  run(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent>           // normalized usage -> one ledger
+  teardown(grace: number | 'brutalKill' | 'infinity'): Promise<{ destroyed: boolean }>
+  resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }  // B1: replay source
+}
+type UsageEvent = { kind: 'tokens'; input: number; output: number } | { kind: 'cost'; usd: number } | { kind: 'iteration' }
+//   M3/B3: LoopTokenUsage is {input,output} ONLY — usd is a SEPARATE channel.
+
+interface Budget { readonly maxIterations: number; readonly maxTokens: number; readonly maxUsd?: number; readonly deadlineMs?: number }
+interface Spend  { iterations: number; tokens: LoopTokenUsage; usd: number; ms: number }
+
+type Restart = 'temporary' | 'transient' | 'permanent'                          // OTP child_spec
+type NodeStatus = 'pending' | 'acquiring' | 'running' | 'done' | 'failed' | 'cancelled'  // M1: 'acquiring' first-class
+interface SpawnOpts { readonly budget: Budget; readonly label: string; readonly restart?: Restart; readonly shutdown?: number | 'brutalKill' | 'infinity' }
+interface Handle<Out> { readonly id: NodeId; readonly label: string; readonly status: NodeStatus; abort(reason?: string): void }
+//   M1: abort() is defined over the ACQUIRE lifecycle (chains into acquireSandbox signal + reaps find-by-name orphan box).
+
+type Settled<Out> =
+  | { kind: 'done'; handle: Handle<Out>; out: Out; outRef: string; verdict?: DefaultVerdict; spent: Spend; seq: number }
+  | { kind: 'down'; handle: Handle<Out>; reason: string; infra: boolean; restartCount: number; seq: number }
+//   B2: seq = monotonic cursor order next() yielded (NOT wall-clock); replay delivers strictly in seq order.
+
+interface Scope<Out> {
+  // M5: reserves budget atomically from the shared pool; FAILS CLOSED when the pool can't cover it; refunds unspent on settle.
+  spawn<C extends Out>(agent: Agent<unknown, C>, task: unknown, opts: SpawnOpts):
+    { ok: true; handle: Handle<C> } | { ok: false; reason: 'budget-exhausted' | 'depth-exceeded' }
+  next(): Promise<Settled<Out> | null>          // ray.wait n=1 over THIS scope's IN-MEMORY live set; null when empty
+  readonly view: TreeView                        // reads the in-memory nursery (NOT the log); O(live)
+  readonly budget: Readonly<{ tokensLeft: number; usdLeft: number; deadlineMs: number; reservedTokens: number }>
+}
+
+// Event source — the decision/payload split the replay argument rests on (B1/B2):
+type SpawnEvent =
+  | { kind: 'spawned'; id: NodeId; parent?: NodeId; label: string; budget: Budget; runtime: Runtime; seq: number; at: string }
+  | { kind: 'settled'; id: NodeId; status: 'done' | 'down'; outRef?: string; verdict?: DefaultVerdict; spent: Spend; infra?: boolean; seq: number; at: string }
+  | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
+interface SpawnJournal { loadTree(root: NodeId): Promise<SpawnEvent[] | undefined>; beginTree(root: NodeId, at: string): Promise<void>; appendEvent(root: NodeId, ev: SpawnEvent): Promise<void> }
+interface ResultBlobStore { put(outRef: string, artifact: unknown): Promise<void>; get(outRef: string): Promise<unknown | undefined> }
+
+// Supervisor — owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, the root handle.
+interface Supervisor<Task, Out> { run(root: Agent<Task, Out>, task: Task, opts: SupervisorOpts): Promise<SupervisedResult<Out>>; attach(h: RootHandle<Out>): void }
+type SupervisedResult<Out> =
+  | { kind: 'winner'; out: Out; outRef: string; verdict?: DefaultVerdict; tree: TreeView; spentTotal: Spend }
+  | { kind: 'no-winner'; reason: 'all-children-down' | 'budget-exhausted' | 'aborted'; tree: TreeView; downCount: number }  // M2: typed, never best!
+interface RootHandle<Out> { view(): TreeView; signal(msg: RootSignal): void; abort(reason?: string): void }  // Q2 substrate
+```
+
+**Replay invariant (now enforceable):** a driver's `act()` may read `verdict`, `spent`, and `out`
+(rehydrated by `outRef`); it MUST NOT read anything not delivered through `Settled` — no `Date.now`,
+no `Math.random`, no unordered collections. `next()` delivers strictly in recorded `seq` order.
+
+### Build order (v1 = the instrument)
+
+| # | Step | Net-new/Evolve | File | Fixes |
+|---|------|---|---|---|
+| 1 | `mapPool` one-for-all → one-for-one: a thrown child becomes a `down` record, excluded from merge `n`; survivors still reach `concatRuns`. | Evolve | `program.ts:408-433` | infra-exclusion |
+| 2 | **Conserved budget pool**: `Spend` from a normalized `UsageEvent` stream (tokens + usd separate); atomic reserve-on-spawn / reconcile-on-settle; fail-closed admission. | Evolve | `types.ts`, `drivers/report-usage.ts` | **M5,B3** |
+| 3 | `SpawnJournal` + `ResultBlobStore` (in-mem + JSONL/FS); sink over the existing `LoopTraceEvent` lineage. | Net-new/Evolve | `src/durable/spawn-journal.ts` (new); wire `run-loop.ts:183` | **B1** |
+| 4 | **`Scope` impl** (KEYSTONE): ray.wait cursor over in-memory nursery; `spawn` reserves from step-2 pool; deterministic `${parent}:s${seq}` ids; `view`/`inFlight` read memory. | Net-new | `src/loops/scope.ts` (new) | **B2,m1,m2** |
+| 5 | **`Supervisor` impl** (KEYSTONE): nursery join barrier (generalize run-loop's `finally{allSettled(destroy)}`); abort cascade; abort-chains-into-`acquireSandbox` + find-by-name reap; OTP intensity breaker; typed `SupervisedResult`. | Net-new | `src/loops/supervisor.ts` (new) | **M1,M2** |
+| 6 | `LeafExecutor` + per-harness impls (`inline`/`sandbox`/`cli`), each emitting normalized `UsageEvent`; `sandbox` = existing `runLoop` as a leaf; `cli`-without-accounting = `budgetExempt` + excluded from equal-k. | Evolve | `types.ts`, `src/loops/runtime.ts` (new) | **M3** |
+| 7 | Replay executor: re-feed `SpawnJournal` + rehydrate `out` from `ResultBlobStore` in `seq` order; `view()` materializer for resume. | Net-new | `src/durable/spawn-journal.ts` | **B1,B2** |
+| 8 | `Settled.done → Iteration` adapter at the merge boundary so `defaultSelectWinner` stays single-sourced. | Net-new (small) | `src/loops/scope.ts` | **M4** |
+| — | `flatHarness` driver (Plane-A control) + **equal-k assertion** `Σiterations(treatment) ≡ Σiterations(blind)` per task or the cell is excluded. | Net-new | `bench/` | **B3** |
+| — | **LLM meta-driver** (treatment) + coded progressive-widening — `WidenGate` **defaults to flat** (never widens) so the firewall conflict stays dormant; widening, when on, derives "promising" from **trace findings, not raw `verdict`**, or carries an explicit argued `judgeExempt`. | Net-new | `bench/` | **R2** |
+
+**Deferred** (gated on a *positive* diverse-strategy result): a tuned MCTS-PW algorithm, learned
+widening, per-branch adaptive sub-agents, a Temporal/DBOS durable backend, the OTP strategy matrix,
+deleting `runProgram`'s loop-layer `parallel` op (supersede-vs-coexist is fork F1).
+
+### Resolved / risks / verdict
+
+- **Resolved by the surface:** B1 (outRef + replay invariant), B2 (in-memory live set + seq cursor), M1 (`acquiring` + acquire-aware abort), M2 (typed `SupervisedResult`), M3 (`LeafExecutor` + normalized usage), M5 (atomic reservation, fail-closed).
+- **Residual risks (measure, don't hide):** R1 — the recorded interleaving is *one* sample; equal-*k* is enforceable, equal-*topology* is not → report realized tree shape per cell. R2 — widening-from-`verdict` *is* steering-from-the-judge (collides with `assertTraceDerivedFindings`, dynamic.ts:344); dormant while `WidenGate` is flat. R3 — runtime `maxDepth` is weaker than the static guard; pair it with the conserved pool so runaway recursion hits budget-exhaustion first.
+- **Pass verdict (advisory):** "ship the keystone, make the LLM meta-driver wait." **Operator override (2026-06-04): build the LLM meta-driver now, as the treatment, on top of the budget-reservation invariant** — the invariant is what keeps the result valid; the coded progressive-widening + flat-harness are the controls; `WidenGate` defaults to flat for gate runs.
+
+## Decisions resolved (the 4 forks)
+
+- **Q1 — yes, event-sourced** (SpawnJournal + ResultBlobStore + replay; budget-pool conserved).
+- **Q2 — substrate now** (`TreeView` + `RootHandle.view`/`signal` + the event stream; chatbot/pi-viz is a later thin client).
+- **Q3 — LLM meta-driver built now** (operator call), as the treatment, with coded progressive-widening + flat-harness as controls; agents are `AgentProfile`s where `harness: null` = direct Router call and `harness: <sandbox>` = sandboxed (future: mastra/agno/ai-sdk harnesses).
+- **Q4 — hard ceiling, yes — sharpened to a conserved *reservation* pool** (atomic reserve/refund, fail-closed), tokens + usd, enforced at the root.
