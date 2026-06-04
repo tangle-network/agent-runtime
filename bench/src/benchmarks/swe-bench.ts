@@ -6,15 +6,22 @@
  *
  * Requires: the bench `.venv` with `swebench` installed + a running Docker
  * daemon (per-instance images are pulled/built on first run).
+ *
+ * Process/Docker/report plumbing is shared via ./_harness; this file owns the
+ * SWE-specific pieces: the patch OutputAdapter, the dataset dump, and the
+ * predictions-file → run_evaluation argv → report-shape mapping.
  */
 
-import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
+import {
+  preflightVenvImports,
+  readJsonReport,
+  runStagedJudge,
+  runVenvPython,
+  safeRunId,
+  stageFile,
+} from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 /**
@@ -39,18 +46,11 @@ export const swePatchOutput: OutputAdapter<string> = {
   },
 }
 
-const execFileAsync = promisify(execFile)
-const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
-const PY = join(BENCH_ROOT, '.venv', 'bin', 'python')
 const DATASET = 'princeton-nlp/SWE-bench_Verified'
 
-/** Run the bench venv python with a script on stdin; return stdout (throws on nonzero). */
-async function py(script: string, args: string[] = [], timeoutMs = 0): Promise<string> {
-  const { stdout } = await execFileAsync(PY, ['-c', script, ...args], {
-    maxBuffer: 1024 * 1024 * 256,
-    timeout: timeoutMs,
-  })
-  return stdout
+interface SweReport {
+  resolved_instances?: number
+  resolved_ids?: string[]
 }
 
 export function createSweBenchAdapter(): BenchmarkAdapter {
@@ -59,16 +59,13 @@ export function createSweBenchAdapter(): BenchmarkAdapter {
     output: swePatchOutput,
 
     async preflight() {
-      try {
-        await py('import swebench, docker; docker.from_env().ping(); print("ok")')
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `swe-bench preflight failed: ${msg}\n` +
-            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install swebench ; ` +
-            `(2) ensure the Docker daemon is running (the judge builds per-instance images).`,
-        )
-      }
+      await preflightVenvImports({
+        modules: ['swebench'],
+        requireDocker: true,
+        fix:
+          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install swebench ; ` +
+          `(2) ensure the Docker daemon is running (the judge builds per-instance images).`,
+      })
     },
 
     async loadTasks(opts: LoadOptions = {}) {
@@ -94,7 +91,7 @@ for r in ds:
         break
 print(json.dumps(out))
 `
-      const stdout = await py(script, [opts.ids ? JSON.stringify(opts.ids) : ''])
+      const stdout = await runVenvPython(script, [opts.ids ? JSON.stringify(opts.ids) : ''])
       const rows = JSON.parse(stdout) as Array<Record<string, unknown>>
       return rows.map(
         (r): BenchTask => ({
@@ -120,38 +117,35 @@ print(json.dumps(out))
     },
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
-      const runId = `bench-${task.id}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
-      const dir = await mkdtemp(join(tmpdir(), 'swebench-'))
-      const predPath = join(dir, 'preds.json')
-      await writeFile(
-        predPath,
-        JSON.stringify([
-          { instance_id: task.id, model_name_or_path: 'agent-runtime-bench', model_patch: artifact },
-        ]),
-      )
-      // The official evaluation harness. Pulls/builds the instance image, applies
-      // the patch, runs the test spec, writes a per-run report JSON in cwd.
-      await execFileAsync(
-        PY,
-        [
+      const runId = safeRunId('bench', task.id)
+      return runStagedJudge({
+        tmpPrefix: 'swebench-',
+        async stage(dir) {
+          await stageFile(
+            join(dir, 'preds.json'),
+            JSON.stringify([
+              { instance_id: task.id, model_name_or_path: 'agent-runtime-bench', model_patch: artifact },
+            ]),
+          )
+        },
+        // The official evaluation harness. Pulls/builds the instance image, applies
+        // the patch, runs the test spec, writes a per-run report JSON in cwd.
+        argv: (dir) => [
           '-m', 'swebench.harness.run_evaluation',
           '--dataset_name', DATASET,
-          '--predictions_path', predPath,
+          '--predictions_path', join(dir, 'preds.json'),
           '--run_id', runId,
           '--instance_ids', task.id,
           '--max_workers', '1',
           '--cache_level', 'env',
         ],
-        { cwd: dir, maxBuffer: 1024 * 1024 * 256 },
-      )
-      // Report file: agent-runtime-bench.<run_id>.json
-      const reportPath = join(dir, `agent-runtime-bench.${runId}.json`)
-      const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
-        resolved_instances?: number
-        resolved_ids?: string[]
-      }
-      const resolved = (report.resolved_ids ?? []).includes(task.id)
-      return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+        async parseReport(dir) {
+          // Report file: agent-runtime-bench.<run_id>.json
+          const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
+          const resolved = (report.resolved_ids ?? []).includes(task.id)
+          return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+        },
+      })
     },
   }
 }

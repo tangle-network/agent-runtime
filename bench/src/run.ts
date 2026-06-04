@@ -4,14 +4,17 @@
  *   tsx src/run.ts preflight              # harness + Docker reachable?
  *   tsx src/run.ts verify-judge [id]      # gold patch must RESOLVE; empty must FAIL
  */
+import { createAecBenchAdapter } from './benchmarks/aec-bench'
 import { createAppWorldAdapter } from './benchmarks/appworld'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
+import { createCommit0Adapter } from './benchmarks/commit0'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
+import { createProgrambenchAdapter } from './benchmarks/programbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
@@ -36,9 +39,13 @@ import { runPool } from './run-pool'
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'swe-bench': createSweBenchAdapter,
   'terminal-bench': createTerminalBenchAdapter,
-  // PLANNED (scaffolded): preflight is real; loadTasks/judge fail loud with the
-  // exact wiring step until integrated. Kept on purpose — the benchmark roster is
-  // the cross-benchmark-transfer asset; this is roadmap, not dead code.
+  // Code-benches sharing ./benchmarks/_harness (stage→external evaluator→report).
+  // loadTasks fetches the REAL dataset (committed fixtures fallback offline);
+  // judge delegates to the benchmark's own harness and fails loud when it/Docker
+  // is absent — never a fabricated score.
+  'aec-bench': createAecBenchAdapter,
+  commit0: createCommit0Adapter,
+  programbench: createProgrambenchAdapter,
   appworld: createAppWorldAdapter,
   'cad-design': createCadDesignAdapter,
   cadbench: createCadBenchAdapter,

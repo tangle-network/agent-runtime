@@ -69,8 +69,16 @@ GEPA optimizes the shared base directive; the diverse lenses (`directives.ts`) l
 The steer text lives in `directives.ts`, NOT in the worker (the worker is substrate). A
 strategy is a prompt PREFIX; the judge is unchanged.
 
-## Adapters (benchmarks/) — all wired (loadTasks + judge): hotpotqa, finsearchcomp, frames,
-simpleqa, swe-bench, terminal-bench, appworld, mind2web, cad*, cadgenbench.
+## Adapters (benchmarks/) — honest state (the code wins over this line; verified 2026-06-04)
+The code-benches share `benchmarks/_harness.ts` (stage artifact → run the bench's OWN evaluator
+in a `.venv`/Docker subprocess → parse its JSON report → `{resolved,score}`). No per-adapter
+copy of the process/venv/Docker/temp/report plumbing; commit0+appworld also share its
+stdin-piping runner (`runVenvScriptStdin`).
+- **Real, runnable with ZERO extra deps:** finsearchcomp (GitHub dataset + fixtures + LLM judge — the gate bench), hotpotqa + simpleqa + frames (HF/web QA + F1/LLM judge; `*_FIXTURES=1` offline), **aec-bench** (real GitHub task tree + fixtures; judge = the task's own `tests/verify.py` over python3 stdlib — **deterministic, graded per-field partial credit, no Docker, no LLM** → the candidate non-oracle correctable-middle-band bench for the open gate).
+- **Real code, needs an external harness/tools to run (fail loud with the exact install/Docker fix; never a fabricated score):** swe-bench + terminal-bench (`bench/.venv` + Docker), **commit0** (`pip install commit0` + Docker; judge = official pytest harness, graded (passed+xfail)/total; `COMMIT0_FIXTURES=1` for offline listing), **programbench** (`pip install programbench` + Docker on linux/amd64 + HF blobs; judge = official cleanroom eval, graded passed/total; `PROGRAMBENCH_FIXTURES=1` offline), **appworld** (`pip install appworld` + `appworld install` + `appworld download data`; judge = AppWorld's own `world.evaluate()`, graded passes/num_tests — NO committed fixture: task data exists only after `download data`, so loadTasks fails loud rather than fabricate a task), mind2web, cad-design + cadbench + cadgenbench (openscad/blender/build123d).
+- **goldArtifact:** aec-bench returns the task's real `golden_pass.md` (verify-judge works fully offline). commit0 / programbench / appworld return `undefined` — the oracle is a git ref / stripped source / engine-bundled solution, not a portable string; judge correctness is proven by a real solve through the harness, not a synthetic gold (documented + fail-loud, not a fake).
+- **Absent (not built):** swe-gym, swe-bench-multimodal, and the rest of the survey set.
+Every unbuilt/scaffold adapter fails LOUD (throws with the integration step) rather than faking a score — no silent zeros in any corpus. Offline fixture tests: `benchmarks/{aec-bench,commit0,programbench,appworld}.test.mts` (`tsx --test`).
 
 ## Is it runnable RIGHT NOW? (verify the map, don't trust it blindly)
 ```
