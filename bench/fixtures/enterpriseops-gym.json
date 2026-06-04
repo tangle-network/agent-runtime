@@ -1,0 +1,103 @@
+[
+  {
+    "task_id": "task_20251212_172511_458_e6427839_47076c15",
+    "domain": "itsm",
+    "system_prompt": "# ITSM Assistant Policy\n\nRole: ITSM Assistant (IT Service Management). Operate exclusively on confirmed user roles, verified record relationships, and ITIL/database integrity rules. Never assume or fabricate IDs, responses, or outcomes — rely solely on verified API results.",
+    "user_prompt": "An update came in from the caller regarding the printer connectivity issue for incident INC0000003. The user stated that several urgent client documents are still pending, and the inability to print is causing significant delays. Although the submission deadline has been extended by one business day, the service impact remains significant. Therefore increase the impact of the incident to high and update the necessary details.",
+    "selected_tools": [
+      "find_sla_definitions",
+      "find_incident_slas",
+      "find_incident_by_number",
+      "get_user",
+      "update_incident",
+      "link_new_incident_sla"
+    ],
+    "restricted_tools": [],
+    "mcp_endpoint": "/mcp",
+    "number_of_runs": 1,
+    "reset_database_between_runs": true,
+    "gym_servers_config": [
+      {
+        "mcp_server_name": "gym-itsm-mcp",
+        "mcp_server_url": "http://localhost:8006",
+        "seed_database_file": "Domain Wise DBs and Task-DB Mappings/itsm/dbs/db_1765301900121_3mwjj54xy.sql",
+        "context": {
+          "x-itsm-user-token": "admin_token_marcus_2024_secure"
+        },
+        "user_info": {
+          "user_id": "USER_001",
+          "name": "Marcus Thompson",
+          "email": "marcus.thompson@techcorp.com"
+        }
+      }
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Verify if the priority of the incident is set correctly.",
+        "description": "Verify if the priority of the incident is set correctly.",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident WHERE incident_id = 'INC_003' AND impact = 'high' AND priority = 'high';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      },
+      {
+        "verifier_type": "database_state",
+        "name": "Verify if the correct high-priority SLA is linked to the incident.",
+        "description": "Verify if the correct high-priority SLA is linked to the incident.",
+        "gym_name": "gym-itsm-mcp",
+        "validation_config": {
+          "query": "SELECT COUNT(*) FROM incident_sla WHERE incident_id = 'INC_003' AND sla_def_id = 'SLA_002';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  },
+  {
+    "task_id": "task_20251117_165528_648_bca89e7d_3e81ece9",
+    "domain": "calendar",
+    "system_prompt": "# Calendar Assistant Policy\n\nRole: Calendar Assistant. Create, update, and manage calendars and events strictly for the authenticated user. Never operate on calendars outside the user's access scope.",
+    "user_prompt": "Create a secondary (non-primary) calendar named 'Search Algorithm Beta' for bob_developer so the team can track the beta milestones separately from the main work calendar.",
+    "selected_tools": [
+      "list_calendars",
+      "create_calendar",
+      "get_calendar",
+      "list_events"
+    ],
+    "restricted_tools": [],
+    "mcp_endpoint": "/mcp",
+    "number_of_runs": 1,
+    "reset_database_between_runs": true,
+    "gym_servers_config": [
+      {
+        "mcp_server_name": "gym-calendar",
+        "mcp_server_url": "http://localhost:8003",
+        "seed_database_file": "Domain Wise DBs and Task-DB Mappings/calendar/dbs/db_1762868439331_kf914hbmw.sql",
+        "context": {
+          "x-access-token": "bob_developer_calendar_token"
+        },
+        "user_info": {
+          "user_id": "bob_developer",
+          "name": "Bob Developer",
+          "email": "bob.developer@techcorp.com"
+        }
+      }
+    ],
+    "verifiers": [
+      {
+        "verifier_type": "database_state",
+        "name": "Calendar Creation",
+        "description": "Verify secondary calendar created",
+        "gym_name": "gym-calendar",
+        "validation_config": {
+          "query": "SELECT COUNT(*) AS count FROM calendars WHERE summary = 'Search Algorithm Beta' AND is_primary = 0 AND user_id = 'bob_developer';",
+          "expected_value": 1,
+          "comparison_type": "equals"
+        }
+      }
+    ]
+  }
+]
