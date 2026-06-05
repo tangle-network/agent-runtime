@@ -24,7 +24,7 @@
  * is built to deploy: diverse@k (parallel of distinct lenses) vs random@k (blind
  * sample of identical) at EQUAL k. Each lens is a PREFIX to the task; it changes HOW
  * the model reasons, never the answer the judge scores. GEPA optimizes the shared base
- * (`gepa-refine`); these lenses layer on top via `composeStrategies`.
+ * (`improve-prompt`); these lenses layer on top via `composeStrategies`.
  */
 const DIVERSE_STRATEGY_LENSES: ReadonlyArray<string> = [
   'Answer directly and decisively from what you already know. State the single best answer without hedging.',

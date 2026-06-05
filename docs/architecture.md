@@ -403,7 +403,7 @@ the answer is the **selector** (not the judge).
 ### Deep-clean (the cohesion debt, ranked)
 
 The audit found the atom is **forked, not shared**: `runLoop`+`createDynamicDriver` is used in
-**one** file (`finsearch-loop.ts`); `run.ts`, `terminal-compare.ts`, `gepa-refine.ts`, and **seven
+**one** file (`finsearch-loop.ts`); `run.ts`, `terminal-compare.ts`, `improve-prompt.ts`, and **seven
 `solveRefine*` workers each hand-roll the identical `for(round 1..k){ shot → judge → decide →
 carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted pools.
 

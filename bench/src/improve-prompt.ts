@@ -1,6 +1,14 @@
 /**
- * GEPA-optimize the refine DIRECTIVE — the first real-surface use of agent-runtime's
- * `optimizePrompt` (agent-eval 0.76 gepaDriver + heldOutGate + runImprovementLoop).
+ * improve-prompt — the OUTER improvement loop over a STRING surface (here: the refine
+ * directive). It's the bench-side use of agent-runtime's `optimizePrompt` (agent-eval
+ * `gepaDriver` + `heldOutGate` + `runImprovementLoop`).
+ *
+ * Naming: `improve-`/`optimize-` = the OUTER loop (across runs — optimize a surface,
+ * held-out gated); `refine-` = the INNER loop (within a run — k rounds over one
+ * persistent artifact). This file is the OUTER loop; GEPA is just the string-surface
+ * optimizer it uses (a method, not the purpose). The surface here is a `string`
+ * (`MutableSurface = string | CodeSurface`); the same loop optimizes skills / inter-agent
+ * messages (also strings) and code (`CodeSurface`) by swapping the surface, not the loop.
  *
  * We proved evidence-gated refinement beats blind (FinSearchComp +20pp) with a
  * HAND-WRITTEN refine directive. This stops hand-tuning it: GEPA reflects on
@@ -139,7 +147,7 @@ async function main() {
   const adapter = ADAPTERS[benchKey]?.()
   if (!adapter)
     throw new Error(
-      `gepa-refine supports BENCH=hotpotqa|finsearchcomp|appworld|cad|cadbench|cadgenbench|mind2web, got ${benchKey}`,
+      `improve-prompt supports BENCH=hotpotqa|finsearchcomp|appworld|cad|cadbench|cadgenbench|mind2web, got ${benchKey}`,
     )
   const isCad = benchKey === 'cad'
   const isCadbench = benchKey === 'cadbench'
@@ -179,7 +187,7 @@ async function main() {
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
   if (tasks.length < trainN + holdoutN) {
-    console.warn(`[gepa-refine] only ${tasks.length} tasks available; shrinking split`)
+    console.warn(`[improve-prompt] only ${tasks.length} tasks available; shrinking split`)
   }
   // Deterministic difficulty-balanced split: benchmark task lists often arrive
   // ordered (easy→hard), so a raw first-half/second-half slice can hand TRAIN
@@ -202,7 +210,7 @@ async function main() {
   const toScenario = (t: BenchTask): RefineScenario => ({ id: t.id, kind: benchKey, task: t })
 
   console.log(
-    `[gepa-refine] ${benchKey} · worker=${useSandbox ? 'sandbox' : 'local'} model=${model} · train=${train.length} holdout=${holdout.length} · rounds=${rounds}`,
+    `[improve-prompt] ${benchKey} · worker=${useSandbox ? 'sandbox' : 'local'} model=${model} · train=${train.length} holdout=${holdout.length} · rounds=${rounds}`,
   )
 
   // Domain seam: run the refine worker under the CANDIDATE directive → final answer.
@@ -499,7 +507,7 @@ async function main() {
     }
     const items = [...failures.values()].slice(0, 8)
     if (items.length === 0) {
-      console.log(`[gepa-refine] gen ${input.generation}: 0 failures to diagnose`)
+      console.log(`[improve-prompt] gen ${input.generation}: 0 failures to diagnose`)
       return []
     }
     const user = items
@@ -529,12 +537,12 @@ async function main() {
         const msg = (err as Error).message
         if (attempt === 4) {
           console.error(
-            `[gepa-refine] analyzeGeneration LLM failed (gen ${input.generation}) after ${attempt} attempts: ${msg}`,
+            `[improve-prompt] analyzeGeneration LLM failed (gen ${input.generation}) after ${attempt} attempts: ${msg}`,
           )
           return []
         }
         console.error(
-          `[gepa-refine] analyzeGeneration transient failure (gen ${input.generation}, attempt ${attempt}/4): ${msg} — retrying`,
+          `[improve-prompt] analyzeGeneration transient failure (gen ${input.generation}, attempt ${attempt}/4): ${msg} — retrying`,
         )
         await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)))
       }
@@ -542,7 +550,7 @@ async function main() {
     if (content === undefined) return []
     const findings = parseFindings(content)
     console.log(
-      `[gepa-refine] gen ${input.generation}: ${items.length} failures → ${findings.length} diagnosed findings fed to reflection`,
+      `[improve-prompt] gen ${input.generation}: ${items.length} failures → ${findings.length} diagnosed findings fed to reflection`,
     )
     return findings
   }
@@ -553,7 +561,7 @@ async function main() {
     scenarios: train.map(toScenario),
     holdoutScenarios: holdout.map(toScenario),
     judges: [judge],
-    runDir: `gepa-refine-${benchKey}`,
+    runDir: `improve-prompt-${benchKey}`,
     storage: inMemoryCampaignStorage(),
     reflection: {
       llm: { baseUrl: routerBaseUrl, apiKey: routerKey },
