@@ -26,15 +26,15 @@
  */
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
-import { PlannerError, ValidationError } from '../../errors'
+import { PlannerError, ValidationError } from '../errors'
 import {
   type CompletionAnalyst,
   type CompletionPolicy,
   type CompletionVerdict,
   completionAuthorizes,
-} from '../completion'
-import type { Driver, Iteration, LoopPlanDescription } from '../types'
-import { stringifySafe } from '../util'
+} from './completion'
+import type { Driver, Iteration, LoopPlanDescription } from './types'
+import { stringifySafe } from './util'
 
 /** Terminal once `decide` returns `'done'` (a kernel terminal decision). */
 export type DynamicDecision = 'continue' | 'done'

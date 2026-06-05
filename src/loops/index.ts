@@ -48,8 +48,8 @@ export type {
   PlannerContext,
   TopologyMove,
   TopologyPlanner,
-} from './drivers/dynamic'
-export { createDynamicDriver, renderAnalyses, summarizeHistory } from './drivers/dynamic'
+} from './dynamic'
+export { createDynamicDriver, renderAnalyses, summarizeHistory } from './dynamic'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,

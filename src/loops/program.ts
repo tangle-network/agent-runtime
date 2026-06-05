@@ -37,8 +37,8 @@
 
 import { PlannerError } from '../errors'
 import type { CompletionAnalyst, CompletionPolicy } from './completion'
-import type { TopologyMove, TopologyPlanner } from './drivers/dynamic'
-import { createDynamicDriver } from './drivers/dynamic'
+import type { TopologyMove, TopologyPlanner } from './dynamic'
+import { createDynamicDriver } from './dynamic'
 import { defaultSelectWinner, runLoop } from './run-loop'
 import type {
   AgentRunSpec,

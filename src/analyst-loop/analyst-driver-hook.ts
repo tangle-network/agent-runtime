@@ -14,7 +14,7 @@
  */
 
 import type { AnalystFinding, AnalystRunInputs } from '@tangle-network/agent-eval'
-import type { AnalyzeInput } from '../loops/drivers/dynamic'
+import type { AnalyzeInput } from '../loops/dynamic'
 import type { Iteration } from '../loops/types'
 import { randomSuffix } from '../loops/util'
 import { iterationsToTraceStore } from './iterations-to-trace-store'
