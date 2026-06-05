@@ -113,7 +113,7 @@ interface ToolCall {
   function: { name: string; arguments: string }
 }
 
-interface ShotTask {
+export interface ShotTask {
   task: AgenticTask
   handle?: ArtifactHandle // present ⇒ DEPTH (shared artifact); absent ⇒ BREADTH (open own)
   messages?: Msg[] // carried conversation (depth); fresh when absent
@@ -217,7 +217,7 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
 
 // ── Leaf executors (one shot / one analyst), resolved per-spawn from the surface ──
 
-interface ShotResult {
+export interface ShotResult {
   messages: Msg[]
   score: number
   passes: number
@@ -230,7 +230,7 @@ const spend = (iterations: number): Spend => ({ iterations, tokens: { input: 0, 
 
 /** Resolve a shot: if `handle` given, operate on the SHARED artifact (depth); else open+score+close
  *  an OWN artifact (breadth). Always scores the artifact's final state as the deployable verdict. */
-function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): LeafExecutor<unknown> {
+export function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): LeafExecutor<unknown> {
   let artifact: LeafResult<unknown> | undefined
   return {
     runtime: 'agentic-shot',
@@ -287,7 +287,7 @@ function analystExecutor(opts: AgenticOptions): LeafExecutor<unknown> {
 }
 
 /** Registry dispatching on the child's role tag — fresh executor per spawn (no shared-instance race). */
-function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): ExecutorRegistry {
+export function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): ExecutorRegistry {
   return {
     register() {
       throw new Error('agenticRegistry: register unsupported')
