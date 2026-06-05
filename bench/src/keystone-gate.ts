@@ -112,7 +112,7 @@ function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
  * tokens but still one iteration (never a fabricated priced cost). Fail-loud: a router non-2xx or
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
  */
-function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): LeafExecutor<unknown> {
+export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): LeafExecutor<unknown> {
   const controller = new AbortController()
   const abortIfSignalled = () => {
     if (ctx.signal.aborted) controller.abort()
