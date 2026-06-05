@@ -153,16 +153,16 @@ describe('runToolLoop', () => {
     expect(
       events.map((event) => `${event.target}:${event.phase}:${event.stepIndex ?? 'loop'}`),
     ).toEqual([
-      'tool-loop:before:loop',
-      'tool-loop.turn:before:0',
-      'tool-loop.tool-call:before:0',
-      'tool-loop.tool-call:after:0',
-      'tool-loop.turn:after:0',
-      'tool-loop.turn:before:1',
-      'tool-loop.turn:after:1',
-      'tool-loop:after:loop',
+      'agent.run:before:loop',
+      'agent.turn:before:0',
+      'agent.tool_call:before:0',
+      'agent.tool_call:after:0',
+      'agent.turn:after:0',
+      'agent.turn:before:1',
+      'agent.turn:after:1',
+      'agent.run:after:loop',
     ])
-    expect(events.find((event) => event.target === 'tool-loop.tool-call')?.payload).toMatchObject({
+    expect(events.find((event) => event.target === 'agent.tool_call')?.payload).toMatchObject({
       toolName: 'submit_proposal',
       toolCallId: 'p1',
     })
@@ -213,7 +213,7 @@ describe('runToolLoop', () => {
     expect(order).toEqual(['first-turn', 'hook', 'second-turn'])
     expect(points).toHaveLength(1)
     expect(points[0]).toMatchObject({
-      id: 'run-1:tool-loop:0:failure-recovery',
+      id: 'run-1:agent.turn:0:failure-recovery',
       runId: 'run-1',
       scenarioId: 'scenario-1',
       stepIndex: 0,
@@ -221,7 +221,7 @@ describe('runToolLoop', () => {
       candidateActions: ['retry', 'verify', 'continue', 'stop'],
       metadata: {
         target: 'failure-recovery',
-        source: 'tool-loop',
+        source: 'agent.turn',
         failedToolCount: 1,
         toolNames: ['submit_proposal'],
       },
@@ -414,7 +414,7 @@ describe('streamToolLoop', () => {
     expect(ys.map((y) => y.kind)).toEqual(['event', 'event', 'tool_result', 'event'])
     expect(points).toHaveLength(1)
     expect(points[0]).toMatchObject({
-      id: 'stream-run:tool-loop:0:failure-recovery',
+      id: 'stream-run:agent.turn:0:failure-recovery',
       kind: 'retry',
       candidateActions: ['retry', 'verify', 'continue', 'stop'],
     })

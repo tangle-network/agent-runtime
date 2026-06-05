@@ -39,8 +39,8 @@ describe('runtime hooks', () => {
     })
 
     expect(seen).toEqual([
-      'a:event:tool-loop',
-      'b:event:tool-loop',
+      'a:event:agent.run',
+      'b:event:agent.run',
       'a:decision:retry',
       'b:decision:retry',
     ])
@@ -67,7 +67,7 @@ function hookEvent(): RuntimeHookEvent {
   return {
     id: 'event-1',
     runId: 'run-1',
-    target: 'tool-loop',
+    target: 'agent.run',
     phase: 'before',
     timestamp: 1,
   }

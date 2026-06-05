@@ -181,7 +181,7 @@ describe('runLoop + createRefineDriver', () => {
     expect(decisionCount).toBeGreaterThanOrEqual(2)
   })
 
-  it('emits runtime hooks around run-loop plan and decision lifecycle', async () => {
+  it('emits runtime hooks around agent.run plan and decision lifecycle', async () => {
     const events: RuntimeHookEvent[] = []
     const stub = stubClient([[{ type: 'result', data: { attempt: 1 } }]])
     const passFirst: Validator<RefineOutput> = {
@@ -208,15 +208,15 @@ describe('runLoop + createRefineDriver', () => {
     })
 
     expect(events.map((event) => `${event.target}:${event.phase}`)).toEqual([
-      'run-loop:before',
-      'run-loop.plan:before',
-      'run-loop.plan:after',
-      'run-loop.decision:before',
-      'run-loop.decision:after',
-      'run-loop:after',
+      'agent.run:before',
+      'agent.plan:before',
+      'agent.plan:after',
+      'agent.decision:before',
+      'agent.decision:after',
+      'agent.run:after',
     ])
     expect(
-      events.find((event) => event.target === 'run-loop.plan' && event.phase === 'after'),
+      events.find((event) => event.target === 'agent.plan' && event.phase === 'after'),
     ).toMatchObject({
       runId: 'hook-run-id',
       payload: { plannedCount: 1, moveKind: 'refine' },

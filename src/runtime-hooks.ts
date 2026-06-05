@@ -9,13 +9,13 @@
 export type RuntimeHookPhase = 'before' | 'after' | 'error' | 'event'
 
 export type RuntimeHookTarget =
-  | 'run-loop'
-  | 'run-loop.plan'
-  | 'run-loop.decision'
-  | 'tool-loop'
-  | 'tool-loop.turn'
-  | 'tool-loop.tool-call'
-  | 'runtime.decision'
+  | 'agent.run'
+  | 'agent.turn'
+  | 'agent.tool_call'
+  | 'agent.spawn'
+  | 'agent.child'
+  | 'agent.plan'
+  | 'agent.decision'
   | (string & {})
 
 export type RuntimeDecisionKind =

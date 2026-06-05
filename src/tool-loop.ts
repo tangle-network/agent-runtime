@@ -78,7 +78,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
   const maxTurns = opts.maxToolTurns ?? DEFAULT_MAX_TOOL_TURNS
   const render = opts.renderResult ?? defaultRender
   const labelFor = opts.labelFor ?? ((c: ToolLoopCall) => c.toolName)
-  const runId = opts.runId ?? `tool-loop-${randomSuffix()}`
+  const runId = opts.runId ?? `agent-run-${randomSuffix()}`
   const messages: ToolLoopMessage[] = [
     { role: 'system', content: opts.systemPrompt },
     ...(opts.priorMessages ?? []),
@@ -201,7 +201,7 @@ export async function* streamToolLoop<Raw>(
   const maxTurns = opts.maxToolTurns ?? DEFAULT_MAX_TOOL_TURNS
   const render = opts.renderResult ?? defaultRender
   const labelFor = opts.labelFor ?? ((c: ToolLoopCall) => c.toolName)
-  const runId = opts.runId ?? `tool-loop-${randomSuffix()}`
+  const runId = opts.runId ?? `agent-run-${randomSuffix()}`
   const messages: ToolLoopMessage[] = [
     { role: 'system', content: opts.systemPrompt },
     ...(opts.priorMessages ?? []),
@@ -303,7 +303,7 @@ interface NotifyToolLoopEventOptions {
   hooks?: RuntimeHooks
   runId: string
   scenarioId?: string
-  target: 'tool-loop' | 'tool-loop.turn' | 'tool-loop.tool-call'
+  target: 'agent.run' | 'agent.turn' | 'agent.tool_call'
   phase: 'before' | 'after' | 'error' | 'event'
   id?: string
   stepIndex?: number
@@ -342,14 +342,14 @@ function createToolLoopObserver(
   runId: string,
   scenarioId: string | undefined,
 ): ToolLoopObserver {
-  const loopEventId = `${runId}:tool-loop`
+  const loopEventId = `${runId}:agent.run`
   return {
     loopBefore: (maxToolTurns, messageCount) => {
       notifyToolLoopEvent({
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop',
+        target: 'agent.run',
         phase: 'before',
         id: `${loopEventId}:before`,
         payload: { maxToolTurns, messageCount },
@@ -360,7 +360,7 @@ function createToolLoopObserver(
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop',
+        target: 'agent.run',
         phase: 'after',
         id: `${loopEventId}:after`,
         payload,
@@ -372,7 +372,7 @@ function createToolLoopObserver(
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop.turn',
+        target: 'agent.turn',
         phase: 'before',
         id: turnEventId,
         stepIndex: toolTurn,
@@ -386,7 +386,7 @@ function createToolLoopObserver(
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop.turn',
+        target: 'agent.turn',
         phase: 'after',
         id: `${turnEventId}:after`,
         stepIndex: toolTurn,
@@ -400,7 +400,7 @@ function createToolLoopObserver(
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop.tool-call',
+        target: 'agent.tool_call',
         phase: 'before',
         id: callEventId,
         stepIndex: toolTurn,
@@ -414,7 +414,7 @@ function createToolLoopObserver(
         hooks,
         runId,
         scenarioId,
-        target: 'tool-loop.tool-call',
+        target: 'agent.tool_call',
         phase: 'after',
         id: `${callEventId}:after`,
         stepIndex: toolTurn,
@@ -447,7 +447,7 @@ function notifyToolLoopEvent(options: NotifyToolLoopEventOptions): void {
     stepIndex: options.stepIndex,
     parentId: options.parentId,
     payload: options.payload,
-    metadata: options.metadata,
+    metadata: { producer: 'tool-loop', ...options.metadata },
   })
 }
 
@@ -473,7 +473,7 @@ function notifyToolFailureRecovery(options: NotifyToolFailureRecoveryOptions): v
   }
 
   notifyRuntimeDecisionPoint(options.hooks, {
-    id: `${options.runId}:tool-loop:${options.stepIndex}:failure-recovery`,
+    id: `${options.runId}:agent.turn:${options.stepIndex}:failure-recovery`,
     runId: options.runId,
     scenarioId: options.scenarioId,
     stepIndex: options.stepIndex,
@@ -483,7 +483,7 @@ function notifyToolFailureRecovery(options: NotifyToolFailureRecoveryOptions): v
     evidence,
     metadata: {
       target: 'failure-recovery',
-      source: 'tool-loop',
+      source: 'agent.turn',
       failedToolCount: failed.length,
       toolNames: failed.map((item) => item.call.toolName),
     },
