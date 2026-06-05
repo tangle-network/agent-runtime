@@ -172,6 +172,24 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
+// ── Runtime hooks ────────────────────────────────────────────────────
+export type {
+  RuntimeDecisionEvidenceRef,
+  RuntimeDecisionKind,
+  RuntimeDecisionPoint,
+  RuntimeHookContext,
+  RuntimeHookErrorContext,
+  RuntimeHookEvent,
+  RuntimeHookPhase,
+  RuntimeHooks,
+  RuntimeHookTarget,
+} from './runtime-hooks'
+export {
+  composeRuntimeHooks,
+  defineRuntimeHooks,
+  notifyRuntimeDecisionPoint,
+  notifyRuntimeHookEvent,
+} from './runtime-hooks'
 // ── Production run lifecycle ─────────────────────────────────────────
 export type {
   RuntimeRunHandle,
@@ -206,6 +224,7 @@ export {
   type ToolCallOutcome,
   type ToolLoopCall,
   type ToolLoopEvent,
+  type ToolLoopMessage,
   type ToolLoopResult,
 } from './tool-loop'
 // ── Core types ───────────────────────────────────────────────────────
