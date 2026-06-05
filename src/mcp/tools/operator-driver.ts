@@ -72,6 +72,11 @@ export interface OperatorDriverOptions {
   readonly runAnalyst?: OperatorToolboxOptions['runAnalyst']
   /** Hard ceiling on LLM turns — a backstop so a non-stopping model still terminates. */
   readonly maxTurns: number
+  /** Reject `stop` until at least this many workers have settled `done` — an operator cannot ship
+   *  nothing. Default 0 (a driver may legitimately stop with no work). Set ≥1 to force a real attempt. */
+  readonly minWorkersBeforeStop?: number
+  /** Consecutive bare (no-tool-call) turns tolerated before the run ends as a no-winner. Default 3. */
+  readonly maxBareTurns?: number
   /** Optional per-turn observability hook (the driver's reasoning + the tool results it saw). */
   readonly onStep?: (step: OperatorStep) => void
 }
@@ -142,7 +147,8 @@ export function createOperatorDriverAgent(
       ]
 
       let turn = 0
-      let nudged = false
+      let bareTurns = 0
+      const maxBareTurns = opts.maxBareTurns ?? 3
       for (; turn < opts.maxTurns && !toolbox.isStopped(); turn += 1) {
         const out = await opts.chat(messages, schemas)
         messages.push({
@@ -160,32 +166,56 @@ export function createOperatorDriverAgent(
         })
 
         if (out.toolCalls.length === 0) {
-          // The model spoke without acting. Nudge once toward the tools; a second bare turn ends it
-          // (fail loud rather than spin) — a driver that will not drive is a no-winner, not a hang.
-          if (nudged) break
-          nudged = true
+          // The model answered in prose instead of acting (some providers ignore tool_choice).
+          // An operator's job is to ORCHESTRATE, not solve — re-nudge firmly. Bounded by maxBareTurns
+          // so a model that simply will not drive ends as a no-winner rather than spinning forever.
+          bareTurns += 1
+          if (bareTurns >= maxBareTurns) break
           messages.push({
             role: 'user',
             content:
-              'Act with a tool (spawn_worker / await_next / run_analyst …) or call stop when the work is verified.',
+              'You did not call a tool. You CANNOT answer in prose — your only deliverable is a worker result. ' +
+              'Call a tool now: spawn_worker to attempt the task, await_next to read a result, or stop only after a worker has completed.',
           })
           continue
         }
-        nudged = false
+        bareTurns = 0
 
         const calls: OperatorStep['calls'] = []
         for (const c of out.toolCalls) {
           const tool = byName.get(c.name)
           let result: unknown
-          if (!tool) result = { error: `unknown tool ${JSON.stringify(c.name)}` }
+          // Guard: an operator cannot declare done with nothing to ship. A `stop` before
+          // `minWorkersBeforeStop` workers have settled `done` is rejected with a corrective
+          // result and the loop continues (bounded by maxTurns) — fixes the premature-done failure
+          // where the model "answers" without ever spawning a worker.
+          const min = opts.minWorkersBeforeStop ?? 0
+          const doneSoFar = toolbox.settled().filter((w) => w.status === 'done').length
+          if (c.name === 'stop' && min > 0 && doneSoFar < min) {
+            result = { error: `cannot stop yet — ${doneSoFar}/${min} workers have completed. You must spawn_worker and await_next at least ${min} worker(s) (you cannot answer directly) before stopping.` }
+          } else if (!tool) result = { error: `unknown tool ${JSON.stringify(c.name)}` }
           else {
-            let args: unknown = {}
+            // Parse args first; malformed JSON is a model-fixable mistake — feed it back, do NOT
+            // call the handler with garbage. A handler throw (bad/missing arg) is likewise fed back
+            // so the model self-corrects, rather than throwing out of act() and discarding the whole
+            // run over one correctable tool call. (A genuinely fatal wiring error keeps erroring and
+            // the run ends at maxTurns as a no-winner — never a crash.)
+            let args: unknown
+            let parseError = false
             try {
               args = c.arguments ? JSON.parse(c.arguments) : {}
             } catch {
-              args = { __parse_error: c.arguments }
+              parseError = true
             }
-            result = await tool.handler(args)
+            if (parseError) {
+              result = { error: `invalid JSON in arguments for ${c.name} — re-emit valid JSON.` }
+            } else {
+              try {
+                result = await tool.handler(args ?? {})
+              } catch (err) {
+                result = { error: `tool ${c.name} failed: ${err instanceof Error ? err.message : String(err)}` }
+              }
+            }
           }
           calls.push({ name: c.name, args: c.arguments, result })
           messages.push({
