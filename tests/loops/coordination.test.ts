@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
-import { createAgentBus } from '../../src/mcp/tools/agent-bus'
+import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
 
 // The toolbox is a thin wrapper over the keystone Scope (spawn/view/send are tested in
@@ -55,7 +55,7 @@ function mockScope() {
 
 const blobs: ResultBlobStore = { get: async () => undefined, put: async () => {} }
 const makeWorkerAgent = (): Agent<unknown, unknown> => ({ name: 'w', act: async () => 0 })
-const tool = (tb: ReturnType<typeof createAgentBus>, name: string) => {
+const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
   const t = tb.tools.find((x) => x.name === name)
   if (!t) throw new Error(`no tool ${name}`)
   return t
@@ -64,7 +64,7 @@ const tool = (tb: ReturnType<typeof createAgentBus>, name: string) => {
 describe('operator toolbox (Scope-as-MCP)', () => {
   it('spawn_worker → workerId; fail-closed → { error }', async () => {
     const { scope, setAdmit } = mockScope()
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
@@ -81,7 +81,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
 
   it('observe_worker returns status; unknown id → error', async () => {
     const { scope } = mockScope()
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
@@ -96,7 +96,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
 
   it('steer_worker delivers to a live worker via scope.send; false for unknown', async () => {
     const { scope, sent } = mockScope()
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
@@ -113,7 +113,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
 
   it('stop flips isStopped + records the reason', async () => {
     const { scope } = mockScope()
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
@@ -142,7 +142,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       ...scope,
       next: () => Promise.resolve(settlements.shift() ?? null),
     } as typeof scope
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope: drainScope,
       blobs,
       makeWorkerAgent,
@@ -167,7 +167,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       put: async () => {},
     }
     const seen: Array<{ kind: string; trace: unknown }> = []
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs: traceBlobs,
       makeWorkerAgent,
@@ -194,7 +194,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
 
   it('createMcpServer serves the operator tools alongside built-ins; a shadow throws', () => {
     const { scope } = mockScope()
-    const tb = createAgentBus({
+    const tb = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,

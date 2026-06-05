@@ -1,24 +1,26 @@
 /**
  * @experimental
  *
- * The OPERATOR TOOLBOX — the driver's verbs, as MCP tools backed by a live keystone `Scope`.
+ * COORDINATION TOOLS — the verbs a parent agent uses to coordinate the child agents it spawns,
+ * exposed as MCP tools backed by a live keystone `Scope`. This is `Scope`-as-MCP.
  *
- * This is `Scope`-as-MCP: it exposes the operator verbs a DRIVER profile uses to lead the workers it
- * drives, so a coding-harness agent running *in a sandbox* can BE the driver (it calls these tools)
- * exactly as the in-process operator calls the `Scope` methods directly. Same verbs, two bindings.
+ * NOT a transport. The cross-org message bus (`docs/agent-bus-protocol.md`) and the SDK's
+ * `dispatchPrompt`/`SessionMessage` are the *transports* the `steer` verb rides; THIS file is the
+ * verb set (the API). One verb, several bindings: in-process `Scope.send` is a direct call; across
+ * sandboxes it rides SDK session-messaging; across orgs it rides the agent-bus protocol.
  *
  *   spawn_worker  → scope.spawn   (budget-bounded, fail-closed — equal-k holds even for an LLM driver)
- *   await_next    → scope.next    (THE wake event: block until the next spawned worker settles)
- *   observe_worker→ scope.view + the result blob (a worker's status, spend, and settled output)
- *   steer_worker  → scope.send    (deliver a next-instruction / interrupt to a RUNNING worker)
- *   list_analysts → the lens menu  (the analyst kinds the driver can apply — see analyst-kinds.ts)
- *   run_analyst   → apply a LENS   (run a kind over a worker's trace → trace-derived findings)
- *   stop          → declare the run complete (the driver's terminal move)
+ *   await_next    → scope.next    (THE wake event: block until the next spawned child settles)
+ *   observe_worker→ scope.view + the result blob (a child's status, spend, and settled output)
+ *   steer_worker  → scope.send    (deliver a next-instruction / interrupt to a RUNNING child)
+ *   list_analysts → the check menu (the trace lenses the agent can apply — see checks.ts)
+ *   run_analyst   → apply a CHECK  (run a kind over a child's trace → trace-derived findings)
+ *   stop          → declare the run complete (the terminal move)
  *
- * The analyst verbs are present only when the analyst seam (`analystKinds` + `runAnalyst`) is wired —
- * a driver that does not review traces (a pure dispatcher) omits them. The analyst is a SEPARATE lens
- * (selector ≠ judge: it reads the trace, never the score); `define_analyst` — authoring a NEW kind at
- * runtime — is the next addition.
+ * The check verbs are present only when the check seam (`analystKinds` + `runAnalyst`) is wired —
+ * an agent that does not review traces (a pure dispatcher) omits them. A trace check is a SEPARATE
+ * lens (selector ≠ judge: it reads the trace, never the score); authoring a NEW check at runtime is
+ * the next addition.
  *
  * A worker the driver spawns may itself carry the driver profile — `spawn_worker` does not care what
  * the profile is, so drivers-of-drivers fall out for free (each sub-driver gets its own sub-scope,
@@ -55,7 +57,7 @@ export interface SettledWorker {
  *  surface registry turns a profile into a shot executor) so the toolbox stays domain-blind. */
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
-export interface AgentBusOptions {
+export interface CoordinationToolsOptions {
   /** The DRIVER's live scope — spawn/observe/steer all act on this. */
   readonly scope: Scope<unknown>
   /** Result blobs, so `observe_worker` can rehydrate a settled worker's output. */
@@ -72,7 +74,7 @@ export interface AgentBusOptions {
   readonly runAnalyst?: (kindId: string, trace: unknown) => Promise<unknown>
 }
 
-export interface AgentBus {
+export interface CoordinationTools {
   /** MCP tools — register on an `McpServer`, or call the handlers directly in-process. */
   readonly tools: McpToolDescriptor[]
   /** True once the driver called `stop` — the operator loop reads this to terminate. */
@@ -88,7 +90,7 @@ const idArg = { type: 'string', description: 'The workerId returned by spawn_wor
 /** Build the operator toolbox over a live scope. The tools are the driver's verbs; their handlers
  *  are thin wrappers over the keystone (spawn/view/send), so the budget/journal/abort discipline of
  *  the Supervisor applies to a sandbox driver exactly as to the in-process one. */
-export function createAgentBus(opts: AgentBusOptions): AgentBus {
+export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
   let stopped = false
   let reason: string | undefined
   const ledger: SettledWorker[] = []

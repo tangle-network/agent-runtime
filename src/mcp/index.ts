@@ -77,13 +77,6 @@ export type {
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
 export {
-  type AgentBus,
-  type AgentBusOptions,
-  createAgentBus,
-  type MakeWorkerAgent,
-  type SettledWorker,
-} from './tools/agent-bus'
-export {
   type Check,
   type CheckRunnerOptions,
   defaultChecks,
@@ -92,6 +85,13 @@ export {
   renderTrace,
   runCheck,
 } from './tools/checks'
+export {
+  type CoordinationTools,
+  type CoordinationToolsOptions,
+  createCoordinationTools,
+  type MakeWorkerAgent,
+  type SettledWorker,
+} from './tools/coordination'
 export {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,
