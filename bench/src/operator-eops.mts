@@ -123,6 +123,7 @@ async function runOperator(cfg: RouterConfig, surface: AgenticSurface, task: Age
     maxTurns: k * 3 + 6,
     minWorkersBeforeStop: 1,
     maxWorkers: k, // HARD equal-k: exactly ≤K rollouts, regardless of refund-driven readmission
+    exhaustUnlessResolved: true, // don't give up early — cover at least as much as blind best-of-K
     analystKinds: Object.values(defaultAnalystKinds).map((kk) => ({ id: kk.id, description: kk.description, area: kk.area })),
     runAnalyst: (kind, trace) => analystRunner(kind, trace, new Date().toISOString()),
   })

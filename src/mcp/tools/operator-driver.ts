@@ -82,6 +82,10 @@ export interface OperatorDriverOptions {
   readonly maxWorkers?: number
   /** Consecutive bare (no-tool-call) turns tolerated before the run ends as a no-winner. Default 3. */
   readonly maxBareTurns?: number
+  /** When true (with `maxWorkers` set), reject `stop` while NO worker has fully resolved and spawn
+   *  budget remains — forces the operator to use its full K rather than give up early. Makes coverage
+   *  ≥ blind best-of-K so a score comparison isolates strategy quality. Default false (adaptive). */
+  readonly exhaustUnlessResolved?: boolean
   /** Optional per-turn observability hook (the driver's reasoning + the tool results it saw). */
   readonly onStep?: (step: OperatorStep) => void
 }
@@ -196,10 +200,23 @@ export function createOperatorDriverAgent(
           // result and the loop continues (bounded by maxTurns) — fixes the premature-done failure
           // where the model "answers" without ever spawning a worker.
           const min = opts.minWorkersBeforeStop ?? 0
-          const doneSoFar = toolbox.settled().filter((w) => w.status === 'done').length
+          const ledger = toolbox.settled()
+          const doneSoFar = ledger.filter((w) => w.status === 'done').length
+          const anyResolved = ledger.some((w) => w.valid)
+          // Anti-under-exploration: with exhaustUnlessResolved, the operator may not stop while NO
+          // worker has fully resolved AND it still has spawn budget — it must keep spawning (with a
+          // different, analyst-informed strategy). This makes the operator cover at least as much as
+          // blind best-of-K (equal-K), so a score comparison isolates STRATEGY quality, not a
+          // compute-vs-score tradeoff from giving up early.
+          const exhaustBlock =
+            opts.exhaustUnlessResolved === true && opts.maxWorkers !== undefined && !anyResolved && spawnedOk < opts.maxWorkers
           if (c.name === 'stop' && min > 0 && doneSoFar < min) {
             result = {
               error: `cannot stop yet — ${doneSoFar}/${min} workers have completed. You must spawn_worker and await_next at least ${min} worker(s) (you cannot answer directly) before stopping.`,
+            }
+          } else if (c.name === 'stop' && exhaustBlock) {
+            result = {
+              error: `do not stop yet — no worker has fully resolved and you have ${(opts.maxWorkers ?? 0) - spawnedOk} worker(s) of budget left. Spawn another worker with a DIFFERENT strategy informed by what the previous workers got wrong (use run_analyst on a settled worker to find the gap).`,
             }
           } else if (
             c.name === 'spawn_worker' &&
