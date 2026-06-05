@@ -46,6 +46,10 @@ Two facts make this the whole game:
 - `next()` is the *only* way to observe a child, so a driver reacts to **settlements**, never reaches
   inside a child.
 
+Three more edges are **designed, not built** — the question/command hierarchy (`ask` up, `notify` up,
+`override` down) that lets a deep agent surface a question and a higher agent countermand a decision.
+See **§8** below.
+
 ---
 
 ## 2. The recursion — drivers of drivers, same atom all the way down
@@ -196,21 +200,83 @@ gate experiment, not as a standing feature.
 
 ---
 
-## 7. The minimal-core delta — what's still redundant
+## 7. The minimal-core delta — the collapse, and what's load-bearing
 
-There are **three encodings of "pick the next move"** still co-existing — the sprawl to collapse:
+There were **three encodings of "pick the next move."** The redundant third is now deleted:
 
 | Encoding | Where | Status |
 |---|---|---|
-| `Agent.act(task, scope)` | `supervise/` | **the keystone atom** — the move language to keep |
-| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | `run-loop.ts`, `dynamic.ts` | load-bearing for the `runLoop` path (carries the analyst wire); the runLoop-era move language |
-| `Program` op-set + `runProgram`/`runAgent` | `program.ts` | **consumed only by its own tests** — but `bench/` ties its `parallel` to the open diverse@k gate |
+| `Agent.act(task, scope)` | `supervise/` | **the keystone atom** — the tree's move language |
+| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | `run-loop.ts`, `dynamic.ts` | **kept** — `runLoop` is a *leaf backend* composed inside the tree (not redundant; layered), and it carries the analyst wire |
+| `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`keystone-gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
 
-The smallest best-in-class core is reached when **`act`-over-`Scope` is the only move language**:
-`fanout` = N × `scope.spawn`, `refine` = `scope.send`, `stop` = return, `parallel sub-loops` = spawn N
-sub-driver Agents. The op-set's *ideas* (a clean composable move DSL; loop-layer parallelism) map onto
-Scope verbs and are preserved here even as the encoding is deleted.
+The op-set's *ideas* survive, mapped onto the atom: `fanout` = N × `scope.spawn`, `refine`/`steer` =
+`scope.send`, `parallel sub-loops` = spawn N driver-Agents, `select` = `defaultSelectWinner`, `stop` =
+`act` returns. The kernel is now **two layers** — the `Scope` atom (the tree) and the `runLoop` Driver
+(a leaf backend) — with no redundant third.
 
-**Open question gating the cut:** is `runProgram`'s `parallel` the production home for diverse@k, or is
-it redundant with `scope.spawn`? Resolve by audit before deleting — do not remove the mechanism the
-unrun gate may need. The collapse lands on that answer, not ahead of it.
+---
+
+## 8. The command hierarchy — `ask` / `notify` / `override` (DESIGNED)
+
+> **Status: designed, not built.** Implementation is gated on the verifier-grounded gate result + the
+> PI/chat repo defining the human-handler contract. This section nails the *interface* so both repos
+> build to the same seam.
+
+The escalation model is **not** agent-to-agent messaging (don't reach for A2A / a bus) — it's a
+**resumable effect with handlers** (à la LangGraph `interrupt()` / algebraic-effect handlers / OTP
+supervisor-escalation). A leaf *raises* a question; each parent is a *handler* that either **discharges**
+it (answers from its own tools/knowledge/directive) or **re-raises** it one level up; the human (the PI
+agent) is the **top handler**. It turns the tree from "escalate-on-stuck" into a real **command
+hierarchy: local autonomy + global override.**
+
+Three edges complete the atom — two already exist:
+
+| Edge | Direction | Blocking? | Notes |
+|---|---|---|---|
+| `ask(question)` | **up** | yes | child can't proceed without the answer; **terminates** at the first handler who answers. The one genuinely-new edge (or a 3rd `Settled` kind `{question}` — see below). |
+| `notify(decision)` | **up** | **no** | every steering decision is teed upward, **salience-filtered**, so an ancestor with higher-order knowledge can countermand it. **This is the lifecycle hook stream** (`agent.decision`/`agent.answer`) — already shipped. |
+| `override` | **down** | — | the ancestor's countermand. **This is `scope.send`** — already shipped; the same edge carries the answer *and* the override. |
+
+```
+   PI agent (human handler)            ◀── answer ── "use prod — this is an incident"
+        │ override ▼        ▲ notify (non-blocking, salience-filtered)
+   root supervisor   ── sees D1's answer; has higher-order context → overrides D1
+        │ override ▼        ▲ notify
+   driver D1         ── answers W IMMEDIATELY (no waiting), tees the decision up; later re-steers W
+        │ send ▼            ▲ ask (BLOCKING — W needs the answer)
+   worker W (leaf)   ── raises "prod or staging?" + WHY (its reasoning + D1's decision context)
+```
+
+**The non-negotiable: optimistic + asynchronous, never synchronous approval.** If D1 had to *wait* for
+the root's blessing (and the root for its parent), every local decision serializes through the root and
+drowns the top. So D1 answers W now, tees the decision up, and an ancestor's override is a **later,
+higher-authority `send` that supersedes** — a compensating correction, not a pre-approval gate. (W is
+re-steerable mid-flight; that's what `send` is for.)
+
+**Command is one level deep.** The root overrides **D1** (its direct report); **D1** reconciles and
+re-steers **W**. No skip-level reach-around → no two agents steering the same child → the hierarchy
+stays coherent + auditable, and D1 can reconcile the override against state the root can't see.
+Corrections **compose down** the chain exactly as questions **compose up** it — and escalation falls out
+of the recursion (a driver `ask`s on *its* scope), so there is no "driver-of-driver" special case.
+
+**Block vs. settle-and-resume** (the real engineering fork, because human latency is minutes–hours):
+- live-block (`await scope.ask`): child stays alive, blocked — fine for in-process/cheap leaves.
+- settle-as-question + resume: child returns `{kind:'question'}` (frees its sandbox box), the parent
+  handles it, the answer **resumes the child from its checkpoint** — reuses the shipped
+  `sandbox-lineage` session-continuity. The `LeafExecutor` picks the mode, the same way it abstracts run
+  modes — which is why this is a small feature, not a subsystem.
+
+**What's new vs. already there:** new = the `ask` edge (+ a `question` settlement kind), a **salience tag**
+on decisions (so the top doesn't drown), and **path-routed `send`** (so an override reaches a deep
+node — node ids are already the path). Reused = `send` (answer/override), the hook stream (notify), the
+lineage (resume), the recursion (escalation), the MCP-steer pattern (the cross-sandbox wire — **MCP
+elicitation** is the standard for it), and the topology viewer (a node "awaiting answer" is just a
+visible state). The **answer-or-escalate policy lives in the agent's `act`/directive, not the kernel.**
+
+**Two disciplines:**
+1. **Budget pauses while awaiting a human** — a blocked node isn't computing; treat "awaiting answer"
+   like `budgetExempt` so it doesn't burn its deadline/`maxTokens` against the conserved pool.
+2. **A human answer is an oracle injection** — so this channel is **off / held-constant in gated
+   experiments** (it would confound equal-k and the no-oracle selector rule). It is a *production*
+   feature, not a gate-eval one.
