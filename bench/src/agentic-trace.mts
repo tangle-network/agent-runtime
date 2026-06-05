@@ -49,7 +49,6 @@ const opts: AgenticOptions = {
   onTrace,
 }
 
-const mode = (process.env.MODE ?? 'depth') as 'depth' | 'breadth' | 'mix' | 'operator'
-const result = await runAgentic({ ...opts, surface: createEopsSurface(must('EOPS_GYM_DBS_DIR')), task, mode, budget: Number(process.env.MAX_SHOTS ?? 5) })
+const result = await runAgentic({ ...opts, surface: createEopsSurface(must('EOPS_GYM_DBS_DIR')), task, budget: Number(process.env.MAX_SHOTS ?? 5) })
 console.log(`\n############ FINAL: ${(result.score * 100).toFixed(0)}%  progression ${result.progression.map((s) => (s * 100).toFixed(0)).join('→')}  (${result.completions} completions) ############`)
 void lastFindings
