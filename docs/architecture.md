@@ -1,6 +1,6 @@
 # Architecture — The Spine
 
-> **One recursive agent-loop. Two timescales. Many benchmarks.**
+> **One recursive agent tree. Two timescales. Many benchmarks.**
 >
 > Canonical as of **2026-06-03**. This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and
@@ -10,19 +10,21 @@
 > an agent in another repo building a new benchmark: **read §1, §6, §9 — you only
 > write an adapter, never a new loop.**
 >
-> **Status — built vs designed (verified against `origin/main`).** The *scaffold*
-> is real: the recursive atom (`createDynamicDriver` + `runLoop`), the shared
-> `runRefineLoop`, GEPA over static directives, the corpus + external judge. The
-> *load-bearing intelligence* is **designed, not wired**: `PlannerContext`
-> (`src/loops/drivers/dynamic.ts:51-60`) has no `analyses` channel, so the driver
-> decides from a verdict score, not a diagnosis; `TopologyMove` (`dynamic.ts:43-48`)
-> is a flat 3-opcode enum (`refine|fanout|stop`) — `select`/`seq` are not
-> emittable; `runAnalystLoop` has zero consumers under `src/loops/drivers/`; the
-> selector is currently faked with the judge (oracle). The coherence analysis
-> ("does this even make sense?") is in
+> **Status — built vs slop (verified against `origin/main`, 2026-06-05).** The
+> *product core* is real: the recursive agent tree (`src/loops/supervise/` — `Agent.act`
+> in a `Scope`, `scope.spawn`, settle, journal→replay/resume), the sandbox seam
+> (`LoopSandboxClient` + the sandbox `LeafExecutor`, injectable/swappable), the steering
+> MCP (`operator-toolbox`), the corpus + external judge, and the lifecycle hook stream
+> (`runtime-hooks`, #162/#163). The *driver-as-code* is **slop being deleted**: the
+> in-process LLM tool-loop (`operator-driver.ts`), the `create*Driver` factory zoo
+> (`refine`/`fanout-vote`/`sandbox-planner`), the `TopologyMove` DSL, and the fixed
+> `analyst-kinds` registry — all reimplement what the harness + the `Scope` + data-checks
+> already do. The *product to wire*: run the driver **and** workers as real sandbox
+> harnesses (not in-process), with checks authored on the fly. `runLoop`/`createDynamicDriver`
+> are **one execution backend**, not the center. The coherence analysis is in
 > [architecture-interpretations.md](./architecture-interpretations.md); the
-> dependency-ordered build + cleanup sequence is in [roadmap-rsi.md](./roadmap-rsi.md);
-> the empirics are §11. Doc map: [docs/README.md](./README.md).
+> dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the empirics
+> are §11. Doc map: [docs/README.md](./README.md).
 
 ---
 
@@ -56,45 +58,64 @@ Two things forced this doc:
 
 ---
 
-## 1. The atom — one recursive node
+## 1. The atom — one agent, spawned recursively
 
-There is exactly one primitive. `driver`, `worker`, `selector`, `coordinator`
-are **roles** of it, not separate types.
+There is exactly one primitive: an **agent** = an `AgentProfile` (who/what it is) +
+a **harness** (how it runs — a coding harness in a sandbox: claude-code / codex /
+opencode), executing inside a **`Scope`**. `driver`, `worker`, `selector`,
+`coordinator` are **roles** — a profile + which tools it holds — never separate types.
 
-```ts
-type Agent = {
-  // f(trace): assemble what THIS node conditions on — the variable we kept
-  // botching (we conditioned on the rejected answer instead of the evidence).
-  context: (history: Trace[], analyses: Finding[]) => Prompt
-  // execute the task (worker) OR compose/steer children (driver). The recursion.
-  act: (p: Prompt) => Output | Program
-  // told ↔ leads-with-tools. One LLM call, or a full sandbox agent.
-  mode: 'llm-call' | 'sandbox-agent'
-}
-
-// A driver's `act` returns a Program: a tiny instruction set over child Agents.
-type Program =
-  | { op: 'sample';  agent: Agent }                 // run a worker once
-  | { op: 'steer';   agent: Agent; from: Trace[] }  // next shot, conditioned on prior work
-  | { op: 'fork';    agent: Agent; n: number }      // k independent attempts (parallel)
-  | { op: 'select';  agents: Agent[] }              // pick among candidates (the SELECTOR role)
-  | { op: 'seq';     steps: Program[] }             // compose in order
-  | { op: 'stop' }
-```
-
-Everything composes from this:
+The harness already owns the loop, tool-calling, sub-agent spawning, and the native
+idioms (*parallelize*, *ultrathink*, *dynamic-workflow*). **We do not write an
+execution loop or a topology DSL.** An agent does one thing the runtime cares about:
+it **calls a tool**. One tool — `spawn`, carried over **MCP** — creates a **child
+agent** (its own profile + harness, its own `Scope`). The child runs its own agentic
+process; the parent **observes / steers / resumes** it through the same MCP, in
+**natural language**. Topology is not an opcode set — it **emerges** from spawn/steer
+calls:
 
 ```
-loop (today's driver↔worker)   = seq[ sample, steer, steer, … ]
-best-of-N + verify (← SOTA)    = seq[ fork(n), select ]
-coordinator                    = seq[ fork(n), steer*, select ]
-nested (a driver of drivers)   = sample(agent whose act → a Program)   // free, by recursion
+a loop          = an agent that steers ONE child across turns
+best-of-N       = spawn N children, pick the best         (the SELECTOR role)
+coordinator     = spawn N, steer, select
+driver-of-driver = a child whose profile is itself a coordinator — free, by recursion
 ```
 
-The **judge is not in the graph.** It is external, write-only, and scores only
-the chosen final output for evaluation — never an input to `context`/`steer`/
-`select`. (Enforced: `ProposeContext.judgeScores?: never`; `assertNoJudgeVerdict`;
-findings carry `derived_from_judge` provenance — see agent-eval `analyst/steer-firewall.ts`.)
+`Scope.spawn` is the recursive boundary; the journal makes the tree replayable and
+resumable. **This recursive execution tree IS the product.** The three things we own
+are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
+`define_check · run_check`); (2) the **profiles** (markdown — the only customization;
+"Drew" is one); (3) the **orchestrator** (`src/loops/supervise/` — `Scope` + the
+conserved budget pool that makes equal-compute true for the experiment). `runLoop` /
+`toolLoop` are **one execution backend each, not the center** — they, MCP delegation,
+and `Scope.spawn` all *produce* the same lifecycle stream (§1b).
+
+**Checks are data, not code.** A trace-**analyst** (a lens over a trace), a **judge**
+(scores an output), and a **verifier** (a deployable check — runs tests/SQL/a command)
+are one shape: `{ kind, spec }`. We *seed* the benchmark's verifier + base lenses; the
+agent driver **creates and updates** the check it needs on the fly via `define_check`,
+and runs it with `run_check`. There is no fixed analyst registry.
+
+The **judge is not in the tree.** It is external, write-only, and scores only the
+chosen final output for evaluation — never an input to a steer or a selection.
+**Three checkers, kept distinct:** an **oracle** (the answer key) is banned from
+selection *and* steering; a **verifier** (a sound deployable checker) is *allowed* in
+both — it is what depth/continuation needs; the **write-only judge** (offline corpus
+scorer) is banned from steering only. (Enforced: the trace-derived-findings firewall —
+an analyst may not cite the score/verdict metric; `assertTraceDerivedFindings`.)
+
+## 1b. The lifecycle stream — the one observability + extension surface
+
+Every execution backend emits one **agent-centric event stream** (`src/runtime-hooks.ts`,
+merged #162/#163): targets `agent.{run, turn, tool_call, spawn, child, plan, decision}`
+× phases `{before, after, error, event}`. `runLoop`, `toolLoop`, and (to wire) the
+`Scope` spawn/settle boundary are **producers**; developers attach via
+`defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
+on the `AgentProfile`, never coupled to one backend. This single stream is the
+opencode-style extension surface *and* what the **topology visualization** consumes: the
+live tree of agents, each node's steps + child count, drill into any agent's stream.
+**Open gap:** `Scope.spawn`/settle still emit only the internal journal events
+(`SpawnEvent`) — unify those with the hook targets so the recursive tree is one stream.
 
 ---
 
@@ -182,6 +203,14 @@ Everything else is the shared spine. This is the rule that kills *"built once,
 used never"*: SWE-bench, FinSearchComp, Terminal-Bench, CAD-bench, … all run the
 same atom. If you find yourself writing a new `*-loop.ts`, stop — you want an
 adapter + the shared loop.
+
+**Corollary — `bench/` holds ZERO drivers and ZERO abstractions.** The driver, the
+surface an agent runs over, the worker-leaf, and the MCP all live in the library
+(`src/`). `bench/` is a thin experiment consumer: adapters + "launch the one driver at
+a profile" + score via the corpus/gate. A "blind control" is not a bench driver — it is
+the one agent with a `blind` decider; the equal-compute guard is experiment infra. If
+`bench/` grows a driver or a surface abstraction, that is the smell that the library is
+being squatted on (it was, in `bench/src/agentic.ts` — deleted 2026-06-05).
 
 ---
 
