@@ -10,12 +10,14 @@
  *   spawn_worker  → scope.spawn   (budget-bounded, fail-closed — equal-k holds even for an LLM driver)
  *   observe_worker→ scope.view + the result blob (a worker's status, spend, and settled output)
  *   steer_worker  → scope.send    (deliver a next-instruction / interrupt to a RUNNING worker)
+ *   list_analysts → the lens menu  (the analyst kinds the driver can apply — see analyst-kinds.ts)
+ *   run_analyst   → apply a LENS   (run a kind over a worker's trace → trace-derived findings)
  *   stop          → declare the run complete (the driver's terminal move)
  *
- * `run_analyst` is intentionally NOT here yet: the analyst directory (agent-eval's
- * `createTraceAnalystKind` kinds) is the next piece — `run_analyst(kind, worker)` will dispatch over
- * that directory through `createScopeAnalyst`. The four verbs above are the ones whose keystone
- * backing already exists.
+ * The analyst verbs are present only when the analyst seam (`analystKinds` + `runAnalyst`) is wired —
+ * a driver that does not review traces (a pure dispatcher) omits them. The analyst is a SEPARATE lens
+ * (selector ≠ judge: it reads the trace, never the score); `define_analyst` — authoring a NEW kind at
+ * runtime — is the next addition.
  *
  * A worker the driver spawns may itself carry the driver profile — `spawn_worker` does not care what
  * the profile is, so drivers-of-drivers fall out for free (each sub-driver gets its own sub-scope,
@@ -38,6 +40,12 @@ export interface OperatorToolboxOptions {
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-worker conserved budget the driver reserves on each spawn. */
   readonly perWorker: Budget
+  /** The analyst lens menu (for `list_analysts`) — id + one-line + area. Injected so the toolbox
+   *  stays domain-blind; wire it from `analyst-kinds.ts`'s directory. Omit to disable analyst tools. */
+  readonly analystKinds?: ReadonlyArray<{ id: string; description: string; area: string }>
+  /** Run a lens over a worker's trace → findings (or a typed error). Wire it from
+   *  `makeAnalystRunner(...)`. `run_analyst` fetches the worker's settled output and passes it here. */
+  readonly runAnalyst?: (kindId: string, trace: unknown) => Promise<unknown>
 }
 
 export interface OperatorToolbox {
@@ -155,6 +163,46 @@ export function createOperatorToolbox(opts: OperatorToolboxOptions): OperatorToo
       },
     },
   ]
+
+  // list_analysts / run_analyst — present only when the analyst seam is wired. The driver picks a
+  // kind from the menu and applies it to a worker it is driving; findings are trace-derived (the
+  // firewall lives in the runner). (define_analyst — authoring a NEW kind at runtime — is deferred.)
+  if (opts.analystKinds) {
+    tools.push({
+      name: 'list_analysts',
+      description:
+        'List the trace-analyst lenses available to run over a worker — id, what each looks for, and its area.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: () => Promise.resolve({ analysts: opts.analystKinds }),
+    })
+  }
+  if (opts.runAnalyst) {
+    tools.push({
+      name: 'run_analyst',
+      description:
+        'Apply an analyst LENS to a worker you are driving — run `kind` over the worker’s trace and ' +
+        'return its findings (trace-derived, never score-derived). Use `list_analysts` for the menu; ' +
+        'run several lenses to triangulate. The worker must have settled (its trace is read from its output).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', description: 'The analyst kind id (see list_analysts).' },
+          workerId: idArg,
+        },
+        required: ['kind', 'workerId'],
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const id = str(a.workerId, 'workerId')
+        const node = opts.scope.view.nodes.find((n) => n.id === id)
+        if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
+        if (!node.outRef)
+          return { error: `worker ${JSON.stringify(id)} has not settled — no trace to analyze yet` }
+        const trace = await opts.blobs.get(node.outRef)
+        return { findings: await opts.runAnalyst?.(str(a.kind, 'kind'), trace) }
+      },
+    })
+  }
 
   return { tools, isStopped: () => stopped, stopReason: () => reason }
 }

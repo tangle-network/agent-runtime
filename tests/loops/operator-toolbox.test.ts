@@ -18,6 +18,15 @@ function mockScope() {
       budget: { maxIterations: 1, maxTokens: 10 },
       spent: zeroSpend(),
     },
+    {
+      id: 'w1',
+      label: 'settled',
+      status: 'done' as const,
+      runtime: 'router',
+      budget: { maxIterations: 1, maxTokens: 10 },
+      spent: zeroSpend(),
+      outRef: 'blob:w1',
+    },
   ]
   let admit = true
   const scope = {
@@ -114,6 +123,38 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     await tool(tb, 'stop').handler({ reason: 'all verified' })
     expect(tb.isStopped()).toBe(true)
     expect(tb.stopReason()).toBe('all verified')
+  })
+
+  it('list_analysts surfaces the menu; run_analyst applies a lens to a SETTLED worker', async () => {
+    const { scope } = mockScope()
+    const traceBlobs: ResultBlobStore = {
+      get: async (ref) => (ref === 'blob:w1' ? { messages: ['trace'] } : undefined),
+      put: async () => {},
+    }
+    const seen: Array<{ kind: string; trace: unknown }> = []
+    const tb = createOperatorToolbox({
+      scope,
+      blobs: traceBlobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analystKinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+      runAnalyst: async (kind, trace) => {
+        seen.push({ kind, trace })
+        return [{ claim: 'X missing' }]
+      },
+    })
+    expect((await tool(tb, 'list_analysts').handler({})) as { analysts: unknown[] }).toEqual({
+      analysts: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+    })
+    // settled worker → the lens runs over its trace.
+    const r = (await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' })) as {
+      findings: unknown
+    }
+    expect(r).toEqual({ findings: [{ claim: 'X missing' }] })
+    expect(seen).toEqual([{ kind: 'completeness', trace: { messages: ['trace'] } }])
+    // running worker has no trace yet → typed error, lens not run.
+    const r2 = await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })
+    expect(r2).toEqual({ error: expect.stringContaining('has not settled') })
   })
 
   it('createMcpServer serves the operator tools alongside built-ins; a shadow throws', () => {

@@ -77,6 +77,15 @@ export type {
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
 export {
+  type AnalystKind,
+  type AnalystRunnerOptions,
+  defaultAnalystKinds,
+  liftFindings,
+  makeAnalystRunner,
+  renderTrace,
+  runAnalystLens,
+} from './tools/analyst-kinds'
+export {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,
   DELEGATE_CODE_INPUT_SCHEMA,
