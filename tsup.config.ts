@@ -9,6 +9,7 @@ export default defineConfig({
     agent: 'src/agent/index.ts',
     runtime: 'src/runtime/index.ts',
     loops: 'src/runtime/index.ts', // back-compat alias for the renamed runtime/ — external consumers still import ./loops
+    topology: 'src/topology/index.ts',
     workflow: 'src/workflow/index.ts',
     profiles: 'src/profiles/index.ts',
     audit: 'src/audit/index.ts',

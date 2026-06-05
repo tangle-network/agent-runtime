@@ -49,6 +49,11 @@
       "import": "./dist/loops.js",
       "default": "./dist/loops.js"
     },
+    "./topology": {
+      "types": "./dist/topology.d.ts",
+      "import": "./dist/topology.js",
+      "default": "./dist/topology.js"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",

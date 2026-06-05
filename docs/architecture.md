@@ -148,9 +148,11 @@ label, runtime, budget, depth) and the settle cursor emits `agent.child` (status
 reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
 `defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
 on the `AgentProfile`, never coupled to one backend. This single stream is the
-opencode-style extension surface *and* what the **topology visualization** consumes: the
-live tree of agents, each node's steps + child count, drill into any agent's stream. The
-journal stays the durable record; the hook stream is its live projection (both agree).
+opencode-style extension surface *and* what the **topology visualization** consumes:
+`src/topology/` folds the stream into the live recursive agent tree — each node's status,
+steps, child count, and deployable score — and renders it (`createTopologyView().hooks`
+attaches; `.render()` draws the tree). The journal stays the durable record; the hook
+stream is its live projection (both agree).
 
 ---
 
