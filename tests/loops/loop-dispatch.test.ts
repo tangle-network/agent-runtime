@@ -6,13 +6,13 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { refineDriver } from './refine-driver'
 import {
   type AgentRunSpec,
   loopDispatch,
   type OutputAdapter,
   type Validator,
 } from '../../src/loops'
+import { refineDriver } from './refine-driver'
 
 interface Task {
   goal: string

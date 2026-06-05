@@ -51,12 +51,6 @@ export type {
 } from './drivers/dynamic'
 export { createDynamicDriver, renderAnalyses, summarizeHistory } from './drivers/dynamic'
 export type {
-  CreateFanoutVoteDriverOptions,
-  FanoutVoteDecision,
-  FanoutVoteScored,
-} from './drivers/fanout-vote'
-export { createFanoutVoteDriver, scoreFanoutVoteIterations } from './drivers/fanout-vote'
-export type {
   CreateSandboxPlannerOptions,
   TopologyMoveEnvelope,
 } from './drivers/sandbox-planner'

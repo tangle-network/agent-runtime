@@ -5,7 +5,7 @@ import {
   type ResearchTask,
   researcherProfile,
 } from '@tangle-network/agent-knowledge/profiles'
-import { createFanoutVoteDriver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 
 const namespace = 'example-tenant'
@@ -143,7 +143,11 @@ const sandboxClient = {
 
 async function main(): Promise<void> {
   const { output, validator, agentRunSpec } = researcherProfile({ task })
-  const driver = createFanoutVoteDriver<ResearchTask, ResearchOutput>({ n: 2 })
+  const driver: Driver<ResearchTask, ResearchOutput, 'pick-winner' | 'fail'> = {
+    name: 'fanout',
+    plan: async (task, history) => (history.length === 0 ? [task, task] : []),
+    decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
+  }
 
   const result = await runLoop({
     driver,
