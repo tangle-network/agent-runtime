@@ -44,12 +44,11 @@ export type {
   AnalyzeInput,
   CreateDynamicDriverOptions,
   DynamicDecision,
-  HistorySummaryRow,
   PlannerContext,
   TopologyMove,
   TopologyPlanner,
 } from './dynamic'
-export { createDynamicDriver, renderAnalyses, summarizeHistory } from './dynamic'
+export { createDynamicDriver, renderAnalyses } from './dynamic'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
@@ -79,7 +78,7 @@ export {
   InMemoryCorpus,
   renderCorpusToInstructions,
 } from './personify/corpus'
-export { createShapeContext, definePersona, runPersonified } from './personify/persona'
+export { definePersona, runPersonified } from './personify/persona'
 export { builtinShapes, createShapeRegistry, registerShape } from './personify/registry'
 export { equalKOnCost, trajectoryReport } from './personify/trajectory'
 export type {
@@ -136,27 +135,10 @@ export type {
   WidenLineage,
   WidenSpec,
 } from './personify/wave-types'
-// The recursive execution atom owns the headline `Agent` (re-exported from
-// `./supervise/types` below). The program op-set's static-tree atom is a distinct
-// concept (`act` returns a `Program`), surfaced as `ProgramAgent`.
-export type {
-  Agent as ProgramAgent,
-  Program,
-  ProgramResult,
-  RunProgramOptions,
-} from './program'
-export {
-  agentProgramPlanner,
-  compileProgram,
-  flattenProgram,
-  isStraightLine,
-  runAgent,
-  runProgram,
-} from './program'
 export { reportLoopUsage, type UsageSink } from './report-usage'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, defaultSelectWinner, runLoop } from './run-loop'
-export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
+export { acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,
   probeSandboxCapabilities,
@@ -187,7 +169,7 @@ export {
   type SandboxSeam,
   sandboxExecutor,
 } from './supervise/runtime'
-export { createScope, type ScopeArgs, settledToIteration } from './supervise/scope'
+export { createScope, settledToIteration } from './supervise/scope'
 export {
   createRootHandle,
   createSupervisor,

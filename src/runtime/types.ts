@@ -242,7 +242,7 @@ export interface LoopSandboxClient {
  * `describePlan` — refine, fanout-vote), the kernel prunes boxes no future
  * round can reach after each round, so the live set tracks the active frontier.
  * When the driver authors its own branch point (`describePlan().parentIndex` —
- * `createDynamicDriver`/`createSandboxPlanner`), it may descend from any prior
+ * `createDynamicDriver`), it may descend from any prior
  * iteration, so no box is pruned and the live-box count rises to the total
  * iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
  * are copy-on-write, but each is still a live box until loop end).

@@ -3,7 +3,7 @@
  *
  * Dynamic driver — the agent authors the loop topology at runtime.
  *
- * Where `refine` and `fanout-vote` encode a fixed shape as a pure function of
+ * Where a fixed-shape driver encodes one topology as a pure function of
  * history, this driver delegates the per-round shape to an injected
  * `TopologyPlanner`. Each round the planner inspects the task + iteration
  * history and emits one `TopologyMove`:
@@ -14,10 +14,9 @@
  *
  * The planner is the brain; this driver is the structure. It maps moves onto
  * the kernel's `plan`/`decide` contract, enforces the iteration + fanout caps,
- * and fails loud on a malformed move. The planner is injected exactly like
- * `refine`'s `refineTask` and `fanout-vote`'s `selector` — so a test can drive
- * a deterministic policy through the real kernel, and production can wire it to
- * an LLM via `createSandboxPlanner`.
+ * and fails loud on a malformed move. The planner is injected — so a test can
+ * drive a deterministic policy through the real kernel, and production can wire
+ * it to an LLM-backed, agent-authored planner.
  *
  * Topology is orthogonal to harness: the planner never names a backend. Which
  * harness runs a branch is decided by the `AgentRunSpec` the kernel round-robins
@@ -80,7 +79,7 @@ export interface PlannerContext<Task, Output> {
 
 /**
  * Chooses the next topology move from the task + history. Sync or async; an
- * async planner is where an LLM call goes (see `createSandboxPlanner`).
+ * async planner is where an LLM call goes (an agent-authored topology planner).
  *
  * @experimental
  */
@@ -367,40 +366,4 @@ export function renderAnalyses(findings: ReadonlyArray<AnalystFinding>): string 
     return `  - [${f.severity}/${f.area}] ${f.claim}${action} (conf ${f.confidence.toFixed(2)})`
   })
   return `Trace-analyst findings (diagnosis of the attempts so far — steer from these, not the verdict score alone):\n${rows.join('\n')}`
-}
-
-/** One row of the planner-facing history summary. @experimental */
-export interface HistorySummaryRow {
-  index: number
-  agentRunName: string
-  valid?: boolean
-  score?: number
-  error?: string
-  output?: string
-}
-
-/**
- * Compact, planner-friendly view of iteration history — what an LLM planner
- * needs to choose the next move without the raw event streams. Output is
- * truncated so a long run's prompt stays bounded.
- *
- * @experimental
- */
-export function summarizeHistory<Task, Output>(
-  history: ReadonlyArray<Iteration<Task, Output>>,
-  opts: { maxOutputChars?: number } = {},
-): HistorySummaryRow[] {
-  const maxOutputChars = opts.maxOutputChars ?? 600
-  return history.map((iter) => {
-    const row: HistorySummaryRow = { index: iter.index, agentRunName: iter.agentRunName }
-    if (iter.verdict) {
-      row.valid = iter.verdict.valid
-      if (typeof iter.verdict.score === 'number') row.score = iter.verdict.score
-    }
-    if (iter.error) row.error = iter.error.message
-    if (iter.output !== undefined) {
-      row.output = stringifySafe(iter.output, { max: maxOutputChars })
-    }
-    return row
-  })
 }

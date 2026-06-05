@@ -105,7 +105,7 @@ export interface RunLoopOptions<Task, Output, Decision> {
    * Same-sandbox driver mode — a kernel→caller out-channel, not a value handed
    * in. When set, the kernel keeps each finished worker box alive across the
    * `plan()` boundary and hands it here, so a same-sandbox planner
-   * (`createSandboxPlanner` with `reuseBox`) can stream its move INTO the
+   * (one that reuses the worker's box) can stream its move INTO the
    * worker's live box — steering from the worker's real filesystem and state,
    * not just a history summary. The kernel owns teardown: every box kept alive
    * this way is destroyed at loop end (and the callback is invoked with
