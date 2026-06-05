@@ -8,6 +8,7 @@
  * exactly as the in-process operator calls the `Scope` methods directly. Same verbs, two bindings.
  *
  *   spawn_worker  → scope.spawn   (budget-bounded, fail-closed — equal-k holds even for an LLM driver)
+ *   await_next    → scope.next    (THE wake event: block until the next spawned worker settles)
  *   observe_worker→ scope.view + the result blob (a worker's status, spend, and settled output)
  *   steer_worker  → scope.send    (deliver a next-instruction / interrupt to a RUNNING worker)
  *   list_analysts → the lens menu  (the analyst kinds the driver can apply — see analyst-kinds.ts)
@@ -24,8 +25,25 @@
  * bounded by `maxDepth` + the conserved pool).
  */
 
-import type { Budget, ResultBlobStore, Scope, Agent as SuperviseAgent } from '../../loops'
+import type { Budget, ResultBlobStore, Scope, Settled, Agent as SuperviseAgent } from '../../loops'
 import type { McpToolDescriptor } from '../server'
+
+/** A worker the driver has drained via `await_next` — the operator's running ledger of settled
+ *  workers + their DEPLOYABLE verdict (the driver IS the selector, so it legitimately reads the
+ *  verdict; the analyst, which reads only the trace, is the separate selector≠judge lens). The
+ *  driver picks its deliverable from this ledger at `stop`. */
+export interface SettledWorker {
+  readonly id: string
+  readonly status: 'done' | 'down'
+  /** Deployable score in [0,1] from the worker's verdict (done only). */
+  readonly score?: number
+  /** Whether the deployable verdict passed (done only). */
+  readonly valid?: boolean
+  /** Result-blob pointer for the worker's output/trace (done only). */
+  readonly outRef?: string
+  /** Failure reason (down only). */
+  readonly reason?: string
+}
 
 /** How a `spawn_worker` profile becomes a spawnable leaf `Agent`. The caller wires this (e.g. the
  *  surface registry turns a profile into a shot executor) so the toolbox stays domain-blind. */
@@ -55,6 +73,8 @@ export interface OperatorToolbox {
   isStopped(): boolean
   /** The reason passed to `stop`, if any. */
   stopReason(): string | undefined
+  /** The workers drained so far via `await_next` (the driver's selection ledger). */
+  settled(): ReadonlyArray<SettledWorker>
 }
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
@@ -65,6 +85,22 @@ const idArg = { type: 'string', description: 'The workerId returned by spawn_wor
 export function createOperatorToolbox(opts: OperatorToolboxOptions): OperatorToolbox {
   let stopped = false
   let reason: string | undefined
+  const ledger: SettledWorker[] = []
+
+  const recordSettled = (s: Settled<unknown>): SettledWorker => {
+    const w: SettledWorker =
+      s.kind === 'done'
+        ? {
+            id: s.handle.id,
+            status: 'done',
+            score: s.verdict?.score ?? 0,
+            valid: s.verdict?.valid ?? false,
+            outRef: s.outRef,
+          }
+        : { id: s.handle.id, status: 'down', reason: s.reason }
+    ledger.push(w)
+    return w
+  }
 
   const str = (v: unknown, field: string): string => {
     if (typeof v !== 'string' || v.length === 0)
@@ -148,6 +184,24 @@ export function createOperatorToolbox(opts: OperatorToolboxOptions): OperatorToo
       },
     },
     {
+      name: 'await_next',
+      description:
+        'Wait for the next worker you spawned to FINISH, then read its deployable verdict. This is ' +
+        'how you advance: spawn one or more workers, then call await_next to block until the next ' +
+        'one settles. Returns { settled: workerId, status: "done"|"down", score, valid } for a ' +
+        'finished worker, or { idle: true } when no worker is still running (then spawn more or stop). ' +
+        'Workers run concurrently — spawn a batch, then await_next repeatedly to collect them.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => {
+        const s = await opts.scope.next()
+        if (!s) return { idle: true }
+        const w = recordSettled(s)
+        return w.status === 'done'
+          ? { settled: w.id, status: 'done', score: w.score, valid: w.valid }
+          : { settled: w.id, status: 'down', reason: w.reason }
+      },
+    },
+    {
       name: 'stop',
       description:
         'Declare the run complete — every required change is made and verified. The terminal move.',
@@ -204,5 +258,5 @@ export function createOperatorToolbox(opts: OperatorToolboxOptions): OperatorToo
     })
   }
 
-  return { tools, isStopped: () => stopped, stopReason: () => reason }
+  return { tools, isStopped: () => stopped, stopReason: () => reason, settled: () => ledger }
 }

@@ -125,6 +125,41 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     expect(tb.stopReason()).toBe('all verified')
   })
 
+  it('await_next drains the next settlement → verdict, and records it in the settled() ledger', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
+        out: { answer: 42 },
+        outRef: 'blob:w7',
+        verdict: { valid: true, score: 0.83 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const tb = createOperatorToolbox({
+      scope: drainScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(await tool(tb, 'await_next').handler({})).toEqual({
+      settled: 'w7',
+      status: 'done',
+      score: 0.83,
+      valid: true,
+    })
+    expect(await tool(tb, 'await_next').handler({})).toEqual({ idle: true })
+    expect(tb.settled()).toEqual([
+      { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
+    ])
+  })
+
   it('list_analysts surfaces the menu; run_analyst applies a lens to a SETTLED worker', async () => {
     const { scope } = mockScope()
     const traceBlobs: ResultBlobStore = {

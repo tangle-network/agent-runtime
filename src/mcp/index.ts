@@ -128,10 +128,20 @@ export {
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
 export {
+  createOperatorDriverAgent,
+  type OperatorDriverOptions,
+  type OperatorDriverResult,
+  type OperatorStep,
+  type ToolCallRequest,
+  type ToolChat,
+  type ToolChatTurn,
+} from './tools/operator-driver'
+export {
   createOperatorToolbox,
   type MakeWorkerAgent,
   type OperatorToolbox,
   type OperatorToolboxOptions,
+  type SettledWorker,
 } from './tools/operator-toolbox'
 export type { TraceContext } from './trace-propagation'
 export {
