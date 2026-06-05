@@ -8,11 +8,23 @@
 # printed as {"error": "..."} and exits nonzero — never a fabricated verdict.
 
 import argparse
+import itertools
 import json
 import os
 import re
 import sys
 import time
+import uuid
+
+
+def _wall_elapsed() -> float:
+    """Real elapsed wall-clock seconds. AppWorld freezes the whole `time` module
+    inside its world context (time.monotonic / perf_counter / time() are all
+    pinned to the task's fixed "now", and even a pre-captured reference is frozen
+    by the freezegun-style patch). os.times()[4] is a syscall AppWorld does NOT
+    patch, so it is the only clock that advances inside the context — use it for
+    the per-episode deadline."""
+    return os.times()[4]
 
 
 def fail(msg: str) -> None:
@@ -28,14 +40,16 @@ def _extract_code(text: str) -> str:
     return (blocks[-1] if blocks else "").strip()
 
 
-def _router_chat(base: str, key: str, model: str, messages: list, timeout: float = 180.0):
+def _router_chat(base: str, key: str, model: str, messages: list, timeout: float = 180.0, retries: int = 4):
     """One router chat-completion with retry on transient/429/5xx. Returns
-    (content, input_tokens, output_tokens). Raises on exhausted retries."""
+    (content, input_tokens, output_tokens). Raises on exhausted retries. The
+    react loop passes a short timeout + few retries so a single slow/hung turn
+    cannot dominate the per-episode wall-clock deadline."""
     import httpx
 
     url = base.rstrip("/") + "/chat/completions"
     last = None
-    for attempt in range(4):
+    for attempt in range(retries):
         try:
             r = httpx.post(
                 url,
@@ -54,7 +68,7 @@ def _router_chat(base: str, key: str, model: str, messages: list, timeout: float
             return content, int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0)
         except Exception as e:  # noqa: BLE001
             last = str(e)
-            if attempt < 3:
+            if attempt < retries - 1:
                 time.sleep(2**attempt)
                 continue
             raise RuntimeError(f"router_chat failed after retries: {last}")
@@ -79,7 +93,11 @@ def _build_system(directive: str, world) -> str:
         "- Get the supervisor's app passwords with apis.supervisor.show_account_passwords(), then log in "
         "to each app you use to obtain its access_token.\n"
         "- Write ONE short Python code block per turn. After it runs you SEE its OUTPUT (or error "
-        "traceback) — use that to decide the next step. Print intermediate values you need.\n"
+        "traceback) — use that to decide the next step.\n"
+        "- You ONLY see what you print(): assign every API result to a variable AND print() it "
+        "(e.g. `r = apis.spotify.login(...); print(r)`), otherwise you are flying blind.\n"
+        "- Keep going until the task is genuinely complete — do not stop early or give up after a "
+        "few steps; real tasks take many turns of inspect -> act -> check.\n"
         "- Iterate: inspect -> authenticate -> act -> verify. Do not guess API names or arguments.\n"
         "- When the task is fully done call apis.supervisor.complete_task(answer=<answer>) (include the "
         "answer if the task asks a question, otherwise apis.supervisor.complete_task()).\n"
@@ -104,7 +122,26 @@ def cmd_react(args) -> None:
             fail(f"react config JSON parse failed: {e}")
     directive = str(cfg.get("directive", ""))
     model = str(cfg.get("model", "gpt-4o"))
-    max_turns = int(cfg.get("max_turns", 8))
+    # 0 (the default) = unbounded: the agent runs until it calls
+    # apis.supervisor.complete_task() (world.task_completed() flips True). A
+    # positive value is a hard ceiling for ablations only.
+    max_turns = int(cfg.get("max_turns", 0))
+    # No-progress circuit breaker (NOT a turn cap): turn budget stays unbounded
+    # for episodes that keep doing real work. This only ends an episode that has
+    # gone `max_stall` consecutive turns producing NO new world state — i.e. the
+    # model emits no runnable code, or repeats code with byte-identical output.
+    # Without it a weak model can loop forever emitting prose/no-ops, never
+    # reaching complete_task and never advancing — burning spend and blocking the
+    # whole generation. A productive turn resets the counter, so genuine
+    # multi-step exploration is never cut.
+    max_stall = int(cfg.get("max_stall", 8))
+    # Per-episode WALL-CLOCK deadline (seconds). The no-progress breaker is
+    # turn-granular and cannot interrupt a wedge that happens INSIDE one turn
+    # (a hung/slow LLM call, a long-running world.execute). This bounds total
+    # episode time regardless of turn granularity. NOT a turn cap: a productive
+    # AppWorld episode finishes well under this; it only cuts a stuck one. 0
+    # disables it.
+    episode_timeout_s = float(cfg.get("episode_timeout_s", 600))
     router_base = str(cfg.get("router_base", "https://router.tangle.tools/v1"))
     router_key = str(cfg.get("router_key") or os.environ.get("TANGLE_API_KEY", ""))
     if not router_key:
@@ -125,18 +162,36 @@ def cmd_react(args) -> None:
             experiment_name="bench-react",
             raise_on_failure=False,
         ) as world:
+            # Per-episode nonce: keeps each episode's requests distinct so router
+            # response caching can never collapse two episodes (same task, different
+            # directive) onto one cached completion. Semantically inert marker.
+            nonce = uuid.uuid4().hex[:12]
             messages = [
                 {"role": "system", "content": _build_system(directive, world)},
-                {"role": "user", "content": f"Task: {world.task.instruction}"},
+                {"role": "user", "content": f"Task: {world.task.instruction}\n\n[eval-session {nonce}]"},
             ]
-            for turn in range(max_turns):
+            no_progress = 0
+            last_output = None
+            stop_reason = "max_turns"
+            episode_start = _wall_elapsed()
+            turn_iter = itertools.count() if max_turns <= 0 else range(max_turns)
+            for turn in turn_iter:
+                if episode_timeout_s > 0 and _wall_elapsed() - episode_start > episode_timeout_s:
+                    stop_reason = "timeout"
+                    break
                 turns = turn + 1
-                content, ui, uo = _router_chat(router_base, router_key, model, messages)
+                content, ui, uo = _router_chat(
+                    router_base, router_key, model, messages, timeout=90.0, retries=2
+                )
                 in_tok += ui
                 out_tok += uo
                 code = _extract_code(content)
                 messages.append({"role": "assistant", "content": content})
                 if not code:
+                    no_progress += 1
+                    if no_progress >= max_stall:
+                        stop_reason = "no_progress"
+                        break
                     messages.append({
                         "role": "user",
                         "content": "Reply with exactly one ```python block that makes progress, "
@@ -144,9 +199,18 @@ def cmd_react(args) -> None:
                     })
                     continue
                 output = world.execute(code)
-                turns_log.append({"code": code[:600], "output": str(output)[:600]})
-                messages.append({"role": "user", "content": "OUTPUT:\n" + str(output)[:4000]})
+                out_str = str(output)
+                turns_log.append({"code": code[:600], "output": out_str[:600]})
+                messages.append({"role": "user", "content": "OUTPUT:\n" + out_str[:4000]})
+                # A turn that reproduces the previous output byte-for-byte made no
+                # new progress; a distinct output resets the breaker.
+                no_progress = no_progress + 1 if out_str == last_output else 0
+                last_output = out_str
                 if world.task_completed():
+                    stop_reason = "completed"
+                    break
+                if no_progress >= max_stall:
+                    stop_reason = "no_progress"
                     break
             evaluation = world.evaluate().to_dict()
     except Exception as e:  # noqa: BLE001
@@ -166,6 +230,7 @@ def cmd_react(args) -> None:
                 "fails": n_fail,
                 "num_tests": int(evaluation["num_tests"]),
                 "turns": turns,
+                "stop_reason": stop_reason,
                 "input_tokens": in_tok,
                 "output_tokens": out_tok,
                 "transcript": "\n---\n".join(

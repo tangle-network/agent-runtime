@@ -256,7 +256,15 @@ async function main() {
         const cfg = JSON.stringify({
           directive,
           model,
-          max_turns: Number(process.env.MAX_TURNS ?? 10),
+          // 0 = unbounded: the agent runs until it calls complete_task. Set a
+          // positive MAX_TURNS only to cap an ablation arm.
+          max_turns: Number(process.env.MAX_TURNS ?? 0),
+          // No-progress breaker: end an episode after N consecutive turns with no
+          // new world state (no runnable code / repeated output). Not a turn cap.
+          max_stall: Number(process.env.REACT_MAX_STALL ?? 8),
+          // Per-episode wall-clock deadline (s) — bounds in-turn hangs the
+          // turn-granular breaker can't catch. Not a turn cap; 0 disables.
+          episode_timeout_s: Number(process.env.REACT_EPISODE_TIMEOUT_S ?? 600),
           router_base: routerBaseUrl,
           router_key: routerKey,
         })
