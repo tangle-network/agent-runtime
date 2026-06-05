@@ -92,6 +92,8 @@ if a section drifts from one of these, the claim wins and the section is wrong.
 
 ## 1. The atom — one agent, one decision, recursively
 
+> Drawn, with `file:line` anchors, in the picture book: [architecture-visual.md](./architecture-visual.md).
+
 There is exactly one primitive: an **agent** = an `AgentProfile` (who/what it is) +
 a **harness** (how it runs — a coding harness in a sandbox: claude-code / codex /
 opencode), executing inside a **`Scope`**. `driver`, `worker`, `selector`,
