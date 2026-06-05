@@ -174,7 +174,7 @@ export function reviewLoopRunner(
 /** @experimental Options for the default `dynamic` runner. */
 export interface DynamicLoopRunnerOptions<Task, Output> {
   sandboxClient: LoopSandboxClient
-  /** The agent-authored topology planner (e.g. `createSandboxPlanner(...)`). */
+  /** The agent-authored topology planner (sync or async; an async planner is where an LLM call goes). */
   planner: TopologyPlanner<Task, Output>
   task: Task
   output: OutputAdapter<Output>
