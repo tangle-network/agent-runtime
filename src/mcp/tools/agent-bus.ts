@@ -49,7 +49,7 @@ export interface SettledWorker {
  *  surface registry turns a profile into a shot executor) so the toolbox stays domain-blind. */
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
-export interface OperatorToolboxOptions {
+export interface AgentBusOptions {
   /** The DRIVER's live scope — spawn/observe/steer all act on this. */
   readonly scope: Scope<unknown>
   /** Result blobs, so `observe_worker` can rehydrate a settled worker's output. */
@@ -62,11 +62,11 @@ export interface OperatorToolboxOptions {
    *  stays domain-blind; wire it from `analyst-kinds.ts`'s directory. Omit to disable analyst tools. */
   readonly analystKinds?: ReadonlyArray<{ id: string; description: string; area: string }>
   /** Run a lens over a worker's trace → findings (or a typed error). Wire it from
-   *  `makeAnalystRunner(...)`. `run_analyst` fetches the worker's settled output and passes it here. */
+   *  `makeCheckRunner(...)`. `run_analyst` fetches the worker's settled output and passes it here. */
   readonly runAnalyst?: (kindId: string, trace: unknown) => Promise<unknown>
 }
 
-export interface OperatorToolbox {
+export interface AgentBus {
   /** MCP tools — register on an `McpServer`, or call the handlers directly in-process. */
   readonly tools: McpToolDescriptor[]
   /** True once the driver called `stop` — the operator loop reads this to terminate. */
@@ -82,7 +82,7 @@ const idArg = { type: 'string', description: 'The workerId returned by spawn_wor
 /** Build the operator toolbox over a live scope. The tools are the driver's verbs; their handlers
  *  are thin wrappers over the keystone (spawn/view/send), so the budget/journal/abort discipline of
  *  the Supervisor applies to a sandbox driver exactly as to the in-process one. */
-export function createOperatorToolbox(opts: OperatorToolboxOptions): OperatorToolbox {
+export function createAgentBus(opts: AgentBusOptions): AgentBus {
   let stopped = false
   let reason: string | undefined
   const ledger: SettledWorker[] = []

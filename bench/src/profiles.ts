@@ -117,7 +117,7 @@ export const driverProfile: RoleProfile = {
   ].join('\n'),
   skills: ['trace-review', 'fanout-when-independent', 'take-the-lead-when-confident'],
   tools: [...OPERATOR_TOOLS, '<artifact tools>'],
-  mcp: ['operator-toolbox'], // Scope-as-MCP: the operator verbs, in a sandbox
+  mcp: ['agent-bus'], // Scope-as-MCP: the agent-bus verbs, in a sandbox
 }
 
 /** The directory — the population the RSI loop optimizes (gepa over prompts, skillopt over skills). */

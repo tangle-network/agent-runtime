@@ -10,7 +10,7 @@
  * reviewer. The kinds are data, the runner is generic, and the finding shape + firewall are reused
  * from agent-eval / the keystone — never re-derived.
  *
- * A kind here is a lightweight lens (`AnalystKind`); it is a deliberate SUBSET of agent-eval's full
+ * A kind here is a lightweight lens (`Check`); it is a deliberate SUBSET of agent-eval's full
  * `TraceAnalystKindSpec`, so a kind that needs the heavy agentic actor (sub-agent recursion, tools,
  * goldens) upgrades to `createTraceAnalystKind` without changing this directory's surface.
  */
@@ -79,7 +79,7 @@ function validateRawFinding(row: unknown): RawRow | null {
 
 /** One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is
  *  upgradeable to the full agentic factory; `lookFor` is the lens question the actor applies. */
-export interface AnalystKind {
+export interface Check {
   readonly id: string
   readonly description: string
   /** Coarse classification stamped on every finding this kind emits (the renderer groups by it). */
@@ -90,7 +90,7 @@ export interface AnalystKind {
 }
 
 /** The built-in lens directory. Domain-blind (about any agent trace); compose at test time. */
-export const defaultAnalystKinds: Record<string, AnalystKind> = {
+export const defaultChecks: Record<string, Check> = {
   completeness: {
     id: 'completeness',
     description: 'Required work the trace does not yet show done or verified.',
@@ -140,11 +140,7 @@ export const defaultAnalystKinds: Record<string, AnalystKind> = {
 
 /** Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps `finding_id`/
  *  `produced_at`), then enforce the trace-derived firewall (selector ≠ judge). Pure — no LLM. */
-export function liftFindings(
-  kind: AnalystKind,
-  rows: unknown[],
-  producedAt: string,
-): AnalystFinding[] {
+export function liftFindings(kind: Check, rows: unknown[], producedAt: string): AnalystFinding[] {
   const findings: AnalystFinding[] = []
   for (const row of rows) {
     const raw = validateRawFinding(row)
@@ -210,7 +206,7 @@ export function renderTrace(trace: unknown): string {
     .slice(0, 8000)
 }
 
-export interface AnalystRunnerOptions {
+export interface CheckRunnerOptions {
   routerBaseUrl: string
   routerKey: string
   model: string
@@ -220,10 +216,10 @@ export interface AnalystRunnerOptions {
 
 /** Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval
  *  finding schema; the model's JSON array is parsed (`parseRawFinding`), lifted, and firewalled. */
-export async function runAnalystLens(
-  kind: AnalystKind,
+export async function runCheck(
+  kind: Check,
   trace: unknown,
-  opts: AnalystRunnerOptions,
+  opts: CheckRunnerOptions,
   producedAt: string,
 ): Promise<AnalystFinding[]> {
   const sys =
@@ -247,9 +243,7 @@ export async function runAnalystLens(
   return liftFindings(kind, rows, producedAt)
 }
 
-function defaultChat(
-  opts: AnalystRunnerOptions,
-): (system: string, user: string) => Promise<string> {
+function defaultChat(opts: CheckRunnerOptions): (system: string, user: string) => Promise<string> {
   return async (system, user) => {
     const res = await fetch(`${opts.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -272,9 +266,9 @@ function defaultChat(
 /** Build a `run_analyst` runner over a kind directory — the seam the operator toolbox is wired with.
  *  Returns the findings, or a typed error for an unknown kind. `producedAt` is passed in (the runtime
  *  forbids `Date.now` in replay-safe paths; the caller stamps it). */
-export function makeAnalystRunner(
-  kinds: Record<string, AnalystKind>,
-  opts: AnalystRunnerOptions,
+export function makeCheckRunner(
+  kinds: Record<string, Check>,
+  opts: CheckRunnerOptions,
 ): (
   kindId: string,
   trace: unknown,
@@ -286,6 +280,6 @@ export function makeAnalystRunner(
       return {
         error: `unknown analyst kind ${JSON.stringify(kindId)} (have: ${Object.keys(kinds).join(', ')})`,
       }
-    return runAnalystLens(kind, trace, opts, producedAt)
+    return runCheck(kind, trace, opts, producedAt)
   }
 }

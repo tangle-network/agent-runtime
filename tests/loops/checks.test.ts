@@ -1,24 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
-  type AnalystKind,
-  defaultAnalystKinds,
+  type Check,
+  defaultChecks,
   liftFindings,
-  makeAnalystRunner,
+  makeCheckRunner,
   renderTrace,
-  runAnalystLens,
-} from '../../src/mcp/tools/analyst-kinds'
+  runCheck,
+} from '../../src/mcp/tools/checks'
 
-const kind: AnalystKind = defaultAnalystKinds.completeness as AnalystKind
+const kind: Check = defaultChecks.completeness as Check
 const AT = '2026-06-05T00:00:00.000Z'
 
 describe('analyst-kind directory', () => {
   it('ships a directory of distinct lenses (not one question)', () => {
-    const ids = Object.keys(defaultAnalystKinds)
+    const ids = Object.keys(defaultChecks)
     expect(ids).toEqual(
       expect.arrayContaining(['completeness', 'correctness', 'policy', 'efficiency', 'tool-use']),
     )
     // distinct lenses → distinct `lookFor` + areas (not the same question N times)
-    const lookFors = new Set(Object.values(defaultAnalystKinds).map((k) => k.lookFor))
+    const lookFors = new Set(Object.values(defaultChecks).map((k) => k.lookFor))
     expect(lookFors.size).toBe(ids.length)
   })
 
@@ -65,10 +65,10 @@ describe('analyst-kind directory', () => {
     expect(t).toContain('RESULT ok')
   })
 
-  it('runAnalystLens applies the lens via an injected chat → findings', async () => {
+  it('runCheck applies the lens via an injected chat → findings', async () => {
     const chat = async () =>
       '```json\n[{"severity":"medium","claim":"incidents not migrated","evidence_uri":"artifact://db.json","confidence":0.7}]\n```'
-    const out = await runAnalystLens(
+    const out = await runCheck(
       kind,
       { messages: [] },
       { routerBaseUrl: 'x', routerKey: 'x', model: 'm', chat },
@@ -79,9 +79,9 @@ describe('analyst-kind directory', () => {
     expect(out[0]?.evidence_refs[0]?.kind).toBe('artifact')
   })
 
-  it('makeAnalystRunner dispatches by kind id; unknown kind → typed error', async () => {
+  it('makeCheckRunner dispatches by kind id; unknown kind → typed error', async () => {
     const chat = async () => '```json\n[]\n```'
-    const run = makeAnalystRunner(defaultAnalystKinds, {
+    const run = makeCheckRunner(defaultChecks, {
       routerBaseUrl: 'x',
       routerKey: 'x',
       model: 'm',

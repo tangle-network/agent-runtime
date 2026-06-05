@@ -83,7 +83,7 @@ export interface McpServerOptions {
   queue?: DelegationTaskQueue
   /**
    * Extra tools to serve alongside the delegation tools — e.g. the operator toolbox
-   * (`createOperatorToolbox(...).tools`), which exposes the driver's spawn/observe/steer verbs over
+   * (`createAgentBus(...).tools`), which exposes the driver's spawn/observe/steer verbs over
    * MCP so a sandbox agent can BE the driver. Registered after the built-ins; a duplicate name
    * throws (fail loud — no silent shadowing of a delegation tool).
    */

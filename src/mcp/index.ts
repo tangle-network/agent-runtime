@@ -77,14 +77,21 @@ export type {
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
 export {
-  type AnalystKind,
-  type AnalystRunnerOptions,
-  defaultAnalystKinds,
+  type AgentBus,
+  type AgentBusOptions,
+  createAgentBus,
+  type MakeWorkerAgent,
+  type SettledWorker,
+} from './tools/agent-bus'
+export {
+  type Check,
+  type CheckRunnerOptions,
+  defaultChecks,
   liftFindings,
-  makeAnalystRunner,
+  makeCheckRunner,
   renderTrace,
-  runAnalystLens,
-} from './tools/analyst-kinds'
+  runCheck,
+} from './tools/checks'
 export {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,
@@ -127,13 +134,6 @@ export {
   DELEGATION_STATUS_TOOL_NAME,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
-export {
-  createOperatorToolbox,
-  type MakeWorkerAgent,
-  type OperatorToolbox,
-  type OperatorToolboxOptions,
-  type SettledWorker,
-} from './tools/operator-toolbox'
 export type { TraceContext } from './trace-propagation'
 export {
   createPropagatingTraceEmitter,
