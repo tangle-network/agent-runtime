@@ -87,6 +87,22 @@ export interface AgenticOptions {
   temperature?: number
   /** Turns the agent may take within ONE shot before the driver intervenes. */
   innerTurns?: number
+  /** Operator trace hook — emits the full content of each driver step (steer in, tool calls,
+   *  score, analyst findings) so a human can SEE whether the steering is any good. */
+  onTrace?: (ev: AgenticTraceEvent) => void
+}
+
+/** One driver step's full content — the thing to actually read, not just the score. */
+export interface AgenticTraceEvent {
+  shot: number
+  /** The prompt the driver injected into this (resumed) shot — undefined on shot 0. */
+  steer?: string
+  /** What the agent actually did this shot: tool calls + their observations. */
+  toolCalls: Array<{ name: string; args: string; result: string }>
+  /** Score after this shot (cumulative artifact state). */
+  score: number
+  /** The trace-analyst's verdict after this shot (what it told the driver). */
+  findings?: string
 }
 
 // ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
@@ -125,8 +141,9 @@ async function runShot(
   tools: AgenticTool[],
   messages: Msg[],
   opts: AgenticOptions,
+  maxTurns?: number,
 ): Promise<ShotOut> {
-  const innerTurns = opts.innerTurns ?? 4
+  const innerTurns = maxTurns ?? opts.innerTurns ?? 4
   let completions = 0
   let toolCalls = 0
   let toolErrors = 0
@@ -295,6 +312,22 @@ function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<un
   return agent as Agent<unknown, Outcome<unknown>>
 }
 
+/** Extract the (call → observation) pairs from a slice of the conversation, for the trace hook. */
+function extractToolCalls(slice: Msg[]): Array<{ name: string; args: string; result: string }> {
+  const results = new Map<string, string>()
+  for (const m of slice) {
+    if (m.role === 'tool') results.set(String(m.tool_call_id), String(m.content))
+  }
+  const out: Array<{ name: string; args: string; result: string }> = []
+  for (const m of slice) {
+    if (m.role !== 'assistant') continue
+    for (const c of (m.tool_calls as ToolCall[] | undefined) ?? []) {
+      out.push({ name: c.function.name, args: c.function.arguments, result: results.get(c.id) ?? '' })
+    }
+  }
+  return out
+}
+
 /** Drain exactly one settlement (the just-spawned child). */
 async function drainOne(scope: Scope<Outcome<unknown>>): Promise<Settled<Outcome<unknown>>> {
   const s = await scope.next()
@@ -305,7 +338,7 @@ async function drainOne(scope: Scope<Outcome<unknown>>): Promise<Settled<Outcome
 // ── The result + the two drivers (domain-blind Agents run by the Supervisor) ─────
 
 export interface AgenticRunResult {
-  mode: 'depth' | 'breadth'
+  mode: 'depth' | 'breadth' | 'mix' | 'operator'
   score: number
   resolved: boolean
   completions: number
@@ -332,24 +365,30 @@ function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOp
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
           const child = leaf(`shot:${shots}`, 'shot')
           const steer = shots === 0 ? undefined : pendingSteer
+          const prevLen = messages?.length ?? 0
           const res = scope.spawn(child, { task, handle, messages, steer } as ShotTask, { budget: perChild(innerTurns), label: `shot:${shots}` })
           if (!res.ok) break
           const settled = await drainOne(scope)
           if (settled.kind === 'down') break
           const out = settled.out as unknown as ShotResult
+          const toolCalls = extractToolCalls(out.messages.slice(prevLen))
           messages = out.messages
           completions += out.completions
           progression.push(out.score)
-          if (out.score >= 1 || shots === cfg.maxShots - 1) break
+          const done = out.score >= 1 || shots === cfg.maxShots - 1
           // Analyst reads the trajectory (firewalled) → steer the resumed session.
-          const aChild = leaf(`analyst:${shots}`, 'analyst')
-          const aRes = scope.spawn(aChild, { task, messages }, { budget: perChild(1), label: `analyst:${shots}` })
-          if (!aRes.ok) break
-          const aSettled = await drainOne(scope)
-          completions += 1
-          if (aSettled.kind === 'down') break
-          const findings = aSettled.out as unknown as string
-          if (/^\s*COMPLETE\b/i.test(findings)) break
+          let findings: string | undefined
+          if (!done) {
+            const aRes = scope.spawn(leaf(`analyst:${shots}`, 'analyst'), { task, messages }, { budget: perChild(1), label: `analyst:${shots}` })
+            if (aRes.ok) {
+              const aSettled = await drainOne(scope)
+              completions += 1
+              if (aSettled.kind === 'done') findings = aSettled.out as unknown as string
+            }
+          }
+          opts.onTrace?.({ shot: shots, steer, toolCalls, score: out.score, ...(findings !== undefined ? { findings } : {}) })
+          if (done) break
+          if (findings === undefined || /^\s*COMPLETE\b/i.test(findings)) break
           pendingSteer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
         }
         const final = await surface.score(task, handle)
@@ -392,12 +431,236 @@ function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: Agentic
   }
 }
 
+/**
+ * MIX: the dynamic breadth/depth choice (MCTS-PW shape over the artifact). Refine a persistent main
+ * line while it PROGRESSES (analyst-steered, like depth); when a line STALLS, branch a FRESH
+ * exploration on a new artifact (like breadth) and ADOPT it if it beats the stuck line — keep the
+ * best, continue. This is the structure the traces motivated: depth refines (29→71→100), breadth
+ * hedges the variance whiff (0%), the mix gets both.
+ */
+function mixDriver(
+  surface: AgenticSurface,
+  task: AgenticTask,
+  opts: AgenticOptions,
+  cfg: { maxRounds: number; stallThreshold: number },
+): Agent<unknown, Outcome<unknown>> {
+  const innerTurns = opts.innerTurns ?? 4
+  let pendingSteer: string | undefined
+  return {
+    name: 'mix',
+    async act(_t, scope): Promise<Outcome<unknown>> {
+      const open: ArtifactHandle[] = []
+      let mainHandle = await surface.open(task)
+      open.push(mainHandle)
+      let mainMessages: Msg[] | undefined
+      let bestScore = -1
+      let stalls = 0
+      let completions = 0
+      const progression: number[] = []
+      try {
+        for (let round = 0; round < cfg.maxRounds; round += 1) {
+          const steer = round === 0 ? undefined : pendingSteer
+          const prevLen = mainMessages?.length ?? 0
+          const res = scope.spawn(leaf(`shot:${round}`, 'shot'), { task, handle: mainHandle, messages: mainMessages, steer } as ShotTask, { budget: perChild(innerTurns), label: `shot:${round}` })
+          pendingSteer = undefined
+          if (!res.ok) break
+          const s = await drainOne(scope)
+          if (s.kind === 'down') break
+          const out = s.out as unknown as ShotResult
+          const toolCalls = extractToolCalls(out.messages.slice(prevLen))
+          completions += out.completions
+          mainMessages = out.messages
+          if (out.score > bestScore) {
+            bestScore = out.score
+            stalls = 0
+          } else {
+            stalls += 1
+          }
+          progression.push(bestScore)
+          if (bestScore >= 1 || round === cfg.maxRounds - 1) {
+            opts.onTrace?.({ shot: round, steer, toolCalls, score: bestScore })
+            break
+          }
+          if (stalls >= cfg.stallThreshold) {
+            // Stuck: branch a fresh exploration on a NEW artifact; adopt it if it beats the stuck line.
+            const bHandle = await surface.open(task)
+            open.push(bHandle)
+            const bres = scope.spawn(leaf(`branch:${round}`, 'shot'), { task, handle: bHandle } as ShotTask, { budget: perChild(innerTurns), label: `branch:${round}` })
+            let adopted = false
+            if (bres.ok) {
+              const bs = await drainOne(scope)
+              if (bs.kind === 'done') {
+                const bout = bs.out as unknown as ShotResult
+                completions += bout.completions
+                if (bout.score > bestScore) {
+                  bestScore = bout.score
+                  mainHandle = bHandle
+                  mainMessages = bout.messages
+                  adopted = true
+                }
+              }
+            }
+            stalls = 0
+            opts.onTrace?.({ shot: round, steer, toolCalls, score: bestScore, findings: `BRANCH fresh exploration (adopted=${adopted})` })
+          } else {
+            // Progressing: analyst-steer the resumed main line (depth refinement).
+            let findings: string | undefined
+            const aRes = scope.spawn(leaf(`analyst:${round}`, 'analyst'), { task, messages: mainMessages }, { budget: perChild(1), label: `analyst:${round}` })
+            if (aRes.ok) {
+              const as = await drainOne(scope)
+              completions += 1
+              if (as.kind === 'done') findings = as.out as unknown as string
+            }
+            opts.onTrace?.({ shot: round, steer, toolCalls, score: bestScore, ...(findings !== undefined ? { findings } : {}) })
+            if (findings && /^\s*COMPLETE\b/i.test(findings)) break
+            if (findings) pendingSteer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
+          }
+        }
+        const final = await surface.score(task, mainHandle)
+        const score = final.total > 0 ? final.passes / final.total : 0
+        return { kind: 'done', deliverable: { mode: 'mix', score, resolved: final.total > 0 && final.passes === final.total, completions, progression, shots: progression.length } }
+      } finally {
+        for (const h of open) await surface.close(h)
+      }
+    },
+  }
+}
+
+// ── The OPERATOR atom: one agent that reads the trace, judges, and either steers a worker, does a
+//    decisive turn itself, branches, or stops — over the shared artifact. Driver + analyst + IC fused. ──
+
+type OperatorMove = { move: 'steer' | 'work' | 'branch' | 'done'; instruction: string; rationale: string }
+
+/** The operator's brain: read ONLY the task + the work-so-far trace (firewall — never the score),
+ *  judge, and choose the next move. One LLM call. This fuses the analyst (diagnose) and the driver
+ *  (decide + author) into a single operator that leads with judgment. */
+async function operatorDecide(
+  task: AgenticTask,
+  messages: Msg[],
+  round: number,
+  maxRounds: number,
+  opts: AgenticOptions,
+): Promise<OperatorMove> {
+  const trace = messages
+    .filter((m) => m.role === 'assistant' || m.role === 'tool')
+    .map((m) => {
+      if (m.role === 'tool') return `RESULT ${String(m.content).slice(0, 260)}`
+      const calls = (m.tool_calls as ToolCall[] | undefined)?.map((c) => `${c.function.name}(${c.function.arguments})`).join(', ')
+      return calls ? `CALL ${calls}` : `SAY ${String(m.content).slice(0, 160)}`
+    })
+    .join('\n')
+    .slice(0, 7000)
+  const sys =
+    'You are the OPERATOR leading work on a task. You have a worker you can delegate to AND tools you ' +
+    'can run yourself. Read the task and the work-so-far (tool calls + their RESULTS) and pick the ONE ' +
+    'best next move:\n' +
+    '- "steer": delegate the next chunk to the worker, with a specific instruction of what to do next.\n' +
+    '- "work": do ONE decisive action yourself now (when it is crucial and you should not delegate).\n' +
+    '- "branch": this line is stuck or wrong — start a fresh attempt (instruction = the new approach).\n' +
+    '- "done": every required change is made AND confirmed in the tool results.\n' +
+    'Judge ONLY from what the tools actually returned, never from intent. Emit exactly one fenced ' +
+    '```json block: {"move":"steer|work|branch|done","instruction":"...","rationale":"..."}'
+  const user = `TASK:\n${task.userPrompt}\n\nWORK SO FAR:\n${trace || '(nothing yet)'}\n\nRound ${round + 1}/${maxRounds}. Your move?`
+  const res = await fetch(`${opts.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.routerKey}` },
+    body: JSON.stringify({ model: opts.model, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], temperature: 0.4 }),
+  })
+  if (!res.ok) throw new Error(`operator router ${res.status}`)
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+  const content = data.choices?.[0]?.message?.content ?? ''
+  const m = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+  try {
+    const parsed = JSON.parse((m?.[1] ?? content).trim()) as Partial<OperatorMove>
+    const move = (['steer', 'work', 'branch', 'done'] as const).includes(parsed.move as never) ? (parsed.move as OperatorMove['move']) : 'steer'
+    return { move, instruction: String(parsed.instruction ?? 'Continue addressing any remaining required changes.'), rationale: String(parsed.rationale ?? '') }
+  } catch {
+    return { move: 'steer', instruction: 'Continue addressing any remaining required changes, verifying each.', rationale: 'unparseable operator output' }
+  }
+}
+
+/**
+ * OPERATOR: the working-manager atom. Each round its brain reads the trace and judges the next move;
+ * it then either delegates a worker shot (`steer`), does one decisive turn itself (`work`), starts a
+ * fresh line and adopts it if better (`branch`), or stops (`done`) — all over the SHARED artifact.
+ * One self-similar agent that analyzes, leads, AND contributes; how it leans is the AgentProfile.
+ */
+function operatorDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { maxRounds: number }): Agent<unknown, Outcome<unknown>> {
+  const innerTurns = opts.innerTurns ?? 4
+  return {
+    name: 'operator',
+    async act(_t, _scope): Promise<Outcome<unknown>> {
+      const open: ArtifactHandle[] = []
+      let handle = await surface.open(task)
+      open.push(handle)
+      let messages: Msg[] = [
+        { role: 'system', content: task.systemPrompt },
+        { role: 'user', content: `${task.userPrompt}\n\n${taskNudge}` },
+      ]
+      let tools = await surface.tools(task, handle)
+      let completions = 0
+      const progression: number[] = []
+      const scoreOf = async (h: ArtifactHandle) => {
+        const s = await surface.score(task, h)
+        return s.total > 0 ? s.passes / s.total : 0
+      }
+      try {
+        for (let round = 0; round < cfg.maxRounds; round += 1) {
+          const decision = await operatorDecide(task, messages, round, cfg.maxRounds, opts)
+          completions += 1
+          if (decision.move === 'done') {
+            opts.onTrace?.({ shot: round, steer: `[done] ${decision.instruction}`, toolCalls: [], score: progression.at(-1) ?? (await scoreOf(handle)), findings: decision.rationale })
+            break
+          }
+          if (decision.move === 'branch') {
+            const bHandle = await surface.open(task)
+            open.push(bHandle)
+            const bMessages: Msg[] = [
+              { role: 'system', content: task.systemPrompt },
+              { role: 'user', content: `${task.userPrompt}\n\nApproach: ${decision.instruction}\n\n${taskNudge}` },
+            ]
+            const bShot = await runShot(surface, task, bHandle, await surface.tools(task, bHandle), bMessages, opts, innerTurns)
+            completions += bShot.completions
+            const [bScore, cScore] = [await scoreOf(bHandle), await scoreOf(handle)]
+            opts.onTrace?.({ shot: round, steer: `[branch] ${decision.instruction}`, toolCalls: extractToolCalls(bShot.messages.slice(2)), score: Math.max(bScore, cScore), findings: decision.rationale })
+            if (bScore > cScore) {
+              handle = bHandle
+              messages = bShot.messages
+              tools = await surface.tools(task, handle)
+            }
+            progression.push(Math.max(bScore, cScore))
+            continue
+          }
+          // steer = delegate a full worker shot; work = the operator's own single decisive turn.
+          const turns = decision.move === 'work' ? 1 : innerTurns
+          const prevLen = messages.length
+          messages.push({ role: 'user', content: decision.instruction })
+          const shot = await runShot(surface, task, handle, tools, messages, opts, turns)
+          completions += shot.completions
+          messages = shot.messages
+          const score = await scoreOf(handle)
+          progression.push(score)
+          opts.onTrace?.({ shot: round, steer: `[${decision.move}] ${decision.instruction}`, toolCalls: extractToolCalls(messages.slice(prevLen)), score, findings: decision.rationale })
+          if (score >= 1) break
+        }
+        const score = await scoreOf(handle)
+        const final = await surface.score(task, handle)
+        return { kind: 'done', deliverable: { mode: 'operator', score, resolved: final.total > 0 && final.passes === final.total, completions, progression, shots: progression.length } }
+      } finally {
+        for (const h of open) await surface.close(h)
+      }
+    },
+  }
+}
+
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
-  mode: 'depth' | 'breadth'
-  /** depth: max shots; breadth: rollout width. */
+  mode: 'depth' | 'breadth' | 'mix' | 'operator'
+  /** depth: max shots; breadth: rollout width; mix/operator: max rounds. */
   budget: number
+  /** mix only: branch a fresh exploration after this many non-improving shots. Default 1. */
+  stallThreshold?: number
   rootBudget?: Budget
 }
 
@@ -406,7 +669,11 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
   const driver =
     opts.mode === 'depth'
       ? depthDriver(opts.surface, opts.task, opts, { maxShots: opts.budget })
-      : breadthDriver(opts.surface, opts.task, opts, { width: opts.budget })
+      : opts.mode === 'operator'
+        ? operatorDriver(opts.surface, opts.task, opts, { maxRounds: opts.budget })
+        : opts.mode === 'mix'
+          ? mixDriver(opts.surface, opts.task, opts, { maxRounds: opts.budget, stallThreshold: opts.stallThreshold ?? 1 })
+          : breadthDriver(opts.surface, opts.task, opts, { width: opts.budget })
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
   const root: Budget = opts.rootBudget ?? { maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2), maxTokens: 1_000_000_000 }
   const result = await supervisor.run(driver, undefined, {
