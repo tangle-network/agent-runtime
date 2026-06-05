@@ -50,11 +50,6 @@ export type {
   TopologyPlanner,
 } from './drivers/dynamic'
 export { createDynamicDriver, renderAnalyses, summarizeHistory } from './drivers/dynamic'
-export type {
-  CreateSandboxPlannerOptions,
-  TopologyMoveEnvelope,
-} from './drivers/sandbox-planner'
-export { createSandboxPlanner } from './drivers/sandbox-planner'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
