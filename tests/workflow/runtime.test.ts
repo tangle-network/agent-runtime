@@ -1,9 +1,9 @@
 import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
+import { refineDriver } from '../loops/refine-driver'
 import { ValidationError } from '../../src/errors'
 import {
   type AgentRunSpec,
-  createRefineDriver,
   type OutputAdapter,
   type Validator,
 } from '../../src/loops'
@@ -880,7 +880,7 @@ return out
       loop: createRunLoopWorkflowDelegate<Task, Task, Output, 'continue' | 'stop'>({
         toRunLoopOptions(input) {
           return {
-            driver: createRefineDriver<Task, Output>({ maxIterations: 3 }),
+            driver: refineDriver<Task, Output>({ maxIterations: 3 }),
             agentRun,
             output,
             validator,

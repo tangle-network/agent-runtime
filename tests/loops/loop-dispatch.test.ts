@@ -6,9 +6,9 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
+import { refineDriver } from './refine-driver'
 import {
   type AgentRunSpec,
-  createRefineDriver,
   loopDispatch,
   type OutputAdapter,
   type Validator,
@@ -116,7 +116,7 @@ describe('loopDispatch', () => {
     const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
       sandboxClient,
       toLoopOptions: (scenario) => ({
-        driver: createRefineDriver<Task, Output>(),
+        driver: refineDriver<Task, Output>(),
         agentRun: spec(),
         output,
         validator: passAlways,
@@ -152,7 +152,7 @@ describe('loopDispatch', () => {
     const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
       sandboxClient,
       toLoopOptions: (scenario) => ({
-        driver: createRefineDriver<Task, Output>(),
+        driver: refineDriver<Task, Output>(),
         agentRun: spec(),
         output,
         validator: failAlways,

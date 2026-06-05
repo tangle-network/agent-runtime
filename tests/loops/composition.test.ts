@@ -1,9 +1,9 @@
 import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
+import { refineDriver } from './refine-driver'
 import {
   type AgentRunSpec,
   createFanoutVoteDriver,
-  createRefineDriver,
   type Driver,
   type OutputAdapter,
   runLoop,
@@ -79,7 +79,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
       async plan(task, history) {
         if (history.length >= 2) return []
         const innerResult = await runLoop({
-          driver: createRefineDriver<Task, Inner>(),
+          driver: refineDriver<Task, Inner>(),
           agentRun: innerSpec,
           output: innerOutput,
           validator: innerValidator,
@@ -145,7 +145,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
     // signature itself.
     async function _typecheckOnly() {
       const r1 = await runLoop({
-        driver: createRefineDriver<Task, Inner>(),
+        driver: refineDriver<Task, Inner>(),
         agentRun: innerSpec,
         output: innerOutput,
         validator: innerValidator,
