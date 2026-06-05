@@ -209,7 +209,10 @@ export function createOperatorDriverAgent(
           // blind best-of-K (equal-K), so a score comparison isolates STRATEGY quality, not a
           // compute-vs-score tradeoff from giving up early.
           const exhaustBlock =
-            opts.exhaustUnlessResolved === true && opts.maxWorkers !== undefined && !anyResolved && spawnedOk < opts.maxWorkers
+            opts.exhaustUnlessResolved === true &&
+            opts.maxWorkers !== undefined &&
+            !anyResolved &&
+            spawnedOk < opts.maxWorkers
           if (c.name === 'stop' && min > 0 && doneSoFar < min) {
             result = {
               error: `cannot stop yet — ${doneSoFar}/${min} workers have completed. You must spawn_worker and await_next at least ${min} worker(s) (you cannot answer directly) before stopping.`,
