@@ -130,15 +130,47 @@ interface CheckResult {
  *  Exit 0 → pass. A docker invocation error (binary missing, daemon down, image
  *  pull failure) is NOT a test failure — it throws so the harness fails loud rather
  *  than scoring every candidate 0 from a broken checker. */
+let dockerRunSeq = 0
+
 function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult> {
   const dir = mkdtempSync(join(tmpdir(), 'hev-'))
   writeFileSync(join(dir, 'p.py'), buildProgram(task, candidate))
+  // Unique container name so we can force-reap it regardless of the docker client's state.
+  const name = `hev-${process.pid}-${dockerRunSeq++}`
   return new Promise<CheckResult>((resolvePromise, reject) => {
+    let settled = false
+    const cleanup = () => {
+      rmSync(dir, { recursive: true, force: true })
+      // THE LEAK FIX: `execFile`'s `timeout` kills the docker CLIENT, not the container — a hung
+      // `python` would otherwise pin a CPU forever ("Up 34 minutes"). Force-reap by name
+      // (fire-and-forget; the name is unique, so no reuse race).
+      execFile('docker', ['rm', '-f', name], () => {})
+    }
+    const finish = (res: CheckResult) => {
+      if (settled) return
+      settled = true
+      clearTimeout(backstop)
+      cleanup()
+      resolvePromise(res)
+    }
+    const fail = (e: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(backstop)
+      cleanup()
+      reject(e)
+    }
+    // THE HANG FIX: a hung container can leave the docker client stuck forwarding SIGTERM, so the
+    // execFile callback never fires and `pool` would wait forever. This guarantees resolution
+    // (and reap) after the timeout, independent of the callback.
+    const backstop = setTimeout(() => finish({ pass: 0 }), dockerTimeoutMs + 3000)
     execFile(
       'docker',
       [
         'run',
         '--rm',
+        '--name',
+        name,
         '--network=none',
         '--cpus=1',
         '--memory=512m',
@@ -150,31 +182,30 @@ function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult
         'python',
         '/w/p.py',
       ],
-      { timeout: dockerTimeoutMs, maxBuffer: 4 * 1024 * 1024 },
+      { timeout: dockerTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
       (err, _stdout, stderr) => {
-        rmSync(dir, { recursive: true, force: true })
         if (err) {
           const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: number | string }
-          // ENOENT = docker binary missing; a daemon/connect failure surfaces in
-          // stderr. These are infra failures, not a failed test — fail loud.
+          // ENOENT = docker binary missing; a daemon/connect failure surfaces in stderr. These
+          // are infra failures, not a failed test — fail loud.
           if (e.code === 'ENOENT') {
-            reject(new Error('docker binary not found on PATH — cannot run the deployable checker'))
+            fail(new Error('docker binary not found on PATH — cannot run the deployable checker'))
             return
           }
           if (/cannot connect to the docker daemon|is the docker daemon running|permission denied while trying to connect/i.test(stderr)) {
-            reject(new Error(`docker daemon unreachable: ${stderr.slice(0, 200)}`))
+            fail(new Error(`docker daemon unreachable: ${stderr.slice(0, 200)}`))
             return
           }
           if (/(unable to find image|pull access denied|manifest unknown|error response from daemon).*(pull|repository|registry)/i.test(stderr)) {
-            reject(new Error(`docker image ${dockerImage} unavailable: ${stderr.slice(0, 200)}`))
+            fail(new Error(`docker image ${dockerImage} unavailable: ${stderr.slice(0, 200)}`))
             return
           }
-          // killed-by-timeout or a non-zero exit from python (assert failure / error)
-          // are genuine test FAILURES — score 0, do not throw.
-          resolvePromise({ pass: 0 })
+          // killed-by-timeout or a non-zero exit from python (assert failure / error) are genuine
+          // test FAILURES — score 0, do not throw.
+          finish({ pass: 0 })
           return
         }
-        resolvePromise({ pass: 1 })
+        finish({ pass: 1 })
       },
     )
   })
