@@ -47,7 +47,7 @@ run.ts:  help · preflight · verify-judge · solve-one · solve-one-local · so
 standalone tools (NOT in run.ts — the gate lives here):
   corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
   corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
-  gepa-refine.ts     GEPA-optimize a directive vs a held-out gate + paired CI (optimizePrompt)
+  improve-prompt.ts     GEPA-optimize a directive vs a held-out gate + paired CI (optimizePrompt)
   finsearch-loop.ts  the real runLoop+createDynamicDriver closed loop on FinSearchComp
   terminal-compare.ts  Terminal-Bench compare (own main, not in run.ts)
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
@@ -91,7 +91,7 @@ finsearchcomp is the strong-signal domain but needs the sandbox/local-web worker
 
 ## GEPA-optimize (so the gate tests BEST-effort, not strawman, prompts)
 ```
-BENCH=hotpotqa RESEARCH=1 ROUTER_KEY=… tsx src/gepa-refine.ts   # POP/GENS/TRAIN_N/HOLDOUT_N envs
+BENCH=hotpotqa RESEARCH=1 ROUTER_KEY=… tsx src/improve-prompt.ts   # POP/GENS/TRAIN_N/HOLDOUT_N envs
 ```
 GEPA optimizes the shared base directive; the diverse lenses (`directives.ts`) layer on top.
 

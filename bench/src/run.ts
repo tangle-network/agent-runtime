@@ -88,7 +88,7 @@ run.ts  (BENCH=<adapter> selects the benchmark; default swe-bench):
 standalone tools (NOT dispatched here — run directly):
   tsx src/corpus-replay.mts <corpus.jsonl> --selector   selector@k vs random@k vs oracle@k, OFFLINE (zero creds)
   tsx src/corpus-report.mts <corpus.jsonl...>           paired-bootstrap CI + Benjamini-Hochberg
-  tsx src/gepa-refine.ts                                 GEPA-optimize a directive vs a held-out gate (ROUTER_KEY)
+  tsx src/improve-prompt.ts                                 GEPA-optimize a directive vs a held-out gate (ROUTER_KEY)
   tsx src/finsearch-loop.ts                              real runLoop closed loop on FinSearchComp (SANDBOX_KEY + ROUTER_KEY)
   tsx src/terminal-compare.ts                            Terminal-Bench compare
 
@@ -238,7 +238,7 @@ async function main() {
     // selector@k stats come from `corpus-report.mts`/`corpus-replay.mts` over that
     // corpus — measured once, in one place, not reimplemented here.
     const k = Number(process.env.K ?? 4)
-    // DIVERSE_BASE_FILE (a learned directive, e.g. gepa-refine's winner) or DIVERSE_BASE
+    // DIVERSE_BASE_FILE (a learned directive, e.g. improve-prompt's winner) or DIVERSE_BASE
     // (inline) is the shared base the lenses layer on: GEPA-best-base x diverse-lenses x
     // selection. This is where directive optimization composes with diversification.
     const diverseBase = process.env.DIVERSE_BASE_FILE

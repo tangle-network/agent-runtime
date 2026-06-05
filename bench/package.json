@@ -12,7 +12,7 @@
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "keystone-gate": "tsx src/keystone-gate-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
-    "gepa-refine": "tsx src/gepa-refine.ts",
+    "improve-prompt": "tsx src/improve-prompt.ts",
     "terminal-compare": "tsx src/terminal-compare.ts"
   },
   "dependencies": {
