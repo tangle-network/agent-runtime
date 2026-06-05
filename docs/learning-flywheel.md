@@ -20,12 +20,16 @@
 > corpus and the controller it trains — never any single result.
 
 > **Success — the one definition (Gate B).** The flywheel works iff, across repeated runs on a
-> persistent, checkable, long-horizon task family, the deployed controller's verifier-graded score
-> improves **run-over-run** (run N+1 starts above run N at **matched per-run compute**), the only
-> changed variable is that the controller learned from the accumulated corpus, the gain survives a
-> **frozen-controller control** (re-running an earlier controller shows no slope), it is significant
-> at adequate n (paired-bootstrap + BH), and it is graded by a **deployable checker** — never the
-> answer oracle or the write-only judge. This OUTER-loop slope is THE success criterion. The
+> persistent, checkable, long-horizon task family, the deployed controller's verifier-graded
+> **multi-objective** score improves **run-over-run** (run N+1 starts above run N at **matched
+> per-run compute**), the only changed variable is that the controller learned from the accumulated
+> corpus, the gain survives a **frozen-controller control** (re-running an earlier controller shows
+> no slope), it is significant at adequate n (paired-bootstrap + BH), and it is graded by a
+> **deployable checker** — never the answer oracle or the write-only judge. *Multi-objective* is
+> load-bearing: success is a vector (correct · fast · secure · cheap), and **each objective ships
+> its own deployable checker** — tests, a clock, a scanner, a cost meter. That is what gives the
+> flywheel honest, cheap, oracle-free signal on real work at every step (and what depth/continuation
+> steers on). This OUTER-loop slope is THE success criterion. The
 > within-run "trace+findings-fed controller beats the blind same-compute baseline under a non-oracle
 > selector at **equal compute**" question is a separate, narrower diagnostic — **Gate A**, the
 > GO/NO-GO for building the recursive-driver layer (see [roadmap-rsi.md](./roadmap-rsi.md)). A failed

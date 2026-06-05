@@ -60,6 +60,31 @@ export const selfConsistencySelect: Selector = (outputs) => {
   return bestIdx
 }
 
+/**
+ * Verifier-grounded selection: pick the candidate with the highest deployable-checker
+ * pass-count (ties → earliest). The pass-counts come from a checker the agent can run
+ * in production (a provided test suite), NOT from the gold answer — so unlike a
+ * judge/oracle pick this is deployable. A boolean pass/fail is the pass-count's {0,1}
+ * special case. Pure and unit-shaped: it reads only the supplied counts, never any
+ * verdict. Empty input is a caller bug (fail loud); a negative count is invalid.
+ */
+export function verifierGroundedSelect(passCounts: ReadonlyArray<number>): number {
+  if (passCounts.length === 0) throw new Error('verifierGroundedSelect: no candidate pass-counts')
+  let bestIdx = 0
+  let bestCount = Number.NEGATIVE_INFINITY
+  for (let i = 0; i < passCounts.length; i += 1) {
+    const c = passCounts[i] as number
+    if (!Number.isFinite(c) || c < 0) {
+      throw new Error(`verifierGroundedSelect: invalid pass-count ${c} at index ${i}`)
+    }
+    if (c > bestCount) {
+      bestCount = c
+      bestIdx = i
+    }
+  }
+  return bestIdx
+}
+
 /** One instance's offline selector outcome, all derived from stored verdicts. */
 export interface SelectorOutcome {
   /** usable candidates (attempts with a non-empty output) */

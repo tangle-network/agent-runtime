@@ -7,6 +7,13 @@ agent over rounds. The target is **full generality**: an agent that *is* a drive
 out sub-loops of drivers-driving-agents, recursively — with analysts watching at every
 level, dynamic asynchronous spawning, and a conversational, observable root.
 
+**Frame it as the canon does ([../architecture.md §0.5](../architecture.md)):** the atom is a
+recursive **decision** — at each level, given the solution-so-far, the feedback, and the budget,
+choose the best next move toward a **multi-objective** goal (correct · fast · secure · cheap).
+*Spawn* is one move; "driver / worker / analyst" are roles a profile plays, not types. So this
+doc's "driver/policy layer" is shorthand for *the decision policy*, and "fan out sub-loops" is one
+decision it can make — not the primitive.
+
 This doc holds the vision, the proposed surface, the honest gap vs the current code, and the
 open forks. It supersedes nothing in [`../architecture.md`](../architecture.md) until a design ships.
 
