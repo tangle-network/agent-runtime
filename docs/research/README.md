@@ -21,6 +21,10 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 | [long-horizon-benchmark-survey.md](./long-horizon-benchmark-survey.md) | Adversarially-verified survey of long-horizon + multi-turn benchmarks. Top picks: **Commit0** (graded + natively multi-turn software build), **τ²-bench** (multi-turn agent↔user with tools). |
 | [observed-orchestration-patterns.md](./observed-orchestration-patterns.md) | Mining of 174 real workflows / 496 agent calls across 9 projects + Codex: the 6 orchestration shapes, driver=leaf confirmed, persona/policy needs NO new type, and the real bottleneck (cross-run memory + a leaf-fanout-confounded equal-k gate). |
 | [architecture-alternatives.md](./architecture-alternatives.md) | 6 paradigms (blackboard, market, active-inference, QD, Gödel-machine, debate) steelmanned vs the recursive-atom tree. **Verdict: keep the tree, graft 6 ideas, replace only when a domain has a total verifier.** The signal-first revised phase plan. |
+| [belief-state-learner-spec.md](./belief-state-learner-spec.md) | **The belief-state / program-synthesis layer (deferred-learner spec).** Blueprint for the cross-run learner, stress-tested against the shipped substrate. **Status: BUILD-ON-GREEN** — waits on a positive diverse@k-vs-blind gate; this is its design, not a build order. |
+| [belief-agent-research-agenda.md](./belief-agent-research-agenda.md) | Research agenda for the recursive/belief-state agent — 7 disciplinary lenses → ranked agenda, grounded against the gate result (judge-blind selection loses; the win needs a deployable checker). Top tier is **offline on committed corpora**; the learner tier is gated. |
+| [program-research-plan.md](./program-research-plan.md) | Formal fund-or-kill audit of the program-synthesis framing. The honest verdict: **kill the RSI frame, park orchestration, ship the instrument + abstention.** |
+| [codex-techniques-audit.md](./codex-techniques-audit.md) | Adoption report mining OpenAI Codex for succinct-code principles + orchestration techniques. **Advisory** — verify `file:line` before acting. |
 
 ## Source artifacts (multi-agent passes)
 
@@ -29,6 +33,9 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 | `w9ntld2vt` | deep-research benchmark survey (102 agents, 20 sources, 25 claims adversarially verified) | long-horizon-benchmark-survey.md |
 | `wuh46e5zp` | durable-architecture design — 3 proposals → adversarial synthesis | flat-harness-design.md |
 | `wnrxtvdta` | recursive-atom-surface — 6 prior-art lenses + 4 codebase mappers → synthesis → adversarial critique → reconcile | recursive-execution-atom.md (appended on completion) |
+| `w1x80539n` | belief-state learner — theory + subtractive-architecture + data-science + red-team lenses → adversarial synthesis → reconcile | belief-state-learner-spec.md |
+| `wmzhyr5bg` | belief-agent agenda — 7 disciplinary lenses → adversarial slop-filter → ranked agenda | belief-agent-research-agenda.md |
+| `w1mo90utm` | program research plan — kill-it red-team + steelman + intent-archaeology + infra-auditor → synthesis | program-research-plan.md |
 
 ## Decision log
 
