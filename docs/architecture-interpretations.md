@@ -160,13 +160,15 @@ The strongest good-faith case: what's wired is the losing half (self-refine) ste
 
 ---
 
-## 5. The decision gate
+## 5. Gate A — the decision gate for the recursive-driver layer
 
 Build the adaptive driver **only if** this comes back positive:
 
-> On a held-out benchmark, at **equal worker-compute budget k**, does a **trace + analyst-findings-fed** driver, scored by a **sound non-oracle selector**, beat **blind random@k** selected by that *same* selector — by a statistically significant margin (n large enough for p < 0.05) that **survives test-retest of the selector**?
+> On a held-out benchmark, at **equal worker-compute budget** (`k` counts worker ROLLOUTS — each may be a full multi-turn/stateful trajectory, not a single shot), does a **trace + analyst-findings-fed** driver, scored by a **sound non-oracle selector**, beat **blind random@k** selected by that *same* selector — by a statistically significant margin (n large enough for p < 0.05) that **survives test-retest of the selector**?
 
-Until `refine@k-with-findings > random@k at equal k under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
+Until `refine@k-with-findings > random@k at equal compute under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
+
+**Gate A ≠ project success.** Gate A is the inner GO/NO-GO for *one* component (the within-run driver). The product-success gate is **Gate B** — a positive cross-run score-vs-run slope under a frozen-controller control ([learning-flywheel.md](./learning-flywheel.md)), which is currently **UNMEASURED** (cf. the zero cross-benchmark-transfer admission, §6). A failed Gate A deletes within-run steering; it never bears on Gate B.
 
 ---
 

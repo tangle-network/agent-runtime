@@ -7,8 +7,12 @@ Verified against source 2026-06-03 · agent-eval pinned `^0.76.0` (the optimizeP
 heldoutSignificance API is version-coupled).
 
 ## What this harness answers
-The decision gate (docs/roadmap-rsi.md): **does any non-blind topology beat blind compute
-at EQUAL k, under a DEPLOYABLE (non-oracle) selector, at significant n?**
+**Gate A** (docs/roadmap-rsi.md — the inner GO/NO-GO for the recursive-driver layer): **does any
+non-blind topology beat blind compute at EQUAL COMPUTE (Σ rollouts × turns — `k` counts rollouts,
+each may be multi-turn/stateful), under a DEPLOYABLE (non-oracle) selector, at significant n?**
+Gate A is the cost-justification for parallel/adaptive topology — **NOT** flywheel success (that is
+**Gate B**, the cross-run slope; see docs/learning-flywheel.md). The invariant is equal-COMPUTE, not
+equal-k-on-stateless-samples.
 - Within-run STEER (verify-and-revise family) **LOSES** (rung-0, n=40: blind 37.5% →
   random@3 60.0% → refineGepa@3 45.0%; the earlier +20pp was confounded compute).
 - On the COMMITTED finsearch corpus, the self-consistency selector also **loses**:

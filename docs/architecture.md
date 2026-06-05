@@ -190,11 +190,21 @@ adapter + the shared loop.
 - **Corpus:** every run, every benchmark, writes full `RunRecord`s
   (`state · steer · trace · output · verdict · cost`) to one durable, queryable
   store. This is the only improvement signal; boolean scorecards delete the fuel.
-- **External write-only judge:** the anchor against Goodhart. It is *never* an
-  input to steering/selection.
-- **Selector (distinct):** the deployable, learnable component that picks among
-  candidates at inference (vote / verifier-rerank). We currently fake this with
-  the judge ("any-pass") — an oracle that isn't available in deployment (§11).
+- **Three distinct checkers — keep them separate (this distinction is load-bearing):**
+  - **ORACLE** (the answer key / gold label / "any-pass"): knows the answer.
+    **Banned from BOTH selection AND steering** — using it is the cheat the gate guards against.
+    It is an eval-only upper bound (`oracle@k`), never available in deployment.
+  - **VERIFIER** (a sound *deployable* checker — unit tests, SQL/state verifiers, `adapter.judge`
+    when deployable): checks an answer without knowing it a priori. **ALLOWED in both selection and
+    in-loop steering/continuation** — this is exactly what depth/continuation needs (a worker checks
+    its own work and continues). selector ≠ oracle does NOT forbid the verifier.
+  - **WRITE-ONLY JUDGE** (the offline corpus scorer): the anchor against Goodhart.
+    **Banned from steering only** (the trace-derived-findings firewall) — it scores the corpus, it
+    never feeds a steer or a selection.
+- **Selector (distinct):** the deployable, learnable component that picks among candidates at
+  inference (vote / verifier-rerank). Today we still *fake* it with the oracle ("any-pass"), which
+  isn't available in deployment (§11) — replacing that fake with a real verifier-based selector is
+  the open work, not a reason to ban verifiers from the loop.
 
 ---
 
@@ -212,7 +222,11 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
 
 1. **Atom instance, inference-time.** Driver (`llm-call`, fed by a trace-analyst
    report) steers a worker over k shots; a **selector** picks the answer
-   (no oracle). Measure vs `random@k` **and SOTA** on FinSearchComp.
+   (no oracle). Measure vs `random@k` **and SOTA** on a **stateful, deployable-checker
+   bench** (EnterpriseOps-Gym / commit0 / swe-bench) — a domain that can exhibit depth.
+   FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
+   one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
+   result is bench-specific, not domain-general).
 2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
    beats compute-matched random.
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.

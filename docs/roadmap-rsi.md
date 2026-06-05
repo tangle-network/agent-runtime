@@ -4,9 +4,11 @@ Companion to [architecture.md](./architecture.md) (the spine) and [architecture-
 
 ## The principle: make it measurable before you build it
 
-Everything is gated on the decision gate from [architecture-interpretations.md §5](./architecture-interpretations.md#5-the-decision-gate):
+Building the recursive-driver layer is gated on **Gate A** (the inner GO/NO-GO) from [architecture-interpretations.md §5](./architecture-interpretations.md#5-the-decision-gate):
 
-> Build the adaptive driver only if, at **equal worker-compute k**, a **trace+findings-fed** driver scored by a **sound non-oracle selector** beats **random@k** selected by that *same* selector — significantly, and surviving selector test-retest.
+> Build the adaptive driver only if, at **equal worker-compute** (Σ rollouts × turns — `k` counts ROLLOUTS, each of which may be a full multi-turn/stateful trajectory), a **trace+findings-fed** driver scored by a **sound non-oracle selector** beats **random@k** selected by that *same* selector — significantly, and surviving selector test-retest.
+
+**Gate A is NOT the project-success criterion.** Project success is **Gate B** — the cross-run flywheel slope ([learning-flywheel.md](./learning-flywheel.md)). Gate A only decides whether the *within-run adaptive driver* is worth building; a failed Gate A deletes within-run steering, never the corpus+controller product.
 
 So the phases are ordered to make each step measurable on an honest baseline *before* the next is built. Build order: **honest baseline → the cheap win (selector) → wire the intelligence (analyses) → grow the language (ISA) → the use case (acquisition)**. The cleanup and doc tracks run in parallel because they are additive-safe.
 
@@ -18,7 +20,7 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 |---|---|---|---|---|
 | **0** | Honest baseline + preconditions (no kernel change) | — | Every runner reports `random@k` at equal k; corpus has a measurable discordant-pair rate | low |
 | **1** | Deployable non-oracle selector | 0 | `selector@k > random@k` significant (paired bootstrap + BH), low test-retest flip rate, on a frozen held-out split | low–med |
-| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **THE gate**: `refine@k-with-findings > random@k` at equal k under the Phase-1 selector, significant, survives test-retest | med |
+| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A** (inner GO/NO-GO for the recursive-driver layer): `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, significant, survives test-retest — NOT flywheel success (Gate B) | med |
 | **3** | Grow the ISA (`select` then `seq`) | 2 | A planner emitting `select`/`seq` beats the flat-ISA planner on the same harness | med (3a) / high (3b) |
 | **4** | Acquisition adapter (research use case) | 0, 1 (parallel to 2) | Active acquisition beats random acquisition on the deployable coverage-vs-budget curve under a *structural* gap signal | med–high |
 
@@ -53,7 +55,7 @@ The load-bearing edge. `PlannerContext` (`dynamic.ts:51-60`) carries only `{task
 - **Source it caller-side** (preferred over a kernel `analyze` hook, to keep `run-loop.ts` dependency-clean per CLAUDE.md): the caller builds `analyses` from `runAnalystLoop` output and threads it via the planner closure. Render it in `sandbox-planner.ts` `defaultBuildPrompt` (`:201-222`), `finsearch-loop.ts` `refinePlanner` (`:71-83`), and add an `analyses` param to `bench/src/refine-loop.ts`'s `prompt` fn (`:50`). Keep optional + fail-loud so `randomPlanner`/`fanout` compile unchanged.
 - **Measure** the analyses-fed planner as another treatment arm against the same `random@k` control and the Phase-1 selector.
 
-**Exit gate — the decision gate.** `refine@k-with-findings > random@k` at equal k under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop. Ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the steering machinery. The recursive-driver layer is unjustified overhead unless this clears.
+**Exit gate — Gate A (inner GO/NO-GO).** `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop building the *within-run recursive-driver layer* — ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the *steering machinery*. The recursive-driver layer is unjustified overhead unless this clears. **This is scoped to within-run steering only — it is NOT the flywheel-success criterion (Gate B, [learning-flywheel.md](./learning-flywheel.md)); a failed Gate A never deletes the corpus+controller product.**
 
 ## Phase 3 — Grow the ISA (program synthesis)
 

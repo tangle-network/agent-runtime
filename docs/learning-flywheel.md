@@ -19,6 +19,20 @@
 > feeds the corpus; the learnable structure emerges in the aggregate. The asset is the
 > corpus and the controller it trains — never any single result.
 
+> **Success — the one definition (Gate B).** The flywheel works iff, across repeated runs on a
+> persistent, checkable, long-horizon task family, the deployed controller's verifier-graded score
+> improves **run-over-run** (run N+1 starts above run N at **matched per-run compute**), the only
+> changed variable is that the controller learned from the accumulated corpus, the gain survives a
+> **frozen-controller control** (re-running an earlier controller shows no slope), it is significant
+> at adequate n (paired-bootstrap + BH), and it is graded by a **deployable checker** — never the
+> answer oracle or the write-only judge. This OUTER-loop slope is THE success criterion. The
+> within-run "trace+findings-fed controller beats the blind same-compute baseline under a non-oracle
+> selector at **equal compute**" question is a separate, narrower diagnostic — **Gate A**, the
+> GO/NO-GO for building the recursive-driver layer (see [roadmap-rsi.md](./roadmap-rsi.md)). A failed
+> Gate A deletes within-run steering only; it never touches this corpus+controller product. Equal
+> compute (Σ rollouts × turns per arm) is the anti-confound guard in both gates and is **silent on
+> statefulness**: the budget may be spent as one deep trajectory, K shallow attempts, or any mix.
+
 ## The flywheel
 
 ```
