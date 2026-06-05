@@ -169,7 +169,7 @@ export async function runLoop<Task, Output, Decision>(
   const lineageState = await setUpLineage(options, maxConcurrency)
 
   emitRunLoopHook(options, {
-    target: 'run-loop',
+    target: 'agent.run',
     phase: 'before',
     runId,
     timestamp: now(),
@@ -204,7 +204,7 @@ export async function runLoop<Task, Output, Decision>(
     while (iterations.length < maxIterations) {
       if (controller.signal.aborted) throwAbort()
       emitRunLoopHook(options, {
-        target: 'run-loop.plan',
+        target: 'agent.plan',
         phase: 'before',
         runId,
         timestamp: now(),
@@ -231,7 +231,7 @@ export async function runLoop<Task, Output, Decision>(
         planDesc?.kind ??
         (planned.length === 0 ? 'stop' : planned.length === 1 ? 'refine' : 'fanout')
       emitRunLoopHook(options, {
-        target: 'run-loop.plan',
+        target: 'agent.plan',
         phase: 'after',
         runId,
         timestamp: now(),
@@ -304,7 +304,7 @@ export async function runLoop<Task, Output, Decision>(
       if (controller.signal.aborted) throwAbort()
 
       emitRunLoopHook(options, {
-        target: 'run-loop.decision',
+        target: 'agent.decision',
         phase: 'before',
         runId,
         timestamp: now(),
@@ -313,7 +313,7 @@ export async function runLoop<Task, Output, Decision>(
       })
       const decision = await options.driver.decide(iterations)
       emitRunLoopHook(options, {
-        target: 'run-loop.decision',
+        target: 'agent.decision',
         phase: 'after',
         runId,
         timestamp: now(),
@@ -888,7 +888,7 @@ async function decideAndFinalize<Task, Output, Decision>(
   runId: string,
 ): Promise<LoopResult<Task, Output, Decision>> {
   emitRunLoopHook(options, {
-    target: 'run-loop.decision',
+    target: 'agent.decision',
     phase: 'before',
     runId,
     timestamp: now(),
@@ -896,7 +896,7 @@ async function decideAndFinalize<Task, Output, Decision>(
   })
   const decision = await options.driver.decide(iterations)
   emitRunLoopHook(options, {
-    target: 'run-loop.decision',
+    target: 'agent.decision',
     phase: 'after',
     runId,
     timestamp: now(),
@@ -923,7 +923,7 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
 ): Promise<LoopResult<Task, Output, Decision>> {
   const result = finalize({ options, decision, iterations, startMs, now, runId })
   emitRunLoopHook(options, {
-    target: 'run-loop',
+    target: 'agent.run',
     phase: 'after',
     runId,
     timestamp: now(),
@@ -999,7 +999,7 @@ function isTerminalDecision(decision: unknown): boolean {
 function emitRunLoopHook<Task, Output, Decision>(
   options: RunLoopOptions<Task, Output, Decision>,
   event: {
-    target: 'run-loop' | 'run-loop.plan' | 'run-loop.decision'
+    target: 'agent.run' | 'agent.plan' | 'agent.decision'
     phase: 'before' | 'after' | 'error' | 'event'
     runId: string
     timestamp: number
@@ -1019,6 +1019,7 @@ function emitRunLoopHook<Task, Output, Decision>(
       timestamp: event.timestamp,
       stepIndex: event.stepIndex,
       payload: event.payload,
+      metadata: { producer: 'run-loop' },
     },
     { signal: options.ctx.signal },
   )
