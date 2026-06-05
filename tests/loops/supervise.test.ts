@@ -179,6 +179,16 @@ describe('conserved budget pool', () => {
     expect(() => pool.reconcile(r.ticket, spend)).toThrow(/unknown or already-settled/)
   })
 
+  it('assertNoOpenTickets is the leak detector — throws while a ticket is open, passes once reconciled', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 100, label: '' } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(() => pool.assertNoOpenTickets()).toThrow(/reservation\(s\) still open/)
+    pool.reconcile(r.ticket, { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
   it('a usd request against an uncapped root is unsatisfiable (fail closed)', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.5, label: '' } as Budget)
@@ -271,6 +281,37 @@ describe('reactive scope', () => {
     const events = (await journal.loadTree('run')) as SpawnEvent[]
     const settledSeqs = events.filter((e) => e.kind === 'settled').map((e) => e.seq)
     expect(new Set(settledSeqs).size).toBe(settledSeqs.length)
+  })
+
+  it('a synchronous factory throw releases the reservation (no conserved-pool leak)', async () => {
+    // The leak window the codex audit flagged: reserve() runs, then the scope constructs the
+    // executor via the registry factory — if THAT throws, runChild (which reconciles the ticket)
+    // is never reached. The reservation must be released so total ≡ free + reserved + committed.
+    const boomRegistry = {
+      register() {
+        throw new Error('unused')
+      },
+      resolve() {
+        return {
+          succeeded: true as const,
+          value: () => {
+            throw new Error('factory boom')
+          },
+        }
+      },
+    } as unknown as Parameters<typeof createScope>[0]['executors']
+    const { scope, pool } = await beginScope({ executors: boomRegistry })
+    const agent = {
+      name: 'boom',
+      act: async () => 0,
+      executorSpec: { profile: {} as AgentProfile, harness: null },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    expect(() =>
+      scope.spawn(agent, 'task', { budget: { maxIterations: 1, maxTokens: 100 }, label: 'boom' }),
+    ).toThrow(/factory boom/)
+    expect(pool.readout().tokensLeft).toBe(100_000)
+    expect(pool.readout().reservedTokens).toBe(0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 
   it('send() steers a LIVE child via its inbox; false for settled / unknown / no-inbox', async () => {

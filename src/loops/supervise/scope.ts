@@ -151,78 +151,88 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const reservation = args.pool.reserve(opts.budget)
     if (!reservation.ok) return { ok: false, reason: reservation.reason }
 
-    const ordinal = spawnOrdinal++
-    const id: NodeId = `${args.parentId}:s${ordinal}`
+    // Everything between reserve and runChild's hand-off owns the reservation. A SYNCHRONOUS
+    // throw here (most likely the executor factory `resolved.value(spec, ctx)`) would otherwise
+    // leak the reservation — runChild, which reconciles the ticket, is never reached. Release it
+    // with zero spend on throw, then rethrow, so `total ≡ free + reserved + committed` holds.
+    // (runChild is the last statement and never sync-throws, so there is no double-reconcile.)
+    try {
+      const ordinal = spawnOrdinal++
+      const id: NodeId = `${args.parentId}:s${ordinal}`
 
-    // The child's abort chains off this scope's signal (a scope abort reaps every child)
-    // AND off its own handle.abort(). Aborting mid-acquire cascades through the executor's
-    // signal into its acquireSandbox find-by-name reap, so an acquiring node never leaks.
-    const childAbort = new AbortController()
-    const cascadeAbort = () => childAbort.abort()
-    if (args.signal.aborted) childAbort.abort()
-    else args.signal.addEventListener('abort', cascadeAbort, { once: true })
+      // The child's abort chains off this scope's signal (a scope abort reaps every child)
+      // AND off its own handle.abort(). Aborting mid-acquire cascades through the executor's
+      // signal into its acquireSandbox find-by-name reap, so an acquiring node never leaks.
+      const childAbort = new AbortController()
+      const cascadeAbort = () => childAbort.abort()
+      if (args.signal.aborted) childAbort.abort()
+      else args.signal.addEventListener('abort', cascadeAbort, { once: true })
 
-    const ctx: ExecutorContext = { signal: childAbort.signal, seams: args.seams }
-    const executor = resolved.value(spec, ctx) as LeafExecutor<C>
+      const ctx: ExecutorContext = { signal: childAbort.signal, seams: args.seams }
+      const executor = resolved.value(spec, ctx) as LeafExecutor<C>
 
-    const handle: Handle<C> = {
-      id,
-      label: opts.label,
-      get status(): NodeStatus {
-        return children.get(id)?.status ?? 'cancelled'
-      },
-      abort(reason?: string): void {
-        childAbort.abort(reason)
-      },
-    }
+      const handle: Handle<C> = {
+        id,
+        label: opts.label,
+        get status(): NodeStatus {
+          return children.get(id)?.status ?? 'cancelled'
+        },
+        abort(reason?: string): void {
+          childAbort.abort(reason)
+        },
+      }
 
-    const live: LiveChild = {
-      id,
-      status: 'acquiring',
-      runtime: executor.runtime,
-      budget: opts.budget,
-      label: opts.label,
-      spent: zeroSpend(),
-      settled: undefined as unknown as Promise<PreSeqSettled>,
-      delivered: false,
-      ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
-    }
-    children.set(id, live)
+      const live: LiveChild = {
+        id,
+        status: 'acquiring',
+        runtime: executor.runtime,
+        budget: opts.budget,
+        label: opts.label,
+        spent: zeroSpend(),
+        settled: undefined as unknown as Promise<PreSeqSettled>,
+        delivered: false,
+        ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
+      }
+      children.set(id, live)
 
-    void args.journal.appendEvent(args.root, {
-      kind: 'spawned',
-      id,
-      parent: args.parentId,
-      label: opts.label,
-      budget: opts.budget,
-      runtime: executor.runtime,
-      seq: ordinal,
-      at: new Date(now()).toISOString(),
-    })
-
-    // Drive the executor to settlement off to the side; `next()` awaits the resulting
-    // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
-    // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
-    const settled = runChild(
-      live,
-      executor,
-      childAbort,
-      task,
-      opts,
-      args.pool,
-      reservation.ticket,
-      args.blobs,
-    )
-      .then((s) => {
-        live.resolved = s
-        return s
+      void args.journal.appendEvent(args.root, {
+        kind: 'spawned',
+        id,
+        parent: args.parentId,
+        label: opts.label,
+        budget: opts.budget,
+        runtime: executor.runtime,
+        seq: ordinal,
+        at: new Date(now()).toISOString(),
       })
-      .finally(() => {
-        args.signal.removeEventListener('abort', cascadeAbort)
-      })
-    ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
 
-    return { ok: true, handle }
+      // Drive the executor to settlement off to the side; `next()` awaits the resulting
+      // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
+      // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
+      const settled = runChild(
+        live,
+        executor,
+        childAbort,
+        task,
+        opts,
+        args.pool,
+        reservation.ticket,
+        args.blobs,
+      )
+        .then((s) => {
+          live.resolved = s
+          return s
+        })
+        .finally(() => {
+          args.signal.removeEventListener('abort', cascadeAbort)
+        })
+      ;(live as { settled: Promise<PreSeqSettled> }).settled = settled
+
+      return { ok: true, handle }
+    } catch (err) {
+      args.pool.reconcile(reservation.ticket, zeroSpend())
+      throw err
+    }
   }
 
   async function next(): Promise<Settled<Out> | null> {

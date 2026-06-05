@@ -158,6 +158,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
 
     const tree = scope.view
     if (actOutcome.ok) {
+      // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
+      // would silently corrupt the conserved spend total, so fail loud here — on the success path
+      // only, where the act() error precedence does not apply.
+      pool.assertNoOpenTickets()
       // The driver synthesized a winner. Content-address it for the replay `outRef`, put
       // it once, and sum the conserved spend off every journaled settlement. No
       // re-ranking — the driver already selected.

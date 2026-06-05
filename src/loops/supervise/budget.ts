@@ -66,6 +66,10 @@ export interface BudgetPool {
   spendFrom(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend>
   /** The current readout, reflecting all outstanding reservations. */
   readout(): BudgetReadout
+  /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
+   *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
+   *  reservation would silently break `total ≡ free + reserved + committed`). */
+  assertNoOpenTickets(): void
 }
 
 /** Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
@@ -224,10 +228,19 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     }
   }
 
+  function assertNoOpenTickets(): void {
+    if (open.size > 0) {
+      throw new Error(
+        `budget pool: ${open.size} reservation(s) still open at join barrier (leaked ticket ids: ${[...open].join(', ')}) — conserved-pool invariant violated`,
+      )
+    }
+  }
+
   return {
     reserve,
     reconcile,
     spendFrom: foldUsage,
     readout,
+    assertNoOpenTickets,
   }
 }
