@@ -20,7 +20,20 @@ within-run adaptive-driver layer): **does any non-blind topology beat blind comp
 (non-oracle) selector, at significant n?** Gate A is a **narrow diagnostic** — the cost-justification
 for parallel/adaptive topology, **NOT** the product verdict. A failed Gate A deletes within-run
 steering only; it never touches the corpus+policy product (Gate B). The invariant is equal-COMPUTE,
-not equal-k-on-stateless-samples. Two things to keep straight: today's judges grade a single
+not equal-k-on-stateless-samples.
+
+**Terminology (one word, used consistently).** A **rollout** (≡ a "shot") is ONE agent running an
+`AgentProfile` to completion — a full, possibly **multi-turn / stateful** trajectory. `k` counts
+*rollouts*; **turns live *inside* a rollout**, never as separate shots. A single **stateless
+completion** (`maxTurns=0`, `harness: null`, one model call, no persistent workspace) is the
+*degenerate* rollout — fine as a selector **lower bound**, never the canonical unit. The HumanEval
+probe (`bench/src/humaneval-gate.mts`) uses exactly that degenerate shape — it calls the router
+directly and does **not** route through `AgentProfile` / the sandbox / the keystone — so its numbers
+are the **no-self-correction lower bound** on the selector, distinct from the rollout-based keystone
+gate above. Bridge it to the product by running the same arms with real rollouts (an `AgentProfile`
+through `runLoop`), dialing `maxTurns`.
+
+Two things to keep straight: today's judges grade a single
 *correctness* scalar (the multi-objective vector is the open contract, architecture.md §6), and every
 number below is single-objective + within-run — read them as Gate-A diagnostics, not Gate-B results.
 - Within-run STEER (verify-and-revise family) **LOSES** (rung-0, n=40: blind 37.5% →

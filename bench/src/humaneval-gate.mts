@@ -10,9 +10,19 @@
  * keeps a passer. This file asks: at EQUAL k, does diverse@k + a deployable
  * verifier-grounded pick beat random@k + the same pick, and beat blind@1?
  *
- * Two paired arms over the SAME tasks:
- *   random@K  — K identical-base-prompt shots/task (the compute control)
- *   diverse@K — K shots, the i-th prefixed with composeStrategies(base, K)[i]
+ * SCOPE — read the numbers as a LOWER BOUND. Here a "shot" is a single STATELESS
+ * completion (one router call, `maxTurns=0`, NO `AgentProfile` / sandbox / keystone —
+ * it calls the router directly). That is the *degenerate* rollout (HARNESS.md's
+ * "Terminology"): it isolates the SELECTOR with the generator unable to self-correct,
+ * so it measures the selector's value at its MAXIMUM. A real rollout (an `AgentProfile`
+ * through `runLoop`, `maxTurns>0` over a persistent workspace) self-verifies by
+ * iterating, which shrinks the external selector's job — that is the next experiment,
+ * not this one. A positive result here is the science (the selector works in a
+ * deployable-checker regime), not the product.
+ *
+ * Two paired arms over the SAME tasks (each "shot" = one stateless completion):
+ *   random@K  — K identical-base-prompt completions/task (the compute control)
+ *   diverse@K — K completions, the i-th prefixed with composeStrategies(base, K)[i]
  *
  * The DEPLOYABLE CHECKER runs each candidate against the task's own `test` in an
  * isolated `--network=none` python:3.12-slim container (hard timeout) — exit 0 = pass.
@@ -266,6 +276,9 @@ async function main(): Promise<void> {
 
   console.log(`=== HumanEval deployable-verifier gate · N=${n} K=${k} offset=${offset} model=${model} ===`)
   console.log(`  router=${routerBaseUrl}  docker=${dockerImage} (--network=none, timeout ${dockerTimeoutMs}ms)`)
+  console.log(
+    '  regime: STATELESS single completions (maxTurns=0, no AgentProfile/sandbox) — the selector no-self-correction LOWER BOUND, not a rollout/product number',
+  )
 
   const tasks = await loadHumanEval(n, offset)
   console.log(`loaded ${tasks.length} HumanEval task(s): ${tasks.map((t) => t.taskId).join(', ')}`)
