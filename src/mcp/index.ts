@@ -118,6 +118,12 @@ export {
   DELEGATION_STATUS_TOOL_NAME,
   validateDelegationStatusArgs,
 } from './tools/delegation-status'
+export {
+  createOperatorToolbox,
+  type MakeWorkerAgent,
+  type OperatorToolbox,
+  type OperatorToolboxOptions,
+} from './tools/operator-toolbox'
 export type { TraceContext } from './trace-propagation'
 export {
   createPropagatingTraceEmitter,
