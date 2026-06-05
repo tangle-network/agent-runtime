@@ -27,6 +27,7 @@ import type {
   UsageEvent,
   WidenGate,
 } from '../../src/runtime/supervise/types'
+import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
 // ── The mock LeafExecutor — the whole keystone runs offline against this ─────────
 //
@@ -127,6 +128,7 @@ function scopeArgs(over: Partial<Parameters<typeof createScope>[0]> = {}) {
       maxDepth: over.maxDepth,
       signal: over.signal ?? new AbortController().signal,
       now: over.now ?? (() => 0),
+      hooks: over.hooks,
     },
     pool,
     journal,
@@ -867,6 +869,85 @@ describe('replay determinism', () => {
     await expect(replaySpawnTree(journal, new InMemoryResultBlobStore(), 'gap')).rejects.toThrow(
       /no artifact for outRef/,
     )
+  })
+})
+
+// ── 9. one observable tree — spawn/settle ride the lifecycle hook stream ─────────
+//
+// The recursive tree is observable through the SAME `RuntimeHooks` stream `runLoop`/
+// `tool-loop` feed: `scope.spawn` emits `agent.spawn`, the settle cursor emits
+// `agent.child`. This is what the topology viewer reads — without it the tree is only
+// in the journal (replay-only, not live). The journal stays the durable record; the
+// hook stream is the live projection. Both must agree.
+
+describe('lifecycle hook stream (the topology viewer source)', () => {
+  it('emits agent.spawn at spawn and agent.child at settle, with parent/child + status', async () => {
+    const events: RuntimeHookEvent[] = []
+    const { scope } = await beginScope({
+      root: 'run',
+      parentId: 'run',
+      hooks: { onEvent: (e) => void events.push(e) },
+    })
+
+    scope.spawn(
+      leafAgent('ok', {
+        out: 'A',
+        events: tokensOnly(1, 1, 1),
+        verdict: { score: 0.9, valid: true },
+      }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 100 },
+        label: 'winner',
+      },
+    )
+    scope.spawn(leafAgent('boom', { out: null, events: [], failWith: 'leaf exploded' }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'loser',
+    })
+    for (let s = await scope.next(); s !== null; s = await scope.next()) {
+      /* drain — settling is what fires agent.child */
+    }
+
+    const spawns = events.filter((e) => e.target === 'agent.spawn')
+    const settles = events.filter((e) => e.target === 'agent.child')
+    expect(spawns).toHaveLength(2)
+    expect(settles).toHaveLength(2)
+
+    // Every event carries the run id, the tree parent, and the child it is about.
+    for (const e of [...spawns, ...settles]) {
+      expect(e.runId).toBe('run')
+      expect(e.parentId).toBe('run')
+      expect(e.phase).toBe('after')
+      expect((e.payload as { childId: string }).childId).toMatch(/^run:s\d+$/)
+    }
+    // spawn payload names the runtime + label so the viewer can draw the node before it settles.
+    expect(spawns.map((e) => (e.payload as { label: string }).label).sort()).toEqual([
+      'loser',
+      'winner',
+    ])
+    // child payload carries the terminal status the viewer colors the node by.
+    const byStatus = Object.fromEntries(
+      settles.map((e) => [
+        (e.payload as { status: string }).status,
+        e.payload as Record<string, unknown>,
+      ]),
+    )
+    expect(byStatus.done).toMatchObject({ status: 'done', score: 0.9, valid: true })
+    expect(byStatus.down).toMatchObject({ status: 'down', reason: 'leaf exploded' })
+  })
+
+  it('stays silent (journal-only) when no hooks are wired', async () => {
+    const { scope, journal } = await beginScope({ root: 'run', parentId: 'run' })
+    scope.spawn(leafAgent('solo', { out: 1, events: tokensOnly(1, 1, 1) }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'solo',
+    })
+    await scope.next()
+    // No hooks ⇒ no throw, and the journal still recorded the lifecycle (the durable record).
+    const recorded = (await journal.loadTree('run')) ?? []
+    expect(recorded.some((e) => e.kind === 'spawned')).toBe(true)
+    expect(recorded.some((e) => e.kind === 'settled')).toBe(true)
   })
 })
 

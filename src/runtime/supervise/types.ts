@@ -26,6 +26,7 @@
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type { AgentProfile, BackendType } from '@tangle-network/sandbox'
+import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
@@ -404,6 +405,9 @@ export interface SupervisorOpts {
   readonly withinMs?: number
   readonly now?: () => number
   readonly signal?: AbortSignal
+  /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
+   *  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree. */
+  readonly hooks?: RuntimeHooks
 }
 
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */

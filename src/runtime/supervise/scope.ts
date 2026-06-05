@@ -26,6 +26,7 @@
 
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
+import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import type { BudgetPool, ReservationTicket } from './budget'
 import type {
@@ -77,6 +78,10 @@ export interface ScopeArgs {
   readonly signal: AbortSignal
   /** Injected clock — keeps the journal `at` timestamp deterministic in tests. */
   readonly now?: () => number
+  /** Lifecycle stream sink. `spawn` emits `agent.spawn`, `next` emits `agent.child` — the
+   *  SAME stream `runLoop`/`tool-loop` feed, so the recursive tree is ONE observable stream
+   *  (the topology viewer reads it). Undefined ⇒ the journal stays the only record. */
+  readonly hooks?: RuntimeHooks
 }
 
 /**
@@ -206,6 +211,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         at: new Date(now()).toISOString(),
       })
 
+      notifyRuntimeHookEvent(
+        args.hooks,
+        {
+          id: `${id}:spawn`,
+          runId: args.root,
+          target: 'agent.spawn',
+          phase: 'after',
+          timestamp: now(),
+          stepIndex: ordinal,
+          parentId: args.parentId,
+          payload: {
+            childId: id,
+            label: opts.label,
+            runtime: executor.runtime,
+            budget: opts.budget,
+            depth: args.depth,
+          },
+        },
+        { signal: args.signal },
+      )
+
       // Drive the executor to settlement off to the side; `next()` awaits the resulting
       // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
       // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
@@ -311,6 +337,26 @@ async function finalizeSettlement<Out>(
       seq,
       at: new Date(now()).toISOString(),
     })
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${child.id}:settled`,
+        runId: args.root,
+        target: 'agent.child',
+        phase: 'after',
+        timestamp: now(),
+        stepIndex: seq,
+        parentId: args.parentId,
+        payload: {
+          childId: child.id,
+          status: 'down',
+          reason: settlement.reason,
+          infra: settlement.infra,
+          spent: child.spent,
+        },
+      },
+      { signal: args.signal },
+    )
     return {
       kind: 'down',
       handle,
@@ -334,6 +380,27 @@ async function finalizeSettlement<Out>(
     seq,
     at: new Date(now()).toISOString(),
   })
+  notifyRuntimeHookEvent(
+    args.hooks,
+    {
+      id: `${child.id}:settled`,
+      runId: args.root,
+      target: 'agent.child',
+      phase: 'after',
+      timestamp: now(),
+      stepIndex: seq,
+      parentId: args.parentId,
+      payload: {
+        childId: child.id,
+        status: 'done',
+        outRef: settlement.outRef,
+        score: settlement.verdict?.score,
+        valid: settlement.verdict?.valid,
+        spent: settlement.spent,
+      },
+    },
+    { signal: args.signal },
+  )
   return {
     kind: 'done',
     handle,

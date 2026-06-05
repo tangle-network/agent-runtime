@@ -1,8 +1,8 @@
 # Architecture — The Spine
 
-> **One recursive agent tree. Two timescales. Many benchmarks.**
+> **One recursive agent tree. Every node makes a multi-objective decision. Two timescales — and the across-run policy curve is the product.**
 >
-> Canonical as of **2026-06-03**. This doc is the single spine that unifies
+> Canonical as of **2026-06-05**. This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and
 > `@tangle-network/agent-eval` `docs/design/self-improvement-engine.md` (the
 > optimization-time engine). Where this conflicts with an older doc, **this
@@ -11,7 +11,7 @@
 > write an adapter, never a new loop.**
 >
 > **Status — built vs slop (verified against `origin/main`, 2026-06-05).** The
-> *product core* is real: the recursive agent tree (`src/loops/supervise/` — `Agent.act`
+> *product core* is real: the recursive agent tree (`src/runtime/supervise/` — `Agent.act`
 > in a `Scope`, `scope.spawn`, settle, journal→replay/resume), the sandbox seam
 > (`LoopSandboxClient` + the sandbox `LeafExecutor`, injectable/swappable), the steering
 > MCP (`operator-toolbox`), the corpus + external judge, and the lifecycle hook stream
@@ -58,7 +58,39 @@ Two things forced this doc:
 
 ---
 
-## 1. The atom — one agent, spawned recursively
+## 0.5 What we are building, and what "better" means (the four claims)
+
+Four claims define the system. The sections below are mechanism in service of these;
+if a section drifts from one of these, the claim wins and the section is wrong.
+
+1. **The atom is a decision, not a spawn.** At every level an agent faces the same
+   question: given the solution so far, the feedback so far, and the budget left, what
+   is the best next move — *keep working · branch · split · get a second opinion · run
+   a check · stop*? Spawning a child is **one** of those moves, never the primitive.
+   The recursion is decisions all the way down (§1).
+2. **"Best" is a vector, not a scalar.** A good result is correct AND fast AND secure
+   AND cheap. Success is **multi-objective**; we do not collapse it to one number until
+   forced to. Today every judge returns a single `score` — that is the **gap to close**,
+   not the design (§6, §5).
+3. **Each objective carries its own checker — that is what makes this trainable.**
+   *Fastest* is graded by a clock, *most secure* by a scanner, *correct* by the tests.
+   The objective **is** a deployable verifier (§1's *verifier*, distinct from the oracle
+   and the write-only judge). So the loop has honest, cheap signal at every step, on real
+   work, **without an answer key** — that is the gift the multi-objective framing buys,
+   and the reason depth/continuation has something sound to steer on.
+4. **The improvement that counts is the policy getting better across runs.** Two things
+   improve on two clocks (§2). *Within* a run the **solution** climbs (the artifact gets
+   better round over round). *Across* runs the **decision policy** climbs — it remembers
+   which decisions, on which kinds of problems, produced good multi-objective outcomes,
+   and chooses better next time. **That across-run curve is RSI, and it is THE success
+   criterion** (Gate B — defined in [learning-flywheel.md](./learning-flywheel.md), §2
+   here). A single within-run result beating a blind baseline at equal compute (Gate A)
+   is **one narrow diagnostic**, not the goal — do not read it as the verdict on the
+   product.
+
+---
+
+## 1. The atom — one agent, one decision, recursively
 
 There is exactly one primitive: an **agent** = an `AgentProfile` (who/what it is) +
 a **harness** (how it runs — a coding harness in a sandbox: claude-code / codex /
@@ -68,11 +100,13 @@ opencode), executing inside a **`Scope`**. `driver`, `worker`, `selector`,
 The harness already owns the loop, tool-calling, sub-agent spawning, and the native
 idioms (*parallelize*, *ultrathink*, *dynamic-workflow*). **We do not write an
 execution loop or a topology DSL.** An agent does one thing the runtime cares about:
-it **calls a tool**. One tool — `spawn`, carried over **MCP** — creates a **child
-agent** (its own profile + harness, its own `Scope`). The child runs its own agentic
-process; the parent **observes / steers / resumes** it through the same MCP, in
-**natural language**. Topology is not an opcode set — it **emerges** from spawn/steer
-calls:
+at each step it **makes a decision** — keep working · branch · split · get a second
+opinion · run a check · stop — and acts on it (§0.5.1). The decision that *grows the
+tree* is `spawn`, carried over **MCP**: it creates a **child agent** (its own profile
++ harness, its own `Scope`). The child runs its own agentic process; the parent
+**observes / steers / resumes** it through the same MCP, in **natural language**.
+Spawn is one move among several, so topology is not an opcode set — it **emerges** from
+the decisions:
 
 ```
 a loop          = an agent that steers ONE child across turns
@@ -85,7 +119,7 @@ driver-of-driver = a child whose profile is itself a coordinator — free, by re
 resumable. **This recursive execution tree IS the product.** The three things we own
 are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
 `define_check · run_check`); (2) the **profiles** (markdown — the only customization;
-"Drew" is one); (3) the **orchestrator** (`src/loops/supervise/` — `Scope` + the
+"Drew" is one); (3) the **orchestrator** (`src/runtime/supervise/` — `Scope` + the
 conserved budget pool that makes equal-compute true for the experiment). `runLoop` /
 `toolLoop` are **one execution backend each, not the center** — they, MCP delegation,
 and `Scope.spawn` all *produce* the same lifecycle stream (§1b).
@@ -108,14 +142,15 @@ an analyst may not cite the score/verdict metric; `assertTraceDerivedFindings`.)
 
 Every execution backend emits one **agent-centric event stream** (`src/runtime-hooks.ts`,
 merged #162/#163): targets `agent.{run, turn, tool_call, spawn, child, plan, decision}`
-× phases `{before, after, error, event}`. `runLoop`, `toolLoop`, and (to wire) the
-`Scope` spawn/settle boundary are **producers**; developers attach via
+× phases `{before, after, error, event}`. `runLoop`, `toolLoop`, **and the `Scope`
+spawn/settle boundary** are **producers** — `Scope.spawn` emits `agent.spawn` (child id,
+label, runtime, budget, depth) and the settle cursor emits `agent.child` (status, score,
+reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
 `defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
 on the `AgentProfile`, never coupled to one backend. This single stream is the
 opencode-style extension surface *and* what the **topology visualization** consumes: the
-live tree of agents, each node's steps + child count, drill into any agent's stream.
-**Open gap:** `Scope.spawn`/settle still emit only the internal journal events
-(`SpawnEvent`) — unify those with the hook targets so the recursive tree is one stream.
+live tree of agents, each node's steps + child count, drill into any agent's stream. The
+journal stays the durable record; the hook stream is its live projection (both agree).
 
 ---
 
@@ -138,6 +173,22 @@ propose`. The recursive `Agent` makes them the **same node** at different
 settings: `act→Program` is an ephemeral inference-steer **or** a persisted
 surface candidate. **The gap we must close: run the ANALYZE→PROPOSE intelligence
 at inference-time, on benchmarks** — not only at optimization-time.
+
+**Which curve is success (read this before you read the gate numbers in §11).** The
+inference-time column makes the **solution** climb within a run; the optimization-time
+column makes the **decision policy** climb across runs — and *that across-run slope is
+the success criterion*. Concretely (**Gate B**, defined in
+[learning-flywheel.md](./learning-flywheel.md)): across repeated runs on a persistent,
+checkable task family, the deployed policy's verifier-graded multi-objective score
+improves run-over-run at matched per-run compute, the only changed variable is that the
+policy learned from the accumulated corpus, it survives a frozen-policy control, and it
+is significant at adequate n under a deployable checker. The within-run question — *does
+a trace-fed driver beat a blind same-compute baseline under a non-oracle selector at
+equal compute* (**Gate A**) — is a **separate, narrower diagnostic** that only decides
+whether the within-run adaptive layer is worth building; a failed Gate A deletes
+within-run steering, never the corpus+policy product. The §11 equal-k selection numbers
+are Gate-A diagnostics — they are **not** a verdict on Gate B, which the harness has not
+yet run.
 
 ---
 
@@ -182,8 +233,13 @@ judge and a steer only behind this firewall.
 The optimizer `O` improves any `Agent`'s `context`+prompt and the `Program` shape,
 from the shared corpus, **held-out gated** (train ∩ holdout = ∅, enforced in
 `runImprovementLoop`). This is the **outer flywheel**: the controller is learned,
-not hand-written. Optimize for **correctness AND clean/fast trace** (Pareto), with
-the external judge as the fixed anchor so the recursion can't Goodhart.
+not hand-written. Optimize against the **multi-objective vector** (§0.5.2) — *correct,
+fast, secure, cheap* — Pareto, **not** a pre-collapsed scalar; each component is graded
+by its own deployable checker (tests · clock · scanner · cost meter), with the external
+write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
+Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
+`adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
+the optimizer can trade objectives honestly.
 
 ---
 
@@ -196,7 +252,13 @@ the external judge as the fixed anchor so the recursion can't Goodhart.
 An adapter supplies exactly:
 - **task loader** (`loadTasks`),
 - **worker profile** (the agent + sandbox backend that does the task),
-- **judge** (deterministic, or verified-stable LLM; external/write-only),
+- **judge** (deterministic, or verified-stable LLM; external/write-only). Today it
+  returns a single `{resolved, score}` on the *correctness* axis. The target contract is
+  a **verdict vector** — one component per objective the task exposes (correctness via
+  tests, latency via a clock, safety via a scanner, cost via the meter), each its own
+  deployable checker (§0.5.2-3). Where a bench only has correctness, the vector is
+  length-1; that is a property of the bench, not a reason to bake the scalar into the
+  spine.
 - **SOTA reference** (the number/method we must beat).
 
 Everything else is the shared spine. This is the rule that kills *"built once,

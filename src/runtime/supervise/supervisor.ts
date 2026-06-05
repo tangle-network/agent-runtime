@@ -127,6 +127,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       maxDepth: opts.maxDepth ?? defaultMaxDepth,
       signal: controller.signal,
       now,
+      hooks: opts.hooks,
     })
 
     // `view`/drain read the scope opaquely (`Out` erased) — the supervisor never `spawn`s
