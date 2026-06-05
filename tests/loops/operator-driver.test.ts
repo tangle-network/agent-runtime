@@ -131,6 +131,53 @@ describe('operator driver (live, through the real Supervisor)', () => {
     expect(out.stopReason).toBe('best collected')
   })
 
+  it('maxWorkers is a HARD equal-k cap — spawns past it are rejected even when the pool has budget', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const spawnResults: Array<Record<string, unknown>> = []
+    const driver = createOperatorDriverAgent({
+      systemPrompt: 'You lead workers.',
+      describeTask: () => 'go',
+      chat: scriptedChat([
+        [
+          { name: 'spawn_worker', args: { profile: {}, task: { score: 0.3 } } },
+          { name: 'spawn_worker', args: { profile: {}, task: { score: 0.5 } } },
+          { name: 'spawn_worker', args: { profile: {}, task: { score: 0.7 } } }, // over the cap of 2
+        ],
+        [{ name: 'await_next', args: {} }],
+        [{ name: 'await_next', args: {} }],
+        [{ name: 'stop', args: { reason: 'done' } }],
+      ]),
+      blobs,
+      makeWorkerAgent: () => workerAgent(),
+      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      maxTurns: 8,
+      maxWorkers: 2,
+      onStep: (s) => {
+        for (const c of s.calls)
+          if (c.name === 'spawn_worker') spawnResults.push(c.result as Record<string, unknown>)
+      },
+    })
+    const result = await createSupervisor<unknown, unknown>().run(
+      driver,
+      {},
+      {
+        // Pool is large enough for all three — only maxWorkers should stop the 3rd.
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'op-maxworkers',
+        journal: new InMemorySpawnJournal(),
+        blobs,
+        executors: stubWorkerRegistry(),
+      },
+    )
+    expect(result.kind).toBe('winner')
+    expect(spawnResults.filter((r) => 'workerId' in r)).toHaveLength(2)
+    const failed = spawnResults.filter((r) => 'error' in r)
+    expect(failed).toHaveLength(1)
+    expect(String(failed[0]?.error)).toMatch(/worker cap reached/)
+    // The two admitted workers' best verdict is still selected.
+    expect((result.out as { score: number }).score).toBe(0.5)
+  })
+
   it('fails closed: a spawn past the conserved pool returns budget-exhausted (equal-k holds for an LLM driver)', async () => {
     const blobs = new InMemoryResultBlobStore()
     const spawnResults: Array<Record<string, unknown>> = []

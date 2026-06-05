@@ -122,6 +122,7 @@ async function runOperator(cfg: RouterConfig, surface: AgenticSurface, task: Age
     perWorker: { maxIterations: (opts.innerTurns ?? 4) + 2, maxTokens: 2_000_000 } as Budget,
     maxTurns: k * 3 + 6,
     minWorkersBeforeStop: 1,
+    maxWorkers: k, // HARD equal-k: exactly ≤K rollouts, regardless of refund-driven readmission
     analystKinds: Object.values(defaultAnalystKinds).map((kk) => ({ id: kk.id, description: kk.description, area: kk.area })),
     runAnalyst: (kind, trace) => analystRunner(kind, trace, new Date().toISOString()),
   })
@@ -183,10 +184,37 @@ async function main(): Promise<void> {
   const b = mean((r) => r.breadth)
   const oRes = mean((r) => (r.op.resolved ? 1 : 0))
   const bRes = mean((r) => (r.bResolved ? 1 : 0))
+  // Paired sign test over the score-discordant tasks (the only ones that carry signal).
+  const eps = 1e-9
+  let wins = 0
+  let losses = 0
+  for (const r of rows) {
+    if (r.op.score > r.breadth + eps) wins += 1
+    else if (r.breadth > r.op.score + eps) losses += 1
+  }
+  const disc = wins + losses
+  const p = twoSidedSignP(wins, disc)
+  const maxWorkers = Math.max(...rows.map((r) => r.op.workersUsed))
   console.log(`\n=== n=${rows.length} · K=${k} ===`)
-  console.log(`OPERATOR (adaptive, analyst-steered): score ${(o * 100).toFixed(1)}%  resolve ${(oRes * 100).toFixed(1)}%  (mean ${mean((r) => r.op.workersUsed).toFixed(1)} workers/task, ${Math.round(mean((r) => r.op.coordTokens))} coordTok/task)`)
+  console.log(`OPERATOR (adaptive, analyst-steered): score ${(o * 100).toFixed(1)}%  resolve ${(oRes * 100).toFixed(1)}%  (mean ${mean((r) => r.op.workersUsed).toFixed(1)} workers/task, max ${maxWorkers}, ${Math.round(mean((r) => r.op.coordTokens))} coordTok/task)`)
   console.log(`BREADTH  (blind best-of-K):           score ${(b * 100).toFixed(1)}%  resolve ${(bRes * 100).toFixed(1)}%`)
-  console.log(`VERDICT: operator ${o >= b ? 'BEATS' : 'loses to'} breadth by ${((o - b) * 100).toFixed(1)}pp (score), ${((oRes - bRes) * 100).toFixed(1)}pp (resolve)`)
+  console.log(`PAIRED: ${wins} win / ${losses} loss / ${rows.length - disc} tie  ·  sign-test p=${p.toFixed(3)} (n_disc=${disc})`)
+  console.log(`VERDICT: operator ${o >= b ? 'BEATS' : 'loses to'} breadth by ${((o - b) * 100).toFixed(1)}pp (score), ${((oRes - bRes) * 100).toFixed(1)}pp (resolve) — coordination tax ${Math.round(mean((r) => r.op.coordTokens))} tok/task is operator overhead (worker-K is equal)`)
+}
+
+/** Two-sided exact binomial sign-test p-value: P(|X - n/2| >= |wins - n/2|) under X~Bin(n, 0.5). */
+function twoSidedSignP(wins: number, n: number): number {
+  if (n === 0) return 1
+  const choose = (a: number, b: number): number => {
+    let r = 1
+    for (let i = 0; i < b; i += 1) r = (r * (a - i)) / (i + 1)
+    return r
+  }
+  const pmf = (kk: number) => choose(n, kk) * 0.5 ** n
+  const obs = pmf(wins)
+  let p = 0
+  for (let kk = 0; kk <= n; kk += 1) if (pmf(kk) <= obs + 1e-12) p += pmf(kk)
+  return Math.min(1, p)
 }
 
 main().catch((e) => {

@@ -75,6 +75,11 @@ export interface OperatorDriverOptions {
   /** Reject `stop` until at least this many workers have settled `done` — an operator cannot ship
    *  nothing. Default 0 (a driver may legitimately stop with no work). Set ≥1 to force a real attempt. */
   readonly minWorkersBeforeStop?: number
+  /** Hard cap on SUCCESSFUL spawns — `spawn_worker` past it returns a typed cap error (the handler
+   *  is not called). Enforces exactly-K rollouts for an equal-k comparison, independent of whether
+   *  short workers refund budget and the conserved pool would otherwise readmit. Default: uncapped
+   *  (the conserved pool is the only bound). */
+  readonly maxWorkers?: number
   /** Consecutive bare (no-tool-call) turns tolerated before the run ends as a no-winner. Default 3. */
   readonly maxBareTurns?: number
   /** Optional per-turn observability hook (the driver's reasoning + the tool results it saw). */
@@ -148,6 +153,7 @@ export function createOperatorDriverAgent(
 
       let turn = 0
       let bareTurns = 0
+      let spawnedOk = 0
       const maxBareTurns = opts.maxBareTurns ?? 3
       for (; turn < opts.maxTurns && !toolbox.isStopped(); turn += 1) {
         const out = await opts.chat(messages, schemas)
@@ -192,7 +198,17 @@ export function createOperatorDriverAgent(
           const min = opts.minWorkersBeforeStop ?? 0
           const doneSoFar = toolbox.settled().filter((w) => w.status === 'done').length
           if (c.name === 'stop' && min > 0 && doneSoFar < min) {
-            result = { error: `cannot stop yet — ${doneSoFar}/${min} workers have completed. You must spawn_worker and await_next at least ${min} worker(s) (you cannot answer directly) before stopping.` }
+            result = {
+              error: `cannot stop yet — ${doneSoFar}/${min} workers have completed. You must spawn_worker and await_next at least ${min} worker(s) (you cannot answer directly) before stopping.`,
+            }
+          } else if (
+            c.name === 'spawn_worker' &&
+            opts.maxWorkers !== undefined &&
+            spawnedOk >= opts.maxWorkers
+          ) {
+            result = {
+              error: `worker cap reached — you have spawned all ${opts.maxWorkers} workers. await_next their results, then stop. You cannot spawn more.`,
+            }
           } else if (!tool) result = { error: `unknown tool ${JSON.stringify(c.name)}` }
           else {
             // Parse args first; malformed JSON is a model-fixable mistake — feed it back, do NOT
@@ -213,9 +229,21 @@ export function createOperatorDriverAgent(
               try {
                 result = await tool.handler(args ?? {})
               } catch (err) {
-                result = { error: `tool ${c.name} failed: ${err instanceof Error ? err.message : String(err)}` }
+                result = {
+                  error: `tool ${c.name} failed: ${err instanceof Error ? err.message : String(err)}`,
+                }
               }
             }
+          }
+          // Count only ADMITTED spawns toward the hard cap (a budget-exhausted / cap-rejected spawn
+          // returns { error }, not { workerId }).
+          if (
+            c.name === 'spawn_worker' &&
+            result &&
+            typeof result === 'object' &&
+            'workerId' in result
+          ) {
+            spawnedOk += 1
           }
           calls.push({ name: c.name, args: c.arguments, result })
           messages.push({
