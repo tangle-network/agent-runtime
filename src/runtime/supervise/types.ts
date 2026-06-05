@@ -26,6 +26,7 @@
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type { AgentProfile, BackendType } from '@tangle-network/sandbox'
+import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
 
 // `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
@@ -80,6 +81,14 @@ export interface LeafExecutor<Out> {
    * `signal` is the spawn-scoped abort (chains the acquire lifecycle for sandbox).
    */
   execute(task: unknown, signal: AbortSignal): Promise<LeafResult<Out>> | AsyncIterable<UsageEvent>
+  /**
+   * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_worker`
+   * verb). A streaming executor drains pending messages between turns and folds them into the next
+   * step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
+   * this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the
+   * executor's to ignore.
+   */
+  deliver?(msg: unknown): void
   /**
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -272,6 +281,15 @@ export interface Scope<Out> {
   /** ray.wait n=1 over this scope's in-memory live set; resolves as each child settles;
    *  `null` when the live set is empty. */
   next(): Promise<Settled<Out> | null>
+  /**
+   * Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
+   * `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
+   * delivered to a live child whose executor accepts delivery, `false` otherwise (unknown id,
+   * already settled, or an executor with no inbox). The executor drains its inbox between turns;
+   * a leaf that does not implement `deliver` simply cannot be steered mid-flight. In-process this
+   * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
+   */
+  send(nodeId: NodeId, msg: unknown): boolean
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
@@ -387,6 +405,9 @@ export interface SupervisorOpts {
   readonly withinMs?: number
   readonly now?: () => number
   readonly signal?: AbortSignal
+  /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the
+   *  same `agent.spawn`/`agent.child` stream `runLoop` feeds — one observable recursive tree. */
+  readonly hooks?: RuntimeHooks
 }
 
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */

@@ -4,3 +4,8 @@ node_modules/
 
 # meta-harness / evolve loop runtime state
 .evolve/
+bench/data/
+bench/experiments/
+**/__pycache__/
+.claude/
+bench/scripts/__pycache__/

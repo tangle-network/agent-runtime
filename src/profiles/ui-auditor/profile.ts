@@ -13,7 +13,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/sandbox'
-import type { AgentRunSpec, OutputAdapter, Validator } from '../../loops/types'
+import type { AgentRunSpec, OutputAdapter, Validator } from '../../runtime/types'
 import { buildAuditorSystemPrompt } from './lens-prompts'
 import { parseAuditorEvents } from './output-adapter'
 import { encodeAuditTaskEnvelope, formatAuditorPrompt } from './prompt'

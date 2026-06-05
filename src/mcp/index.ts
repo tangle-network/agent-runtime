@@ -77,6 +77,22 @@ export type {
 } from './task-queue'
 export { DelegationTaskQueue, hashIdempotencyInput } from './task-queue'
 export {
+  type Check,
+  type CheckRunnerOptions,
+  defaultChecks,
+  liftFindings,
+  makeCheckRunner,
+  renderTrace,
+  runCheck,
+} from './tools/checks'
+export {
+  type CoordinationTools,
+  type CoordinationToolsOptions,
+  createCoordinationTools,
+  type MakeWorkerAgent,
+  type SettledWorker,
+} from './tools/coordination'
+export {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,
   DELEGATE_CODE_INPUT_SCHEMA,

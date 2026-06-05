@@ -1,6 +1,6 @@
 // coderProfile + runLoop + FanoutVote — smallest end-to-end coder loop. See README.md for context.
 
-import { createFanoutVoteDriver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
 import { type CoderTask, coderProfile } from '@tangle-network/agent-runtime/profiles'
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 
@@ -76,7 +76,11 @@ const sandboxClient = {
 
 async function main(): Promise<void> {
   const { output, validator, agentRunSpec } = coderProfile({ task, harness: 'claude-code' })
-  const driver = createFanoutVoteDriver<CoderTask, ReturnType<typeof output.parse>>({ n: 2 })
+  const driver: Driver<CoderTask, ReturnType<typeof output.parse>, 'pick-winner' | 'fail'> = {
+    name: 'fanout',
+    plan: async (task, history) => (history.length === 0 ? [task, task] : []),
+    decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
+  }
 
   const result = await runLoop({
     driver,

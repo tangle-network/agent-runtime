@@ -1,12 +1,7 @@
 import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
-import {
-  type AgentRunSpec,
-  createRefineDriver,
-  type OutputAdapter,
-  type Validator,
-} from '../../src/loops'
+import type { AgentRunSpec, OutputAdapter, Validator } from '../../src/runtime'
 import {
   createNestedWorkflowAgentDelegate,
   createRunLoopWorkflowDelegate,
@@ -17,6 +12,7 @@ import {
   type WorkflowLoopDelegate,
   type WorkflowTraceEvent,
 } from '../../src/workflow'
+import { refineDriver } from '../loops/refine-driver'
 
 const BASIC_SOURCE = `
 export const meta = {
@@ -880,7 +876,7 @@ return out
       loop: createRunLoopWorkflowDelegate<Task, Task, Output, 'continue' | 'stop'>({
         toRunLoopOptions(input) {
           return {
-            driver: createRefineDriver<Task, Output>({ maxIterations: 3 }),
+            driver: refineDriver<Task, Output>({ maxIterations: 3 }),
             agentRun,
             output,
             validator,

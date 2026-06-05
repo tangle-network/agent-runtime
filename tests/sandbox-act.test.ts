@@ -2,8 +2,8 @@ import type { TraceEmitter } from '@tangle-network/agent-eval'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { type AgentRunContext, collectAgentRun, createSandboxAct } from '../src/agent'
-import type { LoopSandboxClient, OutputAdapter } from '../src/loops'
 import { DELEGATION_MCP_SERVER_KEY } from '../src/mcp/delegation-profile'
+import type { LoopSandboxClient, OutputAdapter } from '../src/runtime'
 
 const BASE = {
   name: 'demo-agent',

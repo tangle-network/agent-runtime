@@ -1,8 +1,8 @@
 import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import type { LoopSandboxClient } from '../../src/loops'
 import { detectExecutor } from '../../src/mcp/bin-helpers'
 import type { FleetHandle } from '../../src/mcp/executor'
+import type { LoopSandboxClient } from '../../src/runtime'
 
 function stubClient(): LoopSandboxClient {
   return {

@@ -29,8 +29,8 @@
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
  */
 
-import type { LoopSandboxClient, LoopTraceEmitter } from '../loops'
-import { runLoop } from '../loops'
+import type { LoopSandboxClient, LoopTraceEmitter } from '../runtime'
+import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
 import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
 import type { DelegationExecutor } from './executor'

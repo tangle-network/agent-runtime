@@ -6,7 +6,7 @@
  * here; tests import from here directly.
  */
 
-import type { LoopSandboxClient } from '../loops'
+import type { LoopSandboxClient } from '../runtime'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,

@@ -1,8 +1,8 @@
 # Architecture — The Spine
 
-> **One recursive agent-loop. Two timescales. Many benchmarks.**
+> **One recursive agent tree. Every node makes a multi-objective decision. Two timescales — and the across-run policy curve is the product.**
 >
-> Canonical as of **2026-06-03**. This doc is the single spine that unifies
+> Canonical as of **2026-06-05**. This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and
 > `@tangle-network/agent-eval` `docs/design/self-improvement-engine.md` (the
 > optimization-time engine). Where this conflicts with an older doc, **this
@@ -10,19 +10,21 @@
 > an agent in another repo building a new benchmark: **read §1, §6, §9 — you only
 > write an adapter, never a new loop.**
 >
-> **Status — built vs designed (verified against `origin/main`).** The *scaffold*
-> is real: the recursive atom (`createDynamicDriver` + `runLoop`), the shared
-> `runRefineLoop`, GEPA over static directives, the corpus + external judge. The
-> *load-bearing intelligence* is **designed, not wired**: `PlannerContext`
-> (`src/loops/drivers/dynamic.ts:51-60`) has no `analyses` channel, so the driver
-> decides from a verdict score, not a diagnosis; `TopologyMove` (`dynamic.ts:43-48`)
-> is a flat 3-opcode enum (`refine|fanout|stop`) — `select`/`seq` are not
-> emittable; `runAnalystLoop` has zero consumers under `src/loops/drivers/`; the
-> selector is currently faked with the judge (oracle). The coherence analysis
-> ("does this even make sense?") is in
+> **Status — built vs slop (verified against `origin/main`, 2026-06-05).** The
+> *product core* is real: the recursive agent tree (`src/runtime/supervise/` — `Agent.act`
+> in a `Scope`, `scope.spawn`, settle, journal→replay/resume), the sandbox seam
+> (`LoopSandboxClient` + the sandbox `LeafExecutor`, injectable/swappable), the steering
+> MCP (`operator-toolbox`), the corpus + external judge, and the lifecycle hook stream
+> (`runtime-hooks`, #162/#163). The *driver-as-code* is **slop being deleted**: the
+> in-process LLM tool-loop (`operator-driver.ts`), the `create*Driver` factory zoo
+> (`refine`/`fanout-vote`/`sandbox-planner`), the `TopologyMove` DSL, and the fixed
+> `analyst-kinds` registry — all reimplement what the harness + the `Scope` + data-checks
+> already do. The *product to wire*: run the driver **and** workers as real sandbox
+> harnesses (not in-process), with checks authored on the fly. `runLoop`/`createDynamicDriver`
+> are **one execution backend**, not the center. The coherence analysis is in
 > [architecture-interpretations.md](./architecture-interpretations.md); the
-> dependency-ordered build + cleanup sequence is in [roadmap-rsi.md](./roadmap-rsi.md);
-> the empirics are §11. Doc map: [docs/README.md](./README.md).
+> dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the empirics
+> are §11. Doc map: [docs/README.md](./README.md).
 
 ---
 
@@ -56,45 +58,101 @@ Two things forced this doc:
 
 ---
 
-## 1. The atom — one recursive node
+## 0.5 What we are building, and what "better" means (the four claims)
 
-There is exactly one primitive. `driver`, `worker`, `selector`, `coordinator`
-are **roles** of it, not separate types.
+Four claims define the system. The sections below are mechanism in service of these;
+if a section drifts from one of these, the claim wins and the section is wrong.
 
-```ts
-type Agent = {
-  // f(trace): assemble what THIS node conditions on — the variable we kept
-  // botching (we conditioned on the rejected answer instead of the evidence).
-  context: (history: Trace[], analyses: Finding[]) => Prompt
-  // execute the task (worker) OR compose/steer children (driver). The recursion.
-  act: (p: Prompt) => Output | Program
-  // told ↔ leads-with-tools. One LLM call, or a full sandbox agent.
-  mode: 'llm-call' | 'sandbox-agent'
-}
+1. **The atom is a decision, not a spawn.** At every level an agent faces the same
+   question: given the solution so far, the feedback so far, and the budget left, what
+   is the best next move — *keep working · branch · split · get a second opinion · run
+   a check · stop*? Spawning a child is **one** of those moves, never the primitive.
+   The recursion is decisions all the way down (§1).
+2. **"Best" is a vector, not a scalar.** A good result is correct AND fast AND secure
+   AND cheap. Success is **multi-objective**; we do not collapse it to one number until
+   forced to. Today every judge returns a single `score` — that is the **gap to close**,
+   not the design (§6, §5).
+3. **Each objective carries its own checker — that is what makes this trainable.**
+   *Fastest* is graded by a clock, *most secure* by a scanner, *correct* by the tests.
+   The objective **is** a deployable verifier (§1's *verifier*, distinct from the oracle
+   and the write-only judge). So the loop has honest, cheap signal at every step, on real
+   work, **without an answer key** — that is the gift the multi-objective framing buys,
+   and the reason depth/continuation has something sound to steer on.
+4. **The improvement that counts is the policy getting better across runs.** Two things
+   improve on two clocks (§2). *Within* a run the **solution** climbs (the artifact gets
+   better round over round). *Across* runs the **decision policy** climbs — it remembers
+   which decisions, on which kinds of problems, produced good multi-objective outcomes,
+   and chooses better next time. **That across-run curve is RSI, and it is THE success
+   criterion** (Gate B — defined in [learning-flywheel.md](./learning-flywheel.md), §2
+   here). A single within-run result beating a blind baseline at equal compute (Gate A)
+   is **one narrow diagnostic**, not the goal — do not read it as the verdict on the
+   product.
 
-// A driver's `act` returns a Program: a tiny instruction set over child Agents.
-type Program =
-  | { op: 'sample';  agent: Agent }                 // run a worker once
-  | { op: 'steer';   agent: Agent; from: Trace[] }  // next shot, conditioned on prior work
-  | { op: 'fork';    agent: Agent; n: number }      // k independent attempts (parallel)
-  | { op: 'select';  agents: Agent[] }              // pick among candidates (the SELECTOR role)
-  | { op: 'seq';     steps: Program[] }             // compose in order
-  | { op: 'stop' }
+---
+
+## 1. The atom — one agent, one decision, recursively
+
+There is exactly one primitive: an **agent** = an `AgentProfile` (who/what it is) +
+a **harness** (how it runs — a coding harness in a sandbox: claude-code / codex /
+opencode), executing inside a **`Scope`**. `driver`, `worker`, `selector`,
+`coordinator` are **roles** — a profile + which tools it holds — never separate types.
+
+The harness already owns the loop, tool-calling, sub-agent spawning, and the native
+idioms (*parallelize*, *ultrathink*, *dynamic-workflow*). **We do not write an
+execution loop or a topology DSL.** An agent does one thing the runtime cares about:
+at each step it **makes a decision** — keep working · branch · split · get a second
+opinion · run a check · stop — and acts on it (§0.5.1). The decision that *grows the
+tree* is `spawn`, carried over **MCP**: it creates a **child agent** (its own profile
++ harness, its own `Scope`). The child runs its own agentic process; the parent
+**observes / steers / resumes** it through the same MCP, in **natural language**.
+Spawn is one move among several, so topology is not an opcode set — it **emerges** from
+the decisions:
+
+```
+a loop          = an agent that steers ONE child across turns
+best-of-N       = spawn N children, pick the best         (the SELECTOR role)
+coordinator     = spawn N, steer, select
+driver-of-driver = a child whose profile is itself a coordinator — free, by recursion
 ```
 
-Everything composes from this:
+`Scope.spawn` is the recursive boundary; the journal makes the tree replayable and
+resumable. **This recursive execution tree IS the product.** The three things we own
+are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
+`define_check · run_check`); (2) the **profiles** (markdown — the only customization;
+"Drew" is one); (3) the **orchestrator** (`src/runtime/supervise/` — `Scope` + the
+conserved budget pool that makes equal-compute true for the experiment). `runLoop` /
+`toolLoop` are **one execution backend each, not the center** — they, MCP delegation,
+and `Scope.spawn` all *produce* the same lifecycle stream (§1b).
 
-```
-loop (today's driver↔worker)   = seq[ sample, steer, steer, … ]
-best-of-N + verify (← SOTA)    = seq[ fork(n), select ]
-coordinator                    = seq[ fork(n), steer*, select ]
-nested (a driver of drivers)   = sample(agent whose act → a Program)   // free, by recursion
-```
+**Checks are data, not code.** A trace-**analyst** (a lens over a trace), a **judge**
+(scores an output), and a **verifier** (a deployable check — runs tests/SQL/a command)
+are one shape: `{ kind, spec }`. We *seed* the benchmark's verifier + base lenses; the
+agent driver **creates and updates** the check it needs on the fly via `define_check`,
+and runs it with `run_check`. There is no fixed analyst registry.
 
-The **judge is not in the graph.** It is external, write-only, and scores only
-the chosen final output for evaluation — never an input to `context`/`steer`/
-`select`. (Enforced: `ProposeContext.judgeScores?: never`; `assertNoJudgeVerdict`;
-findings carry `derived_from_judge` provenance — see agent-eval `analyst/steer-firewall.ts`.)
+The **judge is not in the tree.** It is external, write-only, and scores only the
+chosen final output for evaluation — never an input to a steer or a selection.
+**Three checkers, kept distinct:** an **oracle** (the answer key) is banned from
+selection *and* steering; a **verifier** (a sound deployable checker) is *allowed* in
+both — it is what depth/continuation needs; the **write-only judge** (offline corpus
+scorer) is banned from steering only. (Enforced: the trace-derived-findings firewall —
+an analyst may not cite the score/verdict metric; `assertTraceDerivedFindings`.)
+
+## 1b. The lifecycle stream — the one observability + extension surface
+
+Every execution backend emits one **agent-centric event stream** (`src/runtime-hooks.ts`,
+merged #162/#163): targets `agent.{run, turn, tool_call, spawn, child, plan, decision}`
+× phases `{before, after, error, event}`. `runLoop`, `toolLoop`, **and the `Scope`
+spawn/settle boundary** are **producers** — `Scope.spawn` emits `agent.spawn` (child id,
+label, runtime, budget, depth) and the settle cursor emits `agent.child` (status, score,
+reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
+`defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
+on the `AgentProfile`, never coupled to one backend. This single stream is the
+opencode-style extension surface *and* what the **topology visualization** consumes:
+`src/topology/` folds the stream into the live recursive agent tree — each node's status,
+steps, child count, and deployable score — and renders it (`createTopologyView().hooks`
+attaches; `.render()` draws the tree). The journal stays the durable record; the hook
+stream is its live projection (both agree).
 
 ---
 
@@ -117,6 +175,22 @@ propose`. The recursive `Agent` makes them the **same node** at different
 settings: `act→Program` is an ephemeral inference-steer **or** a persisted
 surface candidate. **The gap we must close: run the ANALYZE→PROPOSE intelligence
 at inference-time, on benchmarks** — not only at optimization-time.
+
+**Which curve is success (read this before you read the gate numbers in §11).** The
+inference-time column makes the **solution** climb within a run; the optimization-time
+column makes the **decision policy** climb across runs — and *that across-run slope is
+the success criterion*. Concretely (**Gate B**, defined in
+[learning-flywheel.md](./learning-flywheel.md)): across repeated runs on a persistent,
+checkable task family, the deployed policy's verifier-graded multi-objective score
+improves run-over-run at matched per-run compute, the only changed variable is that the
+policy learned from the accumulated corpus, it survives a frozen-policy control, and it
+is significant at adequate n under a deployable checker. The within-run question — *does
+a trace-fed driver beat a blind same-compute baseline under a non-oracle selector at
+equal compute* (**Gate A**) — is a **separate, narrower diagnostic** that only decides
+whether the within-run adaptive layer is worth building; a failed Gate A deletes
+within-run steering, never the corpus+policy product. The §11 equal-k selection numbers
+are Gate-A diagnostics — they are **not** a verdict on Gate B, which the harness has not
+yet run.
 
 ---
 
@@ -161,8 +235,13 @@ judge and a steer only behind this firewall.
 The optimizer `O` improves any `Agent`'s `context`+prompt and the `Program` shape,
 from the shared corpus, **held-out gated** (train ∩ holdout = ∅, enforced in
 `runImprovementLoop`). This is the **outer flywheel**: the controller is learned,
-not hand-written. Optimize for **correctness AND clean/fast trace** (Pareto), with
-the external judge as the fixed anchor so the recursion can't Goodhart.
+not hand-written. Optimize against the **multi-objective vector** (§0.5.2) — *correct,
+fast, secure, cheap* — Pareto, **not** a pre-collapsed scalar; each component is graded
+by its own deployable checker (tests · clock · scanner · cost meter), with the external
+write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
+Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
+`adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
+the optimizer can trade objectives honestly.
 
 ---
 
@@ -175,13 +254,27 @@ the external judge as the fixed anchor so the recursion can't Goodhart.
 An adapter supplies exactly:
 - **task loader** (`loadTasks`),
 - **worker profile** (the agent + sandbox backend that does the task),
-- **judge** (deterministic, or verified-stable LLM; external/write-only),
+- **judge** (deterministic, or verified-stable LLM; external/write-only). Today it
+  returns a single `{resolved, score}` on the *correctness* axis. The target contract is
+  a **verdict vector** — one component per objective the task exposes (correctness via
+  tests, latency via a clock, safety via a scanner, cost via the meter), each its own
+  deployable checker (§0.5.2-3). Where a bench only has correctness, the vector is
+  length-1; that is a property of the bench, not a reason to bake the scalar into the
+  spine.
 - **SOTA reference** (the number/method we must beat).
 
 Everything else is the shared spine. This is the rule that kills *"built once,
 used never"*: SWE-bench, FinSearchComp, Terminal-Bench, CAD-bench, … all run the
 same atom. If you find yourself writing a new `*-loop.ts`, stop — you want an
 adapter + the shared loop.
+
+**Corollary — `bench/` holds ZERO drivers and ZERO abstractions.** The driver, the
+surface an agent runs over, the worker-leaf, and the MCP all live in the library
+(`src/`). `bench/` is a thin experiment consumer: adapters + "launch the one driver at
+a profile" + score via the corpus/gate. A "blind control" is not a bench driver — it is
+the one agent with a `blind` decider; the equal-compute guard is experiment infra. If
+`bench/` grows a driver or a surface abstraction, that is the smell that the library is
+being squatted on (it was, in `bench/src/agentic.ts` — deleted 2026-06-05).
 
 ---
 
@@ -190,11 +283,21 @@ adapter + the shared loop.
 - **Corpus:** every run, every benchmark, writes full `RunRecord`s
   (`state · steer · trace · output · verdict · cost`) to one durable, queryable
   store. This is the only improvement signal; boolean scorecards delete the fuel.
-- **External write-only judge:** the anchor against Goodhart. It is *never* an
-  input to steering/selection.
-- **Selector (distinct):** the deployable, learnable component that picks among
-  candidates at inference (vote / verifier-rerank). We currently fake this with
-  the judge ("any-pass") — an oracle that isn't available in deployment (§11).
+- **Three distinct checkers — keep them separate (this distinction is load-bearing):**
+  - **ORACLE** (the answer key / gold label / "any-pass"): knows the answer.
+    **Banned from BOTH selection AND steering** — using it is the cheat the gate guards against.
+    It is an eval-only upper bound (`oracle@k`), never available in deployment.
+  - **VERIFIER** (a sound *deployable* checker — unit tests, SQL/state verifiers, `adapter.judge`
+    when deployable): checks an answer without knowing it a priori. **ALLOWED in both selection and
+    in-loop steering/continuation** — this is exactly what depth/continuation needs (a worker checks
+    its own work and continues). selector ≠ oracle does NOT forbid the verifier.
+  - **WRITE-ONLY JUDGE** (the offline corpus scorer): the anchor against Goodhart.
+    **Banned from steering only** (the trace-derived-findings firewall) — it scores the corpus, it
+    never feeds a steer or a selection.
+- **Selector (distinct):** the deployable, learnable component that picks among candidates at
+  inference (vote / verifier-rerank). Today we still *fake* it with the oracle ("any-pass"), which
+  isn't available in deployment (§11) — replacing that fake with a real verifier-based selector is
+  the open work, not a reason to ban verifiers from the loop.
 
 ---
 
@@ -212,7 +315,11 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
 
 1. **Atom instance, inference-time.** Driver (`llm-call`, fed by a trace-analyst
    report) steers a worker over k shots; a **selector** picks the answer
-   (no oracle). Measure vs `random@k` **and SOTA** on FinSearchComp.
+   (no oracle). Measure vs `random@k` **and SOTA** on a **stateful, deployable-checker
+   bench** (EnterpriseOps-Gym / commit0 / swe-bench) — a domain that can exhibit depth.
+   FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
+   one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
+   result is bench-specific, not domain-general).
 2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
    beats compute-matched random.
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.

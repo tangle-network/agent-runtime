@@ -2,7 +2,7 @@
  * @experimental
  *
  * Analyst-on-scope (G1) — the PORT of the round-synchronous driver's analyze→findings→steer
- * wire (`drivers/dynamic.ts`) onto the reactive `Scope`.
+ * wire (`dynamic.ts`) onto the reactive `Scope`.
  *
  * The old dynamic driver wired the analyst at round boundaries: `plan` ran the analyst over
  * `history` BEFORE the planner and handed the findings forward via `PlannerContext.analyses`,
@@ -32,7 +32,7 @@ import type {
   SteerContext,
 } from './wave-types'
 
-// ── The steer firewall (selector ≠ judge) — verbatim PORT of drivers/dynamic.ts ───────
+// ── The steer firewall (selector ≠ judge) — verbatim PORT of dynamic.ts ───────
 
 /**
  * The diagnosis a combinator steers from must be TRACE-derived, never JUDGE-derived. A finding

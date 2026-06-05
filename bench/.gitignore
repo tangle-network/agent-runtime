@@ -4,3 +4,4 @@ node_modules/
 logs/
 run-artifacts/
 corpus/
+.eops-task-cache/

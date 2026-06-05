@@ -7,17 +7,34 @@ Verified against source 2026-06-03 · agent-eval pinned `^0.76.0` (the optimizeP
 heldoutSignificance API is version-coupled).
 
 ## What this harness answers
-The decision gate (docs/roadmap-rsi.md): **does any non-blind topology beat blind compute
-at EQUAL k, under a DEPLOYABLE (non-oracle) selector, at significant n?**
+**The success criterion is Gate B** (docs/learning-flywheel.md, docs/architecture.md §2): across
+repeated runs on a persistent, checkable task family, the deployed policy's verifier-graded
+**multi-objective** score (correct · fast · secure · cheap, each its own deployable checker)
+improves **run-over-run** at matched per-run compute, surviving a frozen-policy control, significant
+at adequate n. That across-run slope is RSI. **The harness has NOT yet run Gate B** — see the durable
+gap below.
+
+What the harness measures **today is Gate A** (docs/roadmap-rsi.md — the inner GO/NO-GO for the
+within-run adaptive-driver layer): **does any non-blind topology beat blind compute at EQUAL COMPUTE
+(Σ rollouts × turns — `k` counts rollouts, each may be multi-turn/stateful), under a DEPLOYABLE
+(non-oracle) selector, at significant n?** Gate A is a **narrow diagnostic** — the cost-justification
+for parallel/adaptive topology, **NOT** the product verdict. A failed Gate A deletes within-run
+steering only; it never touches the corpus+policy product (Gate B). The invariant is equal-COMPUTE,
+not equal-k-on-stateless-samples. Two things to keep straight: today's judges grade a single
+*correctness* scalar (the multi-objective vector is the open contract, architecture.md §6), and every
+number below is single-objective + within-run — read them as Gate-A diagnostics, not Gate-B results.
 - Within-run STEER (verify-and-revise family) **LOSES** (rung-0, n=40: blind 37.5% →
   random@3 60.0% → refineGepa@3 45.0%; the earlier +20pp was confounded compute).
 - On the COMMITTED finsearch corpus, the self-consistency selector also **loses**:
   selector@k − random@k = **−8.2pp** (n=51). So "pick the consensus among k identical-ish
   attempts" does not beat a random draw here.
-- **UNTESTED**: parallel **DIVERSE strategies** (different reasoning paths, `directives.ts`
-  → `DIVERSE_STRATEGY_LENSES` / `composeStrategies`) @k vs blind sample(n=k). A distinct
-  family from what rung-0 falsified — this is the open gate, and what runProgram's
+- **UNTESTED (still Gate A):** parallel **DIVERSE strategies** (different reasoning paths,
+  `directives.ts` → `DIVERSE_STRATEGY_LENSES` / `composeStrategies`) @k vs blind sample(n=k). A
+  distinct family from what rung-0 falsified — the open *within-run* question, and what runProgram's
   `parallel` is built to deploy.
+- **UNBUILT (Gate B):** the across-run policy-improvement curve on a multi-objective task stream.
+  No harness runs it yet; it is the durable next step, not a corpus-replay over the existing
+  single-objective records.
 
 ## Data flow (the whole experiment in one line)
 `rollout (worker → answer) → adapter.judge (valid?) → CORPUS RunRecord (k attempts, output+valid each) → corpus-replay --selector (pick WITHOUT the judge) → corpus-report CI → gate verdict`

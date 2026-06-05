@@ -8,8 +8,9 @@ Read top-to-bottom for the full picture.
 
 | # | Doc | Role | Purpose |
 |---|---|---|---|
-| 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent-loop, two timescales, many benchmarks. The single source of truth; wins on conflict. |
+| 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks. The single source of truth; wins on conflict. |
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses (test-time-compute, active learning, program synthesis, two-timescale RSI, skeptic) + diagrams. Answers "does it cohere?" — and where it doesn't. |
+
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build + cleanup plan | The file-grounded, dependency-ordered sequence to go from *scaffold built, intelligence designed* to a measured surface. Phases, exit gates, cruft track, doc track, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
 | 5 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
@@ -43,4 +44,5 @@ The package API and subsystems.
 - Each doc declares its **track** and **role** (canonical / deep-dive / reference / needs-update) in a one-line header banner.
 - Architecture docs cross-link the spine; the spine links its deep-dives and the empirical harness.
 - "Built vs Designed" is stated explicitly in `architecture.md` and `architecture-interpretations.md` — never assume a documented design is shipped without the `file:line` anchor.
+
 - Repo-wide authorship + comment-discipline + layering rules live in [../CLAUDE.md](../CLAUDE.md).

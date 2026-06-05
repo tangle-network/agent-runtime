@@ -18,6 +18,7 @@
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { Readable, Writable } from 'node:stream'
+import { ValidationError } from '../errors'
 import type { CoderDelegate, ResearcherDelegate, UiAuditorDelegate } from './delegates'
 import { type FeedbackStore, InMemoryFeedbackStore } from './feedback-store'
 import { DelegationTaskQueue } from './task-queue'
@@ -80,6 +81,13 @@ export interface McpServerOptions {
   feedbackStore?: FeedbackStore
   /** Override the default in-memory task queue. */
   queue?: DelegationTaskQueue
+  /**
+   * Extra tools to serve alongside the delegation tools — e.g. the operator toolbox
+   * (`createCoordinationTools(...).tools`), which exposes the driver's spawn/observe/steer verbs over
+   * MCP so a sandbox agent can BE the driver. Registered after the built-ins; a duplicate name
+   * throws (fail loud — no silent shadowing of a delegation tool).
+   */
+  extraTools?: McpToolDescriptor[]
   /** Server display name surfaced via `initialize`. Default `'agent-runtime-mcp'`. */
   serverName?: string
   /** Server version surfaced via `initialize`. Default = the package version baked at build time. */
@@ -187,6 +195,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     inputSchema: DELEGATION_HISTORY_INPUT_SCHEMA as unknown as Record<string, unknown>,
     handler: createDelegationHistoryHandler({ queue }),
   })
+  for (const tool of options.extraTools ?? []) {
+    if (tools.has(tool.name)) {
+      throw new ValidationError(
+        `createMcpServer: extra tool "${tool.name}" shadows a built-in tool`,
+      )
+    }
+    tools.set(tool.name, tool)
+  }
 
   let stopped = false
   let activeReadline: ReadlineInterface | undefined

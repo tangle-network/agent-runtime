@@ -2,13 +2,12 @@ import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-networ
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createFanoutVoteDriver,
-  createRefineDriver,
   type Driver,
   type OutputAdapter,
   runLoop,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
+import { fanoutDriver, refineDriver } from './refine-driver'
 
 interface Task {
   goal: string
@@ -79,7 +78,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
       async plan(task, history) {
         if (history.length >= 2) return []
         const innerResult = await runLoop({
-          driver: createRefineDriver<Task, Inner>(),
+          driver: refineDriver<Task, Inner>(),
           agentRun: innerSpec,
           output: innerOutput,
           validator: innerValidator,
@@ -145,7 +144,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
     // signature itself.
     async function _typecheckOnly() {
       const r1 = await runLoop({
-        driver: createRefineDriver<Task, Inner>(),
+        driver: refineDriver<Task, Inner>(),
         agentRun: innerSpec,
         output: innerOutput,
         validator: innerValidator,
@@ -159,7 +158,7 @@ describe('runLoop composition — a Driver that nests runLoop inside plan()', ()
         },
       })
       const r2 = await runLoop({
-        driver: createFanoutVoteDriver<Task, Inner>({ n: 2 }),
+        driver: fanoutDriver<Task, Inner>(2),
         agentRun: innerSpec,
         output: innerOutput,
         validator: innerValidator,

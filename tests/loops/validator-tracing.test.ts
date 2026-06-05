@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { runLoop } from '../../src/loops/run-loop'
+import { runLoop } from '../../src/runtime/run-loop'
 import type {
   LoopTraceEmitter,
   LoopTraceEvent,
   ValidationCtx,
   Validator,
-} from '../../src/loops/types'
+} from '../../src/runtime/types'
 
 function makeSandboxClient() {
   return {

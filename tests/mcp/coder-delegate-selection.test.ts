@@ -109,7 +109,7 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
   })
 })
 
-import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/loops'
+import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/runtime'
 
 describe('createDefaultCoderDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
   it('forwards the trace emitter into the delegated runLoop (loop.* spans emitted)', async () => {

@@ -16,8 +16,13 @@
  */
 
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
-import { createFanoutVoteDriver } from '../loops/drivers/fanout-vote'
-import type { AgentRunSpec, DefaultVerdict, Driver, OutputAdapter, Validator } from '../loops/types'
+import type {
+  AgentRunSpec,
+  DefaultVerdict,
+  Driver,
+  OutputAdapter,
+  Validator,
+} from '../runtime/types'
 
 const DEFAULT_MAX_DIFF_LINES = 400
 
@@ -142,7 +147,11 @@ export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions 
     return agentRunSpec
   })
   const { output, validator } = coderProfile()
-  const driver = createFanoutVoteDriver<CoderTask, CoderOutput>({ n: harnesses.length })
+  const driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'> = {
+    name: 'fanout',
+    plan: async (task, history) => (history.length === 0 ? agentRuns.map(() => task) : []),
+    decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
+  }
   return { agentRuns, output, validator, driver }
 }
 

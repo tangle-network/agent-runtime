@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict'
 import type { AttemptRecord, RunRecord } from './corpus'
-import { flipRate, normalizeAnswer, scoreSelectorOnRun, selfConsistencySelect, summarizeSelector } from './selector'
+import {
+  flipRate,
+  normalizeAnswer,
+  scoreSelectorOnRun,
+  selfConsistencySelect,
+  summarizeSelector,
+  verifierGroundedSelect,
+} from './selector'
+
+// --- verifierGroundedSelect: highest pass-count, ties → earliest, validation ---
+assert.equal(verifierGroundedSelect([0, 3, 1]), 1, 'highest pass-count wins')
+assert.equal(verifierGroundedSelect([2, 2, 1]), 0, 'tie → earliest')
+assert.equal(verifierGroundedSelect([0, 0, 0]), 0, 'all-zero → earliest')
+assert.equal(verifierGroundedSelect([1]), 0, 'single candidate')
+assert.equal(verifierGroundedSelect([false ? 1 : 0, 1]), 1, 'boolean pass/fail as {0,1}')
+assert.throws(() => verifierGroundedSelect([]), /no candidate pass-counts/)
+assert.throws(() => verifierGroundedSelect([0, -1]), /invalid pass-count/)
+assert.throws(() => verifierGroundedSelect([0, Number.NaN]), /invalid pass-count/)
 
 // --- normalizeAnswer ---
 assert.equal(normalizeAnswer('  The Paris.  '), 'paris')

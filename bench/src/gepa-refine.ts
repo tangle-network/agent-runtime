@@ -23,6 +23,9 @@ import {
   inMemoryCampaignStorage,
   pairHoldout,
 } from '@tangle-network/agent-eval/campaign'
+import { join } from 'node:path'
+import { createAppWorldAdapter } from './benchmarks/appworld'
+import { benchRoot, runVenvScriptStdin } from './benchmarks/_harness'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
@@ -113,25 +116,41 @@ function parseFindings(content: string): DiagnosedFinding[] {
 const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   hotpotqa: createHotpotqaAdapter,
   finsearchcomp: createFinsearchcompAdapter,
+  appworld: createAppWorldAdapter,
   cad: createCadDesignAdapter,
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
   mind2web: createMind2WebAdapter,
 }
 
+/**
+ * Deliberately-WEAK AppWorld baseline directive: the standard GEPA/DSPy
+ * "optimize a bare starting prompt" setup. The worker already gets the minimal
+ * API mechanics from the adapter's task contract; this strategy layer starts
+ * empty so a held-out lift, if any, is attributable to what GEPA discovers
+ * (read api_docs first, paginate, handle auth, verify before complete_task, …).
+ * Override with BASELINE_DIRECTIVE to test a stronger starting point.
+ */
+const WEAK_APPWORLD_DIRECTIVE = 'Write a correct Python solution to the task.'
+const APPWORLD_DRIVER = join(benchRoot, 'scripts', 'appworld_driver.py')
+
 async function main() {
   const benchKey = process.env.BENCH ?? 'hotpotqa'
   const adapter = ADAPTERS[benchKey]?.()
-  if (!adapter) throw new Error(`gepa-refine supports BENCH=hotpotqa|finsearchcomp|cad|cadbench|cadgenbench|mind2web, got ${benchKey}`)
+  if (!adapter)
+    throw new Error(
+      `gepa-refine supports BENCH=hotpotqa|finsearchcomp|appworld|cad|cadbench|cadgenbench|mind2web, got ${benchKey}`,
+    )
   const isCad = benchKey === 'cad'
   const isCadbench = benchKey === 'cadbench'
   const isCadgenbench = benchKey === 'cadgenbench'
   const isMind2web = benchKey === 'mind2web'
+  const isAppworld = benchKey === 'appworld'
   // CAD (openscad gate) + CADBench (criteria vision judge) + CADGenBench
   // (geometric cad_score) + Mind2Web (element 0.6 + operation 0.4 partial credit)
-  // all return a FRACTION score → optimize against the partial-credit gradient,
-  // not flat 0/1.
-  const scoreBased = isCad || isCadbench || isCadgenbench || isMind2web
+  // + AppWorld (passes/num_tests fraction) all return a FRACTION score →
+  // optimize against the partial-credit gradient, not flat 0/1.
+  const scoreBased = isCad || isCadbench || isCadgenbench || isMind2web || isAppworld
   const useSandbox = process.env.SANDBOX === '1'
   const model =
     process.env.WORKER_MODEL ?? (scoreBased ? 'claude-sonnet-4-6' : useSandbox ? 'gpt-5' : 'deepseek/deepseek-v4-pro')
@@ -141,23 +160,42 @@ async function main() {
   const livenessMs = process.env.OPENCODE_LIVENESS_MS ? Number(process.env.OPENCODE_LIVENESS_MS) : undefined
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
-  const baseDirective = isMind2web
-    ? DEFAULT_MIND2WEB_DIRECTIVE
-    : isCadgenbench
-      ? DEFAULT_BUILD123D_DIRECTIVE
-      : isCadbench
-        ? DEFAULT_BLENDER_DIRECTIVE
-        : isCad
-          ? DEFAULT_CAD_DIRECTIVE
-          : useSandbox
-            ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
-            : DEFAULT_RESEARCH_REFINE_DIRECTIVE
+  const baseDirective =
+    process.env.BASELINE_DIRECTIVE ??
+    (isMind2web
+      ? DEFAULT_MIND2WEB_DIRECTIVE
+      : isCadgenbench
+        ? DEFAULT_BUILD123D_DIRECTIVE
+        : isCadbench
+          ? DEFAULT_BLENDER_DIRECTIVE
+          : isCad
+            ? DEFAULT_CAD_DIRECTIVE
+            : isAppworld
+              ? WEAK_APPWORLD_DIRECTIVE
+              : useSandbox
+                ? DEFAULT_SANDBOX_REFINE_DIRECTIVE
+                : DEFAULT_RESEARCH_REFINE_DIRECTIVE)
 
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
   if (tasks.length < trainN + holdoutN) {
     console.warn(`[gepa-refine] only ${tasks.length} tasks available; shrinking split`)
   }
+  // Deterministic difficulty-balanced split: benchmark task lists often arrive
+  // ordered (easy→hard), so a raw first-half/second-half slice can hand TRAIN
+  // only easy tasks (0 failures to learn from) and HOLDOUT only hard ones —
+  // starving the optimize loop and confounding the lift measurement. Shuffle by
+  // a stable hash of the task id (seeded, reproducible) so both splits carry the
+  // same difficulty mix.
+  const idHash = (s: string): number => {
+    let h = 2166136261
+    for (let i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 16777619)
+    }
+    return h >>> 0
+  }
+  tasks.sort((a, b) => idHash(a.id) - idHash(b.id))
   const half = Math.floor(tasks.length / 2)
   const train = tasks.slice(0, Math.min(trainN, half))
   const holdout = tasks.slice(half, half + Math.min(holdoutN, tasks.length - half))
@@ -204,6 +242,78 @@ async function main() {
       const s = await solveCadRefineLocal(scenario.task, { routerBaseUrl, routerKey, model, rounds, directive })
       if (s.usage.input > 0 || s.usage.output > 0) ctx.cost.observeTokens(s.usage)
       return s.artifact
+    }
+    if (isAppworld) {
+      const meta = scenario.task.metadata as { taskId: string; split: string }
+      // Multi-turn REPL agent (default). The worker writes ONE python block per
+      // turn, the AppWorld engine EXECUTES it in a persistent world, the output is
+      // fed back, and it iterates — so the candidate directive's guidance (inspect
+      // api_docs, authenticate, paginate, verify) can actually be ACTED on, the
+      // thing a blind one-shot worker cannot do. The episode is scored in-process
+      // by AppWorld's own evaluator; the artifact carries that score and the judge
+      // passes it through. Set APPWORLD_REACT=0 for the blind one-shot control arm.
+      if (process.env.APPWORLD_REACT !== '0') {
+        const cfg = JSON.stringify({
+          directive,
+          model,
+          max_turns: Number(process.env.MAX_TURNS ?? 10),
+          router_base: routerBaseUrl,
+          router_key: routerKey,
+        })
+        const stdout = await runVenvScriptStdin(
+          APPWORLD_DRIVER,
+          ['react', '--task-id', meta.taskId, '--split', meta.split],
+          cfg,
+          { cwd: benchRoot },
+        )
+        const last = stdout.trim().split('\n').at(-1) ?? '{}'
+        const r = JSON.parse(last) as {
+          success?: boolean
+          passes?: number
+          num_tests?: number
+          input_tokens?: number
+          output_tokens?: number
+          turns?: number
+          transcript?: string
+          error?: string
+        }
+        if (r.error) throw new Error(`appworld react: ${r.error}`)
+        if ((r.input_tokens ?? 0) > 0 || (r.output_tokens ?? 0) > 0) {
+          ctx.cost.observeTokens({ input: r.input_tokens ?? 0, output: r.output_tokens ?? 0 })
+        }
+        // The episode is already scored; carry the result so the judge reads it
+        // (re-executing a multi-turn REPL episode from a single artifact is not
+        // possible — the world state lives across turns). The transcript rides
+        // along so the failure-analyst reflection can diagnose WHAT went wrong.
+        return JSON.stringify({
+          __appworldReact: true,
+          success: r.success === true,
+          passes: r.passes ?? 0,
+          num_tests: r.num_tests ?? 0,
+          turns: r.turns ?? 0,
+          transcript: r.transcript ?? '',
+        })
+      }
+      // Blind one-shot control (APPWORLD_REACT=0): NO sandbox, NO execution
+      // feedback — the worker writes the whole solution up front and refines it k
+      // rounds without seeing API output. The engine judge re-executes the last
+      // fenced ```python block in a fresh world.
+      let answer = ''
+      const taskText = scenario.task.prompt
+      for (let r = 0; r < rounds; r += 1) {
+        const prompt =
+          r === 0
+            ? `${taskText}\n\n${directive}`
+            : `${taskText}\n\n--- Your previous solution ---\n${answer.slice(-4000)}\n\n${directive}\n\nReturn an improved COMPLETE solution; fix anything likely to fail.`
+        const res = await routerChatWithUsage({ routerBaseUrl, routerKey, model }, [
+          { role: 'user', content: prompt },
+        ])
+        if (res.content.trim()) answer = res.content
+        if (res.usage) ctx.cost.observeTokens(res.usage)
+        if (res.costUsd !== undefined) ctx.cost.observe(res.costUsd, 'router')
+      }
+      const fences = [...answer.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
+      return (fences.at(-1)?.[1] ?? answer).trim()
     }
     if (useSandbox) {
       // Sandbox research through the KERNEL (runLoop), not a hand-rolled loop: a
@@ -270,6 +380,29 @@ async function main() {
         ]
       : [{ key: 'resolved', description: 'benchmark judge marks the answer resolved' }],
     async score({ artifact, scenario }): Promise<JudgeScore> {
+      if (isAppworld) {
+        // The REPL worker already ran + scored the episode in-process (AppWorld's
+        // evaluator); the artifact carries the score. Pass it through rather than
+        // re-executing. A non-react artifact (blind one-shot control) falls through.
+        try {
+          const r = JSON.parse(artifact) as {
+            __appworldReact?: boolean
+            success?: boolean
+            passes?: number
+            num_tests?: number
+          }
+          if (r.__appworldReact) {
+            const sc = (r.num_tests ?? 0) > 0 ? (r.passes ?? 0) / (r.num_tests as number) : 0
+            return {
+              dimensions: { score: sc, resolved: r.success ? 1 : 0 },
+              composite: sc,
+              notes: `react ${r.passes}/${r.num_tests} success=${r.success}`,
+            }
+          }
+        } catch {
+          // not a react artifact — fall through to the engine judge
+        }
+      }
       if (!artifact.trim()) return { dimensions: { resolved: 0 }, composite: 0, notes: 'empty artifact' }
       const verdict = await adapter.judge(scenario.task, artifact)
       if (scoreBased) {
@@ -288,6 +421,8 @@ async function main() {
     ? 'a build123d AUTHORING DIRECTIVE: the system instruction given to an agent that writes build123d (Python, OpenCascade BREP) to produce a STEP solid for a part description. The result is scored by a deterministic CAD-kernel metric: it must be a VALID watertight manifold solid, then align to the ground truth with a high point-cloud F1 + volume IoU + edge F1 + matching topology. The directive must make the agent produce a valid solid whose shape + exact dimensions match the description.'
     : isCadbench
     ? 'a BLENDER bpy AUTHORING DIRECTIVE: the system instruction given to an agent that writes a Blender Python (bpy) script to build a described 3D object. The result is rendered to images and a vision judge scores per-task criteria — correct recognizable shape, accurate proportions, sensible size, reasonable color/material, clean three-dimensional structure, faithful execution of the instruction. The directive must make the agent reliably produce a script that builds a correct, well-proportioned, clearly-recognizable model.'
+    : isAppworld
+      ? 'an APPWORLD SOLUTION DIRECTIVE: the system instruction given to an agent that writes a COMPLETE Python program to accomplish a digital task by calling simulated apps\' APIs (the `apis.<app>.<function>(...)` surface), authenticating where needed, and finishing with `apis.supervisor.complete_task()`. The program is executed in the AppWorld engine and scored by a deterministic per-requirement test suite (score = passes / num_tests). The directive must make the agent reliably DISCOVER the right APIs (via `apis.api_docs.show_api_descriptions`/`show_api_doc`) instead of guessing, authenticate with the supervisor-provided credentials, paginate/iterate over ALL relevant records, pass required arguments precisely, and VERIFY the task\'s success conditions before completing exactly once — without breaking the single-fenced-```python-block output format.'
     : isCad
       ? 'an OpenSCAD AUTHORING DIRECTIVE: the system instruction given to an agent that writes OpenSCAD source for a geometry brief. The produced solid is scored by a deterministic CAD kernel gate: it must compile, hit the brief\'s bounding box, have enough triangle detail, present a PITCHED roof (the top z-band footprint far smaller than the base), and be a HOLLOW shell (printed solid volume well under the bounding-box volume). The directive must make the agent reliably satisfy ALL of these checks.'
       : 'a REFINE DIRECTIVE: the instruction given to a research agent to re-examine its own prior answer and MAXIMIZE the chance the FINAL answer is correct. The dominant failure mode is a confidently-wrong first answer that the agent then restates unchanged. The directive must make the agent treat its prior answer as a HYPOTHESIS to confirm or replace — independently re-deriving the value from primary sources and REPLACING the prior answer whenever it cannot cite a source that confirms the exact value, units, and precision requested. It must keep a verified-correct answer unchanged, but must never lock in an unverifiable or unsupported prior answer.'
@@ -311,6 +446,13 @@ async function main() {
         'instruct the agent to assign a reasonable material/base color to each part so the render reads as the intended object',
         'instruct the agent to compose parts with correct spatial relationships (stacking, contact, symmetry) and to keep the model centered near the world origin',
         'instruct the agent to cover every explicit attribute named in the instruction (count, orientation, defining features) and to avoid extra unrequested geometry',
+      ]
+    : isAppworld
+      ? [
+        'instruct the agent to FIRST inspect the relevant app APIs with apis.api_docs.show_api_descriptions(app_name=...) and show_api_doc(app_name=..., api_name=...) before calling them, instead of guessing function names or argument shapes',
+        'instruct the agent to authenticate each app it uses with the supervisor-provided credentials (fetch the access token via the documented login API before any protected call)',
+        'instruct the agent to paginate/iterate over ALL pages of list endpoints and filter precisely on the task\'s criteria (dates, names, ids, amounts) rather than acting on only the first page',
+        'instruct the agent to verify the task\'s required end-state before calling apis.supervisor.complete_task() exactly once at the very end, and to emit the whole solution as a single fenced python block',
       ]
     : isCad
       ? [
@@ -374,13 +516,30 @@ async function main() {
       "Below are FAILED runs (task + gold/criteria + the agent's artifact + judge note). Diagnose the COMMON, recurring failure modes specific to THIS task domain. " +
       'For each, recommend a CONCRETE change to that directive that would make the agent score higher on future runs. ' +
       'Return ONLY a JSON array (no prose) of objects {"claim","severity":"high"|"medium"|"low","area","recommended_action"}. Max 6, most impactful first.'
-    let content: string
-    try {
-      content = await chatComplete(routerBaseUrl, routerKey, process.env.REFLECT_MODEL ?? 'gpt-5', system, user)
-    } catch (err) {
-      console.error(`[gepa-refine] analyzeGeneration LLM failed (gen ${input.generation}): ${(err as Error).message}`)
-      return []
+    // A transient router/network failure (fetch failed, timeout, 5xx) must NOT
+    // silently starve a generation of findings — that degrades the EYES→HANDS
+    // loop to blind reflection and confounds the lift measurement. Retry with
+    // exponential backoff before giving up.
+    let content: string | undefined
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        content = await chatComplete(routerBaseUrl, routerKey, process.env.REFLECT_MODEL ?? 'gpt-4o', system, user)
+        break
+      } catch (err) {
+        const msg = (err as Error).message
+        if (attempt === 4) {
+          console.error(
+            `[gepa-refine] analyzeGeneration LLM failed (gen ${input.generation}) after ${attempt} attempts: ${msg}`,
+          )
+          return []
+        }
+        console.error(
+          `[gepa-refine] analyzeGeneration transient failure (gen ${input.generation}, attempt ${attempt}/4): ${msg} — retrying`,
+        )
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)))
+      }
     }
+    if (content === undefined) return []
     const findings = parseFindings(content)
     console.log(
       `[gepa-refine] gen ${input.generation}: ${items.length} failures → ${findings.length} diagnosed findings fed to reflection`,
@@ -398,7 +557,7 @@ async function main() {
     storage: inMemoryCampaignStorage(),
     reflection: {
       llm: { baseUrl: routerBaseUrl, apiKey: routerKey },
-      model: process.env.REFLECT_MODEL ?? 'gpt-5',
+      model: process.env.REFLECT_MODEL ?? 'gpt-4o',
       target: reflectionTarget,
       mutationPrimitives: reflectionPrimitives,
     },

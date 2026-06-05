@@ -7,11 +7,11 @@ import {
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
-import { defaultSelectWinner } from '../../src/loops/run-loop'
-import { createBudgetPool, spendFromUsageEvents } from '../../src/loops/supervise/budget'
-import { createExecutorRegistry } from '../../src/loops/supervise/runtime'
-import { createScope, settledToIteration } from '../../src/loops/supervise/scope'
-import { createRootHandle, createSupervisor } from '../../src/loops/supervise/supervisor'
+import { defaultSelectWinner } from '../../src/runtime/run-loop'
+import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
+import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
   AgentSpec,
@@ -26,7 +26,8 @@ import type {
   SupervisorOpts,
   UsageEvent,
   WidenGate,
-} from '../../src/loops/supervise/types'
+} from '../../src/runtime/supervise/types'
+import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
 // ── The mock LeafExecutor — the whole keystone runs offline against this ─────────
 //
@@ -42,6 +43,8 @@ interface MockScript {
   readonly failWith?: string
   /** When set, `execute` blocks on this promise until the scope aborts it. */
   readonly block?: Promise<void>
+  /** When set, the executor implements `deliver` (the inbox) and pushes received messages here. */
+  readonly inbox?: unknown[]
 }
 
 function mockExecutor(script: MockScript): LeafExecutor<unknown> {
@@ -67,6 +70,7 @@ function mockExecutor(script: MockScript): LeafExecutor<unknown> {
         for (const ev of script.events) yield ev
       })()
     },
+    ...(script.inbox ? { deliver: (m: unknown) => script.inbox?.push(m) } : {}),
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
@@ -124,6 +128,7 @@ function scopeArgs(over: Partial<Parameters<typeof createScope>[0]> = {}) {
       maxDepth: over.maxDepth,
       signal: over.signal ?? new AbortController().signal,
       now: over.now ?? (() => 0),
+      hooks: over.hooks,
     },
     pool,
     journal,
@@ -174,6 +179,16 @@ describe('conserved budget pool', () => {
     const spend: Spend = { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
     pool.reconcile(r.ticket, spend)
     expect(() => pool.reconcile(r.ticket, spend)).toThrow(/unknown or already-settled/)
+  })
+
+  it('assertNoOpenTickets is the leak detector — throws while a ticket is open, passes once reconciled', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 100, label: '' } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(() => pool.assertNoOpenTickets()).toThrow(/reservation\(s\) still open/)
+    pool.reconcile(r.ticket, { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })
 
   it('a usd request against an uncapped root is unsatisfiable (fail closed)', () => {
@@ -268,6 +283,87 @@ describe('reactive scope', () => {
     const events = (await journal.loadTree('run')) as SpawnEvent[]
     const settledSeqs = events.filter((e) => e.kind === 'settled').map((e) => e.seq)
     expect(new Set(settledSeqs).size).toBe(settledSeqs.length)
+  })
+
+  it('a synchronous factory throw releases the reservation (no conserved-pool leak)', async () => {
+    // The leak window the codex audit flagged: reserve() runs, then the scope constructs the
+    // executor via the registry factory — if THAT throws, runChild (which reconciles the ticket)
+    // is never reached. The reservation must be released so total ≡ free + reserved + committed.
+    const boomRegistry = {
+      register() {
+        throw new Error('unused')
+      },
+      resolve() {
+        return {
+          succeeded: true as const,
+          value: () => {
+            throw new Error('factory boom')
+          },
+        }
+      },
+    } as unknown as Parameters<typeof createScope>[0]['executors']
+    const { scope, pool } = await beginScope({ executors: boomRegistry })
+    const agent = {
+      name: 'boom',
+      act: async () => 0,
+      executorSpec: { profile: {} as AgentProfile, harness: null },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    expect(() =>
+      scope.spawn(agent, 'task', { budget: { maxIterations: 1, maxTokens: 100 }, label: 'boom' }),
+    ).toThrow(/factory boom/)
+    expect(pool.readout().tokensLeft).toBe(100_000)
+    expect(pool.readout().reservedTokens).toBe(0)
+    expect(() => pool.assertNoOpenTickets()).not.toThrow()
+  })
+
+  it('send() steers a LIVE child via its inbox; false for settled / unknown / no-inbox', async () => {
+    const { scope } = await beginScope()
+    const inbox: unknown[] = []
+    let release!: () => void
+    const block = new Promise<void>((r) => {
+      release = r
+    })
+    const res = scope.spawn(
+      leafAgent('w', { out: 1, events: tokensOnly(1, 1, 1), block, inbox }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 10 },
+        label: 'w',
+      },
+    )
+    if (!res.ok) throw new Error('spawn should have succeeded')
+    // Live child with an inbox → delivered.
+    expect(scope.send(res.handle.id, { steer: 'do X next' })).toBe(true)
+    expect(inbox).toEqual([{ steer: 'do X next' }])
+    // Unknown id → false (no live child).
+    expect(scope.send('no-such-node', { steer: 'x' })).toBe(false)
+    // Unblock + drain → child settles.
+    release()
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('done')
+    // Settled child → false (can't steer a finished child).
+    expect(scope.send(res.handle.id, { steer: 'too late' })).toBe(false)
+    expect(inbox).toHaveLength(1)
+  })
+
+  it('send() returns false for a live child whose executor has no inbox (cannot steer mid-flight)', async () => {
+    const { scope } = await beginScope()
+    let release!: () => void
+    const block = new Promise<void>((r) => {
+      release = r
+    })
+    const res = scope.spawn(
+      leafAgent('w', { out: 1, events: tokensOnly(1, 1, 1), block }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 10 },
+        label: 'w',
+      },
+    )
+    if (!res.ok) throw new Error('spawn should have succeeded')
+    expect(scope.send(res.handle.id, { steer: 'x' })).toBe(false) // no `deliver` on the executor
+    release()
+    await scope.next()
   })
 
   it('next() yields in monotonic seq order and view reflects the in-memory tree', async () => {
@@ -773,6 +869,85 @@ describe('replay determinism', () => {
     await expect(replaySpawnTree(journal, new InMemoryResultBlobStore(), 'gap')).rejects.toThrow(
       /no artifact for outRef/,
     )
+  })
+})
+
+// ── 9. one observable tree — spawn/settle ride the lifecycle hook stream ─────────
+//
+// The recursive tree is observable through the SAME `RuntimeHooks` stream `runLoop`/
+// `tool-loop` feed: `scope.spawn` emits `agent.spawn`, the settle cursor emits
+// `agent.child`. This is what the topology viewer reads — without it the tree is only
+// in the journal (replay-only, not live). The journal stays the durable record; the
+// hook stream is the live projection. Both must agree.
+
+describe('lifecycle hook stream (the topology viewer source)', () => {
+  it('emits agent.spawn at spawn and agent.child at settle, with parent/child + status', async () => {
+    const events: RuntimeHookEvent[] = []
+    const { scope } = await beginScope({
+      root: 'run',
+      parentId: 'run',
+      hooks: { onEvent: (e) => void events.push(e) },
+    })
+
+    scope.spawn(
+      leafAgent('ok', {
+        out: 'A',
+        events: tokensOnly(1, 1, 1),
+        verdict: { score: 0.9, valid: true },
+      }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 100 },
+        label: 'winner',
+      },
+    )
+    scope.spawn(leafAgent('boom', { out: null, events: [], failWith: 'leaf exploded' }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'loser',
+    })
+    for (let s = await scope.next(); s !== null; s = await scope.next()) {
+      /* drain — settling is what fires agent.child */
+    }
+
+    const spawns = events.filter((e) => e.target === 'agent.spawn')
+    const settles = events.filter((e) => e.target === 'agent.child')
+    expect(spawns).toHaveLength(2)
+    expect(settles).toHaveLength(2)
+
+    // Every event carries the run id, the tree parent, and the child it is about.
+    for (const e of [...spawns, ...settles]) {
+      expect(e.runId).toBe('run')
+      expect(e.parentId).toBe('run')
+      expect(e.phase).toBe('after')
+      expect((e.payload as { childId: string }).childId).toMatch(/^run:s\d+$/)
+    }
+    // spawn payload names the runtime + label so the viewer can draw the node before it settles.
+    expect(spawns.map((e) => (e.payload as { label: string }).label).sort()).toEqual([
+      'loser',
+      'winner',
+    ])
+    // child payload carries the terminal status the viewer colors the node by.
+    const byStatus = Object.fromEntries(
+      settles.map((e) => [
+        (e.payload as { status: string }).status,
+        e.payload as Record<string, unknown>,
+      ]),
+    )
+    expect(byStatus.done).toMatchObject({ status: 'done', score: 0.9, valid: true })
+    expect(byStatus.down).toMatchObject({ status: 'down', reason: 'leaf exploded' })
+  })
+
+  it('stays silent (journal-only) when no hooks are wired', async () => {
+    const { scope, journal } = await beginScope({ root: 'run', parentId: 'run' })
+    scope.spawn(leafAgent('solo', { out: 1, events: tokensOnly(1, 1, 1) }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'solo',
+    })
+    await scope.next()
+    // No hooks ⇒ no throw, and the journal still recorded the lifecycle (the durable record).
+    const recorded = (await journal.loadTree('run')) ?? []
+    expect(recorded.some((e) => e.kind === 'spawned')).toBe(true)
+    expect(recorded.some((e) => e.kind === 'settled')).toBe(true)
   })
 })
 

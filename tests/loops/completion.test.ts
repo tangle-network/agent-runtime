@@ -12,7 +12,7 @@ import {
   stopSentinel,
   type TopologyPlanner,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
 
 const output: OutputAdapter<string> = {
   parse(events) {

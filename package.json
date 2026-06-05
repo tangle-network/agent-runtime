@@ -39,10 +39,20 @@
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
     "./loops": {
       "types": "./dist/loops.d.ts",
       "import": "./dist/loops.js",
       "default": "./dist/loops.js"
+    },
+    "./topology": {
+      "types": "./dist/topology.d.ts",
+      "import": "./dist/topology.js",
+      "default": "./dist/topology.js"
     },
     "./workflow": {
       "types": "./dist/workflow.d.ts",

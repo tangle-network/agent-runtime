@@ -8,11 +8,11 @@ import type {
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createRefineDriver,
   loopDispatch,
   type OutputAdapter,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
+import { refineDriver } from './refine-driver'
 
 interface Task {
   goal: string
@@ -116,7 +116,7 @@ describe('loopDispatch', () => {
     const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
       sandboxClient,
       toLoopOptions: (scenario) => ({
-        driver: createRefineDriver<Task, Output>(),
+        driver: refineDriver<Task, Output>(),
         agentRun: spec(),
         output,
         validator: passAlways,
@@ -152,7 +152,7 @@ describe('loopDispatch', () => {
     const dispatch = loopDispatch<Task, Output, 'stop', FakeScenario, Output>({
       sandboxClient,
       toLoopOptions: (scenario) => ({
-        driver: createRefineDriver<Task, Output>(),
+        driver: refineDriver<Task, Output>(),
         agentRun: spec(),
         output,
         validator: failAlways,

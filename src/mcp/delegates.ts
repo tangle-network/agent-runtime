@@ -16,9 +16,9 @@
  * pass `researcherDelegate` explicitly when constructing the server.
  */
 
-import type { Iteration, LoopSandboxClient, LoopTraceEmitter } from '../loops'
-import { runLoop } from '../loops'
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
+import type { Iteration, LoopSandboxClient, LoopTraceEmitter } from '../runtime'
+import { runLoop } from '../runtime'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
   CoderTask,

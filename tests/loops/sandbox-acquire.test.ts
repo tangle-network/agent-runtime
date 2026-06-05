@@ -1,6 +1,6 @@
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { acquireSandbox } from '../../src/loops'
+import { acquireSandbox } from '../../src/runtime'
 
 // Deterministic clock: time only advances when the code sleeps.
 function clock() {

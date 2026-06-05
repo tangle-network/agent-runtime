@@ -16,7 +16,7 @@
  *     (model, prompt, role) stays on the `Persona`. There is no "research" or "code" combinator:
  *     a research sweep is `fanout` under a research persona; a build is `pipeline` under a coder.
  *  2. ANALYST-ON-SCOPE (G1, a PORT) — `ScopeAnalyst` carries the round-synchronous driver's
- *     analyze→findings→steer wire (drivers/dynamic.ts) across to the reactive `Scope`, behind
+ *     analyze→findings→steer wire (dynamic.ts) across to the reactive `Scope`, behind
  *     the same trace-derived firewall (`assertTraceDerivedFindings` semantics): a reactive
  *     combinator steers from trace FINDINGS, never a child's raw `verdict`.
  *  3. CROSS-RUN CORPUS (G2) — `Corpus` is the DURABLE accreted-fact store, DISTINCT from the
@@ -312,12 +312,12 @@ export type Widen = <Task, Seed, D>(spec: WidenSpec<Seed, D>) => CombinatorShape
 export type FlatWidenGate = <D>() => ScopeWidenGate<D>
 
 // ════════════════════════════════════════════════════════════════════════════════════
-// 2. ANALYST-ON-SCOPE (G1, a PORT of drivers/dynamic.ts's analyze→findings→steer wire)
+// 2. ANALYST-ON-SCOPE (G1, a PORT of dynamic.ts's analyze→findings→steer wire)
 // ════════════════════════════════════════════════════════════════════════════════════
 
 /**
  * The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook
- * (drivers/dynamic.ts) onto the reactive `Scope`. The old driver wired the analyst at round
+ * (dynamic.ts) onto the reactive `Scope`. The old driver wired the analyst at round
  * boundaries (`plan` ran the analyst over `history` BEFORE the planner); the reactive `Scope` has
  * no rounds, so this carries the wire across: a combinator's `act` asks the `ScopeAnalyst` to turn
  * the settled children SO FAR into `AnalystFinding[]`, and steers from THOSE findings.
