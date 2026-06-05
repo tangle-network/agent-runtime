@@ -100,6 +100,8 @@ interface LiveChild {
   resolved?: PreSeqSettled
   /** True once `next()` has yielded this child's settlement. */
   delivered: boolean
+  /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
+  readonly deliver?: (msg: unknown) => void
 }
 
 /** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
@@ -183,6 +185,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       spent: zeroSpend(),
       settled: undefined as unknown as Promise<PreSeqSettled>,
       delivered: false,
+      ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
     }
     children.set(id, live)
 
@@ -248,9 +251,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
+  function send(nodeId: NodeId, msg: unknown): boolean {
+    const child = children.get(nodeId)
+    // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
+    // accepts an inbox. A settled/unknown child, or a leaf with no `deliver`, cannot be steered.
+    if (!child || child.delivered || !child.deliver) return false
+    child.deliver(msg)
+    return true
+  }
+
   return {
     spawn,
     next,
+    send,
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },

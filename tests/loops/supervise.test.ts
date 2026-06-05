@@ -42,6 +42,8 @@ interface MockScript {
   readonly failWith?: string
   /** When set, `execute` blocks on this promise until the scope aborts it. */
   readonly block?: Promise<void>
+  /** When set, the executor implements `deliver` (the inbox) and pushes received messages here. */
+  readonly inbox?: unknown[]
 }
 
 function mockExecutor(script: MockScript): LeafExecutor<unknown> {
@@ -67,6 +69,7 @@ function mockExecutor(script: MockScript): LeafExecutor<unknown> {
         for (const ev of script.events) yield ev
       })()
     },
+    ...(script.inbox ? { deliver: (m: unknown) => script.inbox?.push(m) } : {}),
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
@@ -268,6 +271,56 @@ describe('reactive scope', () => {
     const events = (await journal.loadTree('run')) as SpawnEvent[]
     const settledSeqs = events.filter((e) => e.kind === 'settled').map((e) => e.seq)
     expect(new Set(settledSeqs).size).toBe(settledSeqs.length)
+  })
+
+  it('send() steers a LIVE child via its inbox; false for settled / unknown / no-inbox', async () => {
+    const { scope } = await beginScope()
+    const inbox: unknown[] = []
+    let release!: () => void
+    const block = new Promise<void>((r) => {
+      release = r
+    })
+    const res = scope.spawn(
+      leafAgent('w', { out: 1, events: tokensOnly(1, 1, 1), block, inbox }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 10 },
+        label: 'w',
+      },
+    )
+    if (!res.ok) throw new Error('spawn should have succeeded')
+    // Live child with an inbox → delivered.
+    expect(scope.send(res.handle.id, { steer: 'do X next' })).toBe(true)
+    expect(inbox).toEqual([{ steer: 'do X next' }])
+    // Unknown id → false (no live child).
+    expect(scope.send('no-such-node', { steer: 'x' })).toBe(false)
+    // Unblock + drain → child settles.
+    release()
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('done')
+    // Settled child → false (can't steer a finished child).
+    expect(scope.send(res.handle.id, { steer: 'too late' })).toBe(false)
+    expect(inbox).toHaveLength(1)
+  })
+
+  it('send() returns false for a live child whose executor has no inbox (cannot steer mid-flight)', async () => {
+    const { scope } = await beginScope()
+    let release!: () => void
+    const block = new Promise<void>((r) => {
+      release = r
+    })
+    const res = scope.spawn(
+      leafAgent('w', { out: 1, events: tokensOnly(1, 1, 1), block }),
+      'task',
+      {
+        budget: { maxIterations: 1, maxTokens: 10 },
+        label: 'w',
+      },
+    )
+    if (!res.ok) throw new Error('spawn should have succeeded')
+    expect(scope.send(res.handle.id, { steer: 'x' })).toBe(false) // no `deliver` on the executor
+    release()
+    await scope.next()
   })
 
   it('next() yields in monotonic seq order and view reflects the in-memory tree', async () => {
