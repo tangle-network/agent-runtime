@@ -103,12 +103,27 @@ export async function seed(server: GymServer, gymDbsDir: string): Promise<void> 
   if (!server.seed_database_file) throw new Error(`server ${server.mcp_server_name} has no seed_database_file`)
   const path = isAbsolute(server.seed_database_file) ? server.seed_database_file : join(gymDbsDir, server.seed_database_file)
   const sql = await readFile(path, 'utf8')
-  const dbId = `gate_${Math.random().toString(16).slice(2, 14)}`
   const url = `${server.mcp_server_url.replace(/\/$/, '')}/api/seed-database`
-  await httpPost(url, { database_id: dbId, name: `gate_${dbId}`, description: 'agentic shot', sql_content: sql }, {
-    'content-type': 'application/json',
-  })
-  server._database_id = dbId
+  // Bounded retry on a transient 5xx: under concurrent seeding the gym's SQLite returns
+  // "unable to open database file" (a lock/contention 500) that a short backoff clears. A fresh
+  // database_id per attempt avoids a half-created id colliding. Non-5xx errors fail loud at once.
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const dbId = `gate_${Math.random().toString(16).slice(2, 14)}`
+    try {
+      await httpPost(url, { database_id: dbId, name: `gate_${dbId}`, description: 'agentic shot', sql_content: sql }, { 'content-type': 'application/json' })
+      server._database_id = dbId
+      return
+    } catch (err) {
+      lastErr = err
+      if (err instanceof HttpError && err.status >= 500 && attempt < 3) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)))
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
 }
 
 export async function deleteDb(server: GymServer): Promise<void> {
