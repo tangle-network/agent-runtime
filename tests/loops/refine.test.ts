@@ -15,6 +15,7 @@ import {
   runLoop,
   type Validator,
 } from '../../src/loops'
+import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
 interface RefineTask {
   goal: string
@@ -178,6 +179,48 @@ describe('runLoop + createRefineDriver', () => {
     // Decision event follows each iteration.
     const decisionCount = kinds.filter((k) => k === 'loop.decision').length
     expect(decisionCount).toBeGreaterThanOrEqual(2)
+  })
+
+  it('emits runtime hooks around run-loop plan and decision lifecycle', async () => {
+    const events: RuntimeHookEvent[] = []
+    const stub = stubClient([[{ type: 'result', data: { attempt: 1 } }]])
+    const passFirst: Validator<RefineOutput> = {
+      async validate() {
+        return { valid: true, score: 1, scores: { attempt: 1 } }
+      },
+    }
+
+    await runLoop({
+      driver: createRefineDriver<RefineTask, RefineOutput>(),
+      agentRun: spec(),
+      output,
+      validator: passFirst,
+      task: { goal: 'hook order' },
+      ctx: {
+        sandboxClient: stub.client,
+        hooks: {
+          onEvent: (event) => {
+            events.push(event)
+          },
+        },
+      },
+      runId: 'hook-run-id',
+    })
+
+    expect(events.map((event) => `${event.target}:${event.phase}`)).toEqual([
+      'run-loop:before',
+      'run-loop.plan:before',
+      'run-loop.plan:after',
+      'run-loop.decision:before',
+      'run-loop.decision:after',
+      'run-loop:after',
+    ])
+    expect(
+      events.find((event) => event.target === 'run-loop.plan' && event.phase === 'after'),
+    ).toMatchObject({
+      runId: 'hook-run-id',
+      payload: { plannedCount: 1, moveKind: 'refine' },
+    })
   })
 
   it('captures per-iteration errors without aborting the whole loop', async () => {

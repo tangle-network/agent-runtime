@@ -18,6 +18,7 @@ import type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
 
 // DefaultVerdict is a substrate primitive — it lives in @tangle-network/agent-eval.
@@ -443,6 +444,8 @@ export interface LoopTeardownFailedPayload {
 export interface ExecCtx {
   /** Sandbox SDK client — the kernel calls `.create()` per iteration. */
   sandboxClient: LoopSandboxClient
+  /** Optional runtime hooks. Execution-scoped; never part of `AgentProfile`. */
+  hooks?: RuntimeHooks
   /** Optional trace emitter. When set, the kernel emits `loop.*` events. */
   traceEmitter?: LoopTraceEmitter
   /**

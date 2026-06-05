@@ -25,6 +25,7 @@
 
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
@@ -167,6 +168,19 @@ export async function runLoop<Task, Output, Decision>(
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
   const lineageState = await setUpLineage(options, maxConcurrency)
 
+  emitRunLoopHook(options, {
+    target: 'run-loop',
+    phase: 'before',
+    runId,
+    timestamp: now(),
+    payload: {
+      driver: driverName,
+      agentRunNames: specs.map((spec) => spec.name ?? spec.profile.name ?? 'agent'),
+      maxIterations,
+      maxConcurrency,
+    },
+  })
+
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.started',
     runId,
@@ -189,6 +203,14 @@ export async function runLoop<Task, Output, Decision>(
   try {
     while (iterations.length < maxIterations) {
       if (controller.signal.aborted) throwAbort()
+      emitRunLoopHook(options, {
+        target: 'run-loop.plan',
+        phase: 'before',
+        runId,
+        timestamp: now(),
+        stepIndex: round,
+        payload: { roundIndex: round, historyLength: iterations.length },
+      })
       const planned = await options.driver.plan(options.task, iterations)
       // plan() may be a long LLM call (sandbox planner); an abort during it must
       // not launch a fresh batch of workers on an already-cancelled loop.
@@ -205,6 +227,23 @@ export async function runLoop<Task, Output, Decision>(
       const parentIndex =
         planDesc?.parentIndex ?? (roundIndex === 0 ? undefined : branchPoint(iterations))
       const childIndices = slice.map((_, i) => baseIndex + i)
+      const moveKind =
+        planDesc?.kind ??
+        (planned.length === 0 ? 'stop' : planned.length === 1 ? 'refine' : 'fanout')
+      emitRunLoopHook(options, {
+        target: 'run-loop.plan',
+        phase: 'after',
+        runId,
+        timestamp: now(),
+        stepIndex: roundIndex,
+        payload: {
+          roundIndex,
+          plannedCount: planned.length,
+          moveKind,
+          parentIndex,
+          childIndices,
+        },
+      })
       await emitTrace(options.ctx.traceEmitter, {
         kind: 'loop.plan',
         runId,
@@ -212,9 +251,7 @@ export async function runLoop<Task, Output, Decision>(
         payload: {
           roundIndex,
           plannedCount: planned.length,
-          moveKind:
-            planDesc?.kind ??
-            (planned.length === 0 ? 'stop' : planned.length === 1 ? 'refine' : 'fanout'),
+          moveKind,
           rationale: planDesc?.rationale,
           parentIndex,
           childIndices,
@@ -266,7 +303,23 @@ export async function runLoop<Task, Output, Decision>(
 
       if (controller.signal.aborted) throwAbort()
 
+      emitRunLoopHook(options, {
+        target: 'run-loop.decision',
+        phase: 'before',
+        runId,
+        timestamp: now(),
+        stepIndex: roundIndex,
+        payload: { historyLength: iterations.length },
+      })
       const decision = await options.driver.decide(iterations)
+      emitRunLoopHook(options, {
+        target: 'run-loop.decision',
+        phase: 'after',
+        runId,
+        timestamp: now(),
+        stepIndex: roundIndex,
+        payload: { decision: stringifySafe(decision), historyLength: iterations.length },
+      })
       await emitTrace(options.ctx.traceEmitter, {
         kind: 'loop.decision',
         runId,
@@ -834,7 +887,21 @@ async function decideAndFinalize<Task, Output, Decision>(
   now: () => number,
   runId: string,
 ): Promise<LoopResult<Task, Output, Decision>> {
+  emitRunLoopHook(options, {
+    target: 'run-loop.decision',
+    phase: 'before',
+    runId,
+    timestamp: now(),
+    payload: { historyLength: iterations.length },
+  })
   const decision = await options.driver.decide(iterations)
+  emitRunLoopHook(options, {
+    target: 'run-loop.decision',
+    phase: 'after',
+    runId,
+    timestamp: now(),
+    payload: { decision: stringifySafe(decision), historyLength: iterations.length },
+  })
   await emitTrace(options.ctx.traceEmitter, {
     kind: 'loop.decision',
     runId,
@@ -855,6 +922,19 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
   runId: string,
 ): Promise<LoopResult<Task, Output, Decision>> {
   const result = finalize({ options, decision, iterations, startMs, now, runId })
+  emitRunLoopHook(options, {
+    target: 'run-loop',
+    phase: 'after',
+    runId,
+    timestamp: now(),
+    payload: {
+      decision: stringifySafe(decision),
+      winnerIterationIndex: result.winner?.iterationIndex,
+      totalCostUsd: result.costUsd,
+      durationMs: result.durationMs,
+      iterations: iterations.length,
+    },
+  })
   // Await the terminal span (unlike a fire-and-forget) so a process exiting
   // right after runLoop resolves (MCP subprocess / CLI dispatch) can't drop it.
   await emitTrace(options.ctx.traceEmitter, {
@@ -913,6 +993,34 @@ function resolveAgentRuns<Task, Output, Decision>(
 function isTerminalDecision(decision: unknown): boolean {
   return (
     decision === 'stop' || decision === 'pick-winner' || decision === 'fail' || decision === 'done'
+  )
+}
+
+function emitRunLoopHook<Task, Output, Decision>(
+  options: RunLoopOptions<Task, Output, Decision>,
+  event: {
+    target: 'run-loop' | 'run-loop.plan' | 'run-loop.decision'
+    phase: 'before' | 'after' | 'error' | 'event'
+    runId: string
+    timestamp: number
+    stepIndex?: number
+    payload?: Record<string, unknown>
+  },
+): void {
+  notifyRuntimeHookEvent(
+    options.ctx.hooks,
+    {
+      id: `${event.runId}:${event.target}:${event.phase}${
+        event.stepIndex === undefined ? '' : `:${event.stepIndex}`
+      }`,
+      runId: event.runId,
+      target: event.target,
+      phase: event.phase,
+      timestamp: event.timestamp,
+      stepIndex: event.stepIndex,
+      payload: event.payload,
+    },
+    { signal: options.ctx.signal },
   )
 }
 
