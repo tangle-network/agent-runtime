@@ -17,9 +17,9 @@
  * the server operates standalone without trace joining.
  */
 
-import type { LoopTraceEmitter, LoopTraceEvent } from '../loops/types'
 import type { OtelExporter } from '../otel-export'
 import { buildLoopOtelSpans, createOtelExporter } from '../otel-export'
+import type { LoopTraceEmitter, LoopTraceEvent } from '../runtime/types'
 
 export interface TraceContext {
   /** Trace id inherited from the parent process, or a fresh one. */

@@ -21,7 +21,7 @@ import {
   type EvidenceRef,
   makeFinding,
 } from '@tangle-network/agent-eval'
-import { assertTraceDerivedFindings } from '../../loops'
+import { assertTraceDerivedFindings } from '../../runtime'
 
 // agent-eval's root entry exports the lift (`makeFinding`) + the `AnalystFinding`/`EvidenceRef` shapes
 // but NOT the raw-row validator / schema prompt (kind-factory-internal). We inline a minimal,

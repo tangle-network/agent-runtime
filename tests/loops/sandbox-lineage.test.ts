@@ -9,7 +9,7 @@ import {
   runLoop,
   type TopologyMove,
   type TopologyPlanner,
-} from '../../src/loops'
+} from '../../src/runtime'
 
 interface Task {
   goal: string

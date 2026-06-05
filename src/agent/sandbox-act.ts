@@ -17,10 +17,10 @@
  */
 
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
-import type { AgentRunSpec, LoopSandboxClient, OutputAdapter } from '../loops'
-import { createSandboxForSpec, mapSandboxEvent } from '../loops'
 import type { ComposeProductionAgentProfileOptions } from '../mcp/delegation-profile'
 import { composeProductionAgentProfile } from '../mcp/delegation-profile'
+import type { AgentRunSpec, LoopSandboxClient, OutputAdapter } from '../runtime'
+import { createSandboxForSpec, mapSandboxEvent } from '../runtime'
 import type { RuntimeStreamEvent } from '../types'
 import type { AgentRunContext, AgentRunInvocation } from './define-agent'
 

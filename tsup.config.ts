@@ -7,7 +7,8 @@ export default defineConfig({
     'analyst-loop': 'src/analyst-loop/index.ts',
     improvement: 'src/improvement/index.ts',
     agent: 'src/agent/index.ts',
-    loops: 'src/loops/index.ts',
+    runtime: 'src/runtime/index.ts',
+    loops: 'src/runtime/index.ts', // back-compat alias for the renamed runtime/ — external consumers still import ./loops
     workflow: 'src/workflow/index.ts',
     profiles: 'src/profiles/index.ts',
     audit: 'src/audit/index.ts',

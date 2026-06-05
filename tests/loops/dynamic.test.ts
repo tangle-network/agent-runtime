@@ -19,7 +19,7 @@ import {
   type TopologyMove,
   type TopologyPlanner,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
 
 function finding(over: Partial<AnalystFinding> = {}): AnalystFinding {
   return {

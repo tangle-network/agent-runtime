@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/loops'
 import { createMcpServer } from '../../src/mcp/server'
 import { createAgentBus } from '../../src/mcp/tools/agent-bus'
+import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
 
 // The toolbox is a thin wrapper over the keystone Scope (spawn/view/send are tested in
 // supervise.test.ts); this verifies the MCP handlers call the right verbs and shape the results.

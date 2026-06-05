@@ -25,7 +25,13 @@
  * bounded by `maxDepth` + the conserved pool).
  */
 
-import type { Budget, ResultBlobStore, Scope, Settled, Agent as SuperviseAgent } from '../../loops'
+import type {
+  Budget,
+  ResultBlobStore,
+  Scope,
+  Settled,
+  Agent as SuperviseAgent,
+} from '../../runtime'
 import type { McpToolDescriptor } from '../server'
 
 /** A worker the driver has drained via `await_next` — the operator's running ledger of settled

@@ -71,8 +71,8 @@ describe('coderLoopRunner — code mode over the hardened delegate', () => {
 })
 
 import { dynamicLoopRunner, researchLoopRunner, type VetoedFact } from '../src/loop-runner'
-import type { AgentRunSpec, OutputAdapter, TopologyPlanner, Validator } from '../src/loops'
 import type { FactCandidate } from '../src/mcp/kb-gate'
+import type { AgentRunSpec, OutputAdapter, TopologyPlanner, Validator } from '../src/runtime'
 
 const neverAbort = new AbortController().signal
 

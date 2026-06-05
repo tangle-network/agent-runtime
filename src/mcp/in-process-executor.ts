@@ -35,7 +35,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxClient, LoopSandboxPlacement } from '../loops'
+import type { LoopSandboxClient, LoopSandboxPlacement } from '../runtime'
 import type { DelegationExecutor } from './executor'
 import { type LocalHarness, runLocalHarness } from './local-harness'
 import {

@@ -10,17 +10,17 @@ import {
   pipeline,
   verify,
   widen,
-} from '../../src/loops/personify/combinators'
-import { definePersona, runPersonified } from '../../src/loops/personify/persona'
+} from '../../src/runtime/personify/combinators'
+import { definePersona, runPersonified } from '../../src/runtime/personify/persona'
 import type {
   CombinatorShape,
   Outcome,
   PanelVerdict,
   Persona,
   ScopeWidenGate,
-} from '../../src/loops/personify/wave-types'
-import { spendFromUsageEvents } from '../../src/loops/supervise/budget'
-import { createExecutorRegistry } from '../../src/loops/supervise/runtime'
+} from '../../src/runtime/personify/wave-types'
+import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import type {
   AgentSpec,
   Budget,
@@ -29,7 +29,7 @@ import type {
   LeafResult,
   Settled,
   UsageEvent,
-} from '../../src/loops/supervise/types'
+} from '../../src/runtime/supervise/types'
 
 // ── Offline mock leaf runtime ─────────────────────────────────────────────────────
 //

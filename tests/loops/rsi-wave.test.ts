@@ -7,13 +7,13 @@ import {
   InMemorySpawnJournal,
 } from '../../src/durable/spawn-journal'
 import { AnalystError, PlannerError, ValidationError } from '../../src/errors'
-import { buildSteerContext, createScopeAnalyst } from '../../src/loops/personify/analyst'
-import { InMemoryCorpus, renderCorpusToInstructions } from '../../src/loops/personify/corpus'
-import { equalKOnCost, trajectoryReport } from '../../src/loops/personify/trajectory'
-import type { CorpusRecord, Outcome } from '../../src/loops/personify/wave-types'
-import { createBudgetPool, spendFromUsageEvents } from '../../src/loops/supervise/budget'
-import { createExecutorRegistry } from '../../src/loops/supervise/runtime'
-import { createScope } from '../../src/loops/supervise/scope'
+import { buildSteerContext, createScopeAnalyst } from '../../src/runtime/personify/analyst'
+import { InMemoryCorpus, renderCorpusToInstructions } from '../../src/runtime/personify/corpus'
+import { equalKOnCost, trajectoryReport } from '../../src/runtime/personify/trajectory'
+import type { CorpusRecord, Outcome } from '../../src/runtime/personify/wave-types'
+import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope } from '../../src/runtime/supervise/scope'
 import type {
   Agent,
   AgentSpec,
@@ -24,7 +24,7 @@ import type {
   SpawnJournal,
   Spend,
   UsageEvent,
-} from '../../src/loops/supervise/types'
+} from '../../src/runtime/supervise/types'
 
 // ── A trace-derived vs judge-derived finding (the firewall's only discriminator) ─────
 

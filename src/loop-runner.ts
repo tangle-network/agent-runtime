@@ -31,6 +31,15 @@ import {
   optimizePrompt,
 } from './improvement/optimize-prompt'
 import {
+  type CoderReviewer,
+  type CoderWinnerSelection,
+  createDefaultCoderDelegate,
+  type DelegateRunCtx,
+} from './mcp/delegates'
+import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
+import type { DelegateCodeArgs } from './mcp/types'
+import type { CoderOutput } from './profiles/coder'
+import {
   type AgentRunSpec,
   type CreateDynamicDriverOptions,
   createDynamicDriver,
@@ -41,16 +50,7 @@ import {
   runLoop,
   type TopologyPlanner,
   type Validator,
-} from './loops'
-import {
-  type CoderReviewer,
-  type CoderWinnerSelection,
-  createDefaultCoderDelegate,
-  type DelegateRunCtx,
-} from './mcp/delegates'
-import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
-import type { DelegateCodeArgs } from './mcp/types'
-import type { CoderOutput } from './profiles/coder'
+} from './runtime'
 
 /** @experimental Every delegated-loop mode, for validation + CLI surfaces. */
 export const DELEGATED_LOOP_MODES = [

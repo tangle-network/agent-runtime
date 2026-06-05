@@ -11,8 +11,8 @@ import {
   type LoopSandboxClient,
   type LoopSandboxPlacement,
   type OutputAdapter,
-} from '../loops'
-import { createSandboxForSpec, describeSandboxPlacement } from '../loops/run-loop'
+} from '../runtime'
+import { createSandboxForSpec, describeSandboxPlacement } from '../runtime/run-loop'
 import type {
   WorkflowAgentDelegate,
   WorkflowAgentOptions,

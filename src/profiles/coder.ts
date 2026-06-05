@@ -16,7 +16,13 @@
  */
 
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
-import type { AgentRunSpec, DefaultVerdict, Driver, OutputAdapter, Validator } from '../loops/types'
+import type {
+  AgentRunSpec,
+  DefaultVerdict,
+  Driver,
+  OutputAdapter,
+  Validator,
+} from '../runtime/types'
 
 const DEFAULT_MAX_DIFF_LINES = 400
 

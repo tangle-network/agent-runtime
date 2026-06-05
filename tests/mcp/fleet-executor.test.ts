@@ -5,18 +5,18 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import {
-  type AgentRunSpec,
-  type LoopTraceEvent,
-  type OutputAdapter,
-  runLoop,
-} from '../../src/loops'
 import { createDefaultCoderDelegate } from '../../src/mcp/delegates'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,
   type FleetHandle,
 } from '../../src/mcp/executor'
+import {
+  type AgentRunSpec,
+  type LoopTraceEvent,
+  type OutputAdapter,
+  runLoop,
+} from '../../src/runtime'
 
 const profile: AgentProfile = { name: 'stub' }
 

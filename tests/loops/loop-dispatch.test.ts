@@ -11,7 +11,7 @@ import {
   loopDispatch,
   type OutputAdapter,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
 import { refineDriver } from './refine-driver'
 
 interface Task {

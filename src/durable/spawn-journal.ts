@@ -31,8 +31,8 @@ import type {
   SpawnJournal,
   Spend,
   TreeView,
-} from '../loops/supervise/types'
-import { zeroTokenUsage } from '../loops/util'
+} from '../runtime/supervise/types'
+import { zeroTokenUsage } from '../runtime/util'
 
 // ── Content addressing ──────────────────────────────────────────────────────
 

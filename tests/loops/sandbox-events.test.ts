@@ -1,6 +1,6 @@
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { extractLlmCallEvent, mapSandboxEvent } from '../../src/loops/sandbox-events'
+import { extractLlmCallEvent, mapSandboxEvent } from '../../src/runtime/sandbox-events'
 
 describe('mapSandboxEvent — SandboxEvent → RuntimeStreamEvent', () => {
   it('maps a text part to text_delta, preferring the incremental delta', () => {

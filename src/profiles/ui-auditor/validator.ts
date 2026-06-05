@@ -27,7 +27,7 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type { Validator } from '../../loops/types'
+import type { Validator } from '../../runtime/types'
 import type { UiAuditOutput, UiAuditTask } from './task'
 
 const GENERIC_TITLE_PATTERNS = [

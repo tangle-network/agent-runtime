@@ -1,4 +1,4 @@
-import { type LoopResult, type RunLoopOptions, runLoop } from '../loops'
+import { type LoopResult, type RunLoopOptions, runLoop } from '../runtime'
 import type {
   WorkflowDelegateContext,
   WorkflowDelegateResult,

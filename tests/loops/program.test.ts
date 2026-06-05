@@ -15,7 +15,7 @@ import {
   runLoop,
   runProgram,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
 
 // Minimal string→string harness: the worker echoes the task as its answer; an
 // answer of 'good' is valid. So a Program's op→move mapping is observable in the

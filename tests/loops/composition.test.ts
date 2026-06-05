@@ -6,7 +6,7 @@ import {
   type OutputAdapter,
   runLoop,
   type Validator,
-} from '../../src/loops'
+} from '../../src/runtime'
 import { fanoutDriver, refineDriver } from './refine-driver'
 
 interface Task {

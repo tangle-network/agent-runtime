@@ -1,7 +1,7 @@
 import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../src/errors'
-import type { AgentRunSpec, OutputAdapter, Validator } from '../../src/loops'
+import type { AgentRunSpec, OutputAdapter, Validator } from '../../src/runtime'
 import {
   createNestedWorkflowAgentDelegate,
   createRunLoopWorkflowDelegate,

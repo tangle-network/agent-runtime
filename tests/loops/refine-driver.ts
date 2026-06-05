@@ -1,4 +1,4 @@
-import type { Driver } from '../../src/loops'
+import type { Driver } from '../../src/runtime'
 
 /**
  * A minimal replay-until-valid driver — test scaffolding only. The product no longer ships a

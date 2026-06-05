@@ -7,11 +7,11 @@ import {
   replaySpawnTree,
 } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
-import { defaultSelectWinner } from '../../src/loops/run-loop'
-import { createBudgetPool, spendFromUsageEvents } from '../../src/loops/supervise/budget'
-import { createExecutorRegistry } from '../../src/loops/supervise/runtime'
-import { createScope, settledToIteration } from '../../src/loops/supervise/scope'
-import { createRootHandle, createSupervisor } from '../../src/loops/supervise/supervisor'
+import { defaultSelectWinner } from '../../src/runtime/run-loop'
+import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
+import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
   AgentSpec,
@@ -26,7 +26,7 @@ import type {
   SupervisorOpts,
   UsageEvent,
   WidenGate,
-} from '../../src/loops/supervise/types'
+} from '../../src/runtime/supervise/types'
 
 // ── The mock LeafExecutor — the whole keystone runs offline against this ─────────
 //

@@ -24,7 +24,7 @@
  */
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxClient } from '../../loops/types'
+import type { LoopSandboxClient } from '../../runtime/types'
 import type { UiJudge } from './judge'
 import { decodeAuditTaskEnvelope } from './prompt'
 import { slugify } from './slugify'
