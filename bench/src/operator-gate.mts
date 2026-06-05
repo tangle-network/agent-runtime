@@ -23,8 +23,8 @@ import {
   type LeafExecutor,
 } from '@tangle-network/agent-runtime/loops'
 import { createOperatorDriverAgent } from '@tangle-network/agent-runtime/mcp'
-import { createAecBenchAdapter } from './benchmarks/aec-bench'
-import type { BenchTask } from './benchmarks/types'
+import { resolveAdapter } from './adapters'
+import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
 import { benchSolveLeaf, type BenchSolverOptions, type SolveTask } from './keystone-gate'
 import { type RouterConfig, routerChatWithTools } from './router-client'
@@ -102,7 +102,7 @@ interface OperatorTaskResult {
   attempts: AttemptRecord[]
 }
 
-async function runOperator(cfg: RouterConfig, adapter: ReturnType<typeof createAecBenchAdapter>, task: BenchTask, k: number): Promise<OperatorTaskResult> {
+async function runOperator(cfg: RouterConfig, adapter: BenchmarkAdapter, task: BenchTask, k: number): Promise<OperatorTaskResult> {
   const blobs = new InMemoryResultBlobStore()
   const solverOpts: BenchSolverOptions = { adapter, routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model, temperature: 0.7 }
   let coordTokens = 0
@@ -159,14 +159,15 @@ async function main(): Promise<void> {
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const concurrency = Number(process.env.CONCURRENCY ?? 4)
-  const corpusPath = process.env.OPERATOR_CORPUS ?? '/tmp/aec-op.jsonl'
+  const bench = process.env.BENCH ?? 'aec-bench'
+  const corpusPath = process.env.OPERATOR_CORPUS ?? `/tmp/${bench}-op.jsonl`
   if (!Number.isFinite(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isFinite(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
   const cfg: RouterConfig = { routerBaseUrl, routerKey, model }
-  const adapter = createAecBenchAdapter()
+  const adapter = resolveAdapter(bench)
 
-  console.log(`=== aec-bench OPERATOR gate · N=${n} K=${k} model=${model} conc=${concurrency} ===`)
+  console.log(`=== ${bench} OPERATOR gate · N=${n} K=${k} model=${model} conc=${concurrency} ===`)
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: n })
   console.log(`loaded ${tasks.length} task(s): ${tasks.map((t) => t.id).join(', ')}`)
@@ -185,7 +186,7 @@ async function main(): Promise<void> {
     coordSum += r.coordTokens
     const record: RunRecord = {
       ts: new Date().toISOString(),
-      benchmark: 'aec-bench',
+      benchmark: adapter.name,
       instanceId: r.id,
       condition: `operator@${k}`,
       model,
