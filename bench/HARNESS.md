@@ -3,7 +3,7 @@
 If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
-Verified against source 2026-06-03 · agent-eval pinned `^0.76.0` (the optimizePrompt /
+Verified against source 2026-06-06 · agent-eval pinned `^0.83.0` (the selfImprove /
 heldoutSignificance API is version-coupled).
 
 ## What this harness answers
@@ -71,7 +71,7 @@ run.ts:  help · preflight · verify-judge · solve-one · solve-one-local · so
 standalone tools (NOT in run.ts — the gate lives here):
   corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
   corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
-  improve-prompt.ts     GEPA-optimize a directive vs a held-out gate + paired CI (optimizePrompt)
+  improve-prompt.ts     GEPA-optimize a directive vs a held-out gate + paired CI (selfImprove)
   finsearch-loop.ts  the real runLoop+createDynamicDriver closed loop on FinSearchComp
   terminal-compare.ts  Terminal-Bench compare (own main, not in run.ts)
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):

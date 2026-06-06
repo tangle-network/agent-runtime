@@ -1,6 +1,6 @@
 ---
 name: agent-runtime-adoption
-description: Adopt @tangle-network/agent-runtime in a product — the driven-loop kernel (runLoop), topology drivers (refine / fanout-vote / dynamic agent-authored), the loopDispatch campaign bridge, MCP delegation, and identity-gated prompt-surface optimization (optimizePrompt). Self-contained; needs only the published package + @tangle-network/agent-eval. Use when wiring runLoop, choosing a topology driver, optimizing a system/planner prompt, or exposing delegation tools.
+description: Adopt @tangle-network/agent-runtime in a product — the driven-loop kernel (runLoop), topology drivers (refine / fanout-vote / dynamic agent-authored), the loopDispatch campaign bridge, MCP delegation, and the code-surface improvementDriver for agent-eval's selfImprove (the optimization entry point). Self-contained; needs only the published package + @tangle-network/agent-eval. Use when wiring runLoop, choosing a topology driver, optimizing a system/planner prompt or code surface, or exposing delegation tools.
 ---
 
 # agent-runtime adoption — driven loops, topology drivers, prompt optimization
@@ -106,30 +106,34 @@ const dispatch = loopCampaignDispatch({
 
 `loopDispatch` is the `runProfileMatrix` variant (profile is an axis).
 
-## Identity-gated prompt optimization — `optimizePrompt`
+## Identity-gated optimization — agent-eval's `selfImprove`
 
-`@tangle-network/agent-runtime/improvement`. The text-surface entry point onto
-agent-eval's `runImprovementLoop` — sibling to `improvementDriver` (the
-code/worktree path). Optimizes any prompt surface (system / planner / judge
-rubric) and is **identity-gated by construction**: it runs evals, proposes
-candidates (default driver `gepaDriver`), and the held-out gate compares
-candidate vs baseline. `result.prompt` is the **baseline unless the gate decided
-`'ship'`** — so registering a prompt for optimization can never regress it; it
-only improves when held-out data earns it.
+The optimization entry point is **`selfImprove`** (`@tangle-network/agent-eval/contract`),
+NOT agent-runtime — agent-runtime contributes the code-surface `improvementDriver`
+(`/improvement`, the git-worktree path) you pass to it as `driver` to optimize CODE
+instead of a string. `selfImprove` optimizes any text/config surface (system /
+planner / judge rubric) and is **identity-gated by construction**: it runs evals,
+proposes candidates (default driver `gepaDriver`), and a held-out gate ships a winner
+only if it beats the baseline. `result.winner.surface` is the **baseline unless
+`result.gateDecision === 'ship'`** — so registering a surface for optimization can
+never regress it; it only improves when held-out data earns it.
 
 ```ts
-import { optimizePrompt } from '@tangle-network/agent-runtime/improvement'
-const { prompt, improved, decision, delta } = await optimizePrompt({
-  baselinePrompt: CURRENT_SYSTEM_PROMPT,
-  runWithPrompt: (prompt, scenario, ctx) => runYourThing(prompt, scenario),  // sandbox / runLoop / direct call
-  scenarios, holdoutScenarios, judges, runDir,
-  reflection: { llm, model: REFLECTION_MODEL },   // builds the default gepaDriver
-  // gate? — defaults to heldOutGate; pass defaultProductionGate for red-team hardening
+import { selfImprove } from '@tangle-network/agent-eval/contract'
+const result = await selfImprove({
+  baselineSurface: CURRENT_SYSTEM_PROMPT,
+  agent: (surface, scenario, ctx) => runYourThing(surface, scenario),  // sandbox / runLoop / direct call
+  scenarios,
+  judge,
+  budget: { holdoutScenarios, generations: 3, populationSize: 2 },
+  llm: { baseUrl, apiKey, model: REFLECTION_MODEL },   // drives the default gepaDriver
+  // driver? — pass agent-runtime's improvementDriver to optimize CODE (worktree) instead of a string
+  // gate?   — defaults to a held-out gate; pass defaultProductionGate for red-team hardening
 })
-// use `prompt` unconditionally: it's the baseline until a candidate genuinely wins
+// use result.winner.surface unconditionally: it's the baseline until a candidate genuinely wins
 ```
 
-### optimizePrompt gotchas — read before wiring
+### selfImprove gotchas — read before wiring
 
 - **`gepaDriver` mutates TEXT only**, and its only structural guard is `##` H2
   headings (`preserveSections`) + `maxSentenceEdits`. Make load-bearing sections
@@ -137,12 +141,11 @@ const { prompt, improved, decision, delta } = await optimizePrompt({
   GEPA optimizes the prose, never the envelope/contract.
 - **Scenarios must be domain-real.** Derive them from the surface's own traces /
   ground truth, not from unrelated corpora. Cross-domain examples are noise.
-- **Extend, don't fork.** If the product already wires `runImprovementLoop`
-  (e.g. for a main-agent prompt), add the new surface as another target in that
-  harness rather than bolting on a second optimizer.
-- `runWithPrompt` is the only domain seam — the optimizer never assumes how a
-  prompt runs. Report cost via `ctx.cost` inside it so the integrity guard sees
-  real activity.
+- **Extend, don't fork.** If the product already wires `selfImprove` /
+  `runImprovementLoop` (e.g. for a main-agent prompt), add the new surface as
+  another target in that harness rather than bolting on a second optimizer.
+- `agent` is the only domain seam — the optimizer never assumes how a surface
+  runs. Report cost via `ctx.cost` inside it so the integrity guard sees real activity.
 - A live run needs a real backend (`TANGLE_API_KEY` / router, or local
   cli-bridge) and real spend; it is not free.
 
@@ -161,7 +164,7 @@ Mount it on a production `AgentProfile.mcp`; do not re-implement delegation.
       `loops/types.ts:Driver` only when none fit — never fork the kernel.
 - [ ] `runLoop` is bridged to campaigns via `loopDispatch` / `loopCampaignDispatch`
       (usage + trace auto-forwarded), not a hand-rolled ExecCtx.
-- [ ] Every optimizable prompt is registered through `optimizePrompt` (or the
+- [ ] Every optimizable prompt is registered through `selfImprove` (or the
       product's existing `runImprovementLoop`), identity-gated on a held-out set.
 - [ ] Boundaries fail loud: no `null` sandbox client, no silent adapter return,
       no unguarded planner envelope.
