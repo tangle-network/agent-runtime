@@ -51,11 +51,11 @@ export async function routerChatWithUsage(
       temperature = 1 // model requires temperature 1 — retry once with it
       continue
     }
-    if ([429, 500, 502, 503, 504].includes(status) && attempt < 4) {
-      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
-      continue
-    }
-    throw new Error(lastErr)
+    // Non-retryable (auth/quota/malformed) fails loud immediately; retryable
+    // statuses back off and continue until the loop's attempt bound, then the
+    // post-loop throw is the honest "exhausted retries" terminal.
+    if (![429, 500, 502, 503, 504].includes(status)) throw new Error(lastErr)
+    if (attempt < 4) await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
   }
   throw new Error(`${lastErr} (exhausted retries)`)
 }

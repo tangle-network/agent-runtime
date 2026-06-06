@@ -6,7 +6,11 @@
  * sandbox → opencode agent → router model), so it also exercises provisioning.
  */
 
-import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
+import {
+  type AgentRunSpec,
+  type Deliverable,
+  openSandboxRun,
+} from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
 
@@ -30,6 +34,27 @@ const PATCH_PATH = '/tmp/solution.patch'
 
 const randomSuffix = () => Math.random().toString(36).slice(2, 10)
 
+/** The git diff the agent wrote, read back off the box FS (+ any in-box error). A
+ *  MISSING patch file is a real "agent produced no patch" outcome; any OTHER read
+ *  failure surfaces in `TurnResult.readError`, never masked as an empty patch — so a
+ *  judge distinguishes agent-failure from fs-failure. */
+interface SwePatch {
+  patch: string
+  lastErr?: string
+}
+
+const swePatchDeliverable: Deliverable<SwePatch> = {
+  kind: 'artifact',
+  path: PATCH_PATH,
+  fromArtifact: (raw, events) => {
+    let lastErr: string | undefined
+    for (const ev of events) {
+      if ((ev as { type?: string }).type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
+    }
+    return { patch: raw, ...(lastErr ? { lastErr } : {}) }
+  },
+}
+
 /** Run one resolution shot. `steer` (optional) carries guidance from a prior attempt. */
 export async function solveShot(
   task: BenchTask,
@@ -41,65 +66,50 @@ export async function solveShot(
   const base = String(md.base_commit)
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
 
-  // Cold-start-resilient: tolerates scale-from-zero node provisioning behind the
-  // gateway's ~100s limit (a timed-out create is recovered by name lookup).
-  const box = await acquireSandbox(client, {
-    name: `bench-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-    environment: 'universal',
-    backend: {
-      type: 'opencode',
-      model: {
-        provider: cfg.provider ?? 'openai',
-        model: cfg.model,
-        baseUrl: cfg.routerBaseUrl,
-        apiKey: cfg.routerKey,
+  const prompt = [
+    `Clone https://github.com/${repo} into /work and \`git checkout ${base}\`.`,
+    '',
+    'Resolve this issue by editing the SOURCE (never the tests):',
+    '',
+    String(md.problem_statement ?? task.prompt),
+    steer ? `\n--- Guidance from a prior failed attempt ---\n${steer}\n` : '',
+    '',
+    `When finished, from the repo root run EXACTLY:`,
+    `  git add -A && git diff --cached -- . ':(exclude)*/tests/*' > ${PATCH_PATH}`,
+    `Then stop. The patch file is the only deliverable.`,
+  ].join('\n')
+
+  // Cold-start-resilient via the shared lineage layer (a gateway-timed-out create is
+  // recovered by name lookup). The inline profile + backend override is the same
+  // generic AgentRunSpec the runLoop kernel boots against the real sandbox.
+  const controller = new AbortController()
+  const timer = cfg.timeoutMs ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
+  const agentRun: AgentRunSpec<string> = {
+    profile: { name: 'swebench-worker', metadata: { backendType: 'opencode' } },
+    name: 'swebench-worker',
+    taskToPrompt: () => '', // unused — the prompt is streamed directly by openSandboxRun
+    sandboxOverrides: {
+      name: `bench-${task.id}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
+      environment: 'universal',
+      backend: {
+        type: 'opencode',
+        model: { provider: cfg.provider ?? 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
       },
     },
-  })
-
+  }
+  const run = await openSandboxRun(client, { agentRun, signal: controller.signal }, swePatchDeliverable)
   try {
-    const prompt = [
-      `Clone https://github.com/${repo} into /work and \`git checkout ${base}\`.`,
-      '',
-      'Resolve this issue by editing the SOURCE (never the tests):',
-      '',
-      String(md.problem_statement ?? task.prompt),
-      steer ? `\n--- Guidance from a prior failed attempt ---\n${steer}\n` : '',
-      '',
-      `When finished, from the repo root run EXACTLY:`,
-      `  git add -A && git diff --cached -- . ':(exclude)*/tests/*' > ${PATCH_PATH}`,
-      `Then stop. The patch file is the only deliverable.`,
-    ].join('\n')
-
-    const signal = cfg.timeoutMs ? AbortSignal.timeout(cfg.timeoutMs) : undefined
-    let lastErr: string | undefined
-    for await (const ev of box.streamPrompt(prompt, signal ? { signal } : {})) {
-      if (ev?.type === 'error') lastErr = JSON.stringify(ev.data).slice(0, 300)
-    }
-
-    // A MISSING patch file is a real "agent produced no patch" outcome; any OTHER
-    // read failure (permissions, stream) is surfaced in `detail`, never silently
-    // masked as an empty patch — so a judge sees agent-failure vs fs-failure.
-    let patch = ''
-    let readErr: string | undefined
-    try {
-      patch = await box.fs.read(PATCH_PATH)
-    } catch (err) {
-      readErr = err instanceof Error ? err.message : String(err)
-    }
-    const empty = patch.trim().length === 0
+    const turn = await run.start(prompt)
+    const empty = turn.out.patch.trim().length === 0
     return {
-      patch,
+      patch: turn.out.patch,
       ok: !empty,
       detail: empty
-        ? `empty patch${readErr ? ` (patch read failed: ${readErr.slice(0, 120)})` : ''}${lastErr ? `; lastError=${lastErr}` : ''}`
+        ? `empty patch${turn.readError ? ` (patch read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}`
         : undefined,
     }
   } finally {
-    try {
-      await box.delete()
-    } catch {
-      // staging reaps on expiry; ignore cleanup failures
-    }
+    if (timer) clearTimeout(timer)
+    await run.close()
   }
 }

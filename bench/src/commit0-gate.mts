@@ -24,10 +24,15 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
+import {
+  type AgentRunSpec,
+  type Deliverable,
+  openSandboxRun,
+  type SandboxRun,
+} from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
@@ -94,60 +99,75 @@ interface ShotCfg {
   opencodeBin: string
 }
 
+/** The diff the in-box agent produces, read back off the box FS (+ any stream error). */
+interface RolloutDeliverable {
+  diff: string
+  lastErr?: string
+}
+
+/** Reads the patch FILE the agent wrote (the robust deliverable — a large diff
+ *  truncates in the chat stream → `git apply` "corrupt patch"), folding any in-box
+ *  error event into `lastErr` so a failed rollout still surfaces on an empty patch. */
+const commit0Deliverable: Deliverable<RolloutDeliverable> = {
+  kind: 'artifact',
+  path: PATCH_PATH,
+  fromArtifact: (raw, events) => {
+    let lastErr: string | undefined
+    for (const ev of events) {
+      if ((ev as { type?: string }).type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
+    }
+    return { diff: raw, ...(lastErr ? { lastErr } : {}) }
+  },
+}
+
 async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
-  // Fault-isolated: ANY rollout error (sandbox 502 / stream drop / provision fail /
-  // timeout) becomes a recorded NO-DIFF attempt — it MUST NOT throw, or one flaky box
-  // aborts the whole pool and loses every other rollout (the powered-run crash).
-  let box: Awaited<ReturnType<typeof acquireSandbox>> | undefined
-  let events = 0
-  try {
-    box = await acquireSandbox(client, {
+  // A stream/transport ceiling for the flaky sandbox path (0 ⇒ untimed); the run
+  // tears its own box down in `close()`. The whole rollout is fault-isolated: ANY
+  // error (502 / stream drop / provision fail / abort) becomes a recorded NO-DIFF
+  // attempt — it MUST NOT throw, or one flaky box aborts the pool and loses every
+  // other rollout (the powered-run crash).
+  const controller = new AbortController()
+  const timer = cfg.timeoutMs > 0 ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
+  // opencode reads OPENAI_* from the box env (backend.model.apiKey alone is not enough
+  // — without these the in-box agent throws ProviderAuthError); the inline profile +
+  // backend override is the same generic AgentRunSpec the runLoop kernel boots.
+  const agentRun: AgentRunSpec<string> = {
+    profile: { name: 'commit0-worker', metadata: { backendType: 'opencode' } },
+    name: 'commit0-worker',
+    taskToPrompt: () => '', // unused — the prompt is streamed directly by openSandboxRun
+    sandboxOverrides: {
       name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      // opencode reads OPENAI_* from the box env (the backend.model.apiKey alone is not
-      // enough — without these the in-box agent throws ProviderAuthError). Mirrors the
-      // generic sandboxAgentRun wiring that the smoke rollout proved works.
       env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
       backend: {
         type: 'opencode',
         model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
       },
-    })
-    const signal = AbortSignal.timeout(cfg.timeoutMs)
-    let lastErr: string | undefined
-    for await (const ev of box.streamPrompt(rolloutPrompt(meta), { signal })) {
-      events += 1
-      if ((ev as { type?: string })?.type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
-    }
-    let diff = ''
-    let readErr: string | undefined
-    try {
-      diff = await box.fs.read(PATCH_PATH)
-    } catch (err) {
-      readErr = err instanceof Error ? err.message : String(err)
-    }
-    const ok = diff.trim().length > 0
+    },
+  }
+  let run: SandboxRun<RolloutDeliverable> | undefined
+  try {
+    run = await openSandboxRun(client, { agentRun, signal: controller.signal }, commit0Deliverable)
+    const turn = await run.start(rolloutPrompt(meta))
+    const ok = turn.out.diff.trim().length > 0
     return {
       task,
       attempt,
-      diff,
+      diff: turn.out.diff,
       ok,
-      events,
+      events: turn.events.length,
       wallMs: Date.now() - startedAt,
-      ...(ok ? {} : { detail: `empty patch${readErr ? ` (read failed: ${readErr.slice(0, 120)})` : ''}${lastErr ? `; lastError=${lastErr}` : ''}` }),
+      ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}` }),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { task, attempt, diff: '', ok: false, events, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
+    return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
   } finally {
-    try {
-      if (box) await box.delete()
-    } catch {
-      // staging reaps on expiry; ignore
-    }
+    if (timer) clearTimeout(timer)
+    if (run) await run.close()
   }
 }
 

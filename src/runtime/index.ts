@@ -146,13 +146,6 @@ export {
 } from './sandbox-capabilities'
 export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
 export {
-  type CodingRun,
-  type Deliverable,
-  openCodingRun,
-  type OpenCodingRunOptions,
-  type TurnResult,
-} from './coding-run'
-export {
   type CheckpointCapableBox,
   createSandboxLineage,
   type ForkCapableBox,
@@ -160,6 +153,13 @@ export {
   type SandboxLineageHandle,
   type SessionCapableBox,
 } from './sandbox-lineage'
+export {
+  type Deliverable,
+  type OpenSandboxRunOptions,
+  openSandboxRun,
+  type SandboxRun,
+  type TurnResult,
+} from './sandbox-run'
 export {
   type BudgetPool,
   type BudgetReadout,
