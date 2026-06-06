@@ -45,8 +45,8 @@ const f = 'system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif'
  */
 function chart(cfg) {
   const W = 820
-  const H = 500
-  const m = { top: 152, right: 136, bottom: 96, left: 66 }
+  const H = 524
+  const m = { top: 152, right: 136, bottom: 120, left: 66 }
   const plotW = W - m.left - m.right
   const plotH = H - m.top - m.bottom
   const yMax = cfg.yMax ?? 100
@@ -146,13 +146,13 @@ const humaneval = chart({
   title: 'Verifier-grounded selection recovers the oracle ceiling',
   subtitle: 'HumanEval · gpt-3.5-turbo · k=4 · n=50 · paired bootstrap (B=10000) + Benjamini–Hochberg',
   bars: [
-    { label: 'Blind\n(1 shot)', value: 76, kind: 'blind' },
+    { label: 'Blind\n(1 shot)', value: 80, kind: 'blind' },
     { label: 'Self-consistency\n(pick the consensus)', value: 82, kind: 'rival' },
-    { label: 'Verifier-grounded\n(re-run the tests)', value: 94, kind: 'method' },
+    { label: 'Verifier-grounded\n(re-run the tests)', value: 92, kind: 'method' },
   ],
-  ceiling: { value: 94, label: 'oracle ceiling', },
-  delta: { fromIdx: 1, toIdx: 2, label: '+12.0pp  CI[+4, +22]' },
-  footnote: 'Deployable, non-oracle selector: ranks k attempts by re-running the task’s own unit tests (gold never shown). It captures the FULL ceiling (gap 0); self-consistency leaves 12pp on the table.',
+  ceiling: { value: 92, label: 'oracle ceiling', },
+  delta: { fromIdx: 1, toIdx: 2, label: '+10.0pp  CI[+2, +18]' },
+  footnote: 'Deployable, non-oracle selector: ranks k attempts by re-running the task’s own unit tests (gold never shown). It captures the FULL ceiling (gap 0); self-consistency leaves 10pp on the table. Reproduced across two independent n=50 runs (+10pp / +12pp, both BH-positive).',
 })
 
 // commit0 — single-task Layer-1 VALIDATION (wcwidth, k=3). Regenerate with the powered
