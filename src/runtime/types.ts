@@ -280,6 +280,18 @@ export interface LoopLineageOptions {
    * different-per-branch profiles use the unforked fanout path.
    */
   forkFanout?: boolean
+  /**
+   * Per-turn sandbox streaming mode. Default `'sse'` (live `streamPrompt` —
+   * low-latency, full per-token trace; best for interactive chat). `'poll'`
+   * fire-and-detaches via `dispatchPrompt` and awaits the terminal result by
+   * status-polling, so a long, quiet in-box turn (clone + build + test) never
+   * holds a live stream a proxy idle-timeout can drop mid-execution. Lower trace
+   * fidelity (one terminal event), so it is opt-in — intended for BATCH eval
+   * runs, which don't need live streaming and were losing long turns to the
+   * idle-drop. Applies to the default fresh-box path too, not only when
+   * `sessionContinuity`/`forkFanout` are on.
+   */
+  streaming?: 'sse' | 'poll'
 }
 
 /** @experimental */
