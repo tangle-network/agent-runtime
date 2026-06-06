@@ -32,10 +32,12 @@
  */
 
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
+import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, LoopSandboxClient } from './types'
-import { throwIfAborted } from './util'
+import { randomSuffix, throwIfAborted } from './util'
 
 /**
  * @experimental
@@ -78,6 +80,14 @@ export interface OpenSandboxRunOptions {
   /** Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness. */
   agentRun: AgentRunSpec<string>
   signal: AbortSignal
+  /** Optional execution-scoped observers. Hook failures never fail the run. */
+  hooks?: RuntimeHooks
+  /** Stable run id for trace joins. Defaults to a short runtime-minted id. */
+  runId?: string
+  /** Optional benchmark/scenario id carried into emitted hook events. */
+  scenarioId?: string
+  /** Test seam for deterministic hook timestamps. Defaults to `Date.now`. */
+  now?: () => number
   /** Bounds box-creation bursts inside lineage fanout. Default from lineage. */
   maxConcurrency?: number
 }
@@ -93,12 +103,76 @@ export async function openSandboxRun<Out>(
   options: OpenSandboxRunOptions,
   deliverable: Deliverable<Out>,
 ): Promise<SandboxRun<Out>> {
+  const runId = options.runId ?? `sandbox-run-${randomSuffix()}`
+  const now = options.now ?? Date.now
   const capabilities = await probeSandboxCapabilities(client)
   const lineage = createSandboxLineage(client, capabilities, {
     ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
   })
   let handle: SandboxLineageHandle | undefined
   let started = false
+  let runStartedAt: number | undefined
+  let failed = false
+  let turnCount = 0
+
+  function emit(event: {
+    target: RuntimeHookTarget
+    phase: 'before' | 'after' | 'error'
+    timestamp: number
+    stepIndex?: number
+    payload?: Record<string, unknown>
+  }): void {
+    notifyRuntimeHookEvent(
+      options.hooks,
+      {
+        id: `${runId}:${event.target}:${event.phase}${
+          event.stepIndex === undefined ? '' : `:${event.stepIndex}`
+        }`,
+        runId,
+        scenarioId: options.scenarioId,
+        target: event.target,
+        phase: event.phase,
+        timestamp: event.timestamp,
+        stepIndex: event.stepIndex,
+        payload: event.payload,
+        metadata: { producer: 'openSandboxRun' },
+      },
+      { signal: options.signal },
+    )
+  }
+
+  const runPayload = (): Record<string, unknown> => ({
+    agentName: options.agentRun.name ?? options.agentRun.profile.name ?? 'agent',
+    profileName: options.agentRun.profile.name,
+    backendType: backendType(options.agentRun),
+    deliverableKind: deliverable.kind,
+    ...(deliverable.kind === 'artifact' ? { deliverablePath: deliverable.path } : {}),
+    ...(handle ? { sessionId: handle.sessionId, sandboxId: handle.box.id } : {}),
+  })
+
+  const turnPayload = (
+    prompt: string,
+    turnKind: 'start' | 'resume',
+    startedAt: number,
+    result?: TurnResult<Out>,
+    error?: unknown,
+  ): Record<string, unknown> => ({
+    ...runPayload(),
+    turnKind,
+    promptChars: prompt.length,
+    promptHash: hashText(prompt),
+    ...(result !== undefined || error !== undefined
+      ? { durationMs: Math.max(0, now() - startedAt) }
+      : {}),
+    ...(result
+      ? {
+          eventCount: result.events.length,
+          eventTypes: eventTypeCounts(result.events),
+          ...(result.readError !== undefined ? { readError: result.readError } : {}),
+        }
+      : {}),
+    ...(error !== undefined ? { error: errorMessage(error) } : {}),
+  })
 
   // `box` is passed in (not read from the closed-over `handle`) so the invariant
   // is type-level, not call-order discipline.
@@ -141,22 +215,141 @@ export async function openSandboxRun<Out>(
           'openSandboxRun: start() already called — use resume() to continue the session',
         )
       started = true
+      runStartedAt = now()
+      emit({
+        target: 'agent.run',
+        phase: 'before',
+        timestamp: runStartedAt,
+        payload: { ...runPayload(), turnCount: 0 },
+      })
+      const stepIndex = turnCount
+      const turnStartedAt = now()
+      emit({
+        target: 'agent.turn',
+        phase: 'before',
+        timestamp: turnStartedAt,
+        stepIndex,
+        payload: turnPayload(prompt, 'start', turnStartedAt),
+      })
       // lineage.start uses only spec.profile + sandboxOverrides (the prompt is passed
       // directly, not via taskToPrompt), so the task type is irrelevant here.
-      const r = await lineage.start(
-        options.agentRun as AgentRunSpec<unknown>,
-        prompt,
-        options.signal,
-      )
-      handle = r.handle
-      return settle(handle.box, r.events)
+      try {
+        const r = await lineage.start(
+          options.agentRun as AgentRunSpec<unknown>,
+          prompt,
+          options.signal,
+        )
+        handle = r.handle
+        const result = await settle(handle.box, r.events)
+        turnCount += 1
+        emit({
+          target: 'agent.turn',
+          phase: 'after',
+          timestamp: now(),
+          stepIndex,
+          payload: turnPayload(prompt, 'start', turnStartedAt, result),
+        })
+        return result
+      } catch (error) {
+        failed = true
+        emit({
+          target: 'agent.turn',
+          phase: 'error',
+          timestamp: now(),
+          stepIndex,
+          payload: turnPayload(prompt, 'start', turnStartedAt, undefined, error),
+        })
+        emit({
+          target: 'agent.run',
+          phase: 'error',
+          timestamp: now(),
+          payload: { ...runPayload(), turnCount, error: errorMessage(error) },
+        })
+        throw error
+      }
     },
     async resume(prompt) {
       if (!handle) throw new Error('openSandboxRun: resume() called before start()')
-      return settle(handle.box, await lineage.continue(handle, prompt, options.signal))
+      const stepIndex = turnCount
+      const turnStartedAt = now()
+      emit({
+        target: 'agent.turn',
+        phase: 'before',
+        timestamp: turnStartedAt,
+        stepIndex,
+        payload: turnPayload(prompt, 'resume', turnStartedAt),
+      })
+      try {
+        const result = await settle(
+          handle.box,
+          await lineage.continue(handle, prompt, options.signal),
+        )
+        turnCount += 1
+        emit({
+          target: 'agent.turn',
+          phase: 'after',
+          timestamp: now(),
+          stepIndex,
+          payload: turnPayload(prompt, 'resume', turnStartedAt, result),
+        })
+        return result
+      } catch (error) {
+        failed = true
+        emit({
+          target: 'agent.turn',
+          phase: 'error',
+          timestamp: now(),
+          stepIndex,
+          payload: turnPayload(prompt, 'resume', turnStartedAt, undefined, error),
+        })
+        emit({
+          target: 'agent.run',
+          phase: 'error',
+          timestamp: now(),
+          payload: { ...runPayload(), turnCount, error: errorMessage(error) },
+        })
+        throw error
+      }
     },
     async close() {
       await lineage.teardown()
+      if (runStartedAt !== undefined) {
+        emit({
+          target: 'agent.run',
+          phase: 'after',
+          timestamp: now(),
+          payload: {
+            ...runPayload(),
+            turnCount,
+            status: failed ? 'error' : 'completed',
+            durationMs: Math.max(0, now() - runStartedAt),
+          },
+        })
+      }
     },
   }
+}
+
+function backendType<Task>(spec: AgentRunSpec<Task>): unknown {
+  const backend = spec.sandboxOverrides?.backend as { type?: unknown } | undefined
+  return backend?.type
+}
+
+function eventTypeCounts(events: SandboxEvent[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const event of events) counts[event.type] = (counts[event.type] ?? 0) + 1
+  return counts
+}
+
+function hashText(value: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
