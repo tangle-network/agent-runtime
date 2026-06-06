@@ -302,6 +302,12 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
       task: task.prompt,
       ctx: { sandboxClient: cfg.sandboxClient, hooks: runtime.hooks },
       maxIterations: rounds,
+      // Batch eval turns are long + quiet (clone/build/test) → a live SSE
+      // idle-drops on prod AND staging. SANDBOX_STREAMING=poll fire-and-detaches
+      // + status-polls the terminal result so the cell completes. Default 'sse'.
+      ...(process.env.SANDBOX_STREAMING === 'poll'
+        ? { lineage: { streaming: 'poll' as const } }
+        : {}),
     })
     const iter0 = result.iterations[0]
     const infraError = iter0?.error !== undefined && iter0.output === undefined
