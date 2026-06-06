@@ -48,11 +48,21 @@ test('goldArtifact is undefined — oracle is a git ref, documented, not a fabri
   assert.equal(await a.goldArtifact(t), undefined)
 })
 
-test('preflight FAILS LOUD with the install/Docker fix when the harness is absent', async () => {
-  const a = createCommit0Adapter()
-  await assert.rejects(a.preflight(), (e: Error) => {
-    assert.match(e.message, /pip install commit0/)
-    assert.match(e.message, /Docker daemon/)
-    return true
-  })
+test('preflight FAILS LOUD with the install/Docker fix when the harness venv is absent', async () => {
+  // Point the isolated-venv override at a non-existent dir so the interpreter is
+  // missing — proves preflight throws the documented fix rather than fabricating a
+  // score, independent of whether a real .venv-commit0 happens to be installed.
+  const prev = process.env.COMMIT0_VENV
+  process.env.COMMIT0_VENV = '.venv-commit0-does-not-exist'
+  try {
+    const a = createCommit0Adapter()
+    await assert.rejects(a.preflight(), (e: Error) => {
+      assert.match(e.message, /pip install commit0/)
+      assert.match(e.message, /Docker daemon/)
+      return true
+    })
+  } finally {
+    if (prev === undefined) delete process.env.COMMIT0_VENV
+    else process.env.COMMIT0_VENV = prev
+  }
 })

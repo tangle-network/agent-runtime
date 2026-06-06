@@ -14,19 +14,26 @@
  * shape as swe-bench. The expensive per-repo clone+build+test is delegated to the
  * real `commit0` harness on a local Docker backend (NOT reimplemented here).
  *
- * Requires for a live run: the bench `.venv` with `commit0` installed + a Docker
- * daemon (`--backend local`). For offline/CI dataset listing set COMMIT0_FIXTURES=1
- * to load the committed lite rows (bench/fixtures/commit0.json) — judging still
- * needs the harness + Docker and fails loud without them, never a fabricated score.
+ * Requires for a live run: an ISOLATED `.venv-commit0` with `commit0` installed
+ * (its deps conflict with the shared bench `.venv`; override with COMMIT0_VENV) +
+ * a Docker daemon (`--backend local`). For offline/CI dataset listing set
+ * COMMIT0_FIXTURES=1 to load the committed lite rows (bench/fixtures/commit0.json)
+ * — judging still needs the harness + Docker and fails loud, never a fabricated score.
  */
 
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
-import { benchRoot, preflightVenvImports, runVenvScriptStdin } from './_harness'
+import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPythonAt } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'commit0.json')
+
+// commit0's pip deps (pydantic/sqlalchemy v1, modal, …) conflict with the shared
+// bench .venv, so its harness runs in an ISOLATED venv. Override with COMMIT0_VENV.
+// Resolved at call-time so the env is honored at run-time (not frozen at import).
+const commit0VenvDir = (): string => process.env.COMMIT0_VENV ?? '.venv-commit0'
+const commit0Python = (): string => venvPythonAt(commit0VenvDir())
 
 const DATASET = 'wentingzhao/commit0_combined'
 const DATASET_SPLIT = 'test'
@@ -95,11 +102,12 @@ function rowToTask(row: Commit0Row): BenchTask {
     id: row.instance_id,
     split: DATASET_SPLIT,
     prompt: [
-      `Implement the Python library \`${row.repo}\` from its stubbed starting point.`,
-      `The public functions/classes under \`${row.src_dir}\` have empty bodies (\`pass\`/\`...\`); fill in COMPLETE implementations so the existing test suite under \`${row.test.test_dir}\` passes.`,
+      `Clone https://github.com/${row.repo} into /work, then \`cd /work && git checkout ${row.base_commit}\`.`,
+      `This is the STUBBED library: the public functions/classes under \`${row.src_dir}\` have empty bodies (\`pass\`/\`...\`).`,
+      `Fill in COMPLETE implementations under \`${row.src_dir}\` so the existing test suite under \`${row.test.test_dir}\` passes. Read those tests and the spec to learn the required behavior.`,
       `Specification / docs: ${row.setup.specification}`,
-      'Do NOT edit the test files — the evaluation runs the existing tests. Implement only the source.',
-      `When done, END your reply with the COMPLETE unified git diff (against the stubbed repo) as the LAST thing, fenced exactly as \`\`\`diff … \`\`\` (nothing after the closing fence). That fenced diff is the only deliverable.`,
+      'Do NOT edit the test files — the evaluation re-runs the existing tests on a fresh clone. Implement only the source.',
+      `When done, from /work run EXACTLY: \`git add -A && git diff --cached -- ${row.src_dir}\` and END your reply with its COMPLETE output as the LAST thing, fenced exactly as \`\`\`diff … \`\`\` (nothing after the closing fence). That fenced diff (against ${row.base_commit}) is the only deliverable.`,
     ].join('\n'),
     metadata: meta as unknown as Record<string, unknown>,
   }
@@ -175,7 +183,7 @@ async function runHarness(meta: Commit0Meta, artifact: string): Promise<BenchSco
       judge,
       ['--dataset', DATASET, '--split', DATASET_SPLIT, '--instance', meta.instanceId, '--src-dir', meta.srcDir],
       artifact,
-      { cwd: benchRoot },
+      { cwd: benchRoot, python: commit0Python() },
     )
   } catch (err) {
     const e = err as { message?: string }
@@ -209,8 +217,10 @@ export function createCommit0Adapter(): BenchmarkAdapter {
       await preflightVenvImports({
         modules: ['commit0'],
         requireDocker: true,
+        python: commit0Python(),
         fix:
-          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install commit0 ; ` +
+          `Fix: (1) python3 -m venv bench/${commit0VenvDir()} && bench/${commit0VenvDir()}/bin/pip install commit0 datasets ` +
+          `(an ISOLATED venv — commit0's deps conflict with the shared bench/.venv; override the dir with COMMIT0_VENV) ; ` +
           `(2) ensure the Docker daemon is running (commit0 --backend local builds per-repo images). ` +
           `Dataset rows come from the HF rows server; set COMMIT0_FIXTURES=1 to list the committed lite rows offline.`,
       })
