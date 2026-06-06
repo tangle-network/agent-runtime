@@ -60,11 +60,18 @@ interface Shot {
 function rolloutPrompt(meta: Commit0Meta): string {
   return [
     `Clone https://github.com/${meta.repo} into /work, then \`cd /work && git checkout ${meta.baseCommit}\`.`,
-    `The public functions/classes under \`${meta.srcDir}\` are stubbed (empty \`pass\`/\`...\` bodies).`,
-    `Implement COMPLETE bodies under \`${meta.srcDir}\` so the existing test suite under \`${meta.testDir}\` passes.`,
-    `Read those tests and the spec (${meta.specification}) to learn the required behavior. Do NOT edit the tests.`,
+    `The public functions/classes under \`${meta.srcDir}\` are stubbed (empty \`pass\`/\`...\` bodies). Your job is to`,
+    `implement COMPLETE, CORRECT bodies under \`${meta.srcDir}\` so the existing test suite under \`${meta.testDir}\` passes.`,
     '',
-    `When finished, from /work run EXACTLY:`,
+    'Work iteratively — do NOT stop at a first draft:',
+    `1. Read the spec (${meta.specification}) and the tests under \`${meta.testDir}\` to learn the exact required behavior.`,
+    `2. Install the package editable so imports resolve: \`pip install -e .\` (use the repo's setup if it differs).`,
+    `3. Implement ALL stubbed bodies under \`${meta.srcDir}\` — every function/class, not just the easy ones.`,
+    `4. RUN the suite: \`python -m pytest ${meta.testDir} -q\`. Read failures and FIX them. Repeat until as many tests`,
+    `   pass as you can get — keep iterating; a partial implementation that fails most tests is not done.`,
+    '5. Do NOT edit the tests — the evaluation re-runs them on a fresh clone.',
+    '',
+    `When the suite is green (or you have maximized passing tests), from /work run EXACTLY:`,
     `  git add -A && git diff --cached -- ${meta.srcDir} > ${PATCH_PATH}`,
     `Then stop. The patch file is the only deliverable — do NOT paste the diff in your reply.`,
   ].join('\n')
