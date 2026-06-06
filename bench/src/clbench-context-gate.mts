@@ -156,8 +156,16 @@ function parseJudge(reply: string, rubricCount: number): RubricVerdict {
 async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): Promise<RubricVerdict> {
   if (!output.trim()) return { fraction: 0, allPass: false, graded: 0 }
   const rubricsText = task.rubrics.map((r, i) => `${i + 1}. ${r}`).join('\n')
-  const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
-  return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+  // Fault-isolate the judge: a transient router failure (after retries) or an
+  // unparseable judge reply scores this attempt 0 (eval.py's convention), it must
+  // NOT throw — one bad grade would otherwise crash the whole N×K×2 run. graded=0
+  // marks it as judge-failed so it's distinguishable from a real 0/N rubric pass.
+  try {
+    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
+    return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+  } catch {
+    return { fraction: 0, allPass: false, graded: 0 }
+  }
 }
 
 async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
