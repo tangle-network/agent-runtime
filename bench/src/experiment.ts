@@ -198,6 +198,10 @@ export function sandboxAgentRun(opts: {
   backendType?: WorkerBackendType
   name?: string
   taskToPrompt?: (task: string) => string
+  /** Extra box-level env, merged ON TOP of the standard OPENAI_* auth (e.g.
+   *  `TANGLE_SEARCH_DEFAULT_PROVIDER` to pin the in-box agent's web-search provider,
+   *  provider keys like EXA_API_KEY). Allowlisted keys only reach the spawned CLI. */
+  env?: Record<string, string>
   /** The developer's AgentProfile — the one knob for "which agent" (prompt / model /
    *  tools / mcp). Spread through verbatim; the backend cost-dial is tagged into
    *  metadata. Omitted ⇒ a minimal worker profile. */
@@ -210,7 +214,7 @@ export function sandboxAgentRun(opts: {
     name,
     taskToPrompt: opts.taskToPrompt ?? ((t) => t),
     sandboxOverrides: {
-      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl },
+      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl, ...opts.env },
       backend: {
         type: backendType,
         model: { provider: 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },

@@ -47,10 +47,15 @@ async function main() {
   ]
 
   const corpus = process.env.CORPUS ?? `${process.cwd()}/corpus/rsi-${adapter.name}.jsonl`
+  // Optional in-box web-search provider pin (research benches): SEARCH=you|exa|… sets
+  // TANGLE_SEARCH_DEFAULT_PROVIDER in the box; EXA_API_KEY (if set) keys opencode-native exa.
+  const searchEnv: Record<string, string> = {}
+  if (process.env.SEARCH && process.env.SEARCH !== 'default' && process.env.SEARCH !== 'off') searchEnv.TANGLE_SEARCH_DEFAULT_PROVIDER = process.env.SEARCH
+  if (process.env.EXA_API_KEY) searchEnv.EXA_API_KEY = process.env.EXA_API_KEY
   const r = await runExperiment({
     adapter,
     sandboxClient: client,
-    agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey }),
+    agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey, ...(Object.keys(searchEnv).length ? { env: searchEnv } : {}) }),
     arms: policies,
     model,
     rounds,
