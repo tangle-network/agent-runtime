@@ -203,13 +203,24 @@ function formatCoderPrompt(task: CoderTask): string {
 }
 
 /**
- * Walk the event stream and return the last structured `coder.result` payload.
+ * Walk the event stream and return the structured coder payload.
  *
  * The agent is instructed to emit a JSON block; in practice the sandbox SDK
  * lifts the structured payload onto `data.result` of a `result` / `final`
  * event. When the event stream does not contain a structured result, the
- * adapter scans text deltas for a fenced JSON block matching the expected
- * keys. Both shapes converge on `CoderOutput`.
+ * adapter scans the assistant's text output for a fenced JSON block matching
+ * the expected keys.
+ *
+ * The text-scan is shape-tolerant and order-preserving: harnesses differ in
+ * how they stream assistant text. claude-code lifts whole text onto
+ * `data.text` / `data.delta`; opencode streams it as fragments inside
+ * `message.part.updated` events (`data.part.text`, with incremental
+ * `data.delta`). The final JSON result block is therefore split across many
+ * fragments and never present in any single event — so the scan accumulates
+ * ALL assistant text in stream order first, then scans the concatenation for
+ * fenced blocks (last valid one wins). Scanning per-event (as before) found
+ * nothing for opencode and yielded an empty `CoderOutput` for a run that
+ * actually produced a patch.
  */
 function parseCoderEvents(events: SandboxEvent[]): CoderOutput {
   for (let i = events.length - 1; i >= 0; i -= 1) {
@@ -222,16 +233,11 @@ function parseCoderEvents(events: SandboxEvent[]): CoderOutput {
       if (direct) return direct
     }
   }
-  // Fallback: scan text deltas in reverse for a fenced JSON block.
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event) continue
-    const data = isRecord(event.data) ? event.data : {}
-    const text = pickString(data.text) ?? pickString(data.delta)
-    if (!text) continue
-    const fenced = extractFencedJson(text)
-    if (!fenced) continue
-    const coerced = coerceCoderOutput(fenced)
+  // Fallback: accumulate assistant text across the whole stream (any harness
+  // shape), then take the last fenced JSON block that coerces.
+  const transcript = collectAssistantText(events)
+  for (const candidate of fencedJsonBlocks(transcript)) {
+    const coerced = coerceCoderOutput(candidate)
     if (coerced) return coerced
   }
   return {
@@ -379,16 +385,50 @@ function pickString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function extractFencedJson(text: string): unknown | undefined {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
-  if (!match) return undefined
-  const body = (match[1] ?? '').trim()
-  if (!body) return undefined
-  try {
-    return JSON.parse(body)
-  } catch {
-    return undefined
+/**
+ * Concatenate assistant text across the event stream in arrival order,
+ * tolerating every harness shape:
+ *   - claude-code: `data.text` / `data.delta` on text events.
+ *   - opencode: `message.part.updated` with `data.part.type === 'text'`
+ *     carrying `data.delta` (incremental) or `data.part.text` (snapshot).
+ * Reasoning/thinking parts are excluded — only the final answer text can
+ * carry the result JSON. Snapshot text replaces accumulated deltas for the
+ * same part so a snapshot+delta mix doesn't double-count.
+ */
+function collectAssistantText(events: SandboxEvent[]): string {
+  const chunks: string[] = []
+  for (const event of events) {
+    if (!event) continue
+    const data = isRecord(event.data) ? event.data : {}
+    if (String(event.type ?? '') === 'message.part.updated') {
+      const part = isRecord(data.part) ? data.part : {}
+      const partType = String(part.type ?? '')
+      if (partType !== 'text' && partType !== '') continue
+      const text = pickString(data.delta) ?? pickString(part.text)
+      if (text) chunks.push(text)
+      continue
+    }
+    const text = pickString(data.text) ?? pickString(data.delta)
+    if (text) chunks.push(text)
   }
+  return chunks.join('')
+}
+
+/** All parseable fenced JSON blocks in `text`, last-first (the final result
+ *  block the agent emits is the one we want). */
+function fencedJsonBlocks(text: string): unknown[] {
+  const out: unknown[] = []
+  const matches = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+  for (let i = matches.length - 1; i >= 0; i -= 1) {
+    const body = (matches[i]?.[1] ?? '').trim()
+    if (!body) continue
+    try {
+      out.push(JSON.parse(body))
+    } catch {
+      // not JSON — keep scanning earlier blocks
+    }
+  }
+  return out
 }
 
 function coerceCoderOutput(value: unknown): CoderOutput | undefined {
