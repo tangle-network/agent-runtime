@@ -65,23 +65,28 @@ interface CtxTask {
  *  Fail loud on a malformed record — a silently-short task set would poison the gate. */
 function loadCtxTasks(limit: number, offset: number): CtxTask[] {
   const need = offset + limit
+  // Fetch a 2-line buffer past `need`: on CL-bench's huge multi-KB records, `head`
+  // closing the pipe can emit a TRUNCATED final line (SIGPIPE mid-write) → invalid
+  // JSON. Fetching need+2 and parsing only the first `need` complete lines makes the
+  // truncated tail land in the discarded buffer.
+  const fetchN = need + 2
   let raw: string
   const cached = process.env.CLBENCH_CTX_FILE
   if (cached) {
     if (!existsSync(cached)) throw new Error(`CLBENCH_CTX_FILE not found: ${cached}`)
-    raw = execFileSync('bash', ['-c', `head -n ${need} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
+    raw = execFileSync('bash', ['-c', `head -n ${fetchN} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
   } else {
-    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). `head`
-    // closing the pipe after `need` lines gives curl a benign SIGPIPE (exit 23) on a
-    // multi-hundred-MB file — suppress curl's stderr so it isn't mistaken for a fault;
-    // a real fetch failure surfaces as 0 parsed tasks below.
-    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${need}`], {
+    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). curl's
+    // SIGPIPE (exit 23) when head closes is benign — suppress its stderr; a real fetch
+    // failure surfaces as 0 parsed tasks below.
+    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${fetchN}`], {
       maxBuffer: 1 << 30,
     }).toString('utf8')
   }
   const tasks: CtxTask[] = []
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') continue
+  // Only the first `need` lines are guaranteed complete (the +2 absorbs head's tail).
+  const lines = raw.split('\n').filter((l) => l.trim() !== '').slice(0, need)
+  for (const line of lines) {
     const d = JSON.parse(line) as {
       messages?: ChatMessage[]
       rubrics?: unknown[]
