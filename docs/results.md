@@ -34,8 +34,9 @@ with it.
 aec-bench (closed-form engineering calculations, gpt-4.1, n=12) is the control that proves the bar is
 real, not rigged. Its `verify.py` is a legitimate deployable checker, and after fixing a worker
 artifact the per-task scores rise to a 36% mean — yet the verifier-select gate is **+0.0pp**, because
-**0/12 tasks have any within-task score variance**: a closed-form answer is deterministic w.r.t.
-sampling, so there is nothing for any selector to choose between. The selector pays **only** where
+**0/12 tasks (random arm; 1/12 on the diverse-strategies arm) have any within-task score
+variance**: a closed-form answer is deterministic w.r.t. sampling, so there is nothing for
+any selector to choose between. The selector pays **only** where
 attempts genuinely differ — code (HumanEval, commit0) — not where they don't (aec).
 
 ---

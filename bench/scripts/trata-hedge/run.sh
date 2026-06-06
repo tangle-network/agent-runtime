@@ -29,12 +29,23 @@ WORKER_MODEL="$MODEL" python3 "$HERE/solve.py" "$ENV" "$ANS"
 sudo -n mkdir -p /app && sudo -n cp "$ANS" /app/answer.txt && sudo -n chmod 644 /app/answer.txt
 
 echo "[trata] grade: their grade.py (gemini-3.1-pro)"
+GRADE_LOG=/tmp/thb-grade.log
+# Fail loud: capture the grader's output; if it errors (bad key, import, network) or
+# writes no details, surface ITS error rather than crashing the reporter cryptically.
+set +e
 ( cd "$ENV/tests" && \
   GOOGLE_API_KEY="$GOOGLE_AI_KEY" \
   DATA_DIR="$ENV/environment/data" \
   GROUND_TRUTH_PATH="$ENV/tests/ground_truth.txt" \
   REWARD_PATH="$REWARD" DETAILS_PATH="$DETAILS" \
-  uvx --with google-genai python3 grade.py >/dev/null 2>&1 ) || true
+  uvx --with google-genai python3 grade.py ) >"$GRADE_LOG" 2>&1
+grade_status=$?
+set -e
+if [ "$grade_status" -ne 0 ] || [ ! -f "$DETAILS" ]; then
+  echo "[trata] grade.py FAILED (exit $grade_status) — last output:" >&2
+  tail -n 15 "$GRADE_LOG" >&2
+  exit 1
+fi
 
 python3 - "$DETAILS" "$REWARD" <<'PY'
 import json, sys

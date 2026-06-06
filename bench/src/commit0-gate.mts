@@ -53,6 +53,8 @@ interface Shot {
   ok: boolean
   detail?: string
   wallMs: number
+  /** measured count of stream events from the rollout (0 if it errored before streaming) */
+  events: number
 }
 
 /** Build the rollout prompt: clone the stub, implement the source, write the diff to
@@ -89,6 +91,7 @@ async function runShot(
   // timeout) becomes a recorded NO-DIFF attempt — it MUST NOT throw, or one flaky box
   // aborts the whole pool and loses every other rollout (the powered-run crash).
   let box: Awaited<ReturnType<typeof acquireSandbox>> | undefined
+  let events = 0
   try {
     box = await acquireSandbox(client, {
       name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
@@ -105,6 +108,7 @@ async function runShot(
     const signal = AbortSignal.timeout(cfg.timeoutMs)
     let lastErr: string | undefined
     for await (const ev of box.streamPrompt(rolloutPrompt(meta), { signal })) {
+      events += 1
       if ((ev as { type?: string })?.type === 'error') lastErr = JSON.stringify((ev as { data?: unknown }).data).slice(0, 300)
     }
     let diff = ''
@@ -120,12 +124,13 @@ async function runShot(
       attempt,
       diff,
       ok,
+      events,
       wallMs: Date.now() - startedAt,
       ...(ok ? {} : { detail: `empty patch${readErr ? ` (read failed: ${readErr.slice(0, 120)})` : ''}${lastErr ? `; lastError=${lastErr}` : ''}` }),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { task, attempt, diff: '', ok: false, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
+    return { task, attempt, diff: '', ok: false, events, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
   } finally {
     try {
       if (box) await box.delete()
@@ -212,8 +217,8 @@ async function main(): Promise<void> {
         output: s?.diff ?? '',
         ...(sc ? { valid: sc.resolved, score: sc.score } : {}),
         wallMs: s?.wallMs ?? 0,
-        eventCount: 1,
-        eventTypes: { 'sandbox.rollout': 1 },
+        eventCount: s?.events ?? 0,
+        eventTypes: { 'sandbox.stream': s?.events ?? 0 },
         traceTail: (s?.diff ?? '').slice(-600),
       })
     }

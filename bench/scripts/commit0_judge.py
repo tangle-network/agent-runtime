@@ -51,12 +51,12 @@ def main() -> None:
     if example is None:
         fail(f"instance not found in {args.dataset}: {args.instance}")
 
-    test_dir = example["test"]["test_dir"]
     # run_pytest_ids wants the SPACE-joined test-id STRING (e.g. "tests/a.py::t1 ...")
-    # — NOT the test directory — and keys its report dir on get_hash_string(that same
-    # string). Passing test_dir ran zero tests and wrote the report under a different
-    # hash, so the judge silently found nothing. get_tests reads the repo's test-id list.
-    test_ids_str = " ".join(t for t in get_tests(repo_name, 0) if t.strip())
+    # — NOT the dataset's test_dir — and keys its report dir on get_hash_string(that
+    # same string). Passing test_dir ran zero tests and wrote the report under a
+    # different hash, so the judge silently found nothing. get_tests reads the test-ids.
+    test_ids = [t for t in get_tests(repo_name, 0) if t.strip()]
+    test_ids_str = " ".join(test_ids)
     # setup.main checks out the stubbed repo onto BASE_BRANCH ("commit0") and the
     # worker's diff is committed there; run_pytest_ids resolves `branch` -> a git
     # commit (NOT a checkout) to diff against base_commit, so it must be the
@@ -149,8 +149,10 @@ def main() -> None:
         # Fall back to the declared test-id count when the harness produced no call
         # records (e.g. collection error) so `total` is never a phantom 0.
         if total == 0:
-            ids = get_tests(repo_name, verbose=0)
-            total = sum(len(x) for x in ids) if ids else 0
+            # COUNT of test ids, not their character lengths (get_tests returns a flat
+            # list of node-id strings). Only fires on a collection error, where passed
+            # is already 0 — but a phantom inflated total would still mislead a reader.
+            total = len(test_ids)
 
         print(json.dumps({"passed": passed, "total": total}))
     finally:
