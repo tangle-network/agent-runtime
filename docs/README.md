@@ -15,6 +15,7 @@ Read top-to-bottom for the full picture.
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build + cleanup plan | The file-grounded, dependency-ordered sequence to go from *scaffold built, intelligence designed* to a measured surface. Phases, exit gates, cruft track, doc track, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
 | 5 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
+| 6 | [results.md](./results.md) | the charts | The measured gate results, drawn simply: verifier-grounded selection recovers the oracle ceiling on HumanEval (+12pp), survives real coding rollouts (commit0), and stays flat where there's no within-task variance (aec). |
 
 ## Research track
 
