@@ -34,6 +34,7 @@ import {
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { appendRunRecord, buildRunRecord } from './corpus'
 import { routerChatWithUsage } from './router-client'
+import { createRuntimeHookRecorder } from './runtime-hook-recorder'
 import { runPool } from './run-pool'
 import { runSteeringExperiment } from './steering-experiment'
 
@@ -292,13 +293,14 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
         return { valid: v.resolved === true, score: v.score }
       },
     }
+    const runtime = createRuntimeHookRecorder()
     const result = await runLoop<string, string, 'continue' | 'done'>({
       driver: createDynamicDriver<string, string>({ planner, maxIterations: rounds }),
       agentRun: cfg.agentRun,
       output,
       validator,
       task: task.prompt,
-      ctx: { sandboxClient: cfg.sandboxClient },
+      ctx: { sandboxClient: cfg.sandboxClient, hooks: runtime.hooks },
       maxIterations: rounds,
     })
     const iter0 = result.iterations[0]
@@ -319,6 +321,7 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
           resolved,
           infraError,
           ...(cfg.now ? { now: cfg.now } : {}),
+          runtimeEvents: runtime.events,
         }),
       ).catch((err) =>
         console.error(

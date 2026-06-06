@@ -13,6 +13,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
+import { type BenchRuntimeHookEvent, createRuntimeHookRecorder } from './runtime-hook-recorder'
 
 export interface WorkerConfig {
   sandboxBaseUrl: string
@@ -28,6 +29,7 @@ export interface ShotResult {
   patch: string
   ok: boolean
   detail?: string
+  runtimeEvents?: BenchRuntimeHookEvent[]
 }
 
 const PATCH_PATH = '/tmp/solution.patch'
@@ -97,7 +99,18 @@ export async function solveShot(
       },
     },
   }
-  const run = await openSandboxRun(client, { agentRun, signal: controller.signal }, swePatchDeliverable)
+  const runtime = createRuntimeHookRecorder()
+  const run = await openSandboxRun(
+    client,
+    {
+      agentRun,
+      signal: controller.signal,
+      hooks: runtime.hooks,
+      runId: `swe-bench:${task.id}`,
+      scenarioId: task.id,
+    },
+    swePatchDeliverable,
+  )
   try {
     const turn = await run.start(prompt)
     const empty = turn.out.patch.trim().length === 0
@@ -107,6 +120,7 @@ export async function solveShot(
       detail: empty
         ? `empty patch${turn.readError ? ` (patch read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}`
         : undefined,
+      runtimeEvents: runtime.events,
     }
   } finally {
     if (timer) clearTimeout(timer)

@@ -17,6 +17,7 @@ import { dirname } from 'node:path'
 import { hashContent, type RunSplitTag, validateRunRecord } from '@tangle-network/agent-eval'
 import type { CorpusRecord } from '@tangle-network/agent-eval/rl'
 import type { Iteration } from '@tangle-network/agent-runtime/loops'
+import type { BenchRuntimeHookEvent } from './runtime-hook-recorder'
 
 /** One attempt within a condition-run: the prompt/steer sent, the output, the
  *  verdict, the measured economics, and a bounded trace summary.
@@ -67,6 +68,8 @@ export interface RunRecord {
   seed?: number
   splitTag?: RunSplitTag
   commitSha?: string
+  /** Passive runtime hook evidence captured during the run. Optional and bounded by producers. */
+  runtimeEvents?: BenchRuntimeHookEvent[]
 }
 
 const TRACE_TAIL_MAX = 600
@@ -116,6 +119,7 @@ export function buildRunRecord<Task, Output>(args: {
   seed?: number
   splitTag?: RunSplitTag
   commitSha?: string
+  runtimeEvents?: BenchRuntimeHookEvent[]
 }): RunRecord {
   const attempts = args.iterations.map(summarizeAttempt)
   return {
@@ -131,6 +135,9 @@ export function buildRunRecord<Task, Output>(args: {
     ...(args.seed !== undefined ? { seed: args.seed } : {}),
     ...(args.splitTag !== undefined ? { splitTag: args.splitTag } : {}),
     ...(args.commitSha !== undefined ? { commitSha: args.commitSha } : {}),
+    ...(args.runtimeEvents !== undefined && args.runtimeEvents.length > 0
+      ? { runtimeEvents: args.runtimeEvents }
+      : {}),
   }
 }
 
