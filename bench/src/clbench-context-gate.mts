@@ -65,23 +65,28 @@ interface CtxTask {
  *  Fail loud on a malformed record — a silently-short task set would poison the gate. */
 function loadCtxTasks(limit: number, offset: number): CtxTask[] {
   const need = offset + limit
+  // Fetch a 2-line buffer past `need`: on CL-bench's huge multi-KB records, `head`
+  // closing the pipe can emit a TRUNCATED final line (SIGPIPE mid-write) → invalid
+  // JSON. Fetching need+2 and parsing only the first `need` complete lines makes the
+  // truncated tail land in the discarded buffer.
+  const fetchN = need + 2
   let raw: string
   const cached = process.env.CLBENCH_CTX_FILE
   if (cached) {
     if (!existsSync(cached)) throw new Error(`CLBENCH_CTX_FILE not found: ${cached}`)
-    raw = execFileSync('bash', ['-c', `head -n ${need} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
+    raw = execFileSync('bash', ['-c', `head -n ${fetchN} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
   } else {
-    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). `head`
-    // closing the pipe after `need` lines gives curl a benign SIGPIPE (exit 23) on a
-    // multi-hundred-MB file — suppress curl's stderr so it isn't mistaken for a fault;
-    // a real fetch failure surfaces as 0 parsed tasks below.
-    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${need}`], {
+    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). curl's
+    // SIGPIPE (exit 23) when head closes is benign — suppress its stderr; a real fetch
+    // failure surfaces as 0 parsed tasks below.
+    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${fetchN}`], {
       maxBuffer: 1 << 30,
     }).toString('utf8')
   }
   const tasks: CtxTask[] = []
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') continue
+  // Only the first `need` lines are guaranteed complete (the +2 absorbs head's tail).
+  const lines = raw.split('\n').filter((l) => l.trim() !== '').slice(0, need)
+  for (const line of lines) {
     const d = JSON.parse(line) as {
       messages?: ChatMessage[]
       rubrics?: unknown[]
@@ -151,8 +156,16 @@ function parseJudge(reply: string, rubricCount: number): RubricVerdict {
 async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): Promise<RubricVerdict> {
   if (!output.trim()) return { fraction: 0, allPass: false, graded: 0 }
   const rubricsText = task.rubrics.map((r, i) => `${i + 1}. ${r}`).join('\n')
-  const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
-  return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+  // Fault-isolate the judge: a transient router failure (after retries) or an
+  // unparseable judge reply scores this attempt 0 (eval.py's convention), it must
+  // NOT throw — one bad grade would otherwise crash the whole N×K×2 run. graded=0
+  // marks it as judge-failed so it's distinguishable from a real 0/N rubric pass.
+  try {
+    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
+    return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+  } catch {
+    return { fraction: 0, allPass: false, graded: 0 }
+  }
 }
 
 async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {

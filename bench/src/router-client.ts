@@ -53,8 +53,11 @@ export async function routerChatWithUsage(
     }
     // Non-retryable (auth/quota/malformed) fails loud immediately; retryable
     // statuses back off and continue until the loop's attempt bound, then the
-    // post-loop throw is the honest "exhausted retries" terminal.
-    if (![429, 500, 502, 503, 504].includes(status)) throw new Error(lastErr)
+    // post-loop throw is the honest "exhausted retries" terminal. 408/425 + the
+    // Cloudflare-origin family (520/522/524) are transient under heavy parallel
+    // load — a fleet of concurrent gate runs hits 524 ("origin timeout") and must
+    // retry, not crash the whole run.
+    if (![408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status)) throw new Error(lastErr)
     if (attempt < 4) await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
   }
   throw new Error(`${lastErr} (exhausted retries)`)
