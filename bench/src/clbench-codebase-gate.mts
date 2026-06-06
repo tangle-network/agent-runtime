@@ -94,6 +94,11 @@ interface ShotCfg {
   routerBaseUrl: string
   routerKey: string
   model: string
+  /** in-box opencode provider. `openai-compat` (default) is the generic passthrough —
+   *  it does NOT validate the model against opencode's registry, so router-served cheap
+   *  models (deepseek-chat, moonshotai/kimi-k2.6, glm) work; `openai`/`anthropic` only
+   *  accept their registered model names (e.g. gpt-4.1). */
+  provider: string
   timeoutMs: number
 }
 
@@ -114,7 +119,7 @@ async function runRollout(inst: Instance, lens: string | undefined, cfg: ShotCfg
       name: `clbench-cb-${inst.instanceId}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
       env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
-      backend: { type: 'opencode', model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey } },
+      backend: { type: 'opencode', model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey } },
     })
     const signal = cfg.timeoutMs > 0 ? AbortSignal.timeout(cfg.timeoutMs) : undefined
     for await (const _ev of box.streamPrompt(rolloutPrompt(inst, lens), signal ? { signal } : {})) {
@@ -232,6 +237,8 @@ async function main(): Promise<void> {
   const k = Number(process.env.K ?? 3)
   const offset = Number(process.env.OFFSET ?? 0)
   const model = process.env.WORKER_MODEL ?? 'deepseek-chat'
+  // openai-compat = generic passthrough so cheap router models resolve in-box (see ShotCfg).
+  const provider = process.env.WORKER_PROVIDER ?? 'openai-compat'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
@@ -243,8 +250,8 @@ async function main(): Promise<void> {
   if (!Number.isInteger(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
-  const cfg: ShotCfg = { sandboxBaseUrl, routerBaseUrl, routerKey, model, timeoutMs }
-  console.log(`=== CL-Bench Codebase Adaptation selector gate · N=${n} K=${k} offset=${offset} model=${model} ===`)
+  const cfg: ShotCfg = { sandboxBaseUrl, routerBaseUrl, routerKey, model, provider, timeoutMs }
+  console.log(`=== CL-Bench Codebase Adaptation selector gate · N=${n} K=${k} offset=${offset} model=${provider}/${model} ===`)
   console.log(`  sandbox=${sandboxBaseUrl}  judge=CL-Bench pytest-in-Docker (deployable)  clbench=${clbenchDir}`)
 
   const instances = loadInstances(clbenchDir, n, offset)
