@@ -37,7 +37,7 @@ import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, LoopSandboxClient } from './types'
-import { randomSuffix, throwIfAborted } from './util'
+import { randomSuffix, sleep, throwIfAborted } from './util'
 
 /**
  * @experimental
@@ -90,6 +90,9 @@ export interface OpenSandboxRunOptions {
   now?: () => number
   /** Bounds box-creation bursts inside lineage fanout. Default from lineage. */
   maxConcurrency?: number
+  /** Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
+   *  retry waits `readRetryDelayMs * i`. Default 1000. Set 0 to disable the wait (tests). */
+  readRetryDelayMs?: number
 }
 
 /**
@@ -188,10 +191,23 @@ export async function openSandboxRun<Out>(
     throwIfAborted(options.signal)
     let raw = ''
     let readError: string | undefined
-    try {
-      raw = await box.fs.read(deliverable.path)
-    } catch (err) {
-      readError = err instanceof Error ? err.message : String(err)
+    // The data plane can transiently 404 a just-written artifact (write not yet
+    // flushed, or an edge-read blip) — retry a few times with backoff before
+    // declaring the deliverable empty, so a transient read failure is not recorded
+    // as "the agent produced nothing".
+    const readAttempts = 4
+    const readDelayMs = options.readRetryDelayMs ?? 1000
+    for (let attempt = 0; attempt < readAttempts; attempt += 1) {
+      throwIfAborted(options.signal)
+      try {
+        raw = await box.fs.read(deliverable.path)
+        readError = undefined
+        break
+      } catch (err) {
+        readError = err instanceof Error ? err.message : String(err)
+        if (attempt < readAttempts - 1 && readDelayMs > 0)
+          await sleep(readDelayMs * (attempt + 1), options.signal)
+      }
     }
     return {
       out: deliverable.fromArtifact(raw, collected),

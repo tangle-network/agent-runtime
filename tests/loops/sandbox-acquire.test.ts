@@ -65,6 +65,22 @@ describe('acquireSandbox — cold-start resilience', () => {
     expect(got).toBe(ready) // attached the provisioning sandbox by name
   })
 
+  it('RETRIES a create-thrown provision failure onto a fresh host (edge data plane / provision failed)', async () => {
+    let createCalls = 0
+    const ready = box({ id: 'sbx-9', name: 'sbx-1', status: 'running' })
+    const client = {
+      create: async () => {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('Edge data plane not reachable: provision failed')
+        return ready
+      },
+      list: async () => [],
+    }
+    const got = await acquireSandbox(client, OPTS, clock())
+    expect(createCalls).toBe(2) // first create threw a transient provision error, second succeeded
+    expect(got).toBe(ready)
+  })
+
   it('fails loud on a non-retryable error (auth) — no polling', async () => {
     let listed = false
     const client = {
