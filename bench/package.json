@@ -16,7 +16,7 @@
     "terminal-compare": "tsx src/terminal-compare.ts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.76.0",
+    "@tangle-network/agent-eval": "^0.83.0",
     "@tangle-network/agent-runtime": "file:..",
     "@tangle-network/sandbox": "^0.4.0"
   },

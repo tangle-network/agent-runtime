@@ -11,7 +11,7 @@
  *   review       → code mode with a REQUIRED reviewer (the gate is the point)
  *   research     → research-in-a-loop with valid-only KB growth (createKbGate)
  *   audit        → analyze trace/run data → findings (runAnalystLoop, caller-wired)
- *   self-improve → identity-gated prompt optimization (optimizePrompt, caller-wired)
+ *   self-improve → closed-loop text/config optimization (selfImprove, held-out gated)
  *   dynamic      → agent-authored topology (runLoop + createDynamicDriver)
  *
  * It is intentionally a thin façade: the value is that EVERY product reuses the
@@ -22,14 +22,14 @@
  */
 
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
+import {
+  type SelfImproveOptions,
+  type SelfImproveResult,
+  selfImprove,
+} from '@tangle-network/agent-eval/contract'
 import { runAnalystLoop } from './analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
-import {
-  type OptimizePromptOptions,
-  type OptimizePromptResult,
-  optimizePrompt,
-} from './improvement/optimize-prompt'
 import {
   type CoderReviewer,
   type CoderWinnerSelection,
@@ -278,11 +278,11 @@ export function researchLoopRunner(
   }
 }
 
-/** @experimental `self-improve` mode — identity-gated prompt optimization. */
+/** @experimental `self-improve` mode — agent-eval's one-call closed loop (held-out gated). */
 export function selfImproveLoopRunner<TScenario extends Scenario, TArtifact>(
-  options: OptimizePromptOptions<TScenario, TArtifact>,
-): DelegatedLoopRunner<OptimizePromptResult<TArtifact, TScenario>> {
-  return async () => optimizePrompt<TScenario, TArtifact>(options)
+  options: SelfImproveOptions<TScenario, TArtifact>,
+): DelegatedLoopRunner<SelfImproveResult<TScenario, TArtifact>> {
+  return async () => selfImprove<TScenario, TArtifact>(options)
 }
 
 /** @experimental `audit` mode — analyst loop over captured trace/run data. */
