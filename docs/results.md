@@ -14,9 +14,12 @@ charts hold to.
 
 Generate k=4 completions, then **re-run each one against the task's own unit tests** (gold never
 shown) and keep the highest-passing. On HumanEval (gpt-3.5-turbo, n=50) this **captures the full
-oracle ceiling — 94%, gap 0** — while self-consistency, the standard deployable selector, leaves
-**12pp on the table** (`verifier − self-consistency = +12.0pp, CI[+4, +22]`, paired bootstrap +
-Benjamini–Hochberg). The first admissible non-blind selection win.
+oracle ceiling — gap 0** — while self-consistency, the standard deployable selector, leaves
+**~10pp on the table** (`verifier − self-consistency = +10.0pp, CI[+2, +18]`, paired bootstrap +
+Benjamini–Hochberg). **Reproduced across two independent n=50 runs** (+10pp / +12pp, both
+BH-positive — the shift is gpt-3.5 sampling variance, not a different result). The win is the
+*selector*, not strategy diversity (diverse@k − random@k = −2pp, n.s.). The first admissible
+non-blind selection win.
 
 ## The signal survives real stateful coding rollouts (commit0)
 

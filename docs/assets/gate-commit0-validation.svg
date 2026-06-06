@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="820" height="500" viewBox="0 0 820 500" font-family='system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif'>
-<rect width="820" height="500" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="524" viewBox="0 0 820 524" font-family='system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif'>
+<rect width="820" height="524" fill="#ffffff"/>
 <text x="66" y="46" font-size="22" font-weight="700" fill="#0f172a">The selector signal survives real stateful coding rollouts</text>
 <text x="66" y="72" font-size="13.5" fill="#64748b">commit0 · gpt-4.1 · k=3 · single-task validation (wcwidth) — official pytest harness, graded pass-rate</text>
 <line x1="66" y1="404" x2="684" y2="404" stroke="#e2e8f0" stroke-width="1.5"/>
@@ -28,6 +28,6 @@
 <line x1="220.5" y1="171.172" x2="529.5" y2="171.172" stroke="#059669" stroke-width="1.25"/>
 <rect x="341.8" y="149.172" width="66.4" height="20" rx="10" fill="#059669"/>
 <text x="375" y="163.172" font-size="12.5" font-weight="700" text-anchor="middle" fill="#ffffff">+11.4pp</text>
-<text x="66" y="465" font-size="11.5" fill="#64748b">Layer-1: agent clones the repo, implements, runs pytest, iterates, emits a diff. Attempts score 60.5 /</text>
-<text x="66" y="480" font-size="11.5" fill="#64748b">78.9 / 63.2% — within-task variance the selector exploits. Powered n=10 cross-task gate in progress.</text>
+<text x="66" y="489" font-size="11.5" fill="#64748b">Layer-1: agent clones the repo, implements, runs pytest, iterates, emits a diff. Attempts score 60.5 /</text>
+<text x="66" y="504" font-size="11.5" fill="#64748b">78.9 / 63.2% — within-task variance the selector exploits. Powered n=10 cross-task gate in progress.</text>
 </svg>
