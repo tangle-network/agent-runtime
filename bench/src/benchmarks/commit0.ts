@@ -50,7 +50,10 @@ export const commit0DiffOutput: OutputAdapter<string> = {
       if (typeof t === 'string' && t.length > 0) text = t
     }
     const fences = [...text.matchAll(/```(?:diff|patch)?\s*\n([\s\S]*?)```/g)]
-    return (fences.at(-1)?.[1] ?? text).trim()
+    const body = (fences.at(-1)?.[1] ?? text).trim()
+    // `git apply` rejects a patch that is not newline-terminated ("corrupt patch at
+    // line N+1"); the .trim() above strips the final newline, so restore exactly one.
+    return body.length > 0 ? `${body}\n` : body
   },
 }
 
