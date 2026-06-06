@@ -41,6 +41,17 @@ number below is single-objective + within-run — read them as Gate-A diagnostic
 - On the COMMITTED finsearch corpus, the self-consistency selector also **loses**:
   selector@k − random@k = **−8.2pp** (n=51). So "pick the consensus among k identical-ish
   attempts" does not beat a random draw here.
+- **VERIFIER-GROUNDED selection is the one selector that wins** — but ONLY where a domain has
+  WITHIN-TASK graded variance. Proven POSITIVE on HumanEval (deployable-checker, binary, n=50:
+  verifier−sc = +12.0pp CI[+4,+22]). The continuous-reward generalization (`selector.ts`
+  `summarizeVerifierSelector`, `corpus-replay --selector=verifier`) ranks k attempts by their
+  stored deployable-checker `score` and reports selector(=best-of-k) vs random(=mean-of-k) with a
+  paired bootstrap CI. **aec-bench is structurally DEAD for it** (n=12 gpt-4.1, **0/12 random +
+  1/12 diverse tasks have any within-task score spread**): closed-form engineering calcs score
+  deterministically w.r.t. sampling — across-task difficulty (33% resolve) but ~0 within-task
+  selection headroom. The gpt-5 null (oracle 2.5%) was a worker artifact (no JSON emission);
+  gpt-4.1 fixes the band (mean 36.1%) but the selector gate stays flat. **commit0 is the right
+  Layer-1 domain** (different impls pass different test subsets → real within-task spread).
 - **UNTESTED (still Gate A):** parallel **DIVERSE strategies** (different reasoning paths,
   `directives.ts` → `DIVERSE_STRATEGY_LENSES` / `composeStrategies`) @k vs blind sample(n=k). A
   distinct family from what rung-0 falsified — the open *within-run* question, and what runProgram's
@@ -71,8 +82,13 @@ unit tests (the only fully-green, cred-free runnable surface besides offline rep
 cd bench
 pnpm gate                                              # = corpus-replay.mts corpus/finsearch.jsonl --selector
 tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector --condition=refine   # other arms
+tsx src/corpus-replay.mts <corpus.jsonl> --selector=verifier   # GRADED domains: rank k by deployable-checker score
 pnpm gate-report                                       # paired-bootstrap CI + BH-FDR
 ```
+`--selector=verifier` is for corpora whose attempts carry a continuous `score` (commit0
+pytest pass-rate / aec verify.py partial credit) and where text doesn't cluster: it ranks by
+the deployable checker (argmax score) and reports selector vs random with a paired bootstrap CI.
+It needs WITHIN-TASK score spread to move — flat on aec (closed-form), live on commit0 (code).
 The committed `corpus/finsearch.jsonl` (152 records: random@3 / refineHand@3 / refineGepa@3)
 makes the gate replayable with no rollouts. To gate the DIVERSE arm you must first generate
 a diverse-strategy corpus (k different `composeStrategies` prefixes per instance) — that
@@ -121,7 +137,7 @@ in a `.venv`/Docker subprocess → parse its JSON report → `{resolved,score}`)
 copy of the process/venv/Docker/temp/report plumbing; commit0+appworld also share its
 stdin-piping runner (`runVenvScriptStdin`).
 - **Real, runnable with ZERO extra deps:** finsearchcomp (GitHub dataset + fixtures + LLM judge — the gate bench), hotpotqa + simpleqa + frames (HF/web QA + F1/LLM judge; `*_FIXTURES=1` offline), **aec-bench** (real GitHub task tree + fixtures; judge = the task's own `tests/verify.py` over python3 stdlib — **deterministic, graded per-field partial credit, no Docker, no LLM** → the candidate non-oracle correctable-middle-band bench for the open gate).
-- **Real code, needs an external harness/tools to run (fail loud with the exact install/Docker fix; never a fabricated score):** swe-bench + terminal-bench (`bench/.venv` + Docker), **commit0** (`pip install commit0` + Docker; judge = official pytest harness, graded (passed+xfail)/total; `COMMIT0_FIXTURES=1` for offline listing), **programbench** (`pip install programbench` + Docker on linux/amd64 + HF blobs; judge = official cleanroom eval, graded passed/total; `PROGRAMBENCH_FIXTURES=1` offline), **appworld** (`pip install appworld` + `appworld install` + `appworld download data`; judge = AppWorld's own `world.evaluate()`, graded passes/num_tests — NO committed fixture: task data exists only after `download data`, so loadTasks fails loud rather than fabricate a task), mind2web, cad-design + cadbench + cadgenbench (openscad/blender/build123d).
+- **Real code, needs an external harness/tools to run (fail loud with the exact install/Docker fix; never a fabricated score):** swe-bench + terminal-bench (`bench/.venv` + Docker), **commit0** (ISOLATED `bench/.venv-commit0` via `python3 -m venv bench/.venv-commit0 && bench/.venv-commit0/bin/pip install commit0 datasets` — its deps conflict with the shared `.venv`; override dir with `COMMIT0_VENV` — plus Docker; judge = official pytest harness, graded (passed+xfail)/total; the rollout prompt stages in-box (clones `commit-0/<repo>` @ `base_commit`, emits `git diff`); `COMMIT0_FIXTURES=1` for offline listing), **programbench** (`pip install programbench` + Docker on linux/amd64 + HF blobs; judge = official cleanroom eval, graded passed/total; `PROGRAMBENCH_FIXTURES=1` offline), **appworld** (`pip install appworld` + `appworld install` + `appworld download data`; judge = AppWorld's own `world.evaluate()`, graded passes/num_tests — NO committed fixture: task data exists only after `download data`, so loadTasks fails loud rather than fabricate a task), mind2web, cad-design + cadbench + cadgenbench (openscad/blender/build123d).
 - **goldArtifact:** aec-bench returns the task's real `golden_pass.md` (verify-judge works fully offline). commit0 / programbench / appworld return `undefined` — the oracle is a git ref / stripped source / engine-bundled solution, not a portable string; judge correctness is proven by a real solve through the harness, not a synthetic gold (documented + fail-loud, not a fake).
 - **Absent (not built):** swe-gym, swe-bench-multimodal, and the rest of the survey set.
 Every unbuilt/scaffold adapter fails LOUD (throws with the integration step) rather than faking a score — no silent zeros in any corpus. Offline fixture tests: `benchmarks/{aec-bench,commit0,programbench,appworld}.test.mts` (`tsx --test`).
