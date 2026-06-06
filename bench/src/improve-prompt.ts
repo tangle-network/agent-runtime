@@ -1,7 +1,7 @@
 /**
  * improve-prompt — the OUTER improvement loop over a STRING surface (here: the refine
- * directive). It's the bench-side use of agent-runtime's `optimizePrompt` (agent-eval
- * `gepaDriver` + `heldOutGate` + `runImprovementLoop`).
+ * directive). It's the bench-side use of agent-eval's one-call `selfImprove`
+ * (`@tangle-network/agent-eval/contract`: `gepaDriver` + held-out gate).
  *
  * Naming: `improve-`/`optimize-` = the OUTER loop (across runs — optimize a surface,
  * held-out gated); `refine-` = the INNER loop (within a run — k rounds over one
@@ -24,7 +24,7 @@
  *   BENCH=finsearchcomp SANDBOX=1 → prod-sandbox web-search worker (the real run)
  */
 
-import { optimizePrompt } from '@tangle-network/agent-runtime/improvement'
+import { selfImprove } from '@tangle-network/agent-eval/contract'
 import type { CampaignResult, JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
 import {
   heldoutSignificance,
@@ -555,36 +555,39 @@ async function main() {
     return findings
   }
 
-  const result = await optimizePrompt<RefineScenario, string>({
-    baselinePrompt: baseDirective,
-    runWithPrompt,
+  const result = await selfImprove<RefineScenario, string>({
+    agent: (surface, scenario, ctx) => runWithPrompt(surface as string, scenario, ctx),
     scenarios: train.map(toScenario),
-    holdoutScenarios: holdout.map(toScenario),
-    judges: [judge],
+    judge,
+    baselineSurface: baseDirective,
+    budget: {
+      generations: Number(process.env.GENS ?? 2),
+      populationSize: Number(process.env.POP ?? 3),
+      maxConcurrency: Number(process.env.CONCURRENCY ?? 2),
+      reps: Number(process.env.REPS ?? 1),
+      promoteTopK: Number(process.env.TOPK ?? 1),
+      // Explicit disjoint split (overrides holdoutFraction) — the gate's evidence plane.
+      holdoutScenarios: holdout.map(toScenario),
+    },
+    llm: {
+      baseUrl: routerBaseUrl,
+      apiKey: routerKey,
+      model: process.env.REFLECT_MODEL ?? 'gpt-4o',
+    },
+    driverTarget: reflectionTarget,
+    mutationPrimitives: reflectionPrimitives,
     runDir: `improve-prompt-${benchKey}`,
     storage: inMemoryCampaignStorage(),
-    reflection: {
-      llm: { baseUrl: routerBaseUrl, apiKey: routerKey },
-      model: process.env.REFLECT_MODEL ?? 'gpt-4o',
-      target: reflectionTarget,
-      mutationPrimitives: reflectionPrimitives,
-    },
-    deltaThreshold: Number(process.env.DELTA_THRESHOLD ?? 0.05),
-    populationSize: Number(process.env.POP ?? 3),
-    maxGenerations: Number(process.env.GENS ?? 2),
-    promoteTopK: Number(process.env.TOPK ?? 1),
-    reps: Number(process.env.REPS ?? 1),
-    maxConcurrency: Number(process.env.CONCURRENCY ?? 2),
-    seed: 42,
     autoOnPromote: 'none',
     analyzeGeneration,
   })
 
   console.log(`\n=== GEPA REFINE-DIRECTIVE RESULT (${benchKey}) ===`)
-  console.log(`  baseline held-out composite: ${(result.baselineComposite * 100).toFixed(1)}%`)
-  console.log(`  winner   held-out composite: ${(result.winnerComposite * 100).toFixed(1)}%`)
-  console.log(`  ► held-out delta:            ${(result.delta * 100).toFixed(1)} pp`)
-  console.log(`  gate decision: ${result.decision} (improved=${result.improved})`)
+  const improved = result.gateDecision === 'ship'
+  console.log(`  baseline held-out composite: ${(result.baseline.compositeMean * 100).toFixed(1)}%`)
+  console.log(`  winner   held-out composite: ${(result.winner.compositeMean * 100).toFixed(1)}%`)
+  console.log(`  ► held-out delta:            ${(result.lift * 100).toFixed(1)} pp`)
+  console.log(`  gate decision: ${result.gateDecision} (improved=${improved})`)
 
   // 0.76 heldoutSignificance: a bootstrap CI on the PAIRED winner−baseline held-out
   // delta — turns a bare "+X pp" (a few-instance swing at thin n) into a CI + a
@@ -607,9 +610,9 @@ async function main() {
   } catch (err) {
     console.log(`  (held-out significance unavailable: ${(err instanceof Error ? err.message : String(err)).slice(0, 100)})`)
   }
-  if (result.improved) {
-    console.log(`\n  LEARNED DIRECTIVE:\n${result.prompt}`)
-    if (result.rationale) console.log(`\n  rationale: ${result.rationale}`)
+  if (improved) {
+    console.log(`\n  LEARNED DIRECTIVE:\n${result.winner.surface as string}`)
+    if (result.winner.rationale) console.log(`\n  rationale: ${result.winner.rationale}`)
   } else {
     console.log(`  kept hand-written baseline (gate did not ship a winner)`)
   }
