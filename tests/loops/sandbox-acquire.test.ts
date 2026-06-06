@@ -96,8 +96,12 @@ describe('acquireSandbox — cold-start resilience', () => {
       },
       list: async () => [], // orchestrator rolled back — nothing to attach to
     }
+    // Budget spans several create→appear-scan→re-create cycles (fake clock, so
+    // instant): each cold create fails, list() never shows the box (true
+    // rollback), so after scanning it re-creates — proving it doesn't give up
+    // after one attempt and still times out loud when no host ever comes up.
     await expect(
-      acquireSandbox(client, OPTS, { ...clock(), readyTimeoutMs: 10_000, pollIntervalMs: 3000 }),
+      acquireSandbox(client, OPTS, { ...clock(), readyTimeoutMs: 120_000, pollIntervalMs: 3000 }),
     ).rejects.toThrow(/could not acquire a running sandbox "sbx-1"/)
     expect(creates).toBeGreaterThan(1) // retried create, not a single wait-then-fail
   })
