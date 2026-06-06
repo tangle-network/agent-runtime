@@ -81,6 +81,10 @@ async function runShot(
   const box = await acquireSandbox(client, {
     name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
     environment: 'universal',
+    // opencode reads OPENAI_* from the box env (the backend.model.apiKey alone is not
+    // enough — without these the in-box agent throws ProviderAuthError). Mirrors the
+    // generic sandboxAgentRun wiring that the smoke rollout proved works.
+    env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
     backend: {
       type: 'opencode',
       model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
