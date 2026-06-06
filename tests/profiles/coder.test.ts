@@ -212,15 +212,15 @@ describe('coderProfile output adapter', () => {
     const events: SandboxEvent[] = [
       {
         type: 'message.part.updated',
-        data: { part: { type: 'reasoning' }, delta: '```json\n' + decoy + '\n``` thinking...' },
+        data: { part: { type: 'reasoning' }, delta: `\`\`\`json\n${decoy}\n\`\`\` thinking...` },
       },
       {
         type: 'message.part.updated',
-        data: { part: { type: 'text' }, delta: 'earlier ```json\n' + decoy + '\n``` then ' },
+        data: { part: { type: 'text' }, delta: `earlier \`\`\`json\n${decoy}\n\`\`\` then ` },
       },
       {
         type: 'message.part.updated',
-        data: { part: { type: 'text' }, delta: 'final ```json\n' + real + '\n```' },
+        data: { part: { type: 'text' }, delta: `final \`\`\`json\n${real}\n\`\`\`` },
       },
     ] as SandboxEvent[]
     const out = preset.output.parse(events)

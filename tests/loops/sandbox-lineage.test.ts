@@ -176,7 +176,11 @@ describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
           },
           async dispatchPrompt(_m: string, o?: { sessionId?: string }) {
             calls.dispatch += 1
-            return { sessionId: o?.sessionId ?? 'minted', status: 'running' as const, alreadyExisted: false }
+            return {
+              sessionId: o?.sessionId ?? 'minted',
+              status: 'running' as const,
+              alreadyExisted: false,
+            }
           },
           session(id: string) {
             return {
@@ -194,7 +198,8 @@ describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
       },
     }
     const pollOutput: OutputAdapter<string> = {
-      parse: (events) => String((events.at(-1)?.data as { finalText?: string } | undefined)?.finalText ?? ''),
+      parse: (events) =>
+        String((events.at(-1)?.data as { finalText?: string } | undefined)?.finalText ?? ''),
     }
     const moves: TopologyMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let i = 0
