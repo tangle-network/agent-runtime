@@ -167,6 +167,66 @@ describe('coderProfile output adapter', () => {
     expect(out.testResult.passed).toBe(false)
   })
 
+  it('reassembles the result JSON from opencode message.part.updated fragments', () => {
+    // opencode streams assistant text as incremental `message.part.updated`
+    // deltas; the result block is split across many of them and never whole
+    // in a single event. The adapter must accumulate then scan.
+    const fenced =
+      'All set.\n```json\n' +
+      JSON.stringify({
+        branch: 'feat/opencode',
+        patch: diff(['src/bar.ts'], 3, 0),
+        testResult: { passed: true, output: 'ok' },
+        typecheckResult: { passed: true, output: 'ok' },
+        diffStats: { filesChanged: 1, insertions: 3, deletions: 0 },
+      }) +
+      '\n```'
+    const events: SandboxEvent[] = []
+    for (let i = 0; i < fenced.length; i += 7) {
+      events.push({
+        type: 'message.part.updated',
+        data: { part: { type: 'text' }, delta: fenced.slice(i, i + 7) },
+      } as SandboxEvent)
+    }
+    const out = preset.output.parse(events)
+    expect(out.branch).toBe('feat/opencode')
+    expect(out.testResult.passed).toBe(true)
+    expect(out.diffStats.insertions).toBe(3)
+  })
+
+  it('ignores reasoning parts and picks the last valid fenced block', () => {
+    const decoy = JSON.stringify({
+      branch: 'decoy',
+      patch: '',
+      testResult: { passed: false, output: '' },
+      typecheckResult: { passed: false, output: '' },
+      diffStats: { filesChanged: 0, insertions: 0, deletions: 0 },
+    })
+    const real = JSON.stringify({
+      branch: 'feat/final',
+      patch: diff(['a.ts'], 1, 0),
+      testResult: { passed: true, output: '' },
+      typecheckResult: { passed: true, output: '' },
+      diffStats: { filesChanged: 1, insertions: 1, deletions: 0 },
+    })
+    const events: SandboxEvent[] = [
+      {
+        type: 'message.part.updated',
+        data: { part: { type: 'reasoning' }, delta: '```json\n' + decoy + '\n``` thinking...' },
+      },
+      {
+        type: 'message.part.updated',
+        data: { part: { type: 'text' }, delta: 'earlier ```json\n' + decoy + '\n``` then ' },
+      },
+      {
+        type: 'message.part.updated',
+        data: { part: { type: 'text' }, delta: 'final ```json\n' + real + '\n```' },
+      },
+    ] as SandboxEvent[]
+    const out = preset.output.parse(events)
+    expect(out.branch).toBe('feat/final')
+  })
+
   it('returns an empty CoderOutput when no structured result is present', () => {
     const events: SandboxEvent[] = [{ type: 'text_delta', data: { text: 'hello' } }]
     const out = preset.output.parse(events)
