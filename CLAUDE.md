@@ -23,7 +23,7 @@ agent-knowledge ─┐
 agent-runtime ───┘   (this repo — wraps the substrate)
 ```
 
-**Rule: agent-runtime depends on agent-eval. agent-eval MUST NOT import from agent-runtime.** No upward imports, no `peerDependencies` in agent-eval pointing here, no `import type { X } from '@tangle-network/agent-runtime'` inside agent-eval. A spotted upward import is a bug — file an issue and move the type into agent-eval. agent-eval is declared a **required `peerDependency`** (pinned `^0.76.0`), not a hard dependency — keep it in sync with the `optimizePrompt`/`heldoutSignificance`/`loopDispatch` APIs the code uses.
+**Rule: agent-runtime depends on agent-eval. agent-eval MUST NOT import from agent-runtime.** No upward imports, no `peerDependencies` in agent-eval pointing here, no `import type { X } from '@tangle-network/agent-runtime'` inside agent-eval. A spotted upward import is a bug — file an issue and move the type into agent-eval. agent-eval is declared a **required `peerDependency`** (floor `>=0.83.0` — `selfImprove` exposes `analyzeGeneration` from 0.83), not a hard dependency — keep it in sync with the `selfImprove`/`heldoutSignificance`/`loopDispatch` APIs the code uses.
 
 Substrate primitives CONSUMED from agent-eval: `DefaultVerdict`, `RunRecord`, `AgentEvalError` + taxonomy, `AnalystFinding`/`AnalystRunResult`/`FindingsDiff`, `TraceAnalystKindSpec`, `KnowledgeReadinessReport`, and the campaign types (`DispatchContext`/`ProfileDispatchFn`/`Scenario`, type-only).
 

@@ -589,7 +589,7 @@ async function main() {
   console.log(`  ► held-out delta:            ${(result.lift * 100).toFixed(1)} pp`)
   console.log(`  gate decision: ${result.gateDecision} (improved=${improved})`)
 
-  // 0.76 heldoutSignificance: a bootstrap CI on the PAIRED winner−baseline held-out
+  // heldoutSignificance: a bootstrap CI on the PAIRED winner−baseline held-out
   // delta — turns a bare "+X pp" (a few-instance swing at thin n) into a CI + a
   // significance verdict, so we know whether to trust/promote or just scale n.
   try {

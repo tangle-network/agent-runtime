@@ -58,7 +58,7 @@ That is the common case. Everything below is for when one chat turn is not enoug
 | Delegate a disciplined loop by mode (code, research, ...) | `runDelegatedLoop` or `agent-runtime-loop` | root |
 | Build code reliably (reviewed, gated) | `createDefaultCoderDelegate` | `/mcp` |
 | Grow a knowledge base with only grounded facts | `createKbGate` | `/mcp` |
-| Improve a prompt safely (identity-gated) | `optimizePrompt` | `/improvement` |
+| Improve a prompt safely (identity-gated) | `selfImprove` | `@tangle-network/agent-eval/contract` |
 | Ship loop traces to a GenAI viewer | `buildLoopOtelSpans` plus `createOtelExporter` | root |
 | Expose delegation as MCP tools to a sandbox agent | `createMcpServer` or `agent-runtime-mcp` | `/mcp` |
 | Mutate surfaces from trace findings | `runAnalystLoop` | `/analyst-loop` |
@@ -90,21 +90,25 @@ Shipped drivers (`/loops/drivers`): `createRefineDriver` (single task, iterate u
 
 The same machinery, run at the optimization timescale.
 
-`optimizePrompt` (`/improvement`) optimizes any text prompt over agent-eval's `runImprovementLoop`, identity-gated by construction. It runs evals, proposes candidates (default `gepaDriver`), and a held-out gate compares candidate against baseline. `result.prompt` is the baseline unless the gate decided `ship`, so registering a prompt for optimization can never regress it.
+The one entry point is agent-eval's **`selfImprove`** (`@tangle-network/agent-eval/contract`). It runs a closed loop over any text/config surface, identity-gated by construction: it evaluates, proposes candidates (default `gepaDriver`), and a held-out gate ships a winner only if it beats the baseline. `result.winner.surface` is the baseline unless `result.gateDecision === 'ship'`, so registering a surface for optimization can never regress it.
 
 ```ts
-import { optimizePrompt } from '@tangle-network/agent-runtime/improvement'
+import { selfImprove } from '@tangle-network/agent-eval/contract'
 
-const { prompt, improved, delta } = await optimizePrompt({
-  baselinePrompt: CURRENT_SYSTEM_PROMPT,
-  runWithPrompt: (candidate, scenario, ctx) => runYourThing(candidate, scenario),
-  scenarios, holdoutScenarios, judges, runDir,
-  reflection: { llm, model: 'claude-sonnet-4-6' },
+const result = await selfImprove({
+  baselineSurface: CURRENT_SYSTEM_PROMPT,
+  agent: (surface, scenario, ctx) => runYourThing(surface, scenario),
+  scenarios,
+  judge,
+  budget: { holdoutScenarios, generations: 3 },
+  llm: { baseUrl, apiKey, model: 'claude-sonnet-4-6' },
 })
-// assign `prompt` unconditionally; it is the safe one
+// result.winner.surface is the safe one — the baseline unless gateDecision === 'ship'
 ```
 
-`runAnalystLoop` (`/analyst-loop`) mines real run traces into findings; `createAnalystDriverHook` feeds those findings to a dynamic-driver planner via `PlannerContext.analyses`, with a firewall (`assertTraceDerivedFindings`) that rejects any finding derived from a judge verdict. `reportOptimizationRun` (`/improvement`) ships an optimization run's proposal and verdict to Tangle Intelligence over the eval-run wire.
+agent-runtime contributes the runtime-specific piece: the **CODE-surface `improvementDriver`** (`/improvement`) — a git-worktree mutator you pass to `selfImprove` as `driver` to optimize code instead of a string.
+
+`runAnalystLoop` (`/analyst-loop`) mines real run traces into findings; `createAnalystDriverHook` feeds those findings to a dynamic-driver planner via `PlannerContext.analyses`, with a firewall (`assertTraceDerivedFindings`) that rejects any finding derived from a judge verdict. Production intake — turning real run traces into the corpus `selfImprove` optimizes against — is agent-eval's `analyzeRuns` / `partitionRunsByAuthoringModel` (`/contract`).
 
 ## Delegated loops
 
@@ -170,7 +174,7 @@ One entrypoint, `runExperiment(adapter, { sandboxClient, agentRun, arms, ... })`
 | Driver | none, required by `runLoop` | `createRefineDriver`, `createFanoutVoteDriver`, `createDynamicDriver` |
 | Winner selection (coder delegate) | `highest-score` | `winnerSelection` option |
 | KB gate min passage | 12 chars | `createKbGate({ minPassageChars })` |
-| `optimizePrompt` gate | `heldOutGate` | `defaultProductionGate` for red-team hardening |
+| `selfImprove` gate | held-out gate (default) | pass `gate: defaultProductionGate` for red-team hardening |
 | OTEL export | off | set `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | Loop-runner mode failure | recorded as `{ ok: false }` | `runDelegatedLoop` never crashes on a thrown engine |
 
@@ -178,9 +182,10 @@ One entrypoint, `runExperiment(adapter, { sandboxClient, agentRun, arms, ... })`
 
 ```
 agent-runtime   handleChatTurn, runLoop + drivers, runProgram, runDelegatedLoop, createMcpServer,
-                optimizePrompt, createKbGate, buildLoopOtelSpans, defineAgent
+                improvementDriver, createKbGate, buildLoopOtelSpans, defineAgent
 
-agent-eval      runEvalCampaign, runImprovementLoop (gepaDriver), heldOutGate, runAgentMatrix.
+agent-eval      selfImprove (the optimization entry point), runEvalCampaign,
+                runImprovementLoop (gepaDriver), heldOutGate, runAgentMatrix, analyzeRuns.
                 Consumes runtime traces, scores, gates promotion. agent-runtime depends on it,
                 never the reverse.
 
@@ -200,7 +205,7 @@ sandbox         AgentProfile, Sandbox.create, streamPrompt, exportTraceBundle. T
 | `.../loops` | the `runLoop` kernel, the `refine` / `fanout-vote` / `dynamic` drivers, `runProgram`, `loopDispatch` |
 | `.../profiles` | `coderProfile`, `researcherProfile` presets |
 | `.../mcp` | `createMcpServer`, `createDefaultCoderDelegate`, `createKbGate`, the `agent-runtime-mcp` bin |
-| `.../improvement` | `optimizePrompt` (text), `improvementDriver` (code/worktree), `reportOptimizationRun` |
+| `.../improvement` | `improvementDriver` (code/worktree `CandidateGenerator`), `agenticGenerator`, `reflectiveGenerator` — the code-surface driver you pass to agent-eval's `selfImprove` |
 | `.../analyst-loop` | `runAnalystLoop`, the analyst registry driver |
 | `.../platform` | cross-site SSO and the integrations hub |
 
@@ -208,7 +213,7 @@ Bins: `agent-runtime-mcp` (delegation MCP server), `agent-runtime-loop` (schedul
 
 ## Adoption skill
 
-This package ships a self-contained adoption skill at [`skills/agent-runtime-adoption/SKILL.md`](./skills/agent-runtime-adoption/SKILL.md): driven loops, topology drivers, the `loopDispatch` campaign bridge, MCP delegation, and identity-gated `optimizePrompt`. It needs only this package plus `@tangle-network/agent-eval`. For the full self-improving pipeline (trace sink, analyst loop, scorecard, production loop, CI), see the `agent-eval-adoption` and `agent-stack-adoption` skills.
+This package ships a self-contained adoption skill at [`skills/agent-runtime-adoption/SKILL.md`](./skills/agent-runtime-adoption/SKILL.md): driven loops, topology drivers, the `loopDispatch` campaign bridge, MCP delegation, and the code-surface `improvementDriver` for agent-eval's `selfImprove`. It needs only this package plus `@tangle-network/agent-eval`. For the full self-improving pipeline (trace sink, analyst loop, scorecard, production loop, CI), see the `agent-eval-adoption` and `agent-stack-adoption` skills.
 
 ## Stability, tests, docs
 
