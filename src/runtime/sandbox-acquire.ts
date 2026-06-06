@@ -174,7 +174,16 @@ function isRetryable(err: unknown): boolean {
   if (typeof status === 'number' && RETRYABLE_HTTP.has(status)) return true
   const name = e.name ?? ''
   if (name === 'TimeoutError' || name === 'ServerError' || name === 'NetworkError') return true
-  return /\b(timed out|timeout|gateway|temporarily unavailable|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b/i.test(
-    e.message ?? '',
-  )
+  const msg = e.message ?? ''
+  // Transient TRANSPORT failures.
+  if (/\b(timed out|timeout|gateway|temporarily unavailable|too many requests|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b/i.test(msg)) {
+    return true
+  }
+  // Transient PLATFORM provisioning failures thrown by `create` itself — edge data
+  // plane unreachable, container-phase provision failure, or a rolled-back create.
+  // Retry create onto a FRESH host rather than failing the whole rollout; the loop
+  // stays bounded by the ready deadline. (A box that booted and then reached a
+  // terminal `failed` status with a real error is NOT retried — that's a genuine
+  // fault surfaced by `waitUntilReady`, not a host blip.)
+  return /provision failed|edge data plane|not reachable|failed to create sandbox/i.test(msg)
 }
