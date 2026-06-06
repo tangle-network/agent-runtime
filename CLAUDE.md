@@ -1,6 +1,6 @@
 # agent-runtime
 
-Shared task-lifecycle skeleton for domain agents, generated agents, red-team harnesses, and coding agents. Standardizes the lifecycle (`runAgentTask`, `runAgentTaskStream`, the sandbox-driven loop kernel `runLoop`/`runProgram`) and the self-improvement spine on top of it (driver→worker topology, trace-analyst findings, eval-gated ship); delegates all domain behavior to adapters.
+Shared task-lifecycle skeleton for domain agents, generated agents, red-team harnesses, and coding agents. Standardizes the lifecycle (`runAgentTask`, `runAgentTaskStream`, the round-synchronous loop kernel `runLoop`, and the recursive execution atom `Scope`/`Supervisor`) and the self-improvement spine on top of it (driver→worker topology, trace-analyst findings, eval-gated ship); delegates all domain behavior to adapters.
 
 Imports `@tangle-network/agent-eval` for the control loop, knowledge-readiness scoring, and run-record types. Does NOT own domain policy, models, tools, connectors, UI, or the optimizer/corpus/judge substrate.
 
@@ -31,12 +31,14 @@ Types that stay in THIS repo because they're runtime-shaped (coupled to a runnin
 
 **Where does a type live?** Does the concept make sense WITHOUT a running agent loop? Yes → substrate (agent-eval). No → runtime (here). When in doubt, lean substrate.
 
-## Code map — the loop kernel & topology (src/loops/)
+## Code map — the loop kernel & the recursive atom (src/runtime/)
 
-- `run-loop.ts` — `runLoop`, the topology-agnostic kernel. Per round: `driver.plan()`→N tasks→one sandbox/iteration (bounded by `maxConcurrency`, round-robin `agentRuns`)→`streamPrompt`→`output.parse`→`validator.validate`→`driver.decide`. Owns iteration accounting, concurrency, abort, cost+token aggregation, trace emission, box teardown. Exports `defaultSelectWinner` (best-valid-score, ties→earliest) — single-sourced selection.
-- `program.ts` — the Program op-set `{sample,steer,fork,parallel,select,seq,stop}` + `runProgram` tree executor + `runAgent`. Two parallelisms: **worker-layer** `fork`/`sample(n)` (N attempts in one fanout round of one loop); **loop-layer** `parallel{branches:Program[]}` (N concurrent multi-round SUB-LOOPS). `compileProgram` fails loud on `parallel` and on select-after-parallel. `isStraightLine` gates which executor runs.
-- `types.ts` — `Driver`/`AgentRunSpec`/`OutputAdapter`/`Validator`/`Iteration`/`LoopResult`/`ExecCtx`/`LoopSandboxClient` + the `LoopTraceEvent` union.
-- `drivers/dynamic.ts` — `createDynamicDriver` (agent authors topology via a `TopologyPlanner`); `PlannerContext.analyses` is the analyst→driver wire; `assertTraceDerivedFindings` is the steer-firewall (selector≠judge). `drivers/sandbox-planner.ts` is the live LLM-backed planner. `loop-dispatch.ts` adapts `runLoop`→agent-eval campaigns; `report-usage.ts` forwards token usage so the integrity guard sees a real backend.
+- `run-loop.ts` — `runLoop`, the round-synchronous leaf kernel. Per round: `driver.plan()`→N tasks→one sandbox/iteration (bounded by `maxConcurrency`, round-robin `agentRuns`)→`streamPrompt`→`output.parse`→`validator.validate`→`driver.decide`. Owns iteration accounting, concurrency, abort, cost+token aggregation, trace emission, box teardown. Exports `defaultSelectWinner` (best-valid-score, ties→earliest) — the single-sourced selection the personify combinators reuse.
+- `supervise/` — the recursive execution atom (keystone, #151): `Scope` + `Supervisor` over an open `LeafExecutor`, spawn/settle on a **conserved budget pool** so equal-compute holds by construction; journal→replay/resume. (The earlier flat Program op-set + `runProgram` tree executor was DELETED in #168 — there is no `program.ts`.)
+- `personify/` — the content-free generic combinators (`fanout`/`loopUntil`/`widen`/`panel`/`verify`/`pipeline`) + `definePersona`/`runPersonified` + the cross-run `Corpus` + `createScopeAnalyst` (the analyst-on-scope steer firewall).
+- `dynamic.ts` — `createDynamicDriver` (agent authors topology via a `TopologyPlanner`); `PlannerContext.analyses` is the analyst→driver wire (built + tested, but **not yet fed live** by any bench); `assertTraceDerivedFindings` is the steer-firewall (selector≠judge). `types.ts` holds `Driver`/`AgentRunSpec`/`OutputAdapter`/`Validator`/`Iteration`/`LoopResult`/`LoopSandboxClient` + the `LoopTraceEvent` union. `sandbox-run.ts` is `openSandboxRun` — the one run/stream/resume sandbox seam (#177). `loop-dispatch.ts` adapts `runLoop`→agent-eval campaigns; `report-usage.ts` forwards token usage so the integrity guard sees a real backend.
+
+Two substrates coexist for the same "recursive agent decision" atom: the round-synchronous `runLoop`+`createDynamicDriver` (what most benches drive today) and the reactive `Scope`/`Supervisor`+combinators (the newer canonical core). Prefer the latter for new recursive/keystone work.
 
 Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the multi-agent conversation engine (`src/conversation/`), `handleChatTurn` (`src/durable/`), the named delegated loops (`src/loop-runner.ts`).
 
@@ -50,7 +52,7 @@ Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the mu
 
 This repo is the empirical home of the RSI/learning-flywheel thesis, but **mechanism is not evidence**. The binding question is the **gate**: *does any non-blind topology beat blind compute at EQUAL k, under a deployable (non-oracle) selector, on a domain with a correctable middle band, at significant n (paired-bootstrap + BH)?*
 
-Live science state lives in `.evolve/current.json` + memory (read them for the numbers; they update each generation). The durable shape as of this writing: within-run **steering loses** at equal compute (rung-0, controlled n=40); **more-compute wins** (random@k > blind); **driver/topology headroom on coding ≈ 0** (no correctable middle band); the recursive `runProgram` mechanism shipped (#141) but **moved no metric, by design**. The parallel-**diverse-strategies** vs blind gate is still **untested** — that's the open question, distinct from the within-run-steer family rung-0 falsified.
+Live science state lives in `.evolve/current.json` + memory (read them for the numbers; they update each generation). The durable shape as of this writing: within-run **steering loses** at equal compute (rung-0, controlled n=40); **more-compute wins** (random@k > blind); **driver/topology headroom on coding ≈ 0** (no correctable middle band); the recursive execution atom `Scope`/`Supervisor` shipped (#151; the earlier flat `runProgram` op-set was since DELETED in #168) but **moved no metric, by design**. The parallel-**diverse-strategies** vs blind gate is still **untested** — that's the open question, distinct from the within-run-steer family rung-0 falsified.
 
 **Process discipline (the anti-patterns that have bitten this repo):**
 - **Don't build mechanism ahead of the gate.** Per-branch adaptive sub-agents, learned planners, the outer flywheel — all wait for a *positive* gate result. Expressiveness was the closed gap; the open one is evidentiary.
