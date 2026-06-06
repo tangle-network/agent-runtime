@@ -196,6 +196,10 @@ export function sandboxAgentRun(opts: {
   routerBaseUrl: string
   routerKey: string
   backendType?: WorkerBackendType
+  /** In-box model provider. Default `openai` (registered models like gpt-4.1).
+   *  Cheap router models (deepseek/kimi/glm) are not in opencode's `openai`
+   *  registry and 404 in-box — pass `openai-compat` (generic passthrough). */
+  provider?: string
   name?: string
   taskToPrompt?: (task: string) => string
   /** Extra box-level env, merged ON TOP of the standard OPENAI_* auth (e.g.
@@ -217,7 +221,7 @@ export function sandboxAgentRun(opts: {
       env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl, ...opts.env },
       backend: {
         type: backendType,
-        model: { provider: 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
+        model: { provider: opts.provider ?? 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
       },
     },
   }
