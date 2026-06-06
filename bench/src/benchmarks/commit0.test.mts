@@ -34,12 +34,15 @@ test('loadTasks limit slices the fixture set', async () => {
 })
 
 test('diff OutputAdapter: last fenced ```diff wins; fence-less falls back to trimmed text', () => {
+  // The body is newline-terminated (git apply rejects a patch that is not).
   const fenced = commit0DiffOutput.parse(stream('preamble\n```diff\n--- a/x\n+++ b/x\n@@\n+1\n```\n'))
-  assert.equal(fenced, '--- a/x\n+++ b/x\n@@\n+1')
+  assert.equal(fenced, '--- a/x\n+++ b/x\n@@\n+1\n')
   const last = commit0DiffOutput.parse(stream('```diff\nFIRST\n```\nmid\n```diff\nSECOND\n```'))
-  assert.equal(last, 'SECOND')
+  assert.equal(last, 'SECOND\n')
   const raw = commit0DiffOutput.parse(stream('  bare patch text  '))
-  assert.equal(raw, 'bare patch text')
+  assert.equal(raw, 'bare patch text\n')
+  // an empty deliverable stays empty (no spurious newline)
+  assert.equal(commit0DiffOutput.parse(stream('   ')), '')
 })
 
 test('goldArtifact is undefined — oracle is a git ref, documented, not a fabricated diff', async () => {
