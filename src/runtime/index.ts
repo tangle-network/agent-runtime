@@ -154,6 +154,13 @@ export {
   type SessionCapableBox,
 } from './sandbox-lineage'
 export {
+  type Deliverable,
+  type OpenSandboxRunOptions,
+  openSandboxRun,
+  type SandboxRun,
+  type TurnResult,
+} from './sandbox-run'
+export {
   type BudgetPool,
   type BudgetReadout,
   createBudgetPool,
