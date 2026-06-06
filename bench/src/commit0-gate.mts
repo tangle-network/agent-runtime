@@ -23,6 +23,10 @@
  *   tsx src/corpus-replay.mts /tmp/commit0.jsonl --selector=verifier
  */
 
+import { spawn } from 'node:child_process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
@@ -79,11 +83,18 @@ function rolloutPrompt(meta: Commit0Meta): string {
   ].join('\n')
 }
 
-async function runShot(
-  task: BenchTask,
-  attempt: number,
-  cfg: { sandboxBaseUrl: string; sandboxKey: string; routerBaseUrl: string; routerKey: string; model: string; timeoutMs: number },
-): Promise<Shot> {
+interface ShotCfg {
+  sandboxBaseUrl: string
+  sandboxKey: string
+  routerBaseUrl: string
+  routerKey: string
+  model: string
+  timeoutMs: number
+  /** local-backend: the opencode CLI binary (cli-bridge fallback when the sandbox is down). */
+  opencodeBin: string
+}
+
+async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
@@ -140,6 +151,79 @@ async function runShot(
   }
 }
 
+/** Run a subprocess, capturing combined stdout+stderr; never throws (returns rc). */
+function sh(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      env: opts.env ?? process.env,
+      ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
+    })
+    let out = ''
+    child.stdout?.on('data', (c: Buffer) => { out += c.toString() })
+    child.stderr?.on('data', (c: Buffer) => { out += c.toString() })
+    child.on('error', (e) => resolve({ code: -1, out: `${out}\n${e}` }))
+    child.on('close', (code) => resolve({ code: code ?? -1, out }))
+  })
+}
+
+/** Local-rollout prompt: the repo is ALREADY cloned + checked out into the cwd, so
+ *  (unlike the sandbox prompt) the agent implements + test-iterates in place; the diff
+ *  is read from git afterward (no chat-message truncation). */
+function localRolloutPrompt(meta: Commit0Meta): string {
+  return [
+    `The current directory is the stubbed Python library \`${meta.repo}\`, checked out at its base commit.`,
+    `The public functions/classes under \`${meta.srcDir}\` are stubbed (empty \`pass\`/\`...\`). Implement COMPLETE, CORRECT bodies so the tests under \`${meta.testDir}\` pass.`,
+    'Work iteratively, do NOT stop at a first draft:',
+    `1. Read the spec (${meta.specification}) and the tests under \`${meta.testDir}\`.`,
+    '2. Set up an ISOLATED venv so imports + pytest resolve: `python3 -m venv .venv && .venv/bin/pip install -e .` (use the repo setup if it differs).',
+    `3. Implement ALL stubbed bodies under \`${meta.srcDir}\`.`,
+    `4. Run \`.venv/bin/python -m pytest ${meta.testDir} -q\`, read failures, FIX them, and repeat until as many tests pass as you can.`,
+    '5. Do NOT edit the test files.',
+    'When done, just stop — do NOT print the diff; it is collected from git.',
+  ].join('\n')
+}
+
+/**
+ * LOCAL rollout backend (cli-bridge fallback for when the sandbox gateway is down):
+ * clone + checkout the stub into a tmpdir, run local opencode (its own kimi/zai
+ * coding-plan auth, or the router when model is `openai/*`) to implement + test-iterate
+ * in place, then read the diff straight from git (complete — no message truncation).
+ * Fault-isolated like runShot: any failure → a recorded NO-DIFF attempt, never a throw.
+ */
+async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
+  const meta = task.metadata as unknown as Commit0Meta
+  const startedAt = Date.now()
+  let dir: string | undefined
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'commit0-local-'))
+    const clone = await sh('git', ['clone', '--quiet', `https://github.com/${meta.repo}`, dir], { timeoutMs: 180_000 })
+    if (clone.code !== 0) {
+      return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `git clone failed: ${clone.out.trim().slice(-180)}` }
+    }
+    const co = await sh('git', ['-C', dir, 'checkout', '--quiet', meta.baseCommit], { timeoutMs: 60_000 })
+    if (co.code !== 0) {
+      return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `git checkout ${meta.baseCommit} failed: ${co.out.trim().slice(-180)}` }
+    }
+    // openai/* → route through the router (OPENAI_* env); anything else → opencode's
+    // OWN configured auth (kimi-for-coding / zai coding-plan subscriptions).
+    const env = cfg.model.startsWith('openai/')
+      ? { ...process.env, OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl }
+      : process.env
+    const oc = await sh(cfg.opencodeBin, ['run', localRolloutPrompt(meta), '-m', cfg.model, '--dir', dir], { timeoutMs: cfg.timeoutMs, env })
+    const events = oc.out.split('\n').length
+    // Read the diff straight from git, scoped to src_dir (excludes the .venv the agent made).
+    const diffRes = await sh('bash', ['-c', `cd ${JSON.stringify(dir)} && git add -- ${JSON.stringify(meta.srcDir)} && git diff --cached -- ${JSON.stringify(meta.srcDir)}`], { timeoutMs: 60_000 })
+    const diff = diffRes.out
+    const ok = diff.trim().length > 0
+    return { task, attempt, diff, ok, events, wallMs: Date.now() - startedAt, ...(ok ? {} : { detail: `no diff (opencode rc=${oc.code}): ${oc.out.trim().slice(-160)}` }) }
+  } catch (err) {
+    return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}` }
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
 /** Bounded-concurrency pool. */
 async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(items.length)
@@ -157,30 +241,43 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) 
 }
 
 async function main(): Promise<void> {
+  // BACKEND=local → cli-bridge fallback (local opencode, no remote sandbox); needs a
+  // sandbox-down workaround. Default 'sandbox' (the remote gateway). Local uses opencode's
+  // OWN auth (kimi-for-coding / zai coding-plan), so TANGLE_API_KEY is only required for
+  // the sandbox backend or an `openai/*` local model (router).
+  const backend = process.env.COMMIT0_BACKEND === 'local' ? 'local' : 'sandbox'
   const n = Number(process.env.N ?? 8)
   const k = Number(process.env.K ?? 4)
-  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
+  const model = process.env.WORKER_MODEL ?? (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'gpt-4.1')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const routerKey = must('TANGLE_API_KEY')
+  const needsRouterKey = backend === 'sandbox' || model.startsWith('openai/')
+  const routerKey = needsRouterKey ? must('TANGLE_API_KEY') : (process.env.TANGLE_API_KEY ?? '')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
+  const opencodeBin = process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
   const concurrency = Number(process.env.CONCURRENCY ?? 3)
-  const timeoutMs = Number(process.env.SHOT_TIMEOUT_MS ?? 900_000)
+  // No tight cap on the agentic rollout — it runs until the agent finishes (the clone→
+  // implement→pytest-iterate loop genuinely takes a while). 0 = untimed. Only set
+  // SHOT_TIMEOUT_MS to impose a deliberate ceiling. Sandbox keeps a stream cap (flaky transport).
+  const timeoutMs = process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : backend === 'local' ? 0 : 900_000
   const corpusPath = process.env.CORPUS ?? '/tmp/commit0.jsonl'
   if (!Number.isInteger(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
   const adapter = createCommit0Adapter()
-  console.log(`=== commit0 Layer-1 gate · N=${n} K=${k} model=${model} rolloutConc=${concurrency} ===`)
+  console.log(`=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} model=${model} rolloutConc=${concurrency} ===`)
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: n })
   console.log(`loaded ${tasks.length} task(s): ${tasks.map((t) => t.id).join(', ')}`)
 
-  // Phase 1 — rollouts, concurrent (sandbox-bound).
+  // Phase 1 — rollouts, concurrent. sandbox = remote box; local = cli-bridge (opencode
+  // in a tmpdir, diff read from git). Both fault-isolated → a failure is a NO-DIFF, never a throw.
   const units = tasks.flatMap((task) => Array.from({ length: k }, (_, attempt) => ({ task, attempt })))
-  console.log(`\n▶ phase 1: ${units.length} rollouts (conc=${concurrency}) → writing diffs to ${PATCH_PATH} in-box`)
-  const cfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, timeoutMs }
+  const where = backend === 'local' ? 'local opencode (cli-bridge)' : `in-box (${PATCH_PATH})`
+  console.log(`\n▶ phase 1: ${units.length} rollouts (conc=${concurrency}) via ${where}`)
+  const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, timeoutMs, opencodeBin }
+  const runRollout = backend === 'local' ? runShotLocal : runShot
   const shots = await pool(units, concurrency, async (u) => {
-    const s = await runShot(u.task, u.attempt, cfg)
+    const s = await runRollout(u.task, u.attempt, cfg)
     console.log(`  rollout ${u.task.id}#${u.attempt}: ${s.ok ? `diff ${s.diff.length}B` : `NO DIFF (${s.detail})`} (${(s.wallMs / 1000) | 0}s)`)
     return s
   })

@@ -29,14 +29,39 @@ export async function routerChatWithUsage(
   messages: Array<{ role: string; content: string }>,
   opts?: { temperature?: number; signal?: AbortSignal },
 ): Promise<RouterChatResult> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, temperature: opts?.temperature ?? 0.2 }),
-    ...(opts?.signal ? { signal: opts.signal } : {}),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as {
+  const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
+  let temperature = opts?.temperature ?? 0.2
+  // Retry TRANSIENT upstream failures (429/5xx) with backoff so a single capacity
+  // hiccup doesn't kill a whole multi-model benchmark run; and auto-handle the
+  // "only temperature 1 is allowed" 400 some thinking models (e.g. kimi-k2.6) return.
+  let lastErr = ''
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model: cfg.model, messages, temperature }),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    })
+    if (res.ok) return parseChatResult(await res.json(), cfg.model)
+    const status = res.status
+    const text = (await res.text()).slice(0, 200)
+    lastErr = `router ${status}: ${text}`
+    if (status === 400 && /temperature/i.test(text) && temperature !== 1) {
+      temperature = 1 // model requires temperature 1 — retry once with it
+      continue
+    }
+    if ([429, 500, 502, 503, 504].includes(status) && attempt < 4) {
+      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
+      continue
+    }
+    throw new Error(lastErr)
+  }
+  throw new Error(`${lastErr} (exhausted retries)`)
+}
+
+function parseChatResult(json: unknown, model: string): RouterChatResult {
+  const data = json as {
     choices?: Array<{ message?: { content?: string } }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
@@ -45,7 +70,7 @@ export async function routerChatWithUsage(
     u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
       ? { input: u.prompt_tokens, output: u.completion_tokens }
       : undefined
-  const costUsd = usage && isModelPriced(cfg.model) ? estimateCost(usage.input, usage.output, cfg.model) : undefined
+  const costUsd = usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
   return {
     content: data.choices?.[0]?.message?.content ?? '',
     ...(usage ? { usage } : {}),

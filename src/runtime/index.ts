@@ -146,6 +146,13 @@ export {
 } from './sandbox-capabilities'
 export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
 export {
+  type CodingRun,
+  type Deliverable,
+  openCodingRun,
+  type OpenCodingRunOptions,
+  type TurnResult,
+} from './coding-run'
+export {
   type CheckpointCapableBox,
   createSandboxLineage,
   type ForkCapableBox,

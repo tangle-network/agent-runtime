@@ -46,6 +46,8 @@ interface AttemptOutcome {
   tokensIn?: number
   tokensOut?: number
   wallMs: number
+  /** the router/judge call failed after retries — EXCLUDED from stats, never scored 0. */
+  infraError?: boolean
 }
 
 /** Bounded-concurrency pool: run `fn` over `items`, at most `limit` in flight. */
@@ -72,29 +74,32 @@ async function runAttempt(
   prompt: string,
 ): Promise<AttemptOutcome> {
   const startedAt = Date.now()
-  // Fail loud: routerChatWithUsage throws on a non-OK response; we do NOT catch it
-  // into a fake score — a router/cred/network failure must surface, not be graded 0.
-  const res = await routerChatWithUsage(cfg, [{ role: 'user', content: prompt }])
-  const wallMs = Date.now() - startedAt
-  // An empty completion is a REAL response from a reasoning model that burned its
-  // budget before emitting visible content — not a router error (routerChatWithUsage
-  // throws on a non-OK HTTP status, which still propagates). verify.py fail-closes
-  // an empty/JSON-less artifact to reward 0.0 by contract, so judging it yields a
-  // genuine 0, never a fabricated score. We pass it straight through.
-  const content = typeof res.content === 'string' ? res.content : ''
-  // The judge runs the task's own verify.py over the raw response — it extracts the
-  // last ```json block itself, so the full content is the artifact (this is exactly
-  // what the null-score path failed to hand off).
-  const verdict = await adapter.judge(task, content)
-  return {
-    prompt,
-    output: content,
-    score: verdict.score,
-    resolved: verdict.resolved,
-    wallMs,
-    ...(res.costUsd !== undefined ? { costUsd: res.costUsd } : {}),
-    ...(res.usage ? { tokensIn: res.usage.input, tokensOut: res.usage.output } : {}),
+  // Retry transient router/judge failures (rate limits, stream drops, 5xx) with
+  // backoff; a genuine empty completion still scores a real 0 (verify.py fail-closes).
+  // Only after retries are exhausted do we record an EXCLUDED infraError — never a
+  // fabricated score, and never a throw that aborts the whole multi-model run.
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const res = await routerChatWithUsage(cfg, [{ role: 'user', content: prompt }])
+      const content = typeof res.content === 'string' ? res.content : ''
+      const verdict = await adapter.judge(task, content)
+      return {
+        prompt,
+        output: content,
+        score: verdict.score,
+        resolved: verdict.resolved,
+        wallMs: Date.now() - startedAt,
+        ...(res.costUsd !== undefined ? { costUsd: res.costUsd } : {}),
+        ...(res.usage ? { tokensIn: res.usage.input, tokensOut: res.usage.output } : {}),
+      }
+    } catch (err) {
+      lastErr = err
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
+    }
   }
+  console.warn(`[aec-gate] ${task.id}: infra error after 3 tries — excluded: ${(lastErr instanceof Error ? lastErr.message : String(lastErr)).slice(0, 160)}`)
+  return { prompt, output: '', score: 0, resolved: false, wallMs: Date.now() - startedAt, infraError: true }
 }
 
 function toAttemptRecord(o: AttemptOutcome, round: number): AttemptRecord {
@@ -102,11 +107,11 @@ function toAttemptRecord(o: AttemptOutcome, round: number): AttemptRecord {
     round,
     prompt: o.prompt,
     output: o.output,
-    valid: o.resolved,
-    score: o.score,
+    // infra-errored attempts carry NO score/valid → corpus-replay skips them.
+    ...(o.infraError ? {} : { valid: o.resolved, score: o.score }),
     wallMs: o.wallMs,
     eventCount: 1,
-    eventTypes: { 'router.chat': 1 },
+    eventTypes: o.infraError ? { 'router.error': 1 } : { 'router.chat': 1 },
     traceTail: o.output.slice(-600),
     ...(o.costUsd !== undefined ? { costUsd: o.costUsd } : {}),
     ...(o.tokensIn !== undefined ? { tokensIn: o.tokensIn } : {}),
@@ -115,11 +120,13 @@ function toAttemptRecord(o: AttemptOutcome, round: number): AttemptRecord {
 }
 
 interface ArmResult {
-  /** mean graded score across all K*N attempts */
+  /** mean graded score across SCORED (non-infra) attempts */
   meanScore: number
-  /** fraction of attempts at full credit (score >= 1) */
+  /** fraction of scored attempts at full credit (score >= 1) */
   fullCreditRate: number
   attemptCount: number
+  /** attempts excluded as infra errors (router/judge failed after retries) */
+  infraCount: number
 }
 
 async function runArm(
@@ -136,9 +143,10 @@ async function runArm(
   const units = tasks.flatMap((task) => Array.from({ length: k }, (_, i) => ({ task, i })))
   const outcomes = await pool(units, concurrency, (u) => runAttempt(cfg, adapter, u.task, arm.promptFor(u.task, u.i, k)))
 
+  const scored = outcomes.filter((o) => !o.infraError)
   let scoreSum = 0
   let fullCredit = 0
-  for (const o of outcomes) {
+  for (const o of scored) {
     scoreSum += o.score
     if (o.score >= 1) fullCredit += 1
   }
@@ -159,14 +167,16 @@ async function runArm(
       // this run; the deployable selector is scored separately by corpus-replay).
       resolved: taskOutcomes.some((o) => o.resolved),
       attempts,
-      infraError: false,
+      // a task whose every attempt infra-errored is itself infra-errored.
+      infraError: taskOutcomes.length > 0 && taskOutcomes.every((o) => o.infraError),
     }
     await appendRunRecord(corpusPath, record)
   }
 
   return {
-    meanScore: outcomes.length > 0 ? scoreSum / outcomes.length : 0,
-    fullCreditRate: outcomes.length > 0 ? fullCredit / outcomes.length : 0,
+    meanScore: scored.length > 0 ? scoreSum / scored.length : 0,
+    fullCreditRate: scored.length > 0 ? fullCredit / scored.length : 0,
+    infraCount: outcomes.length - scored.length,
     attemptCount: outcomes.length,
   }
 }
@@ -206,11 +216,11 @@ async function main(): Promise<void> {
 
   console.log(`\n▶ random@${k} (control — identical base prompt) → ${randomCorpus}`)
   const r = await runArm(randomArm, cfg, adapter, tasks, k, concurrency, randomCorpus)
-  console.log(`  random@${k}:  mean score ${(r.meanScore * 100).toFixed(1)}%  full-credit ${(r.fullCreditRate * 100).toFixed(1)}%  (n=${r.attemptCount} attempts)`)
+  console.log(`  random@${k}:  mean score ${(r.meanScore * 100).toFixed(1)}%  full-credit ${(r.fullCreditRate * 100).toFixed(1)}%  (n=${r.attemptCount} attempts${r.infraCount ? `, ${r.infraCount} infra-excluded` : ''})`)
 
   console.log(`\n▶ diverse@${k} (K distinct strategy lenses) → ${diverseCorpus}`)
   const d = await runArm(diverseArm, cfg, adapter, tasks, k, concurrency, diverseCorpus)
-  console.log(`  diverse@${k}: mean score ${(d.meanScore * 100).toFixed(1)}%  full-credit ${(d.fullCreditRate * 100).toFixed(1)}%  (n=${d.attemptCount} attempts)`)
+  console.log(`  diverse@${k}: mean score ${(d.meanScore * 100).toFixed(1)}%  full-credit ${(d.fullCreditRate * 100).toFixed(1)}%  (n=${d.attemptCount} attempts${d.infraCount ? `, ${d.infraCount} infra-excluded` : ''})`)
 
   console.log(
     `\n=== next: read the gate ===\n` +
