@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { isRunRecord } from '@tangle-network/agent-eval'
-import { type AttemptRecord, benchRecordToCorpusRecords, type RunRecord } from './corpus'
+import { type AttemptRecord, benchRecordToCorpusRecords, buildRunRecordFromAttempts, type RunRecord } from './corpus'
 
 const measuredAttempt = (round: number, output: string, valid: boolean): AttemptRecord => ({
   round,
@@ -101,6 +101,45 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.equal(records[0]?.splitTag, 'holdout')
   assert.equal(records[0]?.outcome.holdoutScore, 1, 'holdout split → holdoutScore')
   assert.equal(records[0]?.outcome.searchScore, undefined, 'no searchScore on a holdout record')
+}
+
+// --- buildRunRecordFromAttempts: default derivations from the attempts ---
+{
+  const rec = buildRunRecordFromAttempts(
+    [measuredAttempt(0, 'a', false), measuredAttempt(1, 'b', true)],
+    { benchmark: 'aec-bench', instanceId: 'i9', condition: 'random@2', model: 'gpt-5', now: () => new Date('2026-06-06T00:00:00.000Z') },
+  )
+  assert.equal(rec.ts, '2026-06-06T00:00:00.000Z', 'now() seam stamps ts')
+  assert.equal(rec.blindResolved, false, 'blindResolved = attempts[0].valid === true')
+  assert.equal(rec.resolved, true, 'resolved = any attempt valid')
+  assert.equal(rec.infraError, false, 'scored+valid attempts ⇒ not infra')
+  assert.equal(rec.attempts.length, 2)
+}
+
+// --- no scored + no valid attempt ⇒ derived infraError ---
+{
+  const bare: AttemptRecord = { round: 0, prompt: 'q', output: '', eventCount: 0, eventTypes: {} }
+  const rec = buildRunRecordFromAttempts([bare], { benchmark: 'aec-bench', instanceId: 'i', condition: 'random@1', model: 'gpt-5' })
+  assert.equal(rec.infraError, true, 'no scored + no valid ⇒ infraError true')
+  assert.equal(rec.blindResolved, false)
+  assert.equal(rec.resolved, false)
+}
+
+// --- explicit overrides preserve a gate's bespoke recorded values ---
+{
+  const partial: AttemptRecord = { round: 0, prompt: 'q', output: 'x', valid: true, score: 0.5, costUsd: 0.01, tokensIn: 1, tokensOut: 1, wallMs: 1, eventCount: 1, eventTypes: {} }
+  const rec = buildRunRecordFromAttempts([partial], {
+    benchmark: 'clbench-codebase',
+    instanceId: 'i',
+    condition: 'random@1',
+    model: 'gpt-5',
+    // a partial-credit (score 0.5) first shot is valid but NOT a full blind-resolve.
+    blindResolved: false,
+    infraError: false,
+  })
+  assert.equal(rec.blindResolved, false, 'override beats the attempts[0].valid default')
+  assert.equal(rec.resolved, true, 'resolved still derives from valid when not overridden')
+  assert.equal(rec.infraError, false)
 }
 
 console.log('corpus.test.mts: all assertions passed')

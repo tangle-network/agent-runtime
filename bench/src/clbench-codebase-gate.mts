@@ -34,8 +34,9 @@ import { promisify } from 'node:util'
 import { acquireSandbox } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { composeStrategies } from './directives'
-import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { verifierGroundedSelect } from './selector'
+import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 const execFileAsync = promisify(execFile)
 const PATCH_PATH = '/tmp/solution.patch'
@@ -176,59 +177,6 @@ async function judgePatch(inst: Instance, patch: string, clbenchDir: string): Pr
   }
 }
 
-async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    for (;;) {
-      const idx = next
-      next += 1
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx] as T, idx)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()))
-  return results
-}
-
-function makeRng(seed: number): () => number {
-  let s = seed | 0
-  return () => {
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-interface PairedLift {
-  point: number
-  low: number
-  high: number
-  pairs: number
-  discordant: number
-}
-
-function pairedLift(baseline: number[], treatment: number[], bootstrapN = 10000): PairedLift {
-  if (baseline.length !== treatment.length) throw new Error('pairedLift: misaligned arms')
-  const n = baseline.length
-  if (n === 0) throw new Error('pairedLift: no pairs')
-  const deltas = baseline.map((b, i) => (treatment[i] as number) - b)
-  const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length
-  const point = mean(deltas)
-  const discordant = deltas.filter((d) => Math.abs(d) > 1e-9).length
-  const rng = makeRng(0x9e3779b9)
-  const rint = (m: number) => Math.floor(rng() * m)
-  const boots: number[] = []
-  for (let b = 0; b < bootstrapN; b += 1) {
-    let acc = 0
-    for (let j = 0; j < n; j += 1) acc += deltas[rint(n)] as number
-    boots.push(acc / n)
-  }
-  boots.sort((x, y) => x - y)
-  return { point, low: boots[Math.floor(0.025 * bootstrapN)] ?? Number.NaN, high: boots[Math.floor(0.975 * bootstrapN)] ?? Number.NaN, pairs: n, discordant }
-}
-
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
 const pp = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)}pp`
 
@@ -342,17 +290,18 @@ async function main(): Promise<void> {
       traceTail: (grp.rPatch[round] ?? '').slice(-600),
     }))
     const validPasses = grp.random.filter((p): p is number => p !== null && p !== undefined)
-    const record: RunRecord = {
-      ts: new Date().toISOString(),
+    const record = buildRunRecordFromAttempts(attempts, {
       benchmark: 'clbench-codebase',
       instanceId: inst.instanceId,
       condition: `random@${k}`,
       model,
+      // blindResolved reads off the FIRST non-null score (== full pass), not
+      // attempts[0].valid — a partial-credit first shot is valid but not "blind
+      // resolved". Pass it explicitly so the helper preserves the exact value.
       blindResolved: validPasses[0] === 1,
       resolved: validPasses.some((p) => p > 0),
-      attempts,
       infraError: validPasses.length === 0,
-    }
+    })
     await appendRunRecord(corpusPath, record)
   }
   console.log(`\n=== wrote ${instances.length} task(s) → ${corpusPath} · gate: tsx src/corpus-replay.mts ${corpusPath} --selector=verifier ===`)

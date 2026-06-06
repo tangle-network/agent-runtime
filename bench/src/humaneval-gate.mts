@@ -49,6 +49,7 @@ import { execFile } from 'node:child_process'
 import { composeStrategies } from './directives'
 import { type RouterConfig, routerChatWithUsage } from './router-client'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
+import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 const HUMANEVAL_URL = 'https://github.com/openai/human-eval/raw/master/data/HumanEval.jsonl.gz'
 const dockerImage = 'python:3.12-slim'
@@ -211,23 +212,6 @@ function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult
   })
 }
 
-/** Bounded-concurrency pool: at most `limit` of `fn` in flight. */
-async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    for (;;) {
-      const idx = next
-      next += 1
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx] as T, idx)
-    }
-  }
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker())
-  await Promise.all(workers)
-  return results
-}
-
 interface Attempt {
   code: string
   pass: number
@@ -237,53 +221,6 @@ interface TaskOutcome {
   taskId: string
   randomAttempts: Attempt[]
   diverseAttempts: Attempt[]
-}
-
-/** mulberry32 — deterministic, Math.imul (matches corpus-report's CI engine). */
-function makeRng(seed: number): () => number {
-  let s = seed | 0
-  return () => {
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-interface PairedLift {
-  point: number
-  low: number
-  high: number
-  pairs: number
-  discordant: number
-}
-
-/** Paired lift = mean over tasks of (treatment − baseline), with a 95% bootstrap CI
- *  from resampling the paired tasks. Inputs are aligned {0,1} per-task outcomes. */
-function pairedLift(baseline: number[], treatment: number[], bootstrapN = 10000): PairedLift {
-  if (baseline.length !== treatment.length) throw new Error('pairedLift: misaligned arms')
-  const n = baseline.length
-  if (n === 0) throw new Error('pairedLift: no pairs')
-  const deltas = baseline.map((b, i) => (treatment[i] as number) - b)
-  const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length
-  const point = mean(deltas)
-  const discordant = deltas.filter((d) => d !== 0).length
-  const rng = makeRng(0x9e3779b9)
-  const rint = (m: number) => Math.floor(rng() * m)
-  const boots: number[] = []
-  for (let b = 0; b < bootstrapN; b += 1) {
-    let acc = 0
-    for (let j = 0; j < n; j += 1) acc += deltas[rint(n)] as number
-    boots.push(acc / n)
-  }
-  boots.sort((x, y) => x - y)
-  return {
-    point,
-    low: boots[Math.floor(0.025 * bootstrapN)] ?? Number.NaN,
-    high: boots[Math.floor(0.975 * bootstrapN)] ?? Number.NaN,
-    pairs: n,
-    discordant,
-  }
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`

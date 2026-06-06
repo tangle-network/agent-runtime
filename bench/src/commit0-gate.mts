@@ -36,8 +36,9 @@ import {
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
-import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { type BenchRuntimeHookEvent, createRuntimeHookRecorder } from './runtime-hook-recorder'
+import { pool } from './stats.mts'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -96,6 +97,10 @@ interface ShotCfg {
   routerBaseUrl: string
   routerKey: string
   model: string
+  /** in-box opencode provider. `openai-compat` (default) is the generic passthrough,
+   *  so router-served cheap models resolve in-box; `openai` only accepts its
+   *  registered model names (e.g. gpt-4.1). Override via WORKER_PROVIDER. */
+  provider: string
   timeoutMs: number
   /** local-backend: the opencode CLI binary (cli-bridge fallback when the sandbox is down). */
   opencodeBin: string
@@ -146,7 +151,7 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
       backend: {
         type: 'opencode',
-        model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
+        model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
       },
     },
   }
@@ -267,22 +272,6 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg): Pro
   }
 }
 
-/** Bounded-concurrency pool. */
-async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    for (;;) {
-      const idx = next
-      next += 1
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx] as T, idx)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()))
-  return results
-}
-
 async function main(): Promise<void> {
   // BACKEND=local → cli-bridge fallback (local opencode, no remote sandbox); needs a
   // sandbox-down workaround. Default 'sandbox' (the remote gateway). Local uses opencode's
@@ -297,6 +286,9 @@ async function main(): Promise<void> {
   const routerKey = needsRouterKey ? must('TANGLE_API_KEY') : (process.env.TANGLE_API_KEY ?? '')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const opencodeBin = process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
+  // openai-compat = generic passthrough so cheap router models resolve in-box;
+  // `openai` rejects non-registered model names. Override via WORKER_PROVIDER.
+  const provider = process.env.WORKER_PROVIDER ?? 'openai-compat'
   const concurrency = Number(process.env.CONCURRENCY ?? 3)
   // No tight cap on the agentic rollout — it runs until the agent finishes (the clone→
   // implement→pytest-iterate loop genuinely takes a while). 0 = untimed. Only set
@@ -317,7 +309,7 @@ async function main(): Promise<void> {
   const units = tasks.flatMap((task) => Array.from({ length: k }, (_, attempt) => ({ task, attempt })))
   const where = backend === 'local' ? 'local opencode (cli-bridge)' : `in-box (${PATCH_PATH})`
   console.log(`\n▶ phase 1: ${units.length} rollouts (conc=${concurrency}) via ${where}`)
-  const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, timeoutMs, opencodeBin }
+  const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, provider, timeoutMs, opencodeBin }
   const runRollout = backend === 'local' ? runShotLocal : runShot
   const shots = await pool(units, concurrency, async (u) => {
     const s = await runRollout(u.task, u.attempt, cfg)
@@ -366,18 +358,14 @@ async function main(): Promise<void> {
       })
     }
     if (attempts.some((a) => a.score !== undefined)) scoredTasks += 1
-    const record: RunRecord = {
-      ts: new Date().toISOString(),
+    const record = buildRunRecordFromAttempts(attempts, {
       benchmark: adapter.name,
       instanceId: task.id,
       condition: `random@${k}`,
       model,
-      blindResolved: attempts[0]?.valid === true,
-      resolved: attempts.some((a) => a.valid === true),
-      attempts,
       infraError: false,
-      ...(runtimeEvents.length > 0 ? { runtimeEvents } : {}),
-    }
+      runtimeEvents,
+    })
     await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
   }
 

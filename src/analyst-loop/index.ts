@@ -8,7 +8,6 @@
  * (or a custom equivalent) into the adapter slots once at app init.
  */
 
-export { type AnalystDriverHookOptions, createAnalystDriverHook } from './analyst-driver-hook'
 export { iterationsToTraceStore } from './iterations-to-trace-store'
 export { runAnalystLoop } from './run-analyst-loop'
 export type {
