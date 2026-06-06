@@ -37,6 +37,7 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type BenchRuntimeHookEvent, createRuntimeHookRecorder } from './runtime-hook-recorder'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -64,6 +65,7 @@ interface Shot {
   wallMs: number
   /** measured count of stream events from the rollout (0 if it errored before streaming) */
   events: number
+  runtimeEvents?: BenchRuntimeHookEvent[]
 }
 
 /** Build the rollout prompt: clone the stub, implement the source, write the diff to
@@ -149,8 +151,19 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
     },
   }
   let run: SandboxRun<RolloutDeliverable> | undefined
+  const runtime = createRuntimeHookRecorder()
   try {
-    run = await openSandboxRun(client, { agentRun, signal: controller.signal }, commit0Deliverable)
+    run = await openSandboxRun(
+      client,
+      {
+        agentRun,
+        signal: controller.signal,
+        hooks: runtime.hooks,
+        runId: `commit0:${task.id}:${attempt}`,
+        scenarioId: task.id,
+      },
+      commit0Deliverable,
+    )
     const turn = await run.start(rolloutPrompt(meta))
     const ok = turn.out.diff.trim().length > 0
     return {
@@ -159,12 +172,22 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       diff: turn.out.diff,
       ok,
       events: turn.events.length,
+      runtimeEvents: runtime.events,
       wallMs: Date.now() - startedAt,
       ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}` }),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
+    return {
+      task,
+      attempt,
+      diff: '',
+      ok: false,
+      events: 0,
+      runtimeEvents: runtime.events,
+      wallMs: Date.now() - startedAt,
+      detail: `rollout error: ${msg.slice(0, 200)}`,
+    }
   } finally {
     if (timer) clearTimeout(timer)
     if (run) await run.close()
@@ -312,6 +335,9 @@ async function main(): Promise<void> {
   for (const task of tasks) {
     let built = false
     const attempts: AttemptRecord[] = []
+    const runtimeEvents = shots
+      .filter((x) => x.task.id === task.id)
+      .flatMap((x) => x.runtimeEvents ?? [])
     for (let i = 0; i < k; i += 1) {
       const s = shots.find((x) => x.task.id === task.id && x.attempt === i)
       let sc: { score: number; resolved: boolean } | undefined
@@ -350,6 +376,7 @@ async function main(): Promise<void> {
       resolved: attempts.some((a) => a.valid === true),
       attempts,
       infraError: false,
+      ...(runtimeEvents.length > 0 ? { runtimeEvents } : {}),
     }
     await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
   }

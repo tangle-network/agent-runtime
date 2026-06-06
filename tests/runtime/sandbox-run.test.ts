@@ -1,6 +1,7 @@
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { type AgentRunSpec, type Deliverable, openSandboxRun } from '../../src/runtime'
+import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
 interface FakeOpts {
   /** Resolves the artifact read; throw to exercise the `readError` path. Default: canned. */
@@ -77,6 +78,15 @@ function createFakeClient(opts: FakeOpts = {}) {
 
 function spec(name = 'w'): AgentRunSpec<string> {
   return { profile: { name }, name, taskToPrompt: (t) => t }
+}
+
+function backendSpec(name = 'w'): AgentRunSpec<string> {
+  return {
+    profile: { name },
+    name,
+    taskToPrompt: (t) => t,
+    sandboxOverrides: { backend: { type: 'opencode' } },
+  }
 }
 
 const eventsDeliverable: Deliverable<{ text: string }> = {
@@ -246,5 +256,101 @@ describe('openSandboxRun — abort-aware artifact read', () => {
     )
     await expect(run.start('write the patch')).rejects.toThrow(/abort/i)
     expect(readPaths).toHaveLength(0)
+  })
+})
+
+describe('openSandboxRun — runtime hooks', () => {
+  it('emits passive run and turn lifecycle events for start, resume, and close', async () => {
+    const { client } = createFakeClient({ sessionLive: true })
+    const events: RuntimeHookEvent[] = []
+    let t = 1_000
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: backendSpec('coder'),
+        signal: new AbortController().signal,
+        hooks: { onEvent: (event) => void events.push(event) },
+        runId: 'bench-run-1',
+        scenarioId: 'case-1',
+        now: () => t++,
+      },
+      artifactDeliverable('solution.patch'),
+    )
+
+    await run.start('first turn')
+    await run.resume('second turn')
+    await run.close()
+
+    expect(
+      events.map((event) => `${event.target}:${event.phase}:${event.stepIndex ?? '-'}`),
+    ).toEqual([
+      'agent.run:before:-',
+      'agent.turn:before:0',
+      'agent.turn:after:0',
+      'agent.turn:before:1',
+      'agent.turn:after:1',
+      'agent.run:after:-',
+    ])
+    expect(events.every((event) => event.runId === 'bench-run-1')).toBe(true)
+    expect(events.every((event) => event.scenarioId === 'case-1')).toBe(true)
+    expect(events.every((event) => event.metadata?.producer === 'openSandboxRun')).toBe(true)
+    expect(events[0]!.payload).toMatchObject({
+      agentName: 'coder',
+      profileName: 'coder',
+      backendType: 'opencode',
+      deliverableKind: 'artifact',
+      deliverablePath: 'solution.patch',
+      turnCount: 0,
+    })
+    expect(events[2]!.payload).toMatchObject({
+      agentName: 'coder',
+      turnKind: 'start',
+      promptChars: 'first turn'.length,
+      eventCount: 1,
+      eventTypes: { result: 1 },
+      sessionId: expect.any(String),
+      sandboxId: 'box-0',
+    })
+    expect(events[4]!.payload).toMatchObject({
+      turnKind: 'resume',
+      promptChars: 'second turn'.length,
+      eventCount: 1,
+      eventTypes: { result: 1 },
+      sessionId: (events[2]!.payload as { sessionId: string }).sessionId,
+      sandboxId: 'box-0',
+    })
+    expect(events[5]!.payload).toMatchObject({
+      turnCount: 2,
+      sessionId: (events[2]!.payload as { sessionId: string }).sessionId,
+      sandboxId: 'box-0',
+    })
+  })
+
+  it('keeps hook failures non-fatal and reports them through onHookError', async () => {
+    const { client } = createFakeClient()
+    const hookErrors: string[] = []
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal: new AbortController().signal,
+        hooks: {
+          onEvent: () => {
+            throw new Error('hook down')
+          },
+          onHookError: (error, context) => {
+            hookErrors.push(`${context.hook}:${context.target}:${context.phase}:${error.message}`)
+          },
+        },
+        runId: 'bench-run-2',
+      },
+      eventsDeliverable,
+    )
+
+    const turn = await run.start('still runs')
+
+    expect(turn.out).toEqual({ text: 'streamed' })
+    expect(hookErrors).toContain('onEvent:agent.run:before:hook down')
+    expect(hookErrors).toContain('onEvent:agent.turn:after:hook down')
   })
 })
