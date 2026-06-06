@@ -85,19 +85,23 @@ async function runShot(
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
-  const box = await acquireSandbox(client, {
-    name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
-    environment: 'universal',
-    // opencode reads OPENAI_* from the box env (the backend.model.apiKey alone is not
-    // enough — without these the in-box agent throws ProviderAuthError). Mirrors the
-    // generic sandboxAgentRun wiring that the smoke rollout proved works.
-    env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
-    backend: {
-      type: 'opencode',
-      model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
-    },
-  })
+  // Fault-isolated: ANY rollout error (sandbox 502 / stream drop / provision fail /
+  // timeout) becomes a recorded NO-DIFF attempt — it MUST NOT throw, or one flaky box
+  // aborts the whole pool and loses every other rollout (the powered-run crash).
+  let box: Awaited<ReturnType<typeof acquireSandbox>> | undefined
   try {
+    box = await acquireSandbox(client, {
+      name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
+      environment: 'universal',
+      // opencode reads OPENAI_* from the box env (the backend.model.apiKey alone is not
+      // enough — without these the in-box agent throws ProviderAuthError). Mirrors the
+      // generic sandboxAgentRun wiring that the smoke rollout proved works.
+      env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
+      backend: {
+        type: 'opencode',
+        model: { provider: 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
+      },
+    })
     const signal = AbortSignal.timeout(cfg.timeoutMs)
     let lastErr: string | undefined
     for await (const ev of box.streamPrompt(rolloutPrompt(meta), { signal })) {
@@ -119,9 +123,12 @@ async function runShot(
       wallMs: Date.now() - startedAt,
       ...(ok ? {} : { detail: `empty patch${readErr ? ` (read failed: ${readErr.slice(0, 120)})` : ''}${lastErr ? `; lastError=${lastErr}` : ''}` }),
     }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { task, attempt, diff: '', ok: false, wallMs: Date.now() - startedAt, detail: `rollout error: ${msg.slice(0, 200)}` }
   } finally {
     try {
-      await box.delete()
+      if (box) await box.delete()
     } catch {
       // staging reaps on expiry; ignore
     }
@@ -173,36 +180,32 @@ async function main(): Promise<void> {
     return s
   })
 
-  // Phase 2 — judging, SEQUENTIAL (Docker-bound; commit0 report dir collides across a
-  // repo's attempts). First touch of each repo rebuilds the image; the rest reuse it.
-  console.log(`\n▶ phase 2: judging ${shots.length} diffs sequentially (official commit0 pytest harness)`)
-  const seenRepos = new Set<string>()
-  const scoreByUnit = new Map<string, { score: number; resolved: boolean }>()
-  for (const s of shots) {
-    const key = `${s.task.id}#${s.attempt}`
-    if (!s.ok) {
-      console.log(`  judge ${key}: skipped (no diff)`)
-      continue
-    }
-    const repo = (s.task.metadata as unknown as Commit0Meta).repo
-    process.env.COMMIT0_REBUILD_IMAGE = seenRepos.has(repo) ? '0' : '1'
-    seenRepos.add(repo)
-    try {
-      const v = await adapter.judge(s.task, s.diff)
-      scoreByUnit.set(key, { score: v.score, resolved: v.resolved })
-      console.log(`  judge ${key}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
-    } catch (err) {
-      console.log(`  judge ${key}: ERROR ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`)
-    }
-  }
-
-  // Group K attempts → one RunRecord/task (condition random@K).
+  // Phase 2 — judging, SEQUENTIAL (Docker-bound; commit0 keys its report dir on
+  // hash(test_ids), shared across a repo's attempts → concurrent judging of one repo
+  // races/overwrites report.json). Judged PER TASK, writing each RunRecord immediately
+  // so a mid-run crash keeps completed tasks. First ok-diff attempt of a repo rebuilds
+  // its image; the rest reuse it.
+  console.log(`\n▶ phase 2: judging sequentially per task (official commit0 pytest harness) → ${corpusPath}`)
   let scoredTasks = 0
   for (const task of tasks) {
+    let built = false
     const attempts: AttemptRecord[] = []
     for (let i = 0; i < k; i += 1) {
       const s = shots.find((x) => x.task.id === task.id && x.attempt === i)
-      const sc = scoreByUnit.get(`${task.id}#${i}`)
+      let sc: { score: number; resolved: boolean } | undefined
+      if (s?.ok) {
+        process.env.COMMIT0_REBUILD_IMAGE = built ? '0' : '1' // build this repo's image once
+        built = true
+        try {
+          const v = await adapter.judge(s.task, s.diff)
+          sc = { score: v.score, resolved: v.resolved }
+          console.log(`  judge ${task.id}#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
+        } catch (err) {
+          console.log(`  judge ${task.id}#${i}: ERROR ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`)
+        }
+      } else {
+        console.log(`  judge ${task.id}#${i}: skipped (no diff)`)
+      }
       attempts.push({
         round: i,
         prompt: 'commit0-rollout',
@@ -226,7 +229,7 @@ async function main(): Promise<void> {
       attempts,
       infraError: false,
     }
-    await appendRunRecord(corpusPath, record)
+    await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
   }
 
   console.log(
