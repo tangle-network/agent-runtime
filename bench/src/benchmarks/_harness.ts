@@ -30,6 +30,11 @@ const execFileAsync = promisify(execFile)
 export const benchRoot = fileURLToPath(new URL('../..', import.meta.url))
 /** The bench venv interpreter every python-backed evaluator runs through. */
 export const venvPython = join(benchRoot, '.venv', 'bin', 'python')
+
+/** Interpreter for a NAMED isolated venv (e.g. `.venv-commit0`). Benches whose pip
+ *  deps conflict with the shared `.venv` (commit0 downgrades pydantic/sqlalchemy)
+ *  get their own venv and pass its python explicitly — keeping the shared one clean. */
+export const venvPythonAt = (venvDir: string): string => join(benchRoot, venvDir, 'bin', 'python')
 /** Report/transcript reads are large; 256 MiB matches the SWE harness budget. */
 export const bigBuffer = 1024 * 1024 * 256
 
@@ -43,8 +48,13 @@ export function venvBin(name: string): string {
  * (with stderr) on a nonzero exit — the loaders rely on this to fail loud rather
  * than parse a partial dump.
  */
-export async function runVenvPython(script: string, args: string[] = [], timeoutMs = 0): Promise<string> {
-  const { stdout } = await execFileAsync(venvPython, ['-c', script, ...args], {
+export async function runVenvPython(
+  script: string,
+  args: string[] = [],
+  timeoutMs = 0,
+  python: string = venvPython,
+): Promise<string> {
+  const { stdout } = await execFileAsync(python, ['-c', script, ...args], {
     maxBuffer: bigBuffer,
     timeout: timeoutMs,
   })
@@ -63,13 +73,15 @@ export async function preflightVenvImports(opts: {
   requireDocker?: boolean
   /** Actionable remediation appended to the thrown message. */
   fix: string
+  /** Override the interpreter (e.g. an isolated `.venv-commit0`). Default: shared `.venv`. */
+  python?: string
 }): Promise<void> {
   const imports = opts.modules.filter((m) => m.length > 0)
   const lines = [...imports.map((m) => `import ${m}`)]
   if (opts.requireDocker) lines.push('import docker', 'docker.from_env().ping()')
   lines.push("print('ok')")
   try {
-    await runVenvPython(lines.join('\n'))
+    await runVenvPython(lines.join('\n'), [], 0, opts.python ?? venvPython)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(`${msg}\n${opts.fix}`)
@@ -90,10 +102,10 @@ export function runVenvScriptStdin(
   scriptPath: string,
   args: string[],
   input: string,
-  opts: { cwd?: string; timeoutMs?: number } = {},
+  opts: { cwd?: string; timeoutMs?: number; python?: string } = {},
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(venvPython, [scriptPath, ...args], {
+    const child = spawn(opts.python ?? venvPython, [scriptPath, ...args], {
       cwd: opts.cwd ?? benchRoot,
       ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}),
     })

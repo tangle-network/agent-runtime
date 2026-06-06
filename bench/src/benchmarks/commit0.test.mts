@@ -34,12 +34,15 @@ test('loadTasks limit slices the fixture set', async () => {
 })
 
 test('diff OutputAdapter: last fenced ```diff wins; fence-less falls back to trimmed text', () => {
+  // The body is newline-terminated (git apply rejects a patch that is not).
   const fenced = commit0DiffOutput.parse(stream('preamble\n```diff\n--- a/x\n+++ b/x\n@@\n+1\n```\n'))
-  assert.equal(fenced, '--- a/x\n+++ b/x\n@@\n+1')
+  assert.equal(fenced, '--- a/x\n+++ b/x\n@@\n+1\n')
   const last = commit0DiffOutput.parse(stream('```diff\nFIRST\n```\nmid\n```diff\nSECOND\n```'))
-  assert.equal(last, 'SECOND')
+  assert.equal(last, 'SECOND\n')
   const raw = commit0DiffOutput.parse(stream('  bare patch text  '))
-  assert.equal(raw, 'bare patch text')
+  assert.equal(raw, 'bare patch text\n')
+  // an empty deliverable stays empty (no spurious newline)
+  assert.equal(commit0DiffOutput.parse(stream('   ')), '')
 })
 
 test('goldArtifact is undefined — oracle is a git ref, documented, not a fabricated diff', async () => {
@@ -48,11 +51,21 @@ test('goldArtifact is undefined — oracle is a git ref, documented, not a fabri
   assert.equal(await a.goldArtifact(t), undefined)
 })
 
-test('preflight FAILS LOUD with the install/Docker fix when the harness is absent', async () => {
-  const a = createCommit0Adapter()
-  await assert.rejects(a.preflight(), (e: Error) => {
-    assert.match(e.message, /pip install commit0/)
-    assert.match(e.message, /Docker daemon/)
-    return true
-  })
+test('preflight FAILS LOUD with the install/Docker fix when the harness venv is absent', async () => {
+  // Point the isolated-venv override at a non-existent dir so the interpreter is
+  // missing — proves preflight throws the documented fix rather than fabricating a
+  // score, independent of whether a real .venv-commit0 happens to be installed.
+  const prev = process.env.COMMIT0_VENV
+  process.env.COMMIT0_VENV = '.venv-commit0-does-not-exist'
+  try {
+    const a = createCommit0Adapter()
+    await assert.rejects(a.preflight(), (e: Error) => {
+      assert.match(e.message, /pip install commit0/)
+      assert.match(e.message, /Docker daemon/)
+      return true
+    })
+  } finally {
+    if (prev === undefined) delete process.env.COMMIT0_VENV
+    else process.env.COMMIT0_VENV = prev
+  }
 })

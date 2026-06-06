@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { ADAPTERS } from './adapters'
 import type { RunRecord } from './corpus'
-import { selfConsistencySelect, summarizeSelector } from './selector'
+import { selfConsistencySelect, summarizeSelector, summarizeVerifierSelector } from './selector'
 
 /** The benchmark's own judge - the EXTERNAL, write-only anchor (learning-flywheel.md). */
 export type Judge = (task: BenchTask, artifact: string) => Promise<BenchScore>
@@ -144,12 +144,22 @@ async function main(): Promise<void> {
     else byBench.set(bench, [r])
   }
 
-  // --selector: score a deployable, non-oracle selector OFFLINE over the corpus.
-  // Each condition-run's k attempts are the candidates; the selector picks one by
-  // OUTPUT TEXT only and the pick's stored verdict is its score (zero new calls).
-  // Default to the random@k condition (independent attempts = the population where
-  // "can a selector beat a blind random draw?" is the honest question).
-  if (args.includes('--selector')) {
+  // --selector[=METHOD]: score a deployable, non-oracle selector OFFLINE over the
+  // corpus. Each condition-run's k attempts are the candidates; the pick's stored
+  // verdict is read AFTER selection (zero new calls). Default to the random@k
+  // condition (independent attempts = the honest "can a selector beat a blind draw?").
+  //   --selector  / --selector=self-consistency  → cluster by OUTPUT TEXT (Wang 2022);
+  //       picks blind to the checker. The right baseline for free-text answers.
+  //   --selector=verifier  → rank by each attempt's DEPLOYABLE-CHECKER score (commit0
+  //       pytest pass-rate / aec verify.py partial credit), reported on the CONTINUOUS
+  //       graded reward with a paired bootstrap CI. The right selector for graded domains
+  //       where text doesn't cluster (numeric JSON, diffs).
+  const selectorArg = args.find((a) => a === '--selector' || a.startsWith('--selector='))
+  if (selectorArg) {
+    const method = selectorArg.includes('=') ? selectorArg.slice('--selector='.length) : 'self-consistency'
+    if (method !== 'self-consistency' && method !== 'verifier') {
+      throw new Error(`corpus-replay --selector: unknown method "${method}" (use self-consistency | verifier)`)
+    }
     const condArg = args.find((a) => a.startsWith('--condition='))
     const condFilter = condArg ? condArg.slice('--condition='.length) : 'random'
     const pct = (x: number) => `${(x * 100).toFixed(1)}%`
@@ -159,6 +169,24 @@ async function main(): Promise<void> {
       const slice = recs.filter((r) => r.condition.includes(condFilter))
       if (slice.length === 0) continue
       any = true
+      if (method === 'verifier') {
+        const rep = summarizeVerifierSelector(slice)
+        const sig = rep.ci.p < 0.05 ? 'SIGNIFICANT' : 'n.s.'
+        console.log(
+          `\n[${bench}] selector=verifier-grounded (continuous graded reward) · condition~="${condFilter}" · n=${rep.n}` +
+            (rep.skipped > 0 ? ` (${rep.skipped} unscoreable)` : ''),
+        )
+        console.log(`  blind    (one-shot reward):     ${pct(rep.blindReward)}`)
+        console.log(`  random@k (mean-of-k reward):    ${pct(rep.randomReward)}   ← blind compute control`)
+        console.log(`  selector@k (verifier-pick):     ${pct(rep.selectorReward)}`)
+        console.log(`  oracle@k (max-of-k ceiling):    ${pct(rep.oracleReward)}`)
+        console.log(`  resolve rates — blind ${pct(rep.blindResolveRate)} · selector ${pct(rep.selectorResolveRate)} · oracle ${pct(rep.oracleResolveRate)}`)
+        console.log(
+          `  ► selector − random:  ${pp(rep.rewardVsRandom)}  CI[${pp(rep.ci.lo)}, ${pp(rep.ci.hi)}] p=${rep.ci.p.toFixed(3)} (${sig}, ${rep.ci.discordant}/${rep.n} discordant)` +
+            `   ← THE GATE: does a deployable checker beat a blind draw at equal k?`,
+        )
+        continue
+      }
       const rep = summarizeSelector(slice, selfConsistencySelect)
       console.log(
         `\n[${bench}] selector=self-consistency · condition~="${condFilter}" · n=${rep.n}` +

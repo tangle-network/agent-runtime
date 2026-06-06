@@ -51,7 +51,12 @@ def main() -> None:
     if example is None:
         fail(f"instance not found in {args.dataset}: {args.instance}")
 
-    test_dir = example["test"]["test_dir"]
+    # run_pytest_ids wants the SPACE-joined test-id STRING (e.g. "tests/a.py::t1 ...")
+    # — NOT the dataset's test_dir — and keys its report dir on get_hash_string(that
+    # same string). Passing test_dir ran zero tests and wrote the report under a
+    # different hash, so the judge silently found nothing. get_tests reads the test-ids.
+    test_ids = [t for t in get_tests(repo_name, 0) if t.strip()]
+    test_ids_str = " ".join(test_ids)
     # setup.main checks out the stubbed repo onto BASE_BRANCH ("commit0") and the
     # worker's diff is committed there; run_pytest_ids resolves `branch` -> a git
     # commit (NOT a checkout) to diff against base_commit, so it must be the
@@ -104,18 +109,29 @@ def main() -> None:
                 base_dir,
                 repo_name,
                 branch,
-                test_dir,
+                test_ids_str,
                 False,  # coverage
                 args.backend,
                 args.timeout,
                 1,  # num_cpus
-                rebuild_image=False,
+                # Per-repo image is normally pre-built once via `commit0 build`; set
+                # COMMIT0_REBUILD_IMAGE=1 to self-build on first touch (slow, multi-GB).
+                rebuild_image=os.environ.get("COMMIT0_REBUILD_IMAGE") == "1",
                 verbose=0,
             )
-        except Exception as e:  # noqa: BLE001
-            fail(f"commit0 run_pytest_ids failed for {repo_name}: {e}")
+        except SystemExit:
+            # run_pytest_ids ends with sys.exit(pytest_exit_code): 0 = all pass, nonzero
+            # = some tests failed — the NORMAL graded/partial-credit case, NOT a harness
+            # error. report.json is already written; fall through and read it.
+            pass
+        except BaseException as e:  # noqa: BLE001 — never exit silently on a real backend fault
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            import traceback
 
-        hashed = get_hash_string(test_dir)
+            fail(f"commit0 run_pytest_ids failed for {repo_name}: {e!r} | {traceback.format_exc()[-1200:]}")
+
+        hashed = get_hash_string(test_ids_str)
         report_file = RUN_PYTEST_LOG_DIR / repo_name / branch / hashed / "report.json"
         if not report_file.exists():
             fail(f"commit0 wrote no report.json at {report_file}")
@@ -133,8 +149,10 @@ def main() -> None:
         # Fall back to the declared test-id count when the harness produced no call
         # records (e.g. collection error) so `total` is never a phantom 0.
         if total == 0:
-            ids = get_tests(repo_name, verbose=0)
-            total = sum(len(x) for x in ids) if ids else 0
+            # COUNT of test ids, not their character lengths (get_tests returns a flat
+            # list of node-id strings). Only fires on a collection error, where passed
+            # is already 0 — but a phantom inflated total would still mislead a reader.
+            total = len(test_ids)
 
         print(json.dumps({"passed": passed, "total": total}))
     finally:

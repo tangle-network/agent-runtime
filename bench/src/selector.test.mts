@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import type { AttemptRecord, RunRecord } from './corpus'
 import {
+  bootstrapDeltaCI,
   flipRate,
   normalizeAnswer,
   scoreSelectorOnRun,
+  scoreVerifierSelectorOnRun,
   selfConsistencySelect,
   summarizeSelector,
+  summarizeVerifierSelector,
   verifierGroundedSelect,
 } from './selector'
 
@@ -106,6 +109,81 @@ const rec = (atts: AttemptRecord[], blind = atts[0]?.valid === true): RunRecord 
 {
   const records = [rec([att('A', true), att('A', true), att('B', false)]), rec([att('X', true), att('Y', false)])]
   assert.equal(flipRate(records, selfConsistencySelect, selfConsistencySelect), 0)
+}
+
+// --- verifier-grounded selection over a CONTINUOUS graded reward ---
+// An attempt carrying an arbitrary deployable-checker score (commit0 pass-rate /
+// aec verify.py partial credit). resolve = score >= 1 (full credit).
+const attS = (score: number, output = `out-${score}`): AttemptRecord => ({
+  round: 0,
+  prompt: '',
+  output,
+  valid: score >= 1,
+  score,
+  costUsd: 0,
+  tokensIn: 0,
+  tokensOut: 0,
+  eventCount: 0,
+  eventTypes: {},
+})
+const recS = (scores: number[]): RunRecord => ({
+  ts: '', benchmark: 'aec', instanceId: 'i', condition: 'random@4', model: 'm',
+  blindResolved: (scores[0] ?? 0) >= 1,
+  resolved: scores.some((s) => s >= 1),
+  attempts: scores.map((s, i) => ({ ...attS(s), round: i })),
+  infraError: false,
+})
+
+// the verifier picks argmax(score); the picked reward == the max (best-of-k)
+{
+  const o = scoreVerifierSelectorOnRun(recS([0.2, 0.9, 0.5, 0.1]))
+  assert.ok(o)
+  assert.ok(Math.abs(o.selectorReward - 0.9) < 1e-9, 'verifier picks the highest-scoring attempt')
+  assert.ok(Math.abs(o.oracleReward - 0.9) < 1e-9, 'oracle = max = selector on the continuous metric')
+  assert.ok(Math.abs(o.randomReward - 0.425) < 1e-9, 'random = mean of the four scores')
+  assert.ok(Math.abs(o.blindReward - 0.2) < 1e-9, 'blind = round-1 score')
+  assert.equal(o.selectorResolved, false, 'no attempt hit full credit here')
+}
+
+// the GATE on a band that lives entirely below full-credit (the aec failure mode):
+// binary resolve = 0 everywhere, yet verifier-select beats a blind draw on reward.
+{
+  const records = [recS([0.2, 0.8, 0.5, 0.3]), recS([0.1, 0.6, 0.9, 0.4]), recS([0.5, 0.5, 0.5, 0.5])]
+  const r = summarizeVerifierSelector(records)
+  assert.equal(r.n, 3)
+  assert.equal(r.skipped, 0)
+  assert.equal(r.selectorResolveRate, 0, 'nothing fully resolves — binary metric is dead here')
+  assert.equal(r.oracleResolveRate, 0)
+  // selector reward = mean(0.8,0.9,0.5)=0.7333; random = mean(0.45,0.5,0.5)=0.4833
+  assert.ok(Math.abs(r.selectorReward - 0.7333333) < 1e-5)
+  assert.ok(Math.abs(r.randomReward - 0.4833333) < 1e-5)
+  assert.ok(r.rewardVsRandom > 0, 'verifier-select beats a blind draw on the continuous reward')
+  assert.ok(Math.abs(r.selectorReward - r.oracleReward) < 1e-9, 'selector == oracle on continuous reward by construction')
+  // the third instance is concordant-zero (all scores equal → delta 0) → 2/3 discordant
+  assert.equal(r.ci.discordant, 2, 'flat-reward instances contribute a zero delta')
+  assert.ok(r.ci.lo <= r.rewardVsRandom && r.rewardVsRandom <= r.ci.hi, 'point estimate inside its CI')
+}
+
+// bootstrap is deterministic (same input → same CI) and signs correctly
+{
+  const a = bootstrapDeltaCI([0.1, 0.2, 0.3, 0.25, 0.15])
+  const b = bootstrapDeltaCI([0.1, 0.2, 0.3, 0.25, 0.15])
+  assert.deepEqual(a, b, 'deterministic seed → identical CI')
+  assert.ok(a.lo > 0, 'an all-positive delta vector is significantly > 0')
+  assert.equal(bootstrapDeltaCI([]).p, 1, 'empty → p=1')
+}
+
+// unscoreable (no checker score on any attempt) is skipped, not counted
+{
+  const noScore: RunRecord = {
+    ts: '', benchmark: 'aec', instanceId: 'i', condition: 'random@4', model: 'm',
+    blindResolved: false, resolved: false, infraError: false,
+    attempts: [{ round: 0, prompt: '', output: 'x', costUsd: 0, tokensIn: 0, tokensOut: 0, eventCount: 0, eventTypes: {} }],
+  }
+  assert.equal(scoreVerifierSelectorOnRun(noScore), null)
+  const r = summarizeVerifierSelector([noScore])
+  assert.equal(r.n, 0)
+  assert.equal(r.skipped, 1)
 }
 
 console.log('selector.test: all assertions passed')
