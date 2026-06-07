@@ -61,17 +61,16 @@ const SENSITIVE_VALUE_RES = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,
   /\b(?:sk|gh[pousr])_[A-Za-z0-9_]{20,}\b/g,
   /\b(?:sk|ghp|gho|ghu|ghs|ghr)-[A-Za-z0-9_-]{20,}\b/g,
-  /\b(api[_-]?key|token|secret|password|cookie)\s*[:=]\s*["']?[^"'\s,;}]+/gi,
 ]
+const SENSITIVE_ASSIGNMENT_RE =
+  /\b(api[_-]?key|token|secret|password|cookie)\s*[:=]\s*["']?[^"'\s,;}]+/gi
 
 function sanitizeString(value: string, maxLength: number): string {
   let sanitized = value
   for (const pattern of SENSITIVE_VALUE_RES) {
-    sanitized = sanitized.replace(pattern, (match, key: string | undefined) => {
-      if (typeof key === 'string') return `${key}=[REDACTED]`
-      return '[REDACTED]'
-    })
+    sanitized = sanitized.replace(pattern, '[REDACTED]')
   }
+  sanitized = sanitized.replace(SENSITIVE_ASSIGNMENT_RE, (_match, key: string) => `${key}=[REDACTED]`)
   if (sanitized.length <= maxLength) return sanitized
   return sanitized.slice(0, maxLength)
 }
