@@ -24,12 +24,12 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import {
   createDriver,
+  createExecutor,
   type DefaultVerdict,
-  type SandboxClient,
+  inlineSandboxClient,
   runLoop,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { answerOutput, arm, type Steer } from '../experiment'
 import { certifyEval, type GateDiagnostics } from './certify'
 import { type GeneratedEval, parseCandidate } from './schema'
@@ -40,54 +40,6 @@ function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback
   if (v === undefined) throw new Error(`missing env ${name}`)
   return v
-}
-
-// ── executor: cli-bridge as a SandboxClient (the router-executor pattern) ─
-interface BridgeCfg {
-  bridgeUrl: string
-  bridgeBearer: string
-  model: string
-  timeoutMs: number
-}
-
-function bridgeSandboxClient(cfg: BridgeCfg): SandboxClient {
-  let seq = 0
-  return {
-    async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
-      const id = `bridge-author-${seq++}`
-      return {
-        id,
-        async *streamPrompt(message: string): AsyncGenerator<SandboxEvent> {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), cfg.timeoutMs)
-          try {
-            const res = await fetch(`${cfg.bridgeUrl}/v1/chat/completions`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.bridgeBearer}` },
-              body: JSON.stringify({ model: cfg.model, stream: false, messages: [{ role: 'user', content: message }] }),
-              signal: controller.signal,
-            })
-            if (!res.ok) throw new Error(`bridge ${res.status}: ${(await res.text()).slice(0, 300)}`)
-            const data = (await res.json()) as {
-              choices?: Array<{ message?: { content?: string } }>
-              usage?: { prompt_tokens?: number; completion_tokens?: number }
-            }
-            const finalText = data.choices?.[0]?.message?.content ?? ''
-            yield {
-              type: 'result',
-              data: {
-                finalText,
-                ...(data.usage ? { tokenUsage: { inputTokens: data.usage.prompt_tokens, outputTokens: data.usage.completion_tokens } } : {}),
-              },
-            } as unknown as SandboxEvent
-          } finally {
-            clearTimeout(timer)
-          }
-        },
-        async delete(): Promise<void> {},
-      } as unknown as SandboxInstance
-    },
-  }
 }
 
 // ── validator: the certifier, with gate diagnostics on `verdict.notes` ───────
@@ -155,12 +107,17 @@ async function main(): Promise<void> {
   const target = env('TARGET')
   const out = env('OUT', '/tmp/minted-evals.jsonl')
   const maxAttempts = Number(env('MAX_ATTEMPTS', '4'))
-  const cfg: BridgeCfg = {
-    bridgeUrl: env('BRIDGE_URL', 'http://127.0.0.1:3355'),
-    bridgeBearer: env('BRIDGE_BEARER'),
-    model: env('MODEL', 'claude-code/sonnet'),
-    timeoutMs: Number(env('TIMEOUT_MS', '600000')),
-  }
+  // The authoring harness is the cli-bridge backend behind the unified executor;
+  // wrapped once into a SandboxClient for the round-synchronous kernel.
+  const sandboxClient = inlineSandboxClient(
+    createExecutor({
+      backend: 'bridge',
+      bridgeUrl: env('BRIDGE_URL', 'http://127.0.0.1:3355'),
+      bridgeBearer: env('BRIDGE_BEARER'),
+      model: env('MODEL', 'claude-code/sonnet'),
+      timeoutMs: Number(env('TIMEOUT_MS', '600000')),
+    }),
+  )
 
   const rootPrompt = buildRootPrompt(target)
   const minted: GeneratedEval[] = []
@@ -174,7 +131,7 @@ async function main(): Promise<void> {
     output: answerOutput,
     validator: certifierValidator(minted),
     task: rootPrompt,
-    ctx: { sandboxClient: bridgeSandboxClient(cfg) },
+    ctx: { sandboxClient },
     maxIterations: maxAttempts,
   })
 

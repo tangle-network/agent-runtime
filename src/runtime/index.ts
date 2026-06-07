@@ -53,6 +53,8 @@ export type {
   TopologyPlanner,
 } from './driver'
 export { createDriver, renderAnalyses } from './driver'
+// The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
+export { inlineSandboxClient } from './inline-sandbox-client'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
@@ -171,14 +173,16 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
+// The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeSeam,
   type CliSeam,
-  cliExecutor,
+  createExecutor,
   createExecutorRegistry,
+  type ExecutorConfig,
   type RouterSeam,
-  routerInlineExecutor,
   type SandboxSeam,
-  sandboxExecutor,
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
 export {

@@ -92,9 +92,26 @@ export interface CliSeam {
   cwd?: string
 }
 
+/**
+ * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
+ * (claude-code / opencode / kimi / pi) behind one HTTP surface; `model` doubles
+ * as the harness selector (e.g. `claude-code/sonnet`, `opencode/<provider>/<model>`).
+ * `agentProfile` is the bridge-dialect profile (metadata.disallowedTools, mcp)
+ * forwarded verbatim per request — how an arm disables native tools or injects
+ * a provider search MCP.
+ */
+export interface BridgeSeam {
+  bridgeUrl: string
+  bridgeBearer: string
+  model: string
+  agentProfile?: Record<string, unknown>
+  timeoutMs?: number
+}
+
 const routerSeamKey = 'router'
 const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
+const bridgeSeamKey = 'bridge'
 
 // ── Content-addressed result pointers (the B1 replay source) ───────────────────
 
@@ -501,6 +518,135 @@ function killWithGrace(
       if (proc.exitCode === null && !proc.killed) proc.kill('SIGKILL')
     }, grace)
   })
+}
+
+// ── bridge executor (harness CLIs behind the local cli-bridge) ──────────────────
+
+/**
+ * One harness turn through the cli-bridge: a single OpenAI-compatible chat call
+ * whose `model` selects the harness and whose `agent_profile` carries the arm
+ * (native-tool disables, provider MCPs). One-shot like router/inline; reports
+ * REAL usage when the bridge surfaces it, never a fabricated cost.
+ */
+export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
+  const seam = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
+    throw new ValidationError(
+      'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
+    )
+  }
+  const controller = new AbortController()
+  const abortIfSignalled = () => {
+    if (ctx.signal.aborted) controller.abort()
+  }
+  abortIfSignalled()
+  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+
+  let artifact: ExecutorResult<unknown> | undefined
+
+  return {
+    runtime: 'cli' as Runtime,
+    async execute(task, signal): Promise<ExecutorResult<unknown>> {
+      const messages = taskToMessages(task, spec)
+      const started = Date.now()
+      const linked = linkSignals(signal, controller.signal)
+      const timer = seam.timeoutMs
+        ? setTimeout(() => controller.abort(), seam.timeoutMs)
+        : undefined
+      try {
+        const res = await fetch(`${seam.bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${seam.bridgeBearer}`,
+          },
+          body: JSON.stringify({
+            model: seam.model,
+            stream: false,
+            ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
+            messages,
+          }),
+          ...(linked ? { signal: linked } : {}),
+        })
+        if (!res.ok) {
+          throw new ValidationError(
+            `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
+          )
+        }
+        const data = (await res.json()) as {
+          choices?: Array<{
+            message?: { content?: string; tool_calls?: Array<{ function?: { name?: string } }> }
+          }>
+          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+        }
+        const u = data.usage
+        const usage =
+          u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
+            ? { input: u.prompt_tokens, output: u.completion_tokens }
+            : undefined
+        const msg = data.choices?.[0]?.message
+        const content = msg?.content ?? ''
+        const toolCalls = (msg?.tool_calls ?? []).map((t) => t.function?.name ?? 'unknown')
+        const spent: Spend = {
+          iterations: 1,
+          tokens: usage ? { input: usage.input, output: usage.output } : zeroTokenUsage(),
+          usd: typeof u?.cost === 'number' ? u.cost : 0,
+          ms: Date.now() - started,
+        }
+        const out = { content, toolCalls } as unknown
+        artifact = { outRef: contentRef('bridge', { model: seam.model, content }), out, spent }
+        return artifact
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+    },
+    teardown(_grace): Promise<{ destroyed: boolean }> {
+      controller.abort()
+      return Promise.resolve({ destroyed: true })
+    },
+    resultArtifact() {
+      if (!artifact) {
+        throw new ValidationError('bridgeExecutor: resultArtifact() read before execute()')
+      }
+      return { ...artifact, spent: artifact.spent }
+    },
+  }
+}
+
+// ── createExecutor: the ONE built-in factory (backend as data) ──────────────────
+
+/**
+ * The single built-in executor entrypoint. The backend is DATA — the cost dial a
+ * profile, an experiment config, or a replay journal can name — not an import
+ * choice. Injects the matching seam and delegates to the built-in implementation;
+ * the port stays OPEN: bring-your-own agents implement `Executor` directly and
+ * never pass through here.
+ */
+export type ExecutorConfig =
+  | ({ backend: 'router' } & RouterSeam)
+  | ({ backend: 'bridge' } & BridgeSeam)
+  | ({ backend: 'cli' } & CliSeam)
+  | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
+
+export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
+  return (spec, ctx) => {
+    const { backend, ...seam } = config as ExecutorConfig & Record<string, unknown>
+    const seamed: ExecutorContext = { ...ctx, seams: { ...ctx.seams, [backend]: seam } }
+    switch (config.backend) {
+      case 'router':
+        return routerInlineExecutor(spec, seamed)
+      case 'bridge':
+        return bridgeExecutor(spec, seamed)
+      case 'cli':
+        return cliExecutor(spec, seamed)
+      case 'sandbox': {
+        // The sandbox executor requires a concrete harness; a spec-level harness
+        // wins, else the config names it (fail-loud inside if both are absent).
+        const harness = spec.harness ?? config.harness ?? null
+        return sandboxExecutor({ ...spec, harness }, seamed)
+      }
+    }
+  }
 }
 
 // ── The open registry ──────────────────────────────────────────────────────────
