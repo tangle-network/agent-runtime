@@ -319,6 +319,10 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
     })
     const iter0 = result.iterations[0]
     const infraError = iter0?.error !== undefined && iter0.output === undefined
+    if (infraError)
+      console.error(
+        `  [infra-cause] ${label} ${task.id}: ${(iter0?.error instanceof Error ? (iter0.error.stack ?? iter0.error.message) : String(iter0?.error)).slice(0, 700)}`,
+      )
     const resolved = result.winner?.verdict?.valid === true
     if (cfg.corpusPath) {
       // Fail-loud on a dropped row: a silent drop would leave the corpus with

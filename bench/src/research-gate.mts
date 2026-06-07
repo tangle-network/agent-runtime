@@ -8,11 +8,12 @@
  * (parametric control). Pure router HTTP (bearer `TANGLE_API_KEY`) — never touches the
  * sandbox, so it never contends with sandbox-bound gates.
  *
- * Reuses the kernel primitives (no reinvention): `routerChatWithUsage` (answer +
- * real token usage), `runPool` (bounded concurrency), `appendRunRecord` (the durable
- * corpus), and the bench's own `adapter.judge`. The AGENTIC HARNESS regime
- * (opencode/pi multi-turn in a box) is NOT here — it runs through `runExperiment` /
- * `rsi.ts` with `sandboxAgentRun` (backendType opencode|pi|…); this file is only the
+ * The retrieve→answer body is the shared `runResearchShot` (research-shot.ts) — the SAME
+ * body the kernel-driven variant uses (research-loop.mts), so this flat best-of-k pool and
+ * the real-kernel multi-round loop score identical shots. Reuses `runPool` (bounded
+ * concurrency), `appendRunRecord` (the durable corpus), and the bench's own `adapter.judge`;
+ * nothing is reinvented. The AGENTIC HARNESS regime (opencode/pi multi-turn in a box) runs
+ * through `runExperiment` / `rsi.ts` with `sandboxAgentRun`; this file is the flat,
  * non-agentic search-RAG baseline.
  *
  * Each shot's answer is graded by the bench judge; writes one corpus RunRecord/task
@@ -26,130 +27,14 @@
  */
 
 import { ADAPTERS } from './adapters'
-import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
-import { routerChatWithUsage } from './router-client'
+import { runResearchShot, type ShotCfg } from './research-shot'
 import { runPool } from './run-pool'
 
 function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
-}
-
-interface ShotCfg {
-  model: string
-  /** search provider id: 'default'/'off'/'none' = no search (parametric control); else a router provider. */
-  search: string
-  maxResults: number
-  /** how many top search URLs to web_fetch full page content for (0 = snippets only). */
-  fetchTopK: number
-  temperature: number
-  routerBaseUrl: string
-  routerKey: string
-  timeoutMs: number
-}
-
-interface Shot {
-  task: BenchTask
-  attempt: number
-  answer: string
-  ok: boolean
-  detail?: string
-  wallMs: number
-  /** count of search hits retrieved (0 ⇒ no search happened / it failed). */
-  searches: number
-}
-
-/** Fetch a URL's extracted page text via the router web_fetch MCP tool. Returns '' on any failure. */
-async function fetchPage(url: string, cfg: ShotCfg): Promise<string> {
-  try {
-    const res = await fetch(`${cfg.routerBaseUrl}/search/mcp?provider=${encodeURIComponent(cfg.search)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'web_fetch', arguments: { url } } }),
-      ...(cfg.timeoutMs ? { signal: AbortSignal.timeout(Math.min(cfg.timeoutMs, 60_000)) } : {}),
-    })
-    if (!res.ok) return ''
-    const body = (await res.json()) as { result?: { content?: Array<{ text?: string }> } }
-    const text = body.result?.content?.[0]?.text ?? ''
-    // The tool returns a JSON string {url,title,content}; pull `content` if parseable, else the raw text.
-    try {
-      const parsed = JSON.parse(text) as { content?: string }
-      return (parsed.content ?? text).slice(0, 2500)
-    } catch {
-      return text.slice(0, 2500)
-    }
-  } catch {
-    return ''
-  }
-}
-
-/**
- * One research rollout, 2-step RAG: (1) provider-pinned web search + web_fetch of the
- * top-K pages, (2) answer with that evidence via `routerChatWithUsage`. No tools on the
- * answer call, so `content` is always present and arms differ ONLY by the provider's
- * evidence — no tool-loop `content:null` tail biasing the search arm. The COMMIT prompt
- * stops the model deferring ("may I search?"), which otherwise scores 0. Fault-isolated.
- */
-async function runResearchShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
-  const startedAt = Date.now()
-  const useSearch = cfg.search !== 'default' && cfg.search !== 'off' && cfg.search !== 'none'
-  let searches = 0
-  try {
-    // 1) Provider-pinned web search (proven /v1/search). The control arm skips this.
-    let context = ''
-    if (useSearch) {
-      // Query = the clean question (first non-empty line), NOT the whole prompt: the appended
-      // worker-contract boilerplate pollutes the query and returns 0 hits.
-      const query = (task.prompt.split('\n').find((l) => l.trim().length > 0) ?? task.prompt).slice(0, 300)
-      const sres = await fetch(`${cfg.routerBaseUrl}/search?provider=${encodeURIComponent(cfg.search)}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-        body: JSON.stringify({ query, count: cfg.maxResults }),
-        ...(cfg.timeoutMs ? { signal: AbortSignal.timeout(cfg.timeoutMs) } : {}),
-      })
-      if (!sres.ok) {
-        // Surface, never silently degrade to parametric — a failed search must be visible.
-        console.warn(`  [search FAIL ${task.id}#${attempt}] HTTP ${sres.status}: ${(await sres.text()).slice(0, 140)}`)
-      } else {
-        const sb = (await sres.json()) as { data?: Array<{ title?: string; url?: string; snippet?: string }> }
-        const hits = sb.data ?? []
-        searches = hits.length
-        // Fetch the full page text of the top-K results (snippets rarely carry exact figures).
-        const fetched = await Promise.all(hits.slice(0, cfg.fetchTopK).map((h) => (h.url ? fetchPage(h.url, cfg) : Promise.resolve(''))))
-        context = hits
-          .map((h, i) => `[${i + 1}] ${h.title ?? ''}\n${h.snippet ?? ''}\n${h.url ?? ''}${fetched[i] ? `\nPAGE CONTENT:\n${fetched[i]}` : ''}`)
-          .join('\n\n')
-      }
-    }
-
-    // 2) Answer — no tools (content always present), COMMIT (no deferral), via the shared
-    //    router primitive (real usage + transient-retry handling, not a hand-rolled fetch).
-    const commit =
-      'You have no further tools and cannot ask questions or request more research. ' +
-      'Output a SINGLE, FINAL answer to the question, leading with the value in the exact units and precision requested ' +
-      '(e.g. "Answer: -47.9 billion USD"). ' +
-      (useSearch
-        ? 'Use the WEB SEARCH RESULTS below (snippets + fetched page content) as your primary evidence; cite the source. '
-        : 'Answer from your own knowledge. ') +
-      'If you are not fully certain, still COMMIT to your single best estimate — never refuse, defer, or reply with a question.'
-    const userContent =
-      useSearch && context ? `${task.prompt}\n\n=== WEB SEARCH RESULTS (provider: ${cfg.search}) ===\n${context}` : task.prompt
-    const { content } = await routerChatWithUsage(
-      { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
-      [
-        { role: 'system', content: commit },
-        { role: 'user', content: userContent },
-      ],
-      { temperature: cfg.temperature, ...(cfg.timeoutMs ? { signal: AbortSignal.timeout(cfg.timeoutMs) } : {}) },
-    )
-    const answer = content.trim()
-    const ok = answer.length > 0
-    return { task, attempt, answer, ok, searches, wallMs: Date.now() - startedAt, ...(ok ? {} : { detail: `empty answer (searches=${searches})` }) }
-  } catch (err) {
-    return { task, attempt, answer: '', ok: false, searches, wallMs: Date.now() - startedAt, detail: `rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}` }
-  }
 }
 
 async function main(): Promise<void> {
@@ -186,11 +71,11 @@ async function main(): Promise<void> {
   const units = tasks.flatMap((task) => Array.from({ length: k }, (_, attempt) => ({ task, attempt })))
   console.log(`\n▶ phase 1: ${units.length} rollouts (conc=${concurrency}) · search=${search}`)
   const shots = await runPool(units, concurrency, async (u) => {
-    const s = await runResearchShot(u.task, u.attempt, cfg)
+    const s = await runResearchShot(u.task.prompt, u.task.id, u.attempt, cfg)
     console.log(`  rollout ${u.task.id}#${u.attempt}: ${s.ok ? `answer ${s.answer.length}B · ${s.searches} search(es)` : `NO ANSWER (${s.detail})`} (${(s.wallMs / 1000) | 0}s)`)
     return s
   })
-  const shotOf = (id: string, i: number) => shots.find((o) => o.value?.task.id === id && o.value?.attempt === i)?.value
+  const shotOf = (id: string, i: number) => shots.find((o) => o.value?.taskId === id && o.value?.attempt === i)?.value
 
   // Phase 2 — judge via the bench's OWN judge; write one RunRecord/task (the shared corpus).
   console.log(`\n▶ phase 2: judging via ${adapter.name} judge → ${corpusPath}`)
@@ -202,7 +87,7 @@ async function main(): Promise<void> {
       let sc: { score: number; resolved: boolean } | undefined
       if (s?.ok) {
         try {
-          const v = await adapter.judge(s.task, s.answer)
+          const v = await adapter.judge(task, s.answer)
           sc = { score: v.score, resolved: v.resolved }
           console.log(`  judge ${task.id}#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
         } catch (err) {
