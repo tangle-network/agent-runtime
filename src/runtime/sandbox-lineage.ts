@@ -71,12 +71,17 @@ async function* pollPromptEvents(
   signal: AbortSignal,
 ): AsyncIterable<SandboxEvent> {
   if (signal.aborted) throwAbort()
-  await box.dispatchPrompt(prompt, { sessionId, signal })
-  const result = await box.session(sessionId).result()
+  // dispatchPrompt returns the session id the platform actually assigned, which
+  // may be one it MINTED rather than the supplied `sessionId`. Polling the
+  // supplied id when the platform minted a different one 404s the session-events
+  // endpoint ("Resource not found"). Always follow the assigned id.
+  const dispatched = await box.dispatchPrompt(prompt, { sessionId, signal })
+  const activeSessionId = dispatched.sessionId
+  const result = await box.session(activeSessionId).result()
   if (signal.aborted) throwAbort()
   yield {
     type: 'result',
-    id: sessionId,
+    id: activeSessionId,
     data: {
       finalText: result.response ?? '',
       success: result.success,

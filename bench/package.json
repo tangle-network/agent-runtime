@@ -18,7 +18,7 @@
   "dependencies": {
     "@tangle-network/agent-eval": "^0.83.0",
     "@tangle-network/agent-runtime": "file:..",
-    "@tangle-network/sandbox": "^0.4.0"
+    "@tangle-network/sandbox": "^0.4.3"
   },
   "devDependencies": {
     "tsx": "^4.19.0",
