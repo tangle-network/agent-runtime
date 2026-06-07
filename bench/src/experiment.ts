@@ -340,6 +340,7 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
           infraError,
           ...(cfg.now ? { now: cfg.now } : {}),
           runtimeEvents: runtime.events,
+          runtimeDecisionPoints: runtime.decisionPoints,
         }),
       ).catch((err) =>
         console.error(

@@ -17,7 +17,7 @@ import { dirname } from 'node:path'
 import { hashContent, type RunSplitTag, validateRunRecord } from '@tangle-network/agent-eval'
 import type { CorpusRecord } from '@tangle-network/agent-eval/rl'
 import type { Iteration } from '@tangle-network/agent-runtime/loops'
-import type { BenchRuntimeHookEvent } from './runtime-hook-recorder'
+import type { BenchRuntimeDecisionPoint, BenchRuntimeHookEvent } from './runtime-hook-recorder'
 
 /** One attempt within a condition-run: the prompt/steer sent, the output, the
  *  verdict, the measured economics, and a bounded trace summary.
@@ -70,6 +70,8 @@ export interface RunRecord {
   commitSha?: string
   /** Passive runtime hook evidence captured during the run. Optional and bounded by producers. */
   runtimeEvents?: BenchRuntimeHookEvent[]
+  /** Semantic runtime decision points captured during the run. Optional and producer-defined. */
+  runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
 }
 
 const TRACE_TAIL_MAX = 600
@@ -120,6 +122,7 @@ export function buildRunRecord<Task, Output>(args: {
   splitTag?: RunSplitTag
   commitSha?: string
   runtimeEvents?: BenchRuntimeHookEvent[]
+  runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
 }): RunRecord {
   const attempts = args.iterations.map(summarizeAttempt)
   return {
@@ -137,6 +140,9 @@ export function buildRunRecord<Task, Output>(args: {
     ...(args.commitSha !== undefined ? { commitSha: args.commitSha } : {}),
     ...(args.runtimeEvents !== undefined && args.runtimeEvents.length > 0
       ? { runtimeEvents: args.runtimeEvents }
+      : {}),
+    ...(args.runtimeDecisionPoints !== undefined && args.runtimeDecisionPoints.length > 0
+      ? { runtimeDecisionPoints: args.runtimeDecisionPoints }
       : {}),
   }
 }
@@ -169,6 +175,7 @@ export function buildRunRecordFromAttempts(
     splitTag?: RunSplitTag
     commitSha?: string
     runtimeEvents?: BenchRuntimeHookEvent[]
+    runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
   },
 ): RunRecord {
   const anyScored = attempts.some((a) => a.score !== undefined)
@@ -188,6 +195,9 @@ export function buildRunRecordFromAttempts(
     ...(meta.commitSha !== undefined ? { commitSha: meta.commitSha } : {}),
     ...(meta.runtimeEvents !== undefined && meta.runtimeEvents.length > 0
       ? { runtimeEvents: meta.runtimeEvents }
+      : {}),
+    ...(meta.runtimeDecisionPoints !== undefined && meta.runtimeDecisionPoints.length > 0
+      ? { runtimeDecisionPoints: meta.runtimeDecisionPoints }
       : {}),
   }
 }

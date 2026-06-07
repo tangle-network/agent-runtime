@@ -37,7 +37,11 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type BenchRuntimeHookEvent, createRuntimeHookRecorder } from './runtime-hook-recorder'
+import {
+  type BenchRuntimeDecisionPoint,
+  type BenchRuntimeHookEvent,
+  createRuntimeHookRecorder,
+} from './runtime-hook-recorder'
 import { pool } from './stats.mts'
 
 function must(name: string): string {
@@ -67,6 +71,7 @@ interface Shot {
   /** measured count of stream events from the rollout (0 if it errored before streaming) */
   events: number
   runtimeEvents?: BenchRuntimeHookEvent[]
+  runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
 }
 
 /** Build the rollout prompt: clone the stub, implement the source, write the diff to
@@ -178,6 +183,7 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       ok,
       events: turn.events.length,
       runtimeEvents: runtime.events,
+      runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
       ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}` }),
     }
@@ -190,6 +196,7 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       ok: false,
       events: 0,
       runtimeEvents: runtime.events,
+      runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
       detail: `rollout error: ${msg.slice(0, 200)}`,
     }
@@ -330,6 +337,9 @@ async function main(): Promise<void> {
     const runtimeEvents = shots
       .filter((x) => x.task.id === task.id)
       .flatMap((x) => x.runtimeEvents ?? [])
+    const runtimeDecisionPoints = shots
+      .filter((x) => x.task.id === task.id)
+      .flatMap((x) => x.runtimeDecisionPoints ?? [])
     for (let i = 0; i < k; i += 1) {
       const s = shots.find((x) => x.task.id === task.id && x.attempt === i)
       let sc: { score: number; resolved: boolean } | undefined
@@ -365,6 +375,7 @@ async function main(): Promise<void> {
       model,
       infraError: false,
       runtimeEvents,
+      runtimeDecisionPoints,
     })
     await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
   }
