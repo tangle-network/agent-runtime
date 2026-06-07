@@ -66,9 +66,12 @@ function certifierValidator(minted: GeneratedEval[]): Validator<string> {
         candidate = parseCandidate(extractJsonBlock(answer))
       } catch (err) {
         const why = err instanceof Error ? err.message : String(err)
+        console.error(`  round verdict: UNUSABLE — ${why}`)
         return { valid: false, score: 0, notes: `unusable output: ${why}. Re-read the schema; emit exactly one valid \`\`\`json candidate.` }
       }
+      console.error(`  candidate ${candidate.id} → certifying…`)
       const verdict = await certifyEval(candidate, { keepWorkspaceOnFailure: false })
+      console.error(`  ${verdict.admitted ? '✅ ADMITTED' : '❌ rejected'} ${candidate.id}\n${repairFromGates(verdict).split('\n').map((l) => `    ${l}`).join('\n')}`)
       if (verdict.admitted && verdict.certification) {
         minted.push({ ...candidate, certification: verdict.certification })
       }

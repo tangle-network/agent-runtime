@@ -12,6 +12,7 @@
  * The bridge model id IS the harness selector (e.g. `claude-code/sonnet`,
  * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
  */
+import { createExecutor } from '@tangle-network/agent-runtime/loops'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
@@ -73,37 +74,35 @@ export async function runBridgeCell(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 300_000)
   try {
-    const body = {
+    // One harness turn through the unified bridge executor — same backend the
+    // loop path uses; this cell scorer just adds oracle scoring + citations.
+    const exec = createExecutor({
+      backend: 'bridge',
+      bridgeUrl: cfg.bridgeUrl,
+      bridgeBearer: cfg.bridgeBearer,
       model: cfg.bridgeModels[harness] ?? harness,
-      stream: false,
-      agent_profile: bridgeProfile(arm, cfg.routerSearchMcp, cfg.tangleApiKey, `${harness}-${armId}`),
-      messages: [{ role: 'user', content: taskToPrompt(task) }],
+      agentProfile: bridgeProfile(arm, cfg.routerSearchMcp, cfg.tangleApiKey, `${harness}-${armId}`),
+      timeoutMs: cfg.timeoutMs ?? 300_000,
+    })({ profile: { name: `${harness}-${armId}` }, harness: null }, { signal: controller.signal, seams: {} })
+    // bridgeExecutor is one-shot (async execute resolves an ExecutorResult).
+    const artifact = (await exec.execute(taskToPrompt(task), controller.signal)) as {
+      out: unknown
+      spent: { tokens: { input: number; output: number }; usd: number }
     }
-    const res = await fetch(`${cfg.bridgeUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.bridgeBearer}` },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`bridge ${res.status}: ${(await res.text()).slice(0, 200)}`)
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string; tool_calls?: Array<{ function?: { name?: string } }> } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
-    }
-    const msg = data.choices?.[0]?.message ?? {}
-    const answer = msg.content ?? ''
+    const out = artifact.out as { content?: string; toolCalls?: string[] }
+    const answer = out.content ?? ''
+    const names = out.toolCalls ?? []
     const { score, reasons } = scoreTask(task, answer)
-    const names = [...new Set((msg.tool_calls ?? []).map((t) => t.function?.name ?? 'unknown'))]
     return {
       ...base,
       score,
       reasons,
-      ...(typeof data.usage?.cost === 'number' ? { costUsd: data.usage.cost } : {}),
-      ...(typeof data.usage?.prompt_tokens === 'number' ? { tokensIn: data.usage.prompt_tokens } : {}),
-      ...(typeof data.usage?.completion_tokens === 'number' ? { tokensOut: data.usage.completion_tokens } : {}),
+      ...(artifact.spent.usd ? { costUsd: artifact.spent.usd } : {}),
+      ...(artifact.spent.tokens.input ? { tokensIn: artifact.spent.tokens.input } : {}),
+      ...(artifact.spent.tokens.output ? { tokensOut: artifact.spent.tokens.output } : {}),
       wallMs: Date.now() - startedAt,
-      toolCalls: (msg.tool_calls ?? []).length,
-      toolNames: names,
+      toolCalls: names.length,
+      toolNames: [...new Set(names)],
       citations: citationsOf(answer),
       answer,
     }
