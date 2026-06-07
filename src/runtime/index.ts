@@ -60,6 +60,15 @@ export {
   type LoopOptionsForDispatch,
   loopDispatch,
 } from './loop-dispatch'
+// The third-person observer: a worker's trace → trace-grounded findings, an
+// operator report, and durable corpus facts for the next run (the closed loop).
+export {
+  type Observation,
+  type ObserveInput,
+  type ObserveOptions,
+  observe,
+  renderReport,
+} from './observe'
 // The personify layer + the RSI wave built on the recursive keystone: the persona content seam
 // (`definePersona`/`runPersonified`), the open shape registry, the content-free generic
 // combinators, the cross-run corpus, the analyst-on-scope steer firewall, and the trajectory +
