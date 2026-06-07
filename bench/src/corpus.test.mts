@@ -7,6 +7,7 @@ import {
   buildRunRecordFromAttempts,
   type RunRecord,
 } from './corpus'
+import { createRuntimeHookRecorder } from './runtime-hook-recorder'
 
 const measuredAttempt = (round: number, output: string, valid: boolean): AttemptRecord => ({
   round,
@@ -36,6 +37,51 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   infraError: false,
   ...over,
 })
+
+// --- runtime recorder snapshots decision points before persistent corpus storage ---
+{
+  const recorder = createRuntimeHookRecorder()
+  const largeContext = `Bearer abc.def.ghi ${'ctx'.repeat(10_000)}`
+  const largeDetail = `token=supersecret ${'detail'.repeat(1_000)}`
+  recorder.hooks.onDecisionPoint?.(
+    {
+      id: 'run-1:agent.turn:0:failure-recovery',
+      runId: 'run-1',
+      scenarioId: 'task-1',
+      stepIndex: 0,
+      kind: 'retry',
+      candidateActions: Array.from({ length: 75 }, (_, index) => `candidate-${index}`),
+      context: largeContext,
+      evidence: [
+        {
+          source: 'tool_result',
+          id: 'tool-1:result',
+          detail: largeDetail,
+          metadata: { authorization: 'Bearer should-not-survive', nested: { apiKey: 'also-redacted' } },
+        },
+      ],
+      metadata: { token: 'should-not-survive', safe: 'kept' },
+    },
+    {},
+  )
+
+  const [point] = recorder.decisionPoints
+  assert.ok(point, 'decision point recorded')
+  assert.notEqual(point, undefined)
+  assert.equal(point.candidateActions.length, 50, 'candidate actions are bounded')
+  assert.equal(point.context?.length, 20_000, 'context is bounded')
+  assert.equal(point.evidence[0]?.detail?.length, 2_000, 'evidence detail is bounded')
+  assert.equal(point.context?.includes('abc.def.ghi'), false, 'context secrets are redacted')
+  assert.equal(point.evidence[0]?.detail?.includes('supersecret'), false, 'evidence detail secrets are redacted')
+  assert.equal(point.metadata?.token, '[REDACTED]', 'top-level sensitive metadata is redacted')
+  assert.equal(point.metadata?.safe, 'kept', 'non-sensitive metadata is preserved')
+  assert.equal(point.evidence[0]?.metadata?.authorization, '[REDACTED]', 'evidence metadata is redacted')
+  assert.equal(
+    (point.evidence[0]?.metadata?.nested as { apiKey?: unknown } | undefined)?.apiKey,
+    '[REDACTED]',
+    'nested sensitive metadata is redacted',
+  )
+}
 
 // --- happy path: a measured run projects to one canonical CorpusRecord per attempt ---
 {
