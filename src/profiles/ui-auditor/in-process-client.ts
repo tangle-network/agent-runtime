@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * `createInProcessUiAuditClient` — a `LoopSandboxClient` that drives a
+ * `createInProcessUiAuditClient` — a `SandboxClient` that drives a
  * Playwright browser in-process and delegates finding identification to a
  * consumer-supplied {@link UiJudge}.
  *
@@ -14,7 +14,7 @@
  *
  * The client owns ONE browser for its lifetime and creates a fresh
  * context per iteration (isolated cookies/storage). Playwright is
- * dynamically imported so consumers who use a different `LoopSandboxClient`
+ * dynamically imported so consumers who use a different `SandboxClient`
  * — e.g. a fleet executor that drives Playwright remotely — do not pay
  * the peer dep cost.
  *
@@ -24,7 +24,7 @@
  */
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxClient } from '../../runtime/types'
+import type { SandboxClient } from '../../runtime/types'
 import type { UiJudge } from './judge'
 import { decodeAuditTaskEnvelope } from './prompt'
 import { slugify } from './slugify'
@@ -188,7 +188,7 @@ function makeSandboxId(): string {
 /** @experimental */
 export function createInProcessUiAuditClient(
   options: InProcessUiAuditClientOptions,
-): LoopSandboxClient & {
+): SandboxClient & {
   /**
    * Close the underlying browser. Idempotent.
    *

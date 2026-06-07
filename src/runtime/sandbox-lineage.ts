@@ -37,7 +37,7 @@ import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import type { SandboxCapabilities } from './sandbox-capabilities'
-import type { AgentRunSpec, LoopSandboxClient } from './types'
+import type { AgentRunSpec, SandboxClient } from './types'
 import {
   deleteBoxSafe,
   mapWithConcurrency,
@@ -49,6 +49,59 @@ import {
 
 const TEARDOWN_TIMEOUT_MS = 15_000
 const DEFAULT_FORK_CONCURRENCY = 4
+
+/**
+ * One turn's event stream, in the lineage's chosen streaming mode.
+ *
+ * - `'sse'` (default): live `streamPrompt` — low latency, full per-token trace.
+ *   Best for interactive chat.
+ * - `'poll'`: fire-and-detach via `dispatchPrompt`, await the terminal result by
+ *   status-polling (NOT a held SSE), then yield the answer as one synthesized
+ *   event. A long, quiet in-box turn (clone + build + test) never holds a live
+ *   stream a proxy idle-timeout can drop mid-execution — the failure mode that
+ *   made batch eval runs lose their stream on both prod and staging. Lower trace
+ *   fidelity (one terminal event, not per-token), so it is opt-in for batch.
+ *
+ * Both yield the same `SandboxEvent` vocabulary, so callers are agnostic.
+ */
+async function* pollPromptEvents(
+  box: SandboxInstance,
+  prompt: string,
+  sessionId: string,
+  signal: AbortSignal,
+): AsyncIterable<SandboxEvent> {
+  if (signal.aborted) throwAbort()
+  // dispatchPrompt returns the session id the platform actually assigned, which
+  // may be one it MINTED rather than the supplied `sessionId`. Polling the
+  // supplied id when the platform minted a different one 404s the session-events
+  // endpoint ("Resource not found"). Always follow the assigned id.
+  const dispatched = await box.dispatchPrompt(prompt, { sessionId, signal })
+  const activeSessionId = dispatched.sessionId
+  const result = await box.session(activeSessionId).result()
+  if (signal.aborted) throwAbort()
+  yield {
+    type: 'result',
+    id: activeSessionId,
+    data: {
+      finalText: result.response ?? '',
+      success: result.success,
+      ...(result.error ? { error: result.error } : {}),
+      ...(result.usage ? { usage: result.usage } : {}),
+    },
+  }
+}
+
+export function promptEvents(
+  streaming: 'sse' | 'poll',
+  box: SandboxInstance,
+  prompt: string,
+  sessionId: string,
+  signal: AbortSignal,
+): AsyncIterable<SandboxEvent> {
+  return streaming === 'poll'
+    ? pollPromptEvents(box, prompt, sessionId, signal)
+    : box.streamPrompt(prompt, { sessionId, signal })
+}
 
 /**
  * A live box plus the session that threads its iterations together. Handed back
@@ -134,13 +187,16 @@ export interface SandboxLineage {
  * @experimental
  */
 export function createSandboxLineage(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   capabilities: SandboxCapabilities,
-  options: { maxConcurrency?: number } = {},
+  options: { maxConcurrency?: number; streaming?: 'sse' | 'poll' } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
     throw new ValidationError('createSandboxLineage: client.create is required')
   }
+  // 'sse' (default) preserves the byte-identical live-stream behavior; 'poll' is
+  // the drop-resilient fire-and-detach path for long, quiet batch turns.
+  const streaming = options.streaming ?? 'sse'
   // Bounds the burst of box creation inside `fork` so an N-way fanout doesn't
   // provision N boxes simultaneously regardless of the loop's concurrency cap.
   const forkConcurrency = Math.max(
@@ -164,7 +220,7 @@ export function createSandboxLineage(
     async start(spec, prompt, signal) {
       const box = await acquireFresh(spec, signal)
       const sessionId = mintSessionId()
-      const events = box.streamPrompt(prompt, { sessionId, signal })
+      const events = promptEvents(streaming, box, prompt, sessionId, signal)
       return { handle: { box, sessionId }, events }
     },
 
@@ -175,7 +231,7 @@ export function createSandboxLineage(
       await assertSessionLive(handle.box, handle.sessionId)
       // Same box, same session id — the server continues the conversation; we do
       // NOT re-acquire and do NOT re-inject prior context as prompt text.
-      return handle.box.streamPrompt(prompt, { sessionId: handle.sessionId, signal })
+      return promptEvents(streaming, handle.box, prompt, handle.sessionId, signal)
     },
 
     async fork(parent, prompts, specs, signal) {
@@ -204,14 +260,14 @@ export function createSandboxLineage(
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
-            events: box.streamPrompt(prompt, { sessionId, signal }),
+            events: promptEvents(streaming, box, prompt, sessionId, signal),
           }
         }
         const box = await acquireFresh(spec, signal)
         const sessionId = mintSessionId()
         return {
           handle: { box, sessionId },
-          events: box.streamPrompt(prompt, { sessionId, signal }),
+          events: promptEvents(streaming, box, prompt, sessionId, signal),
         }
       })
     },
@@ -310,7 +366,7 @@ async function destroyBounded(box: SandboxInstance): Promise<void> {
 
 /**
  * Loop-side widening of the box's optional checkpoint method. The
- * `LoopSandboxClient`/`SandboxInstance` surface the kernel relies on does not
+ * `SandboxClient`/`SandboxInstance` surface the kernel relies on does not
  * require checkpointing; this reads it optionally so the lineage can probe-gate
  * without importing sandbox-backend specifics. @experimental
  */

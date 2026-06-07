@@ -17,7 +17,11 @@ export type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
-// Recursive execution atom (the keystone): the open `LeafExecutor` runtime, the
+// Two substrates for the same "recursive agent decision" atom, both exported here (per
+// docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
+// combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
+// `runLoop` + `createDriver` = the round-synchronous path most benches still drive.
+// Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the durable journal +
 // replay live in `../durable/spawn-journal`.
@@ -42,13 +46,15 @@ export {
 } from './completion'
 export type {
   AnalyzeInput,
-  CreateDynamicDriverOptions,
-  DynamicDecision,
+  CreateDriverOptions,
+  DriverDecision,
   PlannerContext,
   TopologyMove,
   TopologyPlanner,
-} from './dynamic'
-export { createDynamicDriver, renderAnalyses } from './dynamic'
+} from './driver'
+export { createDriver, renderAnalyses } from './driver'
+// The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
+export { inlineSandboxClient } from './inline-sandbox-client'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
@@ -167,14 +173,16 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
+// The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeSeam,
   type CliSeam,
-  cliExecutor,
+  createExecutor,
   createExecutorRegistry,
+  type ExecutorConfig,
   type RouterSeam,
-  routerInlineExecutor,
   type SandboxSeam,
-  sandboxExecutor,
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
 export {
@@ -185,12 +193,12 @@ export type {
   Agent,
   AgentSpec,
   Budget,
+  Executor,
   ExecutorContext,
+  ExecutorFactory,
   ExecutorRegistry,
+  ExecutorResult,
   Handle,
-  LeafExecutor,
-  LeafExecutorFactory,
-  LeafResult,
   NodeId,
   NodeSnapshot,
   NodeStatus,
@@ -227,7 +235,6 @@ export type {
   LoopPlanDescription,
   LoopPlanPayload,
   LoopResult,
-  LoopSandboxClient,
   LoopSandboxPlacement,
   LoopStartedPayload,
   LoopTeardownFailedPayload,
@@ -236,6 +243,7 @@ export type {
   LoopTraceEvent,
   LoopWinner,
   OutputAdapter,
+  SandboxClient,
   ValidationCtx,
   Validator,
 } from './types'

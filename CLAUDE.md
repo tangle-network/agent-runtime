@@ -1,8 +1,10 @@
 # agent-runtime
 
-Shared task-lifecycle skeleton for domain agents, generated agents, red-team harnesses, and coding agents. Standardizes the lifecycle (`runAgentTask`, `runAgentTaskStream`, the sandbox-driven loop kernel `runLoop`/`runProgram`) and the self-improvement spine on top of it (driver→worker topology, trace-analyst findings, eval-gated ship); delegates all domain behavior to adapters.
+Shared task-lifecycle skeleton for domain agents, generated agents, red-team harnesses, and coding agents. Standardizes the lifecycle (`runAgentTask`, `runAgentTaskStream`, the round-synchronous loop kernel `runLoop`, and the recursive execution atom `Scope`/`Supervisor`) and the self-improvement spine on top of it (driver→worker topology, trace-analyst findings, eval-gated ship); delegates all domain behavior to adapters.
 
 Imports `@tangle-network/agent-eval` for the control loop, knowledge-readiness scoring, and run-record types. Does NOT own domain policy, models, tools, connectors, UI, or the optimizer/corpus/judge substrate.
+
+> **This file is the timeless contract — pointers, not state.** No gate numbers, no "as of this writing", no run ids, no evidence claims, no session/generation status. Those live in `.evolve/current.json` (live state) and `memory/` (the evidence ledger); link to them, never inline them here. If you catch yourself writing a number or a result into this file, it belongs in one of those instead.
 
 ## Orient first — read these, don't re-derive the repo from source
 
@@ -31,12 +33,14 @@ Types that stay in THIS repo because they're runtime-shaped (coupled to a runnin
 
 **Where does a type live?** Does the concept make sense WITHOUT a running agent loop? Yes → substrate (agent-eval). No → runtime (here). When in doubt, lean substrate.
 
-## Code map — the loop kernel & topology (src/loops/)
+## Code map — the loop kernel & the recursive atom (src/runtime/)
 
-- `run-loop.ts` — `runLoop`, the topology-agnostic kernel. Per round: `driver.plan()`→N tasks→one sandbox/iteration (bounded by `maxConcurrency`, round-robin `agentRuns`)→`streamPrompt`→`output.parse`→`validator.validate`→`driver.decide`. Owns iteration accounting, concurrency, abort, cost+token aggregation, trace emission, box teardown. Exports `defaultSelectWinner` (best-valid-score, ties→earliest) — single-sourced selection.
-- `program.ts` — the Program op-set `{sample,steer,fork,parallel,select,seq,stop}` + `runProgram` tree executor + `runAgent`. Two parallelisms: **worker-layer** `fork`/`sample(n)` (N attempts in one fanout round of one loop); **loop-layer** `parallel{branches:Program[]}` (N concurrent multi-round SUB-LOOPS). `compileProgram` fails loud on `parallel` and on select-after-parallel. `isStraightLine` gates which executor runs.
-- `types.ts` — `Driver`/`AgentRunSpec`/`OutputAdapter`/`Validator`/`Iteration`/`LoopResult`/`ExecCtx`/`LoopSandboxClient` + the `LoopTraceEvent` union.
-- `drivers/dynamic.ts` — `createDynamicDriver` (agent authors topology via a `TopologyPlanner`); `PlannerContext.analyses` is the analyst→driver wire; `assertTraceDerivedFindings` is the steer-firewall (selector≠judge). `drivers/sandbox-planner.ts` is the live LLM-backed planner. `loop-dispatch.ts` adapts `runLoop`→agent-eval campaigns; `report-usage.ts` forwards token usage so the integrity guard sees a real backend.
+- `run-loop.ts` — `runLoop`, the round-synchronous leaf kernel. Per round: `driver.plan()`→N tasks→one sandbox/iteration (bounded by `maxConcurrency`, round-robin `agentRuns`)→`streamPrompt`→`output.parse`→`validator.validate`→`driver.decide`. Owns iteration accounting, concurrency, abort, cost+token aggregation, trace emission, box teardown. Exports `defaultSelectWinner` (best-valid-score, ties→earliest) — the single-sourced selection the personify combinators reuse.
+- `supervise/` — the recursive execution atom (keystone): `Scope` + `Supervisor` over the open `Executor` port, spawn/settle on a **conserved budget pool** so equal-compute holds by construction; journal→replay/resume. `runtime.ts` also holds `createExecutor({backend})` — the ONE built-in executor (backend-as-data: `router`/`bridge`/`cli`/`sandbox`); the per-backend bodies are internal case-arms, BYO agents implement `Executor` directly.
+- `personify/` — the content-free generic combinators (`fanout`/`loopUntil`/`widen`/`panel`/`verify`/`pipeline`) + `definePersona`/`runPersonified` + the cross-run `Corpus` + `createScopeAnalyst` (the analyst-on-scope steer firewall).
+- `driver.ts` — `createDriver` (agent authors topology via a `TopologyPlanner`); `PlannerContext.analyses` is the analyst→driver wire (built + tested, but **not yet fed live** by any bench); `assertTraceDerivedFindings` is the steer-firewall (selector≠judge). `types.ts` holds `Driver`/`AgentRunSpec`/`OutputAdapter`/`Validator`/`Iteration`/`LoopResult`/`SandboxClient` + the `LoopTraceEvent` union. `sandbox-run.ts` is `openSandboxRun` — the one run/stream/resume sandbox seam; `inline-sandbox-client.ts` is `inlineSandboxClient` — the one adapter presenting any non-box `Executor` as a `SandboxClient` for `runLoop`. `loop-dispatch.ts` adapts `runLoop`→agent-eval campaigns; `report-usage.ts` forwards token usage so the integrity guard sees a real backend.
+
+Two substrates coexist for the same "recursive agent decision" atom: the round-synchronous `runLoop`+`createDriver` (what most benches drive today) and the reactive `Scope`/`Supervisor`+combinators (the newer canonical core). Prefer the latter for new recursive/keystone work. Both run over the one `Executor` port.
 
 Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the multi-agent conversation engine (`src/conversation/`), `handleChatTurn` (`src/durable/`), the named delegated loops (`src/loop-runner.ts`).
 
@@ -50,14 +54,14 @@ Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the mu
 
 This repo is the empirical home of the RSI/learning-flywheel thesis, but **mechanism is not evidence**. The binding question is the **gate**: *does any non-blind topology beat blind compute at EQUAL k, under a deployable (non-oracle) selector, on a domain with a correctable middle band, at significant n (paired-bootstrap + BH)?*
 
-Live science state lives in `.evolve/current.json` + memory (read them for the numbers; they update each generation). The durable shape as of this writing: within-run **steering loses** at equal compute (rung-0, controlled n=40); **more-compute wins** (random@k > blind); **driver/topology headroom on coding ≈ 0** (no correctable middle band); the recursive `runProgram` mechanism shipped (#141) but **moved no metric, by design**. The parallel-**diverse-strategies** vs blind gate is still **untested** — that's the open question, distinct from the within-run-steer family rung-0 falsified.
+**The live science state — every number, what's proven/disproven, the current goal — lives in `.evolve/current.json` + the `memory/` evidence ledger. Read them; do not mirror them here.** `docs/eval-substrate.md` holds the north star (the RSI runtime + its eval substrate) and the measurement non-negotiables.
 
 **Process discipline (the anti-patterns that have bitten this repo):**
 - **Don't build mechanism ahead of the gate.** Per-branch adaptive sub-agents, learned planners, the outer flywheel — all wait for a *positive* gate result. Expressiveness was the closed gap; the open one is evidentiary.
 - **Don't re-run a settled measurement.** The instrument already returned 0 coding-headroom (3 runs) and steering-loses on FinSearchComp. Read the dated controlled-result memory note before proposing to "test if steering helps" again.
 - **Estimate cost before launch.** cells × per-cell-time / concurrency. A cell is a multi-min rollout; GEPA multiplies it (POP×GENS×cells). FinSearchComp-over-sandbox ≈ 3hr/run with ~14% stream-drop loss — budget it or use the offline corpus / local gate (conc≤2).
 - **Confounds before causal claims.** Never claim a win where treatment got more compute than control. Isolate via refine@k vs random@k at EQUAL k; exclude infra-errored cells; report the discordant count; apply BH across arms; prefer deterministic-judge domains. Run the cheapest decisive check first.
-- **No overclaim.** "Validates the concept" ≠ "validates the product." Route through the real kernel (`runLoop` + `createDynamicDriver` + judge-as-`Validator`) to claim the product. Underpowered splits (n≈20) are not wins. The earlier "+20pp steering proven" was confounded compute — a cautionary precedent.
+- **No overclaim.** "Validates the concept" ≠ "validates the product." Route through the real kernel (`runLoop` + `createDriver` + judge-as-`Validator`) to claim the product. Underpowered splits (n≈20) are not wins. A confounded "steering proven" (treatment got more compute than control) is a cautionary precedent — see the memory ledger.
 
 ## Memory discipline
 

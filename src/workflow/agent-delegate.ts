@@ -8,9 +8,9 @@ import type {
 import { ValidationError } from '../errors'
 import {
   extractLlmCallEvent,
-  type LoopSandboxClient,
   type LoopSandboxPlacement,
   type OutputAdapter,
+  type SandboxClient,
 } from '../runtime'
 import { createSandboxForSpec, describeSandboxPlacement } from '../runtime/run-loop'
 import type {
@@ -45,7 +45,7 @@ export interface WorkflowSandboxAgentTrace<TOutput = unknown> {
 }
 
 export interface CreateSandboxWorkflowAgentDelegateOptions<TOutput = unknown> {
-  client: LoopSandboxClient
+  client: SandboxClient
   profile: WorkflowSandboxAgentProfileResolver
   output?: OutputAdapter<TOutput>
   stream?: WorkflowSandboxAgentStream

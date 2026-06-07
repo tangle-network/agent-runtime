@@ -27,7 +27,7 @@
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
-import type { LoopSandboxClient } from './types'
+import type { SandboxClient } from './types'
 import { sleep as abortableSleep, deleteBoxSafe, randomUuid, throwIfAborted } from './util'
 
 /**
@@ -59,14 +59,14 @@ export interface AcquireOptions {
 }
 
 /** Minimal client surface acquire needs beyond `create` (the real SDK satisfies it). */
-interface PollableClient extends LoopSandboxClient {
+interface PollableClient extends SandboxClient {
   list?: (options?: unknown) => Promise<SandboxInstance[]>
   get?: (id: string) => Promise<SandboxInstance | null>
 }
 
 /** @experimental */
 export async function acquireSandbox(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   options: CreateSandboxOptions,
   acquire: AcquireOptions = {},
 ): Promise<SandboxInstance> {
@@ -77,6 +77,14 @@ export async function acquireSandbox(
   const sleep = acquire.sleep ?? ((ms: number) => abortableSleep(ms, acquire.signal))
   const pollMs = acquire.pollIntervalMs ?? 3000
   const deadline = now() + (acquire.readyTimeoutMs ?? 600_000)
+  // After a retryable create error (commonly a gateway/request timeout on a cold
+  // scale-from-zero), the orchestrator has usually ACCEPTED the request and is
+  // still provisioning the NAMED box — which appears in list() a few seconds
+  // AFTER the create call gave up. Scan list() this many windows for it to
+  // appear before re-POSTing: re-creating immediately restarts a fresh cold
+  // provision and hits the same wall — that thrash is why a cold acquire never
+  // converges within the budget; attaching to the in-flight box does.
+  const appearScans = 5
   // crypto.randomUUID is collision-resistant — find-by-name recovery scans
   // list() for this exact name, so two concurrent acquires must never collide.
   const name = options.name ?? acquire.name ?? `loop-sbx-${randomUuid()}`
@@ -97,14 +105,22 @@ export async function acquireSandbox(
       // Non-retryable (auth/validation/budget) fails loud immediately.
       if (!isRetryable(err)) throw err
       lastErr = err
-      // Two recoveries for a gateway-timed-out create, in order:
-      //  (a) some orchestrators leave a pending sandbox behind — attach to it;
-      //  (b) others roll the create back — so retry create with backoff (a
-      //      retry lands once a warm host exists / the autoscaler caught up).
+      // Recovery for a gateway-timed-out create, in order:
+      //  (a) the orchestrator usually ACCEPTED the create and is provisioning
+      //      the named box — it appears in list() a few seconds later, so poll
+      //      for it across `appearScans` windows and attach (this is the cold-
+      //      start fix: a single scan misses a row not yet written and the loop
+      //      would otherwise re-POST a fresh cold provision every backoff);
+      //  (b) only if it never appears did the create truly roll back — retry
+      //      create with backoff (lands once a warm host exists / autoscaler
+      //      caught up).
       if (typeof c.list === 'function') {
-        const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
-        if (found)
-          return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
+        for (let scan = 0; scan < appearScans && now() < deadline; scan += 1) {
+          const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
+          if (found)
+            return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
+          if (scan < appearScans - 1) await sleep(pollMs)
+        }
       }
       attempt += 1
       await sleep(Math.min(pollMs * attempt, 15_000))
@@ -174,7 +190,20 @@ function isRetryable(err: unknown): boolean {
   if (typeof status === 'number' && RETRYABLE_HTTP.has(status)) return true
   const name = e.name ?? ''
   if (name === 'TimeoutError' || name === 'ServerError' || name === 'NetworkError') return true
-  return /\b(timed out|timeout|gateway|temporarily unavailable|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b/i.test(
-    e.message ?? '',
-  )
+  const msg = e.message ?? ''
+  // Transient TRANSPORT failures.
+  if (
+    /\b(timed out|timeout|gateway|temporarily unavailable|too many requests|ECONNRESET|ETIMEDOUT|EAI_AGAIN)\b/i.test(
+      msg,
+    )
+  ) {
+    return true
+  }
+  // Transient PLATFORM provisioning failures thrown by `create` itself — edge data
+  // plane unreachable, container-phase provision failure, or a rolled-back create.
+  // Retry create onto a FRESH host rather than failing the whole rollout; the loop
+  // stays bounded by the ready deadline. A box that booted and then reached a
+  // terminal `failed` status with a real error is NOT retried here — that's a genuine
+  // fault surfaced by `waitUntilReady`, not a host blip.
+  return /provision failed|edge data plane|not reachable|failed to create sandbox/i.test(msg)
 }

@@ -65,6 +65,22 @@ describe('acquireSandbox — cold-start resilience', () => {
     expect(got).toBe(ready) // attached the provisioning sandbox by name
   })
 
+  it('RETRIES a create-thrown provision failure onto a fresh host (edge data plane / provision failed)', async () => {
+    let createCalls = 0
+    const ready = box({ id: 'sbx-9', name: 'sbx-1', status: 'running' })
+    const client = {
+      create: async () => {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('Edge data plane not reachable: provision failed')
+        return ready
+      },
+      list: async () => [],
+    }
+    const got = await acquireSandbox(client, OPTS, clock())
+    expect(createCalls).toBe(2) // first create threw a transient provision error, second succeeded
+    expect(got).toBe(ready)
+  })
+
   it('fails loud on a non-retryable error (auth) — no polling', async () => {
     let listed = false
     const client = {
@@ -96,8 +112,12 @@ describe('acquireSandbox — cold-start resilience', () => {
       },
       list: async () => [], // orchestrator rolled back — nothing to attach to
     }
+    // Budget spans several create→appear-scan→re-create cycles (fake clock, so
+    // instant): each cold create fails, list() never shows the box (true
+    // rollback), so after scanning it re-creates — proving it doesn't give up
+    // after one attempt and still times out loud when no host ever comes up.
     await expect(
-      acquireSandbox(client, OPTS, { ...clock(), readyTimeoutMs: 10_000, pollIntervalMs: 3000 }),
+      acquireSandbox(client, OPTS, { ...clock(), readyTimeoutMs: 120_000, pollIntervalMs: 3000 }),
     ).rejects.toThrow(/could not acquire a running sandbox "sbx-1"/)
     expect(creates).toBeGreaterThan(1) // retried create, not a single wait-then-fail
   })

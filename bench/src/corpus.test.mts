@@ -4,6 +4,7 @@ import {
   type AttemptRecord,
   benchRecordToCorpusRecords,
   buildRunRecord,
+  buildRunRecordFromAttempts,
   type RunRecord,
 } from './corpus'
 
@@ -158,6 +159,69 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.equal(record.runtimeEvents?.length, 1, 'runtime lifecycle events survive the writer')
   assert.equal(record.runtimeDecisionPoints?.length, 1, 'runtime decision points survive the writer')
   assert.equal(record.runtimeDecisionPoints?.[0]?.metadata?.target, 'failure-recovery')
+}
+
+// --- buildRunRecordFromAttempts: default derivations from the attempts ---
+{
+  const rec = buildRunRecordFromAttempts([measuredAttempt(0, 'a', false), measuredAttempt(1, 'b', true)], {
+    benchmark: 'aec-bench',
+    instanceId: 'i9',
+    condition: 'random@2',
+    model: 'gpt-5',
+    now: () => new Date('2026-06-06T00:00:00.000Z'),
+    runtimeEvents: [
+      {
+        id: 'run-2:agent.run:before',
+        runId: 'run-2',
+        target: 'agent.run',
+        phase: 'before',
+        timestamp: 1,
+      },
+    ],
+    runtimeDecisionPoints: [
+      {
+        id: 'run-2:agent.turn:0:failure-recovery',
+        runId: 'run-2',
+        stepIndex: 0,
+        kind: 'retry',
+        candidateActions: ['retry', 'verify', 'stop'],
+        evidence: [{ source: 'tool_result', id: 'tool-2:result' }],
+      },
+    ],
+  })
+  assert.equal(rec.ts, '2026-06-06T00:00:00.000Z', 'now() seam stamps ts')
+  assert.equal(rec.blindResolved, false, 'blindResolved = attempts[0].valid === true')
+  assert.equal(rec.resolved, true, 'resolved = any attempt valid')
+  assert.equal(rec.infraError, false, 'scored+valid attempts ⇒ not infra')
+  assert.equal(rec.attempts.length, 2)
+  assert.equal(rec.runtimeEvents?.length, 1, 'attempt writer preserves lifecycle events')
+  assert.equal(rec.runtimeDecisionPoints?.length, 1, 'attempt writer preserves decision points')
+}
+
+// --- no scored + no valid attempt ⇒ derived infraError ---
+{
+  const bare: AttemptRecord = { round: 0, prompt: 'q', output: '', eventCount: 0, eventTypes: {} }
+  const rec = buildRunRecordFromAttempts([bare], { benchmark: 'aec-bench', instanceId: 'i', condition: 'random@1', model: 'gpt-5' })
+  assert.equal(rec.infraError, true, 'no scored + no valid ⇒ infraError true')
+  assert.equal(rec.blindResolved, false)
+  assert.equal(rec.resolved, false)
+}
+
+// --- explicit overrides preserve a gate's bespoke recorded values ---
+{
+  const partial: AttemptRecord = { round: 0, prompt: 'q', output: 'x', valid: true, score: 0.5, costUsd: 0.01, tokensIn: 1, tokensOut: 1, wallMs: 1, eventCount: 1, eventTypes: {} }
+  const rec = buildRunRecordFromAttempts([partial], {
+    benchmark: 'clbench-codebase',
+    instanceId: 'i',
+    condition: 'random@1',
+    model: 'gpt-5',
+    // a partial-credit (score 0.5) first shot is valid but NOT a full blind-resolve.
+    blindResolved: false,
+    infraError: false,
+  })
+  assert.equal(rec.blindResolved, false, 'override beats the attempts[0].valid default')
+  assert.equal(rec.resolved, true, 'resolved still derives from valid when not overridden')
+  assert.equal(rec.infraError, false)
 }
 
 console.log('corpus.test.mts: all assertions passed')

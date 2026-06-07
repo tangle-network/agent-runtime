@@ -32,7 +32,7 @@ import type {
   SteerContext,
 } from './wave-types'
 
-// ── The steer firewall (selector ≠ judge) — verbatim PORT of dynamic.ts ───────
+// ── The steer firewall (selector ≠ judge) — the single canonical impl ───────
 
 /**
  * The diagnosis a combinator steers from must be TRACE-derived, never JUDGE-derived. A finding

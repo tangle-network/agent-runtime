@@ -2,7 +2,7 @@
  * @experimental
  *
  * Delegation executors — the layer between MCP delegates and the sandbox
- * substrate. Each executor exposes a {@link LoopSandboxClient} the kernel
+ * substrate. Each executor exposes a {@link SandboxClient} the kernel
  * consumes plus a placement tag so the trace pipeline can correlate workers
  * with their physical placement.
  *
@@ -19,19 +19,19 @@
  */
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxClient, LoopSandboxPlacement } from '../runtime'
+import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 
 /** @experimental */
 export interface DelegationExecutor {
   /** Sandbox client the kernel calls. Returned with `describePlacement` set. */
-  readonly client: LoopSandboxClient
+  readonly client: SandboxClient
   /** Best-effort one-liner used in stderr boot logs and diagnostics. */
   describe(): string
 }
 
 /** @experimental */
 export interface SiblingSandboxExecutorOptions {
-  client: LoopSandboxClient
+  client: SandboxClient
 }
 
 /**
@@ -47,7 +47,7 @@ export function createSiblingSandboxExecutor(
   options: SiblingSandboxExecutorOptions,
 ): DelegationExecutor {
   const underlying = options.client
-  const client: LoopSandboxClient = {
+  const client: SandboxClient = {
     create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
       return underlying.create(opts)
     },
@@ -115,7 +115,7 @@ export function createFleetWorkspaceExecutor(
   // the kernel hands back.
   const placementBySandboxId = new Map<string, { machineId: string }>()
 
-  const client: LoopSandboxClient = {
+  const client: SandboxClient = {
     async create(): Promise<SandboxInstance> {
       const ids = fleet.ids.filter((id) => !exclude.has(id))
       if (ids.length === 0) {

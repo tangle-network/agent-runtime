@@ -2,7 +2,7 @@ import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createDynamicDriver,
+  createDriver,
   type Driver,
   type Iteration,
   type OutputAdapter,
@@ -148,7 +148,7 @@ describe('runLoop lineage — sessionContinuity OFF (the independence invariant)
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -163,6 +163,63 @@ describe('runLoop lineage — sessionContinuity OFF (the independence invariant)
   })
 })
 
+describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
+  it('fire-and-detaches via dispatchPrompt + drains the terminal result, never holding a live stream', async () => {
+    const calls = { stream: 0, dispatch: 0, result: 0 }
+    const client = {
+      async create(): Promise<SandboxInstance> {
+        return {
+          id: 'poll-box',
+          async *streamPrompt(): AsyncGenerator<SandboxEvent> {
+            calls.stream += 1 // MUST NOT run in poll mode — that is the whole point
+            yield { type: 'result', data: { finalText: 'SSE' } }
+          },
+          async dispatchPrompt(_m: string, o?: { sessionId?: string }) {
+            calls.dispatch += 1
+            return {
+              sessionId: o?.sessionId ?? 'minted',
+              status: 'running' as const,
+              alreadyExisted: false,
+            }
+          },
+          session(id: string) {
+            return {
+              async status() {
+                return { id, status: 'completed' as const }
+              },
+              async result() {
+                calls.result += 1
+                return { success: true, response: 'POLLED', durationMs: 1 }
+              },
+            }
+          },
+          async delete() {},
+        } as unknown as SandboxInstance
+      },
+    }
+    const pollOutput: OutputAdapter<string> = {
+      parse: (events) =>
+        String((events.at(-1)?.data as { finalText?: string } | undefined)?.finalText ?? ''),
+    }
+    const moves: TopologyMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
+    let i = 0
+    const planner: TopologyPlanner<Task, string> = () => moves[i++]!
+
+    await runLoop<Task, string, 'continue' | 'done'>({
+      driver: createDriver<Task, string>({ planner }),
+      agentRun: spec('w'),
+      output: pollOutput,
+      task: { goal: 'g' },
+      ctx: { sandboxClient: client as never },
+      lineage: { streaming: 'poll' },
+    })
+
+    expect(calls.dispatch).toBe(1) // fire-and-detach used
+    expect(calls.result).toBe(1) // terminal result drained by status-poll
+    expect(calls.stream).toBe(0) // a live SSE was NEVER held — the drop is impossible
+  })
+})
+
 describe('runLoop lineage — sessionContinuity ON', () => {
   it('a refine continues the parent on the SAME box with the SAME session id', async () => {
     const { client, streamCalls, created } = createFakeClient({ criuAvailable: false })
@@ -172,7 +229,7 @@ describe('runLoop lineage — sessionContinuity ON', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -199,7 +256,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'seed' },
@@ -225,7 +282,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'seed' },
@@ -249,7 +306,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 2 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
       task: { goal: 'seed' },
@@ -268,7 +325,7 @@ describe('runLoop lineage — guardrails', () => {
     const planner = scriptedPlanner([{ kind: 'stop' }])
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },
@@ -287,7 +344,7 @@ describe('runLoop lineage — guardrails', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 2 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
       task: { goal: 'seed' },
@@ -309,7 +366,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
     ])
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },
@@ -327,7 +384,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -361,7 +418,7 @@ describe('runLoop lineage — fork creation respects the concurrency bound', () 
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 6 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 6 }),
       agentRuns: [spec('w')],
       output,
       task: { goal: 'seed' },
@@ -426,7 +483,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
 
   it('does NOT prune when the driver authors its own branch point', async () => {
     const { client, streamCalls } = createFakeClient({ criuAvailable: true })
-    // createDynamicDriver defines describePlan ⇒ canPrune false ⇒ every box is
+    // createDriver defines describePlan ⇒ canPrune false ⇒ every box is
     // held until teardown, so no stream ever starts with a prior delete.
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'seed' } },
@@ -435,7 +492,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('w')],
       output,
       task: { goal: 'seed' },
@@ -463,7 +520,7 @@ describe('runLoop lineage — abort during a lineage run', () => {
     ])
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },

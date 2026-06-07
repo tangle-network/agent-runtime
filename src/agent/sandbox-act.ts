@@ -19,7 +19,7 @@
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
 import type { ComposeProductionAgentProfileOptions } from '../mcp/delegation-profile'
 import { composeProductionAgentProfile } from '../mcp/delegation-profile'
-import type { AgentRunSpec, LoopSandboxClient, OutputAdapter } from '../runtime'
+import type { AgentRunSpec, OutputAdapter, SandboxClient } from '../runtime'
 import { createSandboxForSpec, mapSandboxEvent } from '../runtime'
 import type { RuntimeStreamEvent } from '../types'
 import type { AgentRunContext, AgentRunInvocation } from './define-agent'
@@ -28,7 +28,7 @@ export interface CreateSandboxActOptions<TPersona, TRunOutput> {
   /** Canonical agent profile — the same one the prod chat turn composes from. */
   baseProfile: AgentProfile
   /** Sandbox client used to boot the per-run sandbox. */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Persona → prompt. Pure; the eval cell's input. */
   buildPrompt: (persona: TPersona) => string
   /** Sandbox event stream → typed output the rubric scores. */

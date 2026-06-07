@@ -6,7 +6,7 @@
  * here; tests import from here directly.
  */
 
-import type { LoopSandboxClient } from '../runtime'
+import type { SandboxClient } from '../runtime'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,
@@ -18,7 +18,7 @@ import type { LocalHarness } from './local-harness'
 
 /** @experimental */
 export interface DetectExecutorArgs {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Raw env (defaults to `process.env`). Pass an explicit map for tests. */
   env?: Record<string, string | undefined>
   /**
@@ -26,7 +26,7 @@ export interface DetectExecutorArgs {
    * default reads `client.fleets.get(fleetId)` and validates the returned
    * shape against the structural `FleetHandle` contract.
    */
-  resolveFleet?: (client: LoopSandboxClient, fleetId: string) => Promise<FleetHandle>
+  resolveFleet?: (client: SandboxClient, fleetId: string) => Promise<FleetHandle>
 }
 
 /**
@@ -102,7 +102,7 @@ interface FleetsApi {
 }
 
 async function defaultResolveFleet(
-  sandboxClient: LoopSandboxClient,
+  sandboxClient: SandboxClient,
   fleetId: string,
 ): Promise<FleetHandle> {
   const fleets = (sandboxClient as unknown as { fleets?: FleetsApi }).fleets

@@ -20,9 +20,10 @@
 
 import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
-import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { composeStrategies } from './directives'
 import { type RouterConfig, routerChatWithUsage } from './router-client'
+import { pool } from './stats.mts'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -48,23 +49,6 @@ interface AttemptOutcome {
   wallMs: number
   /** the router/judge call failed after retries — EXCLUDED from stats, never scored 0. */
   infraError?: boolean
-}
-
-/** Bounded-concurrency pool: run `fn` over `items`, at most `limit` in flight. */
-async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    for (;;) {
-      const idx = next
-      next += 1
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx] as T, idx)
-    }
-  }
-  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker())
-  await Promise.all(workers)
-  return results
 }
 
 async function runAttempt(
@@ -156,20 +140,17 @@ async function runArm(
     const task = tasks[t] as BenchTask
     const taskOutcomes = outcomes.slice(t * k, t * k + k)
     const attempts = taskOutcomes.map((o, i) => toAttemptRecord(o, i))
-    const record: RunRecord = {
-      ts: new Date().toISOString(),
+    const record = buildRunRecordFromAttempts(attempts, {
       benchmark: adapter.name,
       instanceId: task.id,
       condition: arm.condition,
       model: cfg.model,
-      blindResolved: attempts[0]?.valid === true,
       // k-attempt outcome = any usable attempt resolved (the oracle@k ceiling for
       // this run; the deployable selector is scored separately by corpus-replay).
       resolved: taskOutcomes.some((o) => o.resolved),
-      attempts,
       // a task whose every attempt infra-errored is itself infra-errored.
       infraError: taskOutcomes.length > 0 && taskOutcomes.every((o) => o.infraError),
-    }
+    })
     await appendRunRecord(corpusPath, record)
   }
 

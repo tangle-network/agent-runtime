@@ -35,9 +35,10 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { composeStrategies } from './directives'
-import { type AttemptRecord, appendRunRecord, type RunRecord } from './corpus'
+import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { type RouterConfig, routerChatWithUsage } from './router-client'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
+import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 const datasetUrl = 'https://huggingface.co/datasets/tencent/CL-bench/resolve/main/CL-bench.jsonl'
 
@@ -65,23 +66,28 @@ interface CtxTask {
  *  Fail loud on a malformed record — a silently-short task set would poison the gate. */
 function loadCtxTasks(limit: number, offset: number): CtxTask[] {
   const need = offset + limit
+  // Fetch a 2-line buffer past `need`: on CL-bench's huge multi-KB records, `head`
+  // closing the pipe can emit a TRUNCATED final line (SIGPIPE mid-write) → invalid
+  // JSON. Fetching need+2 and parsing only the first `need` complete lines makes the
+  // truncated tail land in the discarded buffer.
+  const fetchN = need + 2
   let raw: string
   const cached = process.env.CLBENCH_CTX_FILE
   if (cached) {
     if (!existsSync(cached)) throw new Error(`CLBENCH_CTX_FILE not found: ${cached}`)
-    raw = execFileSync('bash', ['-c', `head -n ${need} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
+    raw = execFileSync('bash', ['-c', `head -n ${fetchN} ${JSON.stringify(cached)}`], { maxBuffer: 1 << 30 }).toString('utf8')
   } else {
-    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). `head`
-    // closing the pipe after `need` lines gives curl a benign SIGPIPE (exit 23) on a
-    // multi-hundred-MB file — suppress curl's stderr so it isn't mistaken for a fault;
-    // a real fetch failure surfaces as 0 parsed tasks below.
-    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${need}`], {
+    // -fsSL: fail on HTTP error, follow redirects (HF resolve 302s to the CDN). curl's
+    // SIGPIPE (exit 23) when head closes is benign — suppress its stderr; a real fetch
+    // failure surfaces as 0 parsed tasks below.
+    raw = execFileSync('bash', ['-c', `curl -fsSL ${JSON.stringify(datasetUrl)} 2>/dev/null | head -n ${fetchN}`], {
       maxBuffer: 1 << 30,
     }).toString('utf8')
   }
   const tasks: CtxTask[] = []
-  for (const line of raw.split('\n')) {
-    if (line.trim() === '') continue
+  // Only the first `need` lines are guaranteed complete (the +2 absorbs head's tail).
+  const lines = raw.split('\n').filter((l) => l.trim() !== '').slice(0, need)
+  for (const line of lines) {
     const d = JSON.parse(line) as {
       messages?: ChatMessage[]
       rubrics?: unknown[]
@@ -151,68 +157,15 @@ function parseJudge(reply: string, rubricCount: number): RubricVerdict {
 async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): Promise<RubricVerdict> {
   if (!output.trim()) return { fraction: 0, allPass: false, graded: 0 }
   const rubricsText = task.rubrics.map((r, i) => `${i + 1}. ${r}`).join('\n')
-  const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
-  return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
-}
-
-async function pool<T, R>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    for (;;) {
-      const idx = next
-      next += 1
-      if (idx >= items.length) return
-      results[idx] = await fn(items[idx] as T, idx)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()))
-  return results
-}
-
-function makeRng(seed: number): () => number {
-  let s = seed | 0
-  return () => {
-    s = (s + 0x6d2b79f5) | 0
-    let t = Math.imul(s ^ (s >>> 15), 1 | s)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-interface PairedLift {
-  point: number
-  low: number
-  high: number
-  pairs: number
-  discordant: number
-}
-
-/** Paired lift = mean over tasks of (treatment − baseline) with a 95% bootstrap CI.
- *  Works on continuous per-task values (rubric fractions) as well as {0,1}. */
-function pairedLift(baseline: number[], treatment: number[], bootstrapN = 10000): PairedLift {
-  if (baseline.length !== treatment.length) throw new Error('pairedLift: misaligned arms')
-  const n = baseline.length
-  if (n === 0) throw new Error('pairedLift: no pairs')
-  const deltas = baseline.map((b, i) => (treatment[i] as number) - b)
-  const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length
-  const point = mean(deltas)
-  const discordant = deltas.filter((d) => Math.abs(d) > 1e-9).length
-  const rng = makeRng(0x9e3779b9)
-  const rint = (m: number) => Math.floor(rng() * m)
-  const boots: number[] = []
-  for (let b = 0; b < bootstrapN; b += 1) {
-    let acc = 0
-    for (let j = 0; j < n; j += 1) acc += deltas[rint(n)] as number
-    boots.push(acc / n)
-  }
-  boots.sort((x, y) => x - y)
-  return {
-    point,
-    low: boots[Math.floor(0.025 * bootstrapN)] ?? Number.NaN,
-    high: boots[Math.floor(0.975 * bootstrapN)] ?? Number.NaN,
-    pairs: n,
-    discordant,
+  // Fault-isolate the judge: a transient router failure (after retries) or an
+  // unparseable judge reply scores this attempt 0 (eval.py's convention), it must
+  // NOT throw — one bad grade would otherwise crash the whole N×K×2 run. graded=0
+  // marks it as judge-failed so it's distinguishable from a real 0/N rubric pass.
+  try {
+    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
+    return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+  } catch {
+    return { fraction: 0, allPass: false, graded: 0 }
   }
 }
 
@@ -334,17 +287,13 @@ async function main(): Promise<void> {
       eventTypes: { 'router.chat': 1 },
       traceTail: s.output.slice(-600),
     }))
-    const record: RunRecord = {
-      ts: new Date().toISOString(),
+    const record = buildRunRecordFromAttempts(attempts, {
       benchmark: 'clbench-context',
       instanceId: task.id,
       condition: `random@${k}`,
       model,
-      blindResolved: (grp.random[0] as Shot).verdict.allPass,
-      resolved: grp.random.some((s) => s.verdict.allPass),
-      attempts,
       infraError: false,
-    }
+    })
     await appendRunRecord(corpusPath, record)
   }
   console.log(`\n=== wrote ${tasks.length} task(s) → ${corpusPath} · gate: tsx src/corpus-replay.mts ${corpusPath} --selector=verifier ===`)

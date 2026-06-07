@@ -6,7 +6,7 @@
  * An `Agent.act` runs inside a `Scope`. It `spawn`s children dynamically and reacts to
  * them via `next()`. The scope owns ONE in-memory nursery — the authoritative live set —
  * and is the single place that drives a child's lifecycle: reserve budget atomically,
- * resolve a `LeafExecutor` through the open registry, run it (one-shot OR streaming),
+ * resolve a `Executor` through the open registry, run it (one-shot OR streaming),
  * fold its normalized `UsageEvent`s into a conserved `Spend`, reconcile the reservation
  * (refunding the unspent remainder), persist the result blob + journal records, and
  * deliver the `Settled` through the `next()` cursor.
@@ -34,11 +34,11 @@ import type {
   AgentSpec,
   Budget,
   DefaultVerdict,
+  Executor,
   ExecutorContext,
   ExecutorRegistry,
+  ExecutorResult,
   Handle,
-  LeafExecutor,
-  LeafResult,
   NodeId,
   NodeSnapshot,
   NodeStatus,
@@ -145,7 +145,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const spec = (agent as unknown as { executorSpec?: unknown }).executorSpec
     if (!isAgentSpec(spec)) {
       throw new ValidationError(
-        `scope.spawn: agent "${agent.name}" exposes no \`executorSpec\` (AgentSpec) to resolve a LeafExecutor`,
+        `scope.spawn: agent "${agent.name}" exposes no \`executorSpec\` (AgentSpec) to resolve a Executor`,
       )
     }
     const resolved = args.executors.resolve<C>(spec)
@@ -174,7 +174,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
 
       const ctx: ExecutorContext = { signal: childAbort.signal, seams: args.seams }
-      const executor = resolved.value(spec, ctx) as LeafExecutor<C>
+      const executor = resolved.value(spec, ctx) as Executor<C>
 
       const handle: Handle<C> = {
         id,
@@ -413,9 +413,9 @@ async function finalizeSettlement<Out>(
 }
 
 /**
- * Drive one child's `LeafExecutor` to a terminal `PreSeqSettled`, folding usage into the
+ * Drive one child's `Executor` to a terminal `PreSeqSettled`, folding usage into the
  * conserved `Spend`, reconciling the reservation, and persisting the result blob. Both
- * executor shapes are handled here: a one-shot `Promise<LeafResult>` and a streaming
+ * executor shapes are handled here: a one-shot `Promise<ExecutorResult>` and a streaming
  * `AsyncIterable<UsageEvent>` whose terminal artifact is read from `resultArtifact()`.
  *
  * A thrown executor (or a real abort) becomes a TYPED `down` — never re-thrown — so a
@@ -425,7 +425,7 @@ async function finalizeSettlement<Out>(
  */
 async function runChild<C>(
   live: LiveChild,
-  executor: LeafExecutor<C>,
+  executor: Executor<C>,
   childAbort: AbortController,
   task: unknown,
   opts: SpawnOpts,
@@ -444,13 +444,13 @@ async function runChild<C>(
   try {
     live.status = 'running'
     const ran = executor.execute(task, childAbort.signal)
-    let artifact: LeafResult<C>
+    let artifact: ExecutorResult<C>
     if (isAsyncIterable(ran)) {
       // Streaming: fold the incremental usage events as they arrive (the conserved-pool
       // authority), then read the terminal artifact after the stream drains.
       const spend = await foldStream(ran)
       live.spent = spend
-      artifact = executor.resultArtifact() as LeafResult<C>
+      artifact = executor.resultArtifact() as ExecutorResult<C>
       reconcileOnce(spend)
     } else {
       const terminal = await ran
@@ -593,7 +593,7 @@ function clampSpend(spend: Spend, budget: Budget): Spend {
 }
 
 async function teardownSafe<C>(
-  executor: LeafExecutor<C>,
+  executor: Executor<C>,
   grace: number | 'brutalKill' | 'infinity',
 ): Promise<void> {
   try {

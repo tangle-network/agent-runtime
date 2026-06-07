@@ -87,7 +87,7 @@ Runs in **parallel** to Phases 1–2 (bench-only, no kernel code). This is the k
 | 1 | Hand-rolled pools | `run.ts:176/241/346`, `finsearch-loop.ts:123`, `terminal-compare.ts:476` | Land PR #126 (`runPool` → all 5 sites) + a `run-pool.test.mts` self-check | low |
 | 2 | Decentralized directive | `worker-browser.ts:44` | Move `DEFAULT_MIND2WEB_DIRECTIVE` into `directives.ts` (the doctrine that file states) | low |
 | 3 | `RunRecord` name collision | `bench/src/corpus.ts:22,38` | Rename bench's `RunRecord`/`AttemptRecord` → `FlywheelRunRecord`/`-Attempt` (collides with substrate `RunRecord`) | low |
-| 4 | `createRefineDriver` redundancy | `src/loops/drivers/refine.ts` (0 consumers, public+tested) | **After Phase 2:** refold into a named `PROMPT_PLANNERS` entry over `createDynamicDriver` (the `refinePlanner` pattern), deprecate via public-API process — do **not** delete cold | med |
+| 4 | `createRefineDriver` redundancy | `src/loops/drivers/refine.ts` (0 consumers, public+tested) | **After Phase 2:** refold into a named `PROMPT_PLANNERS` entry over `createDriver` (the `refinePlanner` pattern), deprecate via public-API process — do **not** delete cold | med |
 | 5 | `terminal-compare` forked refine loop | `terminal-compare.ts:418-457` | Optional: migrate onto `runRefineLoop` (keep tb-specific `captureRunRecord`) after #1 lands | med |
 
 No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.

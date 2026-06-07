@@ -54,7 +54,7 @@ That is the common case. Everything below is for when one chat turn is not enoug
 | Declare an agent (profile, surfaces, adapters) | `defineAgent` | `/agent` |
 | Run a one-shot task with verification and eval | `runAgentTask` | root |
 | Run a multi-attempt loop (refine or fanout-vote) | `runLoop` plus a driver | `/loops` |
-| Let the agent choose the loop shape per round | `createDynamicDriver` plus `createSandboxPlanner` | `/loops` |
+| Let the agent choose the loop shape per round | `createDriver` plus `createSandboxPlanner` | `/loops` |
 | Delegate a disciplined loop by mode (code, research, ...) | `runDelegatedLoop` or `agent-runtime-loop` | root |
 | Build code reliably (reviewed, gated) | `createDefaultCoderDelegate` | `/mcp` |
 | Grow a knowledge base with only grounded facts | `createKbGate` | `/mcp` |
@@ -82,7 +82,7 @@ const result = await runLoop({
 result.winner // highest-scoring valid attempt
 ```
 
-Shipped drivers (`/loops/drivers`): `createRefineDriver` (single task, iterate until valid), `createFanoutVoteDriver` (N parallel, vote), and `createDynamicDriver` (the agent authors the topology at runtime). The dynamic driver emits one `TopologyMove` per round (`refine`, `fanout`, or `stop`) from an injected planner; a malformed move throws `PlannerError`, so the loop never runs a topology nobody chose. Topology is orthogonal to harness: the planner never names a backend, and the kernel's `agentRuns` decide which harness runs each branch.
+Shipped drivers (`/loops/drivers`): `createRefineDriver` (single task, iterate until valid), `createFanoutVoteDriver` (N parallel, vote), and `createDriver` (the agent authors the topology at runtime). The dynamic driver emits one `TopologyMove` per round (`refine`, `fanout`, or `stop`) from an injected planner; a malformed move throws `PlannerError`, so the loop never runs a topology nobody chose. Topology is orthogonal to harness: the planner never names a backend, and the kernel's `agentRuns` decide which harness runs each branch.
 
 `runProgram` (also in `/loops`) is the recursive op-set (`sample`, `steer`, `fork`, `parallel`, `select`, `seq`, `stop`) plus a tree executor, for programs that compose sub-loops.
 
@@ -171,7 +171,7 @@ One entrypoint, `runExperiment(adapter, { sandboxClient, agentRun, arms, ... })`
 | Router base URL | `https://router.tangle.tools/v1` | `TANGLE_ROUTER_BASE_URL` env |
 | Sandbox base URL | `https://sandbox.tangle.tools` | `SANDBOX_API_URL` env |
 | Loop iteration cap | 10 (`runLoop`), 8 (dynamic driver) | `runLoop({ maxIterations })` |
-| Driver | none, required by `runLoop` | `createRefineDriver`, `createFanoutVoteDriver`, `createDynamicDriver` |
+| Driver | none, required by `runLoop` | `createRefineDriver`, `createFanoutVoteDriver`, `createDriver` |
 | Winner selection (coder delegate) | `highest-score` | `winnerSelection` option |
 | KB gate min passage | 12 chars | `createKbGate({ minPassageChars })` |
 | `selfImprove` gate | held-out gate (default) | pass `gate: defaultProductionGate` for red-team hardening |

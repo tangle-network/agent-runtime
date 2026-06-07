@@ -38,7 +38,7 @@ import type {
 } from '@tangle-network/agent-eval/campaign'
 import { reportLoopUsage } from './report-usage'
 import { type RunLoopOptions, runLoop } from './run-loop'
-import type { LoopResult, LoopSandboxClient, LoopTraceEmitter } from './types'
+import type { LoopResult, LoopTraceEmitter, SandboxClient } from './types'
 
 /** runLoop options minus the `ctx` (loopDispatch builds the ctx). */
 export type LoopOptionsForDispatch<Task, Output, Decision> = Omit<
@@ -54,7 +54,7 @@ export interface LoopDispatchOptions<
   TArtifact,
 > {
   /** Sandbox client used for every cell's `runLoop`. Supplied once. */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Build the per-cell runLoop options from the scenario (+ profile, when
    *  used with `runProfileMatrix`). */
   toLoopOptions: (

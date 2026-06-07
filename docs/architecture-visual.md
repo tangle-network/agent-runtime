@@ -80,7 +80,7 @@ lifecycle stream (`scope.spawn`/settle → `agent.spawn`/`agent.child`), rendere
 
 ## 3. The within-run self-improvement loop
 
-The live RSI mechanism (`src/runtime/dynamic.ts` + `src/analyst-loop/`). Each round: **diagnose →
+The live RSI mechanism (`src/runtime/driver.ts` + `src/analyst-loop/`). Each round: **diagnose →
 decide → act → settle**, with one firewall that keeps it honest.
 
 ```
@@ -91,11 +91,11 @@ decide → act → settle**, with one firewall that keeps it honest.
         │                                                                            │
         │   ① complete?(trace) → CompletionVerdict {done, determinism}               │  the DEPLOYABLE
         │        deterministic = trust ground truth                                  │  non-oracle STOP
-        │        probabilistic = clears confidence policy → stop BEFORE planning     │  (dynamic.ts:118)
+        │        probabilistic = clears confidence policy → stop BEFORE planning     │  (driver.ts:118)
         │                                                                            │
         │   ② analyze(trace) → AnalystFinding[]            ◀── reads the TRACE       │
         │        assertTraceDerivedFindings(findings)          NOT the score         │  selector ≠ judge
-        │        (dynamic.ts:311,344)                     ════════════════════       │  FIREWALL
+        │        (driver.ts:311,344)                     ════════════════════       │  FIREWALL
         │                                                                            │
         │   ③ planner(ctx{task, history, analyses}) → move:                          │  move = f(trace, findings)
         │        refine (1 task)   fanout (N tasks)   select (i)   stop               │  NOT f(score)
@@ -207,7 +207,7 @@ There were **three encodings of "pick the next move."** The redundant third is n
 | Encoding | Where | Status |
 |---|---|---|
 | `Agent.act(task, scope)` | `supervise/` | **the keystone atom** — the tree's move language |
-| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | `run-loop.ts`, `dynamic.ts` | **kept** — `runLoop` is a *leaf backend* composed inside the tree (not redundant; layered), and it carries the analyst wire |
+| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | `run-loop.ts`, `driver.ts` | **kept** — `runLoop` is a *leaf backend* composed inside the tree (not redundant; layered), and it carries the analyst wire |
 | `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`keystone-gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
 
 The op-set's *ideas* survive, mapped onto the atom: `fanout` = N × `scope.spawn`, `refine`/`steer` =
@@ -264,7 +264,7 @@ of the recursion (a driver `ask`s on *its* scope), so there is no "driver-of-dri
 - live-block (`await scope.ask`): child stays alive, blocked — fine for in-process/cheap leaves.
 - settle-as-question + resume: child returns `{kind:'question'}` (frees its sandbox box), the parent
   handles it, the answer **resumes the child from its checkpoint** — reuses the shipped
-  `sandbox-lineage` session-continuity. The `LeafExecutor` picks the mode, the same way it abstracts run
+  `sandbox-lineage` session-continuity. The `Executor` picks the mode, the same way it abstracts run
   modes — which is why this is a small feature, not a subsystem.
 
 **What's new vs. already there:** new = the `ask` edge (+ a `question` settlement kind), a **salience tag**

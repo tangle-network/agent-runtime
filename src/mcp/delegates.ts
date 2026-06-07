@@ -17,7 +17,7 @@
  */
 
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
-import type { Iteration, LoopSandboxClient, LoopTraceEmitter } from '../runtime'
+import type { Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
@@ -51,7 +51,7 @@ export type ResearcherDelegate = (
 /**
  * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
  * default factory because the inputs are workspace path + judge function
- * + (optionally) a `LoopSandboxClient`, and the judge is the consumer's
+ * + (optionally) a `SandboxClient`, and the judge is the consumer's
  * model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
  * `@tangle-network/agent-runtime/profiles` for the canonical wiring.
  *
@@ -112,7 +112,7 @@ export interface CreateDefaultCoderDelegateOptions {
    * Convenience shorthand for sibling placement. Equivalent to
    * `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
    */
-  sandboxClient?: LoopSandboxClient
+  sandboxClient?: SandboxClient
   /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
   fanoutHarnesses?: string[]
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */

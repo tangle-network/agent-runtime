@@ -17,8 +17,8 @@ import type {
   AgentSpec,
   Budget,
   DefaultVerdict,
-  LeafExecutor,
-  LeafResult,
+  Executor,
+  ExecutorResult,
   Scope,
   Settled,
   SpawnEvent,
@@ -29,7 +29,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
-// ── The mock LeafExecutor — the whole keystone runs offline against this ─────────
+// ── The mock Executor — the whole keystone runs offline against this ─────────
 //
 // A scripted leaf: a fixed `UsageEvent` program drives the conserved-pool fold, a
 // scripted `out` (+ optional verdict) is the artifact the driver branches on, and a
@@ -47,10 +47,10 @@ interface MockScript {
   readonly inbox?: unknown[]
 }
 
-function mockExecutor(script: MockScript): LeafExecutor<unknown> {
+function mockExecutor(script: MockScript): Executor<unknown> {
   const spent = spendFromUsageEvents(script.events)
   const outRef = `mock:${stableKey(script.out)}`
-  const executor: LeafExecutor<unknown> = {
+  const executor: Executor<unknown> = {
     runtime: 'router',
     execute(_task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
       // Streaming shape: yield the scripted usage, then the artifact is read from
@@ -74,7 +74,7 @@ function mockExecutor(script: MockScript): LeafExecutor<unknown> {
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
-    resultArtifact(): LeafResult<unknown> {
+    resultArtifact(): ExecutorResult<unknown> {
       return {
         outRef,
         out: script.out,

@@ -32,6 +32,7 @@ import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { extractLlmCallEvent } from './sandbox-events'
 import {
   createSandboxLineage,
+  promptEvents,
   type SandboxLineage,
   type SandboxLineageHandle,
 } from './sandbox-lineage'
@@ -42,13 +43,13 @@ import type {
   Iteration,
   LoopLineageOptions,
   LoopResult,
-  LoopSandboxClient,
   LoopSandboxPlacement,
   LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
   OutputAdapter,
+  SandboxClient,
   Validator,
 } from './types'
 import {
@@ -143,6 +144,9 @@ export async function runLoop<Task, Output, Decision>(
   if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
     throw new ValidationError('runLoop: maxConcurrency must be > 0')
   }
+  // Default fresh-box path streaming mode (read regardless of lineage activation,
+  // which gates on sessionContinuity/forkFanout — the bench uses neither).
+  const sandboxStreaming = options.lineage?.streaming ?? 'sse'
   if (!options.ctx?.sandboxClient || typeof options.ctx.sandboxClient.create !== 'function') {
     throw new ValidationError('runLoop: ctx.sandboxClient.create is required')
   }
@@ -290,6 +294,7 @@ export async function runLoop<Task, Output, Decision>(
         output: options.output,
         validator: options.validator,
         maxConcurrency,
+        streaming: sandboxStreaming,
         signal: controller.signal,
         ctx: options.ctx,
         runId,
@@ -397,7 +402,10 @@ async function setUpLineage<Task, Output, Decision>(
   }
   const capabilities = await probeSandboxCapabilities(options.ctx.sandboxClient)
   return {
-    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, { maxConcurrency }),
+    lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, {
+      maxConcurrency,
+      streaming: lineageOpts.streaming,
+    }),
     options: lineageOpts,
     handles: new Map(),
     canPrune: typeof options.driver.describePlan !== 'function',
@@ -560,6 +568,10 @@ interface RunBatchArgs<Task, Output> {
   /** The loop's lineage state; iterations record their handle here for the next
    *  round to descend from. Set iff `lineagePlan` is. */
   lineageState?: LineageState
+  /** Sandbox streaming mode for the default fresh-box path. 'poll' fire-and-
+   *  detaches + status-polls the terminal result (drop-resilient for long batch
+   *  turns); 'sse' streams live (default). */
+  streaming: 'sse' | 'poll'
 }
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
@@ -644,7 +656,14 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       stream = acquired.events
     } else {
       box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
-      stream = box.streamPrompt(spec.taskToPrompt(args.item.task), { signal: args.signal })
+      const prompt = spec.taskToPrompt(args.item.task)
+      // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
+      // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
+      // streams live — byte-identical to the prior path.
+      stream =
+        args.streaming === 'poll'
+          ? promptEvents('poll', box, prompt, `${args.runId}-i${args.item.index}`, args.signal)
+          : box.streamPrompt(prompt, { signal: args.signal })
     }
     const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {
@@ -792,7 +811,7 @@ function branchPoint<Task, Output>(
 }
 
 export function describeSandboxPlacement(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   box: SandboxInstance,
 ): LoopSandboxPlacement {
   if (typeof client.describePlacement === 'function') {
@@ -829,7 +848,7 @@ function readSandboxId(box: SandboxInstance): string | undefined {
  * `AgentRuntime.act` sandbox bridge so both boot the sandbox identically.
  */
 export async function createSandboxForSpec<Task>(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
 ): Promise<SandboxInstance> {

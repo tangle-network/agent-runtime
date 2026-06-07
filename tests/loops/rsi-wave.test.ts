@@ -17,8 +17,8 @@ import { createScope } from '../../src/runtime/supervise/scope'
 import type {
   Agent,
   AgentSpec,
-  LeafExecutor,
-  LeafResult,
+  Executor,
+  ExecutorResult,
   Scope,
   Settled,
   SpawnJournal,
@@ -59,7 +59,7 @@ const judgeFinding = finding({
 
 function leafAgent(name: string, out: unknown, events?: UsageEvent[]): Agent<unknown, unknown> {
   const evs = events ?? [{ kind: 'iteration' }, { kind: 'tokens', input: 5, output: 5 }]
-  const executor: LeafExecutor<unknown> = {
+  const executor: Executor<unknown> = {
     runtime: 'router',
     execute(): AsyncIterable<UsageEvent> {
       return (async function* () {
@@ -67,7 +67,7 @@ function leafAgent(name: string, out: unknown, events?: UsageEvent[]): Agent<unk
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact(): LeafResult<unknown> {
+    resultArtifact(): ExecutorResult<unknown> {
       return { outRef: `mock:${name}`, out, spent: spendFromUsageEvents(evs) }
     },
   }
@@ -79,7 +79,7 @@ function leafAgent(name: string, out: unknown, events?: UsageEvent[]): Agent<unk
 
 /** A leaf whose execute rejects — the scope types it into a `down` settlement (infra). */
 function boomAgent(name: string, reason: string): Agent<unknown, unknown> {
-  const executor: LeafExecutor<unknown> = {
+  const executor: Executor<unknown> = {
     runtime: 'router',
     execute: () => Promise.reject(new ValidationError(reason)),
     teardown: () => Promise.resolve({ destroyed: true }),

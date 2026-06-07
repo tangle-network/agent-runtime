@@ -27,8 +27,8 @@ import type {
   AgentSpec,
   Budget,
   ExecutorContext,
+  ExecutorFactory,
   ExecutorRegistry,
-  LeafExecutorFactory,
   Runtime,
   SupervisedResult,
   SupervisorOpts,
@@ -85,7 +85,7 @@ export function createShapeContext<D>(persona: Persona<D>, budget: ShapeBudget):
     persona,
     budget,
     spawnChild(name, spec): Agent<unknown, Outcome<D>> {
-      // The wrapped agent is SPAWNED, not run — the resolved LeafExecutor drives it. `act`
+      // The wrapped agent is SPAWNED, not run — the resolved Executor drives it. `act`
       // is never invoked by the keystone for a spawned child; it throws if mis-used as a
       // root (fail loud) rather than silently returning a vacuous outcome.
       const agent = {
@@ -203,7 +203,7 @@ function personaRegistry<D>(persona: Persona<D>): ExecutorRegistry {
 }
 
 /**
- * Wrap a registry so every resolved `LeafExecutorFactory` receives a ctx whose `seams` are
+ * Wrap a registry so every resolved `ExecutorFactory` receives a ctx whose `seams` are
  * the persona seams merged over whatever the scope threaded (the scope threads `{}`, so the
  * persona seams win). A BYO `spec.executor` still resolves to a trivial factory that ignores
  * ctx — so this wrap is transparent for BYO and only matters for the metered built-ins.
@@ -213,14 +213,14 @@ function withSeams(
   seams: Readonly<Record<string, unknown>>,
 ): ExecutorRegistry {
   return {
-    register<Out>(runtime: Runtime, factory: LeafExecutorFactory<Out>): void {
+    register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void {
       base.register(runtime, factory)
     },
     resolve<Out>(spec: AgentSpec) {
       const resolved = base.resolve<Out>(spec)
       if (!resolved.succeeded) return resolved
       const inner = resolved.value
-      const wrapped: LeafExecutorFactory<Out> = (s, ctx) => inner(s, mergeSeams(ctx, seams))
+      const wrapped: ExecutorFactory<Out> = (s, ctx) => inner(s, mergeSeams(ctx, seams))
       return { succeeded: true, value: wrapped }
     },
   }

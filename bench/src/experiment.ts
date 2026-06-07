@@ -9,12 +9,12 @@
  * the knobs are PARAMETERS:
  *
  *   - task        = the `BenchmarkAdapter` (prompt · deliverable · judge)   — any task
- *   - backend     = the injected `LoopSandboxClient` (router / local-bridge / sandbox) — the cost dial
+ *   - backend     = the injected `SandboxClient` (router / local-bridge / sandbox) — the cost dial
  *   - arms        = `Arm[]` (blind · random@k · refine@k · diverse@k …), each a `TopologyPlanner`
  *   - judge       = `adapter.judge` → `Validator`                            — swap for any judge
  *
  * Nothing here re-implements execution or usage capture: `runLoop` is the loop,
- * `createDynamicDriver` turns an arm's planner into the driver, and the kernel
+ * `createDriver` turns an arm's planner into the driver, and the kernel
  * sums real token usage + cost into each `Iteration` by construction. The
  * compute-matched control is enforced by `runSteeringExperiment` (a steering
  * delta cannot be computed without its random@k control — a type-level guard).
@@ -23,8 +23,8 @@
 import {
   type AgentProfile,
   type AgentRunSpec,
-  createDynamicDriver,
-  type LoopSandboxClient,
+  createDriver,
+  type SandboxClient,
   type OutputAdapter,
   runLoop,
   type TopologyMove,
@@ -158,7 +158,7 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
  *  steer. The recursive Agent atom in practice: one loop's steer is itself a `runLoop`
  *  (max power, max cost). The rung the gate has not yet cleared — wire it, then test it. */
 export const loopAnalyst = (cfg: {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   agentRun: AgentRunSpec<string>
   rounds?: number
 }): AnalystFn =>
@@ -169,7 +169,7 @@ export const loopAnalyst = (cfg: {
       'Investigate WHY: re-read the requirements, check the relevant sources or tests, and find the specific error. ' +
       'Produce a concise, targeted correction (what to change and why) for the next attempt.'
     const result = await runLoop<string, string, 'continue' | 'done'>({
-      driver: createDynamicDriver<string, string>({
+      driver: createDriver<string, string>({
         planner: randomArm('investigate').planner(task, cfg.rounds ?? 1),
         maxIterations: cfg.rounds ?? 1,
       }),
@@ -196,8 +196,16 @@ export function sandboxAgentRun(opts: {
   routerBaseUrl: string
   routerKey: string
   backendType?: WorkerBackendType
+  /** In-box model provider. Default `openai` (registered models like gpt-4.1).
+   *  Cheap router models (deepseek/kimi/glm) are not in opencode's `openai`
+   *  registry and 404 in-box — pass `openai-compat` (generic passthrough). */
+  provider?: string
   name?: string
   taskToPrompt?: (task: string) => string
+  /** Extra box-level env, merged ON TOP of the standard OPENAI_* auth (e.g.
+   *  `TANGLE_SEARCH_DEFAULT_PROVIDER` to pin the in-box agent's web-search provider,
+   *  provider keys like EXA_API_KEY). Allowlisted keys only reach the spawned CLI. */
+  env?: Record<string, string>
   /** The developer's AgentProfile — the one knob for "which agent" (prompt / model /
    *  tools / mcp). Spread through verbatim; the backend cost-dial is tagged into
    *  metadata. Omitted ⇒ a minimal worker profile. */
@@ -210,10 +218,10 @@ export function sandboxAgentRun(opts: {
     name,
     taskToPrompt: opts.taskToPrompt ?? ((t) => t),
     sandboxOverrides: {
-      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl },
+      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl, ...opts.env },
       backend: {
         type: backendType,
-        model: { provider: 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
+        model: { provider: opts.provider ?? 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
       },
     },
   }
@@ -223,7 +231,7 @@ export interface ExperimentConfig {
   /** The task — supplies prompt (`loadTasks`), judge, and (optionally) deliverable. */
   adapter: BenchmarkAdapter
   /** The cost-dial backend, injected. The kernel provisions per iteration. */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** The worker profile + task→prompt formatter the kernel runs. */
   agentRun: AgentRunSpec<string>
   /** control + treatments. `arms[0]` is the compute control (random@k). */
@@ -280,7 +288,7 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
 
   // One arm through the kernel for one task; persist a full RunRecord (the
   // flywheel fuel — state·steer·trace·output·verdict·cost, never a boolean).
-  // `planner` is already built for this task (createDynamicDriver wraps it).
+  // `planner` is already built for this task (createDriver wraps it).
   const runArm = async (
     task: BenchTask,
     label: string,
@@ -295,16 +303,26 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
     }
     const runtime = createRuntimeHookRecorder()
     const result = await runLoop<string, string, 'continue' | 'done'>({
-      driver: createDynamicDriver<string, string>({ planner, maxIterations: rounds }),
+      driver: createDriver<string, string>({ planner, maxIterations: rounds }),
       agentRun: cfg.agentRun,
       output,
       validator,
       task: task.prompt,
       ctx: { sandboxClient: cfg.sandboxClient, hooks: runtime.hooks },
       maxIterations: rounds,
+      // Batch eval turns are long + quiet (clone/build/test) → a live SSE
+      // idle-drops on prod AND staging. SANDBOX_STREAMING=poll fire-and-detaches
+      // + status-polls the terminal result so the cell completes. Default 'sse'.
+      ...(process.env.SANDBOX_STREAMING === 'poll'
+        ? { lineage: { streaming: 'poll' as const } }
+        : {}),
     })
     const iter0 = result.iterations[0]
     const infraError = iter0?.error !== undefined && iter0.output === undefined
+    if (infraError)
+      console.error(
+        `  [infra-cause] ${label} ${task.id}: ${(iter0?.error instanceof Error ? (iter0.error.stack ?? iter0.error.message) : String(iter0?.error)).slice(0, 700)}`,
+      )
     const resolved = result.winner?.verdict?.valid === true
     if (cfg.corpusPath) {
       // Fail-loud on a dropped row: a silent drop would leave the corpus with

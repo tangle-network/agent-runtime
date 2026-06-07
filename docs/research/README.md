@@ -48,7 +48,7 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 - **Analyst = Agent + harness.** Halo-CLI / our inline trace-analyst / a sandboxed agent are
   one type. The runtime is **derived from the agent's `AgentProfile.harness`**: `harness: null` =
   direct Router inference call; `harness: <sandbox>` = sandboxed; future `mastra`/`agno`/`ai-sdk`
-  harnesses register their own `LeafExecutor`. _(operator, 2026-06-04)_
+  harnesses register their own `Executor`. _(operator, 2026-06-04)_
 - **Leaves are opaque, self-parallelizing coding harnesses.** The recursion is in the *drivers*;
   the bottom is a coding agent that fans out internally on its own.
 - **The 4 forks resolved (operator, 2026-06-04):** event-sourced **yes**; observability **substrate

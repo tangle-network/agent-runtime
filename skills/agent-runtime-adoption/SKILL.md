@@ -43,7 +43,7 @@ Topology is data; the kernel is topology-agnostic.
 - **`createFanoutVoteDriver({ n, selector? })`** — N parallel attempts in
   iteration 0, score once, pick the winner (default: highest valid score). Use
   for multi-harness coder fanout, redundant research with disagreement detection.
-- **`createDynamicDriver({ planner, maxIterations?, maxFanout? })`** — **the
+- **`createDriver({ planner, maxIterations?, maxFanout? })`** — **the
   agent authors the topology.** `plan`/`decide` are backed by an injected
   `TopologyPlanner` that emits one `TopologyMove` per round
   (`{kind:'refine',task}` | `{kind:'fanout',tasks}` | `{kind:'stop'}`). The
@@ -59,7 +59,7 @@ fanning a single round across several.
 ### Wiring an LLM planner — `createSandboxPlanner`
 
 ```ts
-import { createDynamicDriver, createSandboxPlanner, runLoop } from '@tangle-network/agent-runtime/loops'
+import { createDriver, createSandboxPlanner, runLoop } from '@tangle-network/agent-runtime/loops'
 
 const planner = createSandboxPlanner<Task, Out>({
   client, profile: plannerProfile,          // any harness; cheap model is fine
@@ -67,7 +67,7 @@ const planner = createSandboxPlanner<Task, Out>({
   // buildPrompt?  — defaults to a history-summary prompt; override to customize
 })
 const result = await runLoop({
-  driver: createDynamicDriver({ planner, maxIterations: 8 }),
+  driver: createDriver({ planner, maxIterations: 8 }),
   agentRuns: workerSpecs, output, validator, task, ctx: { sandboxClient: client },
 })
 ```

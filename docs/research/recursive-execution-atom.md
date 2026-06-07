@@ -139,7 +139,7 @@ async act(task, scope) {
 |---|---|---|---|
 | The atom signature | `src/loops/program.ts` (`Agent.act → Output \| Program`, op-set, `runProgram`, `maxDepth=4`) | **right shape** | `act` returns a *static `Program`*; need `act(task, scope)` with **dynamic** `spawn`/`next` (not a pre-authored tree). |
 | Leaf execution | `src/loops/run-loop.ts` (box create / `streamPrompt` / teardown; the `collectBox` same-sandbox seam) | **keep** | The leaf already runs a coding harness; `runtime: 'sandbox'` maps here. |
-| Round-synchronous planner | `src/loops/drivers/dynamic.ts` (`createDynamicDriver`, `PlannerContext.analyses`, selector≠judge firewall) | **evolve** | Planner is round-synchronous (plan → run a batch → observe all → plan). Need async-streaming reaction (`scope.next()` on *individual* completions). |
+| Round-synchronous planner | `src/loops/drivers/dynamic.ts` (`createDriver`, `PlannerContext.analyses`, selector≠judge firewall) | **evolve** | Planner is round-synchronous (plan → run a batch → observe all → plan). Need async-streaming reaction (`scope.next()` on *individual* completions). |
 | Durable journal | `src/durable/` (`handleChatTurn`, journal/resume) | **wire-in** | Candidate **event source** for the Supervisor (every spawn/complete journaled → replay + query). Needs node-level events. |
 | Conversation engine | `src/conversation/` (turn loop, `selectSpeaker`, `ConversationJournal`) | **wire-in** | Candidate **chat handle** over a live Supervisor ("talk to the root / what's in flow"). |
 | Supervisor executor | — | **net-new** | The keystone: a live node registry running `act`, async, on the journal. Replaces the batch `runProgram` tree-walk. |
@@ -193,7 +193,7 @@ rehydrates the exact `Settled` the driver branched on. The keystone is the **bud
 // One self-similar atom. A leaf is an Agent that never calls scope.spawn.
 interface Agent<Task, Out> { readonly name: string; act(task: Task, scope: Scope<Out>): Promise<Out> }
 
-// The runtime is ONE OPEN INTERFACE, not a closed union (operator's refinement). A LeafExecutor
+// The runtime is ONE OPEN INTERFACE, not a closed union (operator's refinement). A Executor
 // is anything with an `execute` that returns a Promise OR an async stream of normalized usage.
 // Our built-ins are just the initial IMPLEMENTATIONS; a user's own agent (mastra, agno, a raw
 // HTTP call, anything) is first-class the moment it implements the interface. NO per-vendor
@@ -203,8 +203,8 @@ interface Agent<Task, Out> { readonly name: string; act(task: Task, scope: Scope
 //                     passthrough for leaf-level continue/fork — does NOT reinvent checkpoint/fork)
 //   - cli           : Halo/RLM subprocess; budgetExempt, excluded from equal-k by construction
 // An agent selects its executor via its AgentProfile (harness: null => router/inline; harness:
-// <sandbox> => sandbox), OR carries a custom LeafExecutor / executor-factory directly (BYO).
-interface LeafExecutor<Out> {
+// <sandbox> => sandbox), OR carries a custom Executor / executor-factory directly (BYO).
+interface Executor<Out> {
   // returns a Promise<LeafResult> for one-shot executors, OR an async stream of UsageEvents for
   // streaming ones; the architect picks the minimal shape that supports both with normalized usage.
   execute(task: unknown, signal: AbortSignal): Promise<LeafResult<Out>> | AsyncIterable<UsageEvent>
@@ -266,7 +266,7 @@ no `Math.random`, no unordered collections. `next()` delivers strictly in record
 | 3 | `SpawnJournal` + `ResultBlobStore` (in-mem + JSONL/FS); sink over the existing `LoopTraceEvent` lineage. | Net-new/Evolve | `src/durable/spawn-journal.ts` (new); wire `run-loop.ts:183` | **B1** |
 | 4 | **`Scope` impl** (KEYSTONE): ray.wait cursor over in-memory nursery; `spawn` reserves from step-2 pool; deterministic `${parent}:s${seq}` ids; `view`/`inFlight` read memory. | Net-new | `src/loops/scope.ts` (new) | **B2,m1,m2** |
 | 5 | **`Supervisor` impl** (KEYSTONE): nursery join barrier (generalize run-loop's `finally{allSettled(destroy)}`); abort cascade; abort-chains-into-`acquireSandbox` + find-by-name reap; OTP intensity breaker; typed `SupervisedResult`. | Net-new | `src/loops/supervisor.ts` (new) | **M1,M2** |
-| 6 | `LeafExecutor` + per-harness impls (`inline`/`sandbox`/`cli`), each emitting normalized `UsageEvent`; `sandbox` = existing `runLoop` as a leaf; `cli`-without-accounting = `budgetExempt` + excluded from equal-k. | Evolve | `types.ts`, `src/loops/runtime.ts` (new) | **M3** |
+| 6 | `Executor` + per-harness impls (`inline`/`sandbox`/`cli`), each emitting normalized `UsageEvent`; `sandbox` = existing `runLoop` as a leaf; `cli`-without-accounting = `budgetExempt` + excluded from equal-k. | Evolve | `types.ts`, `src/loops/runtime.ts` (new) | **M3** |
 | 7 | Replay executor: re-feed `SpawnJournal` + rehydrate `out` from `ResultBlobStore` in `seq` order; `view()` materializer for resume. | Net-new | `src/durable/spawn-journal.ts` | **B1,B2** |
 | 8 | `Settled.done → Iteration` adapter at the merge boundary so `defaultSelectWinner` stays single-sourced. | Net-new (small) | `src/loops/scope.ts` | **M4** |
 | — | `flatHarness` driver (Plane-A control) + **equal-k assertion** `Σiterations(treatment) ≡ Σiterations(blind)` per task or the cell is excluded. | Net-new | `bench/` | **B3** |
@@ -278,7 +278,7 @@ deleting `runProgram`'s loop-layer `parallel` op (supersede-vs-coexist is fork F
 
 ### Resolved / risks / verdict
 
-- **Resolved by the surface:** B1 (outRef + replay invariant), B2 (in-memory live set + seq cursor), M1 (`acquiring` + acquire-aware abort), M2 (typed `SupervisedResult`), M3 (`LeafExecutor` + normalized usage), M5 (atomic reservation, fail-closed).
+- **Resolved by the surface:** B1 (outRef + replay invariant), B2 (in-memory live set + seq cursor), M1 (`acquiring` + acquire-aware abort), M2 (typed `SupervisedResult`), M3 (`Executor` + normalized usage), M5 (atomic reservation, fail-closed).
 - **Residual risks (measure, don't hide):** R1 — the recorded interleaving is *one* sample; equal-*k* is enforceable, equal-*topology* is not → report realized tree shape per cell. R2 — widening-from-`verdict` *is* steering-from-the-judge (collides with `assertTraceDerivedFindings`, dynamic.ts:344); dormant while `WidenGate` is flat. R3 — runtime `maxDepth` is weaker than the static guard; pair it with the conserved pool so runaway recursion hits budget-exhaustion first.
 - **Pass verdict (advisory):** "ship the keystone, make the LLM meta-driver wait." **Operator override (2026-06-04): build the LLM meta-driver now, as the treatment, on top of the budget-reservation invariant** — the invariant is what keeps the result valid; the coded progressive-widening + flat-harness are the controls; `WidenGate` defaults to flat for gate runs.
 
@@ -286,7 +286,7 @@ deleting `runProgram`'s loop-layer `parallel` op (supersede-vs-coexist is fork F
 
 - **Q1 — yes, event-sourced** (SpawnJournal + ResultBlobStore + replay; budget-pool conserved).
 - **Q2 — substrate now** (`TreeView` + `RootHandle.view`/`signal` + the event stream; chatbot/pi-viz is a later thin client).
-- **Q3 — LLM meta-driver built now** (operator call), as the treatment, with coded progressive-widening + flat-harness as controls. The runtime is **one open `LeafExecutor` interface** (`execute` → promise or async stream), not a closed union — built-ins (router/inline, sandbox, cli) are implementations, and any user agent (mastra/agno/HTTP/custom) is first-class by implementing it. An agent selects its executor via `AgentProfile` (`harness: null` = direct Router call; `harness: <sandbox>` = sandboxed) or carries a custom executor directly.
+- **Q3 — LLM meta-driver built now** (operator call), as the treatment, with coded progressive-widening + flat-harness as controls. The runtime is **one open `Executor` interface** (`execute` → promise or async stream), not a closed union — built-ins (router/inline, sandbox, cli) are implementations, and any user agent (mastra/agno/HTTP/custom) is first-class by implementing it. An agent selects its executor via `AgentProfile` (`harness: null` = direct Router call; `harness: <sandbox>` = sandboxed) or carries a custom executor directly.
 - **Q4 — hard ceiling, yes — sharpened to a conserved *reservation* pool** (atomic reserve/refund, fail-closed), tokens + usd, enforced at the root.
 
 ## Relationship to PR #150 (leaf-level continued-session + fork)
@@ -295,7 +295,7 @@ PR #150 (`feat/runloop-session-continuation-and-fork`) adds `RunLoopOptions.line
 default-OFF, backend-blind — so a *single* `runLoop` can continue a session across its iterations
 (`sessionContinuity`) or fork a parent checkpoint across a fanout (`forkFanout`, gated on
 `criuStatus().canFork`). That is the **leaf-level** depth/breadth dial. The recursive atom sits
-**on top**: the `sandbox` `LeafExecutor` *composes* `runLoop` and forwards this `lineage`
+**on top**: the `sandbox` `Executor` *composes* `runLoop` and forwards this `lineage`
 passthrough — it does **not** reinvent checkpoint/fork. (Reviewed 2026-06-04: approve-to-land;
 before enabling, verify the platform honors a client-minted `sessionId` (else `continue` is a
 silent no-op), bound fork box-creation by `maxConcurrency`, and document that `forkFanout`

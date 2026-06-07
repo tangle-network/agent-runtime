@@ -147,6 +147,61 @@ export function buildRunRecord<Task, Output>(args: {
   }
 }
 
+/**
+ * Build a RunRecord from a hand-assembled `AttemptRecord[]` (the gate runners'
+ * shape — they score attempts directly rather than carrying `Iteration`s).
+ *
+ * The three run-level verdicts derive from the attempts by default:
+ *   - `blindResolved = attempts[0]?.valid === true`         (the 1-attempt outcome)
+ *   - `resolved      = attempts.some(a => a.valid === true)`  (the k-attempt outcome)
+ *   - `infraError    = no attempt is scored AND none is valid` (the whole run errored)
+ * A gate whose recorded value differs from a derivation (e.g. a binary-pass gate
+ * that reads `blindResolved` off `score === 1`, or one that pins `infraError`)
+ * passes that field explicitly to preserve its exact recorded value. `now` is
+ * injected for determinism in tests (mirrors `buildRunRecord`).
+ */
+export function buildRunRecordFromAttempts(
+  attempts: AttemptRecord[],
+  meta: {
+    benchmark: string
+    instanceId: string
+    condition: string
+    model: string
+    blindResolved?: boolean
+    resolved?: boolean
+    infraError?: boolean
+    now?: () => Date
+    seed?: number
+    splitTag?: RunSplitTag
+    commitSha?: string
+    runtimeEvents?: BenchRuntimeHookEvent[]
+    runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
+  },
+): RunRecord {
+  const anyScored = attempts.some((a) => a.score !== undefined)
+  const anyValid = attempts.some((a) => a.valid !== undefined)
+  return {
+    ts: (meta.now ? meta.now() : new Date()).toISOString(),
+    benchmark: meta.benchmark,
+    instanceId: meta.instanceId,
+    condition: meta.condition,
+    model: meta.model,
+    blindResolved: meta.blindResolved ?? attempts[0]?.valid === true,
+    resolved: meta.resolved ?? attempts.some((a) => a.valid === true),
+    attempts,
+    infraError: meta.infraError ?? (!anyScored && !anyValid),
+    ...(meta.seed !== undefined ? { seed: meta.seed } : {}),
+    ...(meta.splitTag !== undefined ? { splitTag: meta.splitTag } : {}),
+    ...(meta.commitSha !== undefined ? { commitSha: meta.commitSha } : {}),
+    ...(meta.runtimeEvents !== undefined && meta.runtimeEvents.length > 0
+      ? { runtimeEvents: meta.runtimeEvents }
+      : {}),
+    ...(meta.runtimeDecisionPoints !== undefined && meta.runtimeDecisionPoints.length > 0
+      ? { runtimeDecisionPoints: meta.runtimeDecisionPoints }
+      : {}),
+  }
+}
+
 /** Run-level provenance the caller asserts when projecting a bench record onto
  *  the substrate. `commitSha` is required: a canonical `RunRecord` is a
  *  reproducibility artifact and must name the code that produced it — the

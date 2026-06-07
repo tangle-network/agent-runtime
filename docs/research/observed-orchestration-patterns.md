@@ -107,7 +107,7 @@ or `cli` (Halo).
 This is a different thing, and the architectural distinction is the most important finding in this section.
 A leaf's *own* internal parallelism (within-turn Bash/Read batching; worktree self-fanout) has its own
 budget, its own scheduler, and is **not reducible to `scope.spawn` over our `Scope`.** The atom correctly
-declares it opaque (`LeafExecutor.execute` → `resultArtifact()`, `types.ts:68-92`) — but opacity cuts both
+declares it opaque (`Executor.execute` → `resultArtifact()`, `types.ts:68-92`) — but opacity cuts both
 ways:
 
 - It is **not** evidence that *our* recursion is what happens in the wild. It is evidence that a **second,
@@ -131,11 +131,11 @@ does exist is opaque and uncounted.
 ## 3. Are the atoms enough? — each user story decomposed
 
 The semantic atoms, named against the shipped surface:
-- **sandbox / agent-profile** → `AgentSpec { profile, harness }` + the `sandbox` `LeafExecutor` (`types.ts:130`, `runtime.ts`).
+- **sandbox / agent-profile** → `AgentSpec { profile, harness }` + the `sandbox` `Executor` (`types.ts:130`, `runtime.ts`).
 - **agent-profile (router/inline)** → `AgentSpec { harness: null }` → direct Router call, no box.
 - **loop + resume** → `Scope.next()` cursor + `SpawnJournal`/`ResultBlobStore` replay (`types.ts:343-358`).
 - **fanout** → N× `scope.spawn` (`SpawnOpts`, `types.ts:205`).
-- **parallelize (leaf)** → opaque inside `LeafExecutor.execute` — *and uncounted by the pool* (§2).
+- **parallelize (leaf)** → opaque inside `Executor.execute` — *and uncounted by the pool* (§2).
 - **check** → `Settled.verdict` (`DefaultVerdict`) + the driver's selection over it (single-sourced via `settledToIteration`, `scope.ts`).
 - **fork** → PR #150 `lineage` passthrough forwarded by the `sandbox` executor — leaf-level continue/fork, not reinvented here.
 
@@ -314,11 +314,11 @@ coding-headroom and steering-loses-at-equal-compute in this repo's own measureme
 
 | # | Gap | Why (which stories) | Minimal seam | Gate status |
 |---|-----|---------------------|--------------|-------------|
-| G1 | **Port the analyst→driver `analyses` seam from the round-synchronous driver onto the reactive `Scope`** | all (traces→findings→steer is the RSI premise) | `analyses` is **already wired and firewalled** in the round-synchronous `createDynamicDriver`: the `analyze` hook is called (`drivers/dynamic.ts:174-176`), findings are passed via `PlannerContext.analyses` (`drivers/sandbox-planner.ts:222-224`), and the selector≠judge firewall fires (`assertTraceDerivedFindings`, `drivers/dynamic.ts:311`). The gap is that **the new `Supervisor`/`Scope` keystone has no analyst channel at all** — `analyses` appears in `supervise/types.ts` only inside a doc-comment (`types.ts:434`). G1 = **carry the existing firewalled seam across the round-synchronous → reactive-Scope boundary** so a driver's `act` can read analyst findings (not raw child `verdict`s) off the `Scope`. This is a **port, not a first wiring.** No new type — an analyst is already an `Agent`. | port now (the seam exists and is proven in the old driver; only the Scope crossing is missing) |
+| G1 | **Port the analyst→driver `analyses` seam from the round-synchronous driver onto the reactive `Scope`** | all (traces→findings→steer is the RSI premise) | `analyses` is **already wired and firewalled** in the round-synchronous `createDriver`: the `analyze` hook is called (`drivers/dynamic.ts:174-176`), findings are passed via `PlannerContext.analyses` (`drivers/sandbox-planner.ts:222-224`), and the selector≠judge firewall fires (`assertTraceDerivedFindings`, `drivers/dynamic.ts:311`). The gap is that **the new `Supervisor`/`Scope` keystone has no analyst channel at all** — `analyses` appears in `supervise/types.ts` only inside a doc-comment (`types.ts:434`). G1 = **carry the existing firewalled seam across the round-synchronous → reactive-Scope boundary** so a driver's `act` can read analyst findings (not raw child `verdict`s) off the `Scope`. This is a **port, not a first wiring.** No new type — an analyst is already an `Agent`. | port now (the seam exists and is proven in the old driver; only the Scope crossing is missing) |
 | G2 | **No cross-run `Corpus`** (datasets, labels, ratings, world-model, external signals) | 2, 3, 4, 5 — and the *only* stories needing new machinery | `ResultBlobStore`/`SpawnJournal` are per-run, for replay (`types.ts:343-358`). Add a **separate durable `Corpus`** (`append(record)`, `query(filter)`) — NOT folded into the journal (journal stays small: decisions). Leaves emit into it; the next run's root `act` reads it into `AgentProfile.resources.instructions` via a render step. This is the learning-flywheel read side. | **after a positive gate** (explicitly deferred by `CLAUDE.md`); **design the interface now**, build on green |
 | G3 | **No external-signal ingress** (a `Settled` that isn't a child you spawned) | 4 (business feedback), 5 (real-world outcomes) | Real-world metrics arrive async, later. Model them as **`Corpus` records written out-of-band**, read by the next run — G3 is a *consumer* of G2, not a new mechanism. The atom does NOT need inbound async events into a *running* `act`; defer until a real source exists. | after G2 |
 | G4 | **`research-sweep` / periodic cadence is unhoused** | 1, 2, 3 (daily writing) | research-sweep is just a fanout of `harness:null` children — already expressible; ship a **`researchSweep(sources)` helper `act`** as a convenience, not a primitive. Cadence stays **out-of-band**: the `schedule`/`loop` skills call `Supervisor.run`. Do not add a scheduler to the runtime. | helper now; scheduler never (out-of-band) |
-| G5 | **Round-synchronous planner, not async-streaming** | 1, 4, 5 (long, heterogeneous sub-loops) | `createDynamicDriver` plans → runs a batch → observes all → re-plans. The `Scope` already supports `next()` on *individual* completions, so the async-streaming driver is *writable today* — what's missing is an example `act` that does spawn-on-completion widening. Ship one reference widening `act` (with `WidenGate` defaulting to flat). | now (an `act` over the shipped Scope; no keystone change) |
+| G5 | **Round-synchronous planner, not async-streaming** | 1, 4, 5 (long, heterogeneous sub-loops) | `createDriver` plans → runs a batch → observes all → re-plans. The `Scope` already supports `next()` on *individual* completions, so the async-streaming driver is *writable today* — what's missing is an example `act` that does spawn-on-completion widening. Ship one reference widening `act` (with `WidenGate` defaulting to flat). | now (an `act` over the shipped Scope; no keystone change) |
 
 ### The short list (do these, in order)
 1. **G1 — port the existing firewalled `analyses` seam onto the reactive `Scope`.** It is wired in the old
