@@ -3,7 +3,7 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { describe, expect, it } from 'vitest'
 import { type AgentRunContext, collectAgentRun, createSandboxAct } from '../src/agent'
 import { DELEGATION_MCP_SERVER_KEY } from '../src/mcp/delegation-profile'
-import type { LoopSandboxClient, OutputAdapter } from '../src/runtime'
+import type { OutputAdapter, SandboxClient } from '../src/runtime'
 
 const BASE = {
   name: 'demo-agent',
@@ -28,7 +28,7 @@ const output: OutputAdapter<string> = {
 
 function fakeClient(events: SandboxEvent[], opts: { throwOnStream?: boolean } = {}) {
   const captured: { createOpts?: CreateSandboxOptions; prompt?: string } = {}
-  const client: LoopSandboxClient = {
+  const client: SandboxClient = {
     async create(createOpts) {
       captured.createOpts = createOpts
       return {

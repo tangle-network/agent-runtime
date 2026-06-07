@@ -2,9 +2,9 @@ import type { SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { detectExecutor } from '../../src/mcp/bin-helpers'
 import type { FleetHandle } from '../../src/mcp/executor'
-import type { LoopSandboxClient } from '../../src/runtime'
+import type { SandboxClient } from '../../src/runtime'
 
-function stubClient(): LoopSandboxClient {
+function stubClient(): SandboxClient {
   return {
     async create(): Promise<SandboxInstance> {
       return null as unknown as SandboxInstance
@@ -76,7 +76,7 @@ describe('detectExecutor', () => {
           return fleet
         },
       },
-    } as unknown as LoopSandboxClient
+    } as unknown as SandboxClient
 
     const executor = await detectExecutor({
       sandboxClient: client,
@@ -105,7 +105,7 @@ describe('detectExecutor', () => {
           return { fleetId: 'fl_bad' /* missing ids + sandbox() */ }
         },
       },
-    } as unknown as LoopSandboxClient
+    } as unknown as SandboxClient
 
     await expect(
       detectExecutor({
@@ -125,7 +125,7 @@ describe('detectExecutor', () => {
           return null
         },
       },
-    } as unknown as LoopSandboxClient
+    } as unknown as SandboxClient
 
     await expect(
       detectExecutor({

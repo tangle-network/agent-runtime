@@ -72,7 +72,7 @@ export interface McpServerOptions {
   researcherDelegate?: ResearcherDelegate
   /**
    * Required to enable delegate_ui_audit. Wire one that closes over your
-   * `runLoop` + `uiAuditorProfile` + a `LoopSandboxClient` (the
+   * `runLoop` + `uiAuditorProfile` + a `SandboxClient` (the
    * canonical in-process choice is `createInProcessUiAuditClient` from
    * `@tangle-network/agent-runtime/profiles`) + your vision judge.
    */

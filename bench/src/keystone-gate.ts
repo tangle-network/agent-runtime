@@ -36,9 +36,9 @@ import type {
   EqualKVerdict,
   ExecutorContext,
   ExecutorRegistry,
-  LeafExecutor,
-  LeafExecutorFactory,
-  LeafResult,
+  Executor,
+  ExecutorFactory,
+  ExecutorResult,
   Outcome,
   Persona,
   Runtime,
@@ -112,7 +112,7 @@ function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
  * tokens but still one iteration (never a fabricated priced cost). Fail-loud: a router non-2xx or
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
  */
-export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): LeafExecutor<unknown> {
+export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
   const controller = new AbortController()
   const abortIfSignalled = () => {
     if (ctx.signal.aborted) controller.abort()
@@ -120,11 +120,11 @@ export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: E
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
-  let artifact: LeafResult<unknown> | undefined
+  let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'bench-router' as Runtime,
-    async execute(task, signal): Promise<LeafResult<unknown>> {
+    async execute(task, signal): Promise<ExecutorResult<unknown>> {
       const t = task as SolveTask
       const system = spec.profile.prompt?.systemPrompt
       const messages = [
@@ -180,8 +180,8 @@ export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry 
       throw new Error('benchSolverRegistry: register is unsupported (single bench-router runtime)')
     },
     resolve<Out>(spec: AgentSpec) {
-      const factory: LeafExecutorFactory<Out> = (s, ctx) =>
-        benchSolveLeaf(opts, s, ctx) as LeafExecutor<Out>
+      const factory: ExecutorFactory<Out> = (s, ctx) =>
+        benchSolveLeaf(opts, s, ctx) as Executor<Out>
       void spec
       return { succeeded: true as const, value: factory }
     },

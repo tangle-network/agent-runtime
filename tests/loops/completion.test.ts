@@ -4,7 +4,7 @@ import {
   type AgentRunSpec,
   type CompletionVerdict,
   completionAuthorizes,
-  createDynamicDriver,
+  createDriver,
   deterministicCompletion,
   type OutputAdapter,
   runLoop,
@@ -48,9 +48,9 @@ function echoClient() {
 // A planner that NEVER stops itself — only the completion analyst can end the loop.
 const alwaysRefine: TopologyPlanner<string, string> = () => ({ kind: 'refine', task: 'good' })
 
-const run = (complete?: Parameters<typeof createDynamicDriver<string, string>>[0]['complete']) =>
+const run = (complete?: Parameters<typeof createDriver<string, string>>[0]['complete']) =>
   runLoop<string, string, 'continue' | 'done'>({
-    driver: createDynamicDriver<string, string>({
+    driver: createDriver<string, string>({
       planner: alwaysRefine,
       maxIterations: 5,
       complete,

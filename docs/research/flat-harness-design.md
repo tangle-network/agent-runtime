@@ -35,7 +35,7 @@ const result = await runRsiExperiment({
 | Framework (once) | Researcher (per experiment) |
 |---|---|
 | `ExecutionMode` mechanics (box lifecycle per mode) | full `AgentProfile`s (the arms) |
-| loop kernel (`runLoop`, `createDynamicDriver`) | steer policies (pure fns; their hypotheses) |
+| loop kernel (`runLoop`, `createDriver`) | steer policies (pure fns; their hypotheses) |
 | measurement (`BenchmarkAdapter`, `OutputAdapter`, `Validator`) | the task adapter + deterministic judge |
 | allocation scheduling (`thompson`/`variance` from agent-eval) | execution-mode + allocation choice (explicit) |
 | corpus (`RunRecord`, paired bootstrap + BH) | optional `OutputAdapter`/`Validator` overrides |

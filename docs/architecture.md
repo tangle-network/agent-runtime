@@ -13,14 +13,14 @@
 > **Status — built vs slop (verified against `origin/main`, 2026-06-05).** The
 > *product core* is real: the recursive agent tree (`src/runtime/supervise/` — `Agent.act`
 > in a `Scope`, `scope.spawn`, settle, journal→replay/resume), the sandbox seam
-> (`LoopSandboxClient` + the sandbox `LeafExecutor`, injectable/swappable), the steering
+> (`SandboxClient` + the sandbox `Executor`, injectable/swappable), the steering
 > MCP (`operator-toolbox`), the corpus + external judge, and the lifecycle hook stream
 > (`runtime-hooks`, #162/#163). The *driver-as-code* is **slop being deleted**: the
 > in-process LLM tool-loop (`operator-driver.ts`), the `create*Driver` factory zoo
 > (`refine`/`fanout-vote`/`sandbox-planner`), the `TopologyMove` DSL, and the fixed
 > `analyst-kinds` registry — all reimplement what the harness + the `Scope` + data-checks
 > already do. The *product to wire*: run the driver **and** workers as real sandbox
-> harnesses (not in-process), with checks authored on the fly. `runLoop`/`createDynamicDriver`
+> harnesses (not in-process), with checks authored on the fly. `runLoop`/`createDriver`
 > are **one execution backend**, not the center. The coherence analysis is in
 > [architecture-interpretations.md](./architecture-interpretations.md); the
 > dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the empirics
@@ -402,7 +402,7 @@ the answer is the **selector** (not the judge).
 
 ### Deep-clean (the cohesion debt, ranked)
 
-The audit found the atom is **forked, not shared**: `runLoop`+`createDynamicDriver` is used in
+The audit found the atom is **forked, not shared**: `runLoop`+`createDriver` is used in
 **one** file (`finsearch-loop.ts`); `run.ts`, `terminal-compare.ts`, `improve-prompt.ts`, and **seven
 `solveRefine*` workers each hand-roll the identical `for(round 1..k){ shot → judge → decide →
 carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted pools.

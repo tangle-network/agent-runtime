@@ -1,0 +1,77 @@
+/**
+ * The ONE pseudo-box adapter: present any one-shot `Executor` (router / bridge /
+ * BYO) as a `SandboxClient` so the round-synchronous `runLoop` can drive it
+ * without each call site re-faking a box. This is the single shell that
+ * `bench/src/router-executor.ts`, generate-eval's old `bridgeSandboxClient`, and
+ * the search-bench bridge transport were each re-implementing.
+ *
+ * It is deliberately for NON-box executors only — a real sandbox harness already
+ * IS a `SandboxClient` (boxes, sessions, fs, fork are real there). Here each
+ * `streamPrompt` runs the executor once and emits the terminal
+ * `{type:'result', data:{finalText, tokenUsage, costUsd}}` event that
+ * `answerOutput`/the kernel's cost ledger already parse — no sessions, no fs,
+ * no fork (those degrade gracefully via the optional `SandboxClient` methods).
+ */
+import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+import type { SandboxClient } from './types'
+
+function isAsyncIterable(v: unknown): v is AsyncIterable<unknown> {
+  return typeof v === 'object' && v !== null && Symbol.asyncIterator in v
+}
+
+/** Drive a (possibly streaming) executor to its terminal artifact. */
+async function settle(
+  exec: Executor<unknown>,
+  task: unknown,
+  signal: AbortSignal,
+): Promise<ExecutorResult<unknown>> {
+  const r = exec.execute(task, signal)
+  if (isAsyncIterable(r)) {
+    for await (const _ of r) {
+      // streaming executors meter as they run; the artifact is read after drain.
+    }
+    return exec.resultArtifact()
+  }
+  return r
+}
+
+/**
+ * Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is
+ * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
+ * run once on the prompt, emit the terminal result event, tear down.
+ */
+export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxClient {
+  let seq = 0
+  return {
+    async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
+      const id = `inline-${seq++}`
+      return {
+        id,
+        async *streamPrompt(message: string): AsyncGenerator<SandboxEvent> {
+          const controller = new AbortController()
+          const spec: AgentSpec = { profile: { name: id }, harness: null }
+          const exec = factory(spec, { signal: controller.signal, seams: {} })
+          try {
+            const artifact = await settle(exec, message, controller.signal)
+            const out = artifact.out as { content?: string } | undefined
+            yield {
+              type: 'result',
+              data: {
+                finalText: out?.content ?? '',
+                tokenUsage: {
+                  inputTokens: artifact.spent.tokens.input,
+                  outputTokens: artifact.spent.tokens.output,
+                },
+                costUsd: artifact.spent.usd,
+              },
+            } as unknown as SandboxEvent
+          } finally {
+            await exec.teardown('brutalKill').catch(() => {})
+          }
+        },
+        async delete(): Promise<void> {},
+      } as unknown as SandboxInstance
+    },
+  }
+}

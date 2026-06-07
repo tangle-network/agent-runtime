@@ -43,13 +43,13 @@ import type {
   Iteration,
   LoopLineageOptions,
   LoopResult,
-  LoopSandboxClient,
   LoopSandboxPlacement,
   LoopTokenUsage,
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
   OutputAdapter,
+  SandboxClient,
   Validator,
 } from './types'
 import {
@@ -811,7 +811,7 @@ function branchPoint<Task, Output>(
 }
 
 export function describeSandboxPlacement(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   box: SandboxInstance,
 ): LoopSandboxPlacement {
   if (typeof client.describePlacement === 'function') {
@@ -848,7 +848,7 @@ function readSandboxId(box: SandboxInstance): string | undefined {
  * `AgentRuntime.act` sandbox bridge so both boot the sandbox identically.
  */
 export async function createSandboxForSpec<Task>(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
 ): Promise<SandboxInstance> {

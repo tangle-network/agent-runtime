@@ -7,7 +7,7 @@
  * below it. No new engine — the developer's whole surface is `runBenchmarks(...)`.
  */
 
-import type { AgentProfile, LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { AgentProfile, SandboxClient } from '@tangle-network/agent-runtime/loops'
 import { ADAPTERS, resolveAdapter } from './adapters'
 import {
   type Arm,
@@ -24,7 +24,7 @@ export interface RunBenchmarksOptions {
   /** Which benchmark(s) — keys into the registry, or 'all'. */
   benchmarks: string[] | 'all'
   /** The execution substrate, injected (fleet-swappable for scale). */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Router endpoint + key the in-box worker calls. */
   routerBaseUrl: string
   routerKey: string

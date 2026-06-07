@@ -29,7 +29,7 @@
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
  */
 
-import type { LoopSandboxClient, LoopTraceEmitter } from '../runtime'
+import type { LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
 import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   // sandbox. Useful for tooling that mounts the MCP server purely for
   // self-introspection.
   const needsSandbox = wantCoder || wantResearcher
-  let sandboxClient: LoopSandboxClient | undefined
+  let sandboxClient: SandboxClient | undefined
   let executor: DelegationExecutor | undefined
   if (needsSandbox) {
     const apiKey = process.env.TANGLE_API_KEY
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
   await server.serve()
 }
 
-async function loadSandboxClient(apiKey: string | undefined): Promise<LoopSandboxClient> {
+async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxClient> {
   // Diagnostic mode: AGENT_RUNTIME_MCP_ALLOW_NO_KEY=1 enables tools/list + the
   // queue-bound tools (status / history / feedback) without sandbox creds.
   // Coder + researcher delegations require a real client; the stub fails loud
@@ -130,7 +130,7 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<LoopSandbo
           'agent-runtime-mcp: TANGLE_API_KEY is unset; coder/researcher delegations are disabled in diagnostic mode. Set TANGLE_API_KEY or use MCP_DISABLE_CODER=1 MCP_DISABLE_RESEARCHER=1 to remove the unsupported tools from the tool list.',
         )
       },
-    } satisfies LoopSandboxClient
+    } satisfies SandboxClient
   }
   // Dynamic import keeps the bin importable in environments that haven't
   // installed `@tangle-network/sandbox` yet (the runtime package lists it
@@ -141,7 +141,7 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<LoopSandbo
     )
     process.exit(2)
   })
-  const SandboxCtor = (mod as { Sandbox?: new (config: unknown) => LoopSandboxClient }).Sandbox
+  const SandboxCtor = (mod as { Sandbox?: new (config: unknown) => SandboxClient }).Sandbox
   if (!SandboxCtor) {
     process.stderr.write(
       'agent-runtime-mcp: @tangle-network/sandbox does not export Sandbox; cannot construct client\n',
@@ -169,7 +169,7 @@ interface ResearcherFanoutPreset {
 }
 
 async function loadResearcherDelegate(
-  sandboxClient: LoopSandboxClient,
+  sandboxClient: SandboxClient,
   maxConcurrency: number,
   traceEmitter?: LoopTraceEmitter,
 ): Promise<ResearcherDelegate | undefined> {

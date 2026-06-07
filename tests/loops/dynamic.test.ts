@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { PlannerError } from '../../src/errors'
 import {
   type AgentRunSpec,
-  createDynamicDriver,
+  createDriver,
   type LoopPlanPayload,
   type LoopTraceEmitter,
   type LoopTraceEvent,
@@ -117,7 +117,7 @@ function workerClient() {
   }
 }
 
-describe('runLoop + createDynamicDriver', () => {
+describe('runLoop + createDriver', () => {
   it('lets an adaptive planner choose refine→refine→fanout→stop from history', async () => {
     const goal = 'ship the feature'
     // The planner reads history and adapts: try cheap strategies first, escalate
@@ -137,7 +137,7 @@ describe('runLoop + createDynamicDriver', () => {
 
     const { client, dispatched } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxIterations: 8 }),
+      driver: createDriver<Task, Out>({ planner, maxIterations: 8 }),
       agentRuns: workerSpecs(['worker-a', 'worker-b']),
       output,
       validator,
@@ -181,7 +181,7 @@ describe('runLoop + createDynamicDriver', () => {
 
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRuns: workerSpecs(['claude-code', 'codex']),
       output,
       validator,
@@ -209,7 +209,7 @@ describe('runLoop + createDynamicDriver', () => {
     })
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxIterations: 3 }),
+      driver: createDriver<Task, Out>({ planner, maxIterations: 3 }),
       agentRun: workerSpecs(['solo'])[0],
       output,
       validator,
@@ -235,7 +235,7 @@ describe('runLoop + createDynamicDriver', () => {
 
     const { client, dispatched } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 2 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: workerSpecs(['a', 'b']),
       output,
       validator,
@@ -252,7 +252,7 @@ describe('runLoop + createDynamicDriver', () => {
     const { client } = workerClient()
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: workerSpecs(['a'])[0],
         output,
         validator,
@@ -267,7 +267,7 @@ describe('runLoop + createDynamicDriver', () => {
     const { client } = workerClient()
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: workerSpecs(['a'])[0],
         output,
         validator,
@@ -322,7 +322,7 @@ describe('runLoop dynamic driver — trace emission for topology viewers', () =>
     }
 
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRun: workerSpecs(['w'])[0],
       output,
       validator,
@@ -376,7 +376,7 @@ describe('runLoop dynamic driver — planner-declared edge lineage (#82)', () =>
     }
     const { client } = workerClient()
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRuns: workerSpecs(['a', 'b']),
       output,
       validator,
@@ -407,7 +407,7 @@ describe('runLoop dynamic driver — analyses→planner wire (Phase 2)', () => {
     let analyzeCalls = 0
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({
+      driver: createDriver<Task, Out>({
         planner,
         analyze: ({ history }) => {
           analyzeCalls += 1
@@ -439,7 +439,7 @@ describe('runLoop dynamic driver — analyses→planner wire (Phase 2)', () => {
     const { client } = workerClient()
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({
+        driver: createDriver<Task, Out>({
           planner,
           analyze: (() => ({ not: 'an array' })) as unknown as () => ReadonlyArray<AnalystFinding>,
         }),
@@ -489,7 +489,7 @@ describe('runLoop dynamic driver — emittable select (Phase 3a)', () => {
     const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRuns: workerSpecs(['a', 'b']),
       output,
       validator,
@@ -514,7 +514,7 @@ describe('runLoop dynamic driver — emittable select (Phase 3a)', () => {
     const { client } = workerClient()
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: workerSpecs(['solo'])[0],
         output,
         validator,
@@ -540,7 +540,7 @@ describe('runLoop dynamic driver — emittable select (Phase 3a)', () => {
     const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRuns: workerSpecs(['a', 'b']),
       output,
       validator,
@@ -577,7 +577,7 @@ describe('runLoop dynamic driver — steer-firewall (selector ≠ judge, Gen-1)'
   it('PASSES a finding with trace-derived (artifact) evidence', async () => {
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({
+      driver: createDriver<Task, Out>({
         planner: refineThenStop('fw-pass'),
         analyze: () => [finding({ evidence_refs: [{ kind: 'artifact', uri: 'attempt:run1#0' }] })],
       }),
@@ -593,7 +593,7 @@ describe('runLoop dynamic driver — steer-firewall (selector ≠ judge, Gen-1)'
   it('PASSES a finding with empty evidence_refs (existing fixtures stay legal)', async () => {
     const { client } = workerClient()
     const result = await runLoop({
-      driver: createDynamicDriver<Task, Out>({
+      driver: createDriver<Task, Out>({
         planner: refineThenStop('fw-empty'),
         analyze: () => [finding({ evidence_refs: [] })],
       }),
@@ -610,7 +610,7 @@ describe('runLoop dynamic driver — steer-firewall (selector ≠ judge, Gen-1)'
     const { client } = workerClient()
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({
+        driver: createDriver<Task, Out>({
           planner: refineThenStop('fw-reject'),
           analyze: () => [finding({ evidence_refs: [{ kind: 'metric', uri: 'verdict:score' }] })],
         }),
@@ -627,7 +627,7 @@ describe('runLoop dynamic driver — steer-firewall (selector ≠ judge, Gen-1)'
     const { client } = workerClient()
     // a 'metric' ref that is NOT judge-scheme (e.g. latency) is trace-derived → allowed
     const ok = await runLoop({
-      driver: createDynamicDriver<Task, Out>({
+      driver: createDriver<Task, Out>({
         planner: refineThenStop('fw-latency'),
         analyze: () => [finding({ evidence_refs: [{ kind: 'metric', uri: 'latency_ms:1200' }] })],
       }),

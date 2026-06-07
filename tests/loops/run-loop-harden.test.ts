@@ -2,7 +2,7 @@ import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createDynamicDriver,
+  createDriver,
   type LoopTraceEmitter,
   type LoopTraceEvent,
   type OutputAdapter,
@@ -52,7 +52,7 @@ describe('runLoop — abort short-circuits before launching a fresh batch', () =
     }
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -84,7 +84,7 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
     const planner: TopologyPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -101,7 +101,7 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
     const planner: TopologyPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
       runLoop({
-        driver: createDynamicDriver<Task, Out>({ planner }),
+        driver: createDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -139,7 +139,7 @@ describe('runLoop — teardown observability + parallelism', () => {
     // onWorkerBox keeps the box alive across plan(); teardown runs at loop end,
     // and the throwing delete must surface as a loop.teardown.failed span.
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner }),
+      driver: createDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'g' },
@@ -182,7 +182,7 @@ describe('runLoop — teardown observability + parallelism', () => {
       },
     }
     await runLoop({
-      driver: createDynamicDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'a' },

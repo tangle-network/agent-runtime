@@ -13,7 +13,7 @@
  * fail-CLOSED — never assume forking works, only enable it on a positive probe.
  */
 
-import type { LoopSandboxClient } from './types'
+import type { SandboxClient } from './types'
 
 /**
  * What the loop kernel is allowed to know about a sandbox backend: a single
@@ -42,7 +42,7 @@ const probeCache = new WeakMap<object, Promise<SandboxCapabilities>>()
  *
  * @experimental
  */
-export function probeSandboxCapabilities(client: LoopSandboxClient): Promise<SandboxCapabilities> {
+export function probeSandboxCapabilities(client: SandboxClient): Promise<SandboxCapabilities> {
   const key = client as unknown as object
   const cached = probeCache.get(key)
   if (cached) return cached
@@ -51,7 +51,7 @@ export function probeSandboxCapabilities(client: LoopSandboxClient): Promise<San
   return probe
 }
 
-async function resolveCapabilities(client: LoopSandboxClient): Promise<SandboxCapabilities> {
+async function resolveCapabilities(client: SandboxClient): Promise<SandboxCapabilities> {
   const criuStatus = (client as CriuCapableClient).criuStatus
   if (typeof criuStatus !== 'function') return { canFork: false }
   try {
@@ -66,7 +66,7 @@ async function resolveCapabilities(client: LoopSandboxClient): Promise<SandboxCa
 }
 
 /**
- * Narrowed view of the optional CRIU probe. The loop-side `LoopSandboxClient`
+ * Narrowed view of the optional CRIU probe. The loop-side `SandboxClient`
  * does not require `criuStatus`; this widens it optionally so the probe can be
  * read without importing sandbox-backend specifics. @experimental
  */

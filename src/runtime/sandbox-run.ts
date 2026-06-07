@@ -36,7 +36,7 @@ import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
-import type { AgentRunSpec, LoopSandboxClient } from './types'
+import type { AgentRunSpec, SandboxClient } from './types'
 import { randomSuffix, sleep, throwIfAborted } from './util'
 
 /**
@@ -102,7 +102,7 @@ export interface OpenSandboxRunOptions {
  * kimi-code all flow through this one entrypoint with identical env/auth wiring.
  */
 export async function openSandboxRun<Out>(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   options: OpenSandboxRunOptions,
   deliverable: Deliverable<Out>,
 ): Promise<SandboxRun<Out>> {

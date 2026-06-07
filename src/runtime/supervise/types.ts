@@ -14,7 +14,7 @@
  *  - The journal records a content-addressed `outRef` per child result, so replay
  *    rehydrates the exact `Settled` the driver branched on (the replay invariant below).
  *
- * The leaf RUNTIME is one OPEN `LeafExecutor` interface, not a closed `inline|sandbox|cli`
+ * The leaf RUNTIME is one OPEN `Executor` interface, not a closed `inline|sandbox|cli`
  * union the call site switches on. The built-ins (router/inline, sandbox, cli) are the
  * initial IMPLEMENTATIONS; any user agent is first-class the moment it implements the
  * interface. The interface IS the extension point — no per-vendor adapters live here.
@@ -54,7 +54,7 @@ export interface Agent<Task, Out> {
 
 /**
  * The leaf runtime — ONE open interface, not a closed union. `execute` returns a
- * `Promise<LeafResult>` for one-shot executors OR an `AsyncIterable<UsageEvent>` for
+ * `Promise<ExecutorResult>` for one-shot executors OR an `AsyncIterable<UsageEvent>` for
  * streaming ones; a streaming executor reports incremental normalized usage as it runs
  * (the budget pool reconciles against it) and exposes its terminal artifact via
  * `resultArtifact()`. Both shapes normalize usage to `UsageEvent` so the conserved pool
@@ -66,7 +66,7 @@ export interface Agent<Task, Out> {
  * (Halo/RLM subprocess; `budgetExempt`, excluded from equal-k by construction). A user's
  * own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
  */
-export interface LeafExecutor<Out> {
+export interface Executor<Out> {
   /** Stable runtime tag for traces + the equal-k exemption check. */
   readonly runtime: Runtime
   /**
@@ -76,11 +76,14 @@ export interface LeafExecutor<Out> {
    */
   readonly budgetExempt?: boolean
   /**
-   * One-shot → resolves a `LeafResult`; streaming → yields incremental `UsageEvent`s and
+   * One-shot → resolves a `ExecutorResult`; streaming → yields incremental `UsageEvent`s and
    * the terminal artifact is read from `resultArtifact()` after the stream drains.
    * `signal` is the spawn-scoped abort (chains the acquire lifecycle for sandbox).
    */
-  execute(task: unknown, signal: AbortSignal): Promise<LeafResult<Out>> | AsyncIterable<UsageEvent>
+  execute(
+    task: unknown,
+    signal: AbortSignal,
+  ): Promise<ExecutorResult<Out>> | AsyncIterable<UsageEvent>
   /**
    * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_worker`
    * verb). A streaming executor drains pending messages between turns and folds them into the next
@@ -101,8 +104,8 @@ export interface LeafExecutor<Out> {
   resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }
 }
 
-/** Terminal artifact of a one-shot `LeafExecutor.execute`. */
-export interface LeafResult<Out> {
+/** Terminal artifact of a one-shot `Executor.execute`. */
+export interface ExecutorResult<Out> {
   outRef: string
   out: Out
   verdict?: DefaultVerdict
@@ -119,7 +122,7 @@ export type UsageEvent =
   | { kind: 'cost'; usd: number }
   | { kind: 'iteration' }
 
-/** The runtime tag of a `LeafExecutor` impl. Open by intent — `string` so a BYO executor
+/** The runtime tag of a `Executor` impl. Open by intent — `string` so a BYO executor
  *  names its own runtime; the built-ins use these literals. */
 export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 
@@ -131,7 +134,7 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
  * executor through this MINIMAL wrapper, never by fabricating a field onto `AgentProfile`.
  *
  * Resolution (in `runtime.ts`):
- *  - `executor` present        → BYO: use it verbatim (a user's own `LeafExecutor`).
+ *  - `executor` present        → BYO: use it verbatim (a user's own `Executor`).
  *  - `harness === null`        → router/inline: a direct Router call, no box.
  *  - `harness` is a `BackendType` → sandbox: compose `runLoop` against `profile` on that backend.
  * Fail loud on an unresolvable spec (no executor and an unknown harness).
@@ -141,17 +144,17 @@ export interface AgentSpec {
   /** `null` selects router/inline; a `BackendType` selects the sandboxed harness. */
   readonly harness: BackendType | null
   /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
-  readonly executor?: LeafExecutor<unknown>
+  readonly executor?: Executor<unknown>
 }
 
 /**
- * Builds a fresh `LeafExecutor` for one spawn from the resolved spec. Per-spawn (not
+ * Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
  * shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
  * user supply construction args without pre-instantiating.
  */
-export type LeafExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => LeafExecutor<Out>
+export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Executor<Out>
 
-/** Construction context handed to a `LeafExecutorFactory` — the seams a built-in needs
+/** Construction context handed to a `ExecutorFactory` — the seams a built-in needs
  *  (sandbox client for the sandbox executor, router config for router/inline) without
  *  the factory reaching into module globals. */
 export interface ExecutorContext {
@@ -161,14 +164,14 @@ export interface ExecutorContext {
 }
 
 /**
- * The OPEN resolver: maps an `AgentSpec` to a `LeafExecutorFactory`. The default
+ * The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
  * registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
  * register more runtimes by name. NOT a closed switch — registration is the extension
- * point, mirroring the open `LeafExecutor` interface.
+ * point, mirroring the open `Executor` interface.
  */
 export interface ExecutorRegistry {
   /** Register a factory for a named runtime. Throws on a duplicate name (fail loud). */
-  register<Out>(runtime: Runtime, factory: LeafExecutorFactory<Out>): void
+  register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void
   /**
    * Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
    * returning it; else `harness === null` → the `'router'` factory; else a registered
@@ -177,7 +180,7 @@ export interface ExecutorRegistry {
    */
   resolve<Out>(
     spec: AgentSpec,
-  ): { succeeded: true; value: LeafExecutorFactory<Out> } | { succeeded: false; error: string }
+  ): { succeeded: true; value: ExecutorFactory<Out> } | { succeeded: false; error: string }
 }
 
 // ── Budget — the conserved reservation pool ───────────────────────────────────
@@ -393,7 +396,7 @@ export interface SupervisorOpts {
   readonly journal: SpawnJournal
   /** Result payload store backing `outRef` rehydration. */
   readonly blobs: ResultBlobStore
-  /** Executor resolution — the open registry mapping `AgentSpec` → `LeafExecutor`. */
+  /** Executor resolution — the open registry mapping `AgentSpec` → `Executor`. */
   readonly executors: ExecutorRegistry
   /** Runtime recursion-depth ceiling (paired with the conserved pool per R3). */
   readonly maxDepth?: number

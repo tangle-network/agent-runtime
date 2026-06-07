@@ -27,7 +27,7 @@
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
-import type { LoopSandboxClient } from './types'
+import type { SandboxClient } from './types'
 import { sleep as abortableSleep, deleteBoxSafe, randomUuid, throwIfAborted } from './util'
 
 /**
@@ -59,14 +59,14 @@ export interface AcquireOptions {
 }
 
 /** Minimal client surface acquire needs beyond `create` (the real SDK satisfies it). */
-interface PollableClient extends LoopSandboxClient {
+interface PollableClient extends SandboxClient {
   list?: (options?: unknown) => Promise<SandboxInstance[]>
   get?: (id: string) => Promise<SandboxInstance | null>
 }
 
 /** @experimental */
 export async function acquireSandbox(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   options: CreateSandboxOptions,
   acquire: AcquireOptions = {},
 ): Promise<SandboxInstance> {

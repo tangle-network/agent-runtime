@@ -1,6 +1,6 @@
 // TANGLE_FLEET_ID flips delegation from sibling-sandbox to fleet-workspace dispatch. See README.md.
 
-import type { LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,
@@ -49,10 +49,10 @@ function makeFleetStub(): FleetHandle {
 async function demoSiblingMode(): Promise<void> {
   console.log('— SIBLING MODE ————————————————————————————————')
   console.log(`env: ${describeEnv(SIBLING_ENV)}`)
-  // Sibling mode wraps an existing LoopSandboxClient (the raw sandbox SDK).
+  // Sibling mode wraps an existing SandboxClient (the raw sandbox SDK).
   // We synthesise a tiny stub here just to show the tagging shape; in
   // production this is `new Sandbox({ apiKey })`.
-  const underlying: LoopSandboxClient = {
+  const underlying: SandboxClient = {
     async create(): Promise<SandboxInstance> {
       return { id: 'sibling-sandbox-xyz' } as unknown as SandboxInstance
     },

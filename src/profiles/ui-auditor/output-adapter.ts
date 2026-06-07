@@ -2,7 +2,7 @@
  * @experimental
  *
  * Sandbox-event stream → UiAuditOutput decoder. The custom auditor
- * `LoopSandboxClient` emits events of the form:
+ * `SandboxClient` emits events of the form:
  *
  *   { type: 'audit.capture', data: UiAuditCapture }
  *   { type: 'audit.finding', data: UiFinding }

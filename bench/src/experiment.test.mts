@@ -2,16 +2,16 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { analystArm, randomArm, refineArm, runExperiment, sandboxAgentRun } from './experiment'
 
-// The developer-friendly verification seam: a LoopSandboxClient that yields
+// The developer-friendly verification seam: a SandboxClient that yields
 // SCRIPTED events, so the WHOLE one flow (provision → stream → deliverable →
 // judge → usage → corpus) runs offline, deterministically, with ZERO creds.
 // This is the "local-bridge" dial as a test double — the painful part of bench
 // DX ("you need a Tangle key to run anything") solved for the test path.
-function mockSandboxClient(script: (prompt: string) => unknown[]): LoopSandboxClient {
+function mockSandboxClient(script: (prompt: string) => unknown[]): SandboxClient {
   return {
     // biome-ignore lint/suspicious/noExplicitAny: a test double for SandboxInstance — only the methods runLoop touches
     create: async (): Promise<any> => ({

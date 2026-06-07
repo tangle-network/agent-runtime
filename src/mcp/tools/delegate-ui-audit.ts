@@ -10,7 +10,7 @@
  * The handler does not import the auditor profile directly — consumers
  * inject a `UiAuditorDelegate` via `createMcpServer({ uiAuditorDelegate })`.
  * The delegate is the seam where the consumer chooses the judge (vision
- * model) and the `LoopSandboxClient` (in-process Playwright vs fleet vs
+ * model) and the `SandboxClient` (in-process Playwright vs fleet vs
  * remote browser). agent-runtime ships the in-process client under
  * `./profiles` so consumers who want the canonical setup can wire it
  * with a few lines.

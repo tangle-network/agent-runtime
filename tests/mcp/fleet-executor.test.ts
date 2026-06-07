@@ -266,7 +266,7 @@ describe('createDefaultCoderDelegate with executor', () => {
   })
 })
 
-describe('LoopSandboxClient placement default', () => {
+describe('SandboxClient placement default', () => {
   it('falls back to sibling when the client has no describePlacement', async () => {
     const events: LoopTraceEvent[] = []
     const fakeBox = {
