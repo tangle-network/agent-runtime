@@ -13,7 +13,11 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { BenchTask } from './benchmarks/types'
-import { type BenchRuntimeHookEvent, createRuntimeHookRecorder } from './runtime-hook-recorder'
+import {
+  type BenchRuntimeDecisionPoint,
+  type BenchRuntimeHookEvent,
+  createRuntimeHookRecorder,
+} from './runtime-hook-recorder'
 
 export interface WorkerConfig {
   sandboxBaseUrl: string
@@ -30,6 +34,7 @@ export interface ShotResult {
   ok: boolean
   detail?: string
   runtimeEvents?: BenchRuntimeHookEvent[]
+  runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
 }
 
 const PATCH_PATH = '/tmp/solution.patch'
@@ -121,6 +126,7 @@ export async function solveShot(
         ? `empty patch${turn.readError ? ` (patch read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}`
         : undefined,
       runtimeEvents: runtime.events,
+      runtimeDecisionPoints: runtime.decisionPoints,
     }
   } finally {
     if (timer) clearTimeout(timer)

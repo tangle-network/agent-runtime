@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { isRunRecord } from '@tangle-network/agent-eval'
-import { type AttemptRecord, benchRecordToCorpusRecords, type RunRecord } from './corpus'
+import {
+  type AttemptRecord,
+  benchRecordToCorpusRecords,
+  buildRunRecord,
+  type RunRecord,
+} from './corpus'
 
 const measuredAttempt = (round: number, output: string, valid: boolean): AttemptRecord => ({
   round,
@@ -101,6 +106,58 @@ const baseRec = (attempts: AttemptRecord[], over: Partial<RunRecord> = {}): RunR
   assert.equal(records[0]?.splitTag, 'holdout')
   assert.equal(records[0]?.outcome.holdoutScore, 1, 'holdout split → holdoutScore')
   assert.equal(records[0]?.outcome.searchScore, undefined, 'no searchScore on a holdout record')
+}
+
+// --- bench writer preserves runtime trajectory evidence and semantic decision points ---
+{
+  const record = buildRunRecord({
+    benchmark: 'commit0',
+    instanceId: 'task-1',
+    condition: 'random@2',
+    model: 'gpt-5',
+    resolved: true,
+    infraError: false,
+    now: () => new Date('2026-06-03T00:00:00.000Z'),
+    iterations: [
+      {
+        index: 0,
+        task: 'prompt',
+        agentRunName: 'worker',
+        output: 'completion',
+        verdict: { valid: true, score: 1 },
+        events: [],
+        startedAt: 10,
+        endedAt: 20,
+        costUsd: 0.01,
+        tokenUsage: { input: 10, output: 5 },
+      },
+    ],
+    runtimeEvents: [
+      {
+        id: 'run-1:agent.run:before',
+        runId: 'run-1',
+        scenarioId: 'task-1',
+        target: 'agent.run',
+        phase: 'before',
+        timestamp: 1,
+      },
+    ],
+    runtimeDecisionPoints: [
+      {
+        id: 'run-1:agent.turn:0:failure-recovery',
+        runId: 'run-1',
+        scenarioId: 'task-1',
+        stepIndex: 0,
+        kind: 'retry',
+        candidateActions: ['retry', 'verify', 'stop'],
+        evidence: [{ source: 'tool_result', id: 'tool-1:result' }],
+        metadata: { target: 'failure-recovery' },
+      },
+    ],
+  })
+  assert.equal(record.runtimeEvents?.length, 1, 'runtime lifecycle events survive the writer')
+  assert.equal(record.runtimeDecisionPoints?.length, 1, 'runtime decision points survive the writer')
+  assert.equal(record.runtimeDecisionPoints?.[0]?.metadata?.target, 'failure-recovery')
 }
 
 console.log('corpus.test.mts: all assertions passed')
