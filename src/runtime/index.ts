@@ -17,6 +17,10 @@ export type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+// Two substrates for the same "recursive agent decision" atom, both exported here (per
+// docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
+// combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
+// `runLoop` + `createDynamicDriver` = the round-synchronous path most benches still drive.
 // Recursive execution atom (the keystone): the open `LeafExecutor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the durable journal +

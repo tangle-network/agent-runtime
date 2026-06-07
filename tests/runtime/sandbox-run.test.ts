@@ -138,21 +138,45 @@ describe('openSandboxRun — artifact deliverable (the file-read seam over Outpu
     expect(readPaths).toEqual(['solution.patch'])
   })
 
-  it('surfaces a failed read in readError WITHOUT throwing (fault ≠ empty deliverable)', async () => {
-    const { client } = createFakeClient({
+  it('surfaces a persistently failed read in readError WITHOUT throwing (fault ≠ empty deliverable)', async () => {
+    const { client, readPaths } = createFakeClient({
       fsRead: () => {
         throw new Error('outside allowed roots')
       },
     })
     const run = await openSandboxRun(
+      // readRetryDelayMs: 0 — exercise the retry path without the production backoff wait.
       client,
-      { agentRun: spec(), signal: new AbortController().signal },
+      { agentRun: spec(), signal: new AbortController().signal, readRetryDelayMs: 0 },
       artifactDeliverable('solution.patch'),
     )
     const turn = await run.start('write the patch')
     expect(turn.readError).toMatch(/outside allowed roots/)
     // The deliverable still maps over the empty read — the caller decides what to do.
     expect(turn.out).toEqual({ raw: '', n: 1 })
+    // A persistent failure exhausts the bounded retries (4 attempts), it does not loop forever.
+    expect(readPaths.length).toBe(4)
+  })
+
+  it('RETRIES a transient read failure and recovers', async () => {
+    let calls = 0
+    const { client } = createFakeClient({
+      // Fail the first two reads (a transient edge 404), succeed on the third.
+      fsRead: () => {
+        calls += 1
+        if (calls < 3) throw new Error('Resource not found: unknown')
+        return 'RECOVERED-PATCH'
+      },
+    })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: new AbortController().signal, readRetryDelayMs: 0 },
+      artifactDeliverable('solution.patch'),
+    )
+    const turn = await run.start('write the patch')
+    expect(turn.readError).toBeUndefined()
+    expect(turn.out).toEqual({ raw: 'RECOVERED-PATCH', n: 1 })
+    expect(calls).toBe(3)
   })
 })
 
