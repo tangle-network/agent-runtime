@@ -35,7 +35,7 @@ I have everything I need — the analysis is complete and every claim is already
 | # | Application | Fleet? | Verifier? | Status |
 |---|---|---|---|---|
 | A1 | **Conformal answer-or-abstain selector** — coverage-guaranteed `index \| ABSTAIN` over the firewalled `Selector`, calibrated on stored `valid`. (C2; merges stats#1 + causal#1 + product#1 + MBR.) | ✅ operator fleet (abstention IS the product) | partial (uses disagreement only) | **build-now, offline** |
-| A2 | **Program-synthesis LeafExecutor** — diverse proposals, selection by **runnable tests**, deterministic completion as the selector. The regime where separation provably holds. (C4; merges control#4 + RL#3 + causal#3.) | ✗ narrow (most operator domains lack a total verifier) | ✅ total cheap | **build-now; the run is the deliverable** |
+| A2 | **Program-synthesis Executor** — diverse proposals, selection by **runnable tests**, deterministic completion as the selector. The regime where separation provably holds. (C4; merges control#4 + RL#3 + causal#3.) | ✗ narrow (most operator domains lack a total verifier) | ✅ total cheap | **build-now; the run is the deliverable** |
 | A3 | **Provenance citation-survival as a *partial* deployable verifier** — rank k by fraction of cited authorities that survive an independent non-LLM re-fetch+entailment check (G-STEAL-1 refuter pointed at citation fidelity). (merges product#2 + DB#2 + causal#2.) | ✅ tax/legal/insurance | partial (citation layer only) | **research; mechanism build-now, gate arm needs a gold slice** |
 | A4 | **Surprisingly-Popular / BTS aggregator** — pick the answer whose actual frequency beats its predicted frequency; Bayes-optimal in the correlated-error regime that breaks plurality vote. (econ#1.) | partial | ✗ | **build-now, offline; contingent on R2's diagnosis** |
 | A5 | **Exactly-once outRef-dedup of the gate denominator** — dedup attempts by content-addressed `outRef` before counting k, so the ~14% finsearch stream-drop stops inflating self-consistency clusters. (DB#4.) | n/a (plumbing) | n/a | **build-now; enables a clean keystone** |
@@ -61,7 +61,7 @@ Method: correlated-error / separation-principle decomposition. Hook: offline sta
 *Experiment:* compute the inter-attempt error-correlation statistic over finsearch + aec; confirm errors are correlated (modal cluster anti-correlated with truth). **Bounded value, stated honestly:** a fancier likelihood over candidate *text alone* is self-consistency with extra steps — this diagnosis is load-bearing only where an independent recheck channel exists, i.e. it justifies R5/A2/A3, not a text-only fix.
 
 **R4 — Program-synthesis verifier run (the existence proof at scale).** *(C4)*
-Method: execution-guided selection; paired-bootstrap + BH at significant n. Hook: `LeafExecutor` open registry + `in-process-executor.ts` (worktree+testCmd) + `deterministicCompletion`. Status: **build-now; the run is the deliverable.**
+Method: execution-guided selection; paired-bootstrap + BH at significant n. Hook: `Executor` open registry + `in-process-executor.ts` (worktree+testCmd) + `deterministicCompletion`. Status: **build-now; the run is the deliverable.**
 *Experiment:* diverse@k-with-tests on aec at significant n. **Three load-bearing caveats:** (a) the win is *narrow* — does not generalize to the fleet ("validates concept ≠ validates product"); (b) **reward-hacking** — test-author ≠ code-author or hold out hidden tests, or "all green" is a fake reward; (c) **the anticorrelation threat** (pinned here from the killed do-calculus direction): `driver-layer-zero-headroom-coding` found SWE oracle headroom ~0pp — if the inner agent self-corrects to its verifier within one rollout, there is no diversity ceiling to recover *on exactly the domain where the verifier is sound*. aec-diverse (oracle 50% vs random@k 34.4%, n=16) is the existence proof that on a synthesis-adjacent domain the ceiling is real, but n is tiny — this run is to convert theory to measurement.
 
 **R5 — Surprisingly-Popular aggregator.** *(A4, econ#1)*
@@ -69,7 +69,7 @@ Method: Prelec surprisingly-popular / Bayesian Truth Serum (the unique info-trut
 *Experiment:* run only if R3 confirms correlated errors AND answers discretize (note `normalizeAnswer` cannot cluster paraphrases — the selector's documented ceiling). Then SP is the highest-upside *text-domain* selector to try.
 
 **R6 — Citation-survival as a partial verifier for operator products.** *(A3)*
-Method: G-STEAL-1 `{producer, refuter}` panel + non-LLM re-fetch/entailment leaf; `assertTraceDerivedFindings` admits the recheck. Hook: `LeafExecutor` leaf + `CompletionEvidence`. Status: **research (gate arm blocked on a gold slice); mechanism build-now.**
+Method: G-STEAL-1 `{producer, refuter}` panel + non-LLM re-fetch/entailment leaf; `assertTraceDerivedFindings` admits the recheck. Hook: `Executor` leaf + `CompletionEvidence`. Status: **research (gate arm blocked on a gold slice); mechanism build-now.**
 *Experiment:* on a gold-labeled operator slice, does citation-survival@k rank *correct* above *incorrect*, or only *well-cited* above *sloppy*? If the latter, it is provenance theater that gives false confidence on exactly the high-stakes errors that matter. **No gold slice exists — that is the blocking dependency.**
 
 **R7 — Exactly-once dedup of the denominator.** *(A5, DB#4)*

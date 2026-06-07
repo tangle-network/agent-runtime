@@ -186,7 +186,7 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
 
 ## 7. Evidence anchors
 
-- `src/loops/drivers/dynamic.ts` — `PlannerContext` (no `analyses` field); `TopologyMove` 3-opcode union; `summarizeHistory` (verdict score + truncated output only).
+- `src/loops/drivers/driver.ts` — `PlannerContext` (no `analyses` field); `TopologyMove` 3-opcode union; `summarizeHistory` (verdict score + truncated output only).
 - `src/loops/drivers/sandbox-planner.ts` — live planner build-prompt sees only root task + history summary.
 - `src/loops/drivers/planners.ts` — the only deterministic driver is blind.
 - `src/loops/run-loop.ts` — `defaultSelectWinner` / `branchPoint` (selection is an interpreter builtin; ranks by `verdict.score`).

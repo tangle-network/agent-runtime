@@ -4,7 +4,7 @@
  * Wires:
  *   - `uiAuditorProfile()` — output adapter + validator + envelope-prefixed prompt
  *   - `createInProcessUiAuditClient({ workspaceDir, judge })` — the in-process
- *     `LoopSandboxClient` that drives Playwright + a vision judge
+ *     `SandboxClient` that drives Playwright + a vision judge
  *   - `runLoop({ ... })` — one iteration per (lens × route), validator-gated
  *   - `appendFindings(...)` + `writeAuditIndex(...)` — persist self-contained
  *     GitHub-issue Markdown

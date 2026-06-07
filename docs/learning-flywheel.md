@@ -174,7 +174,7 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
    reward modeling). *This is the bottleneck. Without it, nothing above is reachable —
    GEPA can search any space only if you can afford the metric evals.*
 2. **Controller-as-signature-program.** steer/topology/stop as jointly-optimizable
-   signatures; worker as opaque tool. (`createDynamicDriver(planner)` where `planner` is the
+   signatures; worker as opaque tool. (`createDriver(planner)` where `planner` is the
    compiled program.)
 3. **Trace-aware, multi-objective optimizer.** GEPA/MIPRO reflecting on **traces** (not
    pass/fail), optimizing for **correctness AND clean/fast trace** (Pareto). `meta-harness`
@@ -262,7 +262,7 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
 
 ## Where the pieces live
 
-- Kernel + controller seam: `src/loops/` (`runLoop`, `createDynamicDriver`, `createSandboxPlanner`).
+- Kernel + controller seam: `src/loops/` (`runLoop`, `createDriver`, `createSandboxPlanner`).
 - Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`, `finsearch-loop.ts`,
   `terminal-compare.ts`, `corpus-report.mts`).
 - Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`gepaDriver`,
