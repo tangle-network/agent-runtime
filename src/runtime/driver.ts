@@ -39,7 +39,7 @@ import type { Driver, Iteration, LoopPlanDescription } from './types'
 import { stringifySafe } from './util'
 
 /** Terminal once `decide` returns `'done'` (a kernel terminal decision). */
-export type DynamicDecision = 'continue' | 'done'
+export type DriverDecision = 'continue' | 'done'
 
 /**
  * One topology decision for the next round. `fanout` carries explicit tasks
@@ -72,7 +72,7 @@ export interface PlannerContext<Task, Output> {
   iterationsRemaining: number
   /**
    * Trace-analyst findings about the attempts so far — populated only when an
-   * `analyze` hook is wired into the driver (see CreateDynamicDriverOptions).
+   * `analyze` hook is wired into the driver (see CreateDriverOptions).
    * This is the channel that lets the planner steer from the DIAGNOSIS
    * (`f(trace, findings)`), not the verdict score alone. Undefined = no analyst
    * wired (the planner runs exactly as before). @experimental
@@ -101,7 +101,7 @@ export interface AnalyzeInput<Task, Output> {
 }
 
 /** @experimental */
-export interface CreateDynamicDriverOptions<Task, Output> {
+export interface CreateDriverOptions<Task, Output> {
   /** The agent-authored topology policy. Invoked once per round in `plan`. */
   planner: TopologyPlanner<Task, Output>
   /**
@@ -142,19 +142,19 @@ export interface CreateDynamicDriverOptions<Task, Output> {
 }
 
 /** @experimental */
-export function createDynamicDriver<Task, Output>(
-  options: CreateDynamicDriverOptions<Task, Output>,
-): Driver<Task, Output, DynamicDecision> {
+export function createDriver<Task, Output>(
+  options: CreateDriverOptions<Task, Output>,
+): Driver<Task, Output, DriverDecision> {
   if (typeof options.planner !== 'function') {
-    throw new ValidationError('createDynamicDriver: planner must be a function')
+    throw new ValidationError('createDriver: planner must be a function')
   }
   const maxIterations = options.maxIterations ?? 8
   if (!Number.isFinite(maxIterations) || maxIterations <= 0) {
-    throw new ValidationError('createDynamicDriver: maxIterations must be > 0')
+    throw new ValidationError('createDriver: maxIterations must be > 0')
   }
   const maxFanout = options.maxFanout ?? 4
   if (!Number.isFinite(maxFanout) || maxFanout < 1) {
-    throw new ValidationError('createDynamicDriver: maxFanout must be >= 1')
+    throw new ValidationError('createDriver: maxFanout must be >= 1')
   }
 
   // The kernel calls plan(), runs the batch, then calls decide() — strictly
@@ -300,14 +300,14 @@ function validateMove<Task>(move: TopologyMove<Task>, maxFanout: number): Topolo
 
 /** Call the analyze hook and fail loud on a non-array return (no silent empty). */
 async function runAnalyze<Task, Output>(
-  analyze: NonNullable<CreateDynamicDriverOptions<Task, Output>['analyze']>,
+  analyze: NonNullable<CreateDriverOptions<Task, Output>['analyze']>,
   task: Task,
   history: ReadonlyArray<Iteration<Task, Output>>,
 ): Promise<ReadonlyArray<AnalystFinding>> {
   const findings = await analyze({ task, history })
   if (!Array.isArray(findings)) {
     throw new PlannerError(
-      `createDynamicDriver: analyze hook must return AnalystFinding[], got ${stringifySafe(findings)}`,
+      `createDriver: analyze hook must return AnalystFinding[], got ${stringifySafe(findings)}`,
     )
   }
   assertTraceDerivedFindings(findings)
@@ -327,7 +327,7 @@ async function runComplete<Task, Output>(
     (verdict.determinism !== 'deterministic' && verdict.determinism !== 'probabilistic')
   ) {
     throw new PlannerError(
-      `createDynamicDriver: complete.assess must return a CompletionVerdict {done, determinism}, got ${stringifySafe(verdict)}`,
+      `createDriver: complete.assess must return a CompletionVerdict {done, determinism}, got ${stringifySafe(verdict)}`,
     )
   }
   return verdict

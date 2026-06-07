@@ -35,7 +35,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import type { LoopSandboxClient, LoopSandboxPlacement } from '../runtime'
+import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import type { DelegationExecutor } from './executor'
 import { type LocalHarness, runLocalHarness } from './local-harness'
 import {
@@ -138,7 +138,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
 
   let callIndex = 0
 
-  const client: LoopSandboxClient = {
+  const client: SandboxClient = {
     async create(_opts?: CreateSandboxOptions): Promise<SandboxInstance> {
       const runId = randomUUID()
       const harness = harnesses[callIndex % harnesses.length] as LocalHarness

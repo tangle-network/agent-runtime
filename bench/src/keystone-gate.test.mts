@@ -16,9 +16,9 @@ import type {
   DefaultVerdict,
   ExecutorContext,
   ExecutorRegistry,
-  LeafExecutor,
-  LeafExecutorFactory,
-  LeafResult,
+  Executor,
+  ExecutorFactory,
+  ExecutorResult,
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
 import { runKeystoneGate, type SolveTask } from './keystone-gate'
@@ -26,11 +26,11 @@ import { runKeystoneGate, type SolveTask } from './keystone-gate'
 /** A child whose verdict is decided purely by whether its prompt carries the STRONG marker — so a
  *  diverse arm that injects a STRONG strategy beats a blind arm that never does. Fixed spend per
  *  child (independent of prompt length) so both arms spend identically → equal-k is exact. */
-function stubLeaf(_spec: AgentSpec, ctx: ExecutorContext): LeafExecutor<unknown> {
-  let artifact: LeafResult<unknown> | undefined
+function stubLeaf(_spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
+  let artifact: ExecutorResult<unknown> | undefined
   return {
     runtime: 'stub',
-    execute(task): Promise<LeafResult<unknown>> {
+    execute(task): Promise<ExecutorResult<unknown>> {
       void ctx.signal
       const t = task as SolveTask
       const strong = t.prompt.includes('STRONG')
@@ -56,7 +56,7 @@ const stubRegistry: ExecutorRegistry = {
     throw new Error('stub: register unsupported')
   },
   resolve<Out>(_spec: AgentSpec) {
-    const factory: LeafExecutorFactory<Out> = (s, ctx) => stubLeaf(s, ctx) as LeafExecutor<Out>
+    const factory: ExecutorFactory<Out> = (s, ctx) => stubLeaf(s, ctx) as Executor<Out>
     return { succeeded: true as const, value: factory }
   },
 }

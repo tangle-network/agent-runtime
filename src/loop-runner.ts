@@ -12,7 +12,7 @@
  *   research     → research-in-a-loop with valid-only KB growth (createKbGate)
  *   audit        → analyze trace/run data → findings (runAnalystLoop, caller-wired)
  *   self-improve → closed-loop text/config optimization (selfImprove, held-out gated)
- *   dynamic      → agent-authored topology (runLoop + createDynamicDriver)
+ *   dynamic      → agent-authored topology (runLoop + createDriver)
  *
  * It is intentionally a thin façade: the value is that EVERY product reuses the
  * one hardened engine instead of forking delegation logic. The dispatcher owns
@@ -41,13 +41,13 @@ import type { DelegateCodeArgs } from './mcp/types'
 import type { CoderOutput } from './profiles/coder'
 import {
   type AgentRunSpec,
-  type CreateDynamicDriverOptions,
-  createDynamicDriver,
-  type DynamicDecision,
+  type CreateDriverOptions,
+  createDriver,
+  type DriverDecision,
   type LoopResult,
-  type LoopSandboxClient,
   type OutputAdapter,
   runLoop,
+  type SandboxClient,
   type TopologyPlanner,
   type Validator,
 } from './runtime'
@@ -134,7 +134,7 @@ export async function runDelegatedLoop<T = unknown>(
 
 /** @experimental Options for the default `code`/`review` runner. */
 export interface CoderLoopRunnerOptions {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** What to build — the delegate args (goal, repoRoot, variants, config, …). */
   args: DelegateCodeArgs
   /** Adversarial reviewer. REQUIRED for `review` mode (see `reviewLoopRunner`). */
@@ -173,7 +173,7 @@ export function reviewLoopRunner(
 
 /** @experimental Options for the default `dynamic` runner. */
 export interface DynamicLoopRunnerOptions<Task, Output> {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** The agent-authored topology planner (sync or async; an async planner is where an LLM call goes). */
   planner: TopologyPlanner<Task, Output>
   task: Task
@@ -185,18 +185,18 @@ export interface DynamicLoopRunnerOptions<Task, Output> {
   maxIterations?: number
   maxFanout?: number
   /** Optional trace-analyst hook forwarded to the dynamic driver so the loop runs
-   *  `f(trace, findings)` — see `CreateDynamicDriverOptions.analyze`. Caller-side
+   *  `f(trace, findings)` — see `CreateDriverOptions.analyze`. Caller-side
    *  seam to `runAnalystLoop`; keeps this runner analyst-free. */
-  analyze?: CreateDynamicDriverOptions<Task, Output>['analyze']
+  analyze?: CreateDriverOptions<Task, Output>['analyze']
 }
 
 /** @experimental `dynamic` mode — agent-authored topology over `runLoop`. */
 export function dynamicLoopRunner<Task, Output>(
   o: DynamicLoopRunnerOptions<Task, Output>,
-): DelegatedLoopRunner<LoopResult<Task, Output, DynamicDecision>> {
+): DelegatedLoopRunner<LoopResult<Task, Output, DriverDecision>> {
   return async (signal) =>
-    runLoop<Task, Output, DynamicDecision>({
-      driver: createDynamicDriver<Task, Output>({
+    runLoop<Task, Output, DriverDecision>({
+      driver: createDriver<Task, Output>({
         planner: o.planner,
         ...(o.maxIterations !== undefined ? { maxIterations: o.maxIterations } : {}),
         ...(o.maxFanout !== undefined ? { maxFanout: o.maxFanout } : {}),

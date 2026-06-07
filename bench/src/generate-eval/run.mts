@@ -2,7 +2,7 @@
  * generate-eval — author → certify → repair, through the REAL kernel.
  *
  * This is `runLoop` end-to-end, not a hand-rolled retry loop:
- *   - executor  = a bridge-backed `LoopSandboxClient` (mirrors router-executor.ts:
+ *   - executor  = a bridge-backed `SandboxClient` (mirrors router-executor.ts:
  *                 one cli-bridge chat per `streamPrompt`, terminal `{finalText}`)
  *   - validator = the eval CERTIFIER (grounding + discrimination gates re-run
  *                 from scratch; the model is never trusted)
@@ -23,9 +23,9 @@
  */
 import { appendFileSync, readFileSync } from 'node:fs'
 import {
-  createDynamicDriver,
+  createDriver,
   type DefaultVerdict,
-  type LoopSandboxClient,
+  type SandboxClient,
   runLoop,
   type Validator,
 } from '@tangle-network/agent-runtime/loops'
@@ -42,7 +42,7 @@ function env(name: string, fallback?: string): string {
   return v
 }
 
-// ── executor: cli-bridge as a LoopSandboxClient (the router-executor pattern) ─
+// ── executor: cli-bridge as a SandboxClient (the router-executor pattern) ─
 interface BridgeCfg {
   bridgeUrl: string
   bridgeBearer: string
@@ -50,7 +50,7 @@ interface BridgeCfg {
   timeoutMs: number
 }
 
-function bridgeSandboxClient(cfg: BridgeCfg): LoopSandboxClient {
+function bridgeSandboxClient(cfg: BridgeCfg): SandboxClient {
   let seq = 0
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
@@ -166,7 +166,7 @@ async function main(): Promise<void> {
   const minted: GeneratedEval[] = []
 
   const result = await runLoop<string, string, 'continue' | 'done'>({
-    driver: createDynamicDriver<string, string>({
+    driver: createDriver<string, string>({
       planner: arm('certify-repair', authorSteer).planner(rootPrompt, maxAttempts),
       maxIterations: maxAttempts,
     }),

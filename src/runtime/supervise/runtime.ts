@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * The leaf runtime — the built-in `LeafExecutor` IMPLEMENTATIONS behind the ONE
+ * The leaf runtime — the built-in `Executor` IMPLEMENTATIONS behind the ONE
  * open interface frozen in `./types`, plus the open resolver/registry that maps
  * an `AgentSpec` to one of them OR accepts a bring-your-own executor verbatim.
  *
@@ -15,7 +15,7 @@
  *                     excluded from the equal-k arms by construction (streaming).
  * Every metered runtime reports through the SAME normalized `UsageEvent` channel
  * so the conserved budget pool meters them identically. A user's own agent is
- * first-class the moment it implements `LeafExecutor` — register it by name or
+ * first-class the moment it implements `Executor` — register it by name or
  * pass it as `AgentSpec.executor`.
  *
  * Layering: `estimateCost`/`isModelPriced` are substrate primitives from
@@ -34,18 +34,18 @@ import type {
   Driver,
   ExecCtx,
   Iteration,
-  LoopSandboxClient,
   OutputAdapter,
+  SandboxClient,
 } from '../types'
 import { zeroTokenUsage } from '../util'
 import type {
   AgentSpec,
   DefaultVerdict,
+  Executor,
   ExecutorContext,
+  ExecutorFactory,
   ExecutorRegistry,
-  LeafExecutor,
-  LeafExecutorFactory,
-  LeafResult,
+  ExecutorResult,
   Runtime,
   Spend,
   UsageEvent,
@@ -72,7 +72,7 @@ export interface RouterSeam {
  * checkpoint/fork.
  */
 export interface SandboxSeam {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Forwarded into the composed `runLoop`'s `ctx` (trace emitter, run handle, etc.). */
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
   /** PR #150 `RunLoopOptions.lineage` passthrough — opaque; forwarded, not parsed. */
@@ -124,7 +124,7 @@ function zeroSpend(): Spend {
 
 /**
  * A direct OpenAI-compatible Router chat-completion. One-shot: resolves a
- * `LeafResult` and reports its terminal usage as `UsageEvent`s through the
+ * `ExecutorResult` and reports its terminal usage as `UsageEvent`s through the
  * conserved pool. Reports REAL token usage — when the provider omits `usage`,
  * the spend records zero tokens but the call still counts one iteration (a
  * phantom fabricated 0 is never emitted as a priced cost).
@@ -135,7 +135,7 @@ function zeroSpend(): Spend {
  * breaking the build. Integrate should lift that helper into `src/loops/` and
  * have both call sites share it (do not re-copy a third time).
  */
-export const routerInlineExecutor: LeafExecutorFactory<unknown> = (spec, ctx) => {
+export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
   const model = seam.model ?? spec.profile.model?.default
   if (!model) {
@@ -154,11 +154,11 @@ export const routerInlineExecutor: LeafExecutorFactory<unknown> = (spec, ctx) =>
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
-  let artifact: LeafResult<unknown> | undefined
+  let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'router' as Runtime,
-    async execute(task, signal): Promise<LeafResult<unknown>> {
+    async execute(task, signal): Promise<ExecutorResult<unknown>> {
       const messages = taskToMessages(task, spec)
       const started = Date.now()
       const linked = linkSignals(signal, controller.signal)
@@ -221,7 +221,7 @@ export const routerInlineExecutor: LeafExecutorFactory<unknown> = (spec, ctx) =>
  * the recorded usage events are yielded; the terminal artifact is read from
  * `resultArtifact()` after the stream drains.
  */
-export const sandboxExecutor: LeafExecutorFactory<unknown> = (spec, ctx) => {
+export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (spec.harness === null) {
     throw new ValidationError('sandboxExecutor: harness is null (router/inline) — wrong executor')
   }
@@ -242,7 +242,7 @@ export const sandboxExecutor: LeafExecutorFactory<unknown> = (spec, ctx) => {
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
-  let artifact: LeafResult<unknown> | undefined
+  let artifact: ExecutorResult<unknown> | undefined
 
   // The leaf runs an opaque, self-parallelizing coding harness; the loop just
   // refines once over it. Output is the raw event stream parsed to its tail text.
@@ -302,7 +302,7 @@ interface StreamSandboxArgs {
   maxIterations: number
   controller: AbortController
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
-  onArtifact: (a: LeafResult<unknown>) => void
+  onArtifact: (a: ExecutorResult<unknown>) => void
 }
 
 async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageEvent> {
@@ -375,7 +375,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
  * resolver/equal-k path checks `budgetExempt`). teardown is SIGTERM → SIGKILL
  * with a grace window. Streaming: yields one `iteration` event on clean exit.
  */
-export const cliExecutor: LeafExecutorFactory<unknown> = (_spec, ctx) => {
+export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
   const seam = readSeam<CliSeam>(ctx, cliSeamKey, 'cli')
   if (!seam.bin) throw new ValidationError('cliExecutor: CliSeam.bin required')
 
@@ -387,7 +387,7 @@ export const cliExecutor: LeafExecutorFactory<unknown> = (_spec, ctx) => {
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
   let proc: ReturnType<typeof spawn> | undefined
-  let artifact: LeafResult<unknown> | undefined
+  let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'cli' as Runtime,
@@ -426,7 +426,7 @@ interface StreamCliArgs {
   seam: CliSeam
   controller: AbortController
   onProc: (p: ReturnType<typeof spawn>) => void
-  onArtifact: (a: LeafResult<unknown>) => void
+  onArtifact: (a: ExecutorResult<unknown>) => void
 }
 
 async function* streamCliLeaf(args: StreamCliArgs): AsyncIterable<UsageEvent> {
@@ -517,32 +517,32 @@ function killWithGrace(
  * harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
  */
 export function createExecutorRegistry(): ExecutorRegistry {
-  const factories = new Map<Runtime, LeafExecutorFactory<unknown>>()
+  const factories = new Map<Runtime, ExecutorFactory<unknown>>()
   factories.set('router', routerInlineExecutor)
   factories.set('inline', routerInlineExecutor)
   factories.set('sandbox', sandboxExecutor)
   factories.set('cli', cliExecutor)
 
   return {
-    register<Out>(runtime: Runtime, factory: LeafExecutorFactory<Out>): void {
+    register<Out>(runtime: Runtime, factory: ExecutorFactory<Out>): void {
       if (factories.has(runtime)) {
         throw new ValidationError(`executor registry: runtime "${runtime}" already registered`)
       }
-      factories.set(runtime, factory as LeafExecutorFactory<unknown>)
+      factories.set(runtime, factory as ExecutorFactory<unknown>)
     },
     resolve<Out>(
       spec: AgentSpec,
-    ): { succeeded: true; value: LeafExecutorFactory<Out> } | { succeeded: false; error: string } {
+    ): { succeeded: true; value: ExecutorFactory<Out> } | { succeeded: false; error: string } {
       // BYO: a caller-supplied executor wins, wrapped in a trivial per-spawn factory.
       if (spec.executor) {
         const byo = spec.executor
-        return { succeeded: true, value: (() => byo) as LeafExecutorFactory<Out> }
+        return { succeeded: true, value: (() => byo) as ExecutorFactory<Out> }
       }
       // router/inline: an agent with no harness is a direct Router call.
       if (spec.harness === null) {
         const f = factories.get('router')
         if (!f) return { succeeded: false, error: 'executor registry: no "router" factory' }
-        return { succeeded: true, value: f as LeafExecutorFactory<Out> }
+        return { succeeded: true, value: f as ExecutorFactory<Out> }
       }
       // sandbox: any BackendType maps to the sandbox-composing-runLoop executor.
       const runtimeTag: Runtime = 'sandbox'
@@ -553,7 +553,7 @@ export function createExecutorRegistry(): ExecutorRegistry {
           error: `executor registry: no factory for runtime "${runtimeTag}" (harness "${spec.harness}") and no BYO executor`,
         }
       }
-      return { succeeded: true, value: f as LeafExecutorFactory<Out> }
+      return { succeeded: true, value: f as ExecutorFactory<Out> }
     },
   }
 }
@@ -625,4 +625,4 @@ function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
 
 // Re-export the verdict + spend surface so a consumer importing the runtime
 // built-ins gets the budget vocabulary from one place.
-export type { DefaultVerdict, LeafExecutor, LeafResult, Spend, UsageEvent }
+export type { DefaultVerdict, Executor, ExecutorResult, Spend, UsageEvent }

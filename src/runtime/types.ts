@@ -144,7 +144,7 @@ export interface Driver<Task, Output, Decision> {
    * move + rationale (not just the inferred fan-width). Drivers whose topology
    * is a pure function of count (refine/fanout-vote) omit it — the kernel
    * infers `moveKind` from the planned-task count. Agent-authored drivers
-   * (`createDynamicDriver`) return their chosen move's kind + rationale.
+   * (`createDriver`) return their chosen move's kind + rationale.
    */
   describePlan?(): LoopPlanDescription | undefined
   /**
@@ -212,7 +212,7 @@ export interface LoopResult<Task, Output, Decision> {
  *
  * @experimental
  */
-export interface LoopSandboxClient {
+export interface SandboxClient {
   create(options?: CreateSandboxOptions): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement
   /**
@@ -242,7 +242,7 @@ export interface LoopSandboxClient {
  * `describePlan` — refine, fanout-vote), the kernel prunes boxes no future
  * round can reach after each round, so the live set tracks the active frontier.
  * When the driver authors its own branch point (`describePlan().parentIndex` —
- * `createDynamicDriver`), it may descend from any prior
+ * `createDriver`), it may descend from any prior
  * iteration, so no box is pruned and the live-box count rises to the total
  * iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
  * are copy-on-write, but each is still a live box until loop end).
@@ -455,7 +455,7 @@ export interface LoopTeardownFailedPayload {
 /** @experimental */
 export interface ExecCtx {
   /** Sandbox SDK client — the kernel calls `.create()` per iteration. */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** Optional runtime hooks. Execution-scoped; never part of `AgentProfile`. */
   hooks?: RuntimeHooks
   /** Optional trace emitter. When set, the kernel emits `loop.*` events. */

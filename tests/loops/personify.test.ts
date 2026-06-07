@@ -25,8 +25,8 @@ import type {
   AgentSpec,
   Budget,
   DefaultVerdict,
-  LeafExecutor,
-  LeafResult,
+  Executor,
+  ExecutorResult,
   Settled,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
@@ -46,8 +46,8 @@ interface MockScript {
   readonly failWith?: string
 }
 
-function mintMockExecutor(scriptFor: (task: unknown) => MockScript): LeafExecutor<unknown> {
-  let artifact: LeafResult<unknown> | undefined
+function mintMockExecutor(scriptFor: (task: unknown) => MockScript): Executor<unknown> {
+  let artifact: ExecutorResult<unknown> | undefined
   return {
     runtime: 'router',
     execute(task: unknown): AsyncIterable<UsageEvent> {
@@ -66,7 +66,7 @@ function mintMockExecutor(scriptFor: (task: unknown) => MockScript): LeafExecuto
     teardown(): Promise<{ destroyed: boolean }> {
       return Promise.resolve({ destroyed: true })
     },
-    resultArtifact(): LeafResult<unknown> {
+    resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) throw new ValidationError('mock: resultArtifact before stream drained')
       return artifact
     },
@@ -88,7 +88,7 @@ function mockRegistry(scriptFor: (task: unknown) => MockScript) {
       if (!spec.executor && spec.harness === null) {
         return {
           succeeded: true as const,
-          value: (): LeafExecutor<Out> => mintMockExecutor(scriptFor) as LeafExecutor<Out>,
+          value: (): Executor<Out> => mintMockExecutor(scriptFor) as Executor<Out>,
         }
       }
       return base.resolve<Out>(spec)
@@ -477,7 +477,7 @@ function seedOf(task: unknown): number {
 
 // ── 7. The meta-orchestrator: a driver loop that spawns sub-driver LOOPS (depth-2) ────
 //
-// The keystone scope resolves every spawned child through a `LeafExecutor` — it does NOT
+// The keystone scope resolves every spawned child through a `Executor` — it does NOT
 // re-enter `act` on a spawned driver. So a depth-2 sub-driver loop is built the keystone
 // way: a BYO leaf whose `execute` runs its OWN nested `createSupervisor().run(subDriver)`,
 // where the inner driver fans out over its own leaves. The outer `fanout` spawns two such
@@ -489,9 +489,9 @@ function seedOf(task: unknown): number {
  *  leaves), then streams the inner loop's conserved spend back up so the OUTER pool is
  *  charged for the sub-loop's whole fanout. The deliverable is the inner winner. */
 let subLoopOrdinal = 0
-function subLoopLeaf(width: number): LeafExecutor<unknown> {
+function subLoopLeaf(width: number): Executor<unknown> {
   const branch = subLoopOrdinal++
-  let artifact: LeafResult<unknown> | undefined
+  let artifact: ExecutorResult<unknown> | undefined
   return {
     runtime: 'router',
     execute(): AsyncIterable<UsageEvent> {
@@ -538,7 +538,7 @@ function subLoopLeaf(width: number): LeafExecutor<unknown> {
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
-    resultArtifact(): LeafResult<unknown> {
+    resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) throw new ValidationError('sub-loop: resultArtifact before stream drained')
       return artifact
     },
@@ -560,7 +560,7 @@ describe('meta-orchestrator (depth-2 sub-driver loops)', () => {
           resolve<Out>(_spec: AgentSpec) {
             return {
               succeeded: true as const,
-              value: (): LeafExecutor<Out> => subLoopLeaf(3) as LeafExecutor<Out>,
+              value: (): Executor<Out> => subLoopLeaf(3) as Executor<Out>,
             }
           },
         },

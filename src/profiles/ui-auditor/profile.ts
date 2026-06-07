@@ -9,7 +9,7 @@
  * — it's a vision-capable judge driving a browser. The loop kernel still
  * iterates `client.create() → box.streamPrompt() → box.delete()`; the
  * client/box pair are provided by `createInProcessUiAuditClient` (in
- * `./in-process-client.ts`) or by a consumer-supplied `LoopSandboxClient`.
+ * `./in-process-client.ts`) or by a consumer-supplied `SandboxClient`.
  */
 
 import type { AgentProfile } from '@tangle-network/sandbox'
@@ -28,7 +28,7 @@ export interface UiAuditorProfileOptions {
   name?: string
   /**
    * Optional model identifier passed in `AgentProfile.model.default`.
-   * The consumer's `LoopSandboxClient` chooses how to interpret it.
+   * The consumer's `SandboxClient` chooses how to interpret it.
    */
   model?: string
   /**

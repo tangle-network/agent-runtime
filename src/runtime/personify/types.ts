@@ -168,7 +168,7 @@ export interface ShapeContext<D = unknown> {
    * Wrap an `AgentSpec` into a leaf `Agent` carrying it as `executorSpec`, so the shape can
    * `scope.spawn(spawnChild(spec), task, opts)`. `name` labels the child for traces. The
    * returned agent's `act` is never invoked by the keystone (it is spawned, not run) — the
-   * spec drives the resolved `LeafExecutor`; `act` exists only to satisfy the `Agent` shape.
+   * spec drives the resolved `Executor`; `act` exists only to satisfy the `Agent` shape.
    */
   spawnChild(name: string, spec: AgentSpec): Agent<unknown, Outcome<D>>
   /** Derive a child `AgentSpec` from the persona's root spec with an overridden profile —

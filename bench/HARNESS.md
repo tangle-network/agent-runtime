@@ -72,7 +72,7 @@ standalone tools (NOT in run.ts — the gate lives here):
   corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
   corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
   improve-prompt.ts     GEPA-optimize a directive vs a held-out gate + paired CI (selfImprove)
-  finsearch-loop.ts  the real runLoop+createDynamicDriver closed loop on FinSearchComp
+  finsearch-loop.ts  the real runLoop+createDriver closed loop on FinSearchComp
   terminal-compare.ts  Terminal-Bench compare (own main, not in run.ts)
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
   node --test --import tsx src/{selector,compare-decomp,steering-experiment,refine-loop}.test.mts

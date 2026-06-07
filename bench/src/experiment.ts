@@ -9,12 +9,12 @@
  * the knobs are PARAMETERS:
  *
  *   - task        = the `BenchmarkAdapter` (prompt · deliverable · judge)   — any task
- *   - backend     = the injected `LoopSandboxClient` (router / local-bridge / sandbox) — the cost dial
+ *   - backend     = the injected `SandboxClient` (router / local-bridge / sandbox) — the cost dial
  *   - arms        = `Arm[]` (blind · random@k · refine@k · diverse@k …), each a `TopologyPlanner`
  *   - judge       = `adapter.judge` → `Validator`                            — swap for any judge
  *
  * Nothing here re-implements execution or usage capture: `runLoop` is the loop,
- * `createDynamicDriver` turns an arm's planner into the driver, and the kernel
+ * `createDriver` turns an arm's planner into the driver, and the kernel
  * sums real token usage + cost into each `Iteration` by construction. The
  * compute-matched control is enforced by `runSteeringExperiment` (a steering
  * delta cannot be computed without its random@k control — a type-level guard).
@@ -23,8 +23,8 @@
 import {
   type AgentProfile,
   type AgentRunSpec,
-  createDynamicDriver,
-  type LoopSandboxClient,
+  createDriver,
+  type SandboxClient,
   type OutputAdapter,
   runLoop,
   type TopologyMove,
@@ -158,7 +158,7 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
  *  steer. The recursive Agent atom in practice: one loop's steer is itself a `runLoop`
  *  (max power, max cost). The rung the gate has not yet cleared — wire it, then test it. */
 export const loopAnalyst = (cfg: {
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   agentRun: AgentRunSpec<string>
   rounds?: number
 }): AnalystFn =>
@@ -169,7 +169,7 @@ export const loopAnalyst = (cfg: {
       'Investigate WHY: re-read the requirements, check the relevant sources or tests, and find the specific error. ' +
       'Produce a concise, targeted correction (what to change and why) for the next attempt.'
     const result = await runLoop<string, string, 'continue' | 'done'>({
-      driver: createDynamicDriver<string, string>({
+      driver: createDriver<string, string>({
         planner: randomArm('investigate').planner(task, cfg.rounds ?? 1),
         maxIterations: cfg.rounds ?? 1,
       }),
@@ -231,7 +231,7 @@ export interface ExperimentConfig {
   /** The task — supplies prompt (`loadTasks`), judge, and (optionally) deliverable. */
   adapter: BenchmarkAdapter
   /** The cost-dial backend, injected. The kernel provisions per iteration. */
-  sandboxClient: LoopSandboxClient
+  sandboxClient: SandboxClient
   /** The worker profile + task→prompt formatter the kernel runs. */
   agentRun: AgentRunSpec<string>
   /** control + treatments. `arms[0]` is the compute control (random@k). */
@@ -288,7 +288,7 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
 
   // One arm through the kernel for one task; persist a full RunRecord (the
   // flywheel fuel — state·steer·trace·output·verdict·cost, never a boolean).
-  // `planner` is already built for this task (createDynamicDriver wraps it).
+  // `planner` is already built for this task (createDriver wraps it).
   const runArm = async (
     task: BenchTask,
     label: string,
@@ -303,7 +303,7 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
     }
     const runtime = createRuntimeHookRecorder()
     const result = await runLoop<string, string, 'continue' | 'done'>({
-      driver: createDynamicDriver<string, string>({ planner, maxIterations: rounds }),
+      driver: createDriver<string, string>({ planner, maxIterations: rounds }),
       agentRun: cfg.agentRun,
       output,
       validator,

@@ -1,6 +1,6 @@
 /**
- * Router-backed `LoopSandboxClient` — the "router" cost-dial backend the one-flow header
- * names (experiment.ts: "backend = the injected LoopSandboxClient (router / local-bridge /
+ * Router-backed `SandboxClient` — the "router" cost-dial backend the one-flow header
+ * names (experiment.ts: "backend = the injected SandboxClient (router / local-bridge /
  * sandbox)"). Each box the kernel provisions runs ONE research shot per `streamPrompt`
  * (router web-search + answer, off-sandbox) and emits the terminal `{ finalText }` event
  * `answerOutput` already parses.
@@ -16,11 +16,11 @@
  * (no fork, no live box across rounds); statefulness comes from the loop's across-round
  * steer (the arm reshapes round N's prompt from round N-1's trace), not a live session.
  */
-import type { LoopSandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { runResearchShot, type ShotCfg } from './research-shot'
 
-export function routerSandboxClient(cfg: ShotCfg): LoopSandboxClient {
+export function routerSandboxClient(cfg: ShotCfg): SandboxClient {
   let seq = 0
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {

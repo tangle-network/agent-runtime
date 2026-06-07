@@ -46,7 +46,7 @@ import { DEFAULT_MIND2WEB_DIRECTIVE, solveBrowserLocal } from './worker-browser'
 import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
-import { createDynamicDriver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { createDriver, runLoop } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, refineArm, sandboxAgentRun } from './experiment'
 import { routerChatWithUsage } from './router-client'
@@ -334,7 +334,7 @@ async function main() {
         timeoutMs: 1_200_000,
       } as never)
       const result = await runLoop<string, string, 'continue' | 'done'>({
-        driver: createDynamicDriver<string, string>({
+        driver: createDriver<string, string>({
           planner: refineArm('refine', directive).planner(scenario.task.prompt, rounds),
           maxIterations: rounds,
         }),

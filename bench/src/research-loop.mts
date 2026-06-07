@@ -1,6 +1,6 @@
 /**
  * Stateful research leaderboard — the research benches run through the REAL kernel
- * (`runExperiment` → `runLoop` + `createDynamicDriver`), NOT the flat one-shot RAG pool.
+ * (`runExperiment` → `runLoop` + `createDriver`), NOT the flat one-shot RAG pool.
  * Same retrieve→answer body as `research-gate.mts` (shared `runResearchShot`), but driven
  * over `ROUNDS` with analyst steering: each round the arm reshapes the prompt from the
  * prior round's trace, so this is the multi-round, resumable-by-steer DEPTH regime — the

@@ -37,7 +37,7 @@ import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import type { SandboxCapabilities } from './sandbox-capabilities'
-import type { AgentRunSpec, LoopSandboxClient } from './types'
+import type { AgentRunSpec, SandboxClient } from './types'
 import {
   deleteBoxSafe,
   mapWithConcurrency,
@@ -187,7 +187,7 @@ export interface SandboxLineage {
  * @experimental
  */
 export function createSandboxLineage(
-  client: LoopSandboxClient,
+  client: SandboxClient,
   capabilities: SandboxCapabilities,
   options: { maxConcurrency?: number; streaming?: 'sse' | 'poll' } = {},
 ): SandboxLineage {
@@ -366,7 +366,7 @@ async function destroyBounded(box: SandboxInstance): Promise<void> {
 
 /**
  * Loop-side widening of the box's optional checkpoint method. The
- * `LoopSandboxClient`/`SandboxInstance` surface the kernel relies on does not
+ * `SandboxClient`/`SandboxInstance` surface the kernel relies on does not
  * require checkpointing; this reads it optionally so the lineage can probe-gate
  * without importing sandbox-backend specifics. @experimental
  */
