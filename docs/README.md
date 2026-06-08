@@ -36,6 +36,8 @@ The package API and subsystems.
 | Doc | Role | Purpose |
 |---|---|---|
 | [../README.md](../README.md) | API entry point | Install, the loop API, self-improvement framing, exported subpaths. |
+| [glossary.md](./glossary.md) | canonical vocabulary | One definition per term (iteration/round/rollout/attempt, driver/worker/executor, TopologyMove, budget/spend, Scope.act + the coordination MCP), grounded to `file:line`; drifted synonyms flagged. Read when a term is ambiguous. |
+| [execution-model.md](./execution-model.md) | the picture | The four diagrams: the unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, who gets which tools/MCPs, and the spawn mechanics. |
 | [concepts.md](./concepts.md) | mental model | The layer cake — backends, profiles, loop kernel, the onramp to the rest. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol *(needs-update)* | The multi-agent call bus — depth limits, headers, refusal contract. (Pending: 429/413 fix + subpath list.) |
 | [conversation-economics.md](./conversation-economics.md) | subsystem | Conversation cost accounting and auth-source model (`src/conversation/`). |
