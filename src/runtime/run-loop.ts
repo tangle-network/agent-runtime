@@ -656,6 +656,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       stream = acquired.events
     } else {
       box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
+      await spec.prepareBox?.(box, { signal: args.signal })
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
       // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
@@ -696,6 +697,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     if (args.validator) {
       slot.verdict = await args.validator.validate(slot.output, {
         iteration: args.item.index,
+        ...(box ? { box } : {}),
         signal: args.signal,
         traceEmitter: args.ctx.traceEmitter,
       })

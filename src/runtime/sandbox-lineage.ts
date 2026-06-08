@@ -219,6 +219,7 @@ export function createSandboxLineage(
   return {
     async start(spec, prompt, signal) {
       const box = await acquireFresh(spec, signal)
+      await spec.prepareBox?.(box, { signal })
       const sessionId = mintSessionId()
       const events = promptEvents(streaming, box, prompt, sessionId, signal)
       return { handle: { box, sessionId }, events }
@@ -257,6 +258,7 @@ export function createSandboxLineage(
         if (checkpointId !== undefined) {
           const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
           owned.push(box)
+          await spec.prepareBox?.(box, { signal })
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
@@ -264,6 +266,7 @@ export function createSandboxLineage(
           }
         }
         const box = await acquireFresh(spec, signal)
+        await spec.prepareBox?.(box, { signal })
         const sessionId = mintSessionId()
         return {
           handle: { box, sessionId },
