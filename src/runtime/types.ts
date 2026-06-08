@@ -32,7 +32,11 @@ export type { DefaultVerdict }
 export interface ValidationCtx {
   /** Iteration index this output came from (0-based). */
   iteration: number
-  /** Live sandbox that produced the output. Use only for host-side verification. */
+  /**
+   * Live sandbox for this iteration. Validators that need execution-grounded
+   * evidence can inspect files or run commands here instead of forcing callers
+   * to bypass the loop kernel with raw Sandbox SDK orchestration.
+   */
   box?: SandboxInstance
   /** Cooperative cancellation channel. */
   signal: AbortSignal
@@ -66,6 +70,15 @@ export interface AgentRunSpec<Task> {
   /** Task → prompt formatter. Pure and deterministic. */
   taskToPrompt: (task: Task) => string
   /**
+   * Optional pre-prompt sandbox provisioner. Runs after the sandbox is acquired
+   * and before the first prompt is streamed into that box. Use this for
+   * domain-agnostic setup such as repo snapshots, benchmark fixtures, policy
+   * files, or seed datasets. The hook is part of the runtime surface so loop
+   * consumers do not hand-roll Sandbox SDK orchestration just to prepare a
+   * workspace before the agent sees it.
+   */
+  prepareBox?: (box: SandboxInstance, ctx: { signal: AbortSignal }) => Promise<void> | void
+  /**
    * Per-spec stable name. Surfaced in trace events and the default winner
    * selector tiebreak. Falls back to `profile.name ?? 'agent'`.
    */
@@ -78,8 +91,6 @@ export interface AgentRunSpec<Task> {
   sandboxOverrides?: Partial<Omit<CreateSandboxOptions, 'backend'>> & {
     backend?: Omit<NonNullable<CreateSandboxOptions['backend']>, 'profile'>
   }
-  /** Optional per-box setup hook run after sandbox creation and before prompt streaming. */
-  prepareBox?: (box: SandboxInstance, ctx: { signal: AbortSignal }) => Promise<void> | void
 }
 
 /**

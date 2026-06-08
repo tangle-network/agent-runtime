@@ -258,6 +258,7 @@ export function createSandboxLineage(
         if (checkpointId !== undefined) {
           const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
           owned.push(box)
+          await spec.prepareBox?.(box, { signal })
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
