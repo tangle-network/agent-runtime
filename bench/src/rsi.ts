@@ -13,6 +13,7 @@
  * is fresh-box-per-attempt today, so it would degrade to a re-attempt. The
  * prompt-steering policies below (critical-audit, aggressive-push) are live now.
  */
+import { createExecutor, inlineSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { ADAPTERS } from './adapters'
 import { type Arm, analystArm, arm, llmAnalyst, randomArm, runExperiment, sandboxAgentRun } from './experiment'
@@ -32,17 +33,29 @@ async function main() {
   const routerKey = must('TANGLE_API_KEY')
   const rounds = Number(process.env.ROUNDS ?? 3)
   const router = { routerBaseUrl, routerKey, model }
-  const client = new Sandbox({
-    baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-    apiKey: routerKey,
-    timeoutMs: 1_200_000,
-  } as never)
+  // BACKEND=router runs the worker OFF-BOX (a router chat-completion as the leaf
+  // executor, presented as a SandboxClient) — the real runLoop kernel + analyst
+  // steering, no sandbox dependency. Use it for deployable-checker domains whose
+  // worker is a completion (humaneval) or where box egress to the router is blocked.
+  // Default `sandbox` is the in-box agent (coding/tool domains).
+  const backend = process.env.BACKEND ?? 'sandbox'
+  const client: SandboxClient =
+    backend === 'router'
+      ? inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
+      : new Sandbox({
+          baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+          apiKey: routerKey,
+          timeoutMs: 1_200_000,
+        } as never)
 
   // The steer policies under test. Each is an arm = a steer f(rootPrompt, history).
+  // Labels follow corpus-report's contract: the `random*` family is the compute
+  // control; `refine*` families are the steering arms it pairs against it (so
+  // `tsx src/corpus-report.mts <corpus>` emits the paired-bootstrap + BH verdict).
   const policies: [Arm, ...Arm[]] = [
-    randomArm('blind'), // compute control: independent retries, no steer
-    analystArm('critical-audit', llmAnalyst(router)), // audit the prior attempt, steer on the findings
-    arm('aggressive-push', (root, _h, r) =>
+    randomArm('random'), // compute control: independent retries, no steer
+    analystArm('refineAudit', llmAnalyst(router)), // observe→steer: audit the prior attempt's trace, steer on the findings
+    arm('refinePush', (root, _h, r) =>
       r === 0 ? root : `${root}\n\nShip the most complete working end-to-end result NOW. Prefer done over polish; finish it.`),
   ]
 
