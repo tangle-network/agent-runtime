@@ -150,6 +150,9 @@ export interface RouterToolLoopResult {
   /** Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k. */
   turns: number
   toolCalls: number
+  /** The behavior trace: each tool call + its result, in order. What a trace-analyst
+   *  steerer reads (behavior, never the verdict) to diagnose + redirect the next shot. */
+  toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
 }
 
@@ -180,6 +183,7 @@ export async function routerToolLoop(
   let toolCalls = 0
   let lastText = ''
   const usage = { input: 0, output: 0 }
+  const toolTrace: Array<{ name: string; args: string; result: string }> = []
 
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     const r = await routerChatWithTools(cfg, messages, tools, {
@@ -191,7 +195,7 @@ export async function routerToolLoop(
       usage.output += r.usage.output
     }
     if (r.content) lastText = r.content
-    if (r.toolCalls.length === 0) return { final: lastText, turns: turn, toolCalls, usage }
+    if (r.toolCalls.length === 0) return { final: lastText, turns: turn, toolCalls, toolTrace, usage }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then
     // run each call on the host and fold the result back as a `tool` message.
@@ -213,7 +217,8 @@ export async function routerToolLoop(
       }
       const out = await execute(tc.name, args)
       messages.push({ role: 'tool', tool_call_id: tc.id, content: out })
+      toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
     }
   }
-  return { final: lastText, turns: maxTurns, toolCalls, usage }
+  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage }
 }
