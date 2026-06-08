@@ -21,19 +21,13 @@ After reading these four you've seen every production-essential primitive.
 |---|---|---|
 | 5 | [`mcp-delegation/`](./mcp-delegation/) | Mount `agent-runtime-mcp` in an `AgentProfile` so the harness exposes the 5 delegation tools (`delegate_code`, `delegate_research`, `delegate_feedback`, `delegation_status`, `delegation_history`) |
 
-## Blessed loop facade
-
-| # | Example | One sentence |
-|---|---|---|
-| 6 | [`define-loop/`](./define-loop/) | `defineLoop(...).run(...)` — one result envelope for artifacts, trace subsets, analysts, verifier, judge, questions, and messages |
-
 ## Multi-agent fanout (advanced)
 
 | # | Example | One sentence |
 |---|---|---|
-| 7 | [`coder-loop/`](./coder-loop/) | `coderProfile` + `runLoop` + `createFanoutVoteDriver` — N parallel coder iterations, kernel picks the winner |
-| 8 | [`researcher-loop/`](./researcher-loop/) | `researcherProfile` + `runLoop` (requires `@tangle-network/agent-knowledge`) |
-| 9 | [`fleet-delegation/`](./fleet-delegation/) | `TANGLE_FLEET_ID` flips delegation from sibling-sandbox to fleet-workspace topology |
+| 6 | [`coder-loop/`](./coder-loop/) | `coderProfile` + `runLoop` + `createFanoutVoteDriver` — N parallel coder iterations, kernel picks the winner |
+| 7 | [`researcher-loop/`](./researcher-loop/) | `researcherProfile` + `runLoop` (requires `@tangle-network/agent-knowledge`) |
+| 8 | [`fleet-delegation/`](./fleet-delegation/) | `TANGLE_FLEET_ID` flips delegation from sibling-sandbox to fleet-workspace topology |
 
 ## Lower-level building blocks
 
@@ -67,9 +61,6 @@ pnpm tsx examples/runtime-run/runtime-run.ts
 # Delegation
 pnpm build  # mcp-delegation needs dist/mcp/bin.js
 pnpm tsx examples/mcp-delegation/mcp-delegation.ts
-
-# Blessed loop facade
-pnpm tsx examples/define-loop/define-loop.ts
 
 # Multi-agent fanout
 pnpm tsx examples/coder-loop/coder-loop.ts

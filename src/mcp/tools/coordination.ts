@@ -3,16 +3,14 @@
  *
  * MCP binding for a live `Scope`. A sandbox driver gets the same small verbs
  * the in-process driver has: spawn, observe, await, steer, ask/answer, analyze,
- * and stop. Settled outputs remain Scope artifacts; loop facades may record
- * them separately when they need a product-facing result envelope.
+ * and stop. Settled outputs remain Scope artifacts; product code can project
+ * them into any UI/report envelope it needs.
  */
 
 import type {
   Budget,
   NodeId,
   ResultBlobStore,
-  LoopQuestion as RuntimeLoopQuestion,
-  LoopQuestionDecision as RuntimeQuestionDecision,
   Scope,
   Settled,
   Agent as SuperviseAgent,
@@ -29,9 +27,39 @@ export interface SettledWorker {
   readonly reason?: string
 }
 
-export type LoopQuestion = Omit<RuntimeLoopQuestion, 'openedAt' | 'status' | 'decision'>
-export type QuestionDecision = RuntimeQuestionDecision
-export type QuestionRecord = RuntimeLoopQuestion
+export type LoopQuestionLevel = 'worker' | 'driver' | 'loop'
+export type LoopQuestionUrgency = 'continue-without' | 'blocks-step' | 'blocks-run'
+
+export interface LoopQuestionOption {
+  readonly label: string
+  readonly tradeoff: string
+}
+
+export interface LoopQuestion {
+  readonly id: string
+  readonly from: string
+  readonly level: LoopQuestionLevel
+  readonly question: string
+  readonly reason: string
+  readonly urgency: LoopQuestionUrgency
+  readonly options?: ReadonlyArray<LoopQuestionOption>
+}
+
+export interface QuestionDecision {
+  readonly kind: 'answer' | 'defer' | 'escalate'
+  readonly value: string
+  readonly by?: string
+  readonly answer?: string
+  readonly reason?: string
+  readonly to?: 'parent' | 'user' | string
+}
+
+export interface QuestionRecord extends LoopQuestion {
+  readonly status: 'open' | 'answered' | 'deferred' | 'escalated'
+  readonly decision?: QuestionDecision
+  readonly openedAt: number
+}
+
 export type LoopQuestionInput = Omit<LoopQuestion, 'id'> & { readonly id?: string }
 export type QuestionPolicyMode = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
 

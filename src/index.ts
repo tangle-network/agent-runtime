@@ -172,52 +172,6 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
-// ── Blessed loop facade ───────────────────────────────────────────────
-// `defineLoop(...).run(...)` is the developer-facing authoring surface.
-// Lower-level kernels remain available through `./runtime`, `./loops`, MCP,
-// conversations, and analyst-loop for specialized bindings.
-export {
-  type DefinedLoop,
-  type DefineLoopOptions,
-  defineLoop,
-  type LoopAnalysis,
-  type LoopAnalysisInput,
-  type LoopAnalyst,
-  type LoopArtifact,
-  type LoopArtifactInput,
-  type LoopArtifactStatus,
-  type LoopControlPlane,
-  type LoopControlSnapshot,
-  type LoopEvaluatorInput,
-  type LoopEvent,
-  type LoopFinding,
-  type LoopFindingInput,
-  type LoopJudge,
-  type LoopMessageDelivery,
-  type LoopMessageDeliveryMode,
-  type LoopMessageDeliveryStatus,
-  type LoopMessageInput,
-  type LoopMessageKind,
-  type LoopMessageRecord,
-  type LoopMessageRouter,
-  type LoopMessageRouterInput,
-  type LoopQuestion,
-  type LoopQuestionDecision,
-  type LoopQuestionInput,
-  type LoopQuestionLevel,
-  type LoopQuestionPolicy,
-  type LoopQuestionUrgency,
-  type LoopRunContext,
-  type LoopRunHandle,
-  type LoopRunOptions,
-  type LoopRunResult,
-  type LoopStatus,
-  type LoopTraceSelector,
-  type LoopTraceSlice,
-  type LoopVerifier,
-  runDefinedLoop,
-  selectLoopTrace,
-} from './runtime/define-loop'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,
