@@ -83,6 +83,55 @@ export function gitWorkspace(opts: GitWorkspaceOptions): Workspace {
   }
 }
 
+/** A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
+ *  Same port, same `Shell` — a drop-in for `gitWorkspace`. jj suits agent loops:
+ *  no staging area, and a first-class operation log (native resume/undo). Live use
+ *  requires `jj` on the `Shell`'s host. */
+export function jjWorkspace(opts: GitWorkspaceOptions): Workspace {
+  const shell = opts.shell ?? localShell()
+  const branch = opts.branch ?? 'main'
+  // jj reads its author identity from config, not per-call flags like git's `-c
+  // user.*`; inject it via --config-toml so a throwaway clone is self-contained
+  // (parallels gitWorkspace's `ident`). Global flags must precede the subcommand.
+  const ident = [
+    '--config-toml',
+    'user.name="workspace"',
+    '--config-toml',
+    'user.email="workspace@tangle.local"',
+  ]
+
+  const jj = async (args: string[], cwd?: string): Promise<string> => {
+    const res = await shell(['jj', ...ident, ...args], cwd)
+    if (res.code !== 0) {
+      throw new Error(
+        `jj ${args.join(' ')} failed (${res.code}): ${tail(res.stderr || res.stdout)}`,
+      )
+    }
+    return res.stdout
+  }
+
+  return {
+    ref: opts.ref,
+    // Colocated clone: jj manages history, git holds the durable remote.
+    materialize: (dir) => jj(['git', 'clone', '--colocate', opts.ref, dir]).then(() => {}),
+    async commit(dir, message) {
+      // jj auto-snapshots the working copy; describe the change, then open a fresh
+      // empty change so the next commit doesn't amend this one. A rejected push is
+      // surfaced as a typed blocker (conflicts are first-class in jj, not aborted).
+      await jj(['describe', '-m', message], dir)
+      await jj(['new'], dir)
+      const push = await shell(['jj', ...ident, 'git', 'push', '--branch', branch], dir)
+      if (push.code !== 0) return { ok: false, conflict: tail(push.stderr || push.stdout) }
+      const rev = (await jj(['log', '--no-graph', '-r', '@-', '-T', 'commit_id'], dir)).trim()
+      return { ok: true, rev }
+    },
+    async head() {
+      const out = await shell(['git', 'ls-remote', opts.ref, `refs/heads/${branch}`])
+      return out.stdout.split(/\s+/)[0] ?? ''
+    },
+  }
+}
+
 function tail(s: string): string {
   return s.slice(-400)
 }

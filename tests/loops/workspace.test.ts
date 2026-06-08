@@ -3,7 +3,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gitWorkspace } from '../../src/runtime/workspace'
+import { gitWorkspace, jjWorkspace } from '../../src/runtime/workspace'
+
+/** jj is optional and absent in CI — its block skips unless the binary is present. */
+const hasJj = (() => {
+  try {
+    execFileSync('jj', ['--version'], { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+})()
 
 const git = (args: string[], cwd?: string): string =>
   execFileSync(
@@ -67,5 +77,37 @@ describe('gitWorkspace', () => {
 
     expect(await ws.commit(w1, 'w1')).toMatchObject({ ok: true })
     expect(await ws.commit(w2, 'w2')).toMatchObject({ ok: false })
+  })
+})
+
+describe.skipIf(!hasJj)('jjWorkspace', () => {
+  let bare: string
+  const temps: string[] = []
+  const fresh = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'ws-jj-work-'))
+    temps.push(dir)
+    return dir
+  }
+
+  beforeEach(() => {
+    bare = seedBare()
+  })
+
+  afterEach(() => {
+    rmSync(bare, { recursive: true, force: true })
+    for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('carries durable state across fresh worker filesystems (jj drop-in)', async () => {
+    const ws = jjWorkspace({ ref: bare })
+    const w1 = fresh()
+    await ws.materialize(w1)
+    writeFileSync(join(w1, 'a.txt'), 'one\n')
+    expect(await ws.commit(w1, 'add a')).toMatchObject({ ok: true })
+
+    const w2 = fresh()
+    await ws.materialize(w2)
+    expect(existsSync(join(w2, 'a.txt'))).toBe(true)
+    expect(readFileSync(join(w2, 'a.txt'), 'utf-8')).toBe('one\n')
   })
 })
