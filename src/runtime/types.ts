@@ -32,6 +32,8 @@ export type { DefaultVerdict }
 export interface ValidationCtx {
   /** Iteration index this output came from (0-based). */
   iteration: number
+  /** Live sandbox that produced the output. Use only for host-side verification. */
+  box?: SandboxInstance
   /** Cooperative cancellation channel. */
   signal: AbortSignal
   /**
@@ -76,6 +78,8 @@ export interface AgentRunSpec<Task> {
   sandboxOverrides?: Partial<Omit<CreateSandboxOptions, 'backend'>> & {
     backend?: Omit<NonNullable<CreateSandboxOptions['backend']>, 'profile'>
   }
+  /** Optional per-box setup hook run after sandbox creation and before prompt streaming. */
+  prepareBox?: (box: SandboxInstance, ctx: { signal: AbortSignal }) => Promise<void> | void
 }
 
 /**

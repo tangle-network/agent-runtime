@@ -212,6 +212,7 @@ export function createSandboxLineage(
     if (signal.aborted) throwAbort()
     const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
     const box = await acquireSandbox(client, opts, { signal })
+    await spec.prepareBox?.(box, { signal })
     owned.push(box)
     return box
   }
