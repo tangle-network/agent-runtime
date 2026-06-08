@@ -264,9 +264,12 @@ async function main(): Promise<void> {
     // trace-analyst diagnoses the gap). Equal compute: K shots × M turns = breadth's K×M.
     const depthDb = await seedDb(server, dbsDir)
     let depth = { passes: 0, total: 1, resolved: false }
+    let depthBest = depth
+    let traj = ''
     try {
       const tools = await toolSpecs(server, depthDb, task.selectedTools)
       const trace: ToolTrace = []
+      const shots: Array<{ passes: number; total: number; resolved: boolean }> = []
       for (let s = 0; s < k; s += 1) {
         let steer: string | undefined
         if (s > 0) {
@@ -277,14 +280,21 @@ async function main(): Promise<void> {
         const sr = await runShot(cfg, task, server, depthDb, tools, m, steer)
         acts += sr.toolCalls
         trace.push(...sr.toolTrace)
+        // Checkpoint: score the DB state after THIS shot. depth-final (the last) pays any
+        // late-shot degradation; depth-best (the max) keeps the best checkpoint — symmetric
+        // with breadth's best-of-K. The gap between them IS the steering-degradation effect,
+        // and checkpointing is deployable (snapshot the DB, keep the best-verifying one).
+        shots.push(await score(server, depthDb, task.verifiers))
       }
-      depth = await score(server, depthDb, task.verifiers)
+      depth = shots[shots.length - 1] ?? depth
+      depthBest = shots.reduce((a, b) => (ratio(b) > ratio(a) ? b : a), shots[0] ?? depth)
+      traj = shots.map((x) => `${x.passes}/${x.total}`).join('→')
     } finally {
       await deleteDb(server, depthDb)
     }
 
-    process.stderr.write(`  [${i + 1}/${tasks.length}] ${task.taskId.slice(-12)}: breadth=${breadthBest.passes}/${breadthBest.total} depth=${depth.passes}/${depth.total} toolcalls=${acts}\n`)
-    return { breadthR: ratio(breadthBest), depthR: ratio(depth), breadthRes: breadthBest.resolved ? 1 : 0, depthRes: depth.resolved ? 1 : 0 }
+    process.stderr.write(`  [${i + 1}/${tasks.length}] ${task.taskId.slice(-12)}: breadth=${breadthBest.passes}/${breadthBest.total} depth_final=${depth.passes}/${depth.total} depth_best=${depthBest.passes}/${depthBest.total} traj=${traj} toolcalls=${acts}\n`)
+    return { breadthR: ratio(breadthBest), depthR: ratio(depth), depthBestR: ratio(depthBest), breadthRes: breadthBest.resolved ? 1 : 0, depthRes: depth.resolved ? 1 : 0, depthBestRes: depthBest.resolved ? 1 : 0 }
     } catch (err) {
       process.stderr.write(`  [${i + 1}/${tasks.length}] ${task.taskId.slice(-12)}: SKIP (${err instanceof Error ? err.message.slice(0, 90) : String(err)})\n`)
       return null
@@ -295,24 +305,29 @@ async function main(): Promise<void> {
   const excluded = rows.length - ok.length
   const breadthR = ok.map((r) => r.breadthR)
   const depthR = ok.map((r) => r.depthR)
+  const depthBestR = ok.map((r) => r.depthBestR)
   const breadthRes = ok.map((r) => r.breadthRes)
   const depthRes = ok.map((r) => r.depthRes)
+  const depthBestRes = ok.map((r) => r.depthBestRes)
   const rate = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(xs.length, 1)
   const sig = (l: PairedLift) => (l.low > 0 ? 'SIGNIF +' : l.high < 0 ? 'SIGNIF -' : 'n.s. (CI spans 0)')
 
   console.log(`\n${'='.repeat(72)}`)
-  console.log(`RESULTS · EOPS itsm · n=${ok.length} (excluded ${excluded}) · K=${k} M=${m} · ${model}`)
+  console.log(`RESULTS · EOPS itsm · n=${ok.length} (excluded ${excluded}) · K=${k} M=${m} · ${model} · STEER=${process.env.STEER === 'analyst' ? 'analyst' : 'generic'}`)
   console.log('='.repeat(72))
-  console.log(`  verifier score (partial credit, the signal at this difficulty):`)
-  console.log(`    breadth@${k} (resample) ${pct(rate(breadthR))}    depth@${k} (steered) ${pct(rate(depthR))}`)
-  console.log(`  fully-resolved rate (all verifiers):`)
-  console.log(`    breadth@${k} ${pct(rate(breadthRes))}    depth@${k} ${pct(rate(depthRes))}`)
-  const liftScore = pairedLift(breadthR, depthR)
-  const liftRes = pairedLift(breadthRes, depthRes)
-  console.log(`\n  PAIRED LIFTS (95% bootstrap CI, B=10000):`)
-  console.log(`    depth − breadth, SCORE     ${pp(liftScore.point)}   CI [${pp(liftScore.low)}, ${pp(liftScore.high)}]   (paired ${liftScore.pairs}, disc ${liftScore.discordant})  ${sig(liftScore)}`)
-  console.log(`    depth − breadth, RESOLVED  ${pp(liftRes.point)}   CI [${pp(liftRes.low)}, ${pp(liftRes.high)}]   (paired ${liftRes.pairs}, disc ${liftRes.discordant})  ${sig(liftRes)}`)
-  console.log(`\n  VERDICT: does steered depth beat blind breadth on this stateful agentic domain @ equal compute? ${liftScore.point > 0 ? 'yes (score)' : 'no'} (${sig(liftScore)})`)
+  console.log(`  verifier score (partial credit):`)
+  console.log(`    breadth@${k} (best-of-K)      ${pct(rate(breadthR))}`)
+  console.log(`    depth@${k} FINAL  (last state) ${pct(rate(depthR))}      ← pays late-shot degradation`)
+  console.log(`    depth@${k} BEST   (best ckpt)  ${pct(rate(depthBestR))}      ← SYMMETRIC with breadth's best-of-K`)
+  console.log(`  fully-resolved: breadth ${pct(rate(breadthRes))}  depth-final ${pct(rate(depthRes))}  depth-best ${pct(rate(depthBestRes))}`)
+  const liftFinal = pairedLift(breadthR, depthR)
+  const liftBest = pairedLift(breadthR, depthBestR)
+  const liftBestRes = pairedLift(breadthRes, depthBestRes)
+  console.log(`\n  PAIRED LIFTS vs breadth (95% bootstrap CI, B=10000):`)
+  console.log(`    depth-FINAL − breadth, score  ${pp(liftFinal.point)}   CI [${pp(liftFinal.low)}, ${pp(liftFinal.high)}]   (disc ${liftFinal.discordant})  ${sig(liftFinal)}`)
+  console.log(`    depth-BEST  − breadth, score  ${pp(liftBest.point)}   CI [${pp(liftBest.low)}, ${pp(liftBest.high)}]   (disc ${liftBest.discordant})  ${sig(liftBest)}   ← the FAIR comparison`)
+  console.log(`    depth-BEST  − breadth, resolved ${pp(liftBestRes.point)}   CI [${pp(liftBestRes.low)}, ${pp(liftBestRes.high)}]   (disc ${liftBestRes.discordant})  ${sig(liftBestRes)}`)
+  console.log(`\n  degradation = depth-best − depth-final = ${pp(rate(depthBestR) - rate(depthR))} (how much the LAST shot threw away)`)
 }
 
 main().catch((err) => {
