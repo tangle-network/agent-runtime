@@ -15,6 +15,7 @@ import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
+import { createHumanEvalAdapter } from './benchmarks/humaneval'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
 import { createProgrambenchAdapter } from './benchmarks/programbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
@@ -40,6 +41,9 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
   hotpotqa: createHotpotqaAdapter,
+  // Deployable-checker code domain: worker = router completion, judge = Docker test
+  // run (--network=none). The steering A/B counterpart to humaneval-gate.mts (selection).
+  humaneval: createHumanEvalAdapter,
   mind2web: createMind2WebAdapter,
 }
 

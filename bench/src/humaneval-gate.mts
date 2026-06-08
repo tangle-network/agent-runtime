@@ -41,175 +41,19 @@
  *   N=20 K=4 npx tsx src/humaneval-gate.mts
  */
 
-import { gunzipSync } from 'node:zlib'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { execFile } from 'node:child_process'
 import { composeStrategies } from './directives'
+import { basePrompt, type CheckResult, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
 import { type RouterConfig, routerChatWithUsage } from './router-client'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
-const HUMANEVAL_URL = 'https://github.com/openai/human-eval/raw/master/data/HumanEval.jsonl.gz'
 const dockerImage = 'python:3.12-slim'
+const dockerTimeoutMs = Number(process.env.DOCKER_TIMEOUT_MS ?? 20000)
 
 function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
-}
-
-interface HumanEvalTask {
-  taskId: string
-  prompt: string
-  test: string
-  entryPoint: string
-}
-
-/** Pull the 164-task HumanEval JSONL.gz and parse it. Fail loud on a non-OK fetch
- *  or a malformed line — a silently-short task set would poison the gate. `offset`
- *  selects a deeper slice (the later tasks are harder) so the worker has a
- *  correctable middle band rather than a saturated easy prefix. */
-async function loadHumanEval(limit: number, offset: number): Promise<HumanEvalTask[]> {
-  const res = await fetch(HUMANEVAL_URL)
-  if (!res.ok) throw new Error(`HumanEval fetch HTTP ${res.status}: ${HUMANEVAL_URL}`)
-  const gz = Buffer.from(await res.arrayBuffer())
-  const text = gunzipSync(gz).toString('utf8')
-  const tasks: HumanEvalTask[] = []
-  for (const line of text.split('\n')) {
-    if (line.trim() === '') continue
-    const d = JSON.parse(line) as {
-      task_id?: string
-      prompt?: string
-      test?: string
-      entry_point?: string
-    }
-    if (!d.task_id || !d.prompt || !d.test || !d.entry_point) {
-      throw new Error(`malformed HumanEval record: ${line.slice(0, 120)}`)
-    }
-    tasks.push({ taskId: d.task_id, prompt: d.prompt, test: d.test, entryPoint: d.entry_point })
-  }
-  if (tasks.length === 0) throw new Error('HumanEval parsed to 0 tasks')
-  if (offset >= tasks.length) throw new Error(`OFFSET ${offset} >= dataset size ${tasks.length}`)
-  return tasks.slice(offset, offset + limit)
-}
-
-const SOLVE_INSTRUCTION =
-  'Complete the following Python function. Output the COMPLETE function definition (signature, docstring optional, body) inside a single ```python code block. Include any imports the function needs. Do not write tests or example calls.'
-
-function basePrompt(task: HumanEvalTask): string {
-  return `${SOLVE_INSTRUCTION}\n\n\`\`\`python\n${task.prompt}\`\`\``
-}
-
-/** Extract the function source from a model reply: prefer a fenced ```python (or
- *  bare ```) block, else fall back to the raw text. The deployable program adds the
- *  prompt header (imports + signature context), so a candidate that returns only a
- *  body still runs; a candidate that re-defines the function shadows the header. */
-function extractCode(reply: string): string {
-  const fenced = reply.match(/```(?:python|py)?\s*\n([\s\S]*?)```/i)
-  if (fenced && typeof fenced[1] === 'string') return fenced[1].trim()
-  return reply.trim()
-}
-
-/** The deployable test program: the prompt header (imports + signature/docstring the
- *  model was given), then the candidate (its def shadows the header's stub), then the
- *  task's own check() suite and the call. No gold solution anywhere. */
-function buildProgram(task: HumanEvalTask, candidate: string): string {
-  return `${task.prompt}\n${candidate}\n\n${task.test}\n\ncheck(${task.entryPoint})\n`
-}
-
-const dockerTimeoutMs = Number(process.env.DOCKER_TIMEOUT_MS ?? 20000)
-
-interface CheckResult {
-  /** {0,1} pass-count for this candidate (1 = the check() suite passed). */
-  pass: number
-}
-
-/** Run one candidate's deployable test program in an isolated container:
- *  `docker run --rm --network=none -v <tmp>:/w -w /w <img> python /w/p.py`.
- *  Exit 0 → pass. A docker invocation error (binary missing, daemon down, image
- *  pull failure) is NOT a test failure — it throws so the harness fails loud rather
- *  than scoring every candidate 0 from a broken checker. */
-let dockerRunSeq = 0
-
-function runChecker(task: HumanEvalTask, candidate: string): Promise<CheckResult> {
-  const dir = mkdtempSync(join(tmpdir(), 'hev-'))
-  writeFileSync(join(dir, 'p.py'), buildProgram(task, candidate))
-  // Unique container name so we can force-reap it regardless of the docker client's state.
-  const name = `hev-${process.pid}-${dockerRunSeq++}`
-  return new Promise<CheckResult>((resolvePromise, reject) => {
-    let settled = false
-    const cleanup = () => {
-      rmSync(dir, { recursive: true, force: true })
-      // THE LEAK FIX: `execFile`'s `timeout` kills the docker CLIENT, not the container — a hung
-      // `python` would otherwise pin a CPU forever ("Up 34 minutes"). Force-reap by name
-      // (fire-and-forget; the name is unique, so no reuse race).
-      execFile('docker', ['rm', '-f', name], () => {})
-    }
-    const finish = (res: CheckResult) => {
-      if (settled) return
-      settled = true
-      clearTimeout(backstop)
-      cleanup()
-      resolvePromise(res)
-    }
-    const fail = (e: Error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(backstop)
-      cleanup()
-      reject(e)
-    }
-    // THE HANG FIX: a hung container can leave the docker client stuck forwarding SIGTERM, so the
-    // execFile callback never fires and `pool` would wait forever. This guarantees resolution
-    // (and reap) after the timeout, independent of the callback.
-    const backstop = setTimeout(() => finish({ pass: 0 }), dockerTimeoutMs + 3000)
-    execFile(
-      'docker',
-      [
-        'run',
-        '--rm',
-        '--name',
-        name,
-        '--network=none',
-        '--cpus=1',
-        '--memory=512m',
-        '-v',
-        `${dir}:/w:ro`,
-        '-w',
-        '/w',
-        dockerImage,
-        'python',
-        '/w/p.py',
-      ],
-      { timeout: dockerTimeoutMs, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024 },
-      (err, _stdout, stderr) => {
-        if (err) {
-          const e = err as NodeJS.ErrnoException & { killed?: boolean; code?: number | string }
-          // ENOENT = docker binary missing; a daemon/connect failure surfaces in stderr. These
-          // are infra failures, not a failed test — fail loud.
-          if (e.code === 'ENOENT') {
-            fail(new Error('docker binary not found on PATH — cannot run the deployable checker'))
-            return
-          }
-          if (/cannot connect to the docker daemon|is the docker daemon running|permission denied while trying to connect/i.test(stderr)) {
-            fail(new Error(`docker daemon unreachable: ${stderr.slice(0, 200)}`))
-            return
-          }
-          if (/(unable to find image|pull access denied|manifest unknown|error response from daemon).*(pull|repository|registry)/i.test(stderr)) {
-            fail(new Error(`docker image ${dockerImage} unavailable: ${stderr.slice(0, 200)}`))
-            return
-          }
-          // killed-by-timeout or a non-zero exit from python (assert failure / error) are genuine
-          // test FAILURES — score 0, do not throw.
-          finish({ pass: 0 })
-          return
-        }
-        finish({ pass: 1 })
-      },
-    )
-  })
 }
 
 interface Attempt {
