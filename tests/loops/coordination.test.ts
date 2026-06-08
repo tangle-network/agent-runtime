@@ -3,8 +3,6 @@ import { createMcpServer } from '../../src/mcp/server'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
 
-// The toolbox is a thin wrapper over the keystone Scope (spawn/view/send are tested in
-// supervise.test.ts); this verifies the MCP handlers call the right verbs and shape the results.
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
 function mockScope() {
@@ -61,8 +59,8 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
   return t
 }
 
-describe('operator toolbox (Scope-as-MCP)', () => {
-  it('spawn_worker → workerId; fail-closed → { error }', async () => {
+describe('coordination tools', () => {
+  it('spawn_worker returns workerId and fails closed when admission fails', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -79,22 +77,32 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     })
   })
 
-  it('observe_worker returns status; unknown id → error', async () => {
+  it('observe_worker returns live status and settled output', async () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
       scope,
-      blobs,
+      blobs: {
+        get: async (ref) => (ref === 'blob:w1' ? { answer: 42 } : undefined),
+        put: async () => {},
+      },
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    const o = (await tool(tb, 'observe_worker').handler({ workerId: 'w0' })) as { status: string }
-    expect(o.status).toBe('running')
+    expect(await tool(tb, 'observe_worker').handler({ workerId: 'w0' })).toMatchObject({
+      status: 'running',
+      output: null,
+    })
+    expect(await tool(tb, 'observe_worker').handler({ workerId: 'w1' })).toMatchObject({
+      status: 'done',
+      outRef: 'blob:w1',
+      output: { answer: 42 },
+    })
     expect(await tool(tb, 'observe_worker').handler({ workerId: 'nope' })).toEqual({
       error: 'unknown workerId "nope"',
     })
   })
 
-  it('steer_worker delivers to a live worker via scope.send; false for unknown', async () => {
+  it('steer_worker delivers through Scope.send', async () => {
     const { scope, sent } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -111,21 +119,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     })
   })
 
-  it('stop flips isStopped + records the reason', async () => {
-    const { scope } = mockScope()
-    const tb = createCoordinationTools({
-      scope,
-      blobs,
-      makeWorkerAgent,
-      perWorker: { maxIterations: 1, maxTokens: 10 },
-    })
-    expect(tb.isStopped()).toBe(false)
-    await tool(tb, 'stop').handler({ reason: 'all verified' })
-    expect(tb.isStopped()).toBe(true)
-    expect(tb.stopReason()).toBe('all verified')
-  })
-
-  it('await_next drains the next settlement → verdict, and records it in the settled() ledger', async () => {
+  it('await_next drains settlements into the driver ledger', async () => {
     const { scope } = mockScope()
     const settlements = [
       {
@@ -153,6 +147,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       status: 'done',
       score: 0.83,
       valid: true,
+      outRef: 'blob:w7',
     })
     expect(await tool(tb, 'await_next').handler({})).toEqual({ idle: true })
     expect(tb.settled()).toEqual([
@@ -160,7 +155,42 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     ])
   })
 
-  it('list_analysts surfaces the menu; run_analyst applies a lens to a SETTLED worker', async () => {
+  it('blocks stop under failClosed until a parent question is answered', async () => {
+    const { scope } = mockScope()
+    const emitted: unknown[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      questionPolicy: 'failClosed',
+      onEvent: (event) => emitted.push(event),
+    })
+
+    const r = (await tool(tb, 'ask_parent').handler({
+      from: 'driver-1',
+      level: 'driver',
+      question: 'Which API version should this migration target?',
+      reason: 'worker found two supported versions',
+      urgency: 'blocks-run',
+    })) as { question: { id: string } }
+    expect(await tool(tb, 'stop').handler({ reason: 'done' })).toMatchObject({
+      stopped: false,
+      error: 'unresolved-blocking-questions',
+    })
+    await tool(tb, 'answer_question').handler({
+      questionId: r.question.id,
+      answer: 'Target v2.',
+      by: 'user',
+    })
+    expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toEqual({
+      stopped: true,
+    })
+    expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
+    expect(emitted).toEqual([{ type: 'question', question: expect.objectContaining(r.question) }])
+  })
+
+  it('list_analysts surfaces the menu and run_analyst applies a lens to a settled worker', async () => {
     const { scope } = mockScope()
     const traceBlobs: ResultBlobStore = {
       get: async (ref) => (ref === 'blob:w1' ? { messages: ['trace'] } : undefined),
@@ -172,27 +202,31 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       blobs: traceBlobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      analystKinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
-      runAnalyst: async (kind, trace) => {
-        seen.push({ kind, trace })
-        return [{ claim: 'X missing' }]
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async (kind, trace) => {
+          seen.push({ kind, trace })
+          return [{ claim: 'X missing' }]
+        },
       },
     })
-    expect((await tool(tb, 'list_analysts').handler({})) as { analysts: unknown[] }).toEqual({
+    expect(await tool(tb, 'list_analysts').handler({})).toEqual({
       analysts: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
     })
-    // settled worker → the lens runs over its trace.
-    const r = (await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' })) as {
-      findings: unknown
-    }
-    expect(r).toEqual({ findings: [{ claim: 'X missing' }] })
+    expect(await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' })).toEqual(
+      {
+        findings: [{ claim: 'X missing' }],
+      },
+    )
     expect(seen).toEqual([{ kind: 'completeness', trace: { messages: ['trace'] } }])
-    // running worker has no trace yet → typed error, lens not run.
-    const r2 = await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })
-    expect(r2).toEqual({ error: expect.stringContaining('has not settled') })
+    expect(await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })).toEqual(
+      {
+        error: expect.stringContaining('has not settled'),
+      },
+    )
   })
 
-  it('createMcpServer serves the operator tools alongside built-ins; a shadow throws', () => {
+  it('createMcpServer serves coordination tools alongside built-ins; a shadow throws', () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -203,7 +237,7 @@ describe('operator toolbox (Scope-as-MCP)', () => {
     const server = createMcpServer({ extraTools: tb.tools })
     expect(server.tools.has('spawn_worker')).toBe(true)
     expect(server.tools.has('steer_worker')).toBe(true)
-    expect(server.tools.has('delegate_feedback')).toBe(true) // built-in still present
+    expect(server.tools.has('delegate_feedback')).toBe(true)
     expect(() =>
       createMcpServer({
         extraTools: [

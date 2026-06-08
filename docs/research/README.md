@@ -25,6 +25,7 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 | [belief-agent-research-agenda.md](./belief-agent-research-agenda.md) | Research agenda for the recursive/belief-state agent — 7 disciplinary lenses → ranked agenda, grounded against the gate result (judge-blind selection loses; the win needs a deployable checker). Top tier is **offline on committed corpora**; the learner tier is gated. |
 | [program-research-plan.md](./program-research-plan.md) | Formal fund-or-kill audit of the program-synthesis framing. The honest verdict: **kill the RSI frame, park orchestration, ship the instrument + abstention.** |
 | [codex-techniques-audit.md](./codex-techniques-audit.md) | Adoption report mining OpenAI Codex for succinct-code principles + orchestration techniques. **Advisory** — verify `file:line` before acting. |
+| [loop-facade-postmortem.md](./loop-facade-postmortem.md) | Failure record for the deleted `defineLoop` facade: why retyping `Scope`/MCP/journals/validators produced code without substrate proof, and the prevention rule for future loop APIs. |
 
 ## Source artifacts (multi-agent passes)
 

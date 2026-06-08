@@ -656,7 +656,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       stream = acquired.events
     } else {
       box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
-      await spec.prepareBox?.(box, { signal: args.signal })
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
       // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
@@ -859,7 +858,9 @@ export async function createSandboxForSpec<Task>(
   // host-agent registration) can't surface as a failure — readiness is observed
   // from sandbox status, and a gateway-timed-out create is recovered by lookup.
   if (signal.aborted) throwAbort()
-  return acquireSandbox(client, opts, { signal })
+  const box = await acquireSandbox(client, opts, { signal })
+  await spec.prepareBox?.(box, { signal })
+  return box
 }
 
 interface FinalizeArgs<Task, Output, Decision> {

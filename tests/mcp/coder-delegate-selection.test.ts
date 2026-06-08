@@ -107,6 +107,32 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
     // smaller diff → higher diffSize score → highest-score favors it; either way a valid winner.
     expect(['small', 'big']).toContain(out.branch)
   })
+
+  it('applies harness and model overrides on the single-coder path', async () => {
+    let createOptions: CreateSandboxOptions | undefined
+    const delegate = createDefaultCoderDelegate({
+      sandboxClient: {
+        async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
+          createOptions = opts
+          return {
+            async *streamPrompt() {
+              yield { type: 'result', data: { result: CANDIDATES[0] } } satisfies SandboxEvent
+            },
+          } as unknown as SandboxInstance
+        },
+      },
+      harness: 'opencode',
+      model: 'zai/glm-4.7',
+    })
+
+    await delegate({ goal: 'fix it', repoRoot: '/repo' }, ctx)
+
+    const profile = createOptions?.backend?.profile as
+      | { model?: { default?: string }; metadata?: Record<string, unknown> }
+      | undefined
+    expect(profile?.model?.default).toBe('zai/glm-4.7')
+    expect(profile?.metadata?.backendType).toBe('opencode')
+  })
 })
 
 import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/runtime'

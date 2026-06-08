@@ -3,15 +3,15 @@
  *
  * The conserved budget reservation pool — the invariant the whole instrument
  * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of three
- * quantities (tokens, usd, iterations) plus an absolute deadline. Children RESERVE
- * atomically at spawn and RECONCILE at settle:
+ * quantities (tokens, usd, iterations) plus an absolute deadline. Children reserve
+ * atomically at spawn and reconcile at settle:
  *
  *   total ≡ free + reserved + committed          (invariant, always)
  *
- * `reserve` moves a child's whole ceiling from `free` → `reserved` and FAILS CLOSED
+ * `reserve` moves a child's whole ceiling from `free` → `reserved` and fails closed
  * when `free` can't cover it (never read-then-spawn overcommit, so `Σk(treatment) ≡
  * Σk(blind)` by construction). `reconcile` releases the reservation, commits ACTUAL
- * spend, and refunds the unspent remainder to `free`. Tokens and usd are SEPARATE
+ * spend, and refunds the unspent remainder to `free`. Tokens and usd are separate
  * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
  *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or

@@ -212,6 +212,7 @@ export function createSandboxLineage(
     if (signal.aborted) throwAbort()
     const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
     const box = await acquireSandbox(client, opts, { signal })
+    await spec.prepareBox?.(box, { signal })
     owned.push(box)
     return box
   }
@@ -219,7 +220,6 @@ export function createSandboxLineage(
   return {
     async start(spec, prompt, signal) {
       const box = await acquireFresh(spec, signal)
-      await spec.prepareBox?.(box, { signal })
       const sessionId = mintSessionId()
       const events = promptEvents(streaming, box, prompt, sessionId, signal)
       return { handle: { box, sessionId }, events }
@@ -266,7 +266,6 @@ export function createSandboxLineage(
           }
         }
         const box = await acquireFresh(spec, signal)
-        await spec.prepareBox?.(box, { signal })
         const sessionId = mintSessionId()
         return {
           handle: { box, sessionId },

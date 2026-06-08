@@ -86,10 +86,16 @@ export {
   runCheck,
 } from './tools/checks'
 export {
+  type AnalystRegistry,
+  type CoordinationEvent,
   type CoordinationTools,
   type CoordinationToolsOptions,
   createCoordinationTools,
   type MakeWorkerAgent,
+  type Question,
+  type QuestionDecision,
+  type QuestionPolicy,
+  type QuestionRecord,
   type SettledWorker,
 } from './tools/coordination'
 export {

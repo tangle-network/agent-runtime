@@ -113,8 +113,14 @@ export interface CreateDefaultCoderDelegateOptions {
    * `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
    */
   sandboxClient?: SandboxClient
+  /** Backend harness for the single-coder path. Default comes from `coderProfile`. */
+  harness?: string
+  /** Model override for the single-coder path. */
+  model?: string
   /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
   fanoutHarnesses?: string[]
+  /** Optional per-harness model override for `variants > 1`. */
+  fanoutModels?: (string | undefined)[]
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */
   maxConcurrency?: number
   /**
@@ -163,7 +169,11 @@ export function createDefaultCoderDelegate(
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const { agentRunSpec, output, validator } = coderProfile({ task })
+      const { agentRunSpec, output, validator } = coderProfile({
+        task,
+        ...(options.harness ? { harness: options.harness } : {}),
+        ...(options.model ? { model: options.model } : {}),
+      })
       const result = await runLoop({
         driver: singleShotDriver,
         agentRun: agentRunSpec,
@@ -185,11 +195,12 @@ export function createDefaultCoderDelegate(
       ctx.report({ iteration: 1, phase: 'completed' })
       return chosen
     }
-    const fanout = multiHarnessCoderFanout(
-      fanoutHarnesses && fanoutHarnesses.length > 0
+    const fanout = multiHarnessCoderFanout({
+      ...(fanoutHarnesses && fanoutHarnesses.length > 0
         ? { harnesses: fanoutHarnesses.slice(0, variants) }
-        : { harnesses: undefined },
-    )
+        : {}),
+      ...(options.fanoutModels ? { models: options.fanoutModels.slice(0, variants) } : {}),
+    })
     const agentRuns = fanout.agentRuns.slice(0, variants)
     const result = await runLoop({
       driver: fanout.driver,

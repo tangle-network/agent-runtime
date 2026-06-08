@@ -42,6 +42,8 @@ The package API and subsystems.
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol *(needs-update)* | The multi-agent call bus — depth limits, headers, refusal contract. (Pending: 429/413 fix + subpath list.) |
 | [conversation-economics.md](./conversation-economics.md) | subsystem | Conversation cost accounting and auth-source model (`src/conversation/`). |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability adapters for resumable conversations. |
+| [BUILDING.md](./BUILDING.md) | process | Canonical building discipline: goal first, cheapest decisive proof, substrate-first loop API, verification rules. |
+| [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes: mechanism ahead of gate, facade before substrate proof, relocated protocol, confounded claims, overclaim. |
 | [refactor-roadmap.md](./refactor-roadmap.md) | package hygiene *(needs prune)* | Package-structure cleanup items (R1–R10); closed items deleted per its own rule. |
 
 ## Conventions
@@ -50,4 +52,4 @@ The package API and subsystems.
 - Architecture docs cross-link the spine; the spine links its deep-dives and the empirical harness.
 - "Built vs Designed" is stated explicitly in `architecture.md` and `architecture-interpretations.md` — never assume a documented design is shipped without the `file:line` anchor.
 
-- Repo-wide authorship + comment-discipline + layering rules live in [../CLAUDE.md](../CLAUDE.md).
+- Repo bootloader + authorship/comment/layering deltas live in [../CLAUDE.md](../CLAUDE.md); durable process rules live in [BUILDING.md](./BUILDING.md) and [ANTI_PATTERNS.md](./ANTI_PATTERNS.md).

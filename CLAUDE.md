@@ -56,12 +56,7 @@ This repo is the empirical home of the RSI/learning-flywheel thesis, but **mecha
 
 **The live science state — every number, what's proven/disproven, the current goal — lives in `.evolve/current.json` + the `memory/` evidence ledger. Read them; do not mirror them here.** `docs/eval-substrate.md` holds the north star (the RSI runtime + its eval substrate) and the measurement non-negotiables.
 
-**Process discipline (the anti-patterns that have bitten this repo):**
-- **Don't build mechanism ahead of the gate.** Per-branch adaptive sub-agents, learned planners, the outer flywheel — all wait for a *positive* gate result. Expressiveness was the closed gap; the open one is evidentiary.
-- **Don't re-run a settled measurement.** The instrument already returned 0 coding-headroom (3 runs) and steering-loses on FinSearchComp. Read the dated controlled-result memory note before proposing to "test if steering helps" again.
-- **Estimate cost before launch.** cells × per-cell-time / concurrency. A cell is a multi-min rollout; GEPA multiplies it (POP×GENS×cells). FinSearchComp-over-sandbox ≈ 3hr/run with ~14% stream-drop loss — budget it or use the offline corpus / local gate (conc≤2).
-- **Confounds before causal claims.** Never claim a win where treatment got more compute than control. Isolate via refine@k vs random@k at EQUAL k; exclude infra-errored cells; report the discordant count; apply BH across arms; prefer deterministic-judge domains. Run the cheapest decisive check first.
-- **No overclaim.** "Validates the concept" ≠ "validates the product." Route through the real kernel (`runLoop` + `createDriver` + judge-as-`Validator`) to claim the product. Underpowered splits (n≈20) are not wins. A confounded "steering proven" (treatment got more compute than control) is a cautionary precedent — see the memory ledger.
+**Process discipline:** stable build rules live in `docs/BUILDING.md`; named failure modes live in `docs/ANTI_PATTERNS.md`. `CLAUDE.md` is the bootloader, not the whole policy manual.
 
 ## Memory discipline
 
