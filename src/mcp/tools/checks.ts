@@ -263,9 +263,11 @@ function defaultChat(opts: CheckRunnerOptions): (system: string, user: string) =
   }
 }
 
-/** Build a `run_analyst` runner over a kind directory — the seam the operator toolbox is wired with.
- *  Returns the findings, or a typed error for an unknown kind. `producedAt` is passed in (the runtime
- *  forbids `Date.now` in replay-safe paths; the caller stamps it). */
+/**
+ * Build a `run_analyst` runner over a kind directory.
+ * Returns findings, or a typed error for an unknown kind. `producedAt` is
+ * passed in because replay-safe paths must not read `Date.now`.
+ */
 export function makeCheckRunner(
   kinds: Record<string, Check>,
   opts: CheckRunnerOptions,

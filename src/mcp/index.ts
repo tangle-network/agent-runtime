@@ -86,10 +86,22 @@ export {
   runCheck,
 } from './tools/checks'
 export {
+  type AnalystRegistry,
   type CoordinationTools,
   type CoordinationToolsOptions,
+  composeLoopPacketAnalyzers,
   createCoordinationTools,
+  type LoopEvent,
+  type LoopPacketAnalysis,
+  type LoopPacketAnalysisInput,
+  type LoopPacketAnalyzer,
+  type LoopPacketMessage,
+  type LoopQuestion,
+  type LoopQuestionInput,
   type MakeWorkerAgent,
+  type QuestionDecision,
+  type QuestionPolicyMode,
+  type QuestionRecord,
   type SettledWorker,
 } from './tools/coordination'
 export {

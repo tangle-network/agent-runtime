@@ -1,99 +1,102 @@
 /**
  * @experimental
  *
- * COORDINATION TOOLS — the verbs a parent agent uses to coordinate the child agents it spawns,
- * exposed as MCP tools backed by a live keystone `Scope`. This is `Scope`-as-MCP.
+ * MCP binding for a live `Scope`.
  *
- * NOT a transport. The cross-org message bus (`docs/agent-bus-protocol.md`) and the SDK's
- * `dispatchPrompt`/`SessionMessage` are the *transports* the `steer` verb rides; THIS file is the
- * verb set (the API). One verb, several bindings: in-process `Scope.send` is a direct call; across
- * sandboxes it rides SDK session-messaging; across orgs it rides the agent-bus protocol.
+ * A sandbox driver gets a small verb set over child agents:
+ * spawn, observe, await settlement, steer, raise/answer questions, run analysts,
+ * and stop. Transport is outside this file: in-process steering is `Scope.send`,
+ * sandbox steering can ride session messages, and cross-org steering can ride the
+ * agent-bus protocol.
  *
- *   spawn_worker  → scope.spawn   (budget-bounded, fail-closed — equal-k holds even for an LLM driver)
- *   await_next    → scope.next    (THE wake event: block until the next spawned child settles)
- *   observe_worker→ scope.view + the result blob (a child's status, spend, and settled output)
- *   steer_worker  → scope.send    (deliver a next-instruction / interrupt to a RUNNING child)
- *   list_analysts → the check menu (the trace lenses the agent can apply — see checks.ts)
- *   run_analyst   → apply a CHECK  (run a kind over a child's trace → trace-derived findings)
- *   stop          → declare the run complete (the terminal move)
- *
- * The check verbs are present only when the check seam (`analystKinds` + `runAnalyst`) is wired —
- * an agent that does not review traces (a pure dispatcher) omits them. A trace check is a SEPARATE
- * lens (selector ≠ judge: it reads the trace, never the score); authoring a NEW check at runtime is
- * the next addition.
- *
- * A worker the driver spawns may itself carry the driver profile — `spawn_worker` does not care what
- * the profile is, so drivers-of-drivers fall out for free (each sub-driver gets its own sub-scope,
- * bounded by `maxDepth` + the conserved pool).
+ * Settled workers become loop packets. Packet analyzers attach findings,
+ * questions, and messages to those packets so parent drivers and Pi can inspect
+ * and steer without hidden side channels.
  */
 
 import type {
-  Budget,
-  ResultBlobStore,
-  Scope,
+  DefaultVerdict,
+  LoopFinding,
+  LoopFindingInput,
+  LoopMessageRecord,
+  LoopPacket,
+  LoopVerdict,
+  NodeId,
   Settled,
-  Agent as SuperviseAgent,
+  Spend,
 } from '../../runtime'
 import type { McpToolDescriptor } from '../server'
+import { composeLoopPacketAnalyzers } from './coordination-analysis'
+import type {
+  CoordinationTools,
+  CoordinationToolsOptions,
+  LoopEvent,
+  LoopPacketAnalysisInput,
+  LoopPacketAnalyzer,
+  LoopPacketMessage,
+  LoopQuestion,
+  QuestionDecision,
+  QuestionRecord,
+  SettledWorker,
+} from './coordination-types'
 
-/** A worker the driver has drained via `await_next` — the operator's running ledger of settled
- *  workers + their DEPLOYABLE verdict (the driver IS the selector, so it legitimately reads the
- *  verdict; the analyst, which reads only the trace, is the separate selector≠judge lens). The
- *  driver picks its deliverable from this ledger at `stop`. */
-export interface SettledWorker {
-  readonly id: string
-  readonly status: 'done' | 'down'
-  /** Deployable score in [0,1] from the worker's verdict (done only). */
-  readonly score?: number
-  /** Whether the deployable verdict passed (done only). */
-  readonly valid?: boolean
-  /** Result-blob pointer for the worker's output/trace (done only). */
-  readonly outRef?: string
-  /** Failure reason (down only). */
-  readonly reason?: string
-}
-
-/** How a `spawn_worker` profile becomes a spawnable leaf `Agent`. The caller wires this (e.g. the
- *  surface registry turns a profile into a shot executor) so the toolbox stays domain-blind. */
-export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
-
-export interface CoordinationToolsOptions {
-  /** The DRIVER's live scope — spawn/observe/steer all act on this. */
-  readonly scope: Scope<unknown>
-  /** Result blobs, so `observe_worker` can rehydrate a settled worker's output. */
-  readonly blobs: ResultBlobStore
-  /** Turn a spawn_worker `profile` into a leaf agent (registry-resolved on spawn). */
-  readonly makeWorkerAgent: MakeWorkerAgent
-  /** Per-worker conserved budget the driver reserves on each spawn. */
-  readonly perWorker: Budget
-  /** The analyst lens menu (for `list_analysts`) — id + one-line + area. Injected so the toolbox
-   *  stays domain-blind; wire it from `analyst-kinds.ts`'s directory. Omit to disable analyst tools. */
-  readonly analystKinds?: ReadonlyArray<{ id: string; description: string; area: string }>
-  /** Run a lens over a worker's trace → findings (or a typed error). Wire it from
-   *  `makeCheckRunner(...)`. `run_analyst` fetches the worker's settled output and passes it here. */
-  readonly runAnalyst?: (kindId: string, trace: unknown) => Promise<unknown>
-}
-
-export interface CoordinationTools {
-  /** MCP tools — register on an `McpServer`, or call the handlers directly in-process. */
-  readonly tools: McpToolDescriptor[]
-  /** True once the driver called `stop` — the operator loop reads this to terminate. */
-  isStopped(): boolean
-  /** The reason passed to `stop`, if any. */
-  stopReason(): string | undefined
-  /** The workers drained so far via `await_next` (the driver's selection ledger). */
-  settled(): ReadonlyArray<SettledWorker>
-}
+export { composeLoopPacketAnalyzers } from './coordination-analysis'
+export type {
+  AnalystRegistry,
+  CoordinationTools,
+  CoordinationToolsOptions,
+  LoopEvent,
+  LoopPacketAnalysis,
+  LoopPacketAnalysisInput,
+  LoopPacketAnalyzer,
+  LoopPacketMessage,
+  LoopQuestion,
+  LoopQuestionInput,
+  MakeWorkerAgent,
+  QuestionDecision,
+  QuestionPolicyMode,
+  QuestionRecord,
+  SettledWorker,
+} from './coordination-types'
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
+const severities = new Set(['critical', 'high', 'medium', 'low', 'info'])
 
-/** Build the operator toolbox over a live scope. The tools are the driver's verbs; their handlers
- *  are thin wrappers over the keystone (spawn/view/send), so the budget/journal/abort discipline of
- *  the Supervisor applies to a sandbox driver exactly as to the in-process one. */
+function isSeverity(value: unknown): value is LoopFinding['severity'] {
+  return typeof value === 'string' && severities.has(value)
+}
+
+/** Build the driver's MCP tools over a live scope. */
 export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
   let stopped = false
   let reason: string | undefined
   const ledger: SettledWorker[] = []
+  const packets: LoopPacket[] = []
+  const questions: QuestionRecord[] = []
+  let questionSeq = 0
+  let findingSeq = 0
+  let messageSeq = 0
+
+  const str = (v: unknown, field: string): string => {
+    if (typeof v !== 'string' || v.length === 0)
+      throw new Error(`coordination tools: "${field}" must be a non-empty string`)
+    return v
+  }
+  const obj = (raw: unknown): Record<string, unknown> => {
+    if (!raw || typeof raw !== 'object')
+      throw new Error('coordination tools: arguments must be an object')
+    return raw as Record<string, unknown>
+  }
+  const level = (v: unknown): LoopQuestion['level'] => {
+    if (v === 'worker' || v === 'driver' || v === 'loop') return v
+    throw new Error('coordination tools: "level" must be worker, driver, or loop')
+  }
+  const urgency = (v: unknown): LoopQuestion['urgency'] => {
+    if (v === 'continue-without' || v === 'blocks-step' || v === 'blocks-run') return v
+    throw new Error(
+      'coordination tools: "urgency" must be continue-without, blocks-step, or blocks-run',
+    )
+  }
 
   const recordSettled = (s: Settled<unknown>): SettledWorker => {
     const w: SettledWorker =
@@ -109,16 +112,238 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     ledger.push(w)
     return w
   }
-
-  const str = (v: unknown, field: string): string => {
-    if (typeof v !== 'string' || v.length === 0)
-      throw new Error(`operator toolbox: "${field}" must be a non-empty string`)
-    return v
+  const questionPolicy = opts.questionPolicy ?? 'auto'
+  const emitEvent = async (event: LoopEvent): Promise<void> => {
+    await opts.onEvent?.(event)
   }
-  const obj = (raw: unknown): Record<string, unknown> => {
-    if (!raw || typeof raw !== 'object')
-      throw new Error('operator toolbox: arguments must be an object')
-    return raw as Record<string, unknown>
+  const nextQuestionId = (from: NodeId): string => `${from}:q${questionSeq++}`
+  const normalizeQuestion = (
+    q: Omit<LoopQuestion, 'id'> & { id?: string },
+    fallbackFrom: NodeId,
+  ): LoopQuestion => {
+    const from = str(q.from ?? fallbackFrom, 'from')
+    return {
+      id: typeof q.id === 'string' && q.id.length > 0 ? q.id : nextQuestionId(from),
+      from,
+      level: level(q.level),
+      question: str(q.question, 'question'),
+      reason: str(q.reason, 'reason'),
+      ...(q.options ? { options: q.options } : {}),
+      urgency: urgency(q.urgency),
+    }
+  }
+  const addQuestion = (
+    raw: Omit<LoopQuestion, 'id'> & { id?: string },
+    fallbackFrom: NodeId,
+    decision?: QuestionDecision,
+  ): { question: QuestionRecord; added: boolean } => {
+    const q = normalizeQuestion(raw, fallbackFrom)
+    const existing = questions.find((x) => x.id === q.id)
+    if (existing) return { question: existing, added: false }
+    const effectiveDecision =
+      decision ??
+      (questionPolicy === 'bubble'
+        ? ({
+            kind: 'escalate',
+            value: 'question policy bubbled to parent',
+            to: 'parent',
+            reason: 'question policy bubbled to parent',
+          } as const)
+        : undefined)
+    const status: QuestionRecord['status'] =
+      effectiveDecision?.kind === 'answer'
+        ? 'answered'
+        : effectiveDecision?.kind === 'defer'
+          ? 'deferred'
+          : effectiveDecision?.kind === 'escalate'
+            ? 'escalated'
+            : 'open'
+    const record: QuestionRecord = {
+      ...q,
+      status,
+      openedAt: Date.now(),
+      ...(effectiveDecision ? { decision: effectiveDecision } : {}),
+    }
+    questions.push(record)
+    return { question: record, added: true }
+  }
+  const emitNewQuestion = async (record: {
+    question: QuestionRecord
+    added: boolean
+  }): Promise<QuestionRecord> => {
+    if (record.added) await emitEvent({ type: 'question', question: record.question })
+    return record.question
+  }
+  const decideQuestion = (questionId: string, decision: QuestionDecision): QuestionRecord => {
+    const idx = questions.findIndex((q) => q.id === questionId)
+    if (idx < 0) throw new Error(`unknown questionId ${JSON.stringify(questionId)}`)
+    const prior = questions[idx] as QuestionRecord
+    const status: QuestionRecord['status'] =
+      decision.kind === 'answer' ? 'answered' : decision.kind === 'defer' ? 'deferred' : 'escalated'
+    const next: QuestionRecord = { ...prior, status, decision }
+    questions[idx] = next
+    return next
+  }
+  const isBlockingQuestion = (q: QuestionRecord): boolean =>
+    q.urgency === 'blocks-step' || q.urgency === 'blocks-run'
+  const blockingQuestionsForStop = (): QuestionRecord[] => {
+    if (questionPolicy === 'mustDecide') {
+      return questions.filter((q) => isBlockingQuestion(q) && q.status === 'open')
+    }
+    if (questionPolicy === 'failClosed') {
+      return questions.filter(
+        (q) => isBlockingQuestion(q) && q.status !== 'answered' && q.status !== 'deferred',
+      )
+    }
+    return []
+  }
+  const outputForNode = async (nodeId: NodeId): Promise<{ outRef?: string; output?: unknown }> => {
+    const node = opts.scope.view.nodes.find((n) => n.id === nodeId)
+    if (!node?.outRef) return {}
+    const output = await opts.blobs.get(node.outRef)
+    return { outRef: node.outRef, ...(output !== undefined ? { output } : {}) }
+  }
+  const packetTiming = (
+    spent: Spend,
+  ): { startedAt: number; endedAt: number; durationMs: number } => {
+    const endedAt = Date.now()
+    const durationMs = Math.max(0, spent.ms)
+    return { startedAt: endedAt - durationMs, endedAt, durationMs }
+  }
+  const verdictFromDefault = (verdict: DefaultVerdict | undefined): LoopVerdict | undefined => {
+    if (!verdict) return undefined
+    return {
+      valid: verdict.valid,
+      score: verdict.score,
+      ...(verdict.notes ? { notes: verdict.notes, reason: verdict.notes } : {}),
+    }
+  }
+  const normalizeFinding = (raw: LoopFindingInput, source: string): LoopFinding => {
+    return {
+      id: raw.id ?? `coord:f${findingSeq++}`,
+      source: raw.source ?? source,
+      claim: raw.claim,
+      ...(isSeverity(raw.severity) ? { severity: raw.severity } : {}),
+      ...(raw.evidence ? { evidence: raw.evidence } : {}),
+      ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {}),
+      ...(raw.recommendedAction ? { recommendedAction: raw.recommendedAction } : {}),
+      ...(raw.metadata ? { metadata: raw.metadata } : {}),
+    }
+  }
+  const deliverPacketMessage = (
+    packet: LoopPacket,
+    draft: LoopPacketMessage,
+  ): LoopMessageRecord => {
+    const kind = draft.kind ?? 'steer'
+    const delivered = opts.scope.send(
+      draft.to,
+      kind === 'steer'
+        ? {
+            steer: draft.body,
+            reason: draft.reason,
+          }
+        : {
+            message: draft.body,
+            kind,
+            reason: draft.reason,
+          },
+    )
+    return {
+      id: `${packet.id}:msg:${messageSeq++}`,
+      from: draft.from ?? packet.nodeId,
+      to: draft.to,
+      kind,
+      body: draft.body,
+      ...(draft.reason ? { reason: draft.reason } : {}),
+      mode: draft.mode ?? 'immediate',
+      delivery: delivered
+        ? { status: 'delivered' }
+        : { status: 'rejected', reason: 'scope.send returned false' },
+      sentAt: Date.now(),
+      ...(draft.metadata ? { metadata: draft.metadata } : {}),
+    }
+  }
+  const autoTraceAnalysis: LoopPacketAnalyzer = async ({ packet }) => {
+    const autoKinds = opts.analysts?.auto ?? []
+    if (packet.status !== 'done' || !opts.analysts || autoKinds.length === 0) return undefined
+    const findings: LoopFindingInput[] = []
+    for (const kind of autoKinds) {
+      findings.push({
+        source: kind,
+        claim: `trace analyst ${kind} produced findings`,
+        metadata: { kind, findings: await opts.analysts.run(kind, packet.trace) },
+      })
+    }
+    return { findings }
+  }
+  const analyzePacket = composeLoopPacketAnalyzers(autoTraceAnalysis, opts.analyzePacket)
+
+  const applyPacketAnalysis = async (packet: LoopPacket): Promise<LoopPacket> => {
+    const input: LoopPacketAnalysisInput = {
+      packet,
+      packets: [...packets, packet],
+      questions,
+      budget: opts.scope.budget,
+    }
+    const analysis = await analyzePacket(input)
+    if (!analysis) return packet
+    const packetQuestions: QuestionRecord[] = []
+    for (const q of analysis.questions ?? []) {
+      packetQuestions.push(await emitNewQuestion(addQuestion(q, packet.nodeId)))
+    }
+    const messages = (analysis.messages ?? []).map((message) =>
+      deliverPacketMessage(packet, message),
+    )
+    const findings = (analysis.findings ?? []).map((finding) =>
+      normalizeFinding(finding, 'packet-analysis'),
+    )
+    if (!findings.length && !packetQuestions.length && !messages.length) return packet
+    return {
+      ...packet,
+      findings: [...packet.findings, ...findings],
+      questions: [...packet.questions, ...packetQuestions],
+      messages: [...packet.messages, ...messages],
+    }
+  }
+
+  const packetFromSettlement = async (s: Settled<unknown>): Promise<LoopPacket> => {
+    if (s.kind === 'down') {
+      const spent: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+      const timing = packetTiming(spent)
+      return {
+        id: `${s.handle.id}:packet`,
+        nodeId: s.handle.id,
+        label: s.handle.label,
+        status: 'down',
+        ...timing,
+        spent,
+        reason: s.reason,
+        findings: [],
+        questions: [],
+        messages: [],
+        blockers: [s.reason],
+      }
+    }
+    const artifact = await outputForNode(s.handle.id)
+    const trace = artifact.output ?? s.out
+    const timing = packetTiming(s.spent)
+    const verdict = verdictFromDefault(s.verdict)
+    return {
+      id: `${s.handle.id}:packet`,
+      nodeId: s.handle.id,
+      label: s.handle.label,
+      status: 'done',
+      ...timing,
+      spent: s.spent,
+      ...artifact,
+      trace,
+      output: artifact.output ?? s.out,
+      ...(verdict ? { verdict } : {}),
+      findings: [],
+      questions: [],
+      messages: [],
+      blockers: s.verdict && !s.verdict.valid ? [s.verdict.notes ?? 'worker verdict invalid'] : [],
+    }
   }
 
   const tools: McpToolDescriptor[] = [
@@ -127,7 +352,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       description:
         'Start a worker the operator will drive. `profile` is the worker (or another DRIVER — ' +
         'drivers-of-drivers are allowed); `task` is what it should do. Reserves the worker’s budget ' +
-        'from the conserved pool and FAILS CLOSED when the pool is dry — so spawning "at will" is ' +
+        'from the conserved pool and fails closed when the pool is dry — so spawning "at will" is ' +
         'bounded by the budget. Returns { workerId } or { error: "budget-exhausted" | "depth-exceeded" }.',
       inputSchema: {
         type: 'object',
@@ -204,9 +429,118 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const s = await opts.scope.next()
         if (!s) return { idle: true }
         const w = recordSettled(s)
+        const packet = await applyPacketAnalysis(await packetFromSettlement(s))
+        packets.push(packet)
+        await emitEvent({ type: 'packet', packet })
         return w.status === 'done'
-          ? { settled: w.id, status: 'done', score: w.score, valid: w.valid }
-          : { settled: w.id, status: 'down', reason: w.reason }
+          ? {
+              settled: w.id,
+              status: 'done',
+              score: w.score,
+              valid: w.valid,
+              packet,
+            }
+          : {
+              settled: w.id,
+              status: 'down',
+              reason: w.reason,
+              packet,
+            }
+      },
+    },
+    {
+      name: 'list_questions',
+      description:
+        'List questions raised by workers, drivers, or loop analysts. Stop behavior depends on questionPolicy: mustDecide blocks open blocking questions; failClosed blocks blocking questions until answered or deferred.',
+      inputSchema: { type: 'object', properties: {} },
+      handler: () => Promise.resolve({ questions }),
+    },
+    {
+      name: 'answer_question',
+      description:
+        'Record an answer/deferral/escalation for a loop question. Parent drivers and Pi use this to push decisions back down the chain.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          questionId: { type: 'string' },
+          answer: { type: 'string' },
+          by: { type: 'string', description: 'Node id or "user".' },
+          deferReason: { type: 'string' },
+          escalateTo: { type: 'string', enum: ['parent', 'user'] },
+          escalateReason: { type: 'string' },
+        },
+        required: ['questionId'],
+      },
+      handler: (raw) => {
+        const a = obj(raw)
+        const questionId = str(a.questionId, 'questionId')
+        if (typeof a.answer === 'string' && a.answer.length > 0) {
+          return Promise.resolve({
+            question: decideQuestion(questionId, {
+              kind: 'answer',
+              value: a.answer,
+              answer: a.answer,
+              by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
+            }),
+          })
+        }
+        if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {
+          return Promise.resolve({
+            question: decideQuestion(questionId, {
+              kind: 'defer',
+              value: a.deferReason,
+              reason: a.deferReason,
+            }),
+          })
+        }
+        if (a.escalateTo === 'parent' || a.escalateTo === 'user') {
+          const reason =
+            typeof a.escalateReason === 'string' && a.escalateReason.length > 0
+              ? a.escalateReason
+              : 'driver escalated'
+          return Promise.resolve({
+            question: decideQuestion(questionId, {
+              kind: 'escalate',
+              to: a.escalateTo,
+              value: reason,
+              reason,
+            }),
+          })
+        }
+        throw new Error('answer_question: provide answer, deferReason, or escalateTo')
+      },
+    },
+    {
+      name: 'ask_parent',
+      description:
+        'Raise a new question to the parent driver/Pi/user when the current driver cannot decide safely. This records the question and marks it escalated.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          from: { type: 'string' },
+          level: { type: 'string', enum: ['worker', 'driver', 'loop'] },
+          question: { type: 'string' },
+          reason: { type: 'string' },
+          urgency: { type: 'string', enum: ['continue-without', 'blocks-step', 'blocks-run'] },
+        },
+        required: ['from', 'level', 'question', 'reason', 'urgency'],
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const q = await emitNewQuestion(
+          addQuestion(
+            {
+              from: str(a.from, 'from'),
+              level: level(a.level),
+              question: str(a.question, 'question'),
+              reason: str(a.reason, 'reason'),
+              urgency: urgency(a.urgency),
+            },
+            str(a.from, 'from'),
+            { kind: 'escalate', value: 'asked parent', to: 'parent', reason: 'asked parent' },
+          ),
+        )
+        return { question: q }
       },
     },
     {
@@ -218,6 +552,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         properties: { reason: { type: 'string', description: 'Why you are stopping.' } },
       },
       handler: (raw) => {
+        const blocking = blockingQuestionsForStop()
+        if (blocking.length) {
+          return Promise.resolve({
+            stopped: false,
+            error: 'unresolved-blocking-questions',
+            questions: blocking,
+          })
+        }
         stopped = true
         const r = obj(raw).reason
         reason = typeof r === 'string' ? r : undefined
@@ -229,16 +571,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // list_analysts / run_analyst — present only when the analyst seam is wired. The driver picks a
   // kind from the menu and applies it to a worker it is driving; findings are trace-derived (the
   // firewall lives in the runner). (define_analyst — authoring a NEW kind at runtime — is deferred.)
-  if (opts.analystKinds) {
+  if (opts.analysts) {
     tools.push({
       name: 'list_analysts',
       description:
         'List the trace-analyst lenses available to run over a worker — id, what each looks for, and its area.',
       inputSchema: { type: 'object', properties: {} },
-      handler: () => Promise.resolve({ analysts: opts.analystKinds }),
+      handler: () => Promise.resolve({ analysts: opts.analysts?.kinds }),
     })
   }
-  if (opts.runAnalyst) {
+  if (opts.analysts) {
     tools.push({
       name: 'run_analyst',
       description:
@@ -261,10 +603,17 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         if (!node.outRef)
           return { error: `worker ${JSON.stringify(id)} has not settled — no trace to analyze yet` }
         const trace = await opts.blobs.get(node.outRef)
-        return { findings: await opts.runAnalyst?.(str(a.kind, 'kind'), trace) }
+        return { findings: await opts.analysts?.run(str(a.kind, 'kind'), trace) }
       },
     })
   }
 
-  return { tools, isStopped: () => stopped, stopReason: () => reason, settled: () => ledger }
+  return {
+    tools,
+    isStopped: () => stopped,
+    stopReason: () => reason,
+    settled: () => ledger,
+    packets: () => packets,
+    questions: () => questions,
+  }
 }

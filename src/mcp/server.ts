@@ -82,10 +82,9 @@ export interface McpServerOptions {
   /** Override the default in-memory task queue. */
   queue?: DelegationTaskQueue
   /**
-   * Extra tools to serve alongside the delegation tools — e.g. the operator toolbox
-   * (`createCoordinationTools(...).tools`), which exposes the driver's spawn/observe/steer verbs over
-   * MCP so a sandbox agent can BE the driver. Registered after the built-ins; a duplicate name
-   * throws (fail loud — no silent shadowing of a delegation tool).
+   * Extra tools to serve alongside the delegation tools, for example
+   * `createCoordinationTools(...).tools`. Registered after the built-ins; a
+   * duplicate name throws so delegation tools cannot be shadowed silently.
    */
   extraTools?: McpToolDescriptor[]
   /** Server display name surfaced via `initialize`. Default `'agent-runtime-mcp'`. */

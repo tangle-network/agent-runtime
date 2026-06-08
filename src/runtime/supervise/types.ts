@@ -266,9 +266,9 @@ export type Settled<Out> =
 
 /**
  * The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves
- * budget atomically from the shared pool and FAILS CLOSED when the pool can't cover it;
- * `next()` is a ray.wait cursor (n=1) over THIS scope's IN-MEMORY live set; `view` reads
- * the in-memory nursery (NOT the log), O(live).
+ * budget atomically from the shared pool and fails closed when the pool cannot cover it.
+ * `next()` waits for one settlement from this scope's live set; `view` reads live state,
+ * not the replay log.
  */
 export interface Scope<Out> {
   /**

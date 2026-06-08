@@ -3,7 +3,7 @@ import { createMcpServer } from '../../src/mcp/server'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
 
-// The toolbox is a thin wrapper over the keystone Scope (spawn/view/send are tested in
+// These tools are thin wrappers over Scope (spawn/view/send are tested in
 // supervise.test.ts); this verifies the MCP handlers call the right verbs and shape the results.
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -61,7 +61,7 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
   return t
 }
 
-describe('operator toolbox (Scope-as-MCP)', () => {
+describe('coordination tools', () => {
   it('spawn_worker → workerId; fail-closed → { error }', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
@@ -148,16 +148,296 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(tb, 'await_next').handler({})).toEqual({
+    expect(await tool(tb, 'await_next').handler({})).toMatchObject({
       settled: 'w7',
       status: 'done',
       score: 0.83,
       valid: true,
+      packet: {
+        nodeId: 'w7',
+        status: 'done',
+        output: { answer: 42 },
+        findings: [],
+        questions: [],
+        blockers: [],
+      },
     })
     expect(await tool(tb, 'await_next').handler({})).toEqual({ idle: true })
     expect(tb.settled()).toEqual([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
+    expect(tb.packets()).toHaveLength(1)
+  })
+
+  it('await_next auto-runs configured trace analysts and records a loop packet', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w8', label: 'worker', status: 'done' as const, abort() {} },
+        out: { fallback: false },
+        outRef: 'blob:w8',
+        verdict: { valid: true, score: 0.7 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const seen: Array<{ kind: string; trace: unknown }> = []
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs: { get: async () => ({ trace: ['tool:a'] }), put: async () => {} },
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analysts: {
+        kinds: [{ id: 'trace-quality', description: 'trace quality', area: 'trace' }],
+        auto: ['trace-quality'],
+        run: async (kind, trace) => {
+          seen.push({ kind, trace })
+          return [{ claim: 'missing verification' }]
+        },
+      },
+    })
+
+    const r = (await tool(tb, 'await_next').handler({})) as {
+      packet: {
+        findings: Array<{ source: string; claim: string; metadata?: { findings?: unknown } }>
+      }
+    }
+    expect(seen).toEqual([{ kind: 'trace-quality', trace: { fallback: false } }])
+    expect(r.packet.findings).toMatchObject([
+      {
+        source: 'trace-quality',
+        claim: 'trace analyst trace-quality produced findings',
+        metadata: { findings: [{ claim: 'missing verification' }] },
+      },
+    ])
+    expect(tb.packets()[0]?.trace).toEqual({ fallback: false })
+  })
+
+  it('returns packet analyst findings/questions/messages without creating fake packets', async () => {
+    const { scope, sent } = mockScope()
+    const emitted: unknown[] = []
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w10', label: 'worker', status: 'done' as const, abort() {} },
+        out: { implemented: true },
+        outRef: 'blob:w10',
+        verdict: { valid: true, score: 0.9 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (event) => emitted.push(event),
+      analyzePacket: async ({ packets }) => {
+        expect(packets.map((p) => p.nodeId)).toEqual(['w10'])
+        return {
+          findings: [{ claim: 'missing verifier pass' }],
+          questions: [
+            {
+              from: 'w10',
+              level: 'loop',
+              question: 'Should this spawn a verifier worker?',
+              reason: 'implementation settled before executable verification',
+              urgency: 'blocks-step',
+            },
+          ],
+          messages: [
+            {
+              to: 'w0',
+              kind: 'steer',
+              body: 'Prepare verifier inputs while the parent decides.',
+              reason: 'loop analyst found missing verifier',
+            },
+          ],
+        }
+      },
+    })
+
+    const r = (await tool(tb, 'await_next').handler({})) as {
+      packet: {
+        findings: Array<{ claim: string; source: string }>
+        questions: Array<{ id: string }>
+        messages: unknown[]
+      }
+    }
+    expect(r.packet.findings).toMatchObject([
+      { claim: 'missing verifier pass', source: 'packet-analysis' },
+    ])
+    expect(r.packet.questions[0]?.id).toContain('w10:q')
+    expect(r.packet.messages).toMatchObject([
+      {
+        from: 'w10',
+        to: 'w0',
+        kind: 'steer',
+        body: 'Prepare verifier inputs while the parent decides.',
+        reason: 'loop analyst found missing verifier',
+        delivery: { status: 'delivered' },
+      },
+    ])
+    expect(sent).toEqual([
+      {
+        id: 'w0',
+        msg: {
+          steer: 'Prepare verifier inputs while the parent decides.',
+          reason: 'loop analyst found missing verifier',
+        },
+      },
+    ])
+    expect(emitted).toEqual([
+      { type: 'question', question: r.packet.questions[0] },
+      { type: 'packet', packet: r.packet },
+    ])
+    expect(tb.packets()).toHaveLength(1)
+  })
+
+  it('records questions, blocks clean stop under failClosed, and accepts parent answers', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w9', label: 'worker', status: 'done' as const, abort() {} },
+        out: { needsDecision: true },
+        outRef: 'blob:w9',
+        verdict: { valid: true, score: 1 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      questionPolicy: 'failClosed',
+      analyzePacket: ({ packet }) => ({
+        questions: [
+          {
+            from: packet.nodeId,
+            level: 'worker',
+            question: 'Which API version should this migration target?',
+            reason: 'worker found two supported versions',
+            urgency: 'blocks-run',
+          },
+        ],
+      }),
+    })
+
+    const r = (await tool(tb, 'await_next').handler({})) as {
+      packet: { questions: Array<{ id: string }> }
+    }
+    const questionId = r.packet.questions[0]?.id
+    expect(questionId).toBeTruthy()
+    expect(await tool(tb, 'stop').handler({ reason: 'done' })).toMatchObject({
+      stopped: false,
+      error: 'unresolved-blocking-questions',
+    })
+    await tool(tb, 'answer_question').handler({
+      questionId,
+      answer: 'Target v2.',
+      by: 'user',
+    })
+    expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toEqual({
+      stopped: true,
+    })
+    expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
+  })
+
+  it('bubble policy escalates child questions to the parent without blocking child stop', async () => {
+    const { scope } = mockScope()
+    const emitted: unknown[] = []
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w11', label: 'worker', status: 'done' as const, abort() {} },
+        out: { needsDecision: true },
+        outRef: 'blob:w11',
+        verdict: { valid: true, score: 1 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      questionPolicy: 'bubble',
+      onEvent: (event) => emitted.push(event),
+      analyzePacket: ({ packet }) => ({
+        questions: [
+          {
+            from: packet.nodeId,
+            level: 'worker',
+            question: 'Which migration strategy should win?',
+            reason: 'two workers produced incompatible plans',
+            urgency: 'blocks-step',
+          },
+        ],
+      }),
+    })
+
+    const r = (await tool(tb, 'await_next').handler({})) as {
+      packet: { questions: Array<{ status: string; decision?: { kind: string; to: string } }> }
+    }
+    expect(r.packet.questions[0]).toMatchObject({
+      status: 'escalated',
+      decision: { kind: 'escalate', to: 'parent' },
+    })
+    expect(emitted).toEqual([
+      { type: 'question', question: r.packet.questions[0] },
+      { type: 'packet', packet: expect.objectContaining({ nodeId: 'w11' }) },
+    ])
+    expect(await tool(tb, 'stop').handler({ reason: 'bubbled to parent' })).toEqual({
+      stopped: true,
+    })
+  })
+
+  it('ask_parent records an escalated question for the parent/Pi layer', async () => {
+    const { scope } = mockScope()
+    const emitted: unknown[] = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (event) => emitted.push(event),
+    })
+
+    const r = (await tool(tb, 'ask_parent').handler({
+      from: 'driver-1',
+      level: 'driver',
+      question: 'Can I spend another dollar?',
+      reason: 'budget is exhausted before verifier pass',
+      urgency: 'blocks-step',
+    })) as { question: { id: string } }
+    expect(r.question.id).toContain('driver-1:q')
+    expect(tb.questions()[0]).toMatchObject({
+      status: 'escalated',
+      decision: { kind: 'escalate', to: 'parent' },
+    })
+    expect(emitted).toEqual([{ type: 'question', question: tb.questions()[0] }])
   })
 
   it('list_analysts surfaces the menu; run_analyst applies a lens to a SETTLED worker', async () => {
@@ -172,10 +452,12 @@ describe('operator toolbox (Scope-as-MCP)', () => {
       blobs: traceBlobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
-      analystKinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
-      runAnalyst: async (kind, trace) => {
-        seen.push({ kind, trace })
-        return [{ claim: 'X missing' }]
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async (kind, trace) => {
+          seen.push({ kind, trace })
+          return [{ claim: 'X missing' }]
+        },
       },
     })
     expect((await tool(tb, 'list_analysts').handler({})) as { analysts: unknown[] }).toEqual({

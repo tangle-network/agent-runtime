@@ -37,6 +37,7 @@ The package API and subsystems.
 |---|---|---|
 | [../README.md](../README.md) | API entry point | Install, the loop API, self-improvement framing, exported subpaths. |
 | [concepts.md](./concepts.md) | mental model | The layer cake — backends, profiles, loop kernel, the onramp to the rest. |
+| [loop-authoring.md](./loop-authoring.md) | loop DX | Blessed `defineLoop(...).run(...)` facade, result envelope, trace subsets, evaluator placement, steering semantics, and open design questions. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol *(needs-update)* | The multi-agent call bus — depth limits, headers, refusal contract. (Pending: 429/413 fix + subpath list.) |
 | [conversation-economics.md](./conversation-economics.md) | subsystem | Conversation cost accounting and auth-source model (`src/conversation/`). |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability adapters for resumable conversations. |
