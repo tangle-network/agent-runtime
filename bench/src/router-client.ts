@@ -138,3 +138,82 @@ export async function routerChatWithTools(
     ...(costUsd !== undefined ? { costUsd } : {}),
   }
 }
+
+export interface ToolSpec {
+  type: 'function'
+  function: { name: string; description?: string; parameters: unknown }
+}
+
+export interface RouterToolLoopResult {
+  /** The model's final assistant text (the turn where it stopped calling tools, or the budget turn). */
+  final: string
+  /** Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k. */
+  turns: number
+  toolCalls: number
+  usage: { input: number; output: number }
+}
+
+/**
+ * The tool-using router backend: a real agentic loop OVER the Tangle router (which
+ * supports tool-calling), off-box — no sandbox. Each turn is one router completion
+ * with `tools`; if the model emits tool_calls, `execute` runs them on the host and
+ * their results are folded back as `tool` messages; the loop repeats until the
+ * model answers without a tool call or the turn budget is hit. One turn = one
+ * inference call, so `maxTurns` is the equal-compute unit against random@k.
+ *
+ * This is the depth substrate for agentic gates (the worker ACTS, observes the real
+ * result, and continues) that the chat-only `routerChatWithUsage` cannot express.
+ */
+export async function routerToolLoop(
+  cfg: RouterConfig,
+  system: string,
+  user: string,
+  tools: ReadonlyArray<ToolSpec>,
+  execute: (name: string, args: Record<string, unknown>) => Promise<string>,
+  opts?: { maxTurns?: number; temperature?: number; signal?: AbortSignal },
+): Promise<RouterToolLoopResult> {
+  const maxTurns = opts?.maxTurns ?? 4
+  const messages: Array<Record<string, unknown>> = [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ]
+  let toolCalls = 0
+  let lastText = ''
+  const usage = { input: 0, output: 0 }
+
+  for (let turn = 1; turn <= maxTurns; turn += 1) {
+    const r = await routerChatWithTools(cfg, messages, tools, {
+      ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    })
+    if (r.usage) {
+      usage.input += r.usage.input
+      usage.output += r.usage.output
+    }
+    if (r.content) lastText = r.content
+    if (r.toolCalls.length === 0) return { final: lastText, turns: turn, toolCalls, usage }
+
+    // Record the assistant turn verbatim (content + the tool_calls it requested), then
+    // run each call on the host and fold the result back as a `tool` message.
+    messages.push({
+      role: 'assistant',
+      content: r.content ?? '',
+      tool_calls: r.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.arguments } })),
+    })
+    for (const tc of r.toolCalls) {
+      toolCalls += 1
+      let args: Record<string, unknown> = {}
+      try {
+        args = JSON.parse(tc.arguments) as Record<string, unknown>
+      } catch {
+        // Malformed tool args from the model are a real outcome, not an infra fault — feed
+        // the error back so the model can correct, rather than throwing the whole loop.
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}` })
+        continue
+      }
+      const out = await execute(tc.name, args)
+      messages.push({ role: 'tool', tool_call_id: tc.id, content: out })
+    }
+  }
+  return { final: lastText, turns: maxTurns, toolCalls, usage }
+}
