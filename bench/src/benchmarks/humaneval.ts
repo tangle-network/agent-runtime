@@ -98,6 +98,9 @@ function buildProgram(task: HumanEvalTask, candidate: string): string {
 export interface CheckResult {
   /** {0,1} pass-count for this candidate (1 = the check() suite passed). */
   pass: number
+  /** On failure: the interpreter stderr tail (traceback / failing assertion). The
+   *  execution-grounded feedback a self-repair loop steers on; ignored by selection. */
+  detail?: string
 }
 
 /** Run one candidate's deployable test program in an isolated container:
@@ -174,8 +177,9 @@ export function runChecker(task: HumanEvalTask, candidate: string): Promise<Chec
             return
           }
           // killed-by-timeout or a non-zero exit (assert failure / error) are genuine
-          // test FAILURES — score 0, do not throw.
-          finish({ pass: 0 })
+          // test FAILURES — score 0, do not throw. Carry the stderr tail as the
+          // execution-grounded failure detail (empty ⇒ timeout/SIGKILL left no output).
+          finish({ pass: 0, detail: (stderr || '').slice(-600) || 'timed out (no output)' })
           return
         }
         finish({ pass: 1 })
