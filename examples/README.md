@@ -25,7 +25,7 @@ After reading these four you've seen every production-essential primitive.
 
 | # | Example | One sentence |
 |---|---|---|
-| 6 | [`define-loop/`](./define-loop/) | `defineLoop(...).run(...)` — one result envelope for packets, trace subsets, analysts, verifier, judge, questions, and messages |
+| 6 | [`define-loop/`](./define-loop/) | `defineLoop(...).run(...)` — one result envelope for artifacts, trace subsets, analysts, verifier, judge, questions, and messages |
 
 ## Multi-agent fanout (advanced)
 

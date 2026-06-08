@@ -77,10 +77,10 @@ const productAgent = createIterableBackend<AgentBackendInput>({
 
 const missingMockCheck: LoopAnalyst = {
   id: 'mock-detector',
-  timing: 'packet',
-  select: ({ packet }) => (packet ? { packetId: packet.id } : {}),
-  analyze({ packet, trace }) {
-    const text = JSON.stringify(packet?.trace ?? trace)
+  timing: 'record',
+  select: ({ artifact }) => (artifact ? { artifactId: artifact.id } : {}),
+  analyze({ artifact, trace }) {
+    const text = JSON.stringify(artifact?.trace ?? trace)
       .toLowerCase()
       .replaceAll('without mocks', '')
       .replaceAll('non-mocked', '')
@@ -95,7 +95,7 @@ const missingMockCheck: LoopAnalyst = {
       ],
       questions: [
         {
-          from: packet?.nodeId ?? 'loop',
+          from: artifact?.source ?? 'loop',
           level: 'loop',
           question: 'Should this run a no-mocks verifier before stopping?',
           reason: 'The trace contains the word mock.',
@@ -131,19 +131,19 @@ const agenticEvalLoop = defineLoop<EvalTask, EvalOutput>({
       onEvent: async (event) => {
         if (event.type !== 'turn_end') return
         await ctx.event({
-          type: 'conversation.turn',
+          kind: 'conversation.turn',
           source: event.turn.speaker,
           target: 'conversation',
-          data: { turnId: event.turn.turnId, text: event.turn.text },
+          payload: { turnId: event.turn.turnId, text: event.turn.text },
         })
-        await ctx.packet({
-          nodeId: event.turn.speaker,
+        await ctx.record({
+          source: event.turn.speaker,
           label: `${event.turn.speaker} turn ${event.turn.index}`,
           kind: 'conversation-turn',
-          status: 'done',
           output: event.turn.text,
           trace: { turn: event.turn },
           spent: {
+            iterations: 1,
             tokens: {
               input: event.turn.usage?.tokensIn ?? 0,
               output: event.turn.usage?.tokensOut ?? 0,
@@ -162,12 +162,12 @@ const agenticEvalLoop = defineLoop<EvalTask, EvalOutput>({
   verifier: ({ output }) => ({
     valid: output.finalAnswer.includes('DONE') && output.finalAnswer.includes('non-mocked checks'),
     score: output.finalAnswer.includes('DONE') ? 1 : 0,
-    reason: 'Conversation reached a product-agent completion with non-mocked check claim.',
+    notes: 'Conversation reached a product-agent completion with non-mocked check claim.',
   }),
   judge: ({ output }) => ({
     valid: true,
     score: output.turns <= 2 ? 0.95 : 0.75,
-    reason: 'Held-out quality score. This is recorded after the loop body and never steers it.',
+    notes: 'Held-out quality score. This is recorded after the loop body and never steers it.',
   }),
 })
 
@@ -176,13 +176,13 @@ async function main(): Promise<void> {
     goal: 'Build the feature end to end and prove it without mocks.',
   })
 
-  const productTrace = selectLoopTrace(result, { nodeId: 'product-agent' })
+  const productTrace = selectLoopTrace(result, { source: 'product-agent' })
   const pairTrace = selectLoopTrace(result, { pair: ['sim-user', 'conversation'] })
 
   console.log(`status: ${result.status}`)
   console.log(`ok: ${result.ok}`)
-  console.log(`packets: ${result.packets.length}`)
-  console.log(`verifier: ${result.verifier?.valid} (${result.verifier?.reason})`)
+  console.log(`artifacts: ${result.artifacts.length}`)
+  console.log(`verifier: ${result.verifier?.valid} (${result.verifier?.notes})`)
   console.log(`judge score: ${result.judge?.score}`)
   console.log(`product-agent events: ${productTrace.events.length}`)
   console.log(`sim-user conversation events: ${pairTrace.events.length}`)

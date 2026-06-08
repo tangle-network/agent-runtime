@@ -1,14 +1,14 @@
 # Loop Authoring
 
-Reference / developer guide. This is the blessed loop authoring direction:
-define a loop, then run it.
+Blessed direction: define a loop, then run it. The facade is intentionally
+thin; the loop body still uses the runtime primitives that already exist.
 
 ```ts
 const loop = defineLoop({
   name: 'secure-build',
-  run: async (task, ctx) => {
-    // spawn / converse / coordinate through the runtime primitives you need
-    // record every worker/subloop/conversation turn as a packet
+  async run(task, ctx) {
+    // use conversations, Scope, runLoop, MCP tools, sandboxes, or delegated loops
+    await ctx.record({ source: 'worker-a', output, trace, verdict })
     return output
   },
   analysts: [traceCompleteness],
@@ -17,69 +17,64 @@ const loop = defineLoop({
   questionPolicy: 'failClosed',
 })
 
-const result = await loop.run(task, { onEvent })
+const result = await loop.run(task)
 ```
 
-## Design Goals
+## Design Contract
 
 | Goal | Contract |
 |---|---|
-| Simple loops stay simple | A loop is `defineLoop(...).run(task)`; no MCP required for library code. |
-| Complex loops stay powerful | The loop body can use conversations, `Scope`, MCP coordination tools, sandbox sessions, analyst loops, or delegated modes. |
-| Everything is inspectable | The result contains packets, trace graph, events, messages, questions, findings, verifier verdict, judge verdict, blockers, timings, and output. |
-| Trace subsets are first-class | Run analysts over one agent, one packet, a pairwise interaction, or the full loop. |
-| Messages have recorded delivery | Every message is `delivered`, `queued`, or `rejected`; no silent side channel. |
-| Questions move up the chain | Blocking questions are records, not prose hidden in model output. |
-| Judges cannot steer | Verifiers gate shippability in-loop; judges score held-out quality after the loop body finishes. |
+| Simple loops stay simple | `defineLoop(...).run(task)` is ordinary async TypeScript. |
+| Complex loops stay powerful | The body composes `Scope`, conversations, `runLoop`, MCP coordination tools, sandboxes, or delegated modes. |
+| Results are inspectable | Result contains artifacts, events, findings, questions, messages, verifier, judge, blockers, timing, and output. |
+| Trace subsets are first-class | `selectLoopTrace` slices the flat artifact/event stream by source, pair, kind, or artifact id. |
+| Messages are explicit | `handle.control.send(...)` records `delivered`, `queued`, or `rejected`; delivery is delegated to the configured router. |
+| Questions move up the chain | Blocking questions are records, not hidden prose. |
+| Judges cannot steer | Verifiers gate `ok`; judges are held-out scorers for comparison and optimization. |
 
 ## Mental Model
 
 ```txt
 user / Pi
   -> defineLoop(...).start(task)
-      -> loop body
-      -> conversations / Scope / MCP / sandbox runs / delegated loops
-        -> loop packets
-        -> trace analysts
-        -> questions + messages
+      -> loop body chooses primitives
+      -> ctx.record(...) artifacts + ctx.event(...) events
+      -> analysts may emit findings/questions/messages
     -> verifier verdict
     -> held-out judge verdict
-    -> complete result envelope
+    -> result envelope
 ```
 
-MCP is a binding, not the architecture. Use it when a sandbox agent needs
-tools. Use the TypeScript API when a developer or product service owns the
-loop directly. Use a CLI for CI and human operations.
+MCP is a binding, not the architecture. Use it when a sandbox agent needs tools.
+Use the TypeScript API when a developer or product service owns the loop
+directly. Use a CLI for CI and human operations.
 
 ## Result Shape
-
-Every loop returns `LoopRunResult<Output>`:
 
 ```ts
 type LoopRunResult<Output> = {
   ok: boolean
   status: 'completed' | 'blocked' | 'failed'
   output?: Output
-  packets: LoopPacket[]
-  trace: LoopTraceGraph
-  events: LoopGraphEvent[]
+  artifacts: LoopArtifact[]
+  events: LoopEvent[]
+  trace: LoopTraceSlice
   findings: LoopFinding[]
   questions: LoopQuestion[]
   messages: LoopMessageRecord[]
-  verifier?: LoopVerdict
-  judge?: LoopVerdict
+  verifier?: DefaultVerdict
+  judge?: DefaultVerdict
   blockers: string[]
 }
 ```
 
-The packet is the unit every subsystem can inspect:
+`LoopArtifact` is a record of something the loop produced or inspected:
 
 ```ts
-await ctx.packet({
-  nodeId: 'worker-a',
+await ctx.record({
+  source: 'worker-a',
   label: 'implementation worker',
   kind: 'worker',
-  status: 'done',
   output,
   trace,
   verdict,
@@ -87,37 +82,35 @@ await ctx.packet({
 })
 ```
 
+It is deliberately not a scheduler, graph node, workspace abstraction, or
+transport. Those already exist in `Scope`, `runLoop`, runtime hooks, topology
+views, journals, and MCP coordination.
+
 ## Trace Subsets
 
-Use `selectLoopTrace` to analyze any slice:
-
 ```ts
-selectLoopTrace(result, { nodeId: 'worker-a' })
+selectLoopTrace(result, { source: 'worker-a' })
 selectLoopTrace(result, { pair: ['driver', 'worker-a'] })
-selectLoopTrace(result, { packetId: result.packets[0].id })
-selectLoopTrace(result, { types: ['conversation.turn', 'message.sent'] })
+selectLoopTrace(result, { artifactId: result.artifacts[0].id })
+selectLoopTrace(result, { kinds: ['conversation.turn', 'message.sent'] })
 ```
 
-This is the trace substrate for repainting the execution graph: nodes are
-agents/subloops/evaluators, edges are spawn/message/steer/analysis/verifier/judge
-relationships, and events carry timestamps plus arbitrary payload data.
+The slice returns `{ runId, artifacts, events }`. Product UIs that need a graph
+should project from the existing runtime hooks/topology view or trace store,
+not from a second loop graph type.
 
 ## Evaluator Placement
 
-| Role | Timing | Can affect loop strategy? | Purpose |
+| Role | Timing | Can affect current loop? | Purpose |
 |---|---:|---:|---|
-| Trace analyst | after packet or final | yes, through questions/messages | Trace-derived diagnosis. |
-| Loop analyst | after packet or final | yes, through questions/messages | Topology diagnosis across packet subsets. |
-| Verifier | after loop body | yes, gates `ok` | Shippability: tests, lint, typecheck, real product/API checks. |
-| Judge | after verifier | no | Held-out score for eval, promotion, GEPA/HALO/autoresearch. |
+| Analyst | after `record` or final | yes, through questions/messages/blockers | Trace-derived diagnosis. |
+| Verifier | after loop body | yes, gates `ok` | Shippability: tests, typecheck, lint, real product/API checks. |
+| Judge | after verifier | no | Held-out score for GEPA/HALO/autoresearch and release comparison. |
 
 The rule: verifier verdicts may block success; judge verdicts may not steer the
-current loop. Use judge scores for comparing loop designs, prompts, skills, and
-model choices across runs.
+current run.
 
-## Messages
-
-`loop.start(task)` returns a live handle:
+## Live Control
 
 ```ts
 const handle = loop.start(task, { messageRouter })
@@ -126,18 +119,13 @@ await handle.control.send({
   to: 'worker-a',
   kind: 'steer',
   body: 'Use the simpler API surface.',
-  mode: 'immediate',
 })
 const result = await handle.result
 ```
 
-The first-class `control` object is the stable Pi/root surface: `send`,
-`answerQuestion`, `trace`, `packets`, `questions`, `messages`, `events`, and
-`snapshot`. The handle itself only carries `runId`, `control`, and `result`.
-
-The message router is the transport seam. In-process it can call `Scope.send`.
-Across sandboxes it can write into session messaging. If no router is wired,
-messages are recorded as `queued`; the runtime does not fake delivery.
+`control` exposes `send`, `answerQuestion`, `trace`, `artifacts`, `questions`,
+`messages`, `events`, and `snapshot`. If no message router is wired, messages
+are recorded as `queued`; the facade does not fake delivery.
 
 ## Ladder Of Power
 
@@ -146,45 +134,34 @@ messages are recorded as `queued`; the runtime does not fake delivery.
 | One persistent sandbox session | `openSandboxRun` |
 | Simulated user/product-agent eval | `defineConversation` + `runConversation` inside `defineLoop` |
 | Static topology | `fanout`, `pipeline`, `verify`, `panel`, `loopUntil` |
-| Agent-authored topology | `dynamicLoopRunner` |
+| Agent-authored topology | `dynamicLoopRunner` or `createDriver` |
 | Sandbox driver coordinating workers | `createCoordinationTools` via MCP |
-| Codebase-mutating accumulation | git-backed workspace loop with typed merge outcomes |
-| Trace DB audit/cross-run diff | `runAnalystLoop` / `agent-eval` analyst registry |
+| Codebase-mutating accumulation | git-backed branch/clone loop with typed merge outcomes |
+| Trace DB audit/cross-run diff | `runAnalystLoop` / agent-eval trace stores |
 
 ## Open Design Questions
 
-These should remain explicit until proven by code or eval:
-
-1. What is the canonical trace DB interface for arbitrary trace subsets:
-   packet graph, OTEL spans, agent-eval `TraceStore`, or an adapter over all
-   three?
+1. What is the canonical persisted trace subset interface: runtime hooks,
+   OTEL spans, agent-eval `TraceStore`, or an adapter over all three?
 2. What delivery guarantees should each transport expose for messages:
    immediate inbox, durable queue, rejected, stale target, or unsupported?
 3. What authorization policy should govern root/Pi direct messages to
    descendants through `LoopControlPlane`?
 4. What is the exact typed workspace result:
    `merged | conflict | stale-base | rejected | verifier-failed`?
-5. Should loop analysts be allowed to spawn verifier workers, or should they
-   only emit questions/messages for the driver to act on?
-6. What result projection should product UIs render by default: packet tree,
-   conversation transcript, evaluator timeline, or graph replay?
-7. What is the smallest wow demo that proves the system: repo migration,
-   protocol hardening, product-feature build, security audit loop, or
-   agentic conversation eval?
+5. What result projection should product UIs render by default: topology tree,
+   transcript, evaluator timeline, or graph replay?
 
 ## Smallest Wow Examples
 
 - "Migrate this repo. Spawn workers by package, merge through git, run
   verifier loops until CI and product smoke tests pass."
 - "Run a protocol hardening loop. Fan out auditors, synthesize findings,
-  implement fixes, verify with non-mocked tests, then judge on held-out attack
-  scenarios."
-- "Run a simplification loop. Spawn designers to remove concepts, trace
-  analysts to detect lost capability, verifier to prove tests still pass, judge
-  to score developer experience."
+  implement fixes, verify with non-mocked tests, then judge held-out attacks."
+- "Run a simplification loop. Remove concepts, prove tests still pass, and
+  judge developer experience."
 - "Evaluate a product agent. Simulated user and product agent converse over
-  multiple resumed turns; analysts inspect each participant and pairwise
-  interaction; verifier checks task success; judge scores held-out quality."
+  resumed turns; analysts inspect traces; verifier checks success; judge scores
+  held-out quality."
 
-See [`examples/define-loop/`](../examples/define-loop/) for an offline,
-developer-facing example of the last pattern.
+See [`examples/define-loop/`](../examples/define-loop/) for an offline example.

@@ -1,28 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { defineLoop, type LoopGraphEvent, selectLoopTrace } from '../../src/runtime'
+import { defineLoop, type LoopEvent, selectLoopTrace } from '../../src/runtime'
 
 const clock = () => {
   let t = 1_000
   return () => (t += 10)
 }
 
-describe('defineLoop - blessed loop facade', () => {
+describe('defineLoop - thin loop facade', () => {
   it('runs a developer-authored loop and returns the complete result envelope', async () => {
-    const emitted: LoopGraphEvent[] = []
+    const emitted: LoopEvent[] = []
     const loop = defineLoop<{ goal: string }, { answer: string }>({
       name: 'agentic-eval',
       async run(task, ctx) {
         await ctx.event({
-          type: 'conversation.turn',
+          kind: 'conversation.turn',
           source: 'sim-user',
           target: 'product-agent',
-          data: { prompt: task.goal },
+          payload: { prompt: task.goal },
         })
-        await ctx.packet({
-          nodeId: 'product-agent',
+        await ctx.record({
+          source: 'product-agent',
           label: 'product reply',
           kind: 'conversation-turn',
-          status: 'done',
           output: { text: 'ship it' },
           trace: {
             messages: [
@@ -30,19 +29,19 @@ describe('defineLoop - blessed loop facade', () => {
               { role: 'assistant', content: 'ship it' },
             ],
           },
-          spent: { tokens: { input: 40, output: 12 }, usd: 0.001, ms: 25 },
+          spent: { iterations: 1, tokens: { input: 40, output: 12 }, usd: 0.001, ms: 25 },
         })
         return { answer: 'ship it' }
       },
       verifier: ({ output }) => ({
         valid: output.answer === 'ship it',
         score: 1,
-        reason: 'product agent reached the expected terminal answer',
+        notes: 'product agent reached the expected terminal answer',
       }),
       judge: () => ({
         valid: true,
         score: 0.86,
-        reason: 'held-out conversation rubric score; not fed back into the loop',
+        notes: 'held-out conversation rubric score; not fed back into the loop',
       }),
     })
 
@@ -56,33 +55,34 @@ describe('defineLoop - blessed loop facade', () => {
     expect(result.output).toEqual({ answer: 'ship it' })
     expect(result.verifier?.valid).toBe(true)
     expect(result.judge?.score).toBeCloseTo(0.86, 6)
-    expect(result.packets).toHaveLength(1)
-    expect(result.events.map((event) => event.type)).toContain('loop.completed')
-    expect(result.trace.nodes.some((node) => node.id === 'product-agent')).toBe(true)
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.events.map((event) => event.kind)).toContain('loop.completed')
     expect(emitted.length).toBe(result.events.length)
 
     const pairTrace = selectLoopTrace(result, {
       pair: ['sim-user', 'product-agent'],
-      types: ['conversation.turn'],
+      kinds: ['conversation.turn'],
     })
     expect(pairTrace.events).toHaveLength(1)
     expect(pairTrace.events[0]?.source).toBe('sim-user')
     expect(pairTrace.events[0]?.target).toBe('product-agent')
 
-    const workerTrace = selectLoopTrace(result, { nodeId: 'product-agent' })
-    expect(workerTrace.nodes.map((node) => node.id)).toContain('product-agent')
-    expect(workerTrace.events.some((event) => event.packetId === result.packets[0]?.id)).toBe(true)
+    const workerTrace = selectLoopTrace(result, { source: 'product-agent' })
+    expect(workerTrace.artifacts.map((artifact) => artifact.source)).toContain('product-agent')
+    expect(workerTrace.events.some((event) => event.artifactId === result.artifacts[0]?.id)).toBe(
+      true,
+    )
   })
 
-  it('runs packet analysts and attaches findings, questions, messages, and blockers to the packet', async () => {
+  it('runs analysts and records findings, questions, messages, and blockers', async () => {
     const loop = defineLoop<{ task: string }, { done: boolean }>({
       name: 'secure-build-loop',
       questionPolicy: 'failClosed',
       analysts: [
         {
           id: 'missing-verifier',
-          analyze({ packet }) {
-            if (!packet) return undefined
+          analyze({ artifact }) {
+            if (!artifact) return undefined
             return {
               findings: [
                 {
@@ -93,32 +93,31 @@ describe('defineLoop - blessed loop facade', () => {
               ],
               questions: [
                 {
-                  from: packet.nodeId,
+                  from: artifact.source,
                   level: 'loop',
                   question: 'Should the loop spawn a verifier worker before accepting this patch?',
-                  reason: 'The packet trace contains implementation output but no verifier output.',
+                  reason: 'Implementation output settled before verifier output.',
                   urgency: 'blocks-run',
                 },
               ],
               messages: [
                 {
-                  to: packet.nodeId,
+                  to: artifact.source,
                   kind: 'steer',
                   body: 'Prepare verifier inputs while the parent decides.',
                   reason: 'Analyst found missing verification.',
                 },
               ],
-              blockers: ['implementation has no verifier packet'],
+              blockers: ['implementation has no verifier artifact'],
             }
           },
         },
       ],
       async run(_task, ctx) {
-        await ctx.packet({
-          nodeId: 'worker-a',
+        await ctx.record({
+          source: 'worker-a',
           label: 'implementation worker',
           kind: 'worker',
-          status: 'done',
           output: { patch: 'diff --git a/a.ts b/a.ts' },
           trace: { messages: [{ role: 'assistant', content: 'wrote patch' }] },
         })
@@ -134,12 +133,9 @@ describe('defineLoop - blessed loop facade', () => {
     expect(result.questions).toHaveLength(1)
     expect(result.messages).toHaveLength(1)
     expect(result.messages[0]?.delivery.status).toBe('queued')
-    expect(result.packets[0]?.findings).toHaveLength(1)
-    expect(result.packets[0]?.questions[0]?.urgency).toBe('blocks-run')
-    expect(result.packets[0]?.messages[0]?.to).toBe('worker-a')
     expect(result.blockers).toEqual(
       expect.arrayContaining([
-        'implementation worker: implementation has no verifier packet',
+        'implementation worker: implementation has no verifier artifact',
         expect.stringContaining('unresolved blocks-run question'),
       ]),
     )
@@ -154,18 +150,17 @@ describe('defineLoop - blessed loop facade', () => {
     const loop = defineLoop<void, { finished: true }>({
       name: 'root-steerable-loop',
       async run(_task, ctx) {
-        await ctx.packet({
-          nodeId: 'worker-live',
+        await ctx.record({
+          source: 'worker-live',
           label: 'live worker',
           kind: 'worker',
           status: 'running',
         })
         await wait
-        await ctx.packet({
-          nodeId: 'worker-live',
+        await ctx.record({
+          source: 'worker-live',
           label: 'live worker',
           kind: 'worker',
-          status: 'done',
           output: { acceptedSteer: true },
         })
         return { finished: true }
@@ -194,7 +189,7 @@ describe('defineLoop - blessed loop facade', () => {
       body: 'Root can address this worker through the control plane.',
       mode: 'queue',
     })
-    expect(handle.control.snapshot().packets.map((packet) => packet.nodeId)).toContain(
+    expect(handle.control.snapshot().artifacts.map((artifact) => artifact.source)).toContain(
       'worker-live',
     )
     release()
@@ -208,23 +203,20 @@ describe('defineLoop - blessed loop facade', () => {
     ])
     expect(result.messages.map((record) => record.id)).toContain(message.id)
     expect(result.messages.map((record) => record.id)).toContain(controlMessage.id)
-    expect(
-      result.trace.edges.some((edge) => edge.kind === 'steer' && edge.status === 'delivered'),
-    ).toBe(true)
+    expect(result.events.some((event) => event.kind === 'message.sent')).toBe(true)
   })
 
   it('runs verifier and judge even when the loop output is undefined', async () => {
     const loop = defineLoop<void, void>({
       name: 'void-output-loop',
       async run(_task, ctx) {
-        await ctx.packet({
-          nodeId: 'worker-void',
+        await ctx.record({
+          source: 'worker-void',
           label: 'void worker',
-          status: 'done',
         })
       },
-      verifier: () => ({ valid: true, reason: 'side-effect-only loop verified' }),
-      judge: () => ({ valid: true, score: 0.5, reason: 'held-out side-effect score' }),
+      verifier: () => ({ valid: true, score: 1, notes: 'side-effect-only loop verified' }),
+      judge: () => ({ valid: true, score: 0.5, notes: 'held-out side-effect score' }),
     })
 
     const result = await loop.run(undefined)

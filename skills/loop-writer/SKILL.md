@@ -1,17 +1,15 @@
 ---
 name: loop-writer
-description: Author and run clean recursive agent loops on @tangle-network/agent-runtime. Use when a user asks to build loops, defineLoop/LoopCtx surfaces, Pi/sandbox driver orchestration, driver-worker fanout, trace analysts, verifiers/judges/reviewers, question escalation, live messages, or self-improving loop recipes.
+description: Author clean recursive agent loops on @tangle-network/agent-runtime. Use for defineLoop, Pi/sandbox driver orchestration, fanout, trace analysts, verifiers/judges, question escalation, live messages, and self-improving loop recipes.
 ---
 
 # loop-writer
 
-Design the smallest loop that can honestly solve the objective. The blessed
-developer surface is `defineLoop(...).run(task)`; use lower-level primitives
-inside the loop body only when the objective needs them.
+Design the smallest loop that can honestly solve the objective. Start with
+`defineLoop(...).run(task)`. Reach lower only when the loop needs a real runtime
+primitive.
 
 ## Mental Model
-
-The stack is a command chain:
 
 ```txt
 user -> Pi/top driver -> supervisor loop -> sandbox driver -> worker -> leaf harness
@@ -23,14 +21,12 @@ the driver owns strategy.
 
 ## Blessed Surface
 
-Start here:
-
 ```ts
 const loop = defineLoop({
   name: 'secure-build',
-  run: async (task, ctx) => {
-    // use conversations, Scope, MCP tools, sandbox runs, or delegated loops
-    // record each worker/subloop/conversation turn with ctx.packet(...)
+  async run(task, ctx) {
+    // use conversations, Scope, runLoop, MCP tools, sandboxes, or delegated loops
+    await ctx.record({ source: 'worker-a', output, trace, verdict })
     return output
   },
   analysts: [traceCompleteness],
@@ -39,19 +35,16 @@ const loop = defineLoop({
   questionPolicy: 'failClosed',
 })
 
-const result = await loop.run(task, { onEvent })
+const result = await loop.run(task)
 ```
 
-Use `loop.start(task)` when Pi/root needs a live handle for
-`handle.control.send(...)`, packet snapshots, or trace snapshots while the loop
-runs.
+Use `loop.start(task)` when Pi/root needs `handle.control.send(...)`, live
+artifact snapshots, or trace snapshots while the loop runs.
 
-Read `docs/loop-authoring.md` when making public API or evaluator-placement
-decisions. See `examples/define-loop/` for the current developer example.
+Read `docs/loop-authoring.md` before changing the public API. See
+`examples/define-loop/` for the current developer example.
 
-## Pick The Loop Shape
-
-Choose by objective:
+## Pick The Shape
 
 | Objective | Shape |
 |---|---|
@@ -61,49 +54,36 @@ Choose by objective:
 | Improve until executable check passes | `loopUntil + verifier` |
 | Review one artifact from several perspectives | `panel` |
 | Simulated user/product-agent eval | `defineConversation` + `runConversation` inside `defineLoop` |
-| Driver decides topology dynamically | `dynamicLoopRunner` or sandbox driver with coordination tools |
-| Mutate a shared codebase | workspace-backed loop only; require transactional branch/merge semantics |
+| Driver decides topology dynamically | `dynamicLoopRunner`, `createDriver`, or sandbox driver with coordination tools |
+| Mutate a shared codebase | git branch/clone loop with typed merge outcomes |
 
-If the objective can be solved by `pipeline` or `fanout`, do not use a dynamic
-driver. Dynamic drivers are for genuinely task-dependent topology.
+If `pipeline` or `fanout` solves the objective, do not use a dynamic driver.
 
-## Lower-Level Primitives
+## Use Existing Primitives
 
-Use one of these inside `defineLoop`, never a parallel homemade runtime:
-
-- **Conversations**: `defineConversation` + `runConversation` for simulated
-  user/product-agent evals and multi-agent turn-taking.
-- **Direct substrate**: `Agent.act(task, scope)` + `createSupervisor().run(...)`
-  for deterministic recursive work and typed `Scope` control.
-- **Sandbox driver**: prompt a driver agent and give it coordination tools:
+- **Conversations**: `defineConversation` + `runConversation`.
+- **Direct substrate**: `Agent.act(task, scope)` + supervisor/`Scope`.
+- **Driven sandbox loop**: `runLoop` + `createDriver` + `Validator`.
+- **Sandbox driver tools**: `createCoordinationTools` exposes
   `spawn_worker`, `await_next`, `observe_worker`, `steer_worker`,
-  `list_questions`, `answer_question`, `ask_parent`, plus analyst tools when
-  wired. Use when the driver itself is an agent inside a sandbox.
-- **Trace DB audits**: `runAnalystLoop` / agent-eval analyst registries for
-  arbitrary trace-store analysis and cross-run diffs.
+  `list_questions`, `answer_question`, `ask_parent`, `stop`, and optional
+  analyst tools.
+- **Trace DB audits**: `runAnalystLoop` / agent-eval trace stores.
 
-Every path should record the same outer shape: a `LoopRunResult` with packets,
-trace graph, events, findings, questions, messages, verifier, judge, blockers,
-and output.
+Do not create a parallel runtime. `defineLoop` only records the outer envelope:
+artifacts, events, findings, questions, messages, verifier, judge, blockers,
+timing, and output.
 
 ## Evaluator Placement
 
-Keep these roles separate:
-
-- **Verifier**: checks an artifact/run can ship. Prefer executable checks:
-  tests, typecheck, lint, real API calls, deterministic oracle. A verifier
-  returns a verdict object and gates `result.ok`.
-- **Judge**: held-out scoring/promotion only. It runs after the loop body and
-  must never steer the current loop. Use for GEPA/HALO/autoresearch,
-  release comparisons, and skill/prompt optimization.
-- **Trace analyst**: runs after every worker/subloop packet. Reads trace and
-  output behavior, emits findings and possible questions. It may steer because
-  it is trace-derived, not judge-derived.
-- **Loop analyst**: runs over a group/tree of `LoopPacket`s. Finds topology
-  problems: duplicated work, missing verifier, stuck worker, overspent fanout,
-  conflicting workspace edits, unresolved questions.
-- **Reviewer/driver**: consumes verdicts + analyst findings + questions and
-  decides the next move: continue, steer, spawn, answer, escalate, or stop.
+- **Verifier**: executable shippability gate. It returns `DefaultVerdict` and
+  controls `result.ok`.
+- **Judge**: held-out score only. It runs after the loop body and must never
+  steer the current loop.
+- **Analyst**: trace-derived diagnosis after `ctx.record(...)` or final. It may
+  emit findings, questions, messages, or blockers.
+- **Driver/reviewer**: consumes evidence and chooses continue, steer, spawn,
+  answer, escalate, or stop.
 
 ## Question Protocol
 
@@ -128,54 +108,47 @@ Default policy:
 - A loop with unresolved `blocks-run` questions must not report clean success.
 
 Use `mustDecide` when a driver must answer/defer/escalate explicitly. Use
-`failClosed` for production or eval loops. Wire `onEvent` when a parent/Pi
-needs push-based question, packet, and trace ingestion instead of polling.
+`failClosed` for production or eval loops.
 
 ## Message Policy
 
-Do not steer every worker. Let workers finish unless one of these fires:
+Do not steer every worker. Send live messages only when:
 
-- trace analyst finds a concrete mistake in a running worker
-- loop analyst sees duplication, drift, budget waste, or stale assumptions
-- parent/Pi answers a blocking question
-- verifier reveals a specific fixable failure and a running worker can still use it
+- an analyst finds a concrete mistake in a running worker
+- a loop is duplicating work, drifting, or wasting budget
+- a parent/Pi answers a blocking question
+- a verifier reveals a specific fix a running worker can still use
 
-`kind: 'steer'` is a message to the worker inbox, not a replacement for verification.
-Every message must record delivery as `delivered`, `queued`, or `rejected`.
-If no message router is wired, the correct outcome is `queued`, not fake
-delivery. If `steer_worker` returns `delivered: false`, spawn a new worker or
-wait; do not pretend the message landed.
+Every message records `delivered`, `queued`, or `rejected`. If no router is
+wired, the correct outcome is `queued`.
 
 ## Workspace Loops
 
-For codebase-mutating loops, a shared filesystem is not a substrate. Require a
-workspace handle with durable git semantics:
+For codebase-mutating loops, git is the durable workspace seam:
 
 - one branch/clone per worker
 - explicit commit per worker
-- typed merge result: merged | conflict | stale-base | rejected
+- typed merge result: `merged | conflict | stale-base | rejected | verifier-failed`
 - resume derives completion from git state, not only a side journal
 - conflicting edits become blockers/questions, not silent overwrite
 
-Until branch/merge conflict handling is proven, only claim serial
+Until cloud branch/merge conflict handling is proven, only claim serial
 git-accumulation, not parallel migration safety.
 
 ## Authoring Rules
 
-- Keep the loop body boring async code; put complexity in reusable shapes and
-  evaluator seams.
-- Every worker/subloop/conversation turn settlement becomes a `ctx.packet(...)`.
-- Run trace and loop analysis through `analysts` on `defineLoop`; when using
-  sandbox coordination tools, wire `analysts.auto` and `analyzePacket` so
-  findings, questions, and messages land on the packet.
-- Put automatic trace analysts under `analysts.auto`; use `run_analyst` only
-  when the driver needs an extra manual lens.
-- Stop only after verifier success or an explicit no-winner/blocker result.
+- Keep the loop body boring async code.
+- Record meaningful products with `ctx.record(...)`.
+- Emit extra facts with `ctx.event(...)` only when they are useful for trace
+  slicing or UI replay.
+- Reuse `Scope.send`, MCP coordination, runtime hooks, topology view, journals,
+  `Validator`, and agent-eval trace stores instead of inventing replacements.
+- Stop only after verifier success or an explicit blocker/no-winner result.
 - Bubble questions upward instead of guessing.
-- Optimize prompts/skills/drivers with GEPA/HALO/autoresearch only against real
-  verifier/judge outcomes and packet traces.
+- Optimize prompts/skills/drivers only against real verifier/judge outcomes and
+  trace evidence.
 
-## Minimal Developer Recipe
+## Minimal Recipe
 
 ```ts
 const loop = defineLoop({
@@ -188,16 +161,14 @@ const loop = defineLoop({
       seed: task.goal,
       runId: ctx.runId,
       onEvent: async (event) => {
-        if (event.type === 'turn_end') {
-          await ctx.packet({
-            nodeId: event.turn.speaker,
-            label: `${event.turn.speaker} turn ${event.turn.index}`,
-            kind: 'conversation-turn',
-            status: 'done',
-            output: event.turn.text,
-            trace: { turn: event.turn },
-          })
-        }
+        if (event.type !== 'turn_end') return
+        await ctx.record({
+          source: event.turn.speaker,
+          label: `${event.turn.speaker} turn ${event.turn.index}`,
+          kind: 'conversation-turn',
+          output: event.turn.text,
+          trace: { turn: event.turn },
+        })
       },
     })
     return result
@@ -205,23 +176,15 @@ const loop = defineLoop({
   verifier: executableGate,
   judge: heldOutJudge,
 })
-
-const result = await loop.run(task)
 ```
-
-Treat this as the starting point. Reach for MCP coordination only when the
-driver itself must be an agent using tools inside a sandbox.
 
 ## Final Check
 
-Before shipping a loop:
-
-- Does every spawned worker/subloop produce a packet?
-- Are verifier, judge, analyst, and reviewer roles separated?
+- Does every meaningful worker/subloop/conversation result become an artifact?
+- Are verifier, judge, analyst, and driver roles separated?
 - Can blocking questions move up the chain?
 - Can Pi/parent send messages without bypassing verification?
-- Is workspace mutation transactional if any worker edits shared code?
-- Can `selectLoopTrace` isolate individual agents, pairwise interactions, and
-  the full loop?
+- Is workspace mutation transactional if workers edit shared code?
+- Can `selectLoopTrace` isolate agents, pairwise interactions, and the full run?
 - Is the loop small enough that an agent can author it without inventing hidden
   substrate behavior?

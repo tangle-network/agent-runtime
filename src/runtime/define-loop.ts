@@ -1,15 +1,9 @@
 /**
  * @experimental
  *
- * `defineLoop` is the developer-facing facade over the recursive runtime.
- * It does not replace `Scope`, `runConversation`, `runAnalystLoop`, or the MCP
- * coordination tools. It standardizes the authoring contract:
- *
- *   defineLoop({ run, analysts, verifier, judge }).run(task)
- *
- * The loop body owns strategy. The facade owns the complete result envelope:
- * packets, trace events, trace graph, questions, messages, verifier verdict,
- * held-out judge verdict, blockers, timings, and live root-to-agent messages.
+ * Thin loop authoring facade. It owns the result envelope and composes the
+ * existing runtime primitives a loop body chooses to use: Scope, runLoop,
+ * conversations, MCP coordination tools, analyst loops, or direct async code.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -19,17 +13,17 @@ import type {
   DefinedLoop,
   DefineLoopOptions,
   LoopAnalysisInput,
+  LoopArtifact,
+  LoopArtifactInput,
   LoopControlPlane,
   LoopControlSnapshot,
   LoopEvaluatorInput,
+  LoopEvent,
   LoopFinding,
   LoopFindingInput,
-  LoopGraphEvent,
   LoopMessageDelivery,
   LoopMessageInput,
   LoopMessageRecord,
-  LoopPacket,
-  LoopPacketInput,
   LoopQuestion,
   LoopQuestionDecision,
   LoopQuestionInput,
@@ -39,10 +33,7 @@ import type {
   LoopRunOptions,
   LoopRunResult,
   LoopStatus,
-  LoopTraceEdge,
-  LoopTraceGraph,
-  LoopTraceNode,
-  LoopVerdict,
+  LoopTraceSlice,
 } from './loop-types'
 
 interface AppliedLoopAnalysis {
@@ -59,12 +50,15 @@ export type {
   LoopAnalysis,
   LoopAnalysisInput,
   LoopAnalyst,
+  LoopArtifact,
+  LoopArtifactInput,
+  LoopArtifactStatus,
   LoopControlPlane,
   LoopControlSnapshot,
   LoopEvaluatorInput,
+  LoopEvent,
   LoopFinding,
   LoopFindingInput,
-  LoopGraphEvent,
   LoopJudge,
   LoopMessageDelivery,
   LoopMessageDeliveryMode,
@@ -74,9 +68,6 @@ export type {
   LoopMessageRecord,
   LoopMessageRouter,
   LoopMessageRouterInput,
-  LoopPacket,
-  LoopPacketInput,
-  LoopPacketStatus,
   LoopQuestion,
   LoopQuestionDecision,
   LoopQuestionInput,
@@ -87,14 +78,9 @@ export type {
   LoopRunHandle,
   LoopRunOptions,
   LoopRunResult,
-  LoopSpend,
   LoopStatus,
-  LoopTraceEdge,
-  LoopTraceEdgeKind,
-  LoopTraceGraph,
-  LoopTraceNode,
   LoopTraceSelector,
-  LoopVerdict,
+  LoopTraceSlice,
   LoopVerifier,
 } from './loop-types'
 
@@ -130,111 +116,78 @@ function startDefinedLoop<Task, Output>(
   const signal = options.signal ?? new AbortController().signal
   const questionPolicy = definition.questionPolicy ?? 'auto'
   const startedAt = now()
-  const rootId = `${runId}:loop`
   let eventSeq = 0
-  let packetSeq = 0
+  let artifactSeq = 0
   let questionSeq = 0
   let messageSeq = 0
   let findingSeq = 0
-  let edgeSeq = 0
-  let endedAt: number | undefined
-  const nodes = new Map<string, LoopTraceNode>()
-  const edges: LoopTraceEdge[] = []
-  const events: LoopGraphEvent[] = []
-  const packets: LoopPacket[] = []
+  const events: LoopEvent[] = []
+  const artifacts: LoopArtifact[] = []
   const questions: LoopQuestion[] = []
   const messages: LoopMessageRecord[] = []
   const findings: LoopFinding[] = []
-  const rootNode: LoopTraceNode = {
-    id: rootId,
-    label: definition.name,
-    kind: 'loop',
-    startedAt,
-  }
-  nodes.set(rootId, rootNode)
 
-  const graph = (): LoopTraceGraph => ({
+  const trace = (): LoopTraceSlice => ({
     runId,
-    startedAt,
-    ...(endedAt !== undefined ? { endedAt } : {}),
-    nodes: [...nodes.values()],
-    edges: [...edges],
+    artifacts: [...artifacts],
     events: [...events],
   })
 
-  const emit = async (
-    input: Omit<LoopGraphEvent, 'id' | 'runId' | 'timestamp'>,
-  ): Promise<LoopGraphEvent> => {
-    const event: LoopGraphEvent = {
+  const emit = async (input: Omit<LoopEvent, 'id' | 'runId' | 'timestamp'>): Promise<LoopEvent> => {
+    const event: LoopEvent = {
       id: `${runId}:e${eventSeq++}`,
       runId,
-      type: input.type,
+      kind: input.kind,
       timestamp: now(),
       ...(input.source ? { source: input.source } : {}),
       ...(input.target ? { target: input.target } : {}),
-      ...(input.packetId ? { packetId: input.packetId } : {}),
+      ...(input.artifactId ? { artifactId: input.artifactId } : {}),
       ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
-      ...(input.data !== undefined ? { data: input.data } : {}),
+      ...(input.payload !== undefined ? { payload: input.payload } : {}),
     }
     events.push(event)
     await options.onEvent?.(event)
     return event
   }
 
-  const upsertNode = (node: LoopTraceNode): void => {
-    const prior = nodes.get(node.id)
-    nodes.set(node.id, { ...prior, ...node })
-  }
-
-  const addEdge = (
-    edge: Omit<LoopTraceEdge, 'id' | 'timestamp'> & { readonly timestamp?: number },
-  ): void => {
-    edges.push({
-      id: `${runId}:edge:${edgeSeq++}`,
-      timestamp: edge.timestamp ?? now(),
-      from: edge.from,
-      to: edge.to,
-      kind: edge.kind,
-      ...(edge.eventId ? { eventId: edge.eventId } : {}),
-      ...(edge.status ? { status: edge.status } : {}),
-      ...(edge.metadata ? { metadata: edge.metadata } : {}),
-    })
-  }
-
-  const normalizeFinding = (draft: LoopFindingInput, source: string): LoopFinding => ({
-    id: draft.id ?? `${runId}:finding:${findingSeq++}`,
-    source: draft.source ?? source,
-    claim: draft.claim,
-    ...(draft.severity ? { severity: draft.severity } : {}),
-    ...(draft.evidence ? { evidence: draft.evidence } : {}),
-    ...(draft.confidence !== undefined ? { confidence: draft.confidence } : {}),
-    ...(draft.recommendedAction ? { recommendedAction: draft.recommendedAction } : {}),
-    ...(draft.metadata ? { metadata: draft.metadata } : {}),
+  const normalizeFinding = (input: LoopFindingInput, source: string): LoopFinding => ({
+    id: input.id ?? `${runId}:finding:${findingSeq++}`,
+    source: input.source ?? source,
+    claim: input.claim,
+    ...(input.severity ? { severity: input.severity } : {}),
+    ...(input.evidence ? { evidence: input.evidence } : {}),
+    ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+    ...(input.recommendedAction ? { recommendedAction: input.recommendedAction } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   })
 
-  const recordQuestion = async (draft: LoopQuestionInput): Promise<LoopQuestion> => {
-    const effectiveDecision: LoopQuestionDecision | undefined =
+  const recordQuestion = async (input: LoopQuestionInput): Promise<LoopQuestion> => {
+    const decision: LoopQuestionDecision | undefined =
       questionPolicy === 'bubble'
-        ? { kind: 'escalate', value: 'question policy bubbled to parent' }
+        ? {
+            kind: 'escalate',
+            value: 'question policy bubbled to parent',
+            to: 'parent',
+            reason: 'question policy bubbled to parent',
+          }
         : undefined
     const question: LoopQuestion = {
-      id: draft.id ?? `${runId}:q${questionSeq++}`,
-      from: draft.from,
-      level: draft.level,
-      question: draft.question,
-      reason: draft.reason,
-      urgency: draft.urgency,
-      ...(draft.options ? { options: draft.options } : {}),
-      status: effectiveDecision ? 'escalated' : 'open',
-      ...(effectiveDecision ? { decision: effectiveDecision } : {}),
+      id: input.id ?? `${runId}:q${questionSeq++}`,
+      from: input.from,
+      level: input.level,
+      question: input.question,
+      reason: input.reason,
+      urgency: input.urgency,
+      ...(input.options ? { options: input.options } : {}),
+      status: decision ? 'escalated' : 'open',
+      ...(decision ? { decision } : {}),
       openedAt: now(),
     }
     questions.push(question)
     await emit({
-      type: 'question.opened',
+      kind: 'question.opened',
       source: question.from,
-      target: rootId,
-      data: { question },
+      payload: { question },
     })
     return question
   }
@@ -258,24 +211,24 @@ function startDefinedLoop<Task, Output>(
     }
     questions[index] = next
     await emit({
-      type: 'question.decided',
-      source: decision.by ?? rootId,
+      kind: 'question.decided',
+      source: decision.by ?? 'parent',
       target: prior.from,
-      data: { question: next },
+      payload: { question: next },
     })
     return next
   }
 
-  const send = async (draft: LoopMessageInput): Promise<LoopMessageRecord> => {
+  const send = async (input: LoopMessageInput): Promise<LoopMessageRecord> => {
     const base: Omit<LoopMessageRecord, 'delivery'> = {
       id: `${runId}:msg:${messageSeq++}`,
-      from: draft.from ?? rootId,
-      to: draft.to,
-      kind: draft.kind ?? 'steer',
-      body: draft.body,
-      ...(draft.reason ? { reason: draft.reason } : {}),
-      mode: draft.mode ?? 'immediate',
-      ...(draft.metadata ? { metadata: draft.metadata } : {}),
+      from: input.from ?? 'parent',
+      to: input.to,
+      kind: input.kind ?? 'steer',
+      body: input.body,
+      ...(input.reason ? { reason: input.reason } : {}),
+      mode: input.mode ?? 'immediate',
+      ...(input.metadata ? { metadata: input.metadata } : {}),
       sentAt: now(),
     }
     const delivery =
@@ -283,25 +236,18 @@ function startDefinedLoop<Task, Output>(
       ({ status: 'queued', reason: 'no messageRouter configured' } satisfies LoopMessageDelivery)
     const record: LoopMessageRecord = { ...base, delivery }
     messages.push(record)
-    const event = await emit({
-      type: 'message.sent',
+    await emit({
+      kind: 'message.sent',
       source: record.from,
       target: record.to,
-      data: { message: record },
-    })
-    addEdge({
-      from: record.from,
-      to: record.to,
-      kind: record.kind === 'steer' ? 'steer' : 'message',
-      eventId: event.id,
-      status: delivery.status,
+      payload: { message: record },
     })
     return record
   }
 
   const runAnalysts = async (
-    timing: 'packet' | 'final',
-    packet?: LoopPacket,
+    timing: 'record' | 'final',
+    artifact?: LoopArtifact,
   ): Promise<AppliedLoopAnalysis> => {
     const combined: {
       findings: LoopFinding[]
@@ -309,14 +255,15 @@ function startDefinedLoop<Task, Output>(
       messages: LoopMessageRecord[]
       blockers: string[]
     } = { findings: [], questions: [], messages: [], blockers: [] }
+
     for (const analyst of definition.analysts ?? []) {
-      if ((analyst.timing ?? 'packet') !== timing) continue
+      if ((analyst.timing ?? 'record') !== timing) continue
       const baseInput: LoopAnalysisInput = {
         runId,
         timing,
-        ...(packet ? { packet } : {}),
-        trace: graph(),
-        packets: [...packets],
+        ...(artifact ? { artifact } : {}),
+        trace: trace(),
+        artifacts: [...artifacts],
         questions: [...questions],
         messages: [...messages],
         events: [...events],
@@ -329,11 +276,11 @@ function startDefinedLoop<Task, Output>(
       }
       const analysis = await analyst.analyze(input)
       if (!analysis) continue
-      const analystFindings = (analysis.findings ?? []).map((finding) =>
+      const nextFindings = (analysis.findings ?? []).map((finding) =>
         normalizeFinding(finding, analyst.id),
       )
-      findings.push(...analystFindings)
-      combined.findings.push(...analystFindings)
+      findings.push(...nextFindings)
+      combined.findings.push(...nextFindings)
       for (const question of analysis.questions ?? []) {
         combined.questions.push(await recordQuestion(question))
       }
@@ -342,97 +289,65 @@ function startDefinedLoop<Task, Output>(
       }
       combined.blockers.push(...(analysis.blockers ?? []))
       await emit({
-        type: 'analyst.completed',
+        kind: 'analyst.completed',
         source: analyst.id,
-        target: packet?.nodeId ?? rootId,
-        ...(packet ? { packetId: packet.id } : {}),
-        data: {
+        target: artifact?.source,
+        ...(artifact ? { artifactId: artifact.id } : {}),
+        payload: {
           timing,
-          findings: analystFindings.length,
+          findings: nextFindings.length,
           questions: analysis.questions?.length ?? 0,
           messages: analysis.messages?.length ?? 0,
           blockers: analysis.blockers?.length ?? 0,
         },
       })
     }
+
     return combined
   }
 
-  const recordPacket = async (input: LoopPacketInput): Promise<LoopPacket> => {
-    const index = packetSeq++
-    const id = input.id ?? `${runId}:packet:${index}`
-    const nodeId = input.nodeId ?? `${runId}:node:${index}`
-    const started = input.startedAt ?? now()
-    const ended = input.endedAt ?? (input.status === 'running' ? undefined : now())
-    let packet: LoopPacket = {
+  const record = async (input: LoopArtifactInput): Promise<LoopArtifact> => {
+    const id = input.id ?? `${runId}:artifact:${artifactSeq++}`
+    const source = input.source ?? id
+    const startedAt = input.startedAt ?? now()
+    const endedAt = input.endedAt ?? (input.status === 'running' ? undefined : now())
+    let artifact: LoopArtifact = {
       id,
-      nodeId,
-      ...(input.parentId ? { parentId: input.parentId } : {}),
-      label: input.label,
+      source,
+      ...(input.label ? { label: input.label } : {}),
       ...(input.kind ? { kind: input.kind } : {}),
-      status: input.status,
-      startedAt: started,
-      ...(ended !== undefined ? { endedAt: ended, durationMs: Math.max(0, ended - started) } : {}),
-      ...(input.spent ? { spent: input.spent } : {}),
+      status: input.status ?? 'done',
       ...(input.output !== undefined ? { output: input.output } : {}),
       ...(input.trace !== undefined ? { trace: input.trace } : {}),
       ...(input.verdict ? { verdict: input.verdict } : {}),
-      findings: input.findings ?? [],
-      questions: input.questions ?? [],
-      messages: input.messages ?? [],
+      ...(input.spent ? { spent: input.spent } : {}),
       blockers: input.blockers ?? [],
       ...(input.metadata ? { metadata: input.metadata } : {}),
+      startedAt,
+      ...(endedAt !== undefined ? { endedAt, durationMs: Math.max(0, endedAt - startedAt) } : {}),
     }
-    packets.push(packet)
-    upsertNode({
-      id: nodeId,
-      label: input.label,
-      ...(input.kind ? { kind: input.kind } : {}),
-      parentId: input.parentId ?? rootId,
-      startedAt: started,
-      ...(ended !== undefined ? { endedAt: ended } : {}),
-      ...(input.metadata ? { metadata: input.metadata } : {}),
+    artifacts.push(artifact)
+    await emit({
+      kind: `artifact.${artifact.status}`,
+      source: artifact.source,
+      artifactId: artifact.id,
+      ...(artifact.durationMs !== undefined ? { durationMs: artifact.durationMs } : {}),
+      payload: { artifact },
     })
-    const event = await emit({
-      type: input.status === 'running' ? 'packet.started' : 'packet.completed',
-      source: nodeId,
-      target: input.parentId ?? rootId,
-      packetId: id,
-      ...(packet.durationMs !== undefined ? { durationMs: packet.durationMs } : {}),
-      data: { packet },
-    })
-    addEdge({
-      from: input.parentId ?? rootId,
-      to: nodeId,
-      kind: 'spawn',
-      eventId: event.id,
-      status: input.status,
-    })
-    const analysis = await runAnalysts('packet', packet)
-    if (
-      analysis.findings?.length ||
-      analysis.questions?.length ||
-      analysis.messages?.length ||
-      analysis.blockers?.length
-    ) {
-      packet = {
-        ...packet,
-        findings: [...packet.findings, ...(analysis.findings ?? [])],
-        questions: [...packet.questions, ...(analysis.questions ?? [])],
-        messages: [...packet.messages, ...(analysis.messages ?? [])],
-        blockers: [...packet.blockers, ...(analysis.blockers ?? [])],
-      }
-      packets[packets.length - 1] = packet
+    const analysis = await runAnalysts('record', artifact)
+    if (analysis.blockers.length) {
+      artifact = { ...artifact, blockers: [...artifact.blockers, ...analysis.blockers] }
+      artifacts[artifacts.length - 1] = artifact
     }
-    return packet
+    return artifact
   }
 
   const snapshot = (): LoopControlSnapshot => ({
     runId,
     name: definition.name,
-    trace: graph(),
+    trace: trace(),
     events: [...events],
-    packets: [...packets],
+    artifacts: [...artifacts],
     questions: [...questions],
     messages: [...messages],
     findings: [...findings],
@@ -442,8 +357,8 @@ function startDefinedLoop<Task, Output>(
     runId,
     send,
     answerQuestion,
-    trace: (selector = {}) => selectLoopTrace(graph(), selector),
-    packets: () => [...packets],
+    trace: (selector = {}) => selectLoopTrace(trace(), selector),
+    artifacts: () => [...artifacts],
     questions: () => [...questions],
     messages: () => [...messages],
     events: () => [...events],
@@ -457,7 +372,7 @@ function startDefinedLoop<Task, Output>(
     control,
     now,
     event: emit,
-    packet: recordPacket,
+    record,
     question: recordQuestion,
   }
 
@@ -465,78 +380,57 @@ function startDefinedLoop<Task, Output>(
     let output: Output | undefined
     let hasOutput = false
     let error: string | undefined
-    let verifier: LoopVerdict | undefined
-    let judge: LoopVerdict | undefined
-    await emit({ type: 'loop.started', source: rootId, data: { task } })
+    await emit({ kind: 'loop.started', source: definition.name, payload: { task } })
+
     try {
       output = await definition.run(task, ctx)
       hasOutput = true
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
-      await emit({ type: 'loop.failed', source: rootId, data: { error } })
+      await emit({ kind: 'loop.failed', source: definition.name, payload: { error } })
     }
 
     const finalAnalysis = await runAnalysts('final')
-    const analysisBlockers = finalAnalysis.blockers ?? []
+    let verifier: LoopRunResult<Output>['verifier']
+    let judge: LoopRunResult<Output>['judge']
     if (hasOutput && definition.verifier) {
       verifier = await definition.verifier(
-        evaluatorInput(runId, output as Output, graph(), packets, questions, messages, events),
+        evaluatorInput(runId, output as Output, trace(), artifacts, questions, messages, events),
       )
-      const event = await emit({
-        type: 'verifier.completed',
-        source: 'verifier',
-        target: rootId,
-        data: { verdict: verifier },
-      })
-      addEdge({ from: rootId, to: 'verifier', kind: 'verification', eventId: event.id })
-      upsertNode({
-        id: 'verifier',
-        label: 'verifier',
-        kind: 'verifier',
-        startedAt: event.timestamp,
-      })
-      if (verifier.findings?.length) findings.push(...verifier.findings)
+      await emit({ kind: 'verifier.completed', source: 'verifier', payload: { verdict: verifier } })
     }
     if (hasOutput && definition.judge) {
       judge = await definition.judge(
-        evaluatorInput(runId, output as Output, graph(), packets, questions, messages, events),
+        evaluatorInput(runId, output as Output, trace(), artifacts, questions, messages, events),
       )
-      const event = await emit({
-        type: 'judge.completed',
-        source: 'judge',
-        target: rootId,
-        data: { verdict: judge },
-      })
-      addEdge({ from: rootId, to: 'judge', kind: 'judgement', eventId: event.id })
-      upsertNode({ id: 'judge', label: 'judge', kind: 'judge', startedAt: event.timestamp })
-      if (judge.findings?.length) findings.push(...judge.findings)
+      await emit({ kind: 'judge.completed', source: 'judge', payload: { verdict: judge } })
     }
 
+    const artifactBlockers = artifacts.flatMap((artifact) =>
+      artifact.blockers.map((blocker) => `${artifact.label ?? artifact.source}: ${blocker}`),
+    )
     const questionBlockers = blockingQuestions(questions, questionPolicy).map(
       (question) => `unresolved ${question.urgency} question ${question.id}: ${question.question}`,
     )
-    const packetBlockers = packets.flatMap((packet) =>
-      packet.blockers.map((blocker) => `${packet.label}: ${blocker}`),
-    )
     const verifierBlockers =
-      verifier && !verifier.valid ? [verifier.reason ?? 'verifier rejected output'] : []
+      verifier && !verifier.valid ? [verifier.notes ?? 'verifier rejected output'] : []
     const blockers = [
       ...(error ? [error] : []),
-      ...packetBlockers,
+      ...artifactBlockers,
       ...questionBlockers,
-      ...analysisBlockers,
+      ...finalAnalysis.blockers,
       ...verifierBlockers,
     ]
-    endedAt = now()
+    const endedAt = now()
     const status: LoopStatus = error ? 'failed' : blockers.length ? 'blocked' : 'completed'
     const ok = status === 'completed'
-    nodes.set(rootId, { ...rootNode, endedAt })
     await emit({
-      type: 'loop.completed',
-      source: rootId,
+      kind: 'loop.completed',
+      source: definition.name,
       durationMs: Math.max(0, endedAt - startedAt),
-      data: { ok, status, blockers },
+      payload: { ok, status, blockers },
     })
+    const fullTrace = trace()
     return {
       runId,
       name: definition.name,
@@ -546,40 +440,36 @@ function startDefinedLoop<Task, Output>(
       ...(error ? { error } : {}),
       ...(verifier ? { verifier } : {}),
       ...(judge ? { judge } : {}),
-      packets: [...packets],
+      artifacts: [...artifacts],
+      trace: fullTrace,
+      events: [...events],
+      findings: [...findings],
       questions: [...questions],
       messages: [...messages],
-      findings: [...findings],
       blockers,
-      trace: graph(),
-      events: [...events],
       startedAt,
       endedAt,
       durationMs: Math.max(0, endedAt - startedAt),
     }
   })()
 
-  return {
-    runId,
-    result,
-    control,
-  }
+  return { runId, result, control }
 }
 
 function evaluatorInput<Output>(
   runId: string,
   output: Output,
-  trace: LoopTraceGraph,
-  packets: ReadonlyArray<LoopPacket>,
+  trace: LoopTraceSlice,
+  artifacts: ReadonlyArray<LoopArtifact>,
   questions: ReadonlyArray<LoopQuestion>,
   messages: ReadonlyArray<LoopMessageRecord>,
-  events: ReadonlyArray<LoopGraphEvent>,
+  events: ReadonlyArray<LoopEvent>,
 ): LoopEvaluatorInput<Output> {
   return {
     runId,
     output,
     trace,
-    packets: [...packets],
+    artifacts: [...artifacts],
     questions: [...questions],
     messages: [...messages],
     events: [...events],
