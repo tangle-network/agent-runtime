@@ -259,6 +259,7 @@ export type {
 export {
   type GitWorkspaceOptions,
   gitWorkspace,
+  jjWorkspace,
   localShell,
   type Shell,
   type Workspace,
