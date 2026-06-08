@@ -191,7 +191,9 @@ export {
   createExecutorRegistry,
   type ExecutorConfig,
   type RouterSeam,
+  type RouterToolsSeam,
   type SandboxSeam,
+  type ToolSpec,
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
 export {

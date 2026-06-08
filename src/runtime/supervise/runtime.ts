@@ -224,6 +224,169 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }
 }
 
+/** An OpenAI-shape function tool the model may call. */
+export interface ToolSpec {
+  type: 'function'
+  function: { name: string; description?: string; parameters: unknown }
+}
+
+/**
+ * Router seam WITH tool use — the tool-using router backend. Same direct
+ * OpenAI-compatible endpoint as `RouterSeam`, but each turn passes `tools`; when
+ * the model emits tool_calls they run via `executeToolCall` ON THIS HOST and the
+ * results fold back as `tool` messages, repeating until the model answers without
+ * a tool or `maxTurns` is hit. A real agentic loop, OFF-BOX — no sandbox, so it
+ * is unaffected by a box's egress allowlist. One turn = one completion = the
+ * equal-compute unit. `executeToolCall` receives the task so per-task tool
+ * surfaces (e.g. a gym keyed by task) can dispatch correctly.
+ */
+export interface RouterToolsSeam {
+  routerBaseUrl: string
+  routerKey: string
+  model?: string
+  tools: ReadonlyArray<ToolSpec>
+  executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  /** Max inference turns (default 4). */
+  maxTurns?: number
+}
+const routerToolsSeamKey = 'router-tools'
+
+interface RouterToolsResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | null
+      tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
+    }
+  }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
+}
+
+/**
+ * The tool-using router executor. Drives the multi-turn tool loop the single-shot
+ * `routerInlineExecutor` cannot express; same fail-loud + real-usage discipline.
+ */
+export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
+  const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
+  const model = seam.model ?? spec.profile.model?.default
+  if (!model) {
+    throw new ValidationError(
+      'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
+    )
+  }
+  if (!seam.routerBaseUrl || !seam.routerKey) {
+    throw new ValidationError(
+      'routerToolsInlineExecutor: RouterToolsSeam.routerBaseUrl + routerKey required',
+    )
+  }
+  const maxTurns = seam.maxTurns ?? 4
+
+  const controller = new AbortController()
+  const abortIfSignalled = () => {
+    if (ctx.signal.aborted) controller.abort()
+  }
+  abortIfSignalled()
+  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+
+  let artifact: ExecutorResult<unknown> | undefined
+
+  return {
+    runtime: 'router' as Runtime,
+    async execute(task, signal): Promise<ExecutorResult<unknown>> {
+      const started = Date.now()
+      const linked = linkSignals(signal, controller.signal)
+      const messages: Array<Record<string, unknown>> = [
+        ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
+      ]
+      const tokens = zeroTokenUsage()
+      let turns = 0
+      let lastText = ''
+
+      for (let t = 0; t < maxTurns; t += 1) {
+        turns += 1
+        const res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${seam.routerKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages,
+            tools: seam.tools,
+            tool_choice: 'auto',
+            temperature: 0.2,
+          }),
+          ...(linked ? { signal: linked } : {}),
+        })
+        if (!res.ok) {
+          throw new ValidationError(
+            `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
+          )
+        }
+        const data = (await res.json()) as RouterToolsResponse
+        const u = data.usage
+        if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
+          tokens.input += u.prompt_tokens
+          tokens.output += u.completion_tokens
+        }
+        const msg = data.choices?.[0]?.message
+        if (msg?.content) lastText = msg.content
+        const toolCalls = msg?.tool_calls ?? []
+        if (toolCalls.length === 0) break // the model answered — loop done
+
+        // Record the assistant turn verbatim, then run each call on the host and
+        // fold the result back as a `tool` message for the next turn.
+        messages.push({
+          role: 'assistant',
+          content: msg?.content ?? '',
+          tool_calls: toolCalls.map((tc, i) => ({
+            id: tc.id ?? `call_${i}`,
+            type: 'function',
+            function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '{}' },
+          })),
+        })
+        for (let i = 0; i < toolCalls.length; i += 1) {
+          const tc = toolCalls[i]
+          const id = tc?.id ?? `call_${i}`
+          let args: Record<string, unknown> = {}
+          try {
+            args = JSON.parse(tc?.function?.arguments ?? '{}') as Record<string, unknown>
+          } catch {
+            // Malformed args are a real outcome, not an infra fault — feed the error
+            // back so the model can correct, rather than aborting the whole loop.
+            messages.push({
+              role: 'tool',
+              tool_call_id: id,
+              content: 'error: tool arguments were not valid JSON',
+            })
+            continue
+          }
+          const result = await seam.executeToolCall(tc?.function?.name ?? '', args, task)
+          messages.push({ role: 'tool', tool_call_id: id, content: result })
+        }
+      }
+
+      const usd = isModelPriced(model) ? estimateCost(tokens.input, tokens.output, model) : 0
+      const spent: Spend = { iterations: turns, tokens, usd, ms: Date.now() - started }
+      const out = { content: lastText } as unknown
+      artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
+      return artifact
+    },
+    teardown(_grace): Promise<{ destroyed: boolean }> {
+      controller.abort()
+      return Promise.resolve({ destroyed: true })
+    },
+    resultArtifact() {
+      if (!artifact) {
+        throw new ValidationError(
+          'routerToolsInlineExecutor: resultArtifact() read before execute()',
+        )
+      }
+      return { ...artifact, spent: artifact.spent }
+    },
+  }
+}
+
 // ── sandbox executor (harness is a BackendType) ────────────────────────────────
 
 /**
@@ -624,6 +787,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
  */
 export type ExecutorConfig =
   | ({ backend: 'router' } & RouterSeam)
+  | ({ backend: 'router-tools' } & RouterToolsSeam)
   | ({ backend: 'bridge' } & BridgeSeam)
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
@@ -635,6 +799,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
     switch (config.backend) {
       case 'router':
         return routerInlineExecutor(spec, seamed)
+      case 'router-tools':
+        return routerToolsInlineExecutor(spec, seamed)
       case 'bridge':
         return bridgeExecutor(spec, seamed)
       case 'cli':
