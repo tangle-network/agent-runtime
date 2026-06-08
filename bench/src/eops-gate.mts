@@ -110,6 +110,18 @@ async function deleteDb(server: GymServer, dbId: string): Promise<void> {
   }).catch(() => {})
 }
 
+/** Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. The
+ *  router rejects top-level oneOf/anyOf/allOf/enum/not — keep the properties (nested
+ *  combinators are fine) but guarantee a plain `{type:'object'}` head. */
+function sanitizeSchema(s: unknown): { type: 'object'; properties: Record<string, unknown>; required?: string[] } {
+  const o = s && typeof s === 'object' ? (s as Record<string, unknown>) : {}
+  const banned = o.oneOf || o.anyOf || o.allOf || o.not || o.enum
+  if (o.type === 'object' && !banned && o.properties && typeof o.properties === 'object') {
+    return { type: 'object', properties: o.properties as Record<string, unknown>, ...(Array.isArray(o.required) ? { required: o.required as string[] } : {}) }
+  }
+  return { type: 'object', properties: {} }
+}
+
 /** Build OpenAI-shape tool specs for the task's selected tools from the gym's MCP tools/list. */
 async function toolSpecs(server: GymServer, dbId: string, selected: string[]): Promise<ToolSpec[]> {
   const url = `${server.mcp_server_url.replace(/\/$/, '')}/mcp`
@@ -118,7 +130,7 @@ async function toolSpecs(server: GymServer, dbId: string, selected: string[]): P
   const want = new Set(selected)
   return all
     .filter((t) => want.has(t.name))
-    .map((t) => ({ type: 'function' as const, function: { name: t.name, description: t.description ?? '', parameters: t.inputSchema ?? { type: 'object', properties: {} } } }))
+    .map((t) => ({ type: 'function' as const, function: { name: t.name, description: (t.description ?? '').slice(0, 1000), parameters: sanitizeSchema(t.inputSchema) } }))
 }
 
 async function callTool(server: GymServer, dbId: string, name: string, args: Record<string, unknown>): Promise<string> {
@@ -202,8 +214,8 @@ async function main(): Promise<void> {
 
   const rows = await pool(tasks, concurrency, async (task, i) => {
     const server = task.servers[0]
-    if (!server) return { breadthR: 0, depthR: 0, breadthRes: 0, depthRes: 0 }
-
+    if (!server) return null
+    try {
     const ratio = (x: { passes: number; total: number }) => x.passes / Math.max(x.total, 1)
     let acts = 0
     // breadth@K: K INDEPENDENT short loops on fresh DBs; keep the best verifier score.
@@ -238,17 +250,23 @@ async function main(): Promise<void> {
 
     process.stderr.write(`  [${i + 1}/${tasks.length}] ${task.taskId.slice(-12)}: breadth=${breadthBest.passes}/${breadthBest.total} depth=${depth.passes}/${depth.total} toolcalls=${acts}\n`)
     return { breadthR: ratio(breadthBest), depthR: ratio(depth), breadthRes: breadthBest.resolved ? 1 : 0, depthRes: depth.resolved ? 1 : 0 }
+    } catch (err) {
+      process.stderr.write(`  [${i + 1}/${tasks.length}] ${task.taskId.slice(-12)}: SKIP (${err instanceof Error ? err.message.slice(0, 90) : String(err)})\n`)
+      return null
+    }
   })
 
-  const breadthR = rows.map((r) => r.breadthR)
-  const depthR = rows.map((r) => r.depthR)
-  const breadthRes = rows.map((r) => r.breadthRes)
-  const depthRes = rows.map((r) => r.depthRes)
+  const ok = rows.filter((r): r is NonNullable<typeof r> => r !== null)
+  const excluded = rows.length - ok.length
+  const breadthR = ok.map((r) => r.breadthR)
+  const depthR = ok.map((r) => r.depthR)
+  const breadthRes = ok.map((r) => r.breadthRes)
+  const depthRes = ok.map((r) => r.depthRes)
   const rate = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(xs.length, 1)
   const sig = (l: PairedLift) => (l.low > 0 ? 'SIGNIF +' : l.high < 0 ? 'SIGNIF -' : 'n.s. (CI spans 0)')
 
   console.log(`\n${'='.repeat(72)}`)
-  console.log(`RESULTS · EOPS itsm · n=${tasks.length} · K=${k} M=${m} · ${model}`)
+  console.log(`RESULTS · EOPS itsm · n=${ok.length} (excluded ${excluded}) · K=${k} M=${m} · ${model}`)
   console.log('='.repeat(72))
   console.log(`  verifier score (partial credit, the signal at this difficulty):`)
   console.log(`    breadth@${k} (resample) ${pct(rate(breadthR))}    depth@${k} (steered) ${pct(rate(depthR))}`)
