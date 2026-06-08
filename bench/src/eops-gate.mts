@@ -22,7 +22,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type RouterConfig, type ToolSpec, routerToolLoop } from './router-client'
+import { type RouterConfig, type ToolSpec, routerChatWithUsage, routerToolLoop } from './router-client'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 function must(name: string): string {
@@ -183,7 +183,9 @@ function shotPrompt(task: EopsTask, steer?: string): string {
   ].join('\n')
 }
 
-async function runShot(cfg: RouterConfig, task: EopsTask, server: GymServer, dbId: string, tools: ToolSpec[], maxTurns: number, steer?: string): Promise<number> {
+type ToolTrace = Array<{ name: string; args: string; result: string }>
+
+async function runShot(cfg: RouterConfig, task: EopsTask, server: GymServer, dbId: string, tools: ToolSpec[], maxTurns: number, steer?: string): Promise<{ toolCalls: number; toolTrace: ToolTrace }> {
   const r = await routerToolLoop(
     cfg,
     task.systemPrompt || 'You are an IT service-management operations agent.',
@@ -192,7 +194,30 @@ async function runShot(cfg: RouterConfig, task: EopsTask, server: GymServer, dbI
     async (name, args) => callTool(server, dbId, name, args as Record<string, unknown>),
     { maxTurns, temperature: 0.3 },
   )
-  return r.toolCalls
+  return { toolCalls: r.toolCalls, toolTrace: r.toolTrace }
+}
+
+/** S1 steerer — the inline agent-eval-style trace-analyst. FIREWALLED: it reads the
+ *  agent's tool-call trace (behavior), NEVER the verifiers or their expected values.
+ *  Diagnoses the remaining gap and issues one concrete corrective instruction. */
+async function analystSteer(cfg: RouterConfig, task: EopsTask, trace: ToolTrace): Promise<string> {
+  const summary = trace.map((t) => `${t.name}(${t.args.slice(0, 140)}) -> ${t.result.slice(0, 180)}`).join('\n').slice(-4000)
+  const r = await routerChatWithUsage(
+    cfg,
+    [
+      {
+        role: 'system',
+        content:
+          'You are a senior ITSM operations reviewer. You are shown an agent\'s tool-call trace on a task it has NOT completed. Diagnose precisely what the task still requires and issue ONE concrete corrective instruction — name the specific records, fields, and target values to set. Do not restate the task, do not praise, do not summarize the trace. Output only the single next instruction.',
+      },
+      {
+        role: 'user',
+        content: `TASK:\n${task.userPrompt}\n\nAGENT TRACE SO FAR:\n${summary || '(no tool calls yet)'}\n\nThe single most important still-missing or incorrect step, as one concrete instruction:`,
+      },
+    ],
+    { temperature: 0.2 },
+  )
+  return r.content.trim()
 }
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
@@ -207,8 +232,9 @@ async function main(): Promise<void> {
   const dbsDir = must('EOPS_GYM_DBS_DIR')
   const cfg: RouterConfig = { routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1', routerKey: must('TANGLE_API_KEY'), model }
   const concurrency = Number(process.env.CONCURRENCY ?? 4)
+  const steerMode = process.env.STEER === 'analyst' ? 'analyst' : 'generic'
 
-  console.log(`=== EOPS depth-vs-breadth gate · tool-using router worker · N=${n} K=${k} M=${m} model=${model} ===`)
+  console.log(`=== EOPS depth-vs-breadth gate · tool-using router worker · N=${n} K=${k} M=${m} model=${model} · STEER=${steerMode} ===`)
   const tasks = await loadTasks(n, offset)
   console.log(`loaded ${tasks.length} itsm task(s); breadth@${k} (resample, K×M turns) vs depth@${k} (one loop, ${k * m} turns), conc=${concurrency}\n`)
 
@@ -224,7 +250,7 @@ async function main(): Promise<void> {
       const dbId = await seedDb(server, dbsDir)
       try {
         const tools = await toolSpecs(server, dbId, task.selectedTools)
-        acts += await runShot(cfg, task, server, dbId, tools, m)
+        acts += (await runShot(cfg, task, server, dbId, tools, m)).toolCalls
         breadthScores.push(await score(server, dbId, task.verifiers))
       } finally {
         await deleteDb(server, dbId)
@@ -233,15 +259,24 @@ async function main(): Promise<void> {
     const breadthBest = breadthScores.reduce((a, b) => (ratio(b) > ratio(a) ? b : a), breadthScores[0] ?? { passes: 0, total: 1, resolved: false })
 
     // depth@K: K SEQUENTIAL shots over ONE persistent DB — the artifact accumulates and
-    // each re-engagement is steered to finish what's left (the regime where depth won
-    // before). Equal compute: K shots × M turns, same as breadth's K × M.
+    // each re-engagement is STEERED to finish what's left. The steer is the variable
+    // under test: STEER=generic (a fixed nudge) vs STEER=analyst (the firewalled
+    // trace-analyst diagnoses the gap). Equal compute: K shots × M turns = breadth's K×M.
     const depthDb = await seedDb(server, dbsDir)
     let depth = { passes: 0, total: 1, resolved: false }
     try {
       const tools = await toolSpecs(server, depthDb, task.selectedTools)
+      const trace: ToolTrace = []
       for (let s = 0; s < k; s += 1) {
-        const steer = s === 0 ? undefined : 'Re-inspect the current state with the read tools, identify what the task still requires, and complete it. Do not stop until every required change is verified in place.'
-        acts += await runShot(cfg, task, server, depthDb, tools, m, steer)
+        let steer: string | undefined
+        if (s > 0) {
+          steer = steerMode === 'analyst'
+            ? await analystSteer(cfg, task, trace)
+            : 'Re-inspect the current state with the read tools, identify what the task still requires, and complete it. Do not stop until every required change is verified in place.'
+        }
+        const sr = await runShot(cfg, task, server, depthDb, tools, m, steer)
+        acts += sr.toolCalls
+        trace.push(...sr.toolTrace)
       }
       depth = await score(server, depthDb, task.verifiers)
     } finally {
