@@ -58,6 +58,7 @@ This repo is the empirical home of the RSI/learning-flywheel thesis, but **mecha
 
 **Process discipline (the anti-patterns that have bitten this repo):**
 - **Don't build mechanism ahead of the gate.** Per-branch adaptive sub-agents, learned planners, the outer flywheel — all wait for a *positive* gate result. Expressiveness was the closed gap; the open one is evidentiary.
+- **Don't mint a facade before the substrate join works.** A "developer-friendly" loop/protocol/API is slop until a tiny script proves the real path: existing substrate primitive -> real worker -> real trace/state -> verifier/observer -> corrective action. If 80% of the API retypes `Scope`, MCP, journals, validators, or git, delete it and document the missing join instead.
 - **Don't re-run a settled measurement.** The instrument already returned 0 coding-headroom (3 runs) and steering-loses on FinSearchComp. Read the dated controlled-result memory note before proposing to "test if steering helps" again.
 - **Estimate cost before launch.** cells × per-cell-time / concurrency. A cell is a multi-min rollout; GEPA multiplies it (POP×GENS×cells). FinSearchComp-over-sandbox ≈ 3hr/run with ~14% stream-drop loss — budget it or use the offline corpus / local gate (conc≤2).
 - **Confounds before causal claims.** Never claim a win where treatment got more compute than control. Isolate via refine@k vs random@k at EQUAL k; exclude infra-errored cells; report the discordant count; apply BH across arms; prefer deterministic-judge domains. Run the cheapest decisive check first.

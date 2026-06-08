@@ -9,7 +9,6 @@
 
 import type {
   Budget,
-  NodeId,
   ResultBlobStore,
   Scope,
   Settled,
@@ -27,48 +26,44 @@ export interface SettledWorker {
   readonly reason?: string
 }
 
-export type LoopQuestionLevel = 'worker' | 'driver' | 'loop'
-export type LoopQuestionUrgency = 'continue-without' | 'blocks-step' | 'blocks-run'
+export type QuestionLevel = 'worker' | 'driver' | 'loop'
+export type QuestionUrgency = 'continue-without' | 'blocks-step' | 'blocks-run'
 
-export interface LoopQuestionOption {
+export interface QuestionOption {
   readonly label: string
   readonly tradeoff: string
 }
 
-export interface LoopQuestion {
+export interface Question {
   readonly id: string
   readonly from: string
-  readonly level: LoopQuestionLevel
+  readonly level: QuestionLevel
   readonly question: string
   readonly reason: string
-  readonly urgency: LoopQuestionUrgency
-  readonly options?: ReadonlyArray<LoopQuestionOption>
+  readonly urgency: QuestionUrgency
+  readonly options?: ReadonlyArray<QuestionOption>
 }
 
-export interface QuestionDecision {
-  readonly kind: 'answer' | 'defer' | 'escalate'
-  readonly value: string
-  readonly by?: string
-  readonly answer?: string
-  readonly reason?: string
-  readonly to?: 'parent' | 'user' | string
-}
+export type QuestionDecision =
+  | { readonly kind: 'answer'; readonly answer: string; readonly by: string }
+  | { readonly kind: 'defer'; readonly reason: string }
+  | { readonly kind: 'escalate'; readonly to: 'parent' | 'user' | string; readonly reason: string }
 
-export interface QuestionRecord extends LoopQuestion {
+export interface QuestionRecord extends Question {
   readonly status: 'open' | 'answered' | 'deferred' | 'escalated'
   readonly decision?: QuestionDecision
   readonly openedAt: number
 }
 
-export type LoopQuestionInput = Omit<LoopQuestion, 'id'> & { readonly id?: string }
-export type QuestionPolicyMode = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
+type QuestionInput = Omit<Question, 'id'> & { readonly id?: string }
+export type QuestionPolicy = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
 
 export interface AnalystRegistry {
   readonly kinds: ReadonlyArray<{ id: string; description: string; area: string }>
   readonly run: (kindId: string, trace: unknown) => Promise<unknown>
 }
 
-export type LoopEvent = { readonly type: 'question'; readonly question: QuestionRecord }
+export type CoordinationEvent = { readonly type: 'question'; readonly question: QuestionRecord }
 
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
@@ -78,8 +73,8 @@ export interface CoordinationToolsOptions {
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
   readonly analysts?: AnalystRegistry
-  readonly onEvent?: (event: LoopEvent) => void | Promise<void>
-  readonly questionPolicy?: QuestionPolicyMode
+  readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  readonly questionPolicy?: QuestionPolicy
 }
 
 export interface CoordinationTools {
@@ -111,11 +106,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       throw new Error('coordination tools: arguments must be an object')
     return raw as Record<string, unknown>
   }
-  const level = (v: unknown): LoopQuestion['level'] => {
+  const level = (v: unknown): Question['level'] => {
     if (v === 'worker' || v === 'driver' || v === 'loop') return v
     throw new Error('coordination tools: "level" must be worker, driver, or loop')
   }
-  const urgency = (v: unknown): LoopQuestion['urgency'] => {
+  const urgency = (v: unknown): Question['urgency'] => {
     if (v === 'continue-without' || v === 'blocks-step' || v === 'blocks-run') return v
     throw new Error(
       'coordination tools: "urgency" must be continue-without, blocks-step, or blocks-run',
@@ -137,11 +132,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     return w
   }
 
-  const nextQuestionId = (from: NodeId): string => `${from}:q${questionSeq++}`
-  const normalizeQuestion = (
-    q: Omit<LoopQuestion, 'id'> & { id?: string },
-    fallbackFrom: NodeId,
-  ): LoopQuestion => {
+  const nextQuestionId = (from: string): string => `${from}:q${questionSeq++}`
+  const normalizeQuestion = (q: QuestionInput, fallbackFrom: string): Question => {
     const from = str(q.from ?? fallbackFrom, 'from')
     return {
       id: typeof q.id === 'string' && q.id.length > 0 ? q.id : nextQuestionId(from),
@@ -154,8 +146,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     }
   }
   const addQuestion = (
-    raw: Omit<LoopQuestion, 'id'> & { id?: string },
-    fallbackFrom: NodeId,
+    raw: QuestionInput,
+    fallbackFrom: string,
     decision?: QuestionDecision,
   ): { question: QuestionRecord; added: boolean } => {
     const q = normalizeQuestion(raw, fallbackFrom)
@@ -166,7 +158,6 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       (questionPolicy === 'bubble'
         ? ({
             kind: 'escalate',
-            value: 'question policy bubbled to parent',
             to: 'parent',
             reason: 'question policy bubbled to parent',
           } as const)
@@ -325,7 +316,6 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           return Promise.resolve({
             question: decideQuestion(questionId, {
               kind: 'answer',
-              value: a.answer,
               answer: a.answer,
               by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
             }),
@@ -335,7 +325,6 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           return Promise.resolve({
             question: decideQuestion(questionId, {
               kind: 'defer',
-              value: a.deferReason,
               reason: a.deferReason,
             }),
           })
@@ -349,7 +338,6 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             question: decideQuestion(questionId, {
               kind: 'escalate',
               to: a.escalateTo,
-              value: escalateReason,
               reason: escalateReason,
             }),
           })
@@ -384,7 +372,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               urgency: urgency(a.urgency),
             },
             from,
-            { kind: 'escalate', value: 'asked parent', to: 'parent', reason: 'asked parent' },
+            { kind: 'escalate', to: 'parent', reason: 'asked parent' },
           ),
         )
         return { question: q }

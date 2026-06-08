@@ -87,15 +87,14 @@ export {
 } from './tools/checks'
 export {
   type AnalystRegistry,
+  type CoordinationEvent,
   type CoordinationTools,
   type CoordinationToolsOptions,
   createCoordinationTools,
-  type LoopEvent,
-  type LoopQuestion,
-  type LoopQuestionInput,
   type MakeWorkerAgent,
+  type Question,
   type QuestionDecision,
-  type QuestionPolicyMode,
+  type QuestionPolicy,
   type QuestionRecord,
   type SettledWorker,
 } from './tools/coordination'
