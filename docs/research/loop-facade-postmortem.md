@@ -51,17 +51,34 @@ The remaining loop story is substrate-first:
 - sandbox loops: `runLoop`
 - recursive dynamic trees: `Scope` + Supervisor
 - sandbox driver binding: `createCoordinationTools`
-- durable workspace: git
+- durable workspace: `gitWorkspace` over a `Shell`
 - trace feedback: `observe`
+
+This branch now contains the smallest local proof of the missing join:
+
+```bash
+pnpm exec tsx bench/src/observe-steer-workspace-loop.mts
+```
+
+That script drives a real Supervisor/Scope through the coordination MCP verbs:
+first worker commits a failing artifact to a git workspace, `run_analyst` calls
+`observe()` on the settled trace/output, `steer_worker` delivers the finding via
+`Scope.send`, a correction worker commits the fix, and a fresh clone passes the
+integration test.
+
+It is not the cloud proof. The remaining external proof is the same shape with
+`openSandboxRun` workers and a remote branch that a sandbox can clone and push.
 
 ## Prevention Rule
 
 No new loop facade lands until a tiny executable proof shows the exact substrate
-join the facade claims to simplify. For this thread, that proof is:
+join the facade claims to simplify. The local proof for this thread is:
 
 ```txt
-Scope.spawn -> openSandboxRun worker -> git commit -> observe() finding -> Scope.send steer
+Scope.spawn -> coordination MCP -> gitWorkspace -> observe() finding -> Scope.send steer
 ```
+
+The cloud proof still must add `openSandboxRun worker -> remote git branch`.
 
 A proposed API fails review if it primarily renames existing substrate concepts
 or needs fake agents to demonstrate its value. The accepted API is the smallest

@@ -84,8 +84,17 @@ const driver: Agent<Task, Output> = {
     )
 
     const steer = observation.findings[0]?.recommended_action
-    if (steer) scope.send(spawned.handle.id, { steer })
-    return synthesize(settled, observation)
+    if (!steer) return synthesize(settled, observation)
+
+    const correction = scope.spawn(workerAgent, { task, prior: settled }, {
+      budget: perWorker,
+      label: 'worker-corrected',
+    })
+    if (!correction.ok) throw new Error(correction.reason)
+    if (!scope.send(correction.handle.id, { steer })) throw new Error('steer delivery failed')
+
+    const fixed = await scope.next()
+    return synthesize(fixed, observation)
   },
 }
 
@@ -123,13 +132,22 @@ fix a running worker can still use. Delivery is through `Scope.send` or
 Git is the durable workspace seam:
 
 - one branch/clone per worker
+- `gitWorkspace({ ref })` when host and sandbox need the same clone/commit/push contract
 - explicit commit per worker
 - typed merge result: `merged | conflict | stale-base | rejected | verifier-failed`
 - resume derives completion from git state, not only a side journal
 - conflicts become blockers/questions, not silent overwrite
 
-Until cloud branch/merge conflict handling is proven, only claim serial
-git-accumulation, not parallel migration safety.
+Proof command for the local substrate join:
+
+```bash
+pnpm exec tsx bench/src/observe-steer-workspace-loop.mts
+```
+
+It proves `Scope.spawn -> coordination tools -> gitWorkspace -> observe ->
+Scope.send -> corrective worker -> integration pass`. Until the same proof runs
+with `openSandboxRun` and a remote branch, claim local substrate closure and
+serial git accumulation, not full cloud migration safety.
 
 ## Final Check
 

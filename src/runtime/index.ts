@@ -256,3 +256,11 @@ export type {
   ValidationCtx,
   Validator,
 } from './types'
+export {
+  type GitWorkspaceOptions,
+  gitWorkspace,
+  localShell,
+  type Shell,
+  type Workspace,
+  type WorkspaceCommit,
+} from './workspace'
