@@ -63,6 +63,7 @@ export {
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
 export {
+  defaultAnalystInstruction,
   type Observation,
   type ObserveInput,
   type ObserveOptions,

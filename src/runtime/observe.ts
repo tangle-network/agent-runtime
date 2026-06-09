@@ -45,7 +45,21 @@ export interface ObserveOptions {
   signal?: AbortSignal
   /** Cap the trace lines fed to the observer (keeps the call cheap). Default 80. */
   maxTraceLines?: number
+  /** Override the analyst's system instruction — the prompt that turns a trace into
+   *  findings + recommended_actions. The analyst IS the steerer, so this is the knob a
+   *  prompt optimizer (GEPA) tunes. Omitted ⇒ the default observer instruction. The
+   *  firewall (trace-only, never the verdict) is structural (input has no score), so a
+   *  custom instruction cannot break it. */
+  analystInstruction?: string
 }
+
+/** The default observer instruction — exported so an optimizer can seed its population. */
+export const defaultAnalystInstruction =
+  'You are a third-person OBSERVER watching an AI agent work. You see its TRACE (what it did), not its grader. ' +
+  'From the trace, name SPECIFIC, behavior-grounded findings: wasted/duplicated tool calls, thrash/retries, ' +
+  'token/cost waste, missing verification, failure patterns. For each, a concrete recommended_action, and ' +
+  'whether the AGENT (fix its skills/prompt/tools) or the OPERATOR (fix framing/decomposition/config) should act. ' +
+  'Only claim what the trace shows. No findings if the run was clean.'
 
 export interface Observation {
   findings: AnalystFinding[]
@@ -131,12 +145,7 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
       messages: [
         {
           role: 'system',
-          content:
-            'You are a third-person OBSERVER watching an AI agent work. You see its TRACE (what it did), not its grader. ' +
-            'From the trace, name SPECIFIC, behavior-grounded findings: wasted/duplicated tool calls, thrash/retries, ' +
-            'token/cost waste, missing verification, failure patterns. For each, a concrete recommended_action, and ' +
-            'whether the AGENT (fix its skills/prompt/tools) or the OPERATOR (fix framing/decomposition/config) should act. ' +
-            'Only claim what the trace shows. No findings if the run was clean.',
+          content: opts.analystInstruction ?? defaultAnalystInstruction,
         },
         {
           role: 'user',
