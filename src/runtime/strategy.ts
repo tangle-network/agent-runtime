@@ -22,27 +22,24 @@
  */
 
 import { createChatClient } from '@tangle-network/agent-eval'
-import {
-  createSupervisor,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-  observe,
-} from '@tangle-network/agent-runtime/loops'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
+import { observe } from './observe'
+import type { Outcome } from './personify/types'
+import type { Corpus } from './personify/wave-types'
+import { createSupervisor } from './supervise/supervisor'
 import type {
   Agent,
-  Corpus,
   AgentSpec,
   Budget,
-  ExecutorContext,
-  ExecutorRegistry,
   Executor,
+  ExecutorContext,
   ExecutorFactory,
+  ExecutorRegistry,
   ExecutorResult,
-  Outcome,
   Scope,
   Settled,
   Spend,
-} from '@tangle-network/agent-runtime/loops'
+} from './supervise/types'
 
 // ── The general surface seam (the only thing a new benchmark implements) ─────────
 
@@ -132,7 +129,7 @@ const taskNudge =
  *  `surface.call`, carrying `messages`. Returns the updated conversation + counts. */
 async function runShot(
   surface: AgenticSurface,
-  task: AgenticTask,
+  _task: AgenticTask,
   handle: ArtifactHandle,
   tools: AgenticTool[],
   messages: Msg[],
@@ -146,15 +143,27 @@ async function runShot(
     const res = await fetch(`${opts.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.routerKey}` },
-      body: JSON.stringify({ model: opts.model, messages, tools, tool_choice: 'auto', temperature: opts.temperature ?? 0.7 }),
+      body: JSON.stringify({
+        model: opts.model,
+        messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: opts.temperature ?? 0.7,
+      }),
     })
     if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
     completions += 1
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string; tool_calls?: ToolCall[] } }> }
+    const data = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string; tool_calls?: ToolCall[] } }>
+    }
     const msg = data.choices?.[0]?.message
     if (!msg) break
     const calls = msg.tool_calls ?? []
-    messages.push({ role: 'assistant', content: msg.content ?? '', ...(calls.length ? { tool_calls: calls } : {}) })
+    messages.push({
+      role: 'assistant',
+      content: msg.content ?? '',
+      ...(calls.length ? { tool_calls: calls } : {}),
+    })
     if (calls.length === 0) break
     for (const call of calls) {
       toolCalls += 1
@@ -189,14 +198,27 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     .filter((m) => m.role === 'assistant' || m.role === 'tool')
     .map((m) => {
       if (m.role === 'tool') return `RESULT ${String(m.content).slice(0, 280)}`
-      const calls = (m.tool_calls as ToolCall[] | undefined)?.map((c) => `${c.function.name}(${c.function.arguments})`).join(', ')
+      const calls = (m.tool_calls as ToolCall[] | undefined)
+        ?.map((c) => `${c.function.name}(${c.function.arguments})`)
+        .join(', ')
       return calls ? `CALL ${calls}` : `SAY ${String(m.content).slice(0, 200)}`
     })
     .join('\n')
     .slice(0, 7000)
-  const chat = createChatClient({ transport: 'router', apiKey: opts.routerKey, baseUrl: opts.routerBaseUrl, defaultModel: opts.model })
+  const chat = createChatClient({
+    transport: 'router',
+    apiKey: opts.routerKey,
+    baseUrl: opts.routerBaseUrl,
+    defaultModel: opts.model,
+  })
   const obs = await observe(
-    { task: task.userPrompt, output: trajectory, trace: messages, outcome: 'failed', runId: task.id },
+    {
+      task: task.userPrompt,
+      output: trajectory,
+      trace: messages,
+      outcome: 'failed',
+      runId: task.id,
+    },
     {
       chat,
       model: opts.model,
@@ -224,7 +246,12 @@ interface ShotResult {
   toolErrors: number
 }
 
-const spend = (iterations: number): Spend => ({ iterations, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
+const spend = (iterations: number): Spend => ({
+  iterations,
+  tokens: { input: 0, output: 0 },
+  usd: 0,
+  ms: 0,
+})
 
 /** Resolve a shot: if `handle` given, operate on the SHARED artifact (depth); else open+score+close
  *  an OWN artifact (breadth). Always scores the artifact's final state as the deployable verdict. */
@@ -246,7 +273,14 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
         const shot = await runShot(surface, t.task, handle, tools, messages, opts)
         const s = await surface.score(t.task, handle)
         const score = s.total > 0 ? s.passes / s.total : 0
-        const out: ShotResult = { messages: shot.messages, score, passes: s.passes, total: s.total, completions: shot.completions, toolErrors: shot.toolErrors }
+        const out: ShotResult = {
+          messages: shot.messages,
+          score,
+          passes: s.passes,
+          total: s.total,
+          completions: shot.completions,
+          toolErrors: shot.toolErrors,
+        }
         artifact = {
           outRef: `shot:${handle.id}:${shot.completions}:${s.passes}/${s.total}`,
           out,
@@ -330,10 +364,18 @@ export interface AgenticRunResult {
   shots: number
 }
 
-const perChild = (innerTurns: number): Budget => ({ maxIterations: innerTurns + 1, maxTokens: 1_000_000 })
+const perChild = (innerTurns: number): Budget => ({
+  maxIterations: innerTurns + 1,
+  maxTokens: 1_000_000,
+})
 
 /** DEPTH: one persistent artifact, carried across analyst-steered shots. */
-export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { maxShots: number }): Agent<unknown, Outcome<unknown>> {
+export function depthDriver(
+  surface: AgenticSurface,
+  task: AgenticTask,
+  opts: AgenticOptions,
+  cfg: { maxShots: number },
+): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
   let pendingSteer: string | undefined // analyst-derived steer carried between shots
   return {
@@ -348,7 +390,10 @@ export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: Ag
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
           const child = leaf(`shot:${shots}`, 'shot')
           const steer = shots === 0 ? undefined : pendingSteer
-          const res = scope.spawn(child, { task, handle, messages, steer } as ShotTask, { budget: perChild(innerTurns), label: `shot:${shots}` })
+          const res = scope.spawn(child, { task, handle, messages, steer } as ShotTask, {
+            budget: perChild(innerTurns),
+            label: `shot:${shots}`,
+          })
           if (!res.ok) break
           const settled = await drainOne(scope)
           if (settled.kind === 'down') break
@@ -359,7 +404,11 @@ export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: Ag
           if (out.score >= 1 || shots === cfg.maxShots - 1) break
           // Analyst reads the trajectory (firewalled) → steer the resumed session.
           const aChild = leaf(`analyst:${shots}`, 'analyst')
-          const aRes = scope.spawn(aChild, { task, messages }, { budget: perChild(1), label: `analyst:${shots}` })
+          const aRes = scope.spawn(
+            aChild,
+            { task, messages },
+            { budget: perChild(1), label: `analyst:${shots}` },
+          )
           if (!aRes.ok) break
           const aSettled = await drainOne(scope)
           completions += 1
@@ -370,7 +419,17 @@ export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: Ag
         }
         const final = await surface.score(task, handle)
         const score = final.total > 0 ? final.passes / final.total : 0
-        return { kind: 'done', deliverable: { mode: 'depth', score, resolved: final.total > 0 && final.passes === final.total, completions, progression, shots: shots + 1 } }
+        return {
+          kind: 'done',
+          deliverable: {
+            mode: 'depth',
+            score,
+            resolved: final.total > 0 && final.passes === final.total,
+            completions,
+            progression,
+            shots: shots + 1,
+          },
+        }
       } finally {
         await surface.close(handle)
       }
@@ -379,14 +438,22 @@ export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: Ag
 }
 
 /** BREADTH: K independent rollouts (each own artifact), verifier picks the best. */
-export function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { width: number }): Agent<unknown, Outcome<unknown>> {
+export function breadthDriver(
+  _surface: AgenticSurface,
+  task: AgenticTask,
+  opts: AgenticOptions,
+  cfg: { width: number },
+): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
   return {
     name: 'breadth',
     async act(_t, scope): Promise<Outcome<unknown>> {
       let opened = 0
       for (let k = 0; k < cfg.width; k += 1) {
-        const res = scope.spawn(leaf(`rollout:${k}`, 'shot'), { task } as ShotTask, { budget: perChild(innerTurns), label: `rollout:${k}` })
+        const res = scope.spawn(leaf(`rollout:${k}`, 'shot'), { task } as ShotTask, {
+          budget: perChild(innerTurns),
+          label: `rollout:${k}`,
+        })
         if (res.ok) opened += 1
       }
       if (opened === 0) return { kind: 'blocked', blockers: ['breadth: pool admitted no rollout'] }
@@ -403,7 +470,17 @@ export function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: 
         progression.push(best)
       }
       if (best < 0) return { kind: 'blocked', blockers: ['breadth: every rollout went down'] }
-      return { kind: 'done', deliverable: { mode: 'breadth', score: best, resolved: bestResolved, completions, progression, shots: opened } }
+      return {
+        kind: 'done',
+        deliverable: {
+          mode: 'breadth',
+          score: best,
+          resolved: bestResolved,
+          completions,
+          progression,
+          shots: opened,
+        },
+      }
     },
   }
 }
@@ -420,7 +497,12 @@ export function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: 
  */
 export interface Strategy {
   readonly name: string
-  driver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, budget: number): Agent<unknown, Outcome<unknown>>
+  driver(
+    surface: AgenticSurface,
+    task: AgenticTask,
+    opts: AgenticOptions,
+    budget: number,
+  ): Agent<unknown, Outcome<unknown>>
 }
 
 export const sample: Strategy = {
@@ -468,7 +550,10 @@ export interface StrategyCtx {
 }
 
 /** Author a Strategy from the composable steps — the open, compact way. */
-export function defineStrategy(name: string, run: (ctx: StrategyCtx) => Promise<StrategyResult>): Strategy {
+export function defineStrategy(
+  name: string,
+  run: (ctx: StrategyCtx) => Promise<StrategyResult>,
+): Strategy {
   return {
     name,
     driver: (surface, task, opts, budget) => ({
@@ -485,7 +570,16 @@ export function defineStrategy(name: string, run: (ctx: StrategyCtx) => Promise<
           async shot(spec) {
             const child = leaf(`shot:${seq}`, 'shot')
             seq += 1
-            const res = scope.spawn(child, { task, handle: spec?.handle, messages: spec?.messages, steer: spec?.steer } as ShotTask, { budget: perChild(innerTurns), label: child.name })
+            const res = scope.spawn(
+              child,
+              {
+                task,
+                handle: spec?.handle,
+                messages: spec?.messages,
+                steer: spec?.steer,
+              } as ShotTask,
+              { budget: perChild(innerTurns), label: child.name },
+            )
             if (!res.ok) return null
             const settled = await drainOne(scope)
             return settled.kind === 'down' ? null : (settled.out as unknown as ShotResult)
@@ -493,7 +587,11 @@ export function defineStrategy(name: string, run: (ctx: StrategyCtx) => Promise<
           async critique(messages) {
             const child = leaf(`analyst:${seq}`, 'analyst')
             seq += 1
-            const res = scope.spawn(child, { task, messages }, { budget: perChild(1), label: child.name })
+            const res = scope.spawn(
+              child,
+              { task, messages },
+              { budget: perChild(1), label: child.name },
+            )
             if (!res.ok) return null
             const settled = await drainOne(scope)
             if (settled.kind === 'down') return null
@@ -513,42 +611,45 @@ export function defineStrategy(name: string, run: (ctx: StrategyCtx) => Promise<
  *  — the widen/MCTS idea the depth-stuck failure motivated. Scored keep-best (the best
  *  checkpoint across all lines), the deployable metric. This is the "experts build BETTER
  *  optimizations" path: a new technique, compact, with zero Supervisor ceremony. */
-export const adaptiveRefine = defineStrategy('adaptiveRefine', async ({ surface, task, budget, shot, critique }) => {
-  let handle = await surface.open(task)
-  const progression: number[] = []
-  let messages: Msg[] | undefined
-  let steer: string | undefined
-  let completions = 0
-  let best = -1
-  let shots = 0
-  try {
-    for (shots = 0; shots < budget; shots += 1) {
-      const out = await shot({ handle, messages, steer })
-      if (!out) break
-      completions += out.completions
-      progression.push(out.score)
-      if (out.score >= 1) break
-      if (out.score <= best) {
-        // Stuck: steering isn't improving this line — abandon it, restart fresh.
-        await surface.close(handle)
-        handle = await surface.open(task)
-        messages = undefined
-        steer = undefined
-        continue
+export const adaptiveRefine = defineStrategy(
+  'adaptiveRefine',
+  async ({ surface, task, budget, shot, critique }) => {
+    let handle = await surface.open(task)
+    const progression: number[] = []
+    let messages: Msg[] | undefined
+    let steer: string | undefined
+    let completions = 0
+    let best = -1
+    let shots = 0
+    try {
+      for (shots = 0; shots < budget; shots += 1) {
+        const out = await shot({ handle, messages, steer })
+        if (!out) break
+        completions += out.completions
+        progression.push(out.score)
+        if (out.score >= 1) break
+        if (out.score <= best) {
+          // Stuck: steering isn't improving this line — abandon it, restart fresh.
+          await surface.close(handle)
+          handle = await surface.open(task)
+          messages = undefined
+          steer = undefined
+          continue
+        }
+        best = out.score
+        messages = out.messages
+        const findings = await critique(out.messages)
+        completions += 1
+        if (!findings) break
+        steer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
       }
-      best = out.score
-      messages = out.messages
-      const findings = await critique(out.messages)
-      completions += 1
-      if (!findings) break
-      steer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
+      const score = progression.length ? Math.max(...progression) : 0
+      return { score, resolved: score >= 1, completions, progression, shots }
+    } finally {
+      await surface.close(handle)
     }
-    const score = progression.length ? Math.max(...progression) : 0
-    return { score, resolved: score >= 1, completions, progression, shots }
-  } finally {
-    await surface.close(handle)
-  }
-})
+  },
+)
 
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
@@ -567,7 +668,10 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
   const strategy: Strategy = opts.strategy ?? (opts.mode === 'breadth' ? sample : refine)
   const driver = strategy.driver(opts.surface, opts.task, opts, opts.budget)
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
-  const root: Budget = opts.rootBudget ?? { maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2), maxTokens: 1_000_000_000 }
+  const root: Budget = opts.rootBudget ?? {
+    maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2),
+    maxTokens: 1_000_000_000,
+  }
   const result = await supervisor.run(driver, undefined, {
     budget: root,
     runId: `agentic:${strategy.name}:${opts.task.id}`,
@@ -577,7 +681,10 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
     maxDepth: 3,
   })
   if (result.kind !== 'winner' || result.out.kind !== 'done') {
-    const reason = result.kind === 'winner' ? `blocked: ${(result.out as { blockers?: string[] }).blockers?.join('; ')}` : `no-winner: ${result.reason}`
+    const reason =
+      result.kind === 'winner'
+        ? `blocked: ${(result.out as { blockers?: string[] }).blockers?.join('; ')}`
+        : `no-winner: ${result.reason}`
     throw new Error(`runAgentic(${strategy.name}) produced no result — ${reason}`)
   }
   return result.out.deliverable as AgenticRunResult

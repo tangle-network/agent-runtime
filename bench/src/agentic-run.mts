@@ -7,7 +7,7 @@
  *   TASKS=4 MAX_SHOTS=5 WIDTH=5 INNER_TURNS=4 WORKER_MODEL=gpt-4.1 tsx src/agentic-run.mts
  */
 
-import { type AgenticOptions, type AgenticTask, runAgentic } from './agentic'
+import { type AgenticOptions, type AgenticTask, runAgentic } from '@tangle-network/agent-runtime/loops'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
 
 const must = (k: string): string => {

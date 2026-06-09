@@ -14,8 +14,7 @@
  *   2. pick strategies — pass [sample, refine, adaptiveRefine].
  *   3. author your own — defineStrategy(name, body) in ~10 lines, no Supervisor ceremony.
  */
-import { adaptiveRefine, type AgenticTask, type ArtifactHandle, defineStrategy, refine, sample } from '../agentic'
-import { type Environment, printBenchmarkReport, runBenchmark } from '../run-benchmark.mts'
+import { adaptiveRefine, type AgenticTask, type ArtifactHandle, defineStrategy, type Environment, printBenchmarkReport, refine, runBenchmark, sample } from '@tangle-network/agent-runtime/loops'
 
 // ── 1. Implement an Environment (the only thing a new domain writes) ──────────────
 // A toy: the agent must drive a counter to exactly the target using the increment tool.

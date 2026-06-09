@@ -22,8 +22,7 @@
  *   docker run -d --rm --name eops -p 8006:8005 shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest
  *   EOPS_GYM_DBS_DIR=… N=16 HOLDOUT=4 K_FACTS=3 WORKER_MODEL=deepseek-v4-pro tsx src/eops-corpus-ab.mts
  */
-import { FileCorpus } from '@tangle-network/agent-runtime/loops'
-import { type AgenticOptions, type AgenticTask, runAgentic } from './agentic'
+import { type AgenticOptions, type AgenticTask, FileCorpus, runAgentic } from '@tangle-network/agent-runtime/loops'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
 import { type PairedLift, pairedLift } from './stats.mts'
 
