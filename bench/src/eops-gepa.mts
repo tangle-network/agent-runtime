@@ -67,34 +67,48 @@ async function main(): Promise<void> {
   console.error(`=== GEPA over the analyst prompt · ${tasks.length} EOPS tasks · ${model} · gens=${gens} children=${childCount} ===\n`)
 
   // Shared breadth baseline per task (no analyst — same for every candidate). Compute ONCE.
+  // Resilient: a task whose rollouts all fail (transient gym/router infra) is SKIPPED, not
+  // fatal — runAgentic is fail-loud, so we catch + drop the task and press on.
   console.error('▶ computing shared breadth baseline (once per task)…')
   const breadthByTask = new Map<string, { score: number; comps: number }>()
+  const liveTasks: AgenticTask[] = []
   for (const task of tasks) {
-    let breadthScore = 0
-    let cB = 0
-    for (let w = 0; w < width && cB < maxShots * (opts.innerTurns ?? 4); w += 1) {
-      const b = await runAgentic({ ...opts, surface, task, mode: 'breadth', budget: 1 })
-      cB += b.completions
-      if (b.score > breadthScore) breadthScore = b.score
+    try {
+      let breadthScore = 0
+      let cB = 0
+      for (let w = 0; w < width && cB < maxShots * (opts.innerTurns ?? 4); w += 1) {
+        const b = await runAgentic({ ...opts, surface, task, mode: 'breadth', budget: 1 })
+        cB += b.completions
+        if (b.score > breadthScore) breadthScore = b.score
+      }
+      breadthByTask.set(task.id, { score: breadthScore, comps: cB })
+      liveTasks.push(task)
+      console.error(`   ${task.id.slice(-12)}: breadth ${pct(breadthScore)}`)
+    } catch (e) {
+      console.error(`   ${task.id.slice(-12)}: SKIP (${e instanceof Error ? e.message.slice(0, 70) : e})`)
     }
-    breadthByTask.set(task.id, { score: breadthScore, comps: cB })
-    console.error(`   ${task.id.slice(-12)}: breadth ${pct(breadthScore)}`)
   }
+  if (liveTasks.length < 2) throw new Error(`only ${liveTasks.length} task(s) survived breadth baseline — gym/router infra is down (restart the gym container)`)
 
   // Fitness: depth (steered by the candidate instruction) − the shared breadth baseline.
   async function fitness(instruction: string): Promise<{ lift: number; cost: number; perTask: Array<{ id: string; lift: number }> }> {
     let liftSum = 0
     let cost = 0
     const perTask: Array<{ id: string; lift: number }> = []
-    for (const task of tasks) {
-      const depth = await runAgentic({ ...opts, analystInstruction: instruction, surface, task, mode: 'depth', budget: maxShots })
-      const b = breadthByTask.get(task.id)?.score ?? 0
-      const taskLift = depth.score - b
-      liftSum += taskLift
-      cost += depth.completions
-      perTask.push({ id: task.id, lift: taskLift })
+    let scored = 0
+    for (const task of liveTasks) {
+      try {
+        const depth = await runAgentic({ ...opts, analystInstruction: instruction, surface, task, mode: 'depth', budget: maxShots })
+        const b = breadthByTask.get(task.id)?.score ?? 0
+        liftSum += depth.score - b
+        cost += depth.completions
+        perTask.push({ id: task.id, lift: depth.score - b })
+        scored += 1
+      } catch (e) {
+        console.error(`     depth SKIP ${task.id.slice(-12)} (${e instanceof Error ? e.message.slice(0, 50) : e})`)
+      }
     }
-    return { lift: liftSum / tasks.length, cost: cost / tasks.length, perTask }
+    return { lift: scored ? liftSum / scored : -1, cost: scored ? cost / scored : 1e9, perTask }
   }
 
   // Seed population: the PROVEN baseline (observe()'s default — the +16.4pp instruction)
