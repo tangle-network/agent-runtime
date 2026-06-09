@@ -94,12 +94,20 @@ async function postJson(url: string, body: unknown, headers: Record<string, stri
 }
 
 async function seedDb(server: GymServer, dbsDir: string): Promise<string> {
-  const dbId = `gate_${Math.random().toString(36).slice(2, 12)}`
   const sql = readFileSync(join(dbsDir, server.seed_database_file), 'utf8')
   const url = `${server.mcp_server_url.replace(/\/$/, '')}/api/seed-database`
-  const { status, json } = await postJson(url, { database_id: dbId, name: `gate_${dbId}`, description: 'gate', sql_content: sql }, { 'content-type': 'application/json' })
-  if (status !== 200 || !(json as { success?: boolean })?.success) throw new Error(`seed-database failed (${status}): ${JSON.stringify(json).slice(0, 200)}`)
-  return dbId
+  // The gym's SQLite exhausts file handles under concurrency ("unable to open
+  // database file", HTTP 500) — TRANSIENT: it clears as sibling DBs are deleted.
+  // Bounded retry with backoff so a momentary limit doesn't drop the task's data.
+  let lastErr = ''
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const dbId = `gate_${Math.random().toString(36).slice(2, 12)}`
+    const { status, json } = await postJson(url, { database_id: dbId, name: `gate_${dbId}`, description: 'gate', sql_content: sql }, { 'content-type': 'application/json' })
+    if (status === 200 && (json as { success?: boolean })?.success) return dbId
+    lastErr = `(${status}): ${JSON.stringify(json).slice(0, 160)}`
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+  }
+  throw new Error(`seed-database failed after 5 attempts ${lastErr}`)
 }
 
 async function deleteDb(server: GymServer, dbId: string): Promise<void> {
