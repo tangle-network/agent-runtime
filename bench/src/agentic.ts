@@ -30,6 +30,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import type {
   Agent,
+  Corpus,
   AgentSpec,
   Budget,
   ExecutorContext,
@@ -92,6 +93,12 @@ export interface AgenticOptions {
   /** The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
    *  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default. */
   analystInstruction?: string
+  /** Across-run learning: when set, the analyst's observe() pass appends trace-derived
+   *  facts here (the flywheel write side). Priming (the read side) is the caller's move —
+   *  query the corpus and fold facts into the task's systemPrompt before runAgentic. */
+  corpus?: Corpus
+  /** Tags written onto learned facts (and used by the caller's priming query). */
+  corpusTags?: string[]
 }
 
 // ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
@@ -189,8 +196,13 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     .slice(0, 7000)
   const chat = createChatClient({ transport: 'router', apiKey: opts.routerKey, baseUrl: opts.routerBaseUrl, defaultModel: opts.model })
   const obs = await observe(
-    { task: task.userPrompt, output: trajectory, trace: messages, outcome: 'failed' },
-    { chat, model: opts.model, ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}) },
+    { task: task.userPrompt, output: trajectory, trace: messages, outcome: 'failed', runId: task.id },
+    {
+      chat,
+      model: opts.model,
+      ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}),
+      ...(opts.corpus ? { corpus: opts.corpus, tags: opts.corpusTags ?? [] } : {}),
+    },
   )
   // The steer = the analyst's recommended actions for the agent. Empty ⇒ nothing left to do.
   const steer = obs.findings
