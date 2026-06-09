@@ -29,8 +29,8 @@ function must(name: string): string {
   return v
 }
 
-async function loadItsmTasks(n: number): Promise<AgenticTask[]> {
-  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=itsm&offset=0&length=${n}`
+async function loadItsmTasks(n: number, offset = 0): Promise<AgenticTask[]> {
+  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=itsm&offset=${offset}&length=${n}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
   const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
@@ -174,12 +174,62 @@ async function main(): Promise<void> {
 
   const scored = pop.filter((c) => c.lift !== undefined).sort((a, b) => (b.lift ?? -1) - (a.lift ?? -1))
   const best = scored[0]
+
+  // FROZEN HOLDOUT — GEPA optimized on the search tasks; confirm the winner GENERALIZES to a
+  // DISJOINT set vs the seeded baseline (guards against overfitting the search set). Compute
+  // the holdout breadth ONCE, then score winner + baseline depth against that same baseline.
+  let holdout: { winner: number; baseline: number; n: number } | undefined
+  const holdoutN = Number(process.env.HOLDOUT ?? 0)
+  if (holdoutN > 0 && best?.instruction) {
+    console.error(`\n▶ FROZEN HOLDOUT (${holdoutN} disjoint tasks, offset ${tasks.length})…`)
+    const htasks = await loadItsmTasks(holdoutN, tasks.length)
+    const hb = new Map<string, number>()
+    const live: AgenticTask[] = []
+    for (const task of htasks) {
+      try {
+        let bScore = 0
+        let cB = 0
+        for (let w = 0; w < width && cB < maxShots * (opts.innerTurns ?? 4); w += 1) {
+          const b = await runAgentic({ ...opts, surface, task, mode: 'breadth', budget: 1 })
+          cB += b.completions
+          if (b.score > bScore) bScore = b.score
+        }
+        hb.set(task.id, bScore)
+        live.push(task)
+      } catch {
+        /* transient infra — skip this holdout task */
+      }
+    }
+    const liftOn = async (instruction: string): Promise<number> => {
+      let sum = 0
+      let cnt = 0
+      for (const task of live) {
+        try {
+          const d = await runAgentic({ ...opts, analystInstruction: instruction, surface, task, mode: 'depth', budget: maxShots })
+          sum += d.score - (hb.get(task.id) ?? 0)
+          cnt += 1
+        } catch {
+          /* skip */
+        }
+      }
+      return cnt ? sum / cnt : 0
+    }
+    holdout = { winner: await liftOn(best.instruction), baseline: await liftOn(defaultAnalystInstruction), n: live.length }
+  }
+
   console.error(`\n${'='.repeat(72)}`)
-  console.error(`GEPA RESULT · ${tasks.length} tasks · ${model}`)
+  console.error(`GEPA RESULT · search ${tasks.length} tasks · ${model}`)
   console.error('='.repeat(72))
   for (const c of scored) console.error(`  ${c.id.padEnd(30)} gen${c.gen}  lift ${pp(c.lift ?? 0)}  cost ${(c.cost ?? 0).toFixed(1)}`)
-  console.error(`\n  WINNER: ${best?.id} @ lift ${pp(best?.lift ?? 0)} (gen ${best?.gen})`)
-  const out = { model, tasks: tasks.length, gens, best: { id: best?.id, gen: best?.gen, lift: best?.lift, instruction: best?.instruction }, all: scored.map((c) => ({ id: c.id, gen: c.gen, lift: c.lift, cost: c.cost })) }
+  console.error(`\n  WINNER (search): ${best?.id} @ lift ${pp(best?.lift ?? 0)} (gen ${best?.gen})`)
+  if (holdout) {
+    const gen = holdout.winner - holdout.baseline
+    console.error(
+      `  HOLDOUT (${holdout.n} disjoint): winner ${pp(holdout.winner)} vs baseline ${pp(holdout.baseline)} → ` +
+        `GEPA ${gen > 0 ? `GENERALIZED (+${(gen * 100).toFixed(1)}pp over the seeded baseline)` : 'did NOT beat baseline on held-out tasks'}`,
+    )
+  }
+  const out = { model, searchTasks: tasks.length, gens, holdout, best: { id: best?.id, gen: best?.gen, lift: best?.lift, instruction: best?.instruction }, all: scored.map((c) => ({ id: c.id, gen: c.gen, lift: c.lift, cost: c.cost })) }
   const outPath = process.env.OUT ?? '/tmp/eops-gepa-result.json'
   writeFileSync(outPath, JSON.stringify(out, null, 2))
   console.error(`  best instruction + ranking → ${outPath}`)
