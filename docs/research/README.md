@@ -27,6 +27,23 @@ spine happen explicitly, with `file:line` anchors, once a design ships.
 | [codex-techniques-audit.md](./codex-techniques-audit.md) | Adoption report mining OpenAI Codex for succinct-code principles + orchestration techniques. **Advisory** — verify `file:line` before acting. |
 | [loop-facade-postmortem.md](./loop-facade-postmortem.md) | Failure record for the deleted `defineLoop` facade: why retyping `Scope`/MCP/journals/validators produced code without substrate proof, and the prevention rule for future loop APIs. |
 
+### The optimization-space suite (2026-06-09)
+
+The strategy map + per-layer stress tests, written after the steering/GEPA gate series.
+Start at the index; each layer doc carries its own evidence table, strongest objections,
+and concrete next experiments.
+
+| Doc | What it holds |
+|-----|---------------|
+| [optimization-space.md](./optimization-space.md) | **The index.** The 6-axis taxonomy (timescale · target · objective · validity scope · serving architecture · authorship), the evidence map (which cells are measured/null/empty), the canon-compatibility audit, and the ranked experiment portfolio. |
+| [layer-within-run.md](./layer-within-run.md) | Within-run optimization — the settled boundary law (steering negative on stateless, positive on stateful+keep-best), the two engineering laws (checkpointing; architecture-is-a-variable), and the one open lever (topology tournament). |
+| [layer-across-run.md](./layer-across-run.md) | **The unmeasured thesis (n=0).** The corpus flywheel: primed-vs-cold A/B design, the four falsifiers (context pollution, stale facts, judge leakage, worker disregard), and why this layer dominates the portfolio. |
+| [layer-economics.md](./layer-economics.md) | Multi-objective + cost: the largest practice-vs-canon inconsistency (all gates single-objective; canon mandates the vector), the lift-per-dollar frontier, and the tool-augmentation effect (+70pp) that dominates everything else measured. |
+| [layer-domain-generality.md](./layer-domain-generality.md) | The n=1-domain exposure of the headline result; the nearly-free cross-domain replication (csm/hr gym splits); why itsm may be idiosyncratic; the product-transfer falsifier. |
+| [layer-intelligence-serving.md](./layer-intelligence-serving.md) | Self-hosted vs platform-served intelligence: Tangle Intelligence is export-only today; the timescale split (in-loop critic local, across-run memory served); the four-gap list incl. the **server-side judge firewall** as the non-negotiable. |
+| [layer-agent-authored.md](./layer-agent-authored.md) | Skillification: agent-authored strategies via `defineStrategy`, the two structural safety properties (conserved budget, firewall), and the R0→R3 success ladder for the strategy-author skill. |
+| [product-integration-playbook.md](./product-integration-playbook.md) | **The operator playbook.** The 8-step product integration sequence (gtm first), the consolidated human-role table (what only operators do), the three packaging gaps (publish the suite, corpus inflow, product Environments), and fleet sequencing. |
+
 ## Source artifacts (multi-agent passes)
 
 | Run | Pass | Result lands in |
