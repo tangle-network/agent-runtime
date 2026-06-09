@@ -308,7 +308,8 @@ async function drainOne(scope: Scope<Outcome<unknown>>): Promise<Settled<Outcome
 // ── The result + the two drivers (domain-blind Agents run by the Supervisor) ─────
 
 export interface AgenticRunResult {
-  mode: 'depth' | 'breadth'
+  /** The strategy name (built-in 'depth'/'breadth' or a custom strategy's name). */
+  mode: string
   score: number
   resolved: boolean
   completions: number
@@ -418,6 +419,124 @@ export const refine: Strategy = {
   name: 'refine',
   driver: (surface, task, opts, budget) => depthDriver(surface, task, opts, { maxShots: budget }),
 }
+
+// ── The composable LEGO: author a strategy in ~15 lines from two steps ───────────
+//
+// A strategy body gets `shot()` (run one worker attempt over an artifact) and
+// `critique()` (the firewalled analyst reads the trace → a steer). Compose them — no
+// Supervisor/Scope ceremony. This is the skillifiable unit: an agent can emit a
+// `defineStrategy(name, body)` of a few step-calls; it can't reliably emit a 70-line
+// driver. (depthDriver/breadthDriver are the hand-written reference impls; refine/sample
+// stay on them — proven — while NEW strategies are authored compactly here.)
+
+export interface ShotSpec {
+  /** present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart). */
+  handle?: ArtifactHandle
+  messages?: Msg[]
+  steer?: string
+}
+export interface StrategyResult {
+  score: number
+  resolved: boolean
+  completions: number
+  progression: number[]
+  shots: number
+}
+/** What a strategy body composes with: the domain surface, the budget, and the two steps. */
+export interface StrategyCtx {
+  readonly surface: AgenticSurface
+  readonly task: AgenticTask
+  readonly opts: AgenticOptions
+  readonly budget: number
+  readonly scope: Scope<Outcome<unknown>>
+  /** Run ONE worker shot; its scored result, or null if it went down. */
+  shot(spec?: ShotSpec): Promise<ShotResult | null>
+  /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
+  critique(messages: Msg[]): Promise<string | null>
+}
+
+/** Author a Strategy from the composable steps — the open, compact way. */
+export function defineStrategy(name: string, run: (ctx: StrategyCtx) => Promise<StrategyResult>): Strategy {
+  return {
+    name,
+    driver: (surface, task, opts, budget) => ({
+      name,
+      async act(_t, scope): Promise<Outcome<unknown>> {
+        let seq = 0
+        const innerTurns = opts.innerTurns ?? 4
+        const ctx: StrategyCtx = {
+          surface,
+          task,
+          opts,
+          budget,
+          scope,
+          async shot(spec) {
+            const child = leaf(`shot:${seq}`, 'shot')
+            seq += 1
+            const res = scope.spawn(child, { task, handle: spec?.handle, messages: spec?.messages, steer: spec?.steer } as ShotTask, { budget: perChild(innerTurns), label: child.name })
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            return settled.kind === 'down' ? null : (settled.out as unknown as ShotResult)
+          },
+          async critique(messages) {
+            const child = leaf(`analyst:${seq}`, 'analyst')
+            seq += 1
+            const res = scope.spawn(child, { task, messages }, { budget: perChild(1), label: child.name })
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            if (settled.kind === 'down') return null
+            const findings = settled.out as unknown as string
+            return /^\s*COMPLETE\b/i.test(findings) ? null : findings
+          },
+        }
+        const r = await run(ctx)
+        return { kind: 'done', deliverable: { mode: name, ...r } }
+      },
+    }),
+  }
+}
+
+/** A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot
+ *  fails to improve the score it ABANDONS that line and restarts fresh (branch-when-stuck)
+ *  — the widen/MCTS idea the depth-stuck failure motivated. Scored keep-best (the best
+ *  checkpoint across all lines), the deployable metric. This is the "experts build BETTER
+ *  optimizations" path: a new technique, compact, with zero Supervisor ceremony. */
+export const adaptiveRefine = defineStrategy('adaptiveRefine', async ({ surface, task, budget, shot, critique }) => {
+  let handle = await surface.open(task)
+  const progression: number[] = []
+  let messages: Msg[] | undefined
+  let steer: string | undefined
+  let completions = 0
+  let best = -1
+  let shots = 0
+  try {
+    for (shots = 0; shots < budget; shots += 1) {
+      const out = await shot({ handle, messages, steer })
+      if (!out) break
+      completions += out.completions
+      progression.push(out.score)
+      if (out.score >= 1) break
+      if (out.score <= best) {
+        // Stuck: steering isn't improving this line — abandon it, restart fresh.
+        await surface.close(handle)
+        handle = await surface.open(task)
+        messages = undefined
+        steer = undefined
+        continue
+      }
+      best = out.score
+      messages = out.messages
+      const findings = await critique(out.messages)
+      completions += 1
+      if (!findings) break
+      steer = `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`
+    }
+    const score = progression.length ? Math.max(...progression) : 0
+    return { score, resolved: score >= 1, completions, progression, shots }
+  } finally {
+    await surface.close(handle)
+  }
+})
 
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
