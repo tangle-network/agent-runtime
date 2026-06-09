@@ -89,6 +89,9 @@ export interface AgenticOptions {
   temperature?: number
   /** Turns the agent may take within ONE shot before the driver intervenes. */
   innerTurns?: number
+  /** The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
+   *  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default. */
+  analystInstruction?: string
 }
 
 // ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
@@ -187,7 +190,7 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
   const chat = createChatClient({ transport: 'router', apiKey: opts.routerKey, baseUrl: opts.routerBaseUrl, defaultModel: opts.model })
   const obs = await observe(
     { task: task.userPrompt, output: trajectory, trace: messages, outcome: 'failed' },
-    { chat, model: opts.model },
+    { chat, model: opts.model, ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}) },
   )
   // The steer = the analyst's recommended actions for the agent. Empty ⇒ nothing left to do.
   const steer = obs.findings
