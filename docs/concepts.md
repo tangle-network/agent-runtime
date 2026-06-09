@@ -140,6 +140,5 @@ agents because nothing in this list is baked into it.
 2. `examples/sandbox-stream-backend/` — what streaming looks like.
 3. `examples/chat-handler/` — `handleChatTurn` — the centerpiece chat handler.
 4. `examples/runtime-run/` — the production-run row + cost ledger.
-5. `examples/model-resolution/` — pick + validate a model.
-6. `examples/agent-into-reviewer/` — pipe one runtime's stream into a reviewer agent.
-7. The `README.md` entry-point table — every other primitive, one row each.
+5. `examples/agent-into-reviewer/` — pipe one runtime's stream into a reviewer agent.
+6. The `README.md` entry-point table — model resolution + every other primitive, one row each.
