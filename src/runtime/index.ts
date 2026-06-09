@@ -152,6 +152,14 @@ export type {
   WidenSpec,
 } from './personify/wave-types'
 export { reportLoopUsage, type UsageSink } from './report-usage'
+export {
+  type BenchmarkConfig,
+  type BenchmarkLift,
+  type BenchmarkReport,
+  type Environment,
+  printBenchmarkReport,
+  runBenchmark,
+} from './run-benchmark'
 export type { RunLoopOptions } from './run-loop'
 export { createSandboxForSpec, defaultSelectWinner, runLoop } from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
@@ -176,6 +184,31 @@ export {
   type SandboxRun,
   type TurnResult,
 } from './sandbox-run'
+// The optimization suite: a domain = an Environment (5 hooks); a Strategy = how the
+// budget is spent to beat its check. Built-ins `sample`/`refine`; author your own with
+// `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare
+// with runBenchmark. The depth/breadth drivers are the reference implementations.
+export {
+  type AgenticOptions,
+  type AgenticRunResult,
+  type AgenticSurface,
+  type AgenticTask,
+  type AgenticTool,
+  type ArtifactHandle,
+  adaptiveRefine,
+  breadthDriver,
+  defineStrategy,
+  depthDriver,
+  type RunAgenticOptions,
+  refine,
+  runAgentic,
+  type ShotSpec,
+  type Strategy,
+  type StrategyCtx,
+  type StrategyResult,
+  type SurfaceScore,
+  sample,
+} from './strategy'
 export {
   type BudgetPool,
   type BudgetReadout,

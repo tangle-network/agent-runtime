@@ -7,7 +7,7 @@
  * AppWorld, terminal-bench) ships its own file like this one — the drivers in agentic.ts never change.
  */
 
-import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from './agentic'
+import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { callTool, deleteDb, type GymServer, type GymVerifier, loadTools, runVerifiers, seed } from './gym-agent'
 
 interface EopsMeta {

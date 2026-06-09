@@ -18,8 +18,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { buildReflectionPrompt, paretoFrontier, parseReflectionResponse } from '@tangle-network/agent-eval'
-import { defaultAnalystInstruction } from '@tangle-network/agent-runtime/loops'
-import { type AgenticOptions, type AgenticTask, runAgentic } from './agentic'
+import { type AgenticOptions, type AgenticTask, defaultAnalystInstruction, runAgentic } from '@tangle-network/agent-runtime/loops'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
 import { type RouterConfig, routerChatWithUsage } from './router-client'
 
