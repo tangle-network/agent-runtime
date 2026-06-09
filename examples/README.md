@@ -9,7 +9,7 @@ Every example imports from `@tangle-network/agent-runtime` (the same surface con
 | # | Example | One sentence |
 |---|---|---|
 | 1 | [`chat-handler/`](./chat-handler/) | `handleChatTurn` — the production chat turn lifecycle every product runs |
-| 2 | [`with-knowledge-readiness/`](./with-knowledge-readiness/) | Same chat handler + `requiredKnowledge` + `decideKnowledgeReadiness` gating |
+| 2 | [`knowledge-gating/`](./knowledge-gating/) | Same chat handler + `requiredKnowledge` + `decideKnowledgeReadiness` gating |
 | 3 | [`sanitized-telemetry-streaming/`](./sanitized-telemetry-streaming/) | Same chat handler + redaction-by-default telemetry collector |
 | 4 | [`runtime-run/`](./runtime-run/) | Same chat handler + `startRuntimeRun` + cost ledger persistence |
 
@@ -38,8 +38,8 @@ These were standalone examples in an earlier release. The patterns are now folde
 - [`openai-stream-backend/`](./openai-stream-backend/) — `createOpenAICompatibleBackend`
 - [`sse-stream/`](./sse-stream/) — SSE helpers for browser routes
 - [`sanitized-telemetry/`](./sanitized-telemetry/) — non-streaming counterpart to `sanitized-telemetry-streaming`
-- [`agent-into-reviewer/`](./agent-into-reviewer/) — pipe one runtime's stream into a reviewer agent (advanced 2-runtime topology)
-- [`with-intelligence-export/`](./with-intelligence-export/) — ship loop traces to Tangle Intelligence (`createOtelExporter` + raw OTLP) for failure-correlation + quality insights
+- [`pipe-into-reviewer/`](./pipe-into-reviewer/) — pipe one runtime's stream into a reviewer agent (advanced 2-runtime topology)
+- [`intelligence-export/`](./intelligence-export/) — ship loop traces to Tangle Intelligence (`createOtelExporter` + raw OTLP) for failure-correlation + quality insights
 
 ## Conventions
 
@@ -54,7 +54,7 @@ From the agent-runtime repo root, in the suggested learning order:
 ```bash
 # Start here
 pnpm tsx examples/chat-handler/chat-handler.ts
-pnpm tsx examples/with-knowledge-readiness/with-knowledge-readiness.ts
+pnpm tsx examples/knowledge-gating/knowledge-gating.ts
 pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 pnpm tsx examples/runtime-run/runtime-run.ts
 

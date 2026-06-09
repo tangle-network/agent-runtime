@@ -19,5 +19,5 @@ task, backend, input })` with the same shape — an async iterable of
 events. The reviewer adapter is unchanged.
 
 ```bash
-pnpm tsx examples/agent-into-reviewer/agent-into-reviewer.ts
+pnpm tsx examples/pipe-into-reviewer/pipe-into-reviewer.ts
 ```

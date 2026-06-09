@@ -3,7 +3,7 @@
  * control loop runs and gates the task on readiness.
  *
  * Run with:
- *   pnpm tsx examples/with-knowledge-readiness/with-knowledge-readiness.ts
+ *   pnpm tsx examples/knowledge-gating/knowledge-gating.ts
  */
 
 import type { KnowledgeRequirement } from '@tangle-network/agent-eval'
