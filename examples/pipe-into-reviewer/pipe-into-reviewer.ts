@@ -10,7 +10,7 @@
  * other agent-runtime call uses.
  *
  * Run with:
- *   pnpm tsx examples/agent-into-reviewer/agent-into-reviewer.ts
+ *   pnpm tsx examples/pipe-into-reviewer/pipe-into-reviewer.ts
  */
 
 import type { AgentAdapter } from '@tangle-network/agent-runtime'

@@ -49,7 +49,7 @@ frameworks already emit them; you add `score`.
 
 | Shape | File | Live wiring |
 |---|---|---|
-| **Tangle runtime / router (tcloud)** | `shapes.ts` → `tangleRuntimeRuns` | `createOtelExporter` + `loopEventToOtelSpan` (see `examples/with-intelligence-export`) |
+| **Tangle runtime / router (tcloud)** | `shapes.ts` → `tangleRuntimeRuns` | `createOtelExporter` + `loopEventToOtelSpan` (see `examples/intelligence-export`) |
 | **OpenAI-compatible** (tcloud / OpenRouter / OpenAI / vLLM) | `shapes.ts` → `openAiCompatibleRuns` | any OpenAI client at the router's `baseURL`; emit a GenAI span per call |
 | **Mastra** | `shapes.ts` → `mastraRuns` | Mastra's native OTLP exporter → `${INTELLIGENCE_BASE}/v1/otlp/v1/traces` |
 | **Claude Agent SDK** | `shapes.ts` → `claudeAgentSdkRuns` | wrap `query()`, one GenAI span per turn from `msg.usage` |

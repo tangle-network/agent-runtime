@@ -1,4 +1,4 @@
-# with-intelligence-export
+# intelligence-export
 
 Ship agent-runtime traces to **Tangle Intelligence** and get back insights:
 failure correlations (relative risk + p-value), latency percentiles, and an
@@ -18,5 +18,5 @@ The tenant is resolved from the Bearer key, never the payload. Read insights
 back from the dashboard or `GET /v1/insights/outputs?kind=report`.
 
 ```bash
-TANGLE_API_KEY=sk-tan-... npx tsx examples/with-intelligence-export/with-intelligence-export.ts
+TANGLE_API_KEY=sk-tan-... npx tsx examples/intelligence-export/intelligence-export.ts
 ```

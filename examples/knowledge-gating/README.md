@@ -1,4 +1,4 @@
-# with-knowledge-readiness
+# knowledge-gating
 
 A task that declares required knowledge. The runtime scores readiness
 before running the control loop and stops if a blocking requirement is
@@ -9,7 +9,7 @@ instead of failing the run.
 ## Run
 
 ```bash
-pnpm tsx examples/with-knowledge-readiness/with-knowledge-readiness.ts
+pnpm tsx examples/knowledge-gating/knowledge-gating.ts
 ```
 
 ## What it shows

@@ -18,7 +18,7 @@
  * Read insights back from the dashboard or `GET /v1/insights/outputs` with
  * the same key. Tenant resolves from the Bearer key, never the payload.
  *
- * Run: TANGLE_API_KEY=sk-tan-... npx tsx examples/with-intelligence-export/with-intelligence-export.ts
+ * Run: TANGLE_API_KEY=sk-tan-... npx tsx examples/intelligence-export/intelligence-export.ts
  */
 import {
   type AgentBackendInput,
