@@ -320,7 +320,7 @@ export interface AgenticRunResult {
 const perChild = (innerTurns: number): Budget => ({ maxIterations: innerTurns + 1, maxTokens: 1_000_000 })
 
 /** DEPTH: one persistent artifact, carried across analyst-steered shots. */
-function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { maxShots: number }): Agent<unknown, Outcome<unknown>> {
+export function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { maxShots: number }): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
   let pendingSteer: string | undefined // analyst-derived steer carried between shots
   return {
@@ -366,7 +366,7 @@ function depthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOp
 }
 
 /** BREADTH: K independent rollouts (each own artifact), verifier picks the best. */
-function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { width: number }): Agent<unknown, Outcome<unknown>> {
+export function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, cfg: { width: number }): Agent<unknown, Outcome<unknown>> {
   const innerTurns = opts.innerTurns ?? 4
   return {
     name: 'breadth',
@@ -395,26 +395,51 @@ function breadthDriver(surface: AgenticSurface, task: AgenticTask, opts: Agentic
   }
 }
 
+/**
+ * A Strategy is HOW you spend the compute budget to beat the Environment's check — it
+ * builds the driver `Agent` the Supervisor runs. This is the OPEN extension point: a dev
+ * authors their own by implementing `driver()` to return an Agent whose `act()` spawns
+ * shots/analysts via `scope.spawn` / `scope.next` / `scope.send`. The two built-ins are
+ * the reference implementations to copy:
+ *   sample — K INDEPENDENT attempts, keep the best-verifying (best-of-N / resample).
+ *   refine — attempt → observe() reads the trace → steer the next → repeat (iterate).
+ * (A multi-agent "team" is just a Strategy whose driver spawns several different agents.)
+ */
+export interface Strategy {
+  readonly name: string
+  driver(surface: AgenticSurface, task: AgenticTask, opts: AgenticOptions, budget: number): Agent<unknown, Outcome<unknown>>
+}
+
+export const sample: Strategy = {
+  name: 'sample',
+  driver: (surface, task, opts, budget) => breadthDriver(surface, task, opts, { width: budget }),
+}
+export const refine: Strategy = {
+  name: 'refine',
+  driver: (surface, task, opts, budget) => depthDriver(surface, task, opts, { maxShots: budget }),
+}
+
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
-  mode: 'depth' | 'breadth'
-  /** depth: max shots; breadth: rollout width. */
+  /** A Strategy (the open way) — author/pass your own. Overrides `mode` when present. */
+  strategy?: Strategy
+  /** Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'. */
+  mode?: 'depth' | 'breadth'
+  /** budget: refine→max shots; sample→rollout width. */
   budget: number
   rootBudget?: Budget
 }
 
-/** Run the chosen driver through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. */
+/** Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. */
 export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunResult> {
-  const driver =
-    opts.mode === 'depth'
-      ? depthDriver(opts.surface, opts.task, opts, { maxShots: opts.budget })
-      : breadthDriver(opts.surface, opts.task, opts, { width: opts.budget })
+  const strategy: Strategy = opts.strategy ?? (opts.mode === 'breadth' ? sample : refine)
+  const driver = strategy.driver(opts.surface, opts.task, opts, opts.budget)
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
   const root: Budget = opts.rootBudget ?? { maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2), maxTokens: 1_000_000_000 }
   const result = await supervisor.run(driver, undefined, {
     budget: root,
-    runId: `agentic:${opts.mode}:${opts.task.id}`,
+    runId: `agentic:${strategy.name}:${opts.task.id}`,
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
     executors: agenticRegistry(opts.surface, opts),
@@ -422,7 +447,7 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
   })
   if (result.kind !== 'winner' || result.out.kind !== 'done') {
     const reason = result.kind === 'winner' ? `blocked: ${(result.out as { blockers?: string[] }).blockers?.join('; ')}` : `no-winner: ${result.reason}`
-    throw new Error(`runAgentic(${opts.mode}) produced no result — ${reason}`)
+    throw new Error(`runAgentic(${strategy.name}) produced no result — ${reason}`)
   }
   return result.out.deliverable as AgenticRunResult
 }

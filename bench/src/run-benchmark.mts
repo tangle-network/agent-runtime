@@ -16,16 +16,16 @@
  * (worker.analystInstruction — observe()'s prompt), the check (Environment.score), the
  * worker (the model), and can drop to runAgentic / the Supervisor for new strategies.
  */
-import { type AgenticOptions, type AgenticSurface, type AgenticTask, runAgentic } from './agentic'
+import { type AgenticOptions, type AgenticSurface, type AgenticTask, refine, runAgentic, sample, type Strategy } from './agentic'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 /** A checkable task domain — implement these 5 hooks and the suite does the rest. The
  *  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it. */
 export type Environment = AgenticSurface
 
-/** How to spend the compute budget to beat the Environment's check. */
-export type Strategy = 'sample' | 'refine'
-const modeForStrategy = { sample: 'breadth', refine: 'depth' } as const
+// Strategy is the OPEN extension point (re-exported from agentic): pass the built-ins or
+// author your own (implement Strategy.driver returning an Agent). See `refine`/`sample`.
+export { refine, sample, type Strategy } from './agentic'
 
 export interface BenchmarkConfig {
   /** The task domain (5 hooks). */
@@ -34,7 +34,8 @@ export interface BenchmarkConfig {
   tasks: AgenticTask[]
   /** The worker: model + router + (optional) the critic's instruction (the steerer knob). */
   worker: AgenticOptions
-  /** Which strategies to compare. Default: both. */
+  /** Which strategies to compare. Pass the built-ins (`refine`, `sample`) or your own.
+   *  Default: [sample, refine]. */
   strategies?: Strategy[]
   /** Shots (refine) / width (sample) — the equal compute budget per strategy. Default 3. */
   budget?: number
@@ -45,9 +46,9 @@ export interface BenchmarkConfig {
 export interface BenchmarkReport {
   n: number
   excluded: number
-  /** Mean verifier score per strategy (0..1). */
-  perStrategy: Partial<Record<Strategy, number>>
-  /** The headline: paired lift of refine over sample (present when both ran). */
+  /** Mean verifier score per strategy (keyed by strategy.name, 0..1). */
+  perStrategy: Record<string, number>
+  /** The headline when exactly `refine` + `sample` ran: paired lift of refine over sample. */
   refineVsSample?: PairedLift
 }
 
@@ -55,16 +56,16 @@ export interface BenchmarkReport {
  *  and return the per-strategy means + the paired-bootstrap lift of refine over sample.
  *  Resilient: a task whose rollouts fail (transient infra) is excluded, not fatal. */
 export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkReport> {
-  const strategies = cfg.strategies ?? ['sample', 'refine']
+  const strategies = cfg.strategies ?? [sample, refine]
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
 
   const rows = await pool(cfg.tasks, concurrency, async (task) => {
-    const scores: Partial<Record<Strategy, number>> = {}
+    const scores: Record<string, number> = {}
     try {
       for (const s of strategies) {
-        const r = await runAgentic({ ...cfg.worker, surface: cfg.environment, task, mode: modeForStrategy[s], budget })
-        scores[s] = r.score
+        const r = await runAgentic({ ...cfg.worker, surface: cfg.environment, task, strategy: s, budget })
+        scores[s.name] = r.score
       }
       return scores
     } catch {
@@ -72,13 +73,14 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
     }
   })
 
-  const ok = rows.filter((r): r is Partial<Record<Strategy, number>> => r !== null)
+  const ok = rows.filter((r): r is Record<string, number> => r !== null)
   const mean = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0)
-  const perStrategy: Partial<Record<Strategy, number>> = {}
-  for (const s of strategies) perStrategy[s] = mean(ok.map((r) => r[s] ?? 0))
+  const perStrategy: Record<string, number> = {}
+  for (const s of strategies) perStrategy[s.name] = mean(ok.map((r) => r[s.name] ?? 0))
 
   const report: BenchmarkReport = { n: ok.length, excluded: rows.length - ok.length, perStrategy }
-  if (strategies.includes('refine') && strategies.includes('sample')) {
+  const names = strategies.map((s) => s.name)
+  if (names.includes('refine') && names.includes('sample')) {
     report.refineVsSample = pairedLift(ok.map((r) => r.sample ?? 0), ok.map((r) => r.refine ?? 0))
   }
   return report
