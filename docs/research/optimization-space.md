@@ -20,7 +20,7 @@ L0→L1→L2 rungs) is one *path* through it — not the space itself.
 | Axis | Values | Where this repo is today |
 |---|---|---|
 | **Timescale** | within-run · across-run · meta (optimizer-of-optimizer) | almost all effort within-run; across-run n=0 |
-| **Target** | prompt (content) · topology/strategy (structure) · knowledge/corpus (memory) · policy (routing, ask-vs-act, budget) · tasks (curriculum) | prompt = measured (tie); topology = open; the rest untouched |
+| **Target** | the **agent genome**: prompt · skills · tool schemas/grants · topology/strategy · knowledge/corpus (memory + retrieval policy) · routing/policy (ask-vs-act, budget, model config) · verifier · tasks (curriculum) | prompt = measured (flat); topology = open; tool grants = the largest measured effect; the rest untouched |
 | **Objective** | single score · multi-objective vector (correct·fast·secure·cheap) | every gate so far single-objective — **in tension with the canon** (see audit) |
 | **Validity scope** | one domain · cross-domain · live product | n=1 domain (EOPS-itsm) for the headline result |
 | **Serving architecture** | in-process (observe()/Corpus) · platform-served (Tangle Intelligence) | all in-process; Intelligence is export-only today |
@@ -31,6 +31,40 @@ meta-optimizer) are the **timescale × target** diagonal. The axes add what the 
 hides: objective shape, validity scope, serving topology, authorship. Both frames are
 compatible; the ladder answers "is level n real?" (lift on level n−1), the axes answer
 "where is the unexplored headroom?".
+
+## The genome frame + block-coordinate credit assignment (adopted 2026-06-09)
+
+External convergence: the "agent genome" framing (an agent = a policy induced by
+editable external state θ; optimize θ from trajectories — the GEPA/SkillOpt/OPRO/
+Reflexion/Voyager/DSPy lineage) matches this map, and contributes one discipline we
+adopt: **block-coordinate credit assignment**. A failed trajectory can be caused by any
+genome component; *attribute first* (counterfactual reruns — the `/autopsy` discipline
+systematized: rerun with ONE coordinate changed), then edit the implicated coordinate.
+Never re-descend a coordinate measured flat.
+
+Under this frame the GEPA holdout tie is reinterpreted: not "optimization is flat" but
+"**the analyst-prompt coordinate is flat**." And the program's measured effect sizes
+already form the empirical gradient table the frame calls for:
+
+| genome coordinate | measured gradient |
+|---|---|
+| tool/harness grants | **+70pp** (search tool → cheap models reach parity) |
+| loop architecture | **~20pp swing** (flat vs canonical loop, same model/domain) |
+| domain/state structure | sign-flipping (the boundary law) |
+| model choice | ~10–35pp |
+| strategy (at fixed architecture) | +16.4pp where stateful; negative stateless |
+| analyst prompt | **~0** (frozen-holdout tie) |
+
+The gradient is concentrated at the top — which re-weights the portfolio toward the
+augmentation sweep (layer-economics) and keeps prompt search retired.
+
+Two corrections this map imposes on the genome frame before any adoption of its
+mechanisms: (1) every reward component must be a **deployable checker** (no un-firewalled
+LLM-judge fields in the vector — eval-substrate discipline); (2) **selector ≠ judge**
+still binds: judge-informed *reflection* (outer loop) is legitimate GEPA design;
+judge-informed *steering or selection* is the Goodhart hole. The frame's
+mixture-of-genomes + contextual-bandit routing is promising but mechanism-rich — gated
+on cheap evidence that specialized variants dominate one tuned agent on task slices.
 
 ## The map with evidence status (2026-06-09)
 
