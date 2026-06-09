@@ -80,17 +80,29 @@ function authHeaders(server: GymServer, dbId: string): Record<string, string> {
   return { 'content-type': 'application/json', ...(server.context ?? {}), 'x-database-id': dbId }
 }
 
-/** POST and parse a JSON body OR the last `data:` line of an SSE stream (/mcp streams SSE). */
+/** POST and parse a JSON body OR the last `data:` line of an SSE stream (/mcp streams SSE).
+ *  Retries a THROWN fetch (transient network / connection-reset / router throttle under
+ *  concurrency — surfaces as "fetch failed") with backoff, so a momentary blip doesn't
+ *  drop a task. HTTP-status handling stays with the caller (seed retries on 500). */
 async function postJson(url: string, body: unknown, headers: Record<string, string>): Promise<{ status: number; json: unknown }> {
-  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
-  const text = await r.text()
-  const dataLines = text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())
-  const payload = dataLines.length ? dataLines[dataLines.length - 1] : text
-  try {
-    return { status: r.status, json: JSON.parse(payload ?? 'null') }
-  } catch {
-    return { status: r.status, json: text }
+  let lastErr: unknown
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
+      const text = await r.text()
+      const dataLines = text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim())
+      const payload = dataLines.length ? dataLines[dataLines.length - 1] : text
+      try {
+        return { status: r.status, json: JSON.parse(payload ?? 'null') }
+      } catch {
+        return { status: r.status, json: text }
+      }
+    } catch (err) {
+      lastErr = err
+      await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)))
+    }
   }
+  throw new Error(`postJson ${url} failed after 4 attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`)
 }
 
 async function seedDb(server: GymServer, dbsDir: string): Promise<string> {
