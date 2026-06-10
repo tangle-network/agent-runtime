@@ -275,12 +275,16 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
       const handle = t.handle ?? (await surface.open(t.task))
       try {
         const tools = await surface.tools(t.task, handle)
-        const messages: Msg[] = t.messages ?? [
-          { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
-          { role: 'user', content: `${t.task.userPrompt}\n\n${taskNudge}` },
-        ]
+        // An EMPTY messages array means "fresh" too — an authored body passing
+        // `messages: []` must not silently blank the worker's system/task prompt.
+        const messages: Msg[] = t.messages?.length
+          ? t.messages
+          : [
+              { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
+              { role: 'user', content: `${t.task.userPrompt}\n\n${taskNudge}` },
+            ]
         // On a CARRIED conversation, a persona switch arrives as a role hand-off message.
-        if (t.messages && t.persona?.systemPrompt) {
+        if (t.messages?.length && t.persona?.systemPrompt) {
           messages.push({
             role: 'user',
             content: `[hand-off] You are now acting as: ${t.persona.systemPrompt}`,
