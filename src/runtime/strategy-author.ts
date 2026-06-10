@@ -22,7 +22,7 @@ export const strategyAuthorContract = `
 You author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to
 spend a compute budget to beat a task's deployable check. You compose exactly two steps:
 
-  shot(spec?: { handle?, messages?, steer?, persona? }): Promise<ShotResult | null>
+  shot(spec?: { handle?, messages?, steer?, persona?, tools? }): Promise<ShotResult | null>
     Runs ONE worker attempt (a bounded tool loop) over an artifact.
     - omit handle  => the shot opens its OWN fresh artifact and closes it after (a sample).
     - pass handle  => the shot CONTINUES that artifact (state accumulates across shots).
@@ -32,6 +32,9 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
       (multi-agent strategies: a researcher shot then an engineer shot, a panel of k
       personas over one budget). On a fresh shot the systemPrompt replaces the task's; on
       a carried conversation it arrives as a hand-off message. Same conserved budget.
+    - tools        => string[] — restrict THIS shot to a subset of the domain's tools by
+      name (focus an explore shot on read-only tools, an execute shot on write tools).
+      Restriction-only; unknown names throw. Omitted => the shot sees every domain tool.
     ShotResult = { messages, score (0..1 on the task's check), passes, total, completions, toolErrors }
     Returns null if the attempt failed infra-wise.
 

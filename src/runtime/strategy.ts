@@ -116,6 +116,7 @@ interface ShotTask {
   messages?: Msg[] // carried conversation (depth); fresh when absent
   steer?: string // analyst-derived steer injected before this shot (depth)
   persona?: ShotPersona // role override — multi-agent loops give each shot its own hat
+  tools?: string[] // restrict THIS shot to these domain tools (names); unknown names throw
 }
 
 interface ShotOut {
@@ -278,7 +279,23 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
       const own = !t.handle
       const handle = t.handle ?? (await surface.open(t.task))
       try {
-        const tools = await surface.tools(t.task, handle)
+        const allTools = await surface.tools(t.task, handle)
+        // Tool SELECTION is a strategy decision (which of the domain's tools this shot
+        // sees) — restriction-only: a strategy can focus a shot, never grant a tool the
+        // domain didn't offer. Unknown names fail loud (an authored typo must not
+        // silently become an unrestricted shot).
+        let tools = allTools
+        if (t.tools) {
+          const known = new Set(allTools.map((tool) => tool.function.name))
+          const unknown = t.tools.filter((name) => !known.has(name))
+          if (unknown.length > 0) {
+            throw new Error(
+              `shot tools: unknown tool name(s) ${unknown.join(', ')} — domain offers: ${[...known].join(', ')}`,
+            )
+          }
+          const want = new Set(t.tools)
+          tools = allTools.filter((tool) => want.has(tool.function.name))
+        }
         // An EMPTY messages array means "fresh" too — an authored body passing
         // `messages: []` must not silently blank the worker's system/task prompt.
         const messages: Msg[] = t.messages?.length
@@ -578,6 +595,9 @@ export interface ShotSpec {
   messages?: Msg[]
   steer?: string
   persona?: ShotPersona
+  /** Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
+   *  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all. */
+  tools?: string[]
 }
 export interface StrategyResult {
   score: number
@@ -662,6 +682,7 @@ export function defineStrategy(
                 messages: spec?.messages,
                 steer: spec?.steer,
                 persona: spec?.persona,
+                tools: spec?.tools,
               } as ShotTask,
               { budget: perChild(innerTurns), label: child.name },
             )

@@ -279,6 +279,23 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     })
 
   const train = await cfg.tasks(0, cfg.trainN)
+  // One probe round-trip lists the domain's tools so the author can write tool-focused
+  // shots (shot({tools})) — names + descriptions, never the implementations.
+  const probeTask = train[0]
+  if (!probeTask) throw new Error('runStrategyEvolution: empty train slice')
+  const probe = await cfg.environment.open(probeTask)
+  let toolCatalog: string
+  try {
+    const tools = await cfg.environment.tools(probeTask, probe)
+    toolCatalog = tools
+      .map(
+        (t) =>
+          `- ${t.function.name}${t.function.description ? ` — ${t.function.description.slice(0, 120)}` : ''}`,
+      )
+      .join('\n')
+  } finally {
+    await cfg.environment.close(probe)
+  }
   const gen0 = await bench('gen0', train, baselines)
   const archive: EvolutionArchiveNode[] = baselines.map((s) => ({
     name: s.name,
@@ -312,7 +329,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
     for (let i = 0; i < populationSize; i += 1) {
-      const contract = `${strategyAuthorContract}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
+      const contract = `${strategyAuthorContract}\n\nAVAILABLE DOMAIN TOOLS (focus shots with shot({ tools: [names…] })):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
       try {
         const authored = await authorStrategy({
           chat: cfg.author.chat,

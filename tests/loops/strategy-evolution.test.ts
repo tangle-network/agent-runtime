@@ -416,3 +416,42 @@ describe('band-aware scoring', () => {
     ).rejects.toThrow(/headroom/)
   })
 })
+
+describe('tool catalog', () => {
+  it('the author is shown the domain tool names', async () => {
+    stubWorkerRouter()
+    const { chat, seen } = scriptedChat([fenced(oneShotModule)])
+    const surface = shotCountingSurface()
+    const withTools: AgenticSurface = {
+      ...surface,
+      async tools(t, h) {
+        await surface.tools(t, h)
+        return [
+          {
+            type: 'function',
+            function: {
+              name: 'inspect_state',
+              description: 'Read the artifact state.',
+              parameters: {},
+            },
+          },
+        ]
+      },
+    }
+    await runStrategyEvolution({
+      environment: withTools,
+      tasks: sliceTasks([]),
+      trainN: 4,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 2,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    expect(seen[0]).toContain('AVAILABLE DOMAIN TOOLS')
+    expect(seen[0]).toContain('inspect_state — Read the artifact state.')
+  })
+})
