@@ -627,6 +627,10 @@ export interface StrategyCtx {
   shot(spec?: ShotSpec): Promise<ShotResult | null>
   /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
   critique(messages: Msg[]): Promise<string | null>
+  /** The tools THIS artifact's task actually offers (names + descriptions only — never
+   *  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
+   *  that restricts shots MUST select from this list, never from hardcoded names. */
+  listTools(handle: ArtifactHandle): Promise<Array<{ name: string; description?: string }>>
 }
 
 /** Author a Strategy from the composable steps — the open, compact way. */
@@ -693,6 +697,13 @@ export function defineStrategy(
             if (out.score > verifiedBest) verifiedBest = out.score
             if (out.total > 0 && out.passes === out.total) verifiedResolved = true
             return out
+          },
+          async listTools(handle) {
+            const tools = await surface.tools(task, handle)
+            return tools.map((t) => ({
+              name: t.function.name,
+              ...(t.function.description ? { description: t.function.description } : {}),
+            }))
           },
           async critique(messages) {
             const child = leaf(`analyst:${seq}`, 'analyst')

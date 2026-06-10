@@ -451,7 +451,7 @@ describe('tool catalog', () => {
       baselines: [sample],
       outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
     })
-    expect(seen[0]).toContain('AVAILABLE DOMAIN TOOLS')
+    expect(seen[0]).toContain('EXAMPLE TOOLS FROM ONE TASK')
     expect(seen[0]).toContain('inspect_state — Read the artifact state.')
   })
 })

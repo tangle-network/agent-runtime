@@ -478,7 +478,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
     for (let i = 0; i < populationSize; i += 1) {
-      const contract = `${strategyAuthorContract}\n\nAVAILABLE DOMAIN TOOLS (focus shots with shot({ tools: [names…] })):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
+      const contract = `${strategyAuthorContract}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
       try {
         const authored = await authorStrategy({
           chat: cfg.author.chat,
