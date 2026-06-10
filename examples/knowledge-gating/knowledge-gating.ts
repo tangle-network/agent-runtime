@@ -35,7 +35,7 @@ const adapter: AgentAdapter<{ ready: boolean }, void, void> = {
     return []
   },
   decide() {
-    return { kind: 'finish', reason: 'demo done' }
+    return { type: 'stop', reason: 'demo done', pass: true }
   },
   act() {
     return undefined

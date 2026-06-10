@@ -7,7 +7,7 @@ The example uses a **stub judge** so it runs without an API key and demonstrates
 ## What the example shows
 
 - A custom `SandboxClient` — the in-process browser+judge client — satisfies the kernel contract WITHOUT a real sandbox-SDK harness. The kernel does `client.create() → box.streamPrompt() → box.delete()` exactly as it does for `coderProfile`; the work happens in-process.
-- A custom `Driver` (`lensCyclingDriver`) plans one iteration per lens in a fixed order. Swap for `createRefineDriver` or `createDriver` for richer topologies.
+- A custom `Driver` (`lensCyclingDriver`) plans one iteration per lens in a fixed order. Swap for `createDriver` (the LLM-authored `TopologyPlanner`) for richer topologies.
 - `appendFindings(workspaceDir, findings)` and `writeAuditIndex(workspaceDir)` persist self-contained GitHub-issue Markdown files plus a registry + index.
 
 ## Run

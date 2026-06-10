@@ -7,6 +7,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["examples/ui-audit"],
+  "include": ["examples"],
   "exclude": ["node_modules", "dist"]
 }

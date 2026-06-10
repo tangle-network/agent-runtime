@@ -1,21 +1,23 @@
 # researcher-loop
 
-`researcherProfile()` + `runLoop()` + `createFanoutVoteDriver()` — the
-researcher-flavoured counterpart to [`coder-loop`](../coder-loop). Two
-parallel researcher iterations attempt the same question; the validator
-scores citation density + namespace scoping + per-item provenance; the
-kernel picks the highest-scoring valid winner.
+`researcherProfile()` (from `@tangle-network/agent-knowledge/profiles`) +
+`runLoop()` + an inline fanout `Driver` — the researcher-flavoured
+counterpart to [`coder-loop`](../coder-loop). Two parallel researcher
+iterations attempt the same question; the validator scores citation density +
+namespace scoping + per-item provenance; the kernel picks the
+highest-scoring valid winner.
 
-Same `runLoop` fanout-vote kernel as [`coder-loop`](../coder-loop), only the
-profile differs. The load-bearing branch below is candidate B: it leaks an
-item into `other-tenant`, so the validator hard-fails the entire output and
-the kernel prunes it — leaving A as the sole winner.
+Same `runLoop` kernel and inline fanout driver as
+[`coder-loop`](../coder-loop), only the profile differs. The load-bearing
+branch below is candidate B: it leaks an item into `other-tenant`, so the
+validator hard-fails the entire output and the kernel prunes it — leaving A
+as the sole winner.
 
 ```mermaid
 flowchart TD
   task["ResearchTask<br/>knowledgeNamespace = 'example-tenant'"] --> driver
 
-  driver["createFanoutVoteDriver n=2<br/>driver.plan round 0 → 2 identical ResearchTasks"]
+  driver["inline fanout driver n=2<br/>driver.plan round 0 → 2 identical ResearchTasks"]
   driver --> wA
   driver --> wB
 

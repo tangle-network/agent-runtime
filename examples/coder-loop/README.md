@@ -1,25 +1,32 @@
 # coder-loop
 
-`coderProfile()` + `runLoop()` + `createFanoutVoteDriver()` — the smallest
+`coderProfile()` + `runLoop()` + an inline fanout `Driver` — the smallest
 end-to-end coder loop. Two parallel iterations attempt the same goal; the
 validator scores test + typecheck + diff size; the kernel picks the
 highest-scoring valid winner.
 
+`runLoop` is the round-synchronous kernel: `driver.plan()` → N tasks → one
+sandbox per iteration → `output.parse` → `validator.validate` →
+`driver.decide`. For new recursive/multi-level work, prefer the reactive
+`Scope`/`Supervisor` core and the personify combinators (`fanout` does this
+example's topology generically) — see
+[`examples/recursive-supervisor/`](../recursive-supervisor/).
+
 ## Topology
 
-`createFanoutVoteDriver({ n: 2 })` is a single-round fanout: `plan()` returns
-`n` copies of the task only when `history` is empty (round 0), then `[]`
-forever after — it spawns N, scores, and picks; it never refines. Each of the
-N tasks becomes its own iteration, and every iteration runs the same
-`output.parse` → `validator.validate` pipeline independently before the driver
-votes.
+The driver is ~5 lines, hand-written in `coder-loop.ts`: a single-round
+fanout whose `plan()` returns two copies of the task only when `history` is
+empty (round 0), then `[]` forever after — it spawns N, scores, and picks; it
+never refines. Each of the N tasks becomes its own iteration, and every
+iteration runs the same `output.parse` → `validator.validate` pipeline
+independently before the driver votes.
 
 ```mermaid
 flowchart TD
   task["CoderTask\ngoal: add util.ts add(a,b)"] --> plan0
 
   subgraph round0["round 0 — driver.plan(task, history=[])"]
-    plan0["returns [task, task]\nmoveKind = fanout (n=2)"]
+    plan0["inline fanout driver\nreturns [task, task]"]
   end
 
   plan0 --> reserve["kernel reserves 2 iteration slots\nrunBatch dispatches in parallel\n(bounded by maxConcurrency)"]
@@ -77,8 +84,9 @@ pnpm tsx examples/coder-loop/coder-loop.ts
 - How `coderProfile({ task, harness })` bundles `profile`, `taskToPrompt`,
   `output` (event-stream → `CoderOutput`), `validator` (test + typecheck +
   diff cap + forbidden-path enforcement), and `agentRunSpec` together.
-- How `createFanoutVoteDriver({ n })` makes the kernel plan N parallel
-  iterations and pick the winning output.
+- How a hand-written `Driver` (`plan` + `decide`) makes the kernel plan N
+  parallel iterations and pick the winning output — the whole `Driver`
+  contract is two functions.
 - How the synthetic `sandboxClient` mirrors the production
   `@tangle-network/sandbox` `Sandbox` surface — swap it for `new Sandbox(...)`
   when you wire to production.

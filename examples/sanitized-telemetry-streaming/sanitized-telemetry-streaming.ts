@@ -1,7 +1,8 @@
 /**
  * Sanitized telemetry capture for a streaming task run.
  *
- * Mirror of `examples/sanitized-telemetry/` but for `runAgentTaskStream`:
+ * Streaming counterpart of `createRuntimeEventCollector` (the non-streaming
+ * `runAgentTask` collector — same options, different event shape):
  * - feeds each yielded `RuntimeStreamEvent` through
  *   `createRuntimeStreamEventCollector` so sensitive payloads / metadata /
  *   uris are dropped by default

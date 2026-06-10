@@ -1,6 +1,14 @@
 # self-improving-loop
 
-The full 4-package composition in one runnable file: `@tangle-network/agent-runtime` + `@tangle-network/agent-eval` + `@tangle-network/agent-knowledge` + `@tangle-network/sandbox` wired into a single self-improving loop.
+The v0 → judge → analyst → mutation → v1 → gate cycle in one runnable file:
+`@tangle-network/agent-eval`'s multishot + judge primitives driven from this
+package, with the `@tangle-network/sandbox` `AgentProfile` type as the shared
+contract. The analyst and gate are hand-rolled inline so the demo is
+deterministic and offline — in production, use `selfImprove` from
+`@tangle-network/agent-eval` for text-surface optimization, or
+`runStrategyEvolution` + `promotionGate` from
+`@tangle-network/agent-runtime/loops` for strategy/topology optimization (see
+[`examples/strategy-suite/`](../strategy-suite/)).
 
 ## What it shows
 

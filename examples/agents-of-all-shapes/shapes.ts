@@ -59,7 +59,7 @@ function batch(spec: BatchSpec): AgentRun[] {
  * 1. Tangle agent-runtime / router (tcloud).
  *
  * LIVE: agent-runtime already emits every loop event; ship them with the
- * built-in exporter (see `examples/intelligence-export`):
+ * built-in exporter (see README § Tangle-runtime live wiring):
  *   const exporter = createOtelExporter({ endpoint, headers })
  *   for await (const e of runAgentTaskStream({ task, backend })) {
  *     exporter.exportSpan(loopEventToOtelSpan({ kind: e.type, runId, ... }, traceId))

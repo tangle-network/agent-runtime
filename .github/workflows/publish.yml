@@ -26,14 +26,14 @@ jobs:
       - name: Lint (biome)
         run: pnpm run lint
 
-      - name: Typecheck
-        run: pnpm run typecheck
-
       - name: Test
         run: pnpm run test
 
       - name: Build
         run: pnpm run build
+
+      - name: Typecheck (src + examples; examples resolve against built dist)
+        run: pnpm run typecheck
 
       - name: Verify packed package exports
         run: pnpm run verify:package

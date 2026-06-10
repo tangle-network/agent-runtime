@@ -1,10 +1,20 @@
 # knowledge-gating
 
-A task that declares required knowledge. The runtime scores readiness
-before running the control loop and stops if a blocking requirement is
-missing. The adapter's `onKnowledgeBlocked` hook lets you convert the
-block into a domain action (asking the user, querying a connector, etc.)
-instead of failing the run.
+## The minimal adapter first
+
+The smallest `runAgentTask` invocation is a domain `AgentAdapter` with four
+lifecycle methods — `observe` (read domain state), `validate` (score it),
+`decide` (return `{ type: 'continue', action }` or `{ type: 'stop', reason }`),
+and `act` (apply the action). The adapter in this example is exactly that
+minimal shape; use it as the starting point for any new domain agent.
+
+## Then the gate
+
+This example adds one concept on top: a task that declares required
+knowledge. The runtime scores readiness before running the control loop and
+stops if a blocking requirement is missing. The adapter's
+`onKnowledgeBlocked` hook lets you convert the block into a domain action
+(asking the user, querying a connector, etc.) instead of failing the run.
 
 ## Run
 

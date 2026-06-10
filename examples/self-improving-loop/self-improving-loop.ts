@@ -1,6 +1,6 @@
-// The 4-package composition demo: agent-runtime + agent-eval + agent-knowledge + sandbox
-// wired end-to-end into a single self-improving loop. Runs offline with stubbed router
-// responses so the demo is reproducible; pass TANGLE_API_KEY to see it fire live.
+// The self-improvement cycle demo: agent-eval's multishot + judge primitives wired
+// end-to-end into a single v0 → analyst → v1 → gate loop. Runs offline with stubbed
+// router responses so the demo is reproducible; pass TANGLE_API_KEY to see it fire live.
 //
 // What this shows:
 //   1. baseline AgentProfile (substrate type from @tangle-network/sandbox)
@@ -37,6 +37,7 @@ function installMockRouter(replies: ScriptedReply[]): () => void {
   let i = 0
   global.fetch = (async () => {
     const r = replies[i++ % replies.length]
+    if (!r) throw new Error('mock router: no scripted reply available')
     const message: Record<string, unknown> = { content: r.text ?? null }
     if (r.toolCalls?.length) {
       message.tool_calls = r.toolCalls.map((tc, idx) => ({
@@ -123,6 +124,7 @@ async function runAnalyst(
   // In a real product the analyst would be an LLM call (@tangle-network/agent-runtime/analyst-loop).
   // Here we synthesise the finding deterministically so the demo is reproducible.
   const worst = [...v0Runs].sort((a, b) => a.score.composite - b.score.composite)[0]
+  if (!worst) throw new Error('analyst: no v0 runs to analyze')
   return {
     rootCause: `${worst.persona.name} run scored ${worst.score.composite.toFixed(1)} — output was too generic, no concrete posts.`,
     proposedMutation:
