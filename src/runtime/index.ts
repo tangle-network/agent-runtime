@@ -216,6 +216,7 @@ export {
   type RunAgenticOptions,
   refine,
   runAgentic,
+  type ShotPersona,
   type ShotSpec,
   type Strategy,
   type StrategyCtx,
