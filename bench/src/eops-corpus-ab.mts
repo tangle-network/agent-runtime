@@ -33,7 +33,7 @@ function must(name: string): string {
 }
 
 async function loadItsmTasks(n: number, offset = 0): Promise<AgenticTask[]> {
-  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=itsm&offset=${offset}&length=${n}`
+  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=${process.env.EOPS_SPLIT ?? 'itsm'}&offset=${offset}&length=${n}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
   const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
@@ -60,14 +60,29 @@ async function main(): Promise<void> {
   }
   const surface = createEopsSurface(must('EOPS_GYM_DBS_DIR'))
   const corpus = new FileCorpus(corpusPath)
+  // PRIME_MODE=naive (unconditional top-k — measured NEGATIVE −11.6pp, the context-pollution
+  // falsifier) | relevance (the surviving design: inject ONLY facts whose claims lexically
+  // overlap the task; nothing relevant ⇒ inject nothing).
+  const primeMode = process.env.PRIME_MODE === 'relevance' ? 'relevance' : 'naive'
 
   const stream = await loadItsmTasks(n)
-  console.error(`=== corpus A/B · primed-vs-cold · stream n=${stream.length} + holdout ${holdoutN} · ${model} · k=${kFacts} facts ===`)
+  console.error(`=== corpus A/B (${primeMode}) · primed-vs-cold · stream n=${stream.length} + holdout ${holdoutN} · ${model} · k=${kFacts} facts ===`)
   console.error(`    corpus: ${corpusPath}\n`)
 
-  /** Top-k trace-derived facts → a prime block for the worker's system prompt. */
-  async function primeBlock(): Promise<{ text: string; count: number }> {
-    const facts = await corpus.query({ tags: ['audience:agent'], limit: kFacts })
+  const contentWords = (t: string) =>
+    new Set(t.toLowerCase().match(/[a-z]{4,}/g) ?? [])
+  async function primeBlock(task?: AgenticTask): Promise<{ text: string; count: number }> {
+    const all = await corpus.query({ tags: ['audience:agent'], limit: 50 })
+    let facts = all
+    if (primeMode === 'relevance' && task) {
+      const want = contentWords(task.userPrompt)
+      facts = all
+        .map((f) => ({ f, hits: [...contentWords(f.claim)].filter((w) => want.has(w)).length }))
+        .filter((x) => x.hits >= 2)
+        .sort((a, b) => b.hits - a.hits)
+        .map((x) => x.f)
+    }
+    facts = facts.slice(0, kFacts)
     if (facts.length === 0) return { text: '', count: 0 }
     const lines = facts.map((f) => `- ${f.claim}${f.rationale ? ` (${f.rationale.slice(0, 120)})` : ''}`)
     return {
@@ -82,7 +97,7 @@ async function main(): Promise<void> {
         const r = await runAgentic({ ...opts, surface, task, mode: 'depth', budget: maxShots })
         return { score: r.score, facts: 0 }
       }
-      const prime = await primeBlock()
+      const prime = await primeBlock(task)
       const primedTask: AgenticTask = { ...task, systemPrompt: `${task.systemPrompt}${prime.text}` }
       const r = await runAgentic({ ...opts, corpus, corpusTags: tags, surface, task: primedTask, mode: 'depth', budget: maxShots })
       return { score: r.score, facts: prime.count }
@@ -120,7 +135,7 @@ async function main(): Promise<void> {
       if (!cold) continue
       // read-only priming: query + inject, but do NOT pass the corpus (no writes).
       try {
-        const prime = await primeBlock()
+        const prime = await primeBlock(task)
         const primedTask: AgenticTask = { ...task, systemPrompt: `${task.systemPrompt}${prime.text}` }
         const r = await runAgentic({ ...opts, surface, task: primedTask, mode: 'depth', budget: maxShots })
         hrows.push({ cold: cold.score, primed: r.score })

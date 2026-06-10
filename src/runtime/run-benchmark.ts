@@ -13,7 +13,7 @@
  * paired lift of refine over sample. Author your own strategy with `defineStrategy`.
  */
 
-import { pairedBootstrap } from '@tangle-network/agent-eval'
+import { pairedBootstrap, paretoFrontier } from '@tangle-network/agent-eval'
 import {
   type AgenticOptions,
   type AgenticSurface,
@@ -89,6 +89,9 @@ export interface BenchmarkReport {
   /** The full per-task × per-strategy table — the LOSSES an optimizer (GEPA, a
    *  strategy-author, an operator) consumes. Includes errored tasks with the reason. */
   perTask: BenchmarkTaskRow[]
+  /** The non-dominated strategies on (score ↑, $/task ↓) — collapse-last, per the canon:
+   *  a strategy that ties on score at half the cost WINS and a scalar would hide it. */
+  pareto: string[]
   /** The headline when both `refine` and `sample` ran: paired-bootstrap lift of refine over sample. */
   refineVsSample?: BenchmarkLift
 }
@@ -161,11 +164,20 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
     }
   }
 
+  const frontier = paretoFrontier(
+    Object.entries(perStrategy).map(([name, v]) => ({ name, score: v.score, usd: v.usd })),
+    [
+      { name: 'score', direction: 'maximize', value: (c) => c.score },
+      { name: 'usd', direction: 'minimize', value: (c) => c.usd },
+    ],
+  ).frontier.map((c) => c.name)
+
   const report: BenchmarkReport = {
     n: ok.length,
     excluded: perTask.length - ok.length,
     perStrategy,
     perTask,
+    pareto: frontier,
   }
   const names = strategies.map((s) => s.name)
   if (names.includes('refine') && names.includes('sample') && ok.length >= 2) {
@@ -190,8 +202,9 @@ export function printBenchmarkReport(report: BenchmarkReport): void {
   )
   for (const [s, v] of Object.entries(report.perStrategy))
     console.log(
-      `  ${s.padEnd(16)} ${pct(v.score).padStart(7)} ${pct(v.resolved).padStart(9)} ${`$${v.usd.toFixed(3)}`.padStart(8)} ${(v.ms / 1000).toFixed(0).padStart(6)}s`,
+      `  ${(report.pareto.includes(s) ? `${s} *` : s).padEnd(16)} ${pct(v.score).padStart(7)} ${pct(v.resolved).padStart(9)} ${`$${v.usd.toFixed(3)}`.padStart(8)} ${(v.ms / 1000).toFixed(0).padStart(6)}s`,
     )
+  if (report.pareto.length) console.log(`  * = on the (score, $) Pareto frontier`)
   for (const row of report.perTask)
     if (row.error) console.log(`  ⚠ ${row.taskId}: ${row.error.slice(0, 120)}`)
   const l = report.refineVsSample

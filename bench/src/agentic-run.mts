@@ -19,7 +19,7 @@ const must = (k: string): string => {
 async function loadItsmTasks(n: number): Promise<AgenticTask[]> {
   const url =
     'https://datasets-server.huggingface.co/rows?dataset=ServiceNow-AI%2FEnterpriseOps-Gym' +
-    `&config=oracle&split=itsm&offset=0&length=${n}`
+    `&config=oracle&split=${process.env.EOPS_SPLIT ?? 'itsm'}&offset=0&length=${n}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`HF rows ${res.status}`)
   const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }

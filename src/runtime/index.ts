@@ -216,6 +216,7 @@ export {
   type StrategyResult,
   type SurfaceScore,
   sample,
+  sampleThenRefine,
 } from './strategy'
 export {
   type BudgetPool,
@@ -300,6 +301,10 @@ export type {
   ValidationCtx,
   Validator,
 } from './types'
+export {
+  createVerifierEnvironment,
+  type VerifierEnvironmentOptions,
+} from './verifier-environment'
 export {
   type GitWorkspaceOptions,
   gitWorkspace,

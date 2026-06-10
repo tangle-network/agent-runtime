@@ -672,6 +672,65 @@ export const adaptiveRefine = defineStrategy(
   },
 )
 
+/** The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
+ *  then refine the best-verifying line with the remaining budget. Sample's basin escape +
+ *  refine's accumulation — the third built-in, authored from the public steps. */
+export const sampleThenRefine = defineStrategy(
+  'sampleThenRefine',
+  async ({ surface, task, budget, shot, critique }) => {
+    const explore = Math.max(1, Math.ceil(budget / 2))
+    const open = new Set<ArtifactHandle>()
+    const progression: number[] = []
+    let completions = 0
+    let shots = 0
+    try {
+      // Explore: independent lines on handles we own (kept open so the best can continue).
+      let best: { handle: ArtifactHandle; out: ShotResult } | undefined
+      for (let i = 0; i < explore; i += 1) {
+        const handle = await surface.open(task)
+        open.add(handle)
+        const out = await shot({ handle })
+        if (!out) continue
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        if (!best || out.score > best.out.score) best = { handle, out }
+        if (out.score >= 1) break
+      }
+      if (!best) return { score: 0, resolved: false, completions, progression, shots }
+      // Exploit: close the losers, refine the winner with the remaining budget.
+      for (const h of [...open]) {
+        if (h !== best.handle) {
+          await surface.close(h)
+          open.delete(h)
+        }
+      }
+      let messages = best.out.messages
+      let topScore = best.out.score
+      for (let i = explore; i < budget && topScore < 1; i += 1) {
+        const findings = await critique(messages)
+        completions += 1
+        if (!findings) break
+        const out = await shot({
+          handle: best.handle,
+          messages,
+          steer: `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`,
+        })
+        if (!out) break
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        messages = out.messages
+        if (out.score > topScore) topScore = out.score
+      }
+      const score = progression.length ? Math.max(...progression) : 0
+      return { score, resolved: score >= 1, completions, progression, shots }
+    } finally {
+      for (const h of open) await surface.close(h)
+    }
+  },
+)
+
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
