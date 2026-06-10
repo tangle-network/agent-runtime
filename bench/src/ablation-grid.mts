@@ -136,17 +136,23 @@ async function main(): Promise<void> {
   const gammaPrompt = cells.some((c) => c.gamma) ? readFileSync(must('PROMPT_ARTIFACT'), 'utf8').trim() : undefined
 
   // The prompt each cell carries: original | γ artifact, then κ on top of whichever.
-  const promptCache = new Map<string, string>()
-  const cellPrompt = async (cell: CellSpec, original: string): Promise<string> => {
-    let p = cell.gamma ? (gammaPrompt as string) : original
-    if (cell.kappa) {
-      const key = `${cell.gamma}:${kappaOp}:${p.slice(0, 40)}`
-      const hit = promptCache.get(key)
-      if (hit) return hit
-      p = await compressPrompt(p, kappaOp, routerKey, routerBaseUrl)
-      promptCache.set(key, p)
+  // The cache stores the PROMISE so concurrent retask() calls share ONE compression
+  // call per unique prompt (check-then-set on the value raced: N tasks fired N
+  // duplicate router calls and any single blip killed the run).
+  const promptCache = new Map<string, Promise<string>>()
+  const cellPrompt = (cell: CellSpec, original: string): Promise<string> => {
+    const base = cell.gamma ? (gammaPrompt as string) : original
+    if (!cell.kappa) return Promise.resolve(base)
+    const key = `${cell.gamma}:${kappaOp}:${base.slice(0, 40)}`
+    let pending = promptCache.get(key)
+    if (!pending) {
+      pending = compressPrompt(base, kappaOp, routerKey, routerBaseUrl).catch((first) => {
+        console.error(`  compress retry (${kappaOp}): ${first instanceof Error ? first.message.slice(0, 80) : first}`)
+        return compressPrompt(base, kappaOp, routerKey, routerBaseUrl)
+      })
+      promptCache.set(key, pending)
     }
-    return p
+    return pending
   }
 
   const train = await domain.tasks(0, n)
@@ -235,7 +241,9 @@ async function main(): Promise<void> {
     console.error(`  ${cell.name.padEnd(16)} Δscore ${(verdict.lift.mean * 100).toFixed(1)}pp CI[${(verdict.lift.low * 100).toFixed(1)},${(verdict.lift.high * 100).toFixed(1)}]${cost}  → ${verdict.promoted ? `PROMOTED (${verdict.reason})` : verdict.reason}`)
   }
   const outPath = process.env.OUT ?? '/tmp/ablation-grid-result.json'
-  const prompts = Object.fromEntries(promptCache.entries())
+  const prompts = Object.fromEntries(
+    await Promise.all([...promptCache.entries()].map(async ([k, v]) => [k, await v] as const)),
+  )
   writeFileSync(outPath, JSON.stringify({ cells: cellNames, kappaOp, prompts, results, verdicts }, null, 2))
   console.error(`  full artifact → ${outPath}`)
 }
