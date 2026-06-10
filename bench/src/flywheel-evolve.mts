@@ -86,6 +86,8 @@ async function main(): Promise<void> {
     ...(process.env.BAND_POOL
       ? { band: { holdoutPoolN: Number(process.env.BAND_POOL), maxRefScore: Number(process.env.BAND_MAX_REF ?? 0.99) } }
       : {}),
+    ...(process.env.LOSSES_DETAIL === 'binary' ? { lossesDetail: 'binary' as const } : {}),
+    ...(process.env.REPRO ? { reproducerCheck: {} } : {}),
     outDir: join(import.meta.dirname, 'authored'),
     onTask: (phase, row, done, total) => {
       const cells = row.cells
@@ -121,6 +123,14 @@ async function main(): Promise<void> {
           ? `  NOT PROMOTED: only ${v.n} paired holdout tasks — below the evidence floor.`
           : '  NOT PROMOTED: holdout lift CI includes 0 (the gate did its job).',
   )
+  if (report.reproduction) {
+    const r = report.reproduction
+    console.error(
+      r.error
+        ? `  reproducer: INFRA FAILURE — ${r.error.slice(0, 120)}`
+        : `  reproducer: champion ${(r.championHoldoutScore * 100).toFixed(1)}% vs reproduced ${(r.reproducedHoldoutScore * 100).toFixed(1)}% (gap ${(r.gap * 100).toFixed(1)}pp) → ${r.reproducible ? 'REPRODUCIBLE (the win fits through the summary)' : 'NOT REPRODUCIBLE — overfitting signal'}`,
+    )
+  }
   const outPath = process.env.OUT ?? '/tmp/flywheel-evolve-result.json'
   writeFileSync(outPath, JSON.stringify(report, null, 2))
   console.error(`  full artifact → ${outPath}`)

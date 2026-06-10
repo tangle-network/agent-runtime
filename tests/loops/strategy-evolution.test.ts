@@ -455,3 +455,86 @@ describe('tool catalog', () => {
     expect(seen[0]).toContain('inspect_state — Read the artifact state.')
   })
 })
+
+// ── Leakage-bounded authoring + reproducer certification (arXiv:2606.11045) ───────
+
+describe('lossesDetail binary', () => {
+  it('the author sees pass/fail only — no scores, no progressions', async () => {
+    stubWorkerRouter()
+    const { chat, seen } = scriptedChat([fenced(oneShotModule)])
+    await runStrategyEvolution({
+      environment: shotCountingSurface(),
+      tasks: sliceTasks([]),
+      trainN: 4,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 2,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      lossesDetail: 'binary',
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    const prompt = seen[0] ?? ''
+    const lossesSection = prompt.slice(prompt.indexOf('BASELINE RESULTS'))
+    expect(lossesSection).toContain('"resolved"')
+    expect(lossesSection).not.toContain('"score"')
+    expect(lossesSection).not.toContain('"progression"')
+  })
+})
+
+describe('reproducer certification', () => {
+  it('an authored champion that reproduces from its summary is marked reproducible', async () => {
+    stubWorkerRouter()
+    // Replies in order: candidate module, strategy summary, reproduced module.
+    const { chat, seen } = scriptedChat([
+      fenced(twoShotDepthModule),
+      'Open one artifact, take two sequential shots on it, keep the best checkpoint.',
+      fenced(twoShotDepthModule),
+    ])
+    const report = await runStrategyEvolution({
+      environment: shotCountingSurface(),
+      tasks: sliceTasks([]),
+      trainN: 6,
+      holdoutN: 6,
+      worker,
+      author: { chat },
+      budget: 3,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      reproducerCheck: {},
+      minPairedTasks: 6,
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    expect(report.finalChampion.name).toBe('two-shot-depth')
+    expect(report.reproduction?.reproducible).toBe(true)
+    expect(report.reproduction?.gap).toBeCloseTo(0)
+    // The reproducer prompt carries the summary, never the losses.
+    const reproPrompt = seen[2] ?? ''
+    expect(reproPrompt).toContain('IMPLEMENT EXACTLY THIS STRATEGY')
+    expect(reproPrompt).not.toContain('"resolved"')
+  })
+
+  it('skipped when the champion is a baseline (nothing authored to certify)', async () => {
+    stubWorkerRouter()
+    const { chat } = scriptedChat([fenced(oneShotModule)])
+    const report = await runStrategyEvolution({
+      environment: shotCountingSurface(),
+      tasks: sliceTasks([]),
+      trainN: 4,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 2,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      champion: 'score',
+      reproducerCheck: {},
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    expect(report.reproduction).toBeUndefined()
+  })
+})

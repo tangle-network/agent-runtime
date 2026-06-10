@@ -80,6 +80,29 @@ better but does not choose better fails.
 
 Status: DESIGNED (the steerer-population fitness harness exists).
 
+## E1-coarse — the leakage-bounded author channel
+
+arXiv:2606.11045 (Bertran/Roth/Wu) measured that ML-agent exploration survives a one-bit
+feedback channel with no performance loss — the operational form of the Blum–Hardt
+ladder. Our translation: `lossesDetail: 'binary'` caps what the author learns from a
+tournament at pass/fail per task (one bit per cell per generation). The A/B this enables:
+authoring quality under binary vs exact losses — if quality holds, multi-generation runs
+get ADA-robustness essentially free. The open transfer question their result does not
+settle: our author composes from failure STRUCTURE, not accept/reject, so the bits it
+needs may genuinely exceed one per cell. Status: BUILT (config flag), unrun.
+
+## E2b — reproducer certification
+
+Same paper, their headline instrument: compress the winning strategy into a ~64-word
+summary; a fresh author re-implements from the summary alone (no losses, no code); score
+the reproduction on the same holdout. A reproduction gap means the champion's win did
+not fit through the summary — an overfitting signal (their detector: 100% sensitivity /
+91% specificity in the ML-agent setting). Semantic compressibility, where gzip-bits (E2)
+is syntactic. Status: BUILT (`reproducerCheck` on `runStrategyEvolution`, report-level
+auxiliary, never gate-blocking in v1), unrun. Their Cor. 2 also gives the sizing formula
+relating summary token budget B to holdout n — use it to choose m once our artifacts'
+measured budgets stabilize.
+
 ## E9 — matched-budget strategy search at power (the running family)
 
 The essays' flagship experiment is this repo's powered evolution run: baselines vs

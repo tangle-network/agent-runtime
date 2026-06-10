@@ -96,6 +96,23 @@ export interface StrategyEvolutionConfig {
      *  tasks the reference already solves fully (no headroom, a candidate can only tie). */
     maxRefScore?: number
   }
+  /** What the author learns from a tournament. 'exact' (default) = scores + progressions
+   *  per task; 'binary' = pass/fail only — the leakage-bounded channel (one bit per cell
+   *  per generation reaches the author from the evaluation data). */
+  lossesDetail?: 'exact' | 'binary'
+  /** Reproducer certification (arXiv:2606.11045): when the final champion is AUTHORED,
+   *  compress it to a short natural-language summary, have a fresh author re-implement
+   *  from the summary alone (no losses, no code), and score the reproduction on the same
+   *  holdout. A reproduction gap is an overfitting signal (their detector: 100%
+   *  sensitivity / 91% specificity in the ML-agent setting) — recorded on the report,
+   *  never gate-blocking in v1. */
+  reproducerCheck?: {
+    /** Word budget for the strategy summary. Default 64. */
+    summaryMaxWords?: number
+    /** Reproduction counts as faithful when reproducedScore ≥ championScore − tolerance.
+     *  Default 0.05. */
+    tolerance?: number
+  }
   onTask?: (phase: string, row: BenchmarkTaskRow, done: number, total: number) => void
   hooks?: RuntimeHooks
 }
@@ -136,6 +153,22 @@ export interface EvolutionArchiveNode {
   usd: number
 }
 
+export interface ReproductionCheck {
+  /** The compressed strategy description the reproducer implemented from. */
+  summary: string
+  reproducedName: string
+  file?: string
+  championHoldoutScore: number
+  reproducedHoldoutScore: number
+  /** champion − reproduced (positive = the reproduction fell short). */
+  gap: number
+  /** reproducedScore ≥ championScore − tolerance. A failed reproduction is an
+   *  overfitting signal: the champion's win did not fit through the summary. */
+  reproducible: boolean
+  /** Infra failure during reproduction (distinct from a semantic reproduction failure). */
+  error?: string
+}
+
 export interface EvolutionBandInfo {
   /** Tasks screened by the reference on the holdout pool. */
   screened: number
@@ -156,6 +189,8 @@ export interface EvolutionReport {
   /** Present when band screening ran — the verdict's estimand is then "paired lift on
    *  headroom tasks" (band membership fixed by the reference screen, pre-registered). */
   band?: EvolutionBandInfo
+  /** Present when reproducerCheck ran (final champion was authored). */
+  reproduction?: ReproductionCheck
   /** SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
    *  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
    *  (entries are unpaired across generations). The only evidence-grade comparison in
@@ -236,7 +271,7 @@ const fieldSummary = (archive: EvolutionArchiveNode[]): string =>
  *  progression per cell). A pretty-printed prefix slice would hide the tail tasks from
  *  the author and bias which failure modes it can target; the hard cap stays only as a
  *  guard against enormous fields. */
-const compactLosses = (report: BenchmarkReport): string => {
+const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): string => {
   const r2 = (x: number) => Math.round(x * 100) / 100
   const rows = report.perTask.map((row) =>
     row.cells
@@ -245,7 +280,13 @@ const compactLosses = (report: BenchmarkReport): string => {
           cells: Object.fromEntries(
             Object.entries(row.cells).map(([name, c]) => [
               name,
-              { score: r2(c.score), resolved: c.resolved, progression: c.progression.map(r2) },
+              // 'binary' is the leakage-bounded channel: the author learns pass/fail per
+              // task and nothing else — the per-generation leak from the evaluation data
+              // is capped at one bit per cell (arXiv:2606.11045 measured that exploration
+              // survives this; whether AUTHORING does is the E1-coarse A/B).
+              detail === 'binary'
+                ? { resolved: c.resolved }
+                : { score: r2(c.score), resolved: c.resolved, progression: c.progression.map(r2) },
             ]),
           ),
         }
@@ -263,6 +304,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   const policy = cfg.champion ?? 'costAware'
   const epsilon = cfg.championEpsilon ?? 0.01
   const byName = new Map<string, Strategy>(baselines.map((s) => [s.name, s]))
+  const codeByName = new Map<string, string>()
 
   const bench = (phase: string, tasks: AgenticTask[], strategies: Strategy[]) =>
     runBenchmark({
@@ -325,7 +367,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   let authoredOk = 0
 
   for (let g = 1; g <= generations; g += 1) {
-    const lossesJson = compactLosses(latestReport)
+    const lossesJson = compactLosses(latestReport, cfg.lossesDetail ?? 'exact')
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
     for (let i = 0; i < populationSize; i += 1) {
@@ -374,6 +416,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
                 },
               }
         byName.set(unique, strategy)
+        codeByName.set(unique, authored.code)
         newStrategies.push(strategy)
         archive.push({
           name: unique,
@@ -479,6 +522,69 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     ...(cfg.minPairedTasks !== undefined ? { minPairedTasks: cfg.minPairedTasks } : {}),
   })
 
+  let reproduction: ReproductionCheck | undefined
+  const championCode = codeByName.get(incumbent.name)
+  if (cfg.reproducerCheck && championCode) {
+    const words = cfg.reproducerCheck.summaryMaxWords ?? 64
+    const tolerance = cfg.reproducerCheck.tolerance ?? 0.05
+    const championHoldoutScore = holdout.perStrategy[incumbent.name]?.score ?? 0
+    try {
+      const summaryRes = await cfg.author.chat.chat({
+        ...(cfg.author.model ? { model: cfg.author.model } : {}),
+        temperature: 0.2,
+        maxTokens: 512,
+        messages: [
+          {
+            role: 'system',
+            content: `Summarize the optimization strategy implemented by this code in at most ${words} words. Describe the COMPOSITION (shots, critique, artifact handling, restarts, stopping) — not the code. Output only the summary.`,
+          },
+          { role: 'user', content: championCode },
+        ],
+      })
+      const summary = summaryRes.content.trim()
+      // The reproducer sees the summary and the contract — never the losses, never the
+      // original code. If its implementation matches the champion on the SAME holdout,
+      // the champion's win fits through the summary and cannot be holdout-specific.
+      const reproduced = await authorStrategy({
+        chat: cfg.author.chat,
+        ...(cfg.author.model ? { model: cfg.author.model } : {}),
+        ...(cfg.author.fallbackModel ? { fallbackModel: cfg.author.fallbackModel } : {}),
+        ...(cfg.author.maxTokens !== undefined ? { maxTokens: cfg.author.maxTokens } : {}),
+        temperature: 0.2,
+        contract: `${strategyAuthorContract}\n\nIMPLEMENT EXACTLY THIS STRATEGY (a colleague's description — do not invent a different approach):\n${summary}`,
+        environmentName: cfg.environment.name,
+        lossesJson: '[]',
+        budget,
+        outDir: cfg.outDir,
+      })
+      const reproStrategy: Strategy = {
+        name: `${incumbent.name}-reproduced`,
+        driver: reproduced.strategy.driver,
+      }
+      const reproReport = await bench('reproduce', holdoutTasks, [reproStrategy])
+      const reproducedHoldoutScore = reproReport.perStrategy[reproStrategy.name]?.score ?? 0
+      reproduction = {
+        summary,
+        reproducedName: reproStrategy.name,
+        file: reproduced.file,
+        championHoldoutScore,
+        reproducedHoldoutScore,
+        gap: championHoldoutScore - reproducedHoldoutScore,
+        reproducible: reproducedHoldoutScore >= championHoldoutScore - tolerance,
+      }
+    } catch (e) {
+      reproduction = {
+        summary: '',
+        reproducedName: '',
+        championHoldoutScore,
+        reproducedHoldoutScore: 0,
+        gap: championHoldoutScore,
+        reproducible: false,
+        error: e instanceof Error ? e.message.slice(0, 300) : String(e),
+      }
+    }
+  }
+
   return {
     gen0,
     gen0Champion,
@@ -488,6 +594,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     holdout,
     verdict,
     ...(bandInfo ? { band: bandInfo } : {}),
+    ...(reproduction ? { reproduction } : {}),
     trajectory,
   }
 }
