@@ -456,3 +456,54 @@ describe('runBenchmark per-strategy isolation', () => {
     expect(report.perStrategy.healthy?.score).toBeCloseTo(0.5)
   })
 })
+
+// ── Per-task tool introspection ────────────────────────────────────────────────────
+
+describe('listTools', () => {
+  it('a strategy body reads the task-specific toolset (names + descriptions only)', async () => {
+    stubRouter()
+    const surface: AgenticSurface = {
+      name: 'introspect',
+      async open() {
+        return { id: 'h-1', surface: 'introspect' }
+      },
+      async tools() {
+        return [
+          {
+            type: 'function',
+            function: { name: 'read_state', description: 'Read it.', parameters: { secret: true } },
+          },
+        ]
+      },
+      async call() {
+        return 'ok'
+      },
+      async score() {
+        return { passes: 0, total: 1, errored: 0 }
+      },
+      async close() {},
+    }
+    let listed: Array<{ name: string; description?: string }> = []
+    const introspector = defineStrategy(
+      'introspector',
+      async ({ surface: s, task: t, listTools, shot }) => {
+        const handle = await s.open(t)
+        try {
+          listed = await listTools(handle)
+          await shot({ handle, tools: listed.map((x) => x.name) })
+        } finally {
+          await s.close(handle)
+        }
+        return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+      },
+    )
+    await runAgentic({ surface, task, ...worker, strategy: introspector, budget: 1 })
+    expect(listed).toEqual([{ name: 'read_state', description: 'Read it.' }])
+    expect(JSON.stringify(listed)).not.toContain('secret')
+  })
+
+  it('the author contract teaches introspection over hardcoding', () => {
+    expect(strategyAuthorContract).toContain('listTools')
+    expect(strategyAuthorContract).toContain('VARY PER TASK')
+  })
+})

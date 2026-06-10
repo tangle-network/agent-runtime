@@ -32,9 +32,10 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
       (multi-agent strategies: a researcher shot then an engineer shot, a panel of k
       personas over one budget). On a fresh shot the systemPrompt replaces the task's; on
       a carried conversation it arrives as a hand-off message. Same conserved budget.
-    - tools        => string[] — restrict THIS shot to a subset of the domain's tools by
+    - tools        => string[] — restrict THIS shot to a subset of the task's tools by
       name (focus an explore shot on read-only tools, an execute shot on write tools).
-      Restriction-only; unknown names throw. Omitted => the shot sees every domain tool.
+      Restriction-only; unknown names make the shot fail. ALWAYS select from
+      await listTools(handle) — never hardcode. Omitted => the shot sees every tool.
     ShotResult = { messages, score (0..1 on the task's check), passes, total, completions, toolErrors }
     Returns null if the attempt failed infra-wise.
 
@@ -45,6 +46,11 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
   surface.open(task) / surface.close(handle)
     Open a persistent artifact you manage yourself (remember to close in a finally).
     close is idempotent — closing an already-closed handle is a safe no-op.
+
+  listTools(handle): Promise<Array<{ name, description? }>>
+    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a
+    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding
+    names from an example kills your shots on every task whose tools differ.
 
 Rules:
 - ALWAYS await every shot/critique/surface call — a floating promise that rejects
