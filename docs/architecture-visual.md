@@ -149,16 +149,17 @@ A prompt is not static input; it's a value that **mutates through the graph** wi
 
 ```
    FAST  (within a run)          τ₀ → diagnose → τ₁ → … → τ*           ← the driver round (§3)
-                                  status: measured to LOSE at equal compute (rung-0, FinSearchComp).
+                                  status: domain-bounded — see `.evolve/current.json` for the live ledger.
 
    SLOW  (across runs)            τ always enters as  δ ⊕ τ            ← the learning flywheel
                                   δ = directive GEPA-distilled from past failures.
                                   status: UNTESTED at the gate (diverse@k vs blind@k at equal compute).
 ```
 
-The binding empirical question (`.evolve/current.json`, gen 6): **does any non-blind topology beat
-blind compute at EQUAL k, under a deployable non-oracle selector, on a domain with a correctable
-middle band?** Within-run steer is falsified (rung-0); parallel-diverse strategies are the open test.
+The binding empirical question: **does any non-blind topology beat blind compute at EQUAL k, under
+a deployable non-oracle selector, on a domain with a correctable middle band?** The live answer —
+which domains cleared it, which coordinates measured flat — lives in `.evolve/current.json` and the
+memory ledger; this doc stays evidence-free by design.
 
 ---
 

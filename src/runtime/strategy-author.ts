@@ -64,8 +64,8 @@ Rules:
 - The module must be EXACTLY this shape (no other imports, no commentary outside code):
 
 import { defineStrategy } from '@tangle-network/agent-runtime/loops'
-export default defineStrategy('your-strategy-name', async ({ surface, task, budget, shot, critique }) => {
-  // your composition
+export default defineStrategy('your-strategy-name', async ({ surface, task, budget, shot, critique, listTools }) => {
+  // your composition (listTools comes from the destructured context — it is NOT a global)
 })
 `
 

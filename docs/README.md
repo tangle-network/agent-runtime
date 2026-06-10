@@ -11,12 +11,11 @@ Read top-to-bottom for the full picture.
 | 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks. The single source of truth; wins on conflict. |
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses (test-time-compute, active learning, program synthesis, two-timescale RSI, skeptic) + diagrams. Answers "does it cohere?" — and where it doesn't. |
 | 2b | [architecture-visual.md](./architecture-visual.md) | the picture book | `act`/`Scope`/recursion, the within-run RSI loop, the evolution of a prompt, the two timescales — all drawn, grounded with `file:line`. Includes "analysts are just Agents → ensembles for free" and the three-move-encoding collapse map. |
-
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build + cleanup plan | The file-grounded, dependency-ordered sequence to go from *scaffold built, intelligence designed* to a measured surface. Phases, exit gates, cruft track, doc track, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
 | 4b | [eval-substrate.md](./eval-substrate.md) | north star + discipline | The neutral measurement substrate (harness × model × provider × task-class), the `generate-eval` data engine (grounding + discrimination gates), the measurement non-negotiables, and the building/contributing discipline. |
-| 5 | [../bench/README.md](../bench/README.md) | empirical harness | The benchmark surface and current empirical status (what's been run, what wins, what's untested). |
-| 6 | [results.md](./results.md) | the charts | The measured gate results, drawn simply: verifier-grounded selection recovers the oracle ceiling on HumanEval (+12pp), survives real coding rollouts (commit0), and stays flat where there's no within-task variance (aec). |
+| 5 | [../bench/HARNESS.md](../bench/HARNESS.md) | empirical harness map | Commands, the data flow, the wired/needs-creds matrix, and the canonical-suite runbook — what's been run, what wins, what's untested. |
+| 6 | [results.md](./results.md) | the charts (selection-scoped) | The measured SELECTION results, drawn simply: verifier-grounded selection +10.0pp CI[+2,+18] on HumanEval (reproduced +10/+12), flat where there's no within-task variance (aec). Everything since lives in `.evolve/current.json`. |
 
 ## Research track
 
@@ -38,8 +37,8 @@ The package API and subsystems.
 | [../README.md](../README.md) | API entry point | Install, the loop API, self-improvement framing, exported subpaths. |
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term (iteration/round/rollout/attempt, driver/worker/executor, TopologyMove, budget/spend, Scope.act + the coordination MCP), grounded to `file:line`; drifted synonyms flagged. Read when a term is ambiguous. |
 | [execution-model.md](./execution-model.md) | the picture | The four diagrams: the unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, who gets which tools/MCPs, and the spawn mechanics. |
-| [concepts.md](./concepts.md) | mental model | The layer cake — backends, profiles, loop kernel, the onramp to the rest. |
-| [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol *(needs-update)* | The multi-agent call bus — depth limits, headers, refusal contract. (Pending: 429/413 fix + subpath list.) |
+| [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
+| [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract (429 on depth exhaustion). |
 | [conversation-economics.md](./conversation-economics.md) | subsystem | Conversation cost accounting and auth-source model (`src/conversation/`). |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability adapters for resumable conversations. |
 | [BUILDING.md](./BUILDING.md) | process | Canonical building discipline: goal first, cheapest decisive proof, substrate-first loop API, verification rules. |

@@ -505,5 +505,8 @@ describe('listTools', () => {
   it('the author contract teaches introspection over hardcoding', () => {
     expect(strategyAuthorContract).toContain('listTools')
     expect(strategyAuthorContract).toContain('VARY PER TASK')
+    // Authors copy the canonical template verbatim; if it omits listTools from the
+    // destructure, every tool-introspecting body is a ReferenceError.
+    expect(strategyAuthorContract).toMatch(/critique, listTools \}/)
   })
 })
