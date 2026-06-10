@@ -15,6 +15,7 @@
  *   docker run -d --rm --name eops -p 8006:8005 shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest
  *   EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 GENS=2 POP=2 BUDGET=3 tsx src/flywheel-evolve.mts
  */
+import { execSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
@@ -88,12 +89,26 @@ async function main(): Promise<void> {
       : {}),
     ...(process.env.LOSSES_DETAIL === 'binary' ? { lossesDetail: 'binary' as const } : {}),
     ...(process.env.REPRO ? { reproducerCheck: {} } : {}),
+    // Endurance: phase ledger on disk (resume skips completed phases) + the gym recycled
+    // at phase boundaries (no artifacts span phases; the container wedges under
+    // cumulative load on long runs).
+    ...(process.env.CHECKPOINT
+      ? { checkpoint: { path: process.env.CHECKPOINT, resume: true } }
+      : {}),
+    onPhase: async (phase) => {
+      console.error(`  [${new Date().toISOString().slice(11, 19)}] ▶ phase ${phase}`)
+      if (process.env.GYM_RECREATE) {
+        console.error('    recycling the gym container…')
+        execSync(process.env.GYM_RECREATE, { stdio: 'inherit', timeout: 120_000 })
+      }
+    },
     outDir: join(import.meta.dirname, 'authored'),
     onTask: (phase, row, done, total) => {
       const cells = row.cells
         ? Object.entries(row.cells).map(([s, c]) => `${s}=${(c.score * 100).toFixed(0)}%`).join(' ')
         : `SKIP ${row.error?.slice(0, 60)}`
-      console.error(`  [${phase} ${done}/${total}] ${row.taskId.slice(-12)}: ${cells}`)
+      const at = new Date().toISOString().slice(11, 19)
+      console.error(`  [${at} ${phase} ${done}/${total}] ${row.taskId.slice(-12)}: ${cells}`)
     },
   })
 

@@ -22,6 +22,7 @@
  * report schema; the v1 search authors from the latest tournament's losses.
  */
 
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
 import type { ChatClient } from '@tangle-network/agent-eval'
 import type { RuntimeHooks } from '../runtime-hooks'
@@ -113,8 +114,31 @@ export interface StrategyEvolutionConfig {
      *  Default 0.05. */
     tolerance?: number
   }
+  /** Endurance: write the run state after every completed phase; with `resume`, a
+   *  restart skips completed phases (authored modules re-imported from their files).
+   *  Worst case after a mid-run death is re-paying ONE phase, never the run. */
+  checkpoint?: {
+    path: string
+    resume?: boolean
+  }
+  /** Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
+   *  The seam for environment recycling — no artifacts span phases, so a runner may
+   *  recreate a wedge-prone environment container here. */
+  onPhase?: (phase: string) => Promise<void>
   onTask?: (phase: string, row: BenchmarkTaskRow, done: number, total: number) => void
   hooks?: RuntimeHooks
+}
+
+/** The on-disk phase ledger — everything needed to skip completed phases on resume. */
+interface EvolutionCheckpoint {
+  gen0?: BenchmarkReport
+  gen0Champion?: ChampionPick
+  generations: EvolutionGeneration[]
+  archive: EvolutionArchiveNode[]
+  trajectory: Array<{ generation: number; champion: string; score: number; usd: number }>
+  holdout?: BenchmarkReport
+  verdict?: PromotionVerdict
+  band?: EvolutionBandInfo
 }
 
 export interface ChampionPick {
@@ -295,6 +319,28 @@ const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): str
   return JSON.stringify(rows).slice(0, 12000)
 }
 
+/** Rename a strategy AND the deliverable's mode label its driver closes over — report
+ *  keys and observability labels must never diverge for a renamed candidate. */
+function renameStrategy(orig: Strategy, unique: string): Strategy {
+  if (orig.name === unique) return orig
+  return {
+    name: unique,
+    driver: (s, t, o, b) => {
+      const agent = orig.driver(s, t, o, b)
+      return {
+        ...agent,
+        name: unique,
+        act: async (task, scope) => {
+          const out = await agent.act(task, scope)
+          if (out.kind !== 'done') return out
+          const deliverable = { ...(out.deliverable as Record<string, unknown>), mode: unique }
+          return { ...out, deliverable }
+        },
+      }
+    },
+  }
+}
+
 export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
@@ -306,8 +352,35 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   const byName = new Map<string, Strategy>(baselines.map((s) => [s.name, s]))
   const codeByName = new Map<string, string>()
 
-  const bench = (phase: string, tasks: AgenticTask[], strategies: Strategy[]) =>
-    runBenchmark({
+  // Endurance: the phase ledger. Resume refuses a checkpoint from a different design
+  // (silently mixing configs would corrupt every downstream comparison).
+  const fingerprint = {
+    trainN: cfg.trainN,
+    holdoutN: cfg.holdoutN,
+    budget,
+    generations,
+    populationSize,
+  }
+  let ckpt: EvolutionCheckpoint | undefined
+  if (cfg.checkpoint?.resume && existsSync(cfg.checkpoint.path)) {
+    const raw = JSON.parse(readFileSync(cfg.checkpoint.path, 'utf8')) as EvolutionCheckpoint & {
+      fingerprint?: typeof fingerprint
+    }
+    if (JSON.stringify(raw.fingerprint) !== JSON.stringify(fingerprint)) {
+      throw new Error(
+        `evolution resume: checkpoint design mismatch — checkpoint ${JSON.stringify(raw.fingerprint)} vs config ${JSON.stringify(fingerprint)}; delete ${cfg.checkpoint.path} or match the config`,
+      )
+    }
+    ckpt = raw
+  }
+  const save = (state: EvolutionCheckpoint): void => {
+    if (cfg.checkpoint)
+      writeFileSync(cfg.checkpoint.path, JSON.stringify({ ...state, fingerprint }, null, 1))
+  }
+
+  const bench = async (phase: string, tasks: AgenticTask[], strategies: Strategy[]) => {
+    await cfg.onPhase?.(phase)
+    return runBenchmark({
       environment: cfg.environment,
       tasks,
       worker: cfg.worker,
@@ -319,6 +392,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
         : {}),
       ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
     })
+  }
 
   const train = await cfg.tasks(0, cfg.trainN)
   // One probe round-trip lists the domain's tools so the author can write tool-focused
@@ -338,35 +412,61 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   } finally {
     await cfg.environment.close(probe)
   }
-  const gen0 = await bench('gen0', train, baselines)
-  const archive: EvolutionArchiveNode[] = baselines.map((s) => ({
-    name: s.name,
-    source: 'baseline' as const,
-    generation: 0,
-    score: gen0.perStrategy[s.name]?.score ?? 0,
-    usd: gen0.perStrategy[s.name]?.usd ?? 0,
-  }))
-  const gen0Champion = selectChampion(
-    gen0,
-    baselines.map((s) => s.name),
-    policy,
-    epsilon,
+  const gen0 = ckpt?.gen0 ?? (await bench('gen0', train, baselines))
+  const archive: EvolutionArchiveNode[] = ckpt?.archive
+    ? [...ckpt.archive]
+    : baselines.map((s) => ({
+        name: s.name,
+        source: 'baseline' as const,
+        generation: 0,
+        score: gen0.perStrategy[s.name]?.score ?? 0,
+        usd: gen0.perStrategy[s.name]?.usd ?? 0,
+      }))
+  const gen0Champion =
+    ckpt?.gen0Champion ??
+    selectChampion(
+      gen0,
+      baselines.map((s) => s.name),
+      policy,
+      epsilon,
+    )
+
+  const generationRows: EvolutionGeneration[] = ckpt?.generations ? [...ckpt.generations] : []
+  const trajectory = ckpt?.trajectory
+    ? [...ckpt.trajectory]
+    : [
+        {
+          generation: 0,
+          champion: gen0Champion.name,
+          score: gen0Champion.score,
+          usd: gen0Champion.usd,
+        },
+      ]
+  // Re-import resumed authored modules from their files (the collision rename re-applied
+  // so report keys stay stable across the restart).
+  for (const row of generationRows) {
+    for (const c of row.candidates) {
+      if (!c.file || c.error) continue
+      const mod = (await import(`file://${c.file}`)) as { default?: Strategy }
+      if (!mod.default || typeof mod.default.driver !== 'function') {
+        throw new Error(
+          `evolution resume: ${c.file} no longer exports a Strategy — cannot restore "${c.name}"`,
+        )
+      }
+      byName.set(c.name, renameStrategy(mod.default, c.name))
+      codeByName.set(c.name, readFileSync(c.file, 'utf8'))
+    }
+  }
+  let authoredOk = generationRows.reduce(
+    (n, row) => n + row.candidates.filter((c) => !c.error).length,
+    0,
   )
-  let incumbent = gen0Champion
-  let latestReport = gen0
+  const lastRow = generationRows[generationRows.length - 1]
+  let incumbent = lastRow ? lastRow.champion : gen0Champion
+  let latestReport = lastRow ? lastRow.report : gen0
+  if (!ckpt) save({ gen0, gen0Champion, generations: generationRows, archive, trajectory })
 
-  const generationRows: EvolutionGeneration[] = []
-  const trajectory = [
-    {
-      generation: 0,
-      champion: gen0Champion.name,
-      score: gen0Champion.score,
-      usd: gen0Champion.usd,
-    },
-  ]
-  let authoredOk = 0
-
-  for (let g = 1; g <= generations; g += 1) {
+  for (let g = generationRows.length + 1; g <= generations; g += 1) {
     const lossesJson = compactLosses(latestReport, cfg.lossesDetail ?? 'exact')
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
@@ -393,28 +493,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
         const unique = byName.has(authored.strategy.name)
           ? `${authored.strategy.name}-g${g}c${i + 1}`
           : authored.strategy.name
-        const strategy: Strategy =
-          unique === authored.strategy.name
-            ? authored.strategy
-            : {
-                name: unique,
-                driver: (s, t, o, b) => {
-                  const agent = authored.strategy.driver(s, t, o, b)
-                  return {
-                    ...agent,
-                    name: unique,
-                    act: async (task, scope) => {
-                      const out = await agent.act(task, scope)
-                      if (out.kind !== 'done') return out
-                      const deliverable = {
-                        ...(out.deliverable as Record<string, unknown>),
-                        mode: unique,
-                      }
-                      return { ...out, deliverable }
-                    },
-                  }
-                },
-              }
+        const strategy: Strategy = renameStrategy(authored.strategy, unique)
         byName.set(unique, strategy)
         codeByName.set(unique, authored.code)
         newStrategies.push(strategy)
@@ -472,6 +551,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     })
     incumbent = champion
     latestReport = report
+    save({ gen0, gen0Champion, generations: generationRows, archive, trajectory })
   }
 
   if (authoredOk === 0) {
@@ -483,9 +563,18 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   // The promotion decision: ONE fresh slice the search never touched, drawn after all
   // authoring is done. The gate, not the search policy, owns this verdict.
   const holdoutOffset = cfg.trainN + (cfg.holdoutOffset ?? 0)
-  let holdoutTasks: AgenticTask[]
+  let holdoutTasks: AgenticTask[] = []
   let bandInfo: EvolutionBandInfo | undefined
-  if (cfg.band) {
+  if (ckpt?.holdout && ckpt.verdict) {
+    // Gate already settled before the restart. Reconstruct the exact gate tasks only if
+    // the reproducer still needs to bench on them.
+    bandInfo = ckpt.band
+    if (cfg.reproducerCheck && codeByName.has(incumbent.name)) {
+      const pool = await cfg.tasks(holdoutOffset, cfg.band?.holdoutPoolN ?? cfg.holdoutN)
+      const gateIds = new Set(ckpt.holdout.perTask.map((r) => r.taskId))
+      holdoutTasks = pool.filter((t) => gateIds.has(t.id))
+    }
+  } else if (cfg.band) {
     // Reference screening: baselines[0] runs once over the pool; tasks it already fully
     // solves carry no headroom (a candidate can only tie there) and are dropped. The
     // screen is independent of both finalists' gate runs — band membership is fixed
@@ -511,16 +600,33 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   } else {
     holdoutTasks = await cfg.tasks(holdoutOffset, cfg.holdoutN)
   }
-  const finalists = [...new Set([gen0Champion.name, incumbent.name])]
-    .map((n) => byName.get(n))
-    .filter((s): s is Strategy => !!s)
-  const holdout = await bench('holdout', holdoutTasks, finalists)
-  const verdict = promotionGate({
-    report: holdout,
-    incumbent: gen0Champion.name,
-    candidate: incumbent.name,
-    ...(cfg.minPairedTasks !== undefined ? { minPairedTasks: cfg.minPairedTasks } : {}),
-  })
+  let holdout: BenchmarkReport
+  let verdict: PromotionVerdict
+  if (ckpt?.holdout && ckpt.verdict) {
+    holdout = ckpt.holdout
+    verdict = ckpt.verdict
+  } else {
+    const finalists = [...new Set([gen0Champion.name, incumbent.name])]
+      .map((n) => byName.get(n))
+      .filter((s): s is Strategy => !!s)
+    holdout = await bench('holdout', holdoutTasks, finalists)
+    verdict = promotionGate({
+      report: holdout,
+      incumbent: gen0Champion.name,
+      candidate: incumbent.name,
+      ...(cfg.minPairedTasks !== undefined ? { minPairedTasks: cfg.minPairedTasks } : {}),
+    })
+    save({
+      gen0,
+      gen0Champion,
+      generations: generationRows,
+      archive,
+      trajectory,
+      holdout,
+      verdict,
+      ...(bandInfo ? { band: bandInfo } : {}),
+    })
+  }
 
   let reproduction: ReproductionCheck | undefined
   const championCode = codeByName.get(incumbent.name)

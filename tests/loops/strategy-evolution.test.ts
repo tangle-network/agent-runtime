@@ -538,3 +538,93 @@ describe('reproducer certification', () => {
     expect(report.reproduction).toBeUndefined()
   })
 })
+
+// ── Endurance: checkpoint/resume + phase hooks ────────────────────────────────────
+
+import { readFileSync, writeFileSync } from 'node:fs'
+
+describe('checkpoint and resume', () => {
+  const baseCfg = (chat: never, ckptPath: string, extra: Record<string, unknown> = {}) => ({
+    environment: shotCountingSurface(),
+    tasks: sliceTasks([]),
+    trainN: 6,
+    holdoutN: 6,
+    worker,
+    author: { chat },
+    budget: 3,
+    generations: 1,
+    populationSize: 1,
+    baselines: [sample],
+    minPairedTasks: 6,
+    checkpoint: { path: ckptPath, resume: true },
+    outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    ...extra,
+  })
+
+  it('a completed run resumes entirely from the ledger — zero author calls, same verdict', async () => {
+    stubWorkerRouter()
+    const ckptPath = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    const first = scriptedChat([fenced(twoShotDepthModule)])
+    const run1 = await runStrategyEvolution(baseCfg(first.chat, ckptPath))
+    expect(run1.verdict.promoted).toBe(true)
+
+    const second = scriptedChat(['SHOULD NEVER BE CALLED'])
+    const run2 = await runStrategyEvolution(baseCfg(second.chat, ckptPath))
+    expect(second.seen).toHaveLength(0)
+    expect(run2.finalChampion.name).toBe(run1.finalChampion.name)
+    expect(run2.verdict).toEqual(run1.verdict)
+    expect(run2.trajectory).toEqual(run1.trajectory)
+  })
+
+  it('a ledger without the gate resumes by running ONLY the holdout', async () => {
+    stubWorkerRouter()
+    const ckptPath = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    const first = scriptedChat([fenced(twoShotDepthModule)])
+    await runStrategyEvolution(baseCfg(first.chat, ckptPath))
+    const ledger = JSON.parse(readFileSync(ckptPath, 'utf8'))
+    delete ledger.holdout
+    delete ledger.verdict
+    writeFileSync(ckptPath, JSON.stringify(ledger))
+
+    const phases: string[] = []
+    const second = scriptedChat(['SHOULD NEVER BE CALLED'])
+    const run2 = await runStrategyEvolution(
+      baseCfg(second.chat, ckptPath, { onPhase: async (p: string) => void phases.push(p) }),
+    )
+    expect(second.seen).toHaveLength(0)
+    expect(phases).toEqual(['holdout'])
+    expect(run2.verdict.promoted).toBe(true)
+  })
+
+  it('refuses a ledger from a different design', async () => {
+    stubWorkerRouter()
+    const ckptPath = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    const first = scriptedChat([fenced(twoShotDepthModule)])
+    await runStrategyEvolution(baseCfg(first.chat, ckptPath))
+    const second = scriptedChat([fenced(oneShotModule)])
+    await expect(
+      runStrategyEvolution(baseCfg(second.chat, ckptPath, { trainN: 8 })),
+    ).rejects.toThrow(/design mismatch/)
+  })
+
+  it('onPhase fires before every benchmark phase in order', async () => {
+    stubWorkerRouter()
+    const phases: string[] = []
+    const { chat } = scriptedChat([fenced(oneShotModule)])
+    await runStrategyEvolution({
+      environment: shotCountingSurface(),
+      tasks: sliceTasks([]),
+      trainN: 4,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 2,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      onPhase: async (p) => void phases.push(p),
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    expect(phases).toEqual(['gen0', 'gen1', 'holdout'])
+  })
+})
