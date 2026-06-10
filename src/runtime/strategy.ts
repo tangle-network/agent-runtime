@@ -39,7 +39,6 @@ import type {
   ExecutorResult,
   Scope,
   Settled,
-  Spend,
 } from './supervise/types'
 
 // ── The general surface seam (the only thing a new benchmark implements) ─────────
@@ -207,7 +206,16 @@ async function runShot(
  *  (behavior, never the score) and returns findings; we steer on their recommended_actions.
  *  The trajectory (calls + RESULTS) rides in `output` so the analyst sees what actually
  *  happened, not just tool names. No actionable findings ⇒ COMPLETE (depth self-terminates). */
-async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions): Promise<string> {
+interface AnalyzeOut {
+  steer: string
+  tokens: { input: number; output: number }
+}
+
+async function analyze(
+  task: AgenticTask,
+  messages: Msg[],
+  opts: AgenticOptions,
+): Promise<AnalyzeOut> {
   const trajectory = messages
     .filter((m) => m.role === 'assistant' || m.role === 'tool')
     .map((m) => {
@@ -220,12 +228,36 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     .join('\n')
     .slice(0, 7000)
   const analystModel = opts.analystModel ?? opts.model
-  const chat = createChatClient({
+  const inner = createChatClient({
     transport: 'router',
     apiKey: opts.routerKey,
     baseUrl: opts.routerBaseUrl,
     defaultModel: analystModel,
   })
+  // The critic's calls are REAL spend — capture usage so the cost vector bills them
+  // (an unbilled critic makes every steering-vs-sampling cost comparison dishonest).
+  const tokens = { input: 0, output: 0 }
+  const chat: typeof inner = {
+    ...inner,
+    chat: async (req, callOpts) => {
+      const res = await inner.chat(req, callOpts)
+      const u = (
+        res as {
+          usage?: {
+            promptTokens?: number
+            completionTokens?: number
+            prompt_tokens?: number
+            completion_tokens?: number
+          }
+        }
+      ).usage
+      if (u) {
+        tokens.input += u.promptTokens ?? u.prompt_tokens ?? 0
+        tokens.output += u.completionTokens ?? u.completion_tokens ?? 0
+      }
+      return res
+    },
+  }
   const obs = await observe(
     {
       task: task.userPrompt,
@@ -247,7 +279,7 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
     .join('\n')
     .trim()
-  return steer || 'COMPLETE'
+  return { steer: steer || 'COMPLETE', tokens }
 }
 
 // ── Leaf executors (one shot / one analyst), resolved per-spawn from the surface ──
@@ -260,13 +292,6 @@ interface ShotResult {
   completions: number
   toolErrors: number
 }
-
-const spend = (iterations: number): Spend => ({
-  iterations,
-  tokens: { input: 0, output: 0 },
-  usd: 0,
-  ms: 0,
-})
 
 /** Resolve a shot: if `handle` given, operate on the SHARED artifact (depth); else open+score+close
  *  an OWN artifact (breadth). Always scores the artifact's final state as the deployable verdict. */
@@ -357,8 +382,20 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
       const t = task as { task: AgenticTask; messages: Msg[] }
-      const findings = await analyze(t.task, t.messages, opts)
-      artifact = { outRef: `analyst:${findings.length}`, out: findings, spent: spend(1) }
+      const { steer, tokens } = await analyze(t.task, t.messages, opts)
+      const analystModel = opts.analystModel ?? opts.model
+      artifact = {
+        outRef: `analyst:${steer.length}`,
+        out: steer,
+        spent: {
+          iterations: 1,
+          tokens,
+          usd: isModelPriced(analystModel)
+            ? estimateCost(tokens.input, tokens.output, analystModel)
+            : 0,
+          ms: 0,
+        },
+      }
       return artifact
     },
     teardown: () => Promise.resolve({ destroyed: true }),
