@@ -70,8 +70,12 @@ async function main(): Promise<void> {
   const train = await loadTasks(n)
   const baselines: Strategy[] = [sample, refine, sampleThenRefine]
 
+  const onTask = (phase: string) => (row: { taskId: string; error?: string; cells?: Record<string, { score: number }> }, done: number, total: number) => {
+    const cells = row.cells ? Object.entries(row.cells).map(([s, c]) => `${s}=${(c.score * 100).toFixed(0)}%`).join(' ') : `SKIP ${row.error?.slice(0, 60)}`
+    console.error(`  [${phase} ${done}/${total}] ${row.taskId.slice(-12)}: ${cells}`)
+  }
   console.error(`▶ gen0 — ${baselines.map((s) => s.name).join(' vs ')} on the train stream…`)
-  const gen0 = await runBenchmark({ environment: surface, tasks: train, worker, strategies: baselines, budget, concurrency })
+  const gen0 = await runBenchmark({ environment: surface, tasks: train, worker, strategies: baselines, budget, concurrency, onTask: onTask('gen0') })
   printBenchmarkReport(gen0)
   const champ0 = champion(gen0)
   console.error(`  gen0 champion: ${champ0.name} @ ${(champ0.score * 100).toFixed(1)}%\n`)
@@ -83,7 +87,7 @@ async function main(): Promise<void> {
   console.error(`  authored "${authored.name}" → ${file}\n`)
 
   console.error(`▶ gen1 — the authored strategy enters the tournament…`)
-  const gen1 = await runBenchmark({ environment: surface, tasks: train, worker, strategies: [...baselines, authored], budget, concurrency })
+  const gen1 = await runBenchmark({ environment: surface, tasks: train, worker, strategies: [...baselines, authored], budget, concurrency, onTask: onTask('gen1') })
   printBenchmarkReport(gen1)
   const champ1 = champion(gen1)
   console.error(`  gen1 champion: ${champ1.name} @ ${(champ1.score * 100).toFixed(1)}%\n`)
@@ -94,7 +98,7 @@ async function main(): Promise<void> {
   const champs = [...new Set([champ0.name, champ1.name])]
     .map((name) => byName.get(name))
     .filter((s): s is Strategy => !!s)
-  const gate = await runBenchmark({ environment: surface, tasks: holdout, worker, strategies: champs, budget, concurrency })
+  const gate = await runBenchmark({ environment: surface, tasks: holdout, worker, strategies: champs, budget, concurrency, onTask: onTask('holdout') })
   printBenchmarkReport(gate)
 
   const h0 = gate.perStrategy[champ0.name]?.score ?? 0
