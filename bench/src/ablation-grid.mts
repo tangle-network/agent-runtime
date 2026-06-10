@@ -1,0 +1,234 @@
+/**
+ * THE ABLATION GRID — optimization coordinates as independent, toggleable factors
+ * (docs/research/factorial-ablation-design.md). Each CELL = a named combination of:
+ *
+ *   σ steering        sample (off) | refine (on)
+ *   α self-improve    fixed field (off) | runStrategyEvolution (on)
+ *   γ prompt-opt      original prompt (off) | the PROMPT_ARTIFACT file (on — a GEPA/
+ *                     selfImprove winner produced OUTSIDE the grid, supplied as input)
+ *   κ compression     as-is (off) | a compression operator on the cell's prompt (on)
+ *
+ * Every cell runs the SAME tasks at the SAME budget; every cell's holdout report is
+ * gated against the `base` cell — superiority for score factors, NON-INFERIORITY for κ
+ * (its win condition is cost). Real spend, never token counts.
+ *
+ *   CELLS=base,steer,compress,steer+compress N=24 HOLDOUT=12 BUDGET=4 \
+ *     EOPS_GYM_DBS_DIR=… tsx src/ablation-grid.mts
+ *   ENV=math — gym-free verifier domain (the verbose-prompt compression target)
+ *   PROMPT_ARTIFACT=/path/to/optimized-prompt.txt — required by any γ cell
+ *   KAPPA=llm-50|llm-25|ddmin-2|ddmin-5 — the compression operator (default llm-50)
+ */
+import { readFileSync, writeFileSync } from 'node:fs'
+import { createChatClient } from '@tangle-network/agent-eval'
+import {
+  type AgenticTask,
+  type BenchmarkReport,
+  promotionGate,
+  type PromotionVerdict,
+  refine,
+  runBenchmark,
+  runStrategyEvolution,
+  sample,
+  sampleThenRefine,
+  type Strategy,
+} from '@tangle-network/agent-runtime/loops'
+import { join } from 'node:path'
+import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
+import { mathEnvironment } from './ablation-math-env.mts'
+
+function must(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`env ${name} is required`)
+  return v
+}
+
+interface CellSpec {
+  name: string
+  sigma: boolean // steering
+  alpha: boolean // self-improvement
+  gamma: boolean // optimized-prompt artifact
+  kappa: boolean // compression
+}
+
+function parseCell(name: string): CellSpec {
+  const parts = name === 'base' ? [] : name.split('+')
+  const known = new Set(['steer', 'evolve', 'gepa', 'compress'])
+  for (const p of parts) if (!known.has(p)) throw new Error(`unknown cell factor "${p}" in "${name}" (known: steer, evolve, gepa, compress)`)
+  return {
+    name,
+    sigma: parts.includes('steer'),
+    alpha: parts.includes('evolve'),
+    gamma: parts.includes('gepa'),
+    kappa: parts.includes('compress'),
+  }
+}
+
+// ── κ operators (prompt minimization) ─────────────────────────────────────────────
+
+function ddmin(text: string, n: number): string {
+  return [...text].filter((_, i) => (i + 1) % n !== 0).join('')
+}
+
+async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string, model: string): Promise<string> {
+  if (kappa === 'ddmin-2') return ddmin(text, 2)
+  if (kappa === 'ddmin-5') return ddmin(text, 5)
+  const fraction = kappa === 'llm-25' ? 0.25 : 0.5
+  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl, defaultModel: model })
+  const words = text.split(/\s+/).length
+  const res = await chat.chat({
+    temperature: 0.2,
+    maxTokens: 1024,
+    messages: [
+      {
+        role: 'system',
+        content: `Compress the following instruction prompt to at most ${Math.round(words * fraction)} words while preserving everything task-critical (the procedure, the output format, any tool instructions). Output ONLY the compressed prompt.`,
+      },
+      { role: 'user', content: text },
+    ],
+  })
+  return res.content.trim()
+}
+
+async function main(): Promise<void> {
+  const cellNames = (process.env.CELLS ?? 'base,steer,compress,steer+compress').split(',').map((s) => s.trim())
+  const cells = cellNames.map(parseCell)
+  if (!cells.some((c) => c.name === 'base')) cells.unshift(parseCell('base'))
+  const n = Number(process.env.N ?? 24)
+  const holdoutN = Number(process.env.HOLDOUT ?? 12)
+  const budget = Number(process.env.BUDGET ?? 4)
+  const concurrency = Number(process.env.CONCURRENCY ?? 3)
+  const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-pro'
+  const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
+  const routerKey = must('TANGLE_API_KEY')
+  const kappaOp = process.env.KAPPA ?? 'llm-50'
+  const envName = process.env.ENV ?? 'eops'
+
+  const domain =
+    envName === 'math'
+      ? mathEnvironment()
+      : (() => {
+          const surface = createEopsSurface(must('EOPS_GYM_DBS_DIR'))
+          const loadSlice = async (offset: number, count: number): Promise<AgenticTask[]> => {
+            const split = process.env.EOPS_SPLIT ?? 'itsm'
+            const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=${split}&offset=${offset}&length=${count}`
+            const res = await fetch(url)
+            if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
+            const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
+            const tasks = (body.rows ?? []).slice(0, count).map(({ row }) => eopsTaskFromRow(row))
+            if (tasks.length < count) throw new Error(`EOPS slice [${offset}, ${offset + count}) returned only ${tasks.length}`)
+            return tasks
+          }
+          return { environment: surface, tasks: loadSlice }
+        })()
+
+  const worker = { routerBaseUrl, routerKey, model: workerModel, innerTurns: Number(process.env.INNER_TURNS ?? 4), temperature: 0.7 }
+  const gammaPrompt = cells.some((c) => c.gamma) ? readFileSync(must('PROMPT_ARTIFACT'), 'utf8').trim() : undefined
+
+  // The prompt each cell carries: original | γ artifact, then κ on top of whichever.
+  const promptCache = new Map<string, string>()
+  const cellPrompt = async (cell: CellSpec, original: string): Promise<string> => {
+    let p = cell.gamma ? (gammaPrompt as string) : original
+    if (cell.kappa) {
+      const key = `${cell.gamma}:${kappaOp}:${p.slice(0, 40)}`
+      const hit = promptCache.get(key)
+      if (hit) return hit
+      p = await compressPrompt(p, kappaOp, routerKey, routerBaseUrl, workerModel)
+      promptCache.set(key, p)
+    }
+    return p
+  }
+
+  const train = await domain.tasks(0, n)
+  const holdout = await domain.tasks(n + Number(process.env.HOLDOUT_OFFSET ?? 0), holdoutN)
+  const retask = async (cell: CellSpec, tasks: AgenticTask[]): Promise<AgenticTask[]> =>
+    Promise.all(tasks.map(async (t) => ({ ...t, systemPrompt: await cellPrompt(cell, t.systemPrompt) })))
+
+  console.error(`=== ABLATION GRID · cells [${cells.map((c) => c.name).join(', ')}] · n=${n}+${holdoutN} · budget=${budget} · κ=${kappaOp} · env=${envName} ===`)
+  const results: Record<string, { holdout: BenchmarkReport; strategyName: string; words: number }> = {}
+  for (const cell of cells) {
+    console.error(`\n▶ cell ${cell.name}`)
+    const cellHoldout = await retask(cell, holdout)
+    const sysWords = (cellHoldout[0]?.systemPrompt ?? '').split(/\s+/).length
+    let strategyName: string
+    let holdoutReport: BenchmarkReport
+    if (cell.alpha) {
+      const report = await runStrategyEvolution({
+        environment: domain.environment,
+        tasks: async (offset, count) => retask(cell, offset === 0 ? train.slice(0, count) : holdout.slice(0, count)),
+        trainN: n,
+        holdoutN,
+        worker,
+        author: {
+          chat: createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: workerModel }),
+          model: workerModel,
+          fallbackModel: 'deepseek-v4-flash',
+          maxTokens: 8192,
+        },
+        budget,
+        concurrency,
+        generations: Number(process.env.GENS ?? 1),
+        populationSize: Number(process.env.POP ?? 2),
+        outDir: join(import.meta.dirname, 'authored'),
+      })
+      strategyName = report.finalChampion.name
+      holdoutReport = report.holdout
+    } else {
+      const strategy: Strategy = cell.sigma ? refine : sample
+      strategyName = strategy.name
+      holdoutReport = await runBenchmark({
+        environment: domain.environment,
+        tasks: cellHoldout,
+        worker,
+        strategies: [strategy],
+        budget,
+        concurrency,
+      })
+    }
+    const s = holdoutReport.perStrategy[strategyName]
+    console.error(`  ${cell.name}: ${strategyName} → ${(100 * (s?.score ?? 0)).toFixed(1)}%  $${(s?.usd ?? 0).toFixed(4)}/task  (prompt ${sysWords}w)`)
+    results[cell.name] = { holdout: holdoutReport, strategyName, words: sysWords }
+  }
+
+  // Gate every cell against base on the SAME holdout task ids.
+  const base = results.base
+  if (!base) throw new Error('base cell missing')
+  console.error(`\n${'='.repeat(74)}\nGRID VERDICTS (vs base; κ cells gated non-inferiority)\n${'='.repeat(74)}`)
+  const verdicts: Record<string, PromotionVerdict> = {}
+  for (const cell of cells) {
+    if (cell.name === 'base') continue
+    const r = results[cell.name]
+    if (!r) continue
+    const merged: BenchmarkReport = {
+      n: holdoutN,
+      excluded: 0,
+      perStrategy: {},
+      pareto: [],
+      perTask: base.holdout.perTask.map((row) => {
+        const vRow = r.holdout.perTask.find((x) => x.taskId === row.taskId)
+        const bCell = row.cells?.[base.strategyName]
+        const vCell = vRow?.cells?.[r.strategyName]
+        return bCell && vCell
+          ? { taskId: row.taskId, cells: { base: bCell, [cell.name]: vCell } }
+          : { taskId: row.taskId, error: 'cell missing' }
+      }),
+    }
+    const verdict = promotionGate({
+      report: merged,
+      incumbent: 'base',
+      candidate: cell.name,
+      ...(cell.kappa && !cell.sigma && !cell.alpha && !cell.gamma ? { mode: 'non-inferiority' as const } : cell.kappa ? { mode: 'non-inferiority' as const } : {}),
+      minPairedTasks: Math.min(6, holdoutN),
+    })
+    verdicts[cell.name] = verdict
+    const cost = verdict.costSavings ? `  savings $${verdict.costSavings.mean.toFixed(4)} CI[${verdict.costSavings.low.toFixed(4)},${verdict.costSavings.high.toFixed(4)}]` : ''
+    console.error(`  ${cell.name.padEnd(16)} Δscore ${(verdict.lift.mean * 100).toFixed(1)}pp CI[${(verdict.lift.low * 100).toFixed(1)},${(verdict.lift.high * 100).toFixed(1)}]${cost}  → ${verdict.promoted ? `PROMOTED (${verdict.reason})` : verdict.reason}`)
+  }
+  const outPath = process.env.OUT ?? '/tmp/ablation-grid-result.json'
+  writeFileSync(outPath, JSON.stringify({ cells: cellNames, kappaOp, results, verdicts }, null, 2))
+  console.error(`  full artifact → ${outPath}`)
+}
+
+main().catch((e) => {
+  console.error(`ablation-grid: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
+  process.exit(1)
+})
