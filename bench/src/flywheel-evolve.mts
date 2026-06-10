@@ -123,6 +123,15 @@ async function main(): Promise<void> {
   console.error(`  full artifact → ${outPath}`)
 }
 
+// Authored bodies are semi-arbitrary code: a floating promise that rejects must not
+// kill a multi-hour run (the harness-verified scores are unaffected — the strategy
+// simply keeps whatever its brokered shots achieved). Loud, never silent.
+process.on('unhandledRejection', (e) => {
+  console.error(
+    `flywheel-evolve: UNHANDLED REJECTION from a strategy body (run continues): ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`,
+  )
+})
+
 main().catch((e) => {
   console.error(`flywheel-evolve: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
   process.exit(1)

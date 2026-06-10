@@ -627,12 +627,25 @@ export function defineStrategy(
         // fabricate a win; it can only report what its real shots achieved. Keep-best.
         let verifiedBest = 0
         let verifiedResolved = false
+        // Close is IDEMPOTENT by construction for the body: authored code double-closes
+        // (often as a floating promise inside a finally), and a second close must be a
+        // no-op rather than a domain error that escapes as an unhandled rejection and
+        // kills the whole benchmark run. A close failure on a LIVE handle still throws.
+        const openHandles = new Set<string>()
         const ctx: StrategyCtx = {
           // Narrowed to open/close — the body gets no raw call()/score() access.
           surface: {
             name: surface.name,
-            open: (t) => surface.open(t),
-            close: (h) => surface.close(h),
+            open: async (t) => {
+              const h = await surface.open(t)
+              openHandles.add(h.id)
+              return h
+            },
+            close: async (h) => {
+              if (!h || !openHandles.has(h.id)) return
+              openHandles.delete(h.id)
+              await surface.close(h)
+            },
           },
           task,
           opts,
