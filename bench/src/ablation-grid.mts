@@ -34,7 +34,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { join } from 'node:path'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
-import { mathEnvironment } from './ablation-math-env'
+import { mathEnvironment } from './ablation-math-env.mts'
 
 function must(name: string): string {
   const v = process.env[name]
