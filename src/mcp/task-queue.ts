@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * In-memory state for async MCP delegations. State machine:
+ * State machine for async MCP delegations:
  *
  *   pending → running → completed | failed
  *           ↘ cancelled (from any non-terminal state via cancel())
@@ -15,11 +15,22 @@
  * A duplicate `submit` with a known key returns the existing task instead of
  * starting a new one. Mutated input → different key → different task.
  *
- * Persistent state (sqlite) is a Phase 2 follow-up. The README documents the
- * in-memory limitation explicitly so consumers know a worker restart drops
- * pending delegations.
+ * Durability: the working set lives in memory (reads stay synchronous) and
+ * every record mutation is journaled through a `DelegationStore`. The default
+ * `InMemoryDelegationStore` keeps today's semantics — a process restart drops
+ * all state. Construct via `DelegationTaskQueue.restore({ store })` with a
+ * `FileDelegationStore` to reload prior records on startup: terminal records
+ * stay queryable, in-flight records either re-attach through the
+ * `resumeDelegate` seam (when they carry a `detachedSessionRef`) or fail
+ * loud with a driver-restart error so `delegation_status` tells the truth.
  */
 
+import { ValidationError } from '../errors'
+import {
+  DelegationPersistenceError,
+  type DelegationStore,
+  InMemoryDelegationStore,
+} from './delegation-store'
 import type {
   DelegateCodeArgs,
   DelegateResearchArgs,
@@ -37,7 +48,12 @@ import type {
 
 type AnyDelegateArgs = DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
 
-/** @experimental */
+/**
+ * Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) —
+ * persistent stores round-trip records through `JSON.stringify`.
+ *
+ * @experimental
+ */
 export interface DelegationRecord {
   taskId: string
   profile: DelegationProfile
@@ -52,6 +68,13 @@ export interface DelegationRecord {
   completedAt?: string
   /** Sha-prefix hash of the canonical input — used for idempotency lookup. */
   idempotencyKey?: string
+  /**
+   * Caller-generated deterministic id of a detached run (e.g. the sandbox
+   * session id a single-tick driver resumes by). Presence is what makes a
+   * restored in-flight record resumable via `resumeDelegate`; without it a
+   * restart settles the record as failed.
+   */
+  detachedSessionRef?: string
   /** Feedback events keyed by this delegation's taskId. */
   feedback: DelegationFeedbackSnapshot[]
 }
@@ -62,6 +85,13 @@ export interface SubmitInput<Args extends AnyDelegateArgs> {
   args: Args
   namespace?: string
   idempotencyKey?: string
+  /**
+   * Records the detached-run resume key on the new record. The submitted
+   * `run` function still executes in-process exactly as without it — the
+   * ref only matters after a restart, when `DelegationTaskQueue.restore`
+   * hands it to the `resumeDelegate` seam instead of failing the record.
+   */
+  detachedSessionRef?: string
   /**
    * Runs the underlying delegation. The queue passes a fresh `AbortSignal`
    * and a `report` channel for incremental progress updates. The function
@@ -81,12 +111,74 @@ export interface SubmitOutput {
   reused: boolean
 }
 
+/**
+ * One observation of a detached run, mapped 1:1 from a single-tick driver
+ * (e.g. the sandbox SDK's `driveTurn`, which reports
+ * completed | running | failed per pass). `running` schedules another tick
+ * after `intervalMs`; `completed` / `failed` settle the record.
+ *
+ * @experimental
+ */
+export type DelegationResumeTick =
+  | { state: 'running' }
+  | { state: 'completed'; output: DelegationResultPayload['output']; costUsd?: number }
+  | { state: 'failed'; error: DelegationError }
+
+/** @experimental */
+export interface DelegationResumeContext {
+  /** Fired by `cancel(taskId)`; the driver should stop the remote run when it can. */
+  signal: AbortSignal
+  report(progress: DelegationProgress): void
+}
+
+/**
+ * Re-attaches restored in-flight records to their detached runs. The queue
+ * calls `tick` repeatedly — it never awaits a whole run — so the driver can
+ * be a thin wrapper over a one-pass primitive: resolve the run named by
+ * `detachedSessionRef`, advance/poll it once, report where it stands. A
+ * thrown error settles the record as failed; `failed` ticks are treated as
+ * terminal and are not retried.
+ *
+ * @experimental
+ */
+export interface DelegationResumeDriver {
+  tick(
+    task: { record: DelegationRecord; detachedSessionRef: string },
+    ctx: DelegationResumeContext,
+  ): Promise<DelegationResumeTick>
+  /** Delay between `running` ticks, in milliseconds. Default 5000. */
+  intervalMs?: number
+}
+
 /** @experimental */
 export interface DelegationTaskQueueOptions {
   /** ID generator override; default `randomTaskId`. */
   generateId?: () => string
   /** Clock override; default `() => new Date().toISOString()`. */
   now?: () => string
+  /**
+   * Journal for record mutations and the `restore()` load source. Default
+   * `InMemoryDelegationStore` — observably identical to an unjournaled
+   * queue. Pass a `FileDelegationStore` through
+   * `DelegationTaskQueue.restore` for state that survives a restart;
+   * constructing with `new` never loads prior state.
+   */
+  store?: DelegationStore
+  /** Resume seam for restored in-flight records that carry a `detachedSessionRef`. */
+  resumeDelegate?: DelegationResumeDriver
+  /**
+   * Maximum number of terminal (completed | failed | cancelled) records
+   * retained; the oldest (by `completedAt`) are evicted from memory and
+   * store once the cap is exceeded. Default unbounded.
+   */
+  maxTerminalRecords?: number
+  /**
+   * Observes the first store failure. After it fires, the queue refuses
+   * new submissions and `flush()` rejects with the same error. Default:
+   * rethrow on a microtask — an unhandled crash — because silently
+   * degrading durable mode to memory-only would lie to the caller.
+   */
+  onPersistError?: (error: DelegationPersistenceError) => void
 }
 
 /** @experimental */
@@ -96,17 +188,63 @@ export class DelegationTaskQueue {
   private readonly byIdempotencyKey = new Map<string, string>()
   private readonly generateId: () => string
   private readonly now: () => string
+  private readonly store: DelegationStore
+  private readonly resumeDelegate?: DelegationResumeDriver
+  private readonly maxTerminalRecords: number
+  private readonly onPersistError: (error: DelegationPersistenceError) => void
+  private persistTail: Promise<void> = Promise.resolve()
+  private persistFailure: DelegationPersistenceError | undefined
 
   constructor(options: DelegationTaskQueueOptions = {}) {
     this.generateId = options.generateId ?? randomTaskId
     this.now = options.now ?? (() => new Date().toISOString())
+    this.store = options.store ?? new InMemoryDelegationStore()
+    this.resumeDelegate = options.resumeDelegate
+    if (options.maxTerminalRecords !== undefined) {
+      if (!Number.isInteger(options.maxTerminalRecords) || options.maxTerminalRecords < 1) {
+        throw new ValidationError(
+          `DelegationTaskQueue: maxTerminalRecords must be a positive integer, got ${String(options.maxTerminalRecords)}`,
+        )
+      }
+    }
+    this.maxTerminalRecords = options.maxTerminalRecords ?? Number.POSITIVE_INFINITY
+    this.onPersistError =
+      options.onPersistError ??
+      ((error) => {
+        queueMicrotask(() => {
+          throw error
+        })
+      })
+  }
+
+  /**
+   * Construct a queue from previously-persisted state. Loads every record
+   * from `options.store`, rebuilds the idempotency index (so a re-submitted
+   * identical task returns the prior taskId and its terminal state), then:
+   *
+   *   - terminal records stay queryable via `status()` / `history()`
+   *   - in-flight records with a `detachedSessionRef` re-attach through
+   *     `options.resumeDelegate` and report `running`
+   *   - other in-flight records settle as failed — their driver died with
+   *     the previous process and the result is unrecoverable
+   *
+   * The retention cap applies to the loaded set as well.
+   */
+  static async restore(options: DelegationTaskQueueOptions = {}): Promise<DelegationTaskQueue> {
+    const queue = new DelegationTaskQueue(options)
+    const loaded = await queue.store.loadAll()
+    queue.rehydrate(loaded)
+    return queue
   }
 
   /**
    * Kick off a delegation in the background. Returns immediately. The
-   * `taskId` is queryable via `status` once this method returns.
+   * `taskId` is queryable via `status` once this method returns. Throws
+   * the recorded `DelegationPersistenceError` once the store has failed —
+   * the queue does not accept work it cannot journal.
    */
   submit<Args extends AnyDelegateArgs>(input: SubmitInput<Args>): SubmitOutput {
+    if (this.persistFailure) throw this.persistFailure
     if (input.idempotencyKey) {
       const existing = this.byIdempotencyKey.get(input.idempotencyKey)
       if (existing && this.records.has(existing)) {
@@ -124,10 +262,12 @@ export class DelegationTaskQueue {
       startedAt: this.now(),
       feedback: [],
       idempotencyKey: input.idempotencyKey,
+      detachedSessionRef: input.detachedSessionRef,
     }
     this.records.set(taskId, record)
     this.controllers.set(taskId, controller)
     if (input.idempotencyKey) this.byIdempotencyKey.set(input.idempotencyKey, taskId)
+    this.persist(record)
 
     // Fire-and-forget the run function. Errors flow into the record so the
     // status poll surfaces them; the promise itself is intentionally
@@ -165,6 +305,8 @@ export class DelegationTaskQueue {
     record.status = 'cancelled'
     record.completedAt = this.now()
     record.error = { message: 'cancelled by caller', kind: 'CancelledError' }
+    this.persist(record)
+    this.enforceRetention()
     return true
   }
 
@@ -178,6 +320,7 @@ export class DelegationTaskQueue {
     const record = this.records.get(taskId)
     if (!record) return false
     record.feedback.push(snapshot)
+    this.persist(record)
     return true
   }
 
@@ -199,6 +342,16 @@ export class DelegationTaskQueue {
     return out.slice(0, limit)
   }
 
+  /**
+   * Await every journal write issued so far. Rejects with the recorded
+   * `DelegationPersistenceError` when any of them failed. Call before
+   * handing the store's backing file to another process.
+   */
+  async flush(): Promise<void> {
+    await this.persistTail
+    if (this.persistFailure) throw this.persistFailure
+  }
+
   /** Test-only — number of in-flight (non-terminal) records. */
   inflightCount(): number {
     let n = 0
@@ -216,11 +369,15 @@ export class DelegationTaskQueue {
     const record = this.records.get(taskId)
     if (!record) return
     record.status = 'running'
+    this.persist(record)
     try {
       const output = await input.run({
         signal: controller.signal,
         report: (progress) => {
-          if (record.status === 'running') record.progress = progress
+          if (record.status === 'running') {
+            record.progress = progress
+            this.persist(record)
+          }
         },
       })
       // `cancel()` may have flipped the status to `cancelled` while the
@@ -231,14 +388,170 @@ export class DelegationTaskQueue {
       record.status = 'completed'
       record.completedAt = this.now()
       record.result = { profile: input.profile, output } as DelegationResultPayload
+      this.persist(record)
+      this.enforceRetention()
     } catch (err) {
       if (currentStatus(record) === 'cancelled') return
       record.status = 'failed'
       record.completedAt = this.now()
       record.error = errorToShape(err)
+      this.persist(record)
+      this.enforceRetention()
     } finally {
       this.controllers.delete(taskId)
     }
+  }
+
+  private rehydrate(loaded: DelegationRecord[]): void {
+    const records = [...loaded].sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+    for (const record of records) {
+      this.records.set(record.taskId, record)
+      if (record.idempotencyKey) this.byIdempotencyKey.set(record.idempotencyKey, record.taskId)
+    }
+    for (const record of this.records.values()) {
+      if (isTerminal(record.status)) continue
+      if (record.detachedSessionRef && this.resumeDelegate) {
+        record.status = 'running'
+        this.persist(record)
+        this.startResume(record, record.detachedSessionRef, this.resumeDelegate)
+        continue
+      }
+      record.status = 'failed'
+      record.completedAt = this.now()
+      record.error = {
+        message: record.detachedSessionRef
+          ? `delegation driver restarted while the task was in flight; detached session "${record.detachedSessionRef}" needs a resumeDelegate to be resumed`
+          : 'delegation driver restarted while the task was in flight; the run was not detached and cannot be resumed',
+        kind: 'DriverRestartError',
+      }
+      this.persist(record)
+    }
+    this.enforceRetention()
+  }
+
+  private startResume(
+    record: DelegationRecord,
+    detachedSessionRef: string,
+    driver: DelegationResumeDriver,
+  ): void {
+    const controller = new AbortController()
+    this.controllers.set(record.taskId, controller)
+    void this.driveResume(record, detachedSessionRef, driver, controller)
+  }
+
+  private async driveResume(
+    record: DelegationRecord,
+    detachedSessionRef: string,
+    driver: DelegationResumeDriver,
+    controller: AbortController,
+  ): Promise<void> {
+    const intervalMs = driver.intervalMs ?? 5000
+    const ctx: DelegationResumeContext = {
+      signal: controller.signal,
+      report: (progress) => {
+        if (currentStatus(record) !== 'running') return
+        record.progress = progress
+        this.persist(record)
+      },
+    }
+    try {
+      while (!controller.signal.aborted && currentStatus(record) === 'running') {
+        const tick = await driver.tick({ record: structuredClone(record), detachedSessionRef }, ctx)
+        if (currentStatus(record) === 'cancelled') return
+        if (tick.state === 'completed') {
+          record.status = 'completed'
+          record.completedAt = this.now()
+          record.result = {
+            profile: record.profile,
+            output: tick.output,
+          } as DelegationResultPayload
+          if (tick.costUsd !== undefined) record.costUsd = tick.costUsd
+          this.persist(record)
+          this.enforceRetention()
+          return
+        }
+        if (tick.state === 'failed') {
+          record.status = 'failed'
+          record.completedAt = this.now()
+          record.error = tick.error
+          this.persist(record)
+          this.enforceRetention()
+          return
+        }
+        await abortableDelay(intervalMs, controller.signal)
+      }
+    } catch (err) {
+      if (currentStatus(record) === 'cancelled') return
+      record.status = 'failed'
+      record.completedAt = this.now()
+      record.error = errorToShape(err)
+      this.persist(record)
+      this.enforceRetention()
+    } finally {
+      this.controllers.delete(record.taskId)
+    }
+  }
+
+  private persist(record: DelegationRecord): void {
+    if (this.persistFailure) return
+    const snapshot = structuredClone(record)
+    this.persistTail = this.persistTail.then(async () => {
+      if (this.persistFailure) return
+      try {
+        await this.store.upsert(snapshot)
+      } catch (err) {
+        this.failPersistence(err)
+      }
+    })
+  }
+
+  private persistRemoval(taskIds: string[]): void {
+    if (this.persistFailure || taskIds.length === 0) return
+    this.persistTail = this.persistTail.then(async () => {
+      if (this.persistFailure) return
+      try {
+        await this.store.remove(taskIds)
+      } catch (err) {
+        this.failPersistence(err)
+      }
+    })
+  }
+
+  private failPersistence(cause: unknown): void {
+    if (this.persistFailure) return
+    const error =
+      cause instanceof DelegationPersistenceError
+        ? cause
+        : new DelegationPersistenceError(
+            `DelegationTaskQueue: store write failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+            { cause },
+          )
+    this.persistFailure = error
+    this.onPersistError(error)
+  }
+
+  private enforceRetention(): void {
+    if (!Number.isFinite(this.maxTerminalRecords)) return
+    const terminal: DelegationRecord[] = []
+    for (const record of this.records.values()) {
+      if (isTerminal(record.status)) terminal.push(record)
+    }
+    const excess = terminal.length - this.maxTerminalRecords
+    if (excess <= 0) return
+    terminal.sort((a, b) =>
+      (a.completedAt ?? a.startedAt).localeCompare(b.completedAt ?? b.startedAt),
+    )
+    const evicted = terminal.slice(0, excess)
+    for (const record of evicted) {
+      this.records.delete(record.taskId)
+      if (
+        record.idempotencyKey &&
+        this.byIdempotencyKey.get(record.idempotencyKey) === record.taskId
+      ) {
+        this.byIdempotencyKey.delete(record.idempotencyKey)
+      }
+    }
+    this.persistRemoval(evicted.map((record) => record.taskId))
   }
 }
 
@@ -255,6 +568,24 @@ function clampLimit(raw: number | undefined): number {
   const n = Math.trunc(raw as number)
   if (n <= 0) return 50
   return Math.min(n, 500)
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 function toStatusResult(record: DelegationRecord): DelegationStatusResult {

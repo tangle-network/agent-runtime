@@ -156,6 +156,8 @@ const server = createMcpServer({ coderDelegate: createDefaultCoderDelegate({ san
 
 Or mount the `agent-runtime-mcp` stdio bin on a production `AgentProfile.mcp`.
 
+Delegation state is in-memory by default — a server restart drops pending delegations and history. Set `AGENT_RUNTIME_DELEGATION_STATE_FILE=/path/state.json` on the bin (or construct via `DelegationTaskQueue.restore({ store: new FileDelegationStore({ filePath }) })`) to persist records across restarts: `delegation_status`/`delegation_history` keep answering for prior runs, idempotency keys dedupe resubmissions, and in-flight records either resume through the `resumeDelegate` seam (when submitted with a `detachedSessionRef`) or settle as failed with an explicit driver-restart error. A corrupt state file refuses to load (`DelegationStateCorruptError`); `AGENT_RUNTIME_DELEGATION_STATE_RECOVER=1` archives it and starts empty. `AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL=<n>` caps retained terminal records.
+
 ## The experiment harness (bench/)
 
 `bench/` is the internal harness that asks the binding empirical question: does any non-blind topology beat blind compute at equal k, under a deployable (non-oracle) selector, on a real benchmark? It runs through the same kernel, not a reimplementation.

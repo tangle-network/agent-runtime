@@ -35,6 +35,13 @@ export {
   composeProductionAgentProfile,
   DELEGATION_MCP_SERVER_KEY,
 } from './delegation-profile'
+export type { DelegationStore, FileDelegationStoreOptions } from './delegation-store'
+export {
+  DelegationPersistenceError,
+  DelegationStateCorruptError,
+  FileDelegationStore,
+  InMemoryDelegationStore,
+} from './delegation-store'
 export type {
   DelegationExecutor,
   FleetHandle,
@@ -71,6 +78,9 @@ export type {
 export { createInProcessTransport, createMcpServer } from './server'
 export type {
   DelegationRecord,
+  DelegationResumeContext,
+  DelegationResumeDriver,
+  DelegationResumeTick,
   DelegationTaskQueueOptions,
   SubmitInput,
   SubmitOutput,
