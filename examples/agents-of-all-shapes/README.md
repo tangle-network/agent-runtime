@@ -49,7 +49,7 @@ frameworks already emit them; you add `score`.
 
 | Shape | File | Live wiring |
 |---|---|---|
-| **Tangle runtime / router (tcloud)** | `shapes.ts` → `tangleRuntimeRuns` | `createOtelExporter` + `loopEventToOtelSpan` (see `examples/intelligence-export`) |
+| **Tangle runtime / router (tcloud)** | `shapes.ts` → `tangleRuntimeRuns` | `createOtelExporter` + `loopEventToOtelSpan` (see below) |
 | **OpenAI-compatible** (tcloud / OpenRouter / OpenAI / vLLM) | `shapes.ts` → `openAiCompatibleRuns` | any OpenAI client at the router's `baseURL`; emit a GenAI span per call |
 | **Mastra** | `shapes.ts` → `mastraRuns` | Mastra's native OTLP exporter → `${INTELLIGENCE_BASE}/v1/otlp/v1/traces` |
 | **Claude Agent SDK** | `shapes.ts` → `claudeAgentSdkRuns` | wrap `query()`, one GenAI span per turn from `msg.usage` |
@@ -59,6 +59,33 @@ The TypeScript shapes ship deterministic batches so the showcase is
 **verifiable in CI with no key** (`tests/agents-of-all-shapes.test.ts`). Each
 shape's header comment shows the exact live wiring — swap the batch for your
 framework's real telemetry and it lands on the identical engine.
+
+## Tangle-runtime live wiring (the built-in exporter)
+
+For the first shape, the live leg is the runtime's built-in exporter — one
+block in your product:
+
+```ts
+import { createOtelExporter, loopEventToOtelSpan } from '@tangle-network/agent-runtime'
+
+// The exporter POSTs to `${endpoint}/v1/traces`, so point it at `.../v1/otlp`
+// (becomes `.../v1/otlp/v1/traces`, the hosted ingest route).
+const exporter = createOtelExporter({
+  endpoint: 'https://intelligence.tangle.tools/v1/otlp',
+  headers: { authorization: `Bearer ${process.env.TANGLE_API_KEY}` },
+  serviceName: 'my-agent',
+})
+if (!exporter) throw new Error('no OTLP endpoint configured')
+
+// Per loop/stream event:
+exporter.exportSpan(loopEventToOtelSpan({ kind, runId, timestamp, payload }, traceId))
+await exporter.flush()
+```
+
+Anything that doesn't run on agent-runtime POSTs the same OTel GenAI spans
+raw to `${INTELLIGENCE_BASE}/v1/traces` (`resourceSpans` JSON, Bearer key —
+tenant resolves from the key, never the payload). Read insights back from
+the dashboard or `GET /v1/insights/outputs` with the same key.
 
 ## Why this matters
 

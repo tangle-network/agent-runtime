@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "External-benchmark harness for the agent-runtime loop: run blind vs steering vs steering+memory drivers against real benchmarks (SWE-bench, Terminal-Bench, AppWorld) and their DETERMINISTIC judges.",
+  "description": "Private experiment workspace for the agent-runtime optimization suite: Environment + Strategy/defineStrategy + runBenchmark over deterministic checks (EnterpriseOps-Gym, SWE-bench, answer-shaped domains). Map: bench/HARNESS.md.",
   "scripts": {
     "help": "tsx src/run.ts help",
     "preflight": "tsx src/run.ts preflight",

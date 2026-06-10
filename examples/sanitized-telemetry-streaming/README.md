@@ -1,12 +1,19 @@
 # sanitized-telemetry-streaming
 
-Streaming-event counterpart of [`sanitized-telemetry/`](../sanitized-telemetry/).
 Shows `createRuntimeStreamEventCollector` consuming a `runAgentTaskStream`
-loop with redaction on by default.
+loop with redaction on by default. Multi-tenant products should never
+serialize raw events directly — they may carry inputs, user answers,
+credentials, evidence ids, or eval details. The collector redacts all of
+those by default; you opt back in field by field.
 
-`runAgentTaskStream` yields a different event shape than `runAgentTask`
-(timestamps, sessions, text/tool deltas) so it has its own collector
-factory. Both honor the same `RuntimeTelemetryOptions` flags.
+## Non-streaming counterpart
+
+For non-streaming `runAgentTask` runs, use `createRuntimeEventCollector()`
+instead — same default redaction, same `RuntimeTelemetryOptions` flags
+(`includeInputs`, `includeMetadata`, `includeEvalDetails`, ...), passed as
+`onEvent: collector.onEvent`. `runAgentTaskStream` yields a different event
+shape than `runAgentTask` (timestamps, sessions, text/tool deltas) so it has
+its own collector factory; both honor the same options.
 
 ## Run
 
