@@ -10,16 +10,27 @@
  *     or the conserved compute dose.
  *   - promotionGate: deterministic seeded verdict, minimum-evidence floor, CI margin.
  */
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { promotionGate } from '../../src/runtime/promotion-gate'
-import type { BenchmarkReport, BenchmarkTaskRow } from '../../src/runtime/run-benchmark'
+import {
+  type BenchmarkReport,
+  type BenchmarkTaskRow,
+  runBenchmark,
+} from '../../src/runtime/run-benchmark'
 import {
   type AgenticSurface,
   type AgenticTask,
   defineStrategy,
   runAgentic,
 } from '../../src/runtime/strategy'
-import { assertStrategyContract } from '../../src/runtime/strategy-author'
+import {
+  assertStrategyContract,
+  authorStrategy,
+  strategyAuthorContract,
+} from '../../src/runtime/strategy-author'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
@@ -244,5 +255,79 @@ describe('promotionGate', () => {
     })
     expect(v.promoted).toBe(false)
     expect(v.reason).toBe('no-margin')
+  })
+})
+
+// ── The author/optimizer addressability surface ───────────────────────────────────
+
+describe('addressable optimization coordinates', () => {
+  it('the author contract exposes persona (multi-agent strategies are authorable)', () => {
+    expect(strategyAuthorContract).toContain('persona')
+    expect(strategyAuthorContract).toContain('systemPrompt')
+  })
+
+  it('analystModel routes the critique call to the critic model, not the worker', async () => {
+    const captured = stubRouter()
+    const surface = fixtureSurface(() => ({ passes: 0, total: 1 }))
+    const critiqued = defineStrategy('critiqued', async ({ shot, critique }) => {
+      const out = await shot()
+      if (out) await critique(out.messages)
+      return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+    })
+    await runAgentic({
+      surface,
+      task,
+      ...worker,
+      analystModel: 'critic-model',
+      strategy: critiqued,
+      budget: 2,
+    })
+    const models = captured.map((r) => (r as { model?: string }).model)
+    expect(models).toContain('test-model')
+    expect(models).toContain('critic-model')
+  })
+
+  it('runBenchmark passes lifecycle hooks through to every cell', async () => {
+    stubRouter()
+    const surface = fixtureSurface(() => ({ passes: 1, total: 1 }))
+    const events: string[] = []
+    const oneShot = defineStrategy('one-shot', async ({ shot }) => {
+      await shot()
+      return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+    })
+    await runBenchmark({
+      environment: surface,
+      tasks: [task],
+      worker,
+      strategies: [oneShot],
+      budget: 1,
+      concurrency: 1,
+      hooks: { onEvent: (e) => void events.push(e.type) },
+    })
+    expect(events.length).toBeGreaterThan(0)
+  })
+
+  it('authorStrategy uses a caller-supplied contract (the meta-optimization coordinate)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'authored-test-'))
+    const seen: string[] = []
+    const module = [
+      "export default { name: 'noop', driver: () => ({ name: 'noop', act: async () => ({ kind: 'done', deliverable: {} }) }) }",
+    ].join('\n')
+    const chat = {
+      chat: async (req: { messages: Array<{ content: string }> }) => {
+        seen.push(req.messages.map((m) => m.content).join('\n'))
+        return { content: `\`\`\`ts\n${module}\n\`\`\`` }
+      },
+    } as unknown as Parameters<typeof authorStrategy>[0]['chat']
+    const { strategy } = await authorStrategy({
+      chat,
+      contract: 'CUSTOM CONTRACT vNEXT',
+      environmentName: 'fixture',
+      lossesJson: '[]',
+      budget: 2,
+      outDir: dir,
+    })
+    expect(seen.join('\n')).toContain('CUSTOM CONTRACT vNEXT')
+    expect(strategy.name).toBe('noop')
   })
 })

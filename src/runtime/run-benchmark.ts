@@ -14,6 +14,7 @@
  */
 
 import { pairedBootstrap, paretoFrontier } from '@tangle-network/agent-eval'
+import type { RuntimeHooks } from '../runtime-hooks'
 import {
   type AgenticOptions,
   type AgenticSurface,
@@ -45,6 +46,9 @@ export interface BenchmarkConfig {
   /** Progress hook — fires as each task settles (the live-monitoring seam: append to a
    *  progress file, render a tree, stream to a dashboard). `done` counts settled tasks. */
   onTask?: (row: BenchmarkTaskRow, done: number, total: number) => void
+  /** Lifecycle observability — every spawn/settle of every cell's shots/analysts streams
+   *  here live (the watchdog/route-auditor seam, passed through to `runAgentic`). */
+  hooks?: RuntimeHooks
 }
 
 export interface BenchmarkLift {
@@ -138,6 +142,7 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
           task,
           strategy: s,
           budget,
+          ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
         })
         cells[s.name] = {
           score: r.score,
