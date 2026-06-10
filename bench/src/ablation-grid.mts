@@ -69,9 +69,16 @@ function ddmin(text: string, n: number): string {
   return [...text].filter((_, i) => (i + 1) % n !== 0).join('')
 }
 
-async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string): Promise<string> {
-  if (kappa === 'ddmin-2') return ddmin(text, 2)
-  if (kappa === 'ddmin-5') return ddmin(text, 5)
+interface CompressOut {
+  prompt: string
+  /** The machinery's own bill: what the compression call itself cost (zero for ddmin). */
+  overhead: { usd: number; ms: number; tokens: { input: number; output: number } }
+}
+
+async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string): Promise<CompressOut> {
+  const free = { usd: 0, ms: 0, tokens: { input: 0, output: 0 } }
+  if (kappa === 'ddmin-2') return { prompt: ddmin(text, 2), overhead: free }
+  if (kappa === 'ddmin-5') return { prompt: ddmin(text, 5), overhead: free }
   const fraction = kappa === 'llm-25' ? 0.25 : 0.5
   // The compressor is a fixed NON-THINKING model: a thinking model can burn the token
   // cap on reasoning and emit ~empty content, silently degenerating the κ arm.
@@ -79,6 +86,7 @@ async function compressPrompt(text: string, kappa: string, routerKey: string, ba
   const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl, defaultModel: compressorModel })
   const words = text.split(/\s+/).length
   const target = Math.round(words * fraction)
+  const started = Date.now()
   const res = await chat.chat({
     temperature: 0.2,
     maxTokens: 2048,
@@ -90,6 +98,12 @@ async function compressPrompt(text: string, kappa: string, routerKey: string, ba
       { role: 'user', content: text },
     ],
   })
+  const elapsedMs = Date.now() - started
+  const usage = (res as { usage?: { promptTokens?: number; prompt_tokens?: number; completionTokens?: number; completion_tokens?: number } }).usage
+  const tokens = {
+    input: usage?.promptTokens ?? usage?.prompt_tokens ?? 0,
+    output: usage?.completionTokens ?? usage?.completion_tokens ?? 0,
+  }
   const out = res.content.trim()
   const outWords = out.split(/\s+/).length
   // Fail loud on a degenerate compression — a ~empty prompt is a different treatment
@@ -97,7 +111,15 @@ async function compressPrompt(text: string, kappa: string, routerKey: string, ba
   if (outWords < Math.max(5, target * 0.2)) {
     throw new Error(`compressPrompt(${kappa}): degenerate output (${outWords} words vs target ${target}) — compressor returned: ${out.slice(0, 120)}`)
   }
-  return out
+  const { estimateCost, isModelPriced } = await import('@tangle-network/agent-eval')
+  return {
+    prompt: out,
+    overhead: {
+      usd: isModelPriced(compressorModel) ? estimateCost(tokens.input, tokens.output, compressorModel) : 0,
+      ms: elapsedMs,
+      tokens,
+    },
+  }
 }
 
 async function main(): Promise<void> {
@@ -141,10 +163,10 @@ async function main(): Promise<void> {
   // The cache stores the PROMISE so concurrent retask() calls share ONE compression
   // call per unique prompt (check-then-set on the value raced: N tasks fired N
   // duplicate router calls and any single blip killed the run).
-  const promptCache = new Map<string, Promise<string>>()
-  const cellPrompt = (cell: CellSpec, original: string): Promise<string> => {
+  const promptCache = new Map<string, Promise<CompressOut>>()
+  const cellPrompt = async (cell: CellSpec, original: string): Promise<string> => {
     const base = cell.gamma ? (gammaPrompt as string) : original
-    if (!cell.kappa) return Promise.resolve(base)
+    if (!cell.kappa) return base
     const key = `${cell.gamma}:${kappaOp}:${base.slice(0, 40)}`
     let pending = promptCache.get(key)
     if (!pending) {
@@ -154,7 +176,7 @@ async function main(): Promise<void> {
       })
       promptCache.set(key, pending)
     }
-    return pending
+    return (await pending).prompt
   }
 
   const train = await domain.tasks(0, n)
@@ -204,7 +226,9 @@ async function main(): Promise<void> {
       })
     }
     const s = holdoutReport.perStrategy[strategyName]
-    console.error(`  ${cell.name}: ${strategyName} → ${(100 * (s?.score ?? 0)).toFixed(1)}%  $${(s?.usd ?? 0).toFixed(4)}/task  (prompt ${sysWords}w)`)
+    console.error(
+      `  ${cell.name}: ${strategyName} → ${(100 * (s?.score ?? 0)).toFixed(1)}%  $${(s?.usd ?? 0).toFixed(4)}/task  ${((s?.ms ?? 0) / 1000).toFixed(0)}s/task  (prompt ${sysWords}w)`,
+    )
     results[cell.name] = { holdout: holdoutReport, strategyName, words: sysWords }
   }
 
@@ -240,13 +264,38 @@ async function main(): Promise<void> {
     })
     verdicts[cell.name] = verdict
     const cost = verdict.costSavings ? `  savings $${verdict.costSavings.mean.toFixed(4)} CI[${verdict.costSavings.low.toFixed(4)},${verdict.costSavings.high.toFixed(4)}]` : ''
-    console.error(`  ${cell.name.padEnd(16)} Δscore ${(verdict.lift.mean * 100).toFixed(1)}pp CI[${(verdict.lift.low * 100).toFixed(1)},${(verdict.lift.high * 100).toFixed(1)}]${cost}  → ${verdict.promoted ? `PROMOTED (${verdict.reason})` : verdict.reason}`)
+    const lat = verdict.latency ? `  Δms ${(verdict.latency.mean / 1000).toFixed(1)}s CI[${(verdict.latency.low / 1000).toFixed(1)},${(verdict.latency.high / 1000).toFixed(1)}]` : ''
+    console.error(`  ${cell.name.padEnd(16)} Δscore ${(verdict.lift.mean * 100).toFixed(1)}pp CI[${(verdict.lift.low * 100).toFixed(1)},${(verdict.lift.high * 100).toFixed(1)}]${cost}${lat}  → ${verdict.promoted ? `PROMOTED (${verdict.reason})` : verdict.reason}`)
+  }
+  // The machinery's own bill: κ's one-time compression cost amortizes across every task
+  // that uses the compressed prompt — break-even = overhead / per-task savings.
+  const overheads = await Promise.all(
+    [...promptCache.entries()].map(async ([k, v]) => [k, (await v).overhead] as const),
+  )
+  if (overheads.length > 0) {
+    console.error('  machinery bill (κ one-time):')
+    for (const [k, o] of overheads) {
+      const promotedSavings = Object.values(verdicts).find((v) => v.promoted && v.costSavings)?.costSavings?.mean
+      const breakEven = promotedSavings && promotedSavings > 0 ? Math.ceil(o.usd / promotedSavings) : null
+      console.error(
+        `    ${k.slice(0, 30)}: $${o.usd.toFixed(5)} · ${(o.ms / 1000).toFixed(1)}s · ${o.tokens.input}/${o.tokens.output} tok${breakEven !== null ? ` → break-even after ${breakEven} task(s)` : ''}`,
+      )
+    }
   }
   const outPath = process.env.OUT ?? '/tmp/ablation-grid-result.json'
   const prompts = Object.fromEntries(
-    await Promise.all([...promptCache.entries()].map(async ([k, v]) => [k, await v] as const)),
+    await Promise.all(
+      [...promptCache.entries()].map(async ([k, v]) => [k, (await v).prompt] as const),
+    ),
   )
-  writeFileSync(outPath, JSON.stringify({ cells: cellNames, kappaOp, prompts, results, verdicts }, null, 2))
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      { cells: cellNames, kappaOp, prompts, overheads: Object.fromEntries(overheads), results, verdicts },
+      null,
+      2,
+    ),
+  )
   console.error(`  full artifact → ${outPath}`)
 }
 

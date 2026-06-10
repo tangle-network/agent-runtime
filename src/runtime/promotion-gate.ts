@@ -44,7 +44,7 @@ export interface PromotionVerdict {
     | 'no-margin'
     | 'significant'
     | 'non-inferior-and-cheaper'
-    | 'score-inferior'
+    | 'non-inferiority-unproven'
     | 'not-cheaper'
   mode: 'superiority' | 'non-inferiority'
   /** Paired tasks that carried both strategies' cells. */
@@ -54,6 +54,10 @@ export interface PromotionVerdict {
   /** non-inferiority mode: paired (incumbent − candidate) cost SAVINGS per task (usd) —
    *  positive means the candidate is cheaper; significant iff the CI low clears zero. */
   costSavings?: { mean: number; median: number; low: number; high: number }
+  /** Paired (candidate − incumbent) wall-clock per task (ms) — negative = the candidate
+   *  is FASTER. Informational in every mode (never gates); the latency answer to "what
+   *  does this win actually cost the user?". */
+  latency?: { mean: number; median: number; low: number; high: number }
 }
 
 export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
@@ -71,6 +75,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const after: number[] = []
   const incUsd: number[] = []
   const candUsd: number[] = []
+  const incMs: number[] = []
+  const candMs: number[] = []
   const cellIds: string[] = []
   for (const row of opts.report.perTask) {
     const inc = row.cells?.[opts.incumbent]
@@ -80,6 +86,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
     after.push(cand.score)
     incUsd.push(inc.usd)
     candUsd.push(cand.usd)
+    incMs.push(inc.ms)
+    candMs.push(cand.ms)
     cellIds.push(row.taskId)
   }
   if (before.length === 0) {
@@ -103,11 +111,27 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
     low: sig.bootstrap.low,
     high: sig.bootstrap.high,
   }
+  const latSig = heldoutSignificance(
+    { before: incMs, after: candMs, cellIds },
+    {
+      deltaThreshold: 0,
+      minProductiveRuns: 1,
+      statistic: opts.statistic ?? 'mean',
+      ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+      ...(opts.resamples !== undefined ? { resamples: opts.resamples } : {}),
+    },
+  )
+  const latency = {
+    mean: latSig.bootstrap.mean,
+    median: latSig.bootstrap.median,
+    low: latSig.bootstrap.low,
+    high: latSig.bootstrap.high,
+  }
   if (mode === 'superiority') {
-    if (sig.fewRuns) return { promoted: false, reason: 'few-tasks', mode, n: sig.n, lift }
+    if (sig.fewRuns) return { promoted: false, reason: 'few-tasks', mode, n: sig.n, lift, latency }
     return sig.significant
-      ? { promoted: true, reason: 'significant', mode, n: sig.n, lift }
-      : { promoted: false, reason: 'no-margin', mode, n: sig.n, lift }
+      ? { promoted: true, reason: 'significant', mode, n: sig.n, lift, latency }
+      : { promoted: false, reason: 'no-margin', mode, n: sig.n, lift, latency }
   }
   // non-inferiority: (a) score not worse than −scoreTolerance, proven (CI low clears
   // −tolerance); (b) cost SAVINGS (incumbent − candidate, usd/task) significantly > 0.
@@ -139,11 +163,27 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
     high: costSig.bootstrap.high,
   }
   if (scoreSig.fewRuns)
-    return { promoted: false, reason: 'few-tasks', mode, n: scoreSig.n, lift, costSavings }
+    return { promoted: false, reason: 'few-tasks', mode, n: scoreSig.n, lift, costSavings, latency }
   if (!scoreSig.significant)
-    return { promoted: false, reason: 'score-inferior', mode, n: scoreSig.n, lift, costSavings }
+    return {
+      promoted: false,
+      reason: 'non-inferiority-unproven',
+      mode,
+      n: scoreSig.n,
+      lift,
+      costSavings,
+      latency,
+    }
   if (!costSig.significant)
-    return { promoted: false, reason: 'not-cheaper', mode, n: scoreSig.n, lift, costSavings }
+    return {
+      promoted: false,
+      reason: 'not-cheaper',
+      mode,
+      n: scoreSig.n,
+      lift,
+      costSavings,
+      latency,
+    }
   return {
     promoted: true,
     reason: 'non-inferior-and-cheaper',
@@ -151,5 +191,6 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
     n: scoreSig.n,
     lift,
     costSavings,
+    latency,
   }
 }

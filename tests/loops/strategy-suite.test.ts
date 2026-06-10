@@ -567,6 +567,7 @@ describe('promotionGate non-inferiority', () => {
     expect(v.promoted).toBe(true)
     expect(v.reason).toBe('non-inferior-and-cheaper')
     expect(v.costSavings?.low).toBeGreaterThan(0)
+    expect(v.latency).toBeDefined()
   })
 
   it('cheaper but score-inferior beyond tolerance LOSES', () => {
@@ -584,7 +585,7 @@ describe('promotionGate non-inferiority', () => {
       mode: 'non-inferiority',
     })
     expect(v.promoted).toBe(false)
-    expect(v.reason).toBe('score-inferior')
+    expect(v.reason).toBe('non-inferiority-unproven')
   })
 
   it('same quality at the same cost is NOT a promotion', () => {
