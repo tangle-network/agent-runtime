@@ -2,7 +2,7 @@
 
 Companion to [architecture.md](./architecture.md) (the spine) and [learning-flywheel.md](./learning-flywheel.md) (the moat thesis). Where `architecture.md` states *what the system is meant to be*, this doc stress-tests *whether it coheres* — by reading the same atom through five independent lenses, including an adversarial one, and recording where each framing holds and where it breaks. The five lenses converge on one diagnosis and one decision gate; that convergence is the point.
 
-`Status:` the inference scaffold is built; the load-bearing adaptive driver is **designed, not wired**. Verified against `origin/main`. See the evidence anchors (§7) for file:line.
+`Status` (re-verified against `origin/main`, 2026-06-10): two of this doc's load-bearing claims have since been measured or built. (1) The `analyses` channel the diagnosis hinges on now **exists** — `PlannerContext.analyses` (`src/runtime/driver.ts:80`), populated by the `analyze` hook on `createDriver` — **wired but not yet fed live by any bench**. (2) **Gate A (§5) has been run and cleared**, on the `Scope`/`Supervisor` + `observe()` substrate (EOPS itsm: depth +16.4pp CI [+5.3, +29.8], n=16 — details in §5), domain-bounded. The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
 
 ---
 
@@ -13,6 +13,11 @@ Strip the vocabulary and the built system is **best-of-N sampling + a selector +
 > The driver never reads the analyst's findings. It decides from an exit code, not a diagnosis.
 
 Everything below is an elaboration of that sentence from a different angle.
+
+*(Status: the edge now exists — `PlannerContext.analyses` + the `analyze` hook,
+`src/runtime/driver.ts:80` — built and tested, not yet fed live by any bench. The
+within-run question the gate poses has since been answered positively on the
+`Scope`/`Supervisor` substrate — §5.)*
 
 ---
 
@@ -40,16 +45,26 @@ Everything below is an elaboration of that sentence from a different angle.
   │  plan() ─▶ {refine | fanout | stop} ─▶ workers ─▶ selector     │
   │    ▲ reads history verdict.score ✓          │                 │
   │    │                                         └▶ TODAY = JUDGE  │
-  │    ╳  MISSING WIRE: analyses[] never reaches plan()  (oracle)✗ │
+  │    ╳  analyses[] → plan(): WIRED (driver.ts:80), not fed live  │
   └───────────────────────────────────────────────────────────────┘
-   The ╳ is the entire gap: the driver decides from a return code,
-   not from a diagnosis. "Adaptive driver" = designed, not wired.
+   The ╳ was the gap when the lenses ran: the driver decided from a
+   return code. The channel now exists; no bench feeds it live yet.
 ```
 
-Two structural facts, both visible above:
+Two structural facts as of the original audit, with their current status:
 
-1. `PlannerContext` has **no `analyses` channel** — the driver cannot see what the analyst found.
-2. The selector currently ranks with the **judge's score** — an oracle. The deployable, no-oracle selector is **unmeasured**.
+1. `PlannerContext` had no `analyses` channel. **Now it does** — `analyses?:
+   ReadonlyArray<AnalystFinding>` (`src/runtime/driver.ts:80`), populated by the optional
+   `analyze` hook on `createDriver`, so the planner can decide from the diagnosis, not the
+   verdict score alone. Honest status: **wired but not yet fed live by any bench** — the
+   diagram's ╳ marks the edge as built-not-exercised, no longer as missing.
+2. The selector ranked with the **judge's score** — an oracle. The deployable, no-oracle
+   selector has since been **built and measured**: a **verifier-grounded** selector is
+   positive on a deployable-checker domain (HumanEval, n=50, k=4: verifier-pick captures
+   the full oracle ceiling; verifier − self-consistency **+12.0pp CI [+4, +22]**,
+   BH-significant; random@k − blind +18.0pp CI [+8, +30]), while answer-agreement
+   selectors are negative (finsearch −8.2pp n=51; aec −9.4pp n=16). The selector needs a
+   runnable checker, not answer-vote.
 
 The discipline that the architecture leans on — *selector ≠ judge*, judge write-only — is exactly what keeps the outer loop from optimising toward its own grader. The temptation to wire the judge into ranking (it is the cheapest, strongest selector) is the thing the design must resist; the moat depends on resisting it.
 
@@ -123,7 +138,7 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.3 Program synthesis / interpreter
 
-`runLoop` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance.
+`runLoop` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: `select` is now emittable — `TopologyMove`, `src/runtime/driver.ts:52` — and the richer program space this lens asks for exists as `defineStrategy` (`src/runtime/strategy.ts`): a strategy is ordinary code, which supersedes growing the move enum.)*
 
 ### 3.4 Two-timescale / recursive self-improvement
 
@@ -168,6 +183,17 @@ Build the adaptive driver **only if** this comes back positive:
 
 Until `refine@k-with-findings > random@k at equal compute under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
 
+**Measured (2026-06-09): POSITIVE, domain-bounded.** On EnterpriseOps-Gym itsm,
+depth-steered continuation (analyst-fed, `observe()`) beats blind breadth at equal
+compute under keep-best checkpoint scoring: **+16.4pp CI [+5.3, +29.8], 6 wins / 0
+losses, n=16**, deepseek-v4-pro; replicated **+8.3pp** on a disjoint task slice. The
+gate cleared on the `Scope`/`Supervisor` + `defineStrategy` substrate
+(`src/runtime/strategy.ts`), **not** on the `runLoop`/`PlannerContext` path this doc
+instruments. The boundary: **negative on stateless retrieval** (FinSearchComp),
+**null-to-negative on stateless codegen** (HumanEval steer null at equal k;
+exec-grounded repair −17.1pp), **positive on stateful agentic domains** with a
+correctable middle band scored keep-best (EOPS).
+
 **Gate A ≠ project success.** Gate A is the inner GO/NO-GO for *one* component (the within-run driver). The product-success gate is **Gate B** — a positive cross-run score-vs-run slope under a frozen-controller control ([learning-flywheel.md](./learning-flywheel.md)), which is currently **UNMEASURED** (cf. the zero cross-benchmark-transfer admission, §6). A failed Gate A deletes within-run steering; it never bears on Gate B.
 
 ---
@@ -186,13 +212,20 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
 
 ## 7. Evidence anchors
 
-- `src/loops/drivers/driver.ts` — `PlannerContext` (no `analyses` field); `TopologyMove` 3-opcode union; `summarizeHistory` (verdict score + truncated output only).
-- `src/loops/drivers/sandbox-planner.ts` — live planner build-prompt sees only root task + history summary.
-- `src/loops/drivers/planners.ts` — the only deterministic driver is blind.
-- `src/loops/run-loop.ts` — `defaultSelectWinner` / `branchPoint` (selection is an interpreter builtin; ranks by `verdict.score`).
-- `src/analyst-loop/` — `runAnalystLoop` consumed by `improvement-driver.ts` only; **no consumer under `src/loops/drivers/`**.
-- `src/improvement/optimize-prompt.ts` — identity-gated GEPA over a static directive string; guards non-empty holdout, not train/holdout disjointness.
-- `bench/src/refine-loop.ts` — shared k-shot loop; `prompt(round, history, ctx)` has no findings channel.
-- `bench/src/finsearch-loop.ts` / `bench/src/run.ts` (`batch-compare`) — where random@k / pass@k is computed; headline `random@3` is judge-selected (oracle upper bound).
+- `src/runtime/driver.ts` — `PlannerContext` (`:64`) with the `analyses` channel (`:80`)
+  and the `analyze` hook on `createDriver`; `TopologyMove` (`:52`) — refine/fanout/stop
+  plus an emittable `select`.
+- `src/runtime/run-loop.ts` — `defaultSelectWinner` (`:983`) / `branchPoint` (`:797`);
+  `RunLoopOptions.selectWinner` (`:104`) is the selector-injection seam.
+- `src/runtime/strategy.ts` / `src/runtime/strategy-author.ts` — `defineStrategy` /
+  `authorStrategy`: the program space where the Gate-A-positive strategies run.
+- `src/analyst-loop/` — `runAnalystLoop`; the driver-side seam is the `analyze` hook.
+- Prompt-space optimization lives in agent-eval (`selfImprove`); the analyst-prompt
+  coordinate is measured flat (frozen-holdout tie, 2026-06-09).
+- `bench/src/selector.ts` + `bench/src/corpus-replay.mts --selector` — the deployable
+  selector and its offline replay harness.
+- `bench/src/refine-loop.ts` — shared k-shot loop.
+- `bench/src/finsearch-loop.ts` / `bench/src/run.ts` — where random@k / pass@k is
+  computed; the original headline `random@3` was judge-selected (oracle upper bound).
 
 **Literature.** Parallel sampling + sound selector wins: Brown 2024 (repeated sampling), Wang 2022 (self-consistency), Lightman 2023 (process reward). Intrinsic self-refine degrades on hard tasks: Huang 2023, Kamoi 2024, Stechly 2024. The loop is not a new method class — it is a known combination whose winning half is not yet honestly built.
