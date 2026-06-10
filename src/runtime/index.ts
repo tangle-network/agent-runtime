@@ -235,6 +235,7 @@ export {
 export {
   type AuthoredStrategy,
   type AuthorStrategyOptions,
+  assertAuthoredCodeSafe,
   authorStrategy,
   strategyAuthorContract,
 } from './strategy-author'

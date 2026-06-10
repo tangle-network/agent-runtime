@@ -40,6 +40,9 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
 
 Rules:
 - Stay within ~budget total shots; every shot/critique spends from a conserved pool.
+- For a FRESH attempt OMIT \`messages\` entirely (never pass \`[]\` — an empty array is a
+  fresh conversation too, but be explicit). To CONTINUE, pass the previous
+  ShotResult.messages unchanged.
 - Return { score, resolved, completions, progression, shots } — score = the BEST checkpoint
   you reached (keep-best, never final-state), progression = score after each shot.
 - The module must be EXACTLY this shape (no other imports, no commentary outside code):
@@ -64,6 +67,34 @@ export interface AuthorStrategyOptions {
   outDir: string
   temperature?: number
   signal?: AbortSignal
+}
+
+/** Runtime enforcement of the authored-module contract (the import rule was previously
+ *  prompt-only — a live hole). A STATIC LINT, not a sandbox: it rejects the obvious
+ *  escape hatches (foreign imports, require, eval, process/fs/network access) before the
+ *  module is dynamically imported into this process. Treat authored code as semi-trusted:
+ *  for fully untrusted authors, run the whole gate in a container. */
+export function assertAuthoredCodeSafe(code: string): void {
+  const allowedImport =
+    /^\s*import\s+\{[^}]*\}\s+from\s+['"]@tangle-network\/agent-runtime\/loops['"]/
+  for (const line of code.split('\n')) {
+    if (/^\s*import\s/.test(line) && !allowedImport.test(line)) {
+      throw new Error(`authored code rejected: foreign import — ${line.trim().slice(0, 120)}`)
+    }
+  }
+  const banned: Array<[RegExp, string]> = [
+    [/\brequire\s*\(/, 'require()'],
+    [/\bimport\s*\(/, 'dynamic import()'],
+    [/\beval\s*\(/, 'eval()'],
+    [/new\s+Function\s*\(/, 'new Function()'],
+    [/\bprocess\s*[.[]/, 'process access'],
+    [/\bglobalThis\s*[.[]/, 'globalThis access'],
+    [/\bfetch\s*\(/, 'network access'],
+    [/child_process|node:fs|node:net|node:http|worker_threads/, 'node builtin access'],
+  ]
+  for (const [re, what] of banned) {
+    if (re.test(code)) throw new Error(`authored code rejected: ${what}`)
+  }
 }
 
 export interface AuthoredStrategy {
@@ -99,6 +130,7 @@ export async function authorStrategy(opts: AuthorStrategyOptions): Promise<Autho
     )
   }
   const code = match[1]
+  assertAuthoredCodeSafe(code)
   mkdirSync(opts.outDir, { recursive: true })
   const file = join(opts.outDir, `authored-${Date.now()}.mts`)
   writeFileSync(file, code)
