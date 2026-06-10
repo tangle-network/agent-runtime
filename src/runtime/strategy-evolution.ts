@@ -75,6 +75,14 @@ export interface StrategyEvolutionConfig {
   populationSize?: number
   /** The gen0 field. Default [sample, refine, sampleThenRefine]. */
   baselines?: Strategy[]
+  /** What "better" means for PROMOTION. 'score' (default): the candidate must beat the
+   *  incumbent's score (superiority gate). 'cost': the candidate must prove score
+   *  NON-INFERIORITY (not worse by more than `scoreTolerance`) plus significant cost
+   *  savings — the "same quality, cheaper" objective. The author is told the objective
+   *  and sees per-task spend either way. */
+  objective?: 'score' | 'cost'
+  /** Cost objective: the score CI lower bound must clear −scoreTolerance. Default 0.05. */
+  scoreTolerance?: number
   /** Search-side champion selection. Default 'costAware'. */
   champion?: ChampionPolicy
   /** Score band treated as a tie under 'costAware'. Default 0.01. */
@@ -316,8 +324,13 @@ const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): str
               // is capped at one bit per cell (arXiv:2606.11045 measured that exploration
               // survives this; whether AUTHORING does is the E1-coarse A/B).
               detail === 'binary'
-                ? { resolved: c.resolved }
-                : { score: r2(c.score), resolved: c.resolved, progression: c.progression.map(r2) },
+                ? { resolved: c.resolved, usd: Math.round(c.usd * 10000) / 10000 }
+                : {
+                    score: r2(c.score),
+                    resolved: c.resolved,
+                    usd: Math.round(c.usd * 10000) / 10000,
+                    progression: c.progression.map(r2),
+                  },
             ]),
           ),
         }
@@ -478,7 +491,11 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
     for (let i = 0; i < populationSize; i += 1) {
-      const contract = `${strategyAuthorContract}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
+      const objectiveNote =
+        cfg.objective === 'cost'
+          ? `\n\nYOUR OBJECTIVE: match or exceed the incumbent's SCORE while spending LESS (the losses include usd per task). Promotion requires proven score non-inferiority PLUS significant cost savings — a strategy that ties the score at half the cost WINS; a cheaper strategy that loses score by more than ${((cfg.scoreTolerance ?? 0.05) * 100).toFixed(0)}pp LOSES.`
+          : ''
+      const contract = `${strategyAuthorContract}${objectiveNote}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
       try {
         const authored = await authorStrategy({
           chat: cfg.author.chat,
@@ -621,6 +638,12 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       report: holdout,
       incumbent: gen0Champion.name,
       candidate: incumbent.name,
+      ...(cfg.objective === 'cost'
+        ? {
+            mode: 'non-inferiority' as const,
+            ...(cfg.scoreTolerance !== undefined ? { scoreTolerance: cfg.scoreTolerance } : {}),
+          }
+        : {}),
       ...(cfg.minPairedTasks !== undefined ? { minPairedTasks: cfg.minPairedTasks } : {}),
     })
     save({

@@ -510,3 +510,123 @@ describe('listTools', () => {
     expect(strategyAuthorContract).toMatch(/critique, listTools \}/)
   })
 })
+
+// ── Non-inferiority promotion (the cost objective) ─────────────────────────────────
+
+describe('promotionGate non-inferiority', () => {
+  const costReport = (
+    rows: Array<{
+      id: string
+      incScore: number
+      candScore: number
+      incUsd: number
+      candUsd: number
+    }>,
+  ): BenchmarkReport => ({
+    n: rows.length,
+    excluded: 0,
+    perStrategy: {},
+    perTask: rows.map((r) => ({
+      taskId: r.id,
+      cells: {
+        incumbent: {
+          score: r.incScore,
+          resolved: false,
+          progression: [],
+          usd: r.incUsd,
+          ms: 0,
+          tokens: { input: 0, output: 0 },
+        },
+        candidate: {
+          score: r.candScore,
+          resolved: false,
+          progression: [],
+          usd: r.candUsd,
+          ms: 0,
+          tokens: { input: 0, output: 0 },
+        },
+      },
+    })),
+    pareto: [],
+  })
+
+  it('same quality at half the cost PROMOTES', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      incScore: 0.6 + (i % 3) * 0.05,
+      candScore: 0.59 + (i % 3) * 0.05,
+      incUsd: 0.028,
+      candUsd: 0.013,
+    }))
+    const v = promotionGate({
+      report: costReport(rows),
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    expect(v.promoted).toBe(true)
+    expect(v.reason).toBe('non-inferior-and-cheaper')
+    expect(v.costSavings?.low).toBeGreaterThan(0)
+  })
+
+  it('cheaper but score-inferior beyond tolerance LOSES', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      incScore: 0.7,
+      candScore: 0.55,
+      incUsd: 0.028,
+      candUsd: 0.013,
+    }))
+    const v = promotionGate({
+      report: costReport(rows),
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    expect(v.promoted).toBe(false)
+    expect(v.reason).toBe('score-inferior')
+  })
+
+  it('same quality at the same cost is NOT a promotion', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      incScore: 0.6,
+      candScore: 0.61,
+      incUsd: 0.02,
+      candUsd: i % 2 === 0 ? 0.021 : 0.019,
+    }))
+    const v = promotionGate({
+      report: costReport(rows),
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    expect(v.promoted).toBe(false)
+    expect(v.reason).toBe('not-cheaper')
+  })
+
+  it('the verdict is deterministic', () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      incScore: 0.6,
+      candScore: 0.6,
+      incUsd: 0.03,
+      candUsd: 0.012 + (i % 2) * 0.002,
+    }))
+    const report = costReport(rows)
+    const a = promotionGate({
+      report,
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    const b = promotionGate({
+      report,
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    expect(b).toEqual(a)
+    expect(a.promoted).toBe(true)
+  })
+})
