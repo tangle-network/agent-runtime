@@ -62,6 +62,13 @@
 The asset is the **corpus**, not any single result. A run that shows no within-run effect
 still contributes data; the learnable structure emerges in the aggregate.
 
+The read side is not free: **naively priming** the worker context with prior-run prose
+records measures **negative** (−11.6pp with a worsening slope; the context-pollution and
+instance-transfer falsifiers both fired). The surviving read-side design is
+**verifier-gated, relevance-weighted accretion of certified programs** — store strategies
+that passed a checker, not facts —
+[docs/research/leapfrog-program.md §S3](./research/leapfrog-program.md).
+
 ## The lifting generalization: recursive self-improvement
 
 The flywheel is one instance of a more general object. Name the loop:
@@ -180,6 +187,10 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
    pass/fail), optimizing for **correctness AND clean/fast trace** (Pareto). `meta-harness`
    is the code-level search engine that sits HERE — it evolves controller *code* on a Pareto
    frontier, and it only works once layer 1 makes the metric cheap + discriminating.
+   **Measured (2026-06-09): the analyst-prompt coordinate is flat** — a 3-generation GEPA
+   run over the `observe()` analyst prompt tied the default exactly on a frozen holdout.
+   The searchable space that remains live at this layer is the **strategy program itself**
+   (`defineStrategy` + `authorStrategy`), not the analyst prompt.
 4. **Cross-domain.** Optimize ONE controller across coding/research/terminal/browser. If the
    learned steering **transfers**, that's the moonshot. If not, you get N per-domain
    flywheels — still useful, but the "one controller, many benchmarks" claim *requires*
@@ -216,7 +227,34 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   agentic-driver. Each rung must beat *compute-matched* random before the next is justified.
   Don't jump to the unbounded agentic driver to (expensively) re-derive that more-compute ≈ 0.
 
-## Honest status (2026-06-03)
+## Honest status (updated 2026-06-10)
+
+- **Stateful agentic (EnterpriseOps-Gym itsm, 2026-06-09): Gate A POSITIVE.** On the
+  canonical loop — `Scope`/`Supervisor` + the `observe()` analyst + `defineStrategy`
+  (`src/runtime/strategy.ts`), not the `runLoop` path — depth-steered continuation beats
+  breadth (blind best-of-K) at equal compute under keep-best checkpoint scoring:
+  **+16.4pp CI [+5.3, +29.8]**, 6 wins / 0 losses, n=16, deepseek-v4-pro; replicated
+  **+8.3pp** on a disjoint task slice.
+- **Stateless codegen (HumanEval, 2026-06-08): null-to-negative.** observe→steer does not
+  beat blind resampling at equal k (n=82, paired bootstrap; compute alone +12.2pp
+  significant); exec-grounded self-repair is significantly **negative** (−17.1pp,
+  CI [−26.8, −7.3]).
+- **The domain-boundary law (supersedes any "steering loses everywhere" reading of the
+  rung-0 entry below):** within-run steering is negative on stateless retrieval
+  (FinSearchComp), null-to-negative on stateless codegen (HumanEval), **positive on
+  stateful agentic domains** with a correctable middle band, scored keep-best (EOPS).
+  The boundary variable is state + the inability to cheaply resample.
+- **Analyst-prompt GEPA (2026-06-09): NULL.** A 3-generation prompt search + frozen
+  holdout tied the default `observe()` analyst exactly (the search winner's +12.6pp was
+  holdout-overfit). The analyst-prompt coordinate is flat; the live outer-loop lever is
+  program/strategy space (`defineStrategy` + `authorStrategy`).
+- **Corpus read-side priming (naive): NEGATIVE** (−11.6pp, worsening slope) — see the
+  read-side note under "The flywheel" and
+  [leapfrog-program.md §S3](./research/leapfrog-program.md).
+- Evidence map + ranked portfolio:
+  [docs/research/optimization-space.md](./research/optimization-space.md).
+
+### Earlier entries (2026-06-03)
 
 - **Coding (SWE-bench):** refine ≈ blind (net 1 rescue / 1 break, n=23). Directional, NOT
   proven — high blind baseline (~74%, likely *contamination* on popular repos) leaves ~no
@@ -262,8 +300,19 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
 
 ## Where the pieces live
 
-- Kernel + controller seam: `src/loops/` (`runLoop`, `createDriver`, `createSandboxPlanner`).
-- Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`, `finsearch-loop.ts`,
+- Kernel + controller seam: `src/runtime/` (`runLoop` + `createDriver` — one execution
+  backend) and the canonical `Scope`/`Supervisor` substrate (`src/runtime/supervise/`).
+- **The published optimization suite**: `@tangle-network/agent-runtime/loops` (a build
+  alias — the source is `src/runtime/`, there is no `src/loops/` directory):
+  `Environment`/`Strategy`/`defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark`
+  (`run-benchmark.ts`), `createVerifierEnvironment`/`createMcpEnvironment`,
+  `harvestCorpus`, `authorStrategy` (`strategy-author.ts`), `auditIntent`, and
+  `promotionGate` (`promotion-gate.ts` — the seeded paired-bootstrap holdout gate over
+  agent-eval's `heldoutSignificance`: evidence floor 6 paired tasks, the CI lower bound
+  must clear the threshold).
+- Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`,
+  `flywheel-run.mts` — gen0 → `authorStrategy` → gen1 → rotating disjoint holdout under
+  the seeded `promotionGate` (the minimal single-objective Gate-B form),
   `terminal-compare.ts`, `corpus-report.mts`).
-- Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`gepaDriver`,
-  `heldOutGate`, `runImprovementLoop`, `RunRecord`/trace-store, `./rl`).
+- Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`selfImprove`,
+  `runImprovementLoop`, `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).

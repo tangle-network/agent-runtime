@@ -10,21 +10,27 @@
 > an agent in another repo building a new benchmark: **read §1, §6, §9 — you only
 > write an adapter, never a new loop.**
 >
-> **Status — built vs slop (verified against `origin/main`, 2026-06-05).** The
-> *product core* is real: the recursive agent tree (`src/runtime/supervise/` — `Agent.act`
-> in a `Scope`, `scope.spawn`, settle, journal→replay/resume), the sandbox seam
-> (`SandboxClient` + the sandbox `Executor`, injectable/swappable), the steering
-> MCP (`operator-toolbox`), the corpus + external judge, and the lifecycle hook stream
-> (`runtime-hooks`, #162/#163). The *driver-as-code* is **slop being deleted**: the
-> in-process LLM tool-loop (`operator-driver.ts`), the `create*Driver` factory zoo
-> (`refine`/`fanout-vote`/`sandbox-planner`), the `TopologyMove` DSL, and the fixed
-> `analyst-kinds` registry — all reimplement what the harness + the `Scope` + data-checks
-> already do. The *product to wire*: run the driver **and** workers as real sandbox
-> harnesses (not in-process), with checks authored on the fly. `runLoop`/`createDriver`
-> are **one execution backend**, not the center. The coherence analysis is in
+> **Status (verified against `origin/main`, 2026-06-10).** The *product core* is real:
+> the recursive agent tree (`src/runtime/supervise/` — `Agent.act` in a `Scope`,
+> `scope.spawn`, settle, journal→replay/resume), the sandbox seam (`SandboxClient` +
+> the sandbox `Executor`, injectable/swappable), the trace observer (`observe()`,
+> `src/runtime/observe.ts`), the corpus + external judge, and the lifecycle hook stream
+> (`runtime-hooks`). The driver-as-code that reimplemented what the harness + the
+> `Scope` + data-checks already do (the in-process operator tool-loop, the
+> `create*Driver` factory zoo, the fixed analyst-kinds registry) is deleted;
+> `runLoop`/`createDriver` remain **one execution backend**, not the center. The
+> **canonical optimization surface is the published loops suite** —
+> `@tangle-network/agent-runtime/loops` (a build alias; the source lives in
+> `src/runtime/`, there is no `src/loops/` directory): `Environment`/`Strategy`/
+> `defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark` (`run-benchmark.ts`),
+> `createVerifierEnvironment`/`createMcpEnvironment`, `harvestCorpus`,
+> `authorStrategy` (`strategy-author.ts`), `auditIntent`, and `promotionGate`
+> (`promotion-gate.ts`). The coherence analysis is in
 > [architecture-interpretations.md](./architecture-interpretations.md); the
-> dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the empirics
-> are §11. Doc map: [docs/README.md](./README.md).
+> dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the
+> empirics are §11; the live evidence map + portfolio is
+> [docs/research/optimization-space.md](./research/optimization-space.md). Doc map:
+> [docs/README.md](./README.md).
 
 ---
 
@@ -243,7 +249,12 @@ by its own deployable checker (tests · clock · scanner · cost meter), with th
 write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
 Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
 `adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
-the optimizer can trade objectives honestly.
+the optimizer can trade objectives honestly. **Measured (2026-06-09):** prompt search
+over the analyst is flat — a 3-generation GEPA run over the `observe()` analyst prompt
+ended in an exact frozen-holdout tie with the default prompt (§11). The analyst-prompt
+coordinate is retired; the live outer-loop lever is **program/strategy space**
+(`defineStrategy` + `authorStrategy`), per
+[docs/research/optimization-space.md](./research/optimization-space.md).
 
 ---
 
@@ -321,7 +332,8 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
    bench** (EnterpriseOps-Gym / commit0 / swe-bench) — a domain that can exhibit depth.
    FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
    one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
-   result is bench-specific, not domain-general).
+   result is bench-specific, not domain-general). **Status: cleared** — depth-steered
+   continuation beats blind breadth on EOPS at equal compute, significant (§11).
 2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
    beats compute-matched random.
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
@@ -374,6 +386,28 @@ judge, 0 infra-excluded):
 So rung-0 is **not** "steering is futile" — it is "the toy loses, and we have not
 yet run the machine we built."
 
+**Gate A — POSITIVE, domain-bounded (EnterpriseOps-Gym itsm, 2026-06-09).** On the
+canonical loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst +
+`defineStrategy` (`src/runtime/strategy.ts`), **not** the `runLoop`/`PlannerContext`
+path — depth-steered continuation beats breadth (blind best-of-K) at equal compute
+under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins / 0 losses,
+n=16**, deepseek-v4-pro; replicated **+8.3pp** on a disjoint task slice. Both arms
+must be scored with the same selection policy (keep-best) — scoring the depth arm on
+final state only silently biases against it.
+
+**The domain-boundary law (supersedes any "steering loses everywhere" reading of the
+rung-0 block above):** within-run steering is **negative on stateless retrieval**
+(FinSearchComp rung-0), **null-to-negative on stateless codegen** (HumanEval steer
+gate null at equal k, 2026-06-08; exec-grounded self-repair −17.1pp, CI [−26.8, −7.3]),
+and **positive on stateful agentic domains** with a correctable middle band, scored
+keep-best (EOPS). The boundary variable is state + the inability to cheaply resample.
+
+**GEPA over the analyst prompt — NULL (2026-06-09).** A 3-generation prompt search +
+frozen holdout tied the default `observe()` analyst exactly; the search winner's
++12.6pp was holdout-overfit. The analyst-prompt coordinate is measured flat; the live
+lever is program/strategy space (`defineStrategy`/`authorStrategy`). The full evidence
+map + ranked portfolio: [docs/research/optimization-space.md](./research/optimization-space.md).
+
 **The SOTA bar (where we actually stand — captured 2026-06-03):**
 - **FinSearchComp** (primary): frontier **Grok-4(web) 68.9%** (T1 87.3 / T2 68.1 / T3 51.2),
   **GPT-5-Thinking(web) 63.9%**, Gemini-2.5-Pro 42.6%; human expert ~75%. Our gated-refine 60% is
@@ -422,5 +456,6 @@ carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted po
    **loop** (`runRefineLoop`), the **pool** (`runPool`), the **steer** (`directives.ts`), and the
    **corpus** are first-class and shared; **a new benchmark is just an adapter** (loader + worker
    profile + judge + SOTA). Do not fork a `*-loop.ts` or a `Promise.all` drain — extend the atom.
-6. ⏳ **Open follow-ups:** wire the analyst report into the driver's `context` (close the blind-driver
-   gap — the adaptive driver); a `/run-benchmark-loop` skill encoding the adapter recipe.
+6. ⏳ **Open follow-ups:** the analyst→driver channel exists (`PlannerContext.analyses` +
+   the `analyze` hook, `src/runtime/driver.ts:80`) — built and tested, **not yet fed live by
+   any bench**; a `/run-benchmark-loop` skill encoding the adapter recipe.
