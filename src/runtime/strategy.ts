@@ -21,7 +21,7 @@
  * surface-closed registry — the open `Executor` seam, not bespoke per-benchmark glue.
  */
 
-import { createChatClient } from '@tangle-network/agent-eval'
+import { createChatClient, estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
@@ -118,6 +118,8 @@ interface ShotOut {
   completions: number
   toolCalls: number
   toolErrors: number
+  /** Real router usage summed over the shot's turns; zeros only when the provider omits usage. */
+  tokens: { input: number; output: number }
 }
 
 const taskNudge =
@@ -139,6 +141,7 @@ async function runShot(
   let completions = 0
   let toolCalls = 0
   let toolErrors = 0
+  const tokens = { input: 0, output: 0 }
   for (let t = 0; t < innerTurns; t += 1) {
     const res = await fetch(`${opts.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -155,7 +158,11 @@ async function runShot(
     completions += 1
     const data = (await res.json()) as {
       choices?: Array<{ message?: { content?: string; tool_calls?: ToolCall[] } }>
+      usage?: { prompt_tokens?: number; completion_tokens?: number }
     }
+    if (typeof data.usage?.prompt_tokens === 'number') tokens.input += data.usage.prompt_tokens
+    if (typeof data.usage?.completion_tokens === 'number')
+      tokens.output += data.usage.completion_tokens
     const msg = data.choices?.[0]?.message
     if (!msg) break
     const calls = msg.tool_calls ?? []
@@ -184,7 +191,7 @@ async function runShot(
       messages.push({ role: 'tool', tool_call_id: call.id, content: out })
     }
   }
-  return { messages, completions, toolCalls, toolErrors }
+  return { messages, completions, toolCalls, toolErrors, tokens }
 }
 
 /** The trace-analyst (selector≠judge): reads ONLY the trajectory + task, never the score. */
@@ -285,7 +292,16 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
           outRef: `shot:${handle.id}:${shot.completions}:${s.passes}/${s.total}`,
           out,
           verdict: { valid: s.total > 0 && s.passes === s.total, score },
-          spent: spend(shot.completions),
+          // Real usage to the conserved pool: tokens from the router responses; usd only
+          // when the model is in the price table (never a fabricated number).
+          spent: {
+            iterations: shot.completions,
+            tokens: shot.tokens,
+            usd: isModelPriced(opts.model)
+              ? estimateCost(shot.tokens.input, shot.tokens.output, opts.model)
+              : 0,
+            ms: 0,
+          },
         }
         return artifact
       } finally {
@@ -362,6 +378,11 @@ export interface AgenticRunResult {
   /** DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout. */
   progression: number[]
   shots: number
+  /** The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
+   *  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms. */
+  usd: number
+  ms: number
+  tokens: { input: number; output: number }
 }
 
 const perChild = (innerTurns: number): Budget => ({
@@ -651,6 +672,65 @@ export const adaptiveRefine = defineStrategy(
   },
 )
 
+/** The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
+ *  then refine the best-verifying line with the remaining budget. Sample's basin escape +
+ *  refine's accumulation — the third built-in, authored from the public steps. */
+export const sampleThenRefine = defineStrategy(
+  'sampleThenRefine',
+  async ({ surface, task, budget, shot, critique }) => {
+    const explore = Math.max(1, Math.ceil(budget / 2))
+    const open = new Set<ArtifactHandle>()
+    const progression: number[] = []
+    let completions = 0
+    let shots = 0
+    try {
+      // Explore: independent lines on handles we own (kept open so the best can continue).
+      let best: { handle: ArtifactHandle; out: ShotResult } | undefined
+      for (let i = 0; i < explore; i += 1) {
+        const handle = await surface.open(task)
+        open.add(handle)
+        const out = await shot({ handle })
+        if (!out) continue
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        if (!best || out.score > best.out.score) best = { handle, out }
+        if (out.score >= 1) break
+      }
+      if (!best) return { score: 0, resolved: false, completions, progression, shots }
+      // Exploit: close the losers, refine the winner with the remaining budget.
+      for (const h of [...open]) {
+        if (h !== best.handle) {
+          await surface.close(h)
+          open.delete(h)
+        }
+      }
+      let messages = best.out.messages
+      let topScore = best.out.score
+      for (let i = explore; i < budget && topScore < 1; i += 1) {
+        const findings = await critique(messages)
+        completions += 1
+        if (!findings) break
+        const out = await shot({
+          handle: best.handle,
+          messages,
+          steer: `A reviewer flagged unfinished items:\n${findings}\n\nAddress each with the tools, verify they took, then continue.`,
+        })
+        if (!out) break
+        shots += 1
+        completions += out.completions
+        progression.push(out.score)
+        messages = out.messages
+        if (out.score > topScore) topScore = out.score
+      }
+      const score = progression.length ? Math.max(...progression) : 0
+      return { score, resolved: score >= 1, completions, progression, shots }
+    } finally {
+      for (const h of open) await surface.close(h)
+    }
+  },
+)
+
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
@@ -672,6 +752,7 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
     maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2),
     maxTokens: 1_000_000_000,
   }
+  const started = Date.now()
   const result = await supervisor.run(driver, undefined, {
     budget: root,
     runId: `agentic:${strategy.name}:${opts.task.id}`,
@@ -687,5 +768,13 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
         : `no-winner: ${result.reason}`
     throw new Error(`runAgentic(${strategy.name}) produced no result — ${reason}`)
   }
-  return result.out.deliverable as AgenticRunResult
+  // Drivers deliver the strategy outcome; the cost vector is stamped here from the
+  // conserved pool's aggregate (every shot reported real usage into it) + wall clock.
+  const core = result.out.deliverable as Omit<AgenticRunResult, 'usd' | 'ms' | 'tokens'>
+  return {
+    ...core,
+    usd: result.spentTotal.usd,
+    tokens: result.spentTotal.tokens,
+    ms: Date.now() - started,
+  }
 }

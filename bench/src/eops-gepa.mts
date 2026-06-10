@@ -29,7 +29,7 @@ function must(name: string): string {
 }
 
 async function loadItsmTasks(n: number, offset = 0): Promise<AgenticTask[]> {
-  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=itsm&offset=${offset}&length=${n}`
+  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=${process.env.EOPS_SPLIT ?? 'itsm'}&offset=${offset}&length=${n}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
   const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
