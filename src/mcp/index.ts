@@ -23,9 +23,14 @@ export type {
   CreateDefaultCoderDelegateOptions,
   DelegateRunCtx,
   ResearcherDelegate,
+  SettleDetachedCoderTurnOptions,
   UiAuditorDelegate,
 } from './delegates'
-export { createDefaultCoderDelegate } from './delegates'
+export {
+  coderTaskFromArgs,
+  createDefaultCoderDelegate,
+  settleDetachedCoderTurn,
+} from './delegates'
 export type {
   BuildDelegationMcpServerOptions,
   ComposeProductionAgentProfileOptions,
@@ -42,6 +47,21 @@ export {
   FileDelegationStore,
   InMemoryDelegationStore,
 } from './delegation-store'
+export type {
+  DetachedSessionRefParts,
+  DetachedTurn,
+  DriveTurnCapableBox,
+  DriveTurnResumeDriverOptions,
+  DriveTurnTick,
+  RunDetachedTurnOptions,
+} from './detached-turn'
+export {
+  createDriveTurnResumeDriver,
+  detachedTurnEvents,
+  formatDetachedSessionRef,
+  parseDetachedSessionRef,
+  runDetachedTurn,
+} from './detached-turn'
 export type {
   DelegationExecutor,
   FleetHandle,
@@ -81,6 +101,7 @@ export type {
   DelegationResumeContext,
   DelegationResumeDriver,
   DelegationResumeTick,
+  DelegationRunContext,
   DelegationTaskQueueOptions,
   SubmitInput,
   SubmitOutput,

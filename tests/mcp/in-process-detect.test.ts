@@ -12,6 +12,14 @@ describe('detectExecutor — in-process selection', () => {
     expect(exec.describe()).toMatch(/in-process/)
     expect(exec.describe()).toContain('/workspace')
     expect(exec.describe()).toContain('harnesses=[claude]')
+    // In-process placement has no sandbox session — the bin keys detached
+    // dispatch off this tag, so it must never read session-backed here.
+    expect(exec.placement).toBe('in-process')
+  })
+
+  it('tags sibling placement as session-backed', async () => {
+    const exec = await detectExecutor({ sandboxClient: stubClient, env: {} })
+    expect(exec.placement).toBe('sibling')
   })
 
   it('throws when in-sandbox mode lacks repo root', async () => {

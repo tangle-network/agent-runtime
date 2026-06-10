@@ -17,8 +17,15 @@
  */
 
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
-import type { Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
+import type { AgentRunSpec, Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
+import {
+  type DetachedTurn,
+  detachedTurnEvents,
+  formatDetachedSessionRef,
+  parseDetachedSessionRef,
+  runDetachedTurn,
+} from './detached-turn'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
   CoderTask,
@@ -34,6 +41,15 @@ import type {
 export interface DelegateRunCtx {
   signal: AbortSignal
   report(progress: DelegationProgress): void
+  /**
+   * Detached-run resume key recorded on the queue record at submit time
+   * (`formatDetachedSessionRef`). Present only when the submit path requested
+   * detached dispatch — its presence is what routes a session-backed delegate
+   * onto the `driveTurn` tick path instead of holding a stream.
+   */
+  detachedSessionRef?: string
+  /** Rebind the record's resume key (e.g. once the sandbox id is known). */
+  updateDetachedSessionRef?(ref: string): void
 }
 
 /** @experimental */
@@ -138,8 +154,15 @@ export interface CreateDefaultCoderDelegateOptions {
    * does) so delegated build-loops export their topology spans to the OTLP /
    * Tangle Intelligence sink when `OTEL_EXPORTER_OTLP_ENDPOINT` is set — and
    * are a cheap no-op when it isn't. Configurable by construction.
+   *
+   * Detached single-variant turns (taken when `ctx.detachedSessionRef` is set)
+   * bypass `runLoop` and therefore emit no loop trace events for that turn.
    */
   traceEmitter?: LoopTraceEmitter
+  /** Tick cadence (ms) for the detached single-variant path. Default 5000. */
+  detachedTickIntervalMs?: number
+  /** Wall-clock cap (ms) forwarded to `driveTurn` for detached turns. */
+  detachedWallCapMs?: number
 }
 
 /**
@@ -158,14 +181,7 @@ export function createDefaultCoderDelegate(
   const maxConcurrency = options.maxConcurrency ?? 4
   const traceEmitter = options.traceEmitter
   return async (args, ctx) => {
-    const task: CoderTask = {
-      goal: buildCoderGoal(args),
-      repoRoot: args.repoRoot,
-      testCmd: args.config?.testCmd,
-      typecheckCmd: args.config?.typecheckCmd,
-      forbiddenPaths: args.config?.forbiddenPaths,
-      maxDiffLines: args.config?.maxDiffLines,
-    }
+    const task = coderTaskFromArgs(args)
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
@@ -174,6 +190,40 @@ export function createDefaultCoderDelegate(
         ...(options.harness ? { harness: options.harness } : {}),
         ...(options.model ? { model: options.model } : {}),
       })
+      // Detached dispatch: one session on one box, driven by `driveTurn` ticks
+      // instead of a held stream, so the run survives an MCP-process restart
+      // (the resume driver re-attaches via the persisted ref). Only the
+      // single-variant path detaches — fanout needs N sessions + winner
+      // selection over every candidate, which one resume key cannot express.
+      if (ctx.detachedSessionRef !== undefined && ctx.updateDetachedSessionRef) {
+        const { sessionId } = parseDetachedSessionRef(ctx.detachedSessionRef)
+        const rebind = ctx.updateDetachedSessionRef
+        const turn = await runDetachedTurn({
+          client: sandboxClient,
+          spec: agentRunSpec as AgentRunSpec<unknown>,
+          prompt: agentRunSpec.taskToPrompt(task),
+          sessionId,
+          bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
+          signal: ctx.signal,
+          report: ctx.report,
+          ...(options.detachedTickIntervalMs !== undefined
+            ? { tickIntervalMs: options.detachedTickIntervalMs }
+            : {}),
+          ...(options.detachedWallCapMs !== undefined
+            ? { wallCapMs: options.detachedWallCapMs }
+            : {}),
+        })
+        const chosen = await settleDetachedCoderTurn(turn, {
+          task,
+          sessionId,
+          signal: ctx.signal,
+          ...(options.harness ? { harness: options.harness } : {}),
+          ...(options.model ? { model: options.model } : {}),
+          ...(options.reviewer ? { reviewer: options.reviewer } : {}),
+        })
+        ctx.report({ iteration: 1, phase: 'completed' })
+        return chosen
+      }
       const result = await runLoop({
         driver: singleShotDriver,
         agentRun: agentRunSpec,
@@ -300,6 +350,65 @@ function noWinnerMessage(reviewer: CoderReviewer | undefined): string {
   return reviewer
     ? 'coder delegate: no candidate passed validation + review'
     : 'coder delegate: no candidate passed validation'
+}
+
+/**
+ * Canonical `DelegateCodeArgs` → `CoderTask` mapping — the single source for
+ * the delegate's live dispatch AND the resume driver's settle/message
+ * rebuilding, so a resumed record reproduces exactly the task the original
+ * process dispatched.
+ *
+ * @experimental
+ */
+export function coderTaskFromArgs(args: DelegateCodeArgs): CoderTask {
+  return {
+    goal: buildCoderGoal(args),
+    repoRoot: args.repoRoot,
+    testCmd: args.config?.testCmd,
+    typecheckCmd: args.config?.typecheckCmd,
+    forbiddenPaths: args.config?.forbiddenPaths,
+    maxDiffLines: args.config?.maxDiffLines,
+  }
+}
+
+/** @experimental */
+export interface SettleDetachedCoderTurnOptions {
+  task: CoderTask
+  /** Session id of the detached turn — used as the synthesized event id. */
+  sessionId: string
+  signal: AbortSignal
+  harness?: string
+  model?: string
+  /** Same gate as the streaming path: an unapproved candidate cannot win. */
+  reviewer?: CoderReviewer
+}
+
+/**
+ * Settle a completed detached coder turn through the same gate the streaming
+ * path applies: parse the terminal payload with the coder output adapter,
+ * run the mechanical validator (tests/typecheck/forbidden/diff/no-op/secrets),
+ * then the optional reviewer. Throws when nothing survives — a resumed or
+ * detached run must not return an unvalidated patch.
+ *
+ * @experimental
+ */
+export async function settleDetachedCoderTurn(
+  turn: DetachedTurn,
+  options: SettleDetachedCoderTurnOptions,
+): Promise<CoderOutput> {
+  const { output, validator } = coderProfile({
+    task: options.task,
+    ...(options.harness ? { harness: options.harness } : {}),
+    ...(options.model ? { model: options.model } : {}),
+  })
+  const parsed = output.parse(detachedTurnEvents(options.sessionId, turn))
+  const verdict = await validator.validate(parsed, { iteration: 0, signal: options.signal })
+  if (verdict.valid !== true) throw new Error(noWinnerMessage(options.reviewer))
+  if (options.reviewer) {
+    const review = await options.reviewer(parsed, options.task, { signal: options.signal })
+    if (!review.approved) throw new Error(noWinnerMessage(options.reviewer))
+  }
+  return parsed
 }
 
 function buildCoderGoal(args: DelegateCodeArgs): string {
