@@ -88,3 +88,41 @@ export function mathEnvironment(): {
   }
   return { environment, tasks }
 }
+
+/** The HARD band domain: AIME competition problems (AI-MO/aimo-validation-aime, 90
+ *  rows, integer answers => a clean deployable check) behind the same verbose prompt.
+ *  Stateless multishot: pair with INNER_TURNS=2 (one completion + the submit call) —
+ *  the degenerate maxTurns=0 rollout shape at budget k. */
+export function aimeEnvironment(): {
+  environment: Environment
+  tasks: (offset: number, n: number) => Promise<AgenticTask[]>
+} {
+  const environment = createVerifierEnvironment({
+    name: 'aime',
+    check: (task, answer) => {
+      const expected = String((task.meta as { answer?: string } | undefined)?.answer ?? '').trim()
+      const got = String(answer).replace(/[,\s]/g, '')
+      const pass =
+        expected.length > 0 &&
+        (got === expected || Number.parseFloat(got) === Number.parseFloat(expected))
+      return { passes: pass ? 1 : 0, total: 1, errored: 0 }
+    },
+  })
+  const tasks = async (offset: number, n: number): Promise<AgenticTask[]> => {
+    const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('AI-MO/aimo-validation-aime')}&config=default&split=train&offset=${offset}&length=${n}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`AIME HF rows HTTP ${res.status}`)
+    const body = (await res.json()) as {
+      rows?: Array<{ row: { id: number; problem: string; answer: string } }>
+    }
+    const rows = (body.rows ?? []).slice(0, n)
+    if (rows.length < n) throw new Error(`AIME slice [${offset}, ${offset + n}) returned only ${rows.length}`)
+    return rows.map(({ row }) => ({
+      id: `aime-${row.id}`,
+      systemPrompt: verbosePrompt,
+      userPrompt: row.problem,
+      meta: { answer: row.answer },
+    }))
+  }
+  return { environment, tasks }
+}
