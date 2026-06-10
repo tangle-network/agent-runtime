@@ -111,6 +111,7 @@ interface ShotTask {
   handle?: ArtifactHandle // present ⇒ DEPTH (shared artifact); absent ⇒ BREADTH (open own)
   messages?: Msg[] // carried conversation (depth); fresh when absent
   steer?: string // analyst-derived steer injected before this shot (depth)
+  persona?: ShotPersona // role override — multi-agent loops give each shot its own hat
 }
 
 interface ShotOut {
@@ -136,6 +137,7 @@ async function runShot(
   tools: AgenticTool[],
   messages: Msg[],
   opts: AgenticOptions,
+  modelOverride?: string,
 ): Promise<ShotOut> {
   const innerTurns = opts.innerTurns ?? 4
   let completions = 0
@@ -147,7 +149,7 @@ async function runShot(
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.routerKey}` },
       body: JSON.stringify({
-        model: opts.model,
+        model: modelOverride ?? opts.model,
         messages,
         tools,
         tool_choice: 'auto',
@@ -273,11 +275,18 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
       try {
         const tools = await surface.tools(t.task, handle)
         const messages: Msg[] = t.messages ?? [
-          { role: 'system', content: t.task.systemPrompt },
+          { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
           { role: 'user', content: `${t.task.userPrompt}\n\n${taskNudge}` },
         ]
+        // On a CARRIED conversation, a persona switch arrives as a role hand-off message.
+        if (t.messages && t.persona?.systemPrompt) {
+          messages.push({
+            role: 'user',
+            content: `[hand-off] You are now acting as: ${t.persona.systemPrompt}`,
+          })
+        }
         if (t.steer) messages.push({ role: 'user', content: t.steer })
-        const shot = await runShot(surface, t.task, handle, tools, messages, opts)
+        const shot = await runShot(surface, t.task, handle, tools, messages, opts, t.persona?.model)
         const s = await surface.score(t.task, handle)
         const score = s.total > 0 ? s.passes / s.total : 0
         const out: ShotResult = {
@@ -544,11 +553,22 @@ export const refine: Strategy = {
 // driver. (depthDriver/breadthDriver are the hand-written reference impls; refine/sample
 // stay on them — proven — while NEW strategies are authored compactly here.)
 
+/** A role for one shot — multi-agent loops (researcher + engineer, a panel of k
+ *  researchers) give each shot its own system prompt and optionally its own model. */
+export interface ShotPersona {
+  /** Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
+   *  injected as a hand-off message (the transcript's earlier roles stay intact). */
+  systemPrompt?: string
+  /** Per-shot model override (e.g. a stronger model for the engineer shot). */
+  model?: string
+}
+
 export interface ShotSpec {
   /** present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart). */
   handle?: ArtifactHandle
   messages?: Msg[]
   steer?: string
+  persona?: ShotPersona
 }
 export interface StrategyResult {
   score: number
@@ -598,6 +618,7 @@ export function defineStrategy(
                 handle: spec?.handle,
                 messages: spec?.messages,
                 steer: spec?.steer,
+                persona: spec?.persona,
               } as ShotTask,
               { budget: perChild(innerTurns), label: child.name },
             )
