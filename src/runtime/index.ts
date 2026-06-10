@@ -169,6 +169,11 @@ export type {
   WidenLineage,
   WidenSpec,
 } from './personify/wave-types'
+export {
+  type PromotionGateOptions,
+  type PromotionVerdict,
+  promotionGate,
+} from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
 export {
   type BenchmarkCell,
@@ -235,7 +240,7 @@ export {
 export {
   type AuthoredStrategy,
   type AuthorStrategyOptions,
-  assertAuthoredCodeSafe,
+  assertStrategyContract,
   authorStrategy,
   strategyAuthorContract,
 } from './strategy-author'

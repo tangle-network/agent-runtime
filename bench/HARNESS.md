@@ -72,12 +72,16 @@ and offline (zero new rollouts, zero judge calls).
 The optimization layer now ships from the package (`PR #209–#211`); bench scripts compose it.
 A domain = an `Environment` (5 hooks); a strategy = how budget is spent to beat its check;
 `runBenchmark` returns per-strategy means + the per-task LOSSES table + the (score,$) Pareto
-frontier + paired-bootstrap refine-vs-sample. Models policy: cheap router models only
-(worker `deepseek-v4-pro`, author `moonshotai/kimi-k2.6`) — never CC models.
+frontier + paired-bootstrap refine-vs-sample. Promotion is the package gate
+(`promotionGate` — seeded paired bootstrap via agent-eval `heldoutSignificance`, minimum
+6 paired tasks, CI lower bound must clear zero); the authoring is the package primitive
+(`authorStrategy`, with a named `fallbackModel` retry). Models policy: cheap router models
+only (worker + author default `deepseek-v4-pro`; `moonshotai/kimi-k2.6` is selectable but
+needs `maxTokens` and times out on long authoring prompts) — never CC models.
 
 | entry point | what it answers | one-liner |
 |---|---|---|
-| `src/flywheel-run.mts` | **THE CLEAN RUN** — does the system improve ITSELF (gen0 → author-from-losses → gen1 → frozen holdout)? | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 tsx src/flywheel-run.mts` |
+| `src/flywheel-run.mts` | **THE CLEAN RUN** — does the system improve ITSELF (gen0 → author-from-losses → gen1 → disjoint ROTATING holdout via `HOLDOUT_OFFSET`)? | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 tsx src/flywheel-run.mts` |
 | `src/strategy-author.mts` | agent-authored strategies (R0→R2 ladder) on a cheap env | `tsx src/strategy-author.mts` |
 | `src/agentic-run.mts` | depth-vs-breadth on EOPS through the canonical Supervisor (+16.4pp result) | `EOPS_GYM_DBS_DIR=… TASKS=16 tsx src/agentic-run.mts` |
 | `src/eops-gepa.mts` | GEPA over the analyst prompt + frozen holdout (verdict: prompt coordinate FLAT) | `N=12 HOLDOUT=6 GENS=2 tsx src/eops-gepa.mts` |

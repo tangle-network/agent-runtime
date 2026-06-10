@@ -19,20 +19,21 @@
  *   EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 BUDGET=3 tsx src/flywheel-run.mts
  */
 import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   type AgenticTask,
+  authorStrategy,
   type BenchmarkReport,
   printBenchmarkReport,
+  promotionGate,
   refine,
   runBenchmark,
   sample,
   sampleThenRefine,
   type Strategy,
 } from '@tangle-network/agent-runtime/loops'
-import { pairedBootstrap } from '@tangle-network/agent-eval'
+import { createChatClient } from '@tangle-network/agent-eval'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
-import type { RouterConfig } from './router-client'
-import { authorStrategy } from './strategy-author.mts'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -82,9 +83,18 @@ async function main(): Promise<void> {
   console.error(`  gen0 champion: ${champ0.name} @ ${(champ0.score * 100).toFixed(1)}%\n`)
 
   console.error('▶ author — the system reads its own losses and writes a new strategy…')
-  const cfg: RouterConfig = { routerBaseUrl, routerKey, model: authorModel }
+  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: authorModel })
   const losses = JSON.stringify(gen0.perTask, null, 1).slice(0, 7000)
-  const { strategy: authored, file } = await authorStrategy(cfg, surface.name, losses, budget)
+  const { strategy: authored, file } = await authorStrategy({
+    chat,
+    model: authorModel,
+    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro',
+    environmentName: surface.name,
+    lossesJson: losses,
+    budget,
+    outDir: join(import.meta.dirname, 'authored'),
+    temperature: 0.6,
+  })
   console.error(`  authored "${authored.name}" → ${file}\n`)
 
   console.error(`▶ gen1 — the authored strategy enters the tournament…`)
@@ -102,31 +112,33 @@ async function main(): Promise<void> {
     .map((name) => byName.get(name))
     .filter((s): s is Strategy => !!s)
   const gate = await runBenchmark({ environment: surface, tasks: holdout, worker, strategies: champs, budget, concurrency, onTask: onTask('holdout') })
-  // Promotion needs a STATISTICAL margin, not raw h1>h0: paired-bootstrap CI on the
-  // per-task holdout deltas (h1 − h0) must EXCLUDE zero. A no-margin point comparison on
-  // m≈8 tasks certifies false champions at ~coin-flip rate (the gate-as-instrument fix).
-  const okRows = gate.perTask.filter((r) => r.cells)
-  const h1v = okRows.map((r) => r.cells?.[champ1.name]?.score ?? 0)
-  const h0v = okRows.map((r) => r.cells?.[champ0.name]?.score ?? 0)
-  const lift = okRows.length >= 2 ? pairedBootstrap(h0v, h1v) : { mean: 0, low: 0, high: 0, n: okRows.length }
+  // Promotion is the package gate: a SEEDED paired bootstrap on the per-task holdout
+  // deltas with a minimum-evidence floor — deterministic verdict, CI must clear zero.
+  const verdict = promotionGate({
+    report: gate,
+    incumbent: champ0.name,
+    candidate: champ1.name,
+    minPairedTasks: Number(process.env.MIN_PAIRED ?? 6),
+  })
   const h0 = gate.perStrategy[champ0.name]?.score ?? 0
   const h1 = gate.perStrategy[champ1.name]?.score ?? 0
-  const promoted = champ1.name !== champ0.name && lift.low > 0
   console.error(`\n${'='.repeat(74)}`)
   console.error('FLYWHEEL VERDICT')
   console.error('='.repeat(74))
   console.error(`  gen0 champion ${champ0.name}: holdout ${(h0 * 100).toFixed(1)}%`)
   console.error(`  gen1 champion ${champ1.name}: holdout ${(h1 * 100).toFixed(1)}%`)
-  console.error(`  paired lift (gen1 − gen0): ${(lift.mean * 100).toFixed(1)}pp  CI [${(lift.low * 100).toFixed(1)}, ${(lift.high * 100).toFixed(1)}]  (n=${lift.n})`)
+  console.error(`  paired lift (gen1 − gen0): ${(verdict.lift.mean * 100).toFixed(1)}pp  CI [${(verdict.lift.low * 100).toFixed(1)}, ${(verdict.lift.high * 100).toFixed(1)}]  (n=${verdict.n})`)
   console.error(
-    promoted
+    verdict.promoted
       ? `  PROMOTED — SELF-IMPROVEMENT GENERALIZED: lift CI excludes 0 on held-out tasks, zero human edits.`
-      : champ1.name === champ0.name
+      : verdict.reason === 'identical-champion'
         ? '  HOLD: the authored strategy did not displace the champion.'
-        : `  NOT PROMOTED: the new champion's holdout lift CI includes 0 — no significant generalization (the gate did its job).`,
+        : verdict.reason === 'few-tasks'
+          ? `  NOT PROMOTED: only ${verdict.n} paired holdout tasks — below the evidence floor.`
+          : `  NOT PROMOTED: the new champion's holdout lift CI includes 0 — no significant generalization (the gate did its job).`,
   )
   const outPath = process.env.OUT ?? '/tmp/flywheel-run-result.json'
-  writeFileSync(outPath, JSON.stringify({ workerModel, authorModel, budget, n, holdoutN, gen0, authoredFile: file, gen1, holdoutGate: gate, champ0, champ1 }, null, 2))
+  writeFileSync(outPath, JSON.stringify({ workerModel, authorModel, budget, n, holdoutN, gen0, authoredFile: file, gen1, holdoutGate: gate, champ0, champ1, verdict }, null, 2))
   console.error(`  full artifact → ${outPath}`)
 }
 
