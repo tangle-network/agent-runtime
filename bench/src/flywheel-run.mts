@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   const holdoutN = Number(process.env.HOLDOUT ?? 8)
   const budget = Number(process.env.BUDGET ?? 3)
   const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-pro'
-  const authorModel = process.env.AUTHOR_MODEL ?? 'moonshotai/kimi-k2.6'
+  const authorModel = process.env.AUTHOR_MODEL ?? 'deepseek-v4-pro'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const surface = createEopsSurface(must('EOPS_GYM_DBS_DIR'))

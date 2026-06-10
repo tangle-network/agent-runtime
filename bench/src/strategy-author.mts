@@ -119,19 +119,38 @@ export async function authorStrategy(
   lossesJson: string,
   budget: number,
 ): Promise<{ strategy: Strategy; file: string }> {
-  const res = await routerChatWithUsage(
-    cfg,
-    [
-      { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
-      {
-        role: 'user',
-        content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
-      },
-    ],
-    { temperature: 0.6 },
-  )
-  const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
-  if (!match?.[1]) throw new Error(`author produced no code block:\n${res.content.slice(0, 400)}`)
+  let match: RegExpMatchArray | null = null
+  try {
+    const res = await routerChatWithUsage(
+      cfg,
+      [
+        { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
+        {
+          role: 'user',
+          content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
+        },
+      ],
+      { temperature: 0.6 },
+    )
+    match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
+  } catch (e) {
+    // Thinking models time out at the edge (524) on long authoring prompts — the named
+    // fallback below gets its chance instead of killing the whole cycle.
+    console.error(`  author model failed (${e instanceof Error ? e.message.slice(0, 80) : e}); trying fallback`)
+  }
+  if (!match?.[1]) {
+    // One named-fallback retry (empty/blockless content — e.g. a thinking model edge case).
+    const retry = await routerChatWithUsage(
+      { ...cfg, model: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro' },
+      [
+        { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
+        { role: 'user', content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy. Output only the module code block.` },
+      ],
+      { temperature: 0.6 },
+    )
+    match = retry.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
+    if (!match?.[1]) throw new Error(`author produced no code block (after fallback):\n${retry.content.slice(0, 400)}`)
+  }
   const dir = join(import.meta.dirname, 'authored')
   mkdirSync(dir, { recursive: true })
   const file = join(dir, `authored-${Date.now()}.mts`)
