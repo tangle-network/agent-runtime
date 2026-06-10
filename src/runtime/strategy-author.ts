@@ -41,8 +41,11 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
 
   surface.open(task) / surface.close(handle)
     Open a persistent artifact you manage yourself (remember to close in a finally).
+    close is idempotent — closing an already-closed handle is a safe no-op.
 
 Rules:
+- ALWAYS await every shot/critique/surface call — a floating promise that rejects
+  crashes the whole benchmark run.
 - Stay within ~budget total shots; every shot/critique spends from a conserved pool.
 - For a FRESH attempt OMIT \`messages\` entirely (never pass \`[]\` — an empty array is a
   fresh conversation too, but be explicit). To CONTINUE, pass the previous

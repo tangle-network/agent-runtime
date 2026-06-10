@@ -146,6 +146,47 @@ describe('shot messages handling', () => {
   })
 })
 
+// ── Idempotent close (authored bodies double-close, often as floating promises) ───
+
+describe('strategy surface close', () => {
+  it('double-close is a no-op; the domain close runs exactly once', async () => {
+    stubRouter()
+    let closes = 0
+    const surface: AgenticSurface = {
+      name: 'close-counter',
+      async open() {
+        return { id: 'h-1', surface: 'close-counter' }
+      },
+      async tools() {
+        return []
+      },
+      async call() {
+        return 'ok'
+      },
+      async score() {
+        return { passes: 1, total: 2, errored: 0 }
+      },
+      async close() {
+        closes += 1
+        if (closes > 1) throw new Error('domain close called twice')
+      },
+    }
+    const doubleCloser = defineStrategy('double-closer', async ({ surface: s, task: t, shot }) => {
+      const handle = await s.open(t)
+      try {
+        await shot({ handle })
+      } finally {
+        await s.close(handle)
+        await s.close(handle)
+      }
+      return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+    })
+    const result = await runAgentic({ surface, task, ...worker, strategy: doubleCloser, budget: 2 })
+    expect(closes).toBe(1)
+    expect(result.score).toBeCloseTo(0.5)
+  })
+})
+
 // ── The authored-module contract lint ─────────────────────────────────────────────
 
 describe('assertStrategyContract', () => {
