@@ -115,7 +115,9 @@ export class PlatformHubClient {
     if (!options.bearer) throw new Error('PlatformHubClient: bearer is required')
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
     this.bearer = options.bearer
-    this.fetchImpl = options.fetchImpl ?? ((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(url, init))
+    this.fetchImpl =
+      options.fetchImpl ??
+      ((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(url, init))
   }
 
   /** List the integration catalog (providers + connectors). */

@@ -226,6 +226,7 @@ export {
   type ToolLoopEvent,
   type ToolLoopMessage,
   type ToolLoopResult,
+  type ToolLoopStopReason,
 } from './tool-loop'
 // ── Core types ───────────────────────────────────────────────────────
 export type {

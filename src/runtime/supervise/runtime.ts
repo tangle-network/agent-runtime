@@ -246,7 +246,9 @@ export interface RouterToolsSeam {
   model?: string
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
-  /** Max inference turns (default 4). */
+  /** Max inference turns. Default 200 (runaway backstop — set far above any
+   *  legitimate workflow). For tighter per-workflow limits use a cost budget
+   *  or wall-clock deadline at the call site. */
   maxTurns?: number
 }
 const routerToolsSeamKey = 'router-tools'
@@ -278,7 +280,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       'routerToolsInlineExecutor: RouterToolsSeam.routerBaseUrl + routerKey required',
     )
   }
-  const maxTurns = seam.maxTurns ?? 4
+  const maxTurns = seam.maxTurns ?? 200
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
