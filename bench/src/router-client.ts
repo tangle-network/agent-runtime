@@ -27,7 +27,7 @@ export interface RouterChatResult {
 export async function routerChatWithUsage(
   cfg: RouterConfig,
   messages: Array<{ role: string; content: string }>,
-  opts?: { temperature?: number; signal?: AbortSignal },
+  opts?: { temperature?: number; signal?: AbortSignal; maxTokens?: number },
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
@@ -40,7 +40,9 @@ export async function routerChatWithUsage(
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: cfg.model, messages, temperature }),
+      // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
+      // reasoning_content first — a small router default yields EMPTY content.
+      body: JSON.stringify({ model: cfg.model, messages, temperature, max_tokens: opts?.maxTokens ?? 8192 }),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     })
     if (res.ok) return parseChatResult(await res.json(), cfg.model)
