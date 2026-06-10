@@ -236,6 +236,33 @@ describe('runStrategyEvolution', () => {
     ).rejects.toThrow(/every author attempt failed/)
   })
 
+  it('colliding authored names are disambiguated and both keep distinct report cells', async () => {
+    stubWorkerRouter()
+    // Both candidates emit the SAME strategy name — the second must be renamed and
+    // both must carry their own cells in the generation report.
+    const { chat } = scriptedChat([fenced(oneShotModule), fenced(oneShotModule)])
+    const report = await runStrategyEvolution({
+      environment: shotCountingSurface(),
+      tasks: sliceTasks([]),
+      trainN: 4,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 2,
+      generations: 1,
+      populationSize: 2,
+      baselines: [sample],
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    const gen1 = report.generations[0]
+    const names = gen1?.candidates.map((c) => c.name)
+    expect(names).toEqual(['one-shot', 'one-shot-g1c2'])
+    expect(gen1?.report.perStrategy['one-shot']).toBeDefined()
+    expect(gen1?.report.perStrategy['one-shot-g1c2']).toBeDefined()
+    const renamed = report.archive.find((n) => n.name === 'one-shot-g1c2')
+    expect(renamed?.score).toBeGreaterThan(0)
+  })
+
   it('the author is shown the tournament field and a divergence instruction', async () => {
     stubWorkerRouter()
     const { chat, seen } = scriptedChat([fenced(oneShotModule)])

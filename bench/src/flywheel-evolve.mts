@@ -93,6 +93,7 @@ async function main(): Promise<void> {
   })
 
   console.error(`\n${'='.repeat(74)}\nEVOLUTION VERDICT\n${'='.repeat(74)}`)
+  console.error('  champion trajectory (train telemetry — unpaired across generations):')
   for (const t of report.trajectory) {
     console.error(`  gen ${t.generation}: champion ${t.champion} @ ${(t.score * 100).toFixed(1)}% ($${t.usd.toFixed(4)}/task)`)
   }

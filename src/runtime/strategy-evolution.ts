@@ -116,7 +116,8 @@ export interface EvolutionArchiveNode {
   parent?: string
   gzipBits?: number
   file?: string
-  /** Latest measured tournament result. */
+  /** Latest measured tournament result — 0 until the node's first tournament settles
+   *  (an authored node is created before its generation's benchmark runs). */
   score: number
   usd: number
 }
@@ -129,6 +130,10 @@ export interface EvolutionReport {
   finalChampion: ChampionPick
   holdout: BenchmarkReport
   verdict: PromotionVerdict
+  /** SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
+   *  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
+   *  (entries are unpaired across generations). The only evidence-grade comparison in
+   *  this report is `verdict` — both finalists measured fresh, paired, on the holdout. */
   trajectory: Array<{ generation: number; champion: string; score: number; usd: number }>
 }
 
@@ -164,6 +169,28 @@ const fieldSummary = (archive: EvolutionArchiveNode[]): string =>
         `- ${n.name} (${n.source}, gen ${n.generation}, last score ${(n.score * 100).toFixed(0)}%)`,
     )
     .join('\n')
+
+/** The author-visible losses: EVERY train task in compact form (score/resolved/
+ *  progression per cell). A pretty-printed prefix slice would hide the tail tasks from
+ *  the author and bias which failure modes it can target; the hard cap stays only as a
+ *  guard against enormous fields. */
+const compactLosses = (report: BenchmarkReport): string => {
+  const r2 = (x: number) => Math.round(x * 100) / 100
+  const rows = report.perTask.map((row) =>
+    row.cells
+      ? {
+          task: row.taskId,
+          cells: Object.fromEntries(
+            Object.entries(row.cells).map(([name, c]) => [
+              name,
+              { score: r2(c.score), resolved: c.resolved, progression: c.progression.map(r2) },
+            ]),
+          ),
+        }
+      : { task: row.taskId, error: row.error?.slice(0, 80) },
+  )
+  return JSON.stringify(rows).slice(0, 12000)
+}
 
 export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
   const budget = cfg.budget ?? 3
@@ -219,7 +246,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   let authoredOk = 0
 
   for (let g = 1; g <= generations; g += 1) {
-    const lossesJson = JSON.stringify(latestReport.perTask, null, 1).slice(0, 7000)
+    const lossesJson = compactLosses(latestReport)
     const candidates: EvolutionCandidate[] = []
     const newStrategies: Strategy[] = []
     for (let i = 0; i < populationSize; i += 1) {
@@ -238,11 +265,35 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
           outDir: cfg.outDir,
         })
         // A name collision with the archive would silently overwrite a report cell —
-        // disambiguate the strategy key, keep the body.
+        // disambiguate the strategy key. The defineStrategy driver closes over the
+        // ORIGINAL name for its deliverable's `mode` label, so the wrapper must rename
+        // the returned agent AND its deliverable or observability labels diverge from
+        // the report keys.
         const unique = byName.has(authored.strategy.name)
           ? `${authored.strategy.name}-g${g}c${i + 1}`
           : authored.strategy.name
-        const strategy: Strategy = { name: unique, driver: authored.strategy.driver }
+        const strategy: Strategy =
+          unique === authored.strategy.name
+            ? authored.strategy
+            : {
+                name: unique,
+                driver: (s, t, o, b) => {
+                  const agent = authored.strategy.driver(s, t, o, b)
+                  return {
+                    ...agent,
+                    name: unique,
+                    act: async (task, scope) => {
+                      const out = await agent.act(task, scope)
+                      if (out.kind !== 'done') return out
+                      const deliverable = {
+                        ...(out.deliverable as Record<string, unknown>),
+                        mode: unique,
+                      }
+                      return { ...out, deliverable }
+                    },
+                  }
+                },
+              }
         byName.set(unique, strategy)
         newStrategies.push(strategy)
         archive.push({
