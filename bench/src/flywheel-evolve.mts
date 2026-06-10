@@ -83,6 +83,9 @@ async function main(): Promise<void> {
     generations,
     populationSize,
     champion,
+    ...(process.env.BAND_POOL
+      ? { band: { holdoutPoolN: Number(process.env.BAND_POOL), maxRefScore: Number(process.env.BAND_MAX_REF ?? 0.99) } }
+      : {}),
     outDir: join(import.meta.dirname, 'authored'),
     onTask: (phase, row, done, total) => {
       const cells = row.cells
