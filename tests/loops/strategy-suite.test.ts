@@ -424,3 +424,35 @@ describe('shot tool selection', () => {
     expect(result.score).toBe(0)
   })
 })
+
+// ── Per-strategy isolation: one broken candidate cannot poison the field ──────────
+
+describe('runBenchmark per-strategy isolation', () => {
+  it('a throwing strategy scores an honest zero; the field keeps its cells', async () => {
+    stubRouter()
+    const surface = fixtureSurface(() => ({ passes: 1, total: 2 }))
+    const healthy = defineStrategy('healthy', async ({ shot }) => {
+      const out = await shot()
+      return { score: out?.score ?? 0, resolved: false, completions: 1, progression: [], shots: 1 }
+    })
+    const poisoned = defineStrategy('poisoned', async ({ shot }) => {
+      const out = await shot({ tools: ['hallucinated_tool'] })
+      if (!out) throw new Error('explore shot failed')
+      return { score: out.score, resolved: false, completions: 1, progression: [], shots: 1 }
+    })
+    const report = await runBenchmark({
+      environment: surface,
+      tasks: [task],
+      worker,
+      strategies: [healthy, poisoned],
+      budget: 2,
+      concurrency: 1,
+    })
+    const row = report.perTask[0]
+    expect(row?.cells?.healthy?.score).toBeCloseTo(0.5)
+    expect(row?.cells?.poisoned?.score).toBe(0)
+    expect(row?.errors?.poisoned).toMatch(/explore shot failed|no result/)
+    expect(report.excluded).toBe(0)
+    expect(report.perStrategy.healthy?.score).toBeCloseTo(0.5)
+  })
+})

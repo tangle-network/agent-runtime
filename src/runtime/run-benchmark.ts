@@ -74,6 +74,10 @@ export interface BenchmarkTaskRow {
   taskId: string
   /** Per-strategy cells; absent when the task errored before completing all strategies. */
   cells?: Record<string, BenchmarkCell>
+  /** Per-strategy failures on this task: the strategy competed, threw, and scored an
+   *  honest zero — it loses, it does not poison the row. The message is kept so a later
+   *  generation's author can see WHY a candidate died. */
+  errors?: Record<string, string>
   /** Why the task was excluded (infra/setup failure) — never silently dropped. */
   error?: string
 }
@@ -133,27 +137,47 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
   let settled = 0
   const perTask = await pool(cfg.tasks, concurrency, async (task): Promise<BenchmarkTaskRow> => {
     const cells: Record<string, BenchmarkCell> = {}
+    const errors: Record<string, string> = {}
     let row: BenchmarkTaskRow
     try {
+      // Per-strategy isolation: one strategy throwing (a broken authored candidate, a
+      // hallucinated tool name) must not destroy the other strategies' cells for the
+      // task. The thrower scores an honest zero — it competed, it failed, it loses.
       for (const s of strategies) {
-        const r = await runAgentic({
-          ...cfg.worker,
-          surface: cfg.environment,
-          task,
-          strategy: s,
-          budget,
-          ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
-        })
-        cells[s.name] = {
-          score: r.score,
-          resolved: r.resolved,
-          progression: r.progression,
-          usd: r.usd,
-          ms: r.ms,
-          tokens: r.tokens,
+        try {
+          const r = await runAgentic({
+            ...cfg.worker,
+            surface: cfg.environment,
+            task,
+            strategy: s,
+            budget,
+            ...(cfg.hooks ? { hooks: cfg.hooks } : {}),
+          })
+          cells[s.name] = {
+            score: r.score,
+            resolved: r.resolved,
+            progression: r.progression,
+            usd: r.usd,
+            ms: r.ms,
+            tokens: r.tokens,
+          }
+        } catch (e) {
+          errors[s.name] = e instanceof Error ? e.message.slice(0, 300) : String(e)
+          cells[s.name] = {
+            score: 0,
+            resolved: false,
+            progression: [],
+            usd: 0,
+            ms: 0,
+            tokens: { input: 0, output: 0 },
+          }
         }
       }
-      row = { taskId: task.id, cells }
+      row = {
+        taskId: task.id,
+        cells,
+        ...(Object.keys(errors).length > 0 ? { errors } : {}),
+      }
     } catch (e) {
       row = { taskId: task.id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) }
     }
