@@ -87,6 +87,9 @@ async function main(): Promise<void> {
     ...(process.env.BAND_POOL
       ? { band: { holdoutPoolN: Number(process.env.BAND_POOL), maxRefScore: Number(process.env.BAND_MAX_REF ?? 0.99) } }
       : {}),
+    ...(process.env.OBJECTIVE === 'cost'
+      ? { objective: 'cost' as const, scoreTolerance: Number(process.env.SCORE_TOLERANCE ?? 0.05) }
+      : {}),
     ...(process.env.LOSSES_DETAIL === 'binary' ? { lossesDetail: 'binary' as const } : {}),
     ...(process.env.REPRO ? { reproducerCheck: {} } : {}),
     // Endurance: phase ledger on disk (resume skips completed phases) + the gym recycled
@@ -129,14 +132,25 @@ async function main(): Promise<void> {
   printBenchmarkReport(report.holdout)
   const v = report.verdict
   console.error(`  paired lift (final − gen0 champion): ${(v.lift.mean * 100).toFixed(1)}pp  CI [${(v.lift.low * 100).toFixed(1)}, ${(v.lift.high * 100).toFixed(1)}]  (n=${v.n})`)
+  if (v.costSavings) {
+    console.error(
+      `  cost savings (incumbent − final, usd/task): ${v.costSavings.mean.toFixed(4)}  CI [${v.costSavings.low.toFixed(4)}, ${v.costSavings.high.toFixed(4)}]`,
+    )
+  }
   console.error(
     v.promoted
-      ? '  PROMOTED — evolution generalized to held-out tasks.'
+      ? v.reason === 'non-inferior-and-cheaper'
+        ? '  PROMOTED — NON-INFERIOR AND CHEAPER: same quality, significantly less spend, on held-out tasks.'
+        : '  PROMOTED — evolution generalized to held-out tasks.'
       : v.reason === 'identical-champion'
         ? '  HOLD: no authored strategy displaced the gen0 champion.'
         : v.reason === 'few-tasks'
           ? `  NOT PROMOTED: only ${v.n} paired holdout tasks — below the evidence floor.`
-          : '  NOT PROMOTED: holdout lift CI includes 0 (the gate did its job).',
+          : v.reason === 'score-inferior'
+            ? '  NOT PROMOTED: could not prove score non-inferiority within tolerance.'
+            : v.reason === 'not-cheaper'
+              ? '  NOT PROMOTED: score holds but cost savings are not significant.'
+              : '  NOT PROMOTED: holdout lift CI includes 0 (the gate did its job).',
   )
   if (report.reproduction) {
     const r = report.reproduction
