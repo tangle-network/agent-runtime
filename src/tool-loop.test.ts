@@ -77,11 +77,14 @@ describe('runToolLoop', () => {
     expect(r.turns).toBe(1)
   })
 
-  it('caps the loop and flags cappedOut when the model never stops', async () => {
+  it('stops with backstop stopReason when the model never stops', async () => {
+    // Each turn emits a DIFFERENT args object so stuck-loop never fires; only
+    // the backstop cap is hit.
+    let seq = 0
     const streamTurn = async function* () {
       yield {
         type: 'tool_call',
-        call: { toolName: 'schedule_followup', args: {} },
+        call: { toolName: 'schedule_followup', args: { seq: seq++ } },
       } as ToolLoopEvent
     }
     const r = await runToolLoop({
@@ -92,8 +95,104 @@ describe('runToolLoop', () => {
       executeToolCall: async () => ({ ok: true, result: {} }),
       isExecutableTool: isExec,
     })
+    expect(r.stopReason).toBe('backstop')
     expect(r.cappedOut).toBe(true)
     expect(r.toolResults.length).toBe(3)
+  })
+
+  it('detects a stuck loop at exactly 3 consecutive identical calls', async () => {
+    // The model re-issues the same tool call with the same args every turn.
+    const streamTurn = async function* () {
+      yield {
+        type: 'tool_call',
+        call: { toolName: 'submit_proposal', args: { type: 'x' } },
+      } as ToolLoopEvent
+    }
+    const r = await runToolLoop({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn,
+      executeToolCall: async () => ({ ok: true, result: {} }),
+      isExecutableTool: isExec,
+    })
+    expect(r.stopReason).toBe('stuck-loop')
+    expect(r.cappedOut).toBe(true)
+    // Fires on the 3rd identical call — 2 tool results recorded before stop.
+    expect(r.toolResults.length).toBe(2)
+  })
+
+  it('does NOT flag stuck-loop when calls alternate', async () => {
+    let turn = 0
+    const streamTurn = async function* () {
+      // Alternates between two different tool names — not a stuck loop.
+      yield {
+        type: 'tool_call',
+        call: {
+          toolName: turn++ % 2 === 0 ? 'submit_proposal' : 'schedule_followup',
+          args: {},
+        },
+      } as ToolLoopEvent
+    }
+    const r = await runToolLoop({
+      systemPrompt: 's',
+      userMessage: 'u',
+      maxToolTurns: 6,
+      streamTurn,
+      executeToolCall: async () => ({ ok: true, result: {} }),
+      isExecutableTool: isExec,
+    })
+    // Alternating never triggers stuck-loop; hits backstop instead.
+    expect(r.stopReason).toBe('backstop')
+  })
+
+  it('stops with deadline stopReason when wall-clock is exceeded', async () => {
+    const streamTurn = async function* () {
+      yield {
+        type: 'tool_call',
+        call: { toolName: 'submit_proposal', args: {} },
+      } as ToolLoopEvent
+    }
+    // Deadline already in the past.
+    const r = await runToolLoop({
+      systemPrompt: 's',
+      userMessage: 'u',
+      deadlineMs: Date.now() - 1,
+      streamTurn,
+      executeToolCall: async () => ({ ok: true, result: {} }),
+      isExecutableTool: isExec,
+    })
+    expect(r.stopReason).toBe('deadline')
+    expect(r.cappedOut).toBe(true)
+  })
+
+  it('completes normally with more than 50 tool turns when given sufficient backstop', async () => {
+    let callCount = 0
+    const total = 55
+    const streamTurn = async function* () {
+      // Each turn emits a DIFFERENT args object so stuck-loop never fires.
+      if (callCount < total) {
+        yield {
+          type: 'tool_call',
+          call: { toolName: 'submit_proposal', args: { seq: callCount } },
+        } as ToolLoopEvent
+      } else {
+        yield { type: 'text', text: 'done' } as ToolLoopEvent
+      }
+    }
+    const r = await runToolLoop({
+      systemPrompt: 's',
+      userMessage: 'u',
+      maxToolTurns: 200,
+      streamTurn,
+      executeToolCall: async () => {
+        callCount++
+        return { ok: true, result: {} }
+      },
+      isExecutableTool: isExec,
+    })
+    expect(r.stopReason).toBe('completed')
+    expect(r.cappedOut).toBe(false)
+    expect(r.toolResults.length).toBe(total)
   })
 
   it('turns an executor throw into a failed outcome', async () => {
@@ -361,7 +460,7 @@ describe('streamToolLoop', () => {
     expect(ys.filter((y) => y.kind === 'tool_result').length).toBe(1)
   })
 
-  it('emits one capped signal when the model never stops', async () => {
+  it('emits one capped signal with backstop stopReason when the model never stops', async () => {
     const streamTurn = async function* (): AsyncIterable<Raw> {
       yield { type: 'tool_call', toolName: 'submit_proposal', args: {} }
     }
@@ -375,7 +474,27 @@ describe('streamToolLoop', () => {
       executeToolCall: async () => ({ ok: true, result: {} }),
     }))
       ys.push(item)
-    expect(ys.filter((y) => y.kind === 'capped')).toHaveLength(1)
+    const capped = ys.filter((y) => y.kind === 'capped')
+    expect(capped).toHaveLength(1)
+    expect(capped[0]).toMatchObject({ kind: 'capped', stopReason: 'backstop' })
+  })
+
+  it('emits capped with stuck-loop stopReason on 3 consecutive identical calls', async () => {
+    const streamTurn = async function* (): AsyncIterable<Raw> {
+      yield { type: 'tool_call', toolName: 'submit_proposal', args: { type: 'x' } }
+    }
+    const ys: StreamToolLoopYield<Raw>[] = []
+    for await (const item of streamToolLoop<Raw>({
+      systemPrompt: 's',
+      userMessage: 'u',
+      streamTurn,
+      ...seams,
+      executeToolCall: async () => ({ ok: true, result: {} }),
+    }))
+      ys.push(item)
+    const capped = ys.filter((y) => y.kind === 'capped')
+    expect(capped).toHaveLength(1)
+    expect(capped[0]).toMatchObject({ kind: 'capped', stopReason: 'stuck-loop' })
   })
 
   it('emits a failure-recovery decision point without changing streamed yields', async () => {

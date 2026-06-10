@@ -31,9 +31,15 @@ export type ToolCallOutcome =
   | { ok: true; result: unknown }
   | { ok: false; code: string; message: string; status?: number }
 
-const DEFAULT_MAX_TOOL_TURNS = 8
+/** Runaway-backstop: stops an infinite tool loop where cost is unmetered. Set
+ *  far above any legitimate workflow — this is a watchdog, not a policy cap.
+ *  Legitimate per-call budgets come from `maxCostUsd` + `costOf`. */
+const RUNAWAY_BACKSTOP_TURNS = 200
 const DEFAULT_DECISION_CONTEXT_CHARS = 12_000
 const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
+/** Consecutive identical calls (same tool + canonical-JSON args) that trigger
+ *  stuck-loop detection. The window resets on any different call. */
+const STUCK_LOOP_THRESHOLD = 3
 
 export type ToolLoopMessage = { role: string; content: string }
 
@@ -49,10 +55,19 @@ export type ToolLoopEvent =
   | { type: 'tool_call'; call: ToolLoopCall }
   | { type: 'other'; event: unknown }
 
+/** Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
+ *  ≥3 consecutive identical tool calls (same tool + args); `backstop` = hit the
+ *  runaway-backstop cap (200 by default); `deadline` = wall-clock deadlineMs
+ *  exceeded; `budget` = maxCostUsd exhausted. Non-`completed` stops are infra /
+ *  resource outcomes — eval scoring must distinguish them from capability failure. */
+export type ToolLoopStopReason = 'completed' | 'stuck-loop' | 'backstop' | 'deadline' | 'budget'
+
 export interface ToolLoopResult {
   finalText: string
   toolResults: Array<{ call: ToolLoopCall; label: string; outcome: ToolCallOutcome }>
   turns: number
+  stopReason: ToolLoopStopReason
+  /** @deprecated Use `stopReason !== 'completed'` instead. */
   cappedOut: boolean
 }
 
@@ -63,7 +78,16 @@ export interface RunToolLoopOptions {
   streamTurn: (messages: ToolLoopMessage[]) => AsyncIterable<ToolLoopEvent>
   executeToolCall: (call: ToolLoopCall) => Promise<ToolCallOutcome>
   isExecutableTool: (toolName: string) => boolean
+  /** Runaway-backstop cap. Default 200 — set far above any legitimate workflow.
+   *  For per-workflow limits, use `maxCostUsd` or `deadlineMs` instead. */
   maxToolTurns?: number
+  /** Wall-clock deadline in ms since epoch (Date.now()-based). When exceeded the
+   *  loop stops with stopReason `deadline`. */
+  deadlineMs?: number
+  /** Maximum total cost in USD. Requires `costOf` to meter each tool call. */
+  maxCostUsd?: number
+  /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
+  costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
   runId?: string
@@ -75,7 +99,7 @@ export interface RunToolLoopOptions {
  *  outcome. Awaitable — callers needing to stream events to a UI use
  *  {@link streamToolLoop}. */
 export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopResult> {
-  const maxTurns = opts.maxToolTurns ?? DEFAULT_MAX_TOOL_TURNS
+  const backstop = opts.maxToolTurns ?? RUNAWAY_BACKSTOP_TURNS
   const render = opts.renderResult ?? defaultRender
   const labelFor = opts.labelFor ?? ((c: ToolLoopCall) => c.toolName)
   const runId = opts.runId ?? `agent-run-${randomSuffix()}`
@@ -88,11 +112,23 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
   const toolResults: ToolLoopResult['toolResults'] = []
   let finalText = ''
   let turns = 0
+  let accumulatedCostUsd = 0
+  // Stuck-loop detection: track the last canonical-JSON call signature and how
+  // many consecutive times we've seen it.
+  let lastCallHash: string | null = null
+  let consecutiveCount = 0
 
-  observer.loopBefore(maxTurns, messages.length)
+  observer.loopBefore(backstop, messages.length)
 
   for (let toolTurn = 0; ; toolTurn++) {
     turns++
+
+    // Wall-clock deadline check — before every new turn.
+    if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
+      observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'deadline' })
+      return { finalText, toolResults, turns, stopReason: 'deadline', cappedOut: true }
+    }
+
     let turnText = ''
     const pending: ToolLoopCall[] = []
     const turnEventId = observer.turnBefore(toolTurn, messages.length)
@@ -111,18 +147,39 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       })
       break
     }
-    if (toolTurn >= maxTurns) {
+
+    // Runaway backstop — the model keeps emitting calls past the safety ceiling.
+    if (toolTurn >= backstop) {
       observer.turnAfter(toolTurn, turnEventId, {
         pendingToolCalls: pending.length,
-        cappedOut: true,
+        stopReason: 'backstop',
       })
-      observer.loopAfter({ turns, toolResults: toolResults.length, cappedOut: true })
-      return { finalText, toolResults, turns, cappedOut: true }
+      observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'backstop' })
+      return { finalText, toolResults, turns, stopReason: 'backstop', cappedOut: true }
     }
+
     if (turnText.trim()) messages.push({ role: 'assistant', content: turnText })
     const lines: string[] = []
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
+      // Stuck-loop detection: hash the first pending call each turn (a model
+      // stuck in a loop re-issues the same call repeatedly, not alternating calls).
+      const callHash = canonicalCallHash(call)
+      if (callHash === lastCallHash) {
+        consecutiveCount++
+      } else {
+        lastCallHash = callHash
+        consecutiveCount = 1
+      }
+      if (consecutiveCount >= STUCK_LOOP_THRESHOLD) {
+        observer.turnAfter(toolTurn, turnEventId, {
+          pendingToolCalls: pending.length,
+          stopReason: 'stuck-loop',
+        })
+        observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'stuck-loop' })
+        return { finalText, toolResults, turns, stopReason: 'stuck-loop', cappedOut: true }
+      }
+
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let outcome: ToolCallOutcome
       try {
@@ -134,6 +191,23 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
           message: err instanceof Error ? err.message : String(err),
         }
       }
+
+      // Budget check after each tool call.
+      if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
+        accumulatedCostUsd += opts.costOf(call, outcome)
+        if (accumulatedCostUsd >= opts.maxCostUsd) {
+          const label = labelFor(call)
+          toolResults.push({ call, label, outcome })
+          observer.toolCallAfter(toolTurn, callEventId, call, outcome)
+          observer.turnAfter(toolTurn, turnEventId, {
+            pendingToolCalls: pending.length,
+            stopReason: 'budget',
+          })
+          observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'budget' })
+          return { finalText, toolResults, turns, stopReason: 'budget', cappedOut: true }
+        }
+      }
+
       const label = labelFor(call)
       const rendered = render(label, outcome)
       toolResults.push({ call, label, outcome })
@@ -158,8 +232,8 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     })
     messages.push({ role: 'user', content: `Tool results:\n${lines.join('\n')}` })
   }
-  observer.loopAfter({ turns, toolResults: toolResults.length, cappedOut: false })
-  return { finalText, toolResults, turns, cappedOut: false }
+  observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'completed' })
+  return { finalText, toolResults, turns, stopReason: 'completed', cappedOut: false }
 }
 
 // ── Streaming variant (SSE chat runtimes + per-event telemetry) ────────────
@@ -173,7 +247,7 @@ export type StreamToolLoopYield<Raw> =
       label: string
       outcome: ToolCallOutcome
     }
-  | { kind: 'capped'; pending: number }
+  | { kind: 'capped'; pending: number; stopReason: Exclude<ToolLoopStopReason, 'completed'> }
 
 export interface StreamToolLoopOptions<Raw> {
   systemPrompt: string
@@ -184,7 +258,14 @@ export interface StreamToolLoopOptions<Raw> {
   extractToolCall: (event: Raw) => ToolLoopCall | null
   isExecutableTool: (toolName: string) => boolean
   executeToolCall: (call: ToolLoopCall) => Promise<ToolCallOutcome>
+  /** Runaway-backstop cap. Default 200 — set far above any legitimate workflow. */
   maxToolTurns?: number
+  /** Wall-clock deadline in ms since epoch (Date.now()-based). */
+  deadlineMs?: number
+  /** Maximum total cost in USD. Requires `costOf` to meter each tool call. */
+  maxCostUsd?: number
+  /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
+  costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
   runId?: string
@@ -194,11 +275,11 @@ export interface StreamToolLoopOptions<Raw> {
 
 /** Streaming bounded tool loop: yields each raw turn event (the caller maps +
  *  telemetries + re-emits it) and each executed `tool_result`; emits one
- *  `capped` if it stops at the turn limit with calls still pending. */
+ *  `capped` if it stops for any non-completed reason with calls still pending. */
 export async function* streamToolLoop<Raw>(
   opts: StreamToolLoopOptions<Raw>,
 ): AsyncGenerator<StreamToolLoopYield<Raw>, void, unknown> {
-  const maxTurns = opts.maxToolTurns ?? DEFAULT_MAX_TOOL_TURNS
+  const backstop = opts.maxToolTurns ?? RUNAWAY_BACKSTOP_TURNS
   const render = opts.renderResult ?? defaultRender
   const labelFor = opts.labelFor ?? ((c: ToolLoopCall) => c.toolName)
   const runId = opts.runId ?? `agent-run-${randomSuffix()}`
@@ -208,10 +289,20 @@ export async function* streamToolLoop<Raw>(
     { role: 'user', content: opts.userMessage },
   ]
   const observer = createToolLoopObserver(opts.hooks, runId, opts.scenarioId)
+  let accumulatedCostUsd = 0
+  let lastCallHash: string | null = null
+  let consecutiveCount = 0
 
-  observer.loopBefore(maxTurns, messages.length)
+  observer.loopBefore(backstop, messages.length)
 
   for (let toolTurn = 0; ; toolTurn++) {
+    // Wall-clock deadline check before every new turn.
+    if (opts.deadlineMs !== undefined && Date.now() >= opts.deadlineMs) {
+      observer.loopAfter({ turns: toolTurn + 1, stopReason: 'deadline' })
+      yield { kind: 'capped', pending: 0, stopReason: 'deadline' }
+      return
+    }
+
     let turnText = ''
     const pending: ToolLoopCall[] = []
     const turnEventId = observer.turnBefore(toolTurn, messages.length)
@@ -223,22 +314,43 @@ export async function* streamToolLoop<Raw>(
     }
     if (pending.length === 0) {
       observer.turnAfter(toolTurn, turnEventId, { pendingToolCalls: 0 })
-      observer.loopAfter({ turns: toolTurn + 1, cappedOut: false })
+      observer.loopAfter({ turns: toolTurn + 1, stopReason: 'completed' })
       return
     }
-    if (toolTurn >= maxTurns) {
+
+    // Runaway backstop.
+    if (toolTurn >= backstop) {
       observer.turnAfter(toolTurn, turnEventId, {
         pendingToolCalls: pending.length,
-        cappedOut: true,
+        stopReason: 'backstop',
       })
-      observer.loopAfter({ turns: toolTurn + 1, cappedOut: true })
-      yield { kind: 'capped', pending: pending.length }
+      observer.loopAfter({ turns: toolTurn + 1, stopReason: 'backstop' })
+      yield { kind: 'capped', pending: pending.length, stopReason: 'backstop' }
       return
     }
+
     if (turnText.trim()) messages.push({ role: 'assistant', content: turnText })
     const lines: string[] = []
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
+      // Stuck-loop detection.
+      const callHash = canonicalCallHash(call)
+      if (callHash === lastCallHash) {
+        consecutiveCount++
+      } else {
+        lastCallHash = callHash
+        consecutiveCount = 1
+      }
+      if (consecutiveCount >= STUCK_LOOP_THRESHOLD) {
+        observer.turnAfter(toolTurn, turnEventId, {
+          pendingToolCalls: pending.length,
+          stopReason: 'stuck-loop',
+        })
+        observer.loopAfter({ turns: toolTurn + 1, stopReason: 'stuck-loop' })
+        yield { kind: 'capped', pending: pending.length, stopReason: 'stuck-loop' }
+        return
+      }
+
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let outcome: ToolCallOutcome
       try {
@@ -250,6 +362,30 @@ export async function* streamToolLoop<Raw>(
           message: err instanceof Error ? err.message : String(err),
         }
       }
+
+      // Budget check after each tool call.
+      if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
+        accumulatedCostUsd += opts.costOf(call, outcome)
+        if (accumulatedCostUsd >= opts.maxCostUsd) {
+          const label = labelFor(call)
+          yield {
+            kind: 'tool_result',
+            toolName: call.toolName,
+            toolCallId: call.toolCallId,
+            label,
+            outcome,
+          }
+          observer.toolCallAfter(toolTurn, callEventId, call, outcome)
+          observer.turnAfter(toolTurn, turnEventId, {
+            pendingToolCalls: pending.length,
+            stopReason: 'budget',
+          })
+          observer.loopAfter({ turns: toolTurn + 1, stopReason: 'budget' })
+          yield { kind: 'capped', pending: pending.length, stopReason: 'budget' }
+          return
+        }
+      }
+
       const label = labelFor(call)
       yield {
         kind: 'tool_result',
@@ -534,6 +670,15 @@ function renderDecisionContext(
     [...recent, ...assistant, ...toolResults].join('\n\n'),
     DEFAULT_DECISION_CONTEXT_CHARS,
   )
+}
+
+/** Canonical identifier for a tool call used by stuck-loop detection.
+ *  Keys are sorted so `{b:1,a:2}` and `{a:2,b:1}` produce the same hash. */
+function canonicalCallHash(call: ToolLoopCall): string {
+  const sortedArgs = Object.fromEntries(
+    Object.entries(call.args).sort(([a], [b]) => a.localeCompare(b)),
+  )
+  return `${call.toolName}:${JSON.stringify(sortedArgs)}`
 }
 
 function stringifySafe(value: unknown, max: number): string {
