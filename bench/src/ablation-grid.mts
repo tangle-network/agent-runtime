@@ -34,7 +34,7 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { join } from 'node:path'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
-import { mathEnvironment } from './ablation-math-env.mts'
+import { aimeEnvironment, mathEnvironment } from './ablation-math-env.mts'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -117,7 +117,9 @@ async function main(): Promise<void> {
   const domain =
     envName === 'math'
       ? mathEnvironment()
-      : (() => {
+      : envName === 'aime'
+        ? aimeEnvironment()
+        : (() => {
           const surface = createEopsSurface(must('EOPS_GYM_DBS_DIR'))
           const loadSlice = async (offset: number, count: number): Promise<AgenticTask[]> => {
             const split = process.env.EOPS_SPLIT ?? 'itsm'
