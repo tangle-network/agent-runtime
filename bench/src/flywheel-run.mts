@@ -29,6 +29,7 @@ import {
   sampleThenRefine,
   type Strategy,
 } from '@tangle-network/agent-runtime/loops'
+import { pairedBootstrap } from '@tangle-network/agent-eval'
 import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
 import type { RouterConfig } from './router-client'
 import { authorStrategy } from './strategy-author.mts'
@@ -92,29 +93,37 @@ async function main(): Promise<void> {
   const champ1 = champion(gen1)
   console.error(`  gen1 champion: ${champ1.name} @ ${(champ1.score * 100).toFixed(1)}%\n`)
 
+  // ROTATING holdout: a fresh disjoint slice (offset varies by run via OFFSET) — a reused
+  // frozen slice is an unforced overfitting channel when tasks stream from HF ~free.
   console.error(`▶ FROZEN HOLDOUT (${holdoutN} disjoint tasks) — gen1 champion vs gen0 champion…`)
-  const holdout = await loadTasks(holdoutN, n)
+  const holdout = await loadTasks(holdoutN, n + Number(process.env.HOLDOUT_OFFSET ?? 0))
   const byName = new Map<string, Strategy>([...baselines, authored].map((s) => [s.name, s]))
   const champs = [...new Set([champ0.name, champ1.name])]
     .map((name) => byName.get(name))
     .filter((s): s is Strategy => !!s)
   const gate = await runBenchmark({ environment: surface, tasks: holdout, worker, strategies: champs, budget, concurrency, onTask: onTask('holdout') })
-  printBenchmarkReport(gate)
-
+  // Promotion needs a STATISTICAL margin, not raw h1>h0: paired-bootstrap CI on the
+  // per-task holdout deltas (h1 − h0) must EXCLUDE zero. A no-margin point comparison on
+  // m≈8 tasks certifies false champions at ~coin-flip rate (the gate-as-instrument fix).
+  const okRows = gate.perTask.filter((r) => r.cells)
+  const h1v = okRows.map((r) => r.cells?.[champ1.name]?.score ?? 0)
+  const h0v = okRows.map((r) => r.cells?.[champ0.name]?.score ?? 0)
+  const lift = okRows.length >= 2 ? pairedBootstrap(h0v, h1v) : { mean: 0, low: 0, high: 0, n: okRows.length }
   const h0 = gate.perStrategy[champ0.name]?.score ?? 0
   const h1 = gate.perStrategy[champ1.name]?.score ?? 0
-  const improved = champ1.name !== champ0.name && h1 > h0
+  const promoted = champ1.name !== champ0.name && lift.low > 0
   console.error(`\n${'='.repeat(74)}`)
   console.error('FLYWHEEL VERDICT')
   console.error('='.repeat(74))
   console.error(`  gen0 champion ${champ0.name}: holdout ${(h0 * 100).toFixed(1)}%`)
   console.error(`  gen1 champion ${champ1.name}: holdout ${(h1 * 100).toFixed(1)}%`)
+  console.error(`  paired lift (gen1 − gen0): ${(lift.mean * 100).toFixed(1)}pp  CI [${(lift.low * 100).toFixed(1)}, ${(lift.high * 100).toFixed(1)}]  (n=${lift.n})`)
   console.error(
-    improved
-      ? `  SELF-IMPROVEMENT GENERALIZED: +${((h1 - h0) * 100).toFixed(1)}pp on held-out tasks, zero human edits.`
+    promoted
+      ? `  PROMOTED — SELF-IMPROVEMENT GENERALIZED: lift CI excludes 0 on held-out tasks, zero human edits.`
       : champ1.name === champ0.name
-        ? '  No strategy change: the authored strategy did not displace the champion (an honest hold).'
-        : '  The new champion did NOT generalize to the holdout (search-set overfit — the gate did its job).',
+        ? '  HOLD: the authored strategy did not displace the champion.'
+        : `  NOT PROMOTED: the new champion's holdout lift CI includes 0 — no significant generalization (the gate did its job).`,
   )
   const outPath = process.env.OUT ?? '/tmp/flywheel-run-result.json'
   writeFileSync(outPath, JSON.stringify({ workerModel, authorModel, budget, n, holdoutN, gen0, authoredFile: file, gen1, holdoutGate: gate, champ0, champ1 }, null, 2))

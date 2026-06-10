@@ -578,14 +578,24 @@ export interface StrategyResult {
   progression: number[]
   shots: number
 }
-/** What a strategy body composes with: the domain surface, the budget, and the two steps. */
+/** Artifact lifecycle a strategy may manage itself — open/close ONLY. Raw `call`/`score`
+ *  are withheld: scores reach the body solely through `shot()`'s ShotResult (the
+ *  harness-verified channel), so a body cannot peek the check or fabricate around it. */
+export interface StrategyArtifacts {
+  readonly name: string
+  open(task: AgenticTask): Promise<ArtifactHandle>
+  close(handle: ArtifactHandle): Promise<void>
+}
+
+/** What a strategy body composes with: the artifact lifecycle, the budget, and the two steps. */
 export interface StrategyCtx {
-  readonly surface: AgenticSurface
+  /** Open/close artifacts the body manages itself (e.g. one persistent handle for depth). */
+  readonly surface: StrategyArtifacts
   readonly task: AgenticTask
   readonly opts: AgenticOptions
   readonly budget: number
   readonly scope: Scope<Outcome<unknown>>
-  /** Run ONE worker shot; its scored result, or null if it went down. */
+  /** Run ONE worker shot; its harness-scored result, or null if it went down. */
   shot(spec?: ShotSpec): Promise<ShotResult | null>
   /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
   critique(messages: Msg[]): Promise<string | null>
@@ -603,8 +613,19 @@ export function defineStrategy(
       async act(_t, scope): Promise<Outcome<unknown>> {
         let seq = 0
         const innerTurns = opts.innerTurns ?? 4
+        // HARNESS-VERIFIED scoring: the deliverable score is computed HERE from the shots
+        // the harness actually brokered + scored via surface.score() — NEVER the value the
+        // (possibly authored / adversarial) body returns. An authored strategy cannot
+        // fabricate a win; it can only report what its real shots achieved. Keep-best.
+        let verifiedBest = 0
+        let verifiedResolved = false
         const ctx: StrategyCtx = {
-          surface,
+          // Narrowed to open/close — the body gets no raw call()/score() access.
+          surface: {
+            name: surface.name,
+            open: (t) => surface.open(t),
+            close: (h) => surface.close(h),
+          },
           task,
           opts,
           budget,
@@ -625,7 +646,11 @@ export function defineStrategy(
             )
             if (!res.ok) return null
             const settled = await drainOne(scope)
-            return settled.kind === 'down' ? null : (settled.out as unknown as ShotResult)
+            if (settled.kind === 'down') return null
+            const out = settled.out as unknown as ShotResult
+            if (out.score > verifiedBest) verifiedBest = out.score
+            if (out.total > 0 && out.passes === out.total) verifiedResolved = true
+            return out
           },
           async critique(messages) {
             const child = leaf(`analyst:${seq}`, 'analyst')
@@ -643,7 +668,12 @@ export function defineStrategy(
           },
         }
         const r = await run(ctx)
-        return { kind: 'done', deliverable: { mode: name, ...r } }
+        // Override the body's self-reported score/resolved with the harness-verified
+        // values. The body's progression/completions/shots are advisory (display only).
+        return {
+          kind: 'done',
+          deliverable: { mode: name, ...r, score: verifiedBest, resolved: verifiedResolved },
+        }
       },
     }),
   }
