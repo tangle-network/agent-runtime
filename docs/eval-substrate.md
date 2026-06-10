@@ -56,14 +56,11 @@ The arms must be **provably isolated**: when an arm claims "provider P only," th
 
 ## Building discipline (this repo and others)
 
-The norm: **for every substantive step, say (a) what we're doing, (b) why it matters to the north star, (c) why the obvious alternatives are worse, (d) how the claim was verified.** Repetition is a feature — re-state the goal whenever work resumes or direction changes.
+The general build rules are single-sourced in [`BUILDING.md`](./BUILDING.md) — goal-first, ground-truth
+before claiming, check-existing before building, cheapest-decisive-check first. Substrate-specific
+additions only:
 
-1. **Goal before execution.** Before optimizing anything, validate it's the right axis: who consumes this result, what decision does it change, does the axis discriminate? Re-ask mid-build; sunk effort is not a reason to continue.
-2. **Ground truth over inference.** Claims about behavior come from running the thing (or reading its source), never from types, docs, or memory. If a probe contradicts the model's belief, the probe wins.
-3. **Check existing before building.** Grep for the primitive first; extend it rather than fork it. A new module must name why the existing one couldn't absorb the change.
-4. **Cheapest decisive check first.** Order work so the experiment that could invalidate the plan runs earliest (a 2-cell smoke before a 63-cell matrix; a parametric pilot before a benchmark).
-5. **Verify before claiming, at every layer.** Typecheck/lint/tests before "built"; a live probe before "works"; the artifact opened before "shipped." Failed verification is reported as-is.
-6. **Secrets never print.** Probe with `${VAR:+SET}`-style existence checks only. A leaked credential is rotated immediately and flagged loudly.
-7. **Estimate cost before launch.** cells × per-cell-time / concurrency, stated before any fleet/benchmark run.
-8. **Honest reporting is non-negotiable.** Parity is publishable. Overclaim once and the substrate is worthless.
-9. **Durable knowledge gets written down the same turn** — maps, memory notes, this document — so the next session starts from the map, not re-discovery.
+- **Secrets never print.** Keys live in env/dotenvx; a leaked key in a trace is a stop-the-line defect.
+- **Honest reporting is the moat.** A negative or null verdict ships with the same care as a win —
+  the substrate's value is that its numbers can be believed.
+

@@ -8,7 +8,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 
 | Term | Canonical meaning | Anchor | Not |
 |---|---|---|---|
-| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:104` (`Iteration`), `run-loop.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
+| **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `run-loop.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
 | **Round** | Informal synonym for **iteration**. **Avoid — say "iteration".** | docstrings only | — |
 | **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `sandbox-run.ts:30` ("a SINGLE rollout") | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
 | **Attempt** | A rollout as the steer/arm sees it (its output + verdict + trace). Same event, steer-side view. | `experiment.ts:73` (`SteerHistory`) | — |
@@ -20,10 +20,10 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 
 | Term | Meaning | Anchor |
 |---|---|---|
-| **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:123` |
-| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:61`) |
-| **Validator** | Owns scoring: `validate(output) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. | `types.ts:46` |
-| **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:90` |
+| **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:138` |
+| **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
+| **Validator** | Owns scoring: `validate(output) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. | `types.ts:52` |
+| **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one call) / `loopAnalyst` (a sub-loop). | `experiment.ts` (`AnalystFn`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
 ## Topology (how the shape grows — by LLM decision, not a fixed script)

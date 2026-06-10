@@ -29,8 +29,10 @@ HumanEval is Layer-0 (stateless completions). **commit0** is the Layer-1 test: t
 stubbed Python library, implements it, runs the test suite, iterates, and emits a diff — graded by
 the official commit0 pytest harness to a continuous pass-rate. On `wcwidth` (k=3) the attempts score
 60.5 / 78.9 / 63.2% — **within-task variance the verifier exploits** to pick the best
-(`verifier − random = +11.4pp`). The powered **n=10 cross-task gate** is running; this chart updates
-with it.
+(`verifier − random = +11.4pp`). That powered cross-task gate was later superseded by the canonical-loop
+line of evidence — this doc is scoped to the SELECTION results; the live ledger for everything since
+(the depth-beats-breadth positive, the flywheel verdicts, the evolution runs) is `.evolve/current.json`
+plus the memory ledger.
 
 ## The honest negative: the method needs a correctable band (aec-bench)
 
