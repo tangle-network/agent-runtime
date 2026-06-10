@@ -57,6 +57,11 @@ export interface AuthorStrategyOptions {
   /** The model-call seam (agent-eval `createChatClient`). */
   chat: ChatClient
   model?: string
+  /** A NAMED fallback author tried once when the primary call fails or returns no code
+   *  block (thinking models time out at the edge on long authoring prompts, or return
+   *  empty content without `maxTokens`). Opt-in — absent means the primary's failure
+   *  propagates. */
+  fallbackModel?: string
   /** The environment the losses came from (orientation only — never the verifiers). */
   environmentName: string
   /** The per-task losses table (e.g. JSON.stringify(report.perTask)) — the gradient. */
@@ -66,15 +71,22 @@ export interface AuthorStrategyOptions {
   /** Where the authored module file is written (created if missing). */
   outDir: string
   temperature?: number
+  /** Completion cap — required by thinking-model authors that stream reasoning first. */
+  maxTokens?: number
   signal?: AbortSignal
 }
 
-/** Runtime enforcement of the authored-module contract (the import rule was previously
- *  prompt-only — a live hole). A STATIC LINT, not a sandbox: it rejects the obvious
- *  escape hatches (foreign imports, require, eval, process/fs/network access) before the
- *  module is dynamically imported into this process. Treat authored code as semi-trusted:
- *  for fully untrusted authors, run the whole gate in a container. */
-export function assertAuthoredCodeSafe(code: string): void {
+/** Static CONTRACT lint over an authored strategy module — the module-boundary
+ *  enforcement of the harness's two measurement invariants:
+ *    - author blindness: the only import allowed is the loops surface. A body that could
+ *      reach the filesystem, network, or process could read or mutate verifier/artifact
+ *      state outside the brokered shots, and the harness-verified score would stop
+ *      meaning "what the shots achieved".
+ *    - conserved dose: no out-of-band compute (fetch/require/eval) — every unit a
+ *      strategy spends is metered by the Supervisor's pool, which is what makes
+ *      equal-budget comparisons between strategies valid.
+ *  A lint, not a sandbox: its job is keeping the benchmark numbers interpretable. */
+export function assertStrategyContract(code: string): void {
   const allowedImport =
     /^\s*import\s+\{[^}]*\}\s+from\s+['"]@tangle-network\/agent-runtime\/loops['"]/
   for (const line of code.split('\n')) {
@@ -103,12 +115,17 @@ export interface AuthoredStrategy {
   code: string
 }
 
-/** Author + load a strategy from losses. Throws when the author emits no loadable module
- *  (callers may retry with another model — a named fallback, never silent). */
-export async function authorStrategy(opts: AuthorStrategyOptions): Promise<AuthoredStrategy> {
+/** One authoring attempt: chat with the given model, extract the fenced module. Throws
+ *  when the reply carries no code block. */
+async function requestAuthoredCode(
+  opts: AuthorStrategyOptions,
+  model: string | undefined,
+): Promise<string> {
   const res = await opts.chat.chat(
     {
-      ...(opts.model ? { model: opts.model } : {}),
+      ...(model ? { model } : {}),
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
       messages: [
         {
           role: 'system',
@@ -126,11 +143,23 @@ export async function authorStrategy(opts: AuthorStrategyOptions): Promise<Autho
   const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
   if (!match?.[1]) {
     throw new Error(
-      `authorStrategy: no code block in the author's reply: ${res.content.slice(0, 300)}`,
+      `authorStrategy: no code block in the author's reply (model=${model ?? 'default'}): ${res.content.slice(0, 300)}`,
     )
   }
-  const code = match[1]
-  assertAuthoredCodeSafe(code)
+  return match[1]
+}
+
+/** Author + load a strategy from losses. Throws when the author emits no loadable module;
+ *  with `fallbackModel` set, the named fallback gets one attempt first. */
+export async function authorStrategy(opts: AuthorStrategyOptions): Promise<AuthoredStrategy> {
+  let code: string
+  try {
+    code = await requestAuthoredCode(opts, opts.model)
+  } catch (primaryError) {
+    if (!opts.fallbackModel) throw primaryError
+    code = await requestAuthoredCode(opts, opts.fallbackModel)
+  }
+  assertStrategyContract(code)
   mkdirSync(opts.outDir, { recursive: true })
   const file = join(opts.outDir, `authored-${Date.now()}.mts`)
   writeFileSync(file, code)

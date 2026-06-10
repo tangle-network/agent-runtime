@@ -1,72 +1,38 @@
 /**
- * The strategy AUTHOR — the agent-authored layer (docs/research/layer-agent-authored.md)
- * made executable. An LLM reads a benchmark's per-task LOSSES + the defineStrategy
- * contract, authors a NEW optimization strategy as code, and the gate scores it against
- * the human-built baselines. The R0→R2 ladder:
+ * The strategy-author LADDER CLI — the agent-authored layer
+ * (docs/research/layer-agent-authored.md) made executable against a cheap environment.
+ * The authoring itself is the package primitive (`authorStrategy` from
+ * `@tangle-network/agent-runtime/loops`); this file supplies the environment and runs
+ * the R0→R2 ladder:
  *   R0 — the authored strategy typechecks/loads and completes the gate.
  *   R1 — it beats `sample` (the brutal baseline) on this environment.
  *   R2 — it beats the best human strategy.
  *
- * Two structural safety properties make this sound: the authored body spends through the
+ * Two structural properties make this sound: the authored body spends through the
  * Supervisor's conserved pool (it cannot win by spending more), and it composes
  * shot()/critique() — it never sees the verifiers (it can be wrong, not Goodhart).
  *
- *   ENV=counter AUTHOR_MODEL=deepseek-v4-pro WORKER_MODEL=gpt-4o-mini BUDGET=3 \
+ *   AUTHOR_MODEL=deepseek-v4-pro WORKER_MODEL=gpt-4o-mini BUDGET=3 \
  *     tsx src/strategy-author.mts
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createChatClient } from '@tangle-network/agent-eval'
 import {
   type AgenticTask,
   type ArtifactHandle,
+  authorStrategy,
   type Environment,
   printBenchmarkReport,
   refine,
   runBenchmark,
   sample,
-  type Strategy,
 } from '@tangle-network/agent-runtime/loops'
-import { type RouterConfig, routerChatWithUsage } from './router-client'
 
 function must(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`env ${name} is required`)
   return v
 }
-
-// ── The contract shown to the author (the compressed consumable — what a skill carries) ──
-
-const contractDoc = `
-You author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to
-spend a compute budget to beat a task's deployable check. You compose exactly two steps:
-
-  shot(spec?: { handle?, messages?, steer? }): Promise<ShotResult | null>
-    Runs ONE worker attempt (a bounded tool loop) over an artifact.
-    - omit handle  => the shot opens its OWN fresh artifact and closes it after (a sample).
-    - pass handle  => the shot CONTINUES that artifact (state accumulates across shots).
-    - messages     => the carried conversation (pass the previous ShotResult.messages to continue).
-    - steer        => a corrective instruction injected before the shot.
-    ShotResult = { messages, score (0..1 on the task's check), passes, total, completions, toolErrors }
-    Returns null if the attempt failed infra-wise.
-
-  critique(messages): Promise<string | null>
-    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective
-    instruction (or null when it judges the work complete). Costs ~1 completion.
-
-  surface.open(task) / surface.close(handle)
-    Open a persistent artifact you manage yourself (remember to close in a finally).
-
-Rules:
-- Stay within ~budget total shots; every shot/critique spends from a conserved pool.
-- Return { score, resolved, completions, progression, shots } — score = the BEST checkpoint
-  you reached (keep-best, never final-state), progression = score after each shot.
-- The module must be EXACTLY this shape (no other imports, no commentary outside code):
-
-import { defineStrategy } from '@tangle-network/agent-runtime/loops'
-export default defineStrategy('your-strategy-name', async ({ surface, task, budget, shot, critique }) => {
-  // your composition
-})
-`
 
 // ── Environments the author can be pointed at ────────────────────────────────────
 
@@ -112,56 +78,6 @@ function counterEnvironment(): { environment: Environment; tasks: AgenticTask[] 
   return { environment, tasks }
 }
 
-/** The author step, reusable by the flywheel: losses + contract in, a loaded Strategy out. */
-export async function authorStrategy(
-  cfg: RouterConfig,
-  environmentName: string,
-  lossesJson: string,
-  budget: number,
-): Promise<{ strategy: Strategy; file: string }> {
-  let match: RegExpMatchArray | null = null
-  try {
-    const res = await routerChatWithUsage(
-      cfg,
-      [
-        { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
-        {
-          role: 'user',
-          content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
-        },
-      ],
-      { temperature: 0.6 },
-    )
-    match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
-  } catch (e) {
-    // Thinking models time out at the edge (524) on long authoring prompts — the named
-    // fallback below gets its chance instead of killing the whole cycle.
-    console.error(`  author model failed (${e instanceof Error ? e.message.slice(0, 80) : e}); trying fallback`)
-  }
-  if (!match?.[1]) {
-    // One named-fallback retry (empty/blockless content — e.g. a thinking model edge case).
-    const retry = await routerChatWithUsage(
-      { ...cfg, model: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro' },
-      [
-        { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
-        { role: 'user', content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy. Output only the module code block.` },
-      ],
-      { temperature: 0.6 },
-    )
-    match = retry.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
-    if (!match?.[1]) throw new Error(`author produced no code block (after fallback):\n${retry.content.slice(0, 400)}`)
-  }
-  const dir = join(import.meta.dirname, 'authored')
-  mkdirSync(dir, { recursive: true })
-  const file = join(dir, `authored-${Date.now()}.mts`)
-  writeFileSync(file, match[1])
-  const mod = (await import(`file://${file}`)) as { default?: Strategy }
-  if (!mod.default || typeof mod.default.driver !== 'function' || !mod.default.name) {
-    throw new Error('authored module does not export a default Strategy')
-  }
-  return { strategy: mod.default, file }
-}
-
 async function main(): Promise<void> {
   const budget = Number(process.env.BUDGET ?? 3)
   const workerModel = process.env.WORKER_MODEL ?? 'gpt-4o-mini'
@@ -178,9 +94,18 @@ async function main(): Promise<void> {
 
   // The author sees the CONTRACT + the LOSSES (per-task cells) — never the verifiers.
   const losses = JSON.stringify(baseline.perTask, null, 1).slice(0, 6000)
-  const cfg: RouterConfig = { routerBaseUrl, routerKey, model: authorModel }
   console.error('\n▶ authoring a new strategy from the losses…')
-  const { strategy: authored, file } = await authorStrategy(cfg, environment.name, losses, budget)
+  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: authorModel })
+  const { strategy: authored, file } = await authorStrategy({
+    chat,
+    model: authorModel,
+    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro',
+    environmentName: environment.name,
+    lossesJson: losses,
+    budget,
+    outDir: join(import.meta.dirname, 'authored'),
+    temperature: 0.6,
+  })
   console.error(`  authored "${authored.name}" → ${file}`)
   console.error('  R0 PASS: loaded\n')
 
