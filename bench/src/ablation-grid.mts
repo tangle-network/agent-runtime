@@ -69,24 +69,35 @@ function ddmin(text: string, n: number): string {
   return [...text].filter((_, i) => (i + 1) % n !== 0).join('')
 }
 
-async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string, model: string): Promise<string> {
+async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string): Promise<string> {
   if (kappa === 'ddmin-2') return ddmin(text, 2)
   if (kappa === 'ddmin-5') return ddmin(text, 5)
   const fraction = kappa === 'llm-25' ? 0.25 : 0.5
-  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl, defaultModel: model })
+  // The compressor is a fixed NON-THINKING model: a thinking model can burn the token
+  // cap on reasoning and emit ~empty content, silently degenerating the κ arm.
+  const compressorModel = process.env.COMPRESSOR_MODEL ?? 'deepseek-v4-flash'
+  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl, defaultModel: compressorModel })
   const words = text.split(/\s+/).length
+  const target = Math.round(words * fraction)
   const res = await chat.chat({
     temperature: 0.2,
-    maxTokens: 1024,
+    maxTokens: 2048,
     messages: [
       {
         role: 'system',
-        content: `Compress the following instruction prompt to at most ${Math.round(words * fraction)} words while preserving everything task-critical (the procedure, the output format, any tool instructions). Output ONLY the compressed prompt.`,
+        content: `Compress the following instruction prompt to at most ${target} words while preserving everything task-critical (the procedure, the output format, any tool instructions). Output ONLY the compressed prompt.`,
       },
       { role: 'user', content: text },
     ],
   })
-  return res.content.trim()
+  const out = res.content.trim()
+  const outWords = out.split(/\s+/).length
+  // Fail loud on a degenerate compression — a ~empty prompt is a different treatment
+  // (prompt REMOVAL), not the requested ratio; it must never silently enter a cell.
+  if (outWords < Math.max(5, target * 0.2)) {
+    throw new Error(`compressPrompt(${kappa}): degenerate output (${outWords} words vs target ${target}) — compressor returned: ${out.slice(0, 120)}`)
+  }
+  return out
 }
 
 async function main(): Promise<void> {
@@ -132,7 +143,7 @@ async function main(): Promise<void> {
       const key = `${cell.gamma}:${kappaOp}:${p.slice(0, 40)}`
       const hit = promptCache.get(key)
       if (hit) return hit
-      p = await compressPrompt(p, kappaOp, routerKey, routerBaseUrl, workerModel)
+      p = await compressPrompt(p, kappaOp, routerKey, routerBaseUrl)
       promptCache.set(key, p)
     }
     return p
@@ -224,7 +235,8 @@ async function main(): Promise<void> {
     console.error(`  ${cell.name.padEnd(16)} Δscore ${(verdict.lift.mean * 100).toFixed(1)}pp CI[${(verdict.lift.low * 100).toFixed(1)},${(verdict.lift.high * 100).toFixed(1)}]${cost}  → ${verdict.promoted ? `PROMOTED (${verdict.reason})` : verdict.reason}`)
   }
   const outPath = process.env.OUT ?? '/tmp/ablation-grid-result.json'
-  writeFileSync(outPath, JSON.stringify({ cells: cellNames, kappaOp, results, verdicts }, null, 2))
+  const prompts = Object.fromEntries(promptCache.entries())
+  writeFileSync(outPath, JSON.stringify({ cells: cellNames, kappaOp, prompts, results, verdicts }, null, 2))
   console.error(`  full artifact → ${outPath}`)
 }
 
