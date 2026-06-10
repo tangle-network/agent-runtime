@@ -23,6 +23,7 @@
 
 import { createChatClient, estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
+import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
 import type { Corpus } from './personify/wave-types'
@@ -755,6 +756,9 @@ export const sampleThenRefine = defineStrategy(
 export interface RunAgenticOptions extends AgenticOptions {
   surface: AgenticSurface
   task: AgenticTask
+  /** Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
+   *  The seam online watchdogs/route-auditors subscribe to. */
+  hooks?: RuntimeHooks
   /** A Strategy (the open way) — author/pass your own. Overrides `mode` when present. */
   strategy?: Strategy
   /** Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'. */
@@ -781,6 +785,7 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
     blobs: new InMemoryResultBlobStore(),
     executors: agenticRegistry(opts.surface, opts),
     maxDepth: 3,
+    ...(opts.hooks ? { hooks: opts.hooks } : {}),
   })
   if (result.kind !== 'winner' || result.out.kind !== 'done') {
     const reason =

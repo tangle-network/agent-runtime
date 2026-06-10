@@ -35,6 +35,13 @@ export {
   replaySpawnTree,
 } from '../durable/spawn-journal'
 export {
+  type AuditIntentInput,
+  type AuditIntentOptions,
+  auditIntent,
+  defaultAuditorInstruction,
+  type IntentAudit,
+} from './audit-intent'
+export {
   type CompletionAnalyst,
   type CompletionEvidence,
   type CompletionPolicy,
