@@ -60,6 +60,11 @@ export {
   type LoopOptionsForDispatch,
   loopDispatch,
 } from './loop-dispatch'
+export {
+  createMcpEnvironment,
+  type McpEndpoint,
+  type McpEnvironmentOptions,
+} from './mcp-environment'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
 export {
@@ -153,9 +158,12 @@ export type {
 } from './personify/wave-types'
 export { reportLoopUsage, type UsageSink } from './report-usage'
 export {
+  type BenchmarkCell,
   type BenchmarkConfig,
   type BenchmarkLift,
   type BenchmarkReport,
+  type BenchmarkStrategySummary,
+  type BenchmarkTaskRow,
   type Environment,
   printBenchmarkReport,
   runBenchmark,

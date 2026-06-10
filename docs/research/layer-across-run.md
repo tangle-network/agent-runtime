@@ -1,4 +1,4 @@
-> **Track:** Architecture (research) · **Role:** layer stress-test · **Status:** THE unmeasured thesis — n=0, highest priority
+> **Track:** Architecture (research) · **Role:** layer stress-test · **Status:** MEASURED 2026-06-10 — naive priming FAILS (see verdict below); the lever is selective read-side, not more facts
 
 # Layer: across-run learning (the flywheel)
 
@@ -66,3 +66,29 @@ Falsifiers to design against (the stress test):
   keep* (confidence thresholds, decay, dedup) becomes the GEPA-optimizable surface —
   optimizing memory instead of prompts. Note this is exactly where the prompt-GEPA
   machinery transfers after its within-run null.
+
+
+## VERDICT (2026-06-10) — the A/B ran; naive priming fails, informatively
+
+`bench/src/eops-corpus-ab.mts`, EOPS itsm stream n=16 + frozen holdout n=4, deepseek-v4-pro,
+k=3 facts, equal compute (artifacts: `.evolve/eops-corpus-ab-result.txt`, the accumulated
+corpus `.evolve/eops-corpus-ab-facts.jsonl`):
+
+- **primed − cold = −11.6pp, CI [−25.2, +1.5], n.s.** (cold 62%, primed 50%, disc 6)
+- **SLOPE: −3.3pp (first half) → −20.0pp (second half)** — the ANTI-flywheel signature:
+  the more facts accumulated, the worse priming got.
+- **Holdout: +0.0pp** (4/4 exact ties) — the accumulated facts were inert on fresh tasks.
+
+Two of the four designed falsifiers FIRED: **context pollution** (unconditional top-k
+injection displaces task context and hurts, increasingly with corpus size) and
+**instance-vs-procedural** (the gym DB resets per task, so instance facts don't transfer;
+the holdout ties show the corpus held nothing fresh tasks could use). The judge-leakage
+and worker-disregard falsifiers were not implicated.
+
+What this does and does not kill: it kills *naive unconditional top-k priming* as a
+first-class default (deliberately NOT packaged into the suite). It does not kill the
+across-run thesis — the write side (observe→corpus) is cheap and stays; the open lever is
+the READ side: relevance-gated retrieval (query by the current trace, not blanket tags),
+procedural-only filtering, and k=1 dosing. Re-run the A/B against those designs before
+any further across-run claims; until one wins, the across-run layer's status is
+**negative-at-naive-design, untested-at-selective-design**.
