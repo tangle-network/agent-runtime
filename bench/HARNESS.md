@@ -3,8 +3,10 @@
 If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
-Verified against source 2026-06-06 · agent-eval pinned `^0.83.0` (the selfImprove /
-heldoutSignificance API is version-coupled).
+Verified against source 2026-06-10 · agent-eval pinned `^0.83.0`. The CANONICAL surface is now
+the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
+`Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST; the older
+runExperiment/corpus-replay paths remain for the legacy gates.
 
 ## What this harness answers
 **The success criterion is Gate B** (docs/learning-flywheel.md, docs/architecture.md §2): across
@@ -64,6 +66,39 @@ number below is single-objective + within-run — read them as Gate-A diagnostic
 `rollout (worker → answer) → adapter.judge (valid?) → CORPUS RunRecord (k attempts, output+valid each) → corpus-replay --selector (pick WITHOUT the judge) → corpus-report CI → gate verdict`
 The expensive part (rollouts) produces a **reusable corpus**; selection + stats are free
 and offline (zero new rollouts, zero judge calls).
+
+## THE CANONICAL SUITE (2026-06-10) — the published path; start here
+
+The optimization layer now ships from the package (`PR #209–#211`); bench scripts compose it.
+A domain = an `Environment` (5 hooks); a strategy = how budget is spent to beat its check;
+`runBenchmark` returns per-strategy means + the per-task LOSSES table + the (score,$) Pareto
+frontier + paired-bootstrap refine-vs-sample. Models policy: cheap router models only
+(worker `deepseek-v4-pro`, author `moonshotai/kimi-k2.6`) — never CC models.
+
+| entry point | what it answers | one-liner |
+|---|---|---|
+| `src/flywheel-run.mts` | **THE CLEAN RUN** — does the system improve ITSELF (gen0 → author-from-losses → gen1 → frozen holdout)? | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 tsx src/flywheel-run.mts` |
+| `src/strategy-author.mts` | agent-authored strategies (R0→R2 ladder) on a cheap env | `tsx src/strategy-author.mts` |
+| `src/agentic-run.mts` | depth-vs-breadth on EOPS through the canonical Supervisor (+16.4pp result) | `EOPS_GYM_DBS_DIR=… TASKS=16 tsx src/agentic-run.mts` |
+| `src/eops-gepa.mts` | GEPA over the analyst prompt + frozen holdout (verdict: prompt coordinate FLAT) | `N=12 HOLDOUT=6 GENS=2 tsx src/eops-gepa.mts` |
+| `src/eops-corpus-ab.mts` | the across-run flywheel A/B (naive priming = **−11.6pp NEGATIVE**; `PRIME_MODE=relevance` = the unrun surviving design) | `N=16 HOLDOUT=4 PRIME_MODE=relevance tsx src/eops-corpus-ab.mts` |
+| `src/commit0-env-run.mts` | the HARD domain (implement whole libraries vs their test suites) through `runBenchmark` | `IDS=commit-0/wcwidth BUDGET=3 INNER_TURNS=10 tsx src/commit0-env-run.mts` |
+| `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
+| `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
+
+EOPS standup (one container): `docker run -d --rm --name eops -p 8006:8005
+shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest` + `EOPS_GYM_DBS_DIR=<unzipped
+gym_dbs.zip from github.com/ServiceNow/EnterpriseOps-Gym>`; restart it FRESH per big run
+(it wedges under load); `EOPS_SPLIT=csm|hr|…` selects other domains (their gym containers
+not yet sourced). Cross-cutting laws baked into the suite: keep-best checkpoint scoring
+(final-state scoring is biased −6–8pp), equal compute via the conserved pool, the analyst
+is firewalled (trace-only), costs are real (router usage → `{usd, ms, tokens}`).
+
+### The QUEUED runs for the test fleet (wired, one command each, unrun)
+1. **Relevance-primed corpus A/B** — `PRIME_MODE=relevance K_FACTS=2 N=16 HOLDOUT=4` (the read-side design that survived the naive-priming negative).
+2. **Strategy tournament at power** — flywheel-run with `N=24 HOLDOUT=12` (or runBenchmark with all four built-ins), the within-run topology verdict.
+3. **Commit0 at real budget** — `BUDGET=3 INNER_TURNS=12 N=3` sample-vs-refine on the hard domain.
+4. **Cross-domain replication** — blocked on sourcing the csm/hr gym containers (`EOPS_SPLIT` is wired).
 
 ## Commands (mirrored by `pnpm help` / `tsx src/run.ts help` — keep in sync)
 run.ts:  help · preflight · verify-judge · solve-one · solve-one-local · solve-cad ·
