@@ -290,6 +290,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
 
   return {
     client,
+    placement: 'in-process',
     describe(): string {
       return `in-process (repoRoot=${options.repoRoot}, harnesses=[${harnesses.join(',')}]${
         options.testCmd ? `, testCmd="${options.testCmd}"` : ''

@@ -7,6 +7,7 @@
  */
 
 import type { CoderDelegate } from '../delegates'
+import { formatDetachedSessionRef } from '../detached-turn'
 import {
   type DelegateCodeArgs,
   type DelegateCodeResult,
@@ -160,6 +161,16 @@ export interface DelegateCodeHandlerOptions {
   delegate: CoderDelegate
   /** Override the duration hint. */
   estimateDurationMs?: (args: DelegateCodeArgs) => number
+  /**
+   * Record a deterministic detached-session resume key on single-variant
+   * submissions (derived from the idempotency key, so retried identical
+   * inputs name the same logical turn). Enable only when the wired delegate
+   * dispatches via sandbox sessions — `createDefaultCoderDelegate` routes
+   * onto its `driveTurn` tick path when the ref is present. Fanout
+   * (`variants > 1`) never records a ref: one resume key cannot express N
+   * sessions + winner selection.
+   */
+  detachedDispatch?: boolean
 }
 
 /** @experimental */
@@ -178,11 +189,19 @@ export function createDelegateCodeHandler(
       config: args.config,
       namespace: args.namespace,
     })
+    const detached = options.detachedDispatch === true && (args.variants ?? 1) <= 1
     const submitted = options.queue.submit<DelegateCodeArgs>({
       profile: 'coder',
       args,
       namespace: args.namespace,
       idempotencyKey,
+      ...(detached
+        ? {
+            detachedSessionRef: formatDetachedSessionRef({
+              sessionId: `dlg-turn-coder-${idempotencyKey}`,
+            }),
+          }
+        : {}),
       run: async (ctx) => options.delegate(args, ctx),
     })
     return {

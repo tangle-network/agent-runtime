@@ -12,6 +12,7 @@
  */
 
 import type { ResearcherDelegate } from '../delegates'
+import { formatDetachedSessionRef } from '../detached-turn'
 import {
   type DelegateResearchArgs,
   type DelegateResearchResult,
@@ -180,6 +181,11 @@ export interface DelegateResearchHandlerOptions {
   queue: DelegationTaskQueue
   delegate: ResearcherDelegate
   estimateDurationMs?: (args: DelegateResearchArgs) => number
+  /**
+   * Record a deterministic detached-session resume key on single-variant
+   * submissions. Same contract as `DelegateCodeHandlerOptions.detachedDispatch`.
+   */
+  detachedDispatch?: boolean
 }
 
 /** @experimental */
@@ -198,11 +204,19 @@ export function createDelegateResearchHandler(
       variants: args.variants ?? 1,
       config: args.config,
     })
+    const detached = options.detachedDispatch === true && (args.variants ?? 1) <= 1
     const submitted = options.queue.submit<DelegateResearchArgs>({
       profile: 'researcher',
       args,
       namespace: args.namespace,
       idempotencyKey,
+      ...(detached
+        ? {
+            detachedSessionRef: formatDetachedSessionRef({
+              sessionId: `dlg-turn-research-${idempotencyKey}`,
+            }),
+          }
+        : {}),
       run: async (ctx) => options.delegate(args, ctx),
     })
     return {

@@ -82,6 +82,15 @@ export interface McpServerOptions {
   /** Override the default in-memory task queue. */
   queue?: DelegationTaskQueue
   /**
+   * Record deterministic detached-session resume keys on single-variant
+   * coder/researcher submissions so a durable queue can resume them after a
+   * restart. Enable only when the wired delegates dispatch via sandbox
+   * sessions (`driveTurn`) AND `queue` persists records — the keys are inert
+   * otherwise. The bin turns this on alongside the durable store for
+   * session-backed (sibling/fleet) placements.
+   */
+  detachedDispatch?: boolean
+  /**
    * Extra tools to serve alongside the delegation tools, for example
    * `createCoordinationTools(...).tools`. Registered after the built-ins; a
    * duplicate name throws so delegation tools cannot be shadowed silently.
@@ -157,7 +166,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       name: DELEGATE_CODE_TOOL_NAME,
       description: DELEGATE_CODE_DESCRIPTION,
       inputSchema: DELEGATE_CODE_INPUT_SCHEMA as unknown as Record<string, unknown>,
-      handler: createDelegateCodeHandler({ queue, delegate: options.coderDelegate }),
+      handler: createDelegateCodeHandler({
+        queue,
+        delegate: options.coderDelegate,
+        ...(options.detachedDispatch !== undefined
+          ? { detachedDispatch: options.detachedDispatch }
+          : {}),
+      }),
     })
   }
   if (options.researcherDelegate) {
@@ -165,7 +180,13 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       name: DELEGATE_RESEARCH_TOOL_NAME,
       description: DELEGATE_RESEARCH_DESCRIPTION,
       inputSchema: DELEGATE_RESEARCH_INPUT_SCHEMA as unknown as Record<string, unknown>,
-      handler: createDelegateResearchHandler({ queue, delegate: options.researcherDelegate }),
+      handler: createDelegateResearchHandler({
+        queue,
+        delegate: options.researcherDelegate,
+        ...(options.detachedDispatch !== undefined
+          ? { detachedDispatch: options.detachedDispatch }
+          : {}),
+      }),
     })
   }
   if (options.uiAuditorDelegate) {

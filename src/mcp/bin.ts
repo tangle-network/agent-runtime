@@ -31,10 +31,21 @@
  *                                    optional — absolute path of a JSON state
  *                                    file. When set, delegation records persist
  *                                    across MCP restarts (FileDelegationStore):
- *                                    status/history survive, idempotency keys
- *                                    dedupe across processes, and in-flight
- *                                    records settle as failed with a truthful
+ *                                    status/history survive and idempotency keys
+ *                                    dedupe across processes. Single-variant
+ *                                    coder/researcher delegations additionally
+ *                                    dispatch DETACHED (driveTurn ticks against a
+ *                                    deterministic session id) on session-backed
+ *                                    placements, so restored in-flight records
+ *                                    resume against their still-running sandbox
+ *                                    sessions; non-detached in-flight records
+ *                                    settle as failed with a truthful
  *                                    driver-restart error.
+ *   AGENT_RUNTIME_DELEGATION_DETACHED
+ *                                    set to `0` to keep every delegation on the
+ *                                    streaming path even when the state file is
+ *                                    configured (disables detached dispatch +
+ *                                    resume).
  *   AGENT_RUNTIME_DELEGATION_STATE_RECOVER
  *                                    set to `1` to archive a corrupt state file
  *                                    (`<file>.corrupt-<ts>`) and start empty
@@ -44,16 +55,32 @@
  *                                    terminal records. Unset = keep forever.
  */
 
-import type { LoopTraceEmitter, SandboxClient } from '../runtime'
+import type { SandboxInstance } from '@tangle-network/sandbox'
+import { coderProfile } from '../profiles/coder'
+import type { AgentRunSpec, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
-import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
+import {
+  coderTaskFromArgs,
+  createDefaultCoderDelegate,
+  type ResearcherDelegate,
+  settleDetachedCoderTurn,
+} from './delegates'
 import { FileDelegationStore } from './delegation-store'
+import {
+  createDriveTurnResumeDriver,
+  type DetachedTurn,
+  type DriveTurnCapableBox,
+  detachedTurnEvents,
+  formatDetachedSessionRef,
+  parseDetachedSessionRef,
+  runDetachedTurn,
+} from './detached-turn'
 import type { DelegationExecutor } from './executor'
 import { createMcpServer } from './server'
-import { DelegationTaskQueue } from './task-queue'
+import { type DelegationResumeDriver, DelegationTaskQueue } from './task-queue'
 import { createPropagatingTraceEmitter, readTraceContextFromEnv } from './trace-propagation'
-import type { ResearchOutputShape } from './types'
+import type { DelegateCodeArgs, DelegateResearchArgs, ResearchOutputShape } from './types'
 
 async function main(): Promise<void> {
   const fanoutHarnesses = parseHarnesses(process.env.MCP_CODER_FANOUT_HARNESSES)
@@ -117,15 +144,36 @@ async function main(): Promise<void> {
         })
       : undefined
 
-  const researcherDelegate =
+  const researcherSupport =
     wantResearcher && executor
-      ? await loadResearcherDelegate(executor.client, maxConcurrency, traceEmitter)
+      ? await loadResearcherSupport(executor.client, maxConcurrency, traceEmitter)
       : undefined
 
-  const durableQueue = await buildDurableQueueFromEnv()
+  // Detached dispatch + resume turn on together with the durable store, and
+  // only for session-backed placements with real credentials: in-process
+  // placement has no sandbox session to detach, and the diagnostic no-key stub
+  // cannot resolve boxes. AGENT_RUNTIME_DELEGATION_DETACHED=0 keeps everything
+  // on the streaming path.
+  const detachedDispatch =
+    Boolean(process.env.AGENT_RUNTIME_DELEGATION_STATE_FILE?.trim()) &&
+    process.env.AGENT_RUNTIME_DELEGATION_DETACHED !== '0' &&
+    Boolean(process.env.TANGLE_API_KEY) &&
+    (executor?.placement === 'sibling' || executor?.placement === 'fleet')
+  if (detachedDispatch) {
+    process.stderr.write(
+      'agent-runtime-mcp: detached dispatch enabled — single-variant delegations resume across restarts\n',
+    )
+  }
+  const resumeDriver =
+    detachedDispatch && sandboxClient
+      ? buildResumeDriver({ sandboxClient, researcherResume: researcherSupport?.resume })
+      : undefined
+
+  const durableQueue = await buildDurableQueueFromEnv(resumeDriver)
   const server = createMcpServer({
     coderDelegate,
-    researcherDelegate,
+    researcherDelegate: researcherSupport?.delegate,
+    detachedDispatch,
     ...(durableQueue ? { queue: durableQueue } : {}),
   })
 
@@ -149,7 +197,9 @@ async function main(): Promise<void> {
   await server.serve()
 }
 
-async function buildDurableQueueFromEnv(): Promise<DelegationTaskQueue | undefined> {
+async function buildDurableQueueFromEnv(
+  resumeDriver: DelegationResumeDriver | undefined,
+): Promise<DelegationTaskQueue | undefined> {
   const stateFile = process.env.AGENT_RUNTIME_DELEGATION_STATE_FILE?.trim()
   if (!stateFile) return undefined
   const store = new FileDelegationStore({
@@ -157,10 +207,13 @@ async function buildDurableQueueFromEnv(): Promise<DelegationTaskQueue | undefin
     recoverCorrupt: process.env.AGENT_RUNTIME_DELEGATION_STATE_RECOVER === '1',
   })
   const maxTerminalRecords = parseRetention(process.env.AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL)
-  // No resumeDelegate is wired here yet: restored in-flight records settle
-  // as failed with a driver-restart error rather than pretending to resume.
+  // With a resume driver, restored in-flight records that carry a
+  // detachedSessionRef re-attach to their still-running sandbox sessions;
+  // without one (detached dispatch disabled / no credentials) they settle as
+  // failed with a truthful driver-restart error.
   const queue = await DelegationTaskQueue.restore({
     store,
+    ...(resumeDriver ? { resumeDelegate: resumeDriver } : {}),
     ...(maxTerminalRecords !== undefined ? { maxTerminalRecords } : {}),
     onPersistError: (error) => {
       // Durable mode that can no longer write is a broken contract: crash
@@ -171,6 +224,80 @@ async function buildDurableQueueFromEnv(): Promise<DelegationTaskQueue | undefin
   })
   process.stderr.write(`agent-runtime-mcp: durable delegation state → ${stateFile}\n`)
   return queue
+}
+
+interface ResearcherResumeSupport {
+  message(args: DelegateResearchArgs): string
+  settle(
+    turn: DetachedTurn,
+    args: DelegateResearchArgs,
+    signal: AbortSignal,
+  ): Promise<ResearchOutputShape>
+}
+
+/**
+ * Compose the `driveTurn`-backed resume driver over the real sandbox client.
+ * Profile dispatch: coder records settle through the same parse + validate
+ * gate the delegate applies; researcher records settle through the
+ * agent-knowledge preset when the peer is installed. Profiles without resume
+ * support (ui-auditor, researcher-without-peer) fail loud — the record settles
+ * as failed with the reason instead of fabricating an output.
+ */
+function buildResumeDriver(args: {
+  sandboxClient: SandboxClient
+  researcherResume: ResearcherResumeSupport | undefined
+}): DelegationResumeDriver {
+  const client = args.sandboxClient as SandboxClient & {
+    get?: (id: string) => Promise<SandboxInstance | null>
+  }
+  return createDriveTurnResumeDriver({
+    async resolveSandbox(sandboxId) {
+      if (typeof client.get !== 'function') {
+        throw new Error(
+          'agent-runtime-mcp: the sandbox client exposes no get(sandboxId); upgrade @tangle-network/sandbox to >= 0.6 to resume detached delegations',
+        )
+      }
+      const box = await client.get(sandboxId)
+      if (!box) {
+        throw new Error(
+          `agent-runtime-mcp: sandbox ${sandboxId} no longer exists — the detached run cannot be resumed`,
+        )
+      }
+      return box as unknown as DriveTurnCapableBox
+    },
+    buildMessage(record) {
+      if (record.profile === 'coder') {
+        const task = coderTaskFromArgs(record.args as DelegateCodeArgs)
+        return coderProfile({ task }).taskToPrompt(task)
+      }
+      if (record.profile === 'researcher' && args.researcherResume) {
+        return args.researcherResume.message(record.args as DelegateResearchArgs)
+      }
+      throw new Error(
+        `agent-runtime-mcp: no detached resume support for profile "${record.profile}"`,
+      )
+    },
+    async settleOutput(turn, record, ctx) {
+      if (record.profile === 'coder') {
+        if (!record.detachedSessionRef) {
+          throw new Error(
+            `agent-runtime-mcp: record ${record.taskId} reached the resume settle without a detachedSessionRef`,
+          )
+        }
+        return settleDetachedCoderTurn(turn, {
+          task: coderTaskFromArgs(record.args as DelegateCodeArgs),
+          sessionId: parseDetachedSessionRef(record.detachedSessionRef).sessionId,
+          signal: ctx.signal,
+        })
+      }
+      if (record.profile === 'researcher' && args.researcherResume) {
+        return args.researcherResume.settle(turn, record.args as DelegateResearchArgs, ctx.signal)
+      }
+      throw new Error(
+        `agent-runtime-mcp: no detached resume support for profile "${record.profile}"`,
+      )
+    },
+  })
 }
 
 function parseRetention(raw: string | undefined): number | undefined {
@@ -235,11 +362,16 @@ interface ResearcherFanoutPreset {
   driver: Parameters<typeof runLoop>[0]['driver']
 }
 
-async function loadResearcherDelegate(
+interface ResearcherSupport {
+  delegate: ResearcherDelegate
+  resume: ResearcherResumeSupport
+}
+
+async function loadResearcherSupport(
   sandboxClient: SandboxClient,
   maxConcurrency: number,
   traceEmitter?: LoopTraceEmitter,
-): Promise<ResearcherDelegate | undefined> {
+): Promise<ResearcherSupport | undefined> {
   // Optional peer — when `@tangle-network/agent-knowledge` isn't installed,
   // we silently omit the researcher tool from the advertisement. The
   // dynamic-import path is resolved at runtime; TypeScript cannot see the
@@ -255,29 +387,50 @@ async function loadResearcherDelegate(
   const singleFactory = (mod as { researcherProfile?: SingleFactory }).researcherProfile
   if (!fanoutFactory || !singleFactory) return undefined
 
-  return async (args, ctx) => {
-    const task = {
-      question: args.question,
-      knowledgeNamespace: args.namespace,
-      scope: args.scope,
-      sources: args.sources,
-      recencyWindow: args.config?.recencyWindow
-        ? {
-            since: args.config.recencyWindow.since
-              ? new Date(args.config.recencyWindow.since)
-              : undefined,
-            until: args.config.recencyWindow.until
-              ? new Date(args.config.recencyWindow.until)
-              : undefined,
-          }
-        : undefined,
-      maxItems: args.config?.maxItems,
-      minConfidence: args.config?.minConfidence,
+  const settleSingle = async (
+    turn: DetachedTurn,
+    args: DelegateResearchArgs,
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<ResearchOutputShape> => {
+    const task = buildResearchTask(args)
+    const preset = singleFactory({ task })
+    if (!preset.validator) {
+      throw new Error('agent-runtime-mcp: researcher preset exposes no validator; cannot settle')
     }
+    const parsed = preset.output.parse(detachedTurnEvents(sessionId, turn))
+    const verdict = await preset.validator.validate(parsed, { iteration: 0, signal })
+    if ((verdict as { valid?: boolean }).valid !== true) {
+      throw new Error('researcher delegate produced no winner')
+    }
+    return parsed as ResearchOutputShape
+  }
+
+  const delegate: ResearcherDelegate = async (args, ctx) => {
+    const task = buildResearchTask(args)
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
       const preset = singleFactory({ task })
+      // Detached dispatch — same contract as the coder delegate: one session
+      // on one box, driveTurn ticks, resume key bound to the sandbox id.
+      if (ctx.detachedSessionRef !== undefined && ctx.updateDetachedSessionRef) {
+        const { sessionId } = parseDetachedSessionRef(ctx.detachedSessionRef)
+        const rebind = ctx.updateDetachedSessionRef
+        const spec = preset.agentRunSpec as AgentRunSpec<unknown>
+        const turn = await runDetachedTurn({
+          client: sandboxClient,
+          spec,
+          prompt: spec.taskToPrompt(task),
+          sessionId,
+          bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
+          signal: ctx.signal,
+          report: ctx.report,
+        })
+        const output = await settleSingle(turn, args, sessionId, ctx.signal)
+        ctx.report({ iteration: 1, phase: 'completed' })
+        return output
+      }
       const result = await runLoop({
         driver: {
           name: 'mcp-researcher-single',
@@ -316,6 +469,43 @@ async function loadResearcherDelegate(
     if (!output) throw new Error('researcher delegate fanout produced no winner')
     ctx.report({ iteration: result.iterations.length, phase: 'completed' })
     return output as ResearchOutputShape
+  }
+
+  return {
+    delegate,
+    resume: {
+      message(args) {
+        const task = buildResearchTask(args)
+        const spec = singleFactory({ task }).agentRunSpec as AgentRunSpec<unknown>
+        return spec.taskToPrompt(task)
+      },
+      async settle(turn, args, signal) {
+        // The session id is only the synthesized event's id — the parser reads
+        // data.result / data.text, never the id.
+        return settleSingle(turn, args, 'resumed-detached-turn', signal)
+      },
+    },
+  }
+}
+
+function buildResearchTask(args: DelegateResearchArgs): unknown {
+  return {
+    question: args.question,
+    knowledgeNamespace: args.namespace,
+    scope: args.scope,
+    sources: args.sources,
+    recencyWindow: args.config?.recencyWindow
+      ? {
+          since: args.config.recencyWindow.since
+            ? new Date(args.config.recencyWindow.since)
+            : undefined,
+          until: args.config.recencyWindow.until
+            ? new Date(args.config.recencyWindow.until)
+            : undefined,
+        }
+      : undefined,
+    maxItems: args.config?.maxItems,
+    minConfidence: args.config?.minConfidence,
   }
 }
 
