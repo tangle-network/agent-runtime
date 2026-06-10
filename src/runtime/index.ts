@@ -245,6 +245,18 @@ export {
   strategyAuthorContract,
 } from './strategy-author'
 export {
+  type ChampionPick,
+  type ChampionPolicy,
+  type EvolutionArchiveNode,
+  type EvolutionAuthor,
+  type EvolutionCandidate,
+  type EvolutionGeneration,
+  type EvolutionReport,
+  runStrategyEvolution,
+  type StrategyEvolutionConfig,
+  selectChampion,
+} from './strategy-evolution'
+export {
   type BudgetPool,
   type BudgetReadout,
   createBudgetPool,
