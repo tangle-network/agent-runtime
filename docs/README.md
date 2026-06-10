@@ -35,6 +35,7 @@ The package API and subsystems.
 | Doc | Role | Purpose |
 |---|---|---|
 | [../README.md](../README.md) | API entry point | Install, the loop API, self-improvement framing, exported subpaths. |
+| [PLAIN.md](./PLAIN.md) | the translation layer | The whole system in plain language — five sentences, the six-piece core, the project-term → plain-English table, the one-paragraph version for outside collaborators. Start HERE when introducing the project to anyone. |
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term (iteration/round/rollout/attempt, driver/worker/executor, TopologyMove, budget/spend, Scope.act + the coordination MCP), grounded to `file:line`; drifted synonyms flagged. Read when a term is ambiguous. |
 | [execution-model.md](./execution-model.md) | the picture | The four diagrams: the unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, who gets which tools/MCPs, and the spawn mechanics. |
 | [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
