@@ -269,9 +269,15 @@ sandbox         AgentProfile, Sandbox.create, streamPrompt, exportTraceBundle. T
 
 Bins: `agent-runtime-mcp` (delegation MCP server), `agent-runtime-loop` (schedulable delegated loop-runner).
 
-## Adoption skill
+## Teaching an agent to build on this
 
-This package ships a self-contained adoption skill at [`skills/agent-runtime-adoption/SKILL.md`](./skills/agent-runtime-adoption/SKILL.md): driven loops, topology drivers, the `loopDispatch` campaign bridge, MCP delegation, and the code-surface `improvementDriver` for agent-eval's `selfImprove`. It needs only this package plus `@tangle-network/agent-eval`. For the full self-improving pipeline (trace sink, analyst loop, scorecard, production loop, CI), see the `agent-eval-adoption` and `agent-stack-adoption` skills.
+Two agent-consumable skills live in the [`loops`](https://github.com/drewstone/loops) repo:
+**`skills/loop-builder`** (domain → `Environment` → loop → gate → operator surface, with the
+measured foot-gun list) and **`skills/loop-author`** (authoring a strategy body from losses;
+read the contract with `loops contract`). The runnable on-ramp is [`examples/`](./examples/README.md)
+— a learning progression from the production chat turn through the strategy suite to the recursive
+supervisor. For the broader pipeline (trace sink, analyst loop, scorecard, CI), see the
+`agent-eval-adoption` and `agent-stack-adoption` skills.
 
 ## Stability, tests, docs
 
