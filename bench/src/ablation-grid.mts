@@ -235,7 +235,8 @@ async function main(): Promise<void> {
   // Gate every cell against base on the SAME holdout task ids.
   const base = results.base
   if (!base) throw new Error('base cell missing')
-  console.error(`\n${'='.repeat(74)}\nGRID VERDICTS (vs base; κ cells gated non-inferiority)\n${'='.repeat(74)}`)
+  const modelLine = `worker=${workerModel} analyst=${workerModel} compressor=${process.env.COMPRESSOR_MODEL ?? 'deepseek-v4-flash'} · env=${envName} n=${holdoutN} budget=${budget} κ=${kappaOp}`
+  console.error(`\n${'='.repeat(74)}\nGRID VERDICTS (vs base; κ cells gated non-inferiority)\n${modelLine}\n${'='.repeat(74)}`)
   const verdicts: Record<string, PromotionVerdict> = {}
   for (const cell of cells) {
     if (cell.name === 'base') continue
@@ -291,7 +292,18 @@ async function main(): Promise<void> {
   writeFileSync(
     outPath,
     JSON.stringify(
-      { cells: cellNames, kappaOp, prompts, overheads: Object.fromEntries(overheads), results, verdicts },
+      {
+        models: { worker: workerModel, analyst: workerModel, compressor: process.env.COMPRESSOR_MODEL ?? 'deepseek-v4-flash' },
+        env: envName,
+        budget,
+        holdoutN,
+        cells: cellNames,
+        kappaOp,
+        prompts,
+        overheads: Object.fromEntries(overheads),
+        results,
+        verdicts,
+      },
       null,
       2,
     ),

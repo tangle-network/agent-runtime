@@ -115,7 +115,9 @@ async function main(): Promise<void> {
     },
   })
 
-  console.error(`\n${'='.repeat(74)}\nEVOLUTION VERDICT\n${'='.repeat(74)}`)
+  console.error(
+    `\n${'='.repeat(74)}\nEVOLUTION VERDICT\nworker=${workerModel} author=${authorModel} fallback=${process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-flash'} · n=${n}+${holdoutN} budget=${budget}${process.env.OBJECTIVE === 'cost' ? ' · objective=cost' : ''}\n${'='.repeat(74)}`,
+  )
   console.error('  champion trajectory (train telemetry — unpaired across generations):')
   for (const t of report.trajectory) {
     console.error(`  gen ${t.generation}: champion ${t.champion} @ ${(t.score * 100).toFixed(1)}% ($${t.usd.toFixed(4)}/task)`)
@@ -161,7 +163,23 @@ async function main(): Promise<void> {
     )
   }
   const outPath = process.env.OUT ?? '/tmp/flywheel-evolve-result.json'
-  writeFileSync(outPath, JSON.stringify(report, null, 2))
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        models: {
+          worker: workerModel,
+          analyst: workerModel,
+          author: authorModel,
+          authorFallback: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-flash',
+        },
+        config: { n, holdoutN, budget, objective: process.env.OBJECTIVE ?? 'score' },
+        ...report,
+      },
+      null,
+      2,
+    ),
+  )
   console.error(`  full artifact → ${outPath}`)
 }
 
