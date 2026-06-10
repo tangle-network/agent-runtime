@@ -9,7 +9,7 @@ built pointing toward that or away from it?
 
 ## Ground truth: what Tangle Intelligence is today
 
-Verified against the code (otel-export.ts, examples/intelligence-export,
+Verified against the code (otel-export.ts, examples/agents-of-all-shapes,
 agents-of-all-shapes, the sandbox SDK):
 
 | surface | direction | shape |

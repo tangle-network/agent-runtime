@@ -136,9 +136,9 @@ agents because nothing in this list is baked into it.
 
 ## Reading order for a new consumer
 
-1. `examples/basic-task/` — the smallest end-to-end.
-2. `examples/sandbox-stream-backend/` — what streaming looks like.
+1. `examples/knowledge-gating/` — the smallest end-to-end.
+2. `examples/stream-backends/` — what streaming looks like.
 3. `examples/chat-handler/` — `handleChatTurn` — the centerpiece chat handler.
 4. `examples/runtime-run/` — the production-run row + cost ledger.
-5. `examples/pipe-into-reviewer/` — pipe one runtime's stream into a reviewer agent.
+5. `examples/recursive-supervisor/` — pipe one runtime's stream into a reviewer agent.
 6. The `README.md` entry-point table — model resolution + every other primitive, one row each.
