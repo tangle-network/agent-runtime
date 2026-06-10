@@ -283,3 +283,136 @@ describe('runStrategyEvolution', () => {
     expect(seen[0]).toContain('sample (baseline')
   })
 })
+
+// ── Band-aware scoring ────────────────────────────────────────────────────────────
+
+import { discriminatingMeans, pickChampion } from '../../src/runtime/strategy-evolution'
+
+/** Difficulty by task id: 'easy-*' tasks score 1.0 for ANY strategy; others score by
+ *  shots-on-handle capped at 2 (depth 1.0, breadth 0.5) — the middle band. */
+function difficultySurface(): AgenticSurface {
+  const shotsByHandle = new Map<string, number>()
+  const taskByHandle = new Map<string, string>()
+  let seq = 0
+  return {
+    name: 'difficulty',
+    async open(task) {
+      seq += 1
+      const id = `h-${seq}`
+      shotsByHandle.set(id, 0)
+      taskByHandle.set(id, task.id)
+      return { id, surface: 'difficulty' }
+    },
+    async tools(_t, handle) {
+      shotsByHandle.set(handle.id, (shotsByHandle.get(handle.id) ?? 0) + 1)
+      return []
+    },
+    async call() {
+      return 'ok'
+    },
+    async score(_t, handle) {
+      if (taskByHandle.get(handle.id)?.startsWith('easy-'))
+        return { passes: 2, total: 2, errored: 0 }
+      return { passes: Math.min(shotsByHandle.get(handle.id) ?? 0, 2), total: 2, errored: 0 }
+    },
+    async close() {},
+  }
+}
+
+describe('band-aware scoring', () => {
+  it('discriminatingMeans drops zero-spread tasks; null when every task ties', () => {
+    const cell = (score: number) => ({
+      score,
+      resolved: false,
+      progression: [score],
+      usd: 0.01,
+      ms: 0,
+      tokens: { input: 0, output: 0 },
+    })
+    const report: BenchmarkReport = {
+      n: 3,
+      excluded: 0,
+      perStrategy: {},
+      perTask: [
+        { taskId: 'sat', cells: { a: cell(1), b: cell(1) } },
+        { taskId: 'band1', cells: { a: cell(0.2), b: cell(0.8) } },
+        { taskId: 'band2', cells: { a: cell(0.4), b: cell(0.6) } },
+      ],
+      pareto: [],
+    }
+    const means = discriminatingMeans(report, ['a', 'b'])
+    expect(means?.a.score).toBeCloseTo(0.3)
+    expect(means?.b.score).toBeCloseTo(0.7)
+    const allTied: BenchmarkReport = {
+      ...report,
+      perTask: [{ taskId: 'sat', cells: { a: cell(1), b: cell(1) } }],
+    }
+    expect(discriminatingMeans(allTied, ['a', 'b'])).toBeNull()
+    // The pick over band means flips vs diluted full means when saturation dominates.
+    expect(pickChampion(means ?? {}, ['a', 'b'], 'score', 0.01).name).toBe('b')
+  })
+
+  it('holdout band screening keeps only headroom tasks; estimand recorded', async () => {
+    stubWorkerRouter()
+    const { chat } = scriptedChat([fenced(twoShotDepthModule)])
+    const mixed = (offset: number, n: number): Promise<AgenticTask[]> =>
+      Promise.resolve(
+        Array.from({ length: n }, (_, i) => {
+          const idx = offset + i
+          return {
+            id: idx % 2 === 0 ? `easy-${idx}` : `band-${idx}`,
+            systemPrompt: 'fixture',
+            userPrompt: 'reach the target',
+          }
+        }),
+      )
+    const report = await runStrategyEvolution({
+      environment: difficultySurface(),
+      tasks: mixed,
+      trainN: 6,
+      holdoutN: 4,
+      worker,
+      author: { chat },
+      budget: 3,
+      generations: 1,
+      populationSize: 1,
+      baselines: [sample],
+      band: { holdoutPoolN: 10 },
+      minPairedTasks: 4,
+      outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+    })
+    expect(report.band?.screened).toBe(10)
+    expect(report.band?.inBand).toBe(5)
+    for (const row of report.holdout.perTask) expect(row.taskId.startsWith('band-')).toBe(true)
+    expect(report.verdict.promoted).toBe(true)
+  })
+
+  it('throws loudly when the pool has too few headroom tasks', async () => {
+    stubWorkerRouter()
+    const { chat } = scriptedChat([fenced(oneShotModule)])
+    const allEasy = (offset: number, n: number): Promise<AgenticTask[]> =>
+      Promise.resolve(
+        Array.from({ length: n }, (_, i) => ({
+          id: `easy-${offset + i}`,
+          systemPrompt: 'fixture',
+          userPrompt: 'reach the target',
+        })),
+      )
+    await expect(
+      runStrategyEvolution({
+        environment: difficultySurface(),
+        tasks: allEasy,
+        trainN: 4,
+        holdoutN: 4,
+        worker,
+        author: { chat },
+        budget: 2,
+        generations: 1,
+        populationSize: 1,
+        baselines: [sample],
+        band: { holdoutPoolN: 8 },
+        outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
+      }),
+    ).rejects.toThrow(/headroom/)
+  })
+})

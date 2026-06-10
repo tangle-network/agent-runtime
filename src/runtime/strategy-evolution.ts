@@ -82,6 +82,20 @@ export interface StrategyEvolutionConfig {
   outDir: string
   /** Promotion-gate evidence floor (paired holdout tasks). */
   minPairedTasks?: number
+  /** BAND-AWARE scoring — concentrate the measurement where lift is possible.
+   *  Holdout: draw `holdoutPoolN` candidate tasks and run `baselines[0]` once at the run
+   *  budget as an INDEPENDENT reference screen; keep tasks scoring ≤ `maxRefScore`
+   *  (headroom exists) and take the first `holdoutN`. Band membership is decided before
+   *  either finalist touches a task and both finalists then face the SAME tasks — the
+   *  estimand becomes "paired lift on headroom tasks", pre-registered by this config.
+   *  Train: champion selection ignores zero-spread tasks (every field strategy scored
+   *  identically — zero selection information, pure noise dilution). */
+  band?: {
+    holdoutPoolN: number
+    /** Keep holdout tasks where the reference scores ≤ this. Default 0.99 — drop only
+     *  tasks the reference already solves fully (no headroom, a candidate can only tie). */
+    maxRefScore?: number
+  }
   onTask?: (phase: string, row: BenchmarkTaskRow, done: number, total: number) => void
   hooks?: RuntimeHooks
 }
@@ -122,6 +136,15 @@ export interface EvolutionArchiveNode {
   usd: number
 }
 
+export interface EvolutionBandInfo {
+  /** Tasks screened by the reference on the holdout pool. */
+  screened: number
+  /** Tasks kept (reference score ≤ maxRefScore) before truncating to holdoutN. */
+  inBand: number
+  /** Reference scores per screened task (the screening record). */
+  refScores: Array<{ taskId: string; score: number }>
+}
+
 export interface EvolutionReport {
   gen0: BenchmarkReport
   gen0Champion: ChampionPick
@@ -130,6 +153,9 @@ export interface EvolutionReport {
   finalChampion: ChampionPick
   holdout: BenchmarkReport
   verdict: PromotionVerdict
+  /** Present when band screening ran — the verdict's estimand is then "paired lift on
+   *  headroom tasks" (band membership fixed by the reference screen, pre-registered). */
+  band?: EvolutionBandInfo
   /** SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
    *  re-measurement, so cross-generation deltas mix true drift with run-to-run variance
    *  (entries are unpaired across generations). The only evidence-grade comparison in
@@ -137,20 +163,46 @@ export interface EvolutionReport {
   trajectory: Array<{ generation: number; champion: string; score: number; usd: number }>
 }
 
-/** Search-side champion selection over a tournament report. 'score' takes the best mean
- *  score (ties → field order). 'costAware' treats scores within `epsilon` of the best as
- *  tied and takes the cheapest — the (score, $) Pareto rule collapsed to one pick. */
-export function selectChampion(
+/** Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field
+ *  strategies did not all score identically. Zero-spread tasks (everyone 1.0, everyone
+ *  0.0, everyone tied) carry no selection information; averaging over them dilutes real
+ *  differences toward zero. Search-side denoising only — the gate never uses this. */
+export function discriminatingMeans(
   report: BenchmarkReport,
+  fieldOrder: string[],
+): Record<string, { score: number; usd: number }> | null {
+  const rows = report.perTask.filter((r) => {
+    if (!r.cells) return false
+    const scores = fieldOrder.map((n) => r.cells?.[n]?.score).filter((s) => s !== undefined)
+    if (scores.length < fieldOrder.length) return false
+    return Math.max(...scores) - Math.min(...scores) > 0
+  })
+  if (rows.length === 0) return null
+  const out: Record<string, { score: number; usd: number }> = {}
+  for (const name of fieldOrder) {
+    const cells = rows.map((r) => r.cells?.[name]).filter((c) => !!c)
+    out[name] = {
+      score: cells.reduce((s, c) => s + c.score, 0) / cells.length,
+      usd: cells.reduce((s, c) => s + c.usd, 0) / cells.length,
+    }
+  }
+  return out
+}
+
+/** The champion pick over a means table. 'score' takes the best mean score (ties →
+ *  field order). 'costAware' treats scores within `epsilon` of the best as tied and
+ *  takes the cheapest — the (score, $) Pareto rule collapsed to one pick. */
+export function pickChampion(
+  means: Record<string, { score: number; usd: number }>,
   fieldOrder: string[],
   policy: ChampionPolicy,
   epsilon: number,
 ): ChampionPick {
   const entries = fieldOrder
-    .map((name) => ({ name, summary: report.perStrategy[name] }))
+    .map((name) => ({ name, summary: means[name] }))
     .filter((e): e is { name: string; summary: NonNullable<typeof e.summary> } => !!e.summary)
   if (entries.length === 0)
-    throw new Error('selectChampion: report carries none of the field strategies')
+    throw new Error('pickChampion: the means table carries none of the field strategies')
   const best = Math.max(...entries.map((e) => e.summary.score))
   const pick =
     policy === 'score'
@@ -158,8 +210,18 @@ export function selectChampion(
       : entries
           .filter((e) => e.summary.score >= best - epsilon)
           .sort((a, b) => a.summary.usd - b.summary.usd || b.summary.score - a.summary.score)[0]
-  if (!pick) throw new Error('selectChampion: empty pick (unreachable)')
+  if (!pick) throw new Error('pickChampion: empty pick (unreachable)')
   return { name: pick.name, score: pick.summary.score, usd: pick.summary.usd }
+}
+
+/** Search-side champion selection over a tournament report. */
+export function selectChampion(
+  report: BenchmarkReport,
+  fieldOrder: string[],
+  policy: ChampionPolicy,
+  epsilon: number,
+): ChampionPick {
+  return pickChampion(report.perStrategy, fieldOrder, policy, epsilon)
 }
 
 const fieldSummary = (archive: EvolutionArchiveNode[]): string =>
@@ -333,12 +395,14 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
         node.usd = cell.usd
       }
     }
-    const champion = selectChampion(
-      report,
-      field.map((s) => s.name),
-      policy,
-      epsilon,
-    )
+    // With banding on, the champion is picked over the DISCRIMINATING tasks (any
+    // zero-spread task carries no selection information). Falls back to full means
+    // when every task tied — a degenerate generation, not an error.
+    const fieldNames = field.map((s) => s.name)
+    const means = cfg.band
+      ? (discriminatingMeans(report, fieldNames) ?? report.perStrategy)
+      : report.perStrategy
+    const champion = pickChampion(means, fieldNames, policy, epsilon)
     generationRows.push({ generation: g, candidates, report, champion })
     trajectory.push({
       generation: g,
@@ -358,7 +422,35 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
 
   // The promotion decision: ONE fresh slice the search never touched, drawn after all
   // authoring is done. The gate, not the search policy, owns this verdict.
-  const holdoutTasks = await cfg.tasks(cfg.trainN + (cfg.holdoutOffset ?? 0), cfg.holdoutN)
+  const holdoutOffset = cfg.trainN + (cfg.holdoutOffset ?? 0)
+  let holdoutTasks: AgenticTask[]
+  let bandInfo: EvolutionBandInfo | undefined
+  if (cfg.band) {
+    // Reference screening: baselines[0] runs once over the pool; tasks it already fully
+    // solves carry no headroom (a candidate can only tie there) and are dropped. The
+    // screen is independent of both finalists' gate runs — band membership is fixed
+    // before either touches a task, and both then face the SAME kept tasks.
+    const maxRef = cfg.band.maxRefScore ?? 0.99
+    const reference = baselines[0]
+    if (!reference)
+      throw new Error('evolution band: baselines[0] required as the screening reference')
+    const pool = await cfg.tasks(holdoutOffset, cfg.band.holdoutPoolN)
+    const screen = await bench('band-screen', pool, [reference])
+    const refScores = screen.perTask
+      .filter((r) => r.cells?.[reference.name])
+      .map((r) => ({ taskId: r.taskId, score: r.cells?.[reference.name]?.score ?? 0 }))
+    const inBandIds = new Set(refScores.filter((r) => r.score <= maxRef).map((r) => r.taskId))
+    const kept = pool.filter((t) => inBandIds.has(t.id))
+    if (kept.length < cfg.holdoutN) {
+      throw new Error(
+        `evolution band: only ${kept.length}/${cfg.holdoutN} holdout tasks have headroom (pool ${cfg.band.holdoutPoolN}, reference "${reference.name}" ≤ ${maxRef}) — widen holdoutPoolN or raise maxRefScore`,
+      )
+    }
+    holdoutTasks = kept.slice(0, cfg.holdoutN)
+    bandInfo = { screened: refScores.length, inBand: kept.length, refScores }
+  } else {
+    holdoutTasks = await cfg.tasks(holdoutOffset, cfg.holdoutN)
+  }
   const finalists = [...new Set([gen0Champion.name, incumbent.name])]
     .map((n) => byName.get(n))
     .filter((s): s is Strategy => !!s)
@@ -378,6 +470,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     finalChampion: incumbent,
     holdout,
     verdict,
+    ...(bandInfo ? { band: bandInfo } : {}),
     trajectory,
   }
 }
