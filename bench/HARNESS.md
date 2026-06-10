@@ -88,6 +88,7 @@ needs `maxTokens` and times out on long authoring prompts) — never CC models.
 | `src/eops-gepa.mts` | GEPA over the analyst prompt + frozen holdout (verdict: prompt coordinate FLAT) | `N=12 HOLDOUT=6 GENS=2 tsx src/eops-gepa.mts` |
 | `src/eops-corpus-ab.mts` | the across-run flywheel A/B (naive priming = **−11.6pp NEGATIVE**; `PRIME_MODE=relevance` = the unrun surviving design) | `N=16 HOLDOUT=4 PRIME_MODE=relevance tsx src/eops-corpus-ab.mts` |
 | `src/commit0-env-run.mts` | the HARD domain (implement whole libraries vs their test suites) through `runBenchmark` | `IDS=commit-0/wcwidth BUDGET=3 INNER_TURNS=10 tsx src/commit0-env-run.mts` |
+| `src/prompt-compression-gate.mts` | **THE REDUCER GATE** — does prompt compression preserve quality while cutting real cost? (nth-char/word-drop baselines vs LLM compression, each gated non-inferiority vs the original) | `N=12 BUDGET=2 tsx src/prompt-compression-gate.mts` |
 | `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
