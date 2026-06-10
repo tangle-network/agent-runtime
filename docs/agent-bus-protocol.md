@@ -48,12 +48,12 @@ agent-runtime → critic-sandbox-B (eu-west)
   ↓ X-Tangle-Parent-TurnId: conv_abc.t0.researcher   (recursion link)
 ```
 
-At depth 4, a gateway refuses with 413 — the chain stops there, sk-tan-user-123 is billed for hops 1–4 only, the trace shows the refusal point.
+At depth 4, a gateway refuses with 429 — the chain stops there, sk-tan-user-123 is billed for hops 1–4 only, the trace shows the refusal point.
 
 ## Implementation contract for endpoint authors
 
 A `@tangle-network/agent-gateway`-fronted endpoint:
-- MUST read `x-tangle-forwarded-depth` on inbound, default 0, refuse with 413 when ≥ `DEFAULT_MAX_DEPTH`.
+- MUST read `x-tangle-forwarded-depth` on inbound, default 0, refuse with 429 when ≥ `DEFAULT_MAX_DEPTH`.
 - MUST honor `x-tangle-forwarded-authorization` if present, using it as the effective billing identity instead of the direct caller's auth (when the direct caller is whitelisted as an inter-agent caller).
 - SHOULD propagate `x-tangle-runid`, `x-tangle-turnid`, `x-tangle-parent-turnid` into its own trace records.
 - MAY use `(runId, turnId)` as an idempotency key to dedupe retries.
@@ -65,15 +65,14 @@ A `@tangle-network/agent-runtime` consumer (driver code):
 
 ## Reference
 
-- `@tangle-network/agent-runtime/headers` — names, builders, depth parsing, exported constants.
-- `@tangle-network/agent-runtime/call-policy` — deadline / retry / circuit-breaker primitives that compose with the protocol.
-- `@tangle-network/agent-runtime/journal` — durable transcript so a driver crash mid-run doesn't lose acknowledged turns.
-- `@tangle-network/agent-runtime/turn-id` — deterministic `turnId(runId, index, speaker)`.
+- `@tangle-network/agent-runtime` (root) — `buildForwardHeaders`, `turnId`, depth parsing, the call-policy
+  primitives, and the durable conversation journal all export from the package root (`src/index.ts`);
+  there are no protocol-specific subpaths.
 - `@tangle-network/agent-gateway` — Hono middleware for inbound enforcement.
 
 ## Implementation status
 
-The spec describes the *conformant* behavior of every layer. As of `agent-runtime@0.26.0` the live state is:
+The spec describes the *conformant* behavior of every layer. The live adoption state (per the package's current exports) is:
 
 | Layer | Header emit | Header read | Depth refusal (429) | Authorization preservation |
 |---|---|---|---|---|

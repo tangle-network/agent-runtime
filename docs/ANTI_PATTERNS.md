@@ -31,7 +31,7 @@ delete it and document the missing join instead.
 Current local proof:
 
 ```bash
-pnpm exec tsx bench/src/observe-steer-workspace-loop.mts
+pnpm exec tsx bench/src/cloud-loop.mts
 ```
 
 Remaining external proof: the same shape with `openSandboxRun` workers and a

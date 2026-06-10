@@ -80,31 +80,7 @@ agent-runtime 0.27 release).
 
 ### Tier 2 — Surface cleanup
 
-**R4. The `loops/drivers/` folder mixes shipped + experimental.**
-
-`refine.ts` and `fanout-vote.ts` are shipped and consumed by
-`coderProfile()` + agent-builder. The `/loops` entry exports both. Both
-are `@experimental`-marked in the source but products depend on them.
-Decision needed:
-
-- Drop `@experimental` markers on these two specifically (they're load-bearing)
-- Add stability tier in the README's "Which entry point" table
-- Document the experimental-vs-stable line clearly
-
-Estimate: 1h.
-
-**R5. `/profiles` has one file (`coder.ts`).**
-
-Single-file subpath. Either fold into `/agent` (defineAgent uses the
-same pattern) or add the planned `researcherProfile` / `analystProfile`
-sibling profiles. The current state is awkward — consumers don't know
-whether profiles are a real concept or a temporary home.
-
-Recommendation: build out `researcherProfile` (already on Drew's
-pending list per task #36) and ship as `0.27.x` minor. Then `/profiles`
-becomes a documented stable entry.
-
-Estimate: 4-6h to land researcherProfile cleanly.
+*(R4, R5, R8, R10 closed by deletion — their target files no longer exist after the loops→runtime consolidation.)*
 
 **R6. `examples/` directory has 14 directories, only ~6 referenced from README.**
 
@@ -125,13 +101,6 @@ Estimate: 2h.
 
 Estimate: 30min.
 
-**R8. `loops/trace.ts` and `loops/types.ts` overlap.**
-
-Trace event payload types appear in both. Consolidate into one file;
-re-export from the other for backward compat.
-
-Estimate: 1-2h.
-
 **R9. `src/durable/` has one engine + one handle + one tests dir.**
 
 Tests live under `src/durable/tests/` while every other test lives
@@ -139,14 +108,6 @@ under `tests/`. Move durable tests up to `tests/durable/` for parity.
 
 Estimate: 30min.
 
-**R10. Backends folder has both `backends.ts` (single file) and
-`src/backends/` (directory).**
-
-Confusing duality. Resolve by either folding `backends.ts` into
-`backends/index.ts`, or move backend-related code OUT of `backends.ts`
-into appropriately-named files inside `backends/`.
-
-Estimate: 1h.
 
 ## Sequencing recommendation
 
@@ -156,12 +117,10 @@ Estimate: 1h.
 3. R2 (split runtime-run) — internal navigation win
 
 **Week 2 — surface clarity:**
-4. R4 (stability markers on shipped drivers)
-5. R5 (researcherProfile if pursuing it)
-6. R6 (examples cleanup)
+4. R6 (examples cleanup)
 
 **Bundled hygiene PR (anytime):**
-7. R7 + R8 + R9 + R10 — pure cleanup, no semantic change
+5. R7 + R9 — pure cleanup, no semantic change
 
 ## Non-goals (do NOT do these)
 
@@ -177,8 +136,8 @@ Estimate: 1h.
   `gtm`, etc.) into agent-runtime. agent-runtime sits between the
   substrate and the consumers; pulling consumer concepts up creates a
   new inversion class.
-- **Do NOT introduce a new optional peer dep on agent-eval.** The
-  current `dependencies: { "@tangle-network/agent-eval": "^0.48.0" }`
+- **agent-eval is a REQUIRED peer dependency** (`peerDependencies:
+  ">=0.83.0 <1.0.0"`, per CLAUDE.md) — the old guidance
   is correct. Moving to a peer dep would break workspace installs.
 
 ## How to use this doc
