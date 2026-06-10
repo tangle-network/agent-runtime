@@ -301,6 +301,13 @@ const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): str
     row.cells
       ? {
           task: row.taskId,
+          ...(row.errors
+            ? {
+                errors: Object.fromEntries(
+                  Object.entries(row.errors).map(([n, msg]) => [n, msg.slice(0, 100)]),
+                ),
+              }
+            : {}),
           cells: Object.fromEntries(
             Object.entries(row.cells).map(([name, c]) => [
               name,

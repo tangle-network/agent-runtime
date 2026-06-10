@@ -27,6 +27,14 @@ export interface DelegationExecutor {
   readonly client: SandboxClient
   /** Best-effort one-liner used in stderr boot logs and diagnostics. */
   describe(): string
+  /**
+   * Where delegated work physically runs. `sibling` and `fleet` placements are
+   * session-backed (boxes expose `driveTurn`, so detached dispatch + resume
+   * apply); `in-process` spawns local harness CLIs with no sandbox session to
+   * detach. Optional so consumer-implemented executors stay source-compatible;
+   * absent means "unknown" and detached dispatch is not enabled for it.
+   */
+  readonly placement?: 'sibling' | 'fleet' | 'in-process'
 }
 
 /** @experimental */
@@ -57,6 +65,7 @@ export function createSiblingSandboxExecutor(
   }
   return {
     client,
+    placement: 'sibling',
     describe(): string {
       return 'sibling-sandbox (each delegation = fresh sandbox via client.create)'
     },
@@ -148,6 +157,7 @@ export function createFleetWorkspaceExecutor(
 
   return {
     client,
+    placement: 'fleet',
     describe(): string {
       const excluded = exclude.size > 0 ? ` (excluded=[${[...exclude].join(',')}])` : ''
       return `fleet-workspace (fleetId=${fleet.fleetId}, machines=[${fleet.ids.join(',')}]${excluded})`

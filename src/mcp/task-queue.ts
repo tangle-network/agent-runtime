@@ -98,10 +98,23 @@ export interface SubmitInput<Args extends AnyDelegateArgs> {
    * MUST resolve with the typed `DelegationResultPayload['output']`; the
    * queue wraps it with the profile tag.
    */
-  run: (ctx: {
-    signal: AbortSignal
-    report(progress: DelegationProgress): void
-  }) => Promise<DelegationResultPayload['output']>
+  run: (ctx: DelegationRunContext) => Promise<DelegationResultPayload['output']>
+}
+
+/** @experimental Context handed to a `SubmitInput.run` function. */
+export interface DelegationRunContext {
+  signal: AbortSignal
+  report(progress: DelegationProgress): void
+  /** The `detachedSessionRef` recorded at submit, when one was supplied. */
+  detachedSessionRef?: string
+  /**
+   * Replace the record's detached-run resume key — the detached dispatch path
+   * calls this once the sandbox id is known so the persisted ref names a
+   * resolvable box. Ignored after the record settles (a cancel racing the
+   * rebind is legitimate; the ref no longer matters then). Throws on an empty
+   * ref — erasing the resume key would silently make the record unresumable.
+   */
+  updateDetachedSessionRef(ref: string): void
 }
 
 /** @experimental */
@@ -378,6 +391,19 @@ export class DelegationTaskQueue {
             record.progress = progress
             this.persist(record)
           }
+        },
+        ...(record.detachedSessionRef !== undefined
+          ? { detachedSessionRef: record.detachedSessionRef }
+          : {}),
+        updateDetachedSessionRef: (ref) => {
+          if (typeof ref !== 'string' || ref.length === 0) {
+            throw new ValidationError(
+              'DelegationTaskQueue: updateDetachedSessionRef requires a non-empty ref',
+            )
+          }
+          if (isTerminal(currentStatus(record))) return
+          record.detachedSessionRef = ref
+          this.persist(record)
         },
       })
       // `cancel()` may have flipped the status to `cancelled` while the
