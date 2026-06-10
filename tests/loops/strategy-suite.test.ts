@@ -372,3 +372,55 @@ describe('addressable optimization coordinates', () => {
     expect(strategy.name).toBe('noop')
   })
 })
+
+// ── Shot-level tool selection (restriction-only) ──────────────────────────────────
+
+describe('shot tool selection', () => {
+  const twoToolSurface = (): AgenticSurface & { seen: string[][] } => {
+    const seen: string[][] = []
+    return {
+      name: 'two-tool',
+      seen,
+      async open() {
+        return { id: 'h-1', surface: 'two-tool' }
+      },
+      async tools() {
+        return [
+          { type: 'function', function: { name: 'read_thing', parameters: {} } },
+          { type: 'function', function: { name: 'write_thing', parameters: {} } },
+        ]
+      },
+      async call() {
+        return 'ok'
+      },
+      async score() {
+        return { passes: 0, total: 1, errored: 0 }
+      },
+      async close() {},
+    }
+  }
+
+  it('a shot sees only its selected tools', async () => {
+    const captured = stubRouter()
+    const surface = twoToolSurface()
+    const focused = defineStrategy('focused', async ({ shot }) => {
+      await shot({ tools: ['read_thing'] })
+      return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+    })
+    await runAgentic({ surface, task, ...worker, strategy: focused, budget: 1 })
+    const body = captured[0] as { tools?: Array<{ function: { name: string } }> }
+    expect(body.tools?.map((t) => t.function.name)).toEqual(['read_thing'])
+  })
+
+  it('unknown tool names fail loud (a typo must not become an unrestricted shot)', async () => {
+    stubRouter()
+    const surface = twoToolSurface()
+    const typo = defineStrategy('typo', async ({ shot }) => {
+      const out = await shot({ tools: ['read_thing', 'wirte_thing'] })
+      return { score: out?.score ?? 0, resolved: false, completions: 0, progression: [], shots: 1 }
+    })
+    const result = await runAgentic({ surface, task, ...worker, strategy: typo, budget: 1 })
+    // The shot goes down (executor threw) → null → verified score stays 0.
+    expect(result.score).toBe(0)
+  })
+})
