@@ -1,11 +1,11 @@
-# Strategy demo — the optimization suite in three layers
+# Examples — the optimization suite in three layers
 
 `strategy-demo.mts` is the smallest end-to-end demonstration of the optimization suite.
 It runs on a toy "counter" `Environment` so it needs only a router key — no benchmark
 dataset, no sandbox, no gym.
 
-```
-dotenvx run -f …/.env.keys -- env WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts
+```bash
+TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini pnpm tsx src/examples/strategy-demo.mts
 ```
 
 ## The model
@@ -30,6 +30,18 @@ and get the strategies compared, scored by your own check, for free.
    — `shot()` (one worker attempt over an artifact) and `critique()` (the firewalled
    analyst reads the trace → a steer) — with **zero** Supervisor/Scope ceremony. The demo
    authors `doubleCheck` inline in ~10 lines. This is the unit a skill (or an agent) emits.
+
+## The answer-shaped template — `math-demo.mts`
+
+`math-demo.mts` is the same suite on the **answer-shaped** domain template — the shape
+tax/legal/gtm products use. `createVerifierEnvironment({ name, check, extraTools,
+callExtra })` builds the whole `Environment` from one deterministic `check` (here: 3
+GSM8K-style problems, graded by exact numeric match), and `sampleThenRefine` joins the
+built-ins compared at equal budget.
+
+```bash
+TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini pnpm tsx src/examples/math-demo.mts
+```
 
 ## The hooks you customize (world-class-DX surface)
 
