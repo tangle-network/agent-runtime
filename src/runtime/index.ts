@@ -53,6 +53,12 @@ export type {
   TopologyPlanner,
 } from './driver'
 export { createDriver, renderAnalyses } from './driver'
+export {
+  type HarvestCorpusOptions,
+  type HarvestFailure,
+  type HarvestReport,
+  harvestCorpus,
+} from './harvest-corpus'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
 export {

@@ -112,6 +112,37 @@ function counterEnvironment(): { environment: Environment; tasks: AgenticTask[] 
   return { environment, tasks }
 }
 
+/** The author step, reusable by the flywheel: losses + contract in, a loaded Strategy out. */
+export async function authorStrategy(
+  cfg: RouterConfig,
+  environmentName: string,
+  lossesJson: string,
+  budget: number,
+): Promise<{ strategy: Strategy; file: string }> {
+  const res = await routerChatWithUsage(
+    cfg,
+    [
+      { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
+      {
+        role: 'user',
+        content: `${contractDoc}\n\nBASELINE RESULTS on the "${environmentName}" environment (budget=${budget}):\n${lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
+      },
+    ],
+    { temperature: 0.6 },
+  )
+  const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
+  if (!match?.[1]) throw new Error(`author produced no code block:\n${res.content.slice(0, 400)}`)
+  const dir = join(import.meta.dirname, 'authored')
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, `authored-${Date.now()}.mts`)
+  writeFileSync(file, match[1])
+  const mod = (await import(`file://${file}`)) as { default?: Strategy }
+  if (!mod.default || typeof mod.default.driver !== 'function' || !mod.default.name) {
+    throw new Error('authored module does not export a default Strategy')
+  }
+  return { strategy: mod.default, file }
+}
+
 async function main(): Promise<void> {
   const budget = Number(process.env.BUDGET ?? 3)
   const workerModel = process.env.WORKER_MODEL ?? 'gpt-4o-mini'
@@ -130,34 +161,9 @@ async function main(): Promise<void> {
   const losses = JSON.stringify(baseline.perTask, null, 1).slice(0, 6000)
   const cfg: RouterConfig = { routerBaseUrl, routerKey, model: authorModel }
   console.error('\n▶ authoring a new strategy from the losses…')
-  const res = await routerChatWithUsage(
-    cfg,
-    [
-      { role: 'system', content: 'You are a senior engineer authoring optimization strategies for agent loops. Output exactly one fenced ```ts code block and nothing else.' },
-      {
-        role: 'user',
-        content: `${contractDoc}\n\nBASELINE RESULTS on the "${environment.name}" environment (budget=${budget}):\n${losses}\n\nAuthor ONE new strategy that you expect to beat both baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
-      },
-    ],
-    { temperature: 0.6 },
-  )
-  const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
-  if (!match?.[1]) throw new Error(`author produced no code block:\n${res.content.slice(0, 400)}`)
-  const code = match[1]
-
-  const dir = join(import.meta.dirname, 'authored')
-  mkdirSync(dir, { recursive: true })
-  const file = join(dir, `authored-${Date.now()}.mts`)
-  writeFileSync(file, code)
-  console.error(`  authored module → ${file}`)
-
-  // R0: does it load + conform?
-  const mod = (await import(`file://${file}`)) as { default?: Strategy }
-  const authored = mod.default
-  if (!authored || typeof authored.driver !== 'function' || !authored.name) {
-    throw new Error('R0 FAIL: authored module does not export a default Strategy')
-  }
-  console.error(`  R0 PASS: loaded strategy "${authored.name}"\n`)
+  const { strategy: authored, file } = await authorStrategy(cfg, environment.name, losses, budget)
+  console.error(`  authored "${authored.name}" → ${file}`)
+  console.error('  R0 PASS: loaded\n')
 
   console.error('▶ the gate: authored vs baselines…')
   const final = await runBenchmark({ environment, tasks, worker, strategies: [sample, refine, authored], budget, concurrency: 2 })
@@ -171,7 +177,9 @@ async function main(): Promise<void> {
   console.error(`  verdict: authored=${(a * 100).toFixed(1)}% vs sample=${(s * 100).toFixed(1)}% refine=${(r * 100).toFixed(1)}%`)
 }
 
-main().catch((e) => {
-  console.error(`strategy-author: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
-  process.exit(1)
-})
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => {
+    console.error(`strategy-author: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`)
+    process.exit(1)
+  })
+}
