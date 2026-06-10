@@ -68,7 +68,7 @@ export class PlatformAuthClient {
     if (!options.appId) throw new Error('PlatformAuthClient: appId is required')
     this.baseUrl = options.baseUrl.replace(/\/+$/, '')
     this.appId = options.appId
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = options.fetchImpl ?? ((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(url, init))
   }
 
   /**
