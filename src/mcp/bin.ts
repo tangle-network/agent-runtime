@@ -27,14 +27,31 @@
  *   MCP_CODER_FANOUT_HARNESSES       comma-separated harness ids to use for variants > 1
  *   MCP_DISABLE_CODER                set to `1` to omit `delegate_code`
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
+ *   AGENT_RUNTIME_DELEGATION_STATE_FILE
+ *                                    optional — absolute path of a JSON state
+ *                                    file. When set, delegation records persist
+ *                                    across MCP restarts (FileDelegationStore):
+ *                                    status/history survive, idempotency keys
+ *                                    dedupe across processes, and in-flight
+ *                                    records settle as failed with a truthful
+ *                                    driver-restart error.
+ *   AGENT_RUNTIME_DELEGATION_STATE_RECOVER
+ *                                    set to `1` to archive a corrupt state file
+ *                                    (`<file>.corrupt-<ts>`) and start empty
+ *                                    instead of refusing to boot.
+ *   AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL
+ *                                    optional — positive integer cap on retained
+ *                                    terminal records. Unset = keep forever.
  */
 
 import type { LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
 import { createDefaultCoderDelegate, type ResearcherDelegate } from './delegates'
+import { FileDelegationStore } from './delegation-store'
 import type { DelegationExecutor } from './executor'
 import { createMcpServer } from './server'
+import { DelegationTaskQueue } from './task-queue'
 import { createPropagatingTraceEmitter, readTraceContextFromEnv } from './trace-propagation'
 import type { ResearchOutputShape } from './types'
 
@@ -105,17 +122,67 @@ async function main(): Promise<void> {
       ? await loadResearcherDelegate(executor.client, maxConcurrency, traceEmitter)
       : undefined
 
-  const server = createMcpServer({ coderDelegate, researcherDelegate })
+  const durableQueue = await buildDurableQueueFromEnv()
+  const server = createMcpServer({
+    coderDelegate,
+    researcherDelegate,
+    ...(durableQueue ? { queue: durableQueue } : {}),
+  })
 
   const shutdown = () => {
     server.stop()
-    void traceExporter?.shutdown().finally(() => process.exit(0))
-    if (!traceExporter) process.exit(0)
+    const pending: Promise<unknown>[] = []
+    if (traceExporter) pending.push(traceExporter.shutdown())
+    // Drain journal writes so the state file reflects the final record
+    // states before the process exits. A persist failure already routed
+    // through onPersistError; swallow the duplicate rejection here.
+    if (durableQueue) pending.push(durableQueue.flush().catch(() => {}))
+    if (pending.length === 0) {
+      process.exit(0)
+      return
+    }
+    void Promise.allSettled(pending).finally(() => process.exit(0))
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 
   await server.serve()
+}
+
+async function buildDurableQueueFromEnv(): Promise<DelegationTaskQueue | undefined> {
+  const stateFile = process.env.AGENT_RUNTIME_DELEGATION_STATE_FILE?.trim()
+  if (!stateFile) return undefined
+  const store = new FileDelegationStore({
+    filePath: stateFile,
+    recoverCorrupt: process.env.AGENT_RUNTIME_DELEGATION_STATE_RECOVER === '1',
+  })
+  const maxTerminalRecords = parseRetention(process.env.AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL)
+  // No resumeDelegate is wired here yet: restored in-flight records settle
+  // as failed with a driver-restart error rather than pretending to resume.
+  const queue = await DelegationTaskQueue.restore({
+    store,
+    ...(maxTerminalRecords !== undefined ? { maxTerminalRecords } : {}),
+    onPersistError: (error) => {
+      // Durable mode that can no longer write is a broken contract: crash
+      // loud instead of degrading to memory-only behind the caller's back.
+      process.stderr.write(`agent-runtime-mcp: ${error.message}\n`)
+      process.exit(1)
+    },
+  })
+  process.stderr.write(`agent-runtime-mcp: durable delegation state → ${stateFile}\n`)
+  return queue
+}
+
+function parseRetention(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1) {
+    process.stderr.write(
+      `agent-runtime-mcp: AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL must be a positive integer, got "${raw}"\n`,
+    )
+    process.exit(2)
+  }
+  return n
 }
 
 async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxClient> {
