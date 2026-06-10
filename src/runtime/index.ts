@@ -225,6 +225,12 @@ export {
   sampleThenRefine,
 } from './strategy'
 export {
+  type AuthoredStrategy,
+  type AuthorStrategyOptions,
+  authorStrategy,
+  strategyAuthorContract,
+} from './strategy-author'
+export {
   type BudgetPool,
   type BudgetReadout,
   createBudgetPool,

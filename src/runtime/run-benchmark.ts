@@ -42,6 +42,9 @@ export interface BenchmarkConfig {
   budget?: number
   /** Tasks scored in parallel. Default 3. */
   concurrency?: number
+  /** Progress hook — fires as each task settles (the live-monitoring seam: append to a
+   *  progress file, render a tree, stream to a dashboard). `done` counts settled tasks. */
+  onTask?: (row: BenchmarkTaskRow, done: number, total: number) => void
 }
 
 export interface BenchmarkLift {
@@ -123,8 +126,10 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
 
+  let settled = 0
   const perTask = await pool(cfg.tasks, concurrency, async (task): Promise<BenchmarkTaskRow> => {
     const cells: Record<string, BenchmarkCell> = {}
+    let row: BenchmarkTaskRow
     try {
       for (const s of strategies) {
         const r = await runAgentic({
@@ -143,10 +148,13 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
           tokens: r.tokens,
         }
       }
-      return { taskId: task.id, cells }
+      row = { taskId: task.id, cells }
     } catch (e) {
-      return { taskId: task.id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) }
+      row = { taskId: task.id, error: e instanceof Error ? e.message.slice(0, 300) : String(e) }
     }
+    settled += 1
+    cfg.onTask?.(row, settled, cfg.tasks.length)
+    return row
   })
 
   const ok = perTask.filter(
