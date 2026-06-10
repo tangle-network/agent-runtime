@@ -268,6 +268,7 @@ export interface DriveTurnResumeDriverOptions {
   settleOutput(
     turn: DetachedTurn,
     record: DelegationRecord,
+    ctx: { signal: AbortSignal },
   ): Promise<DelegationResultPayload['output']> | DelegationResultPayload['output']
   /** Delay between `running` ticks (ms). Default 5000. */
   intervalMs?: number
@@ -333,7 +334,13 @@ export function createDriveTurnResumeDriver(
         ...(options.wallCapMs !== undefined ? { wallCapMs: options.wallCapMs } : {}),
       })
       if (tick.state === 'completed') {
-        const output = await options.settleOutput({ text: tick.text, result: tick.result }, record)
+        const output = await options.settleOutput(
+          { text: tick.text, result: tick.result },
+          record,
+          {
+            signal: ctx.signal,
+          },
+        )
         return { state: 'completed', output }
       }
       if (tick.state === 'failed') {
