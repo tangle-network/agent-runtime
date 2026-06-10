@@ -347,6 +347,12 @@ export {
   type VerifierEnvironmentOptions,
 } from './verifier-environment'
 export {
+  createWaterfallCollector,
+  type WaterfallCollector,
+  type WaterfallReport,
+  type WaterfallSpan,
+} from './waterfall'
+export {
   type GitWorkspaceOptions,
   gitWorkspace,
   jjWorkspace,
