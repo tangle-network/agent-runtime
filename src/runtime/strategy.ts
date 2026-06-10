@@ -91,6 +91,9 @@ export interface AgenticOptions {
   /** The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
    *  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default. */
   analystInstruction?: string
+  /** The critic's model — lets the analyst be a stronger (or cheaper) model than the
+   *  worker. Omitted ⇒ the worker's `model`. */
+  analystModel?: string
   /** Across-run learning: when set, the analyst's observe() pass appends trace-derived
    *  facts here (the flywheel write side). Priming (the read side) is the caller's move —
    *  query the corpus and fold facts into the task's systemPrompt before runAgentic. */
@@ -215,11 +218,12 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     })
     .join('\n')
     .slice(0, 7000)
+  const analystModel = opts.analystModel ?? opts.model
   const chat = createChatClient({
     transport: 'router',
     apiKey: opts.routerKey,
     baseUrl: opts.routerBaseUrl,
-    defaultModel: opts.model,
+    defaultModel: analystModel,
   })
   const obs = await observe(
     {
@@ -231,7 +235,7 @@ async function analyze(task: AgenticTask, messages: Msg[], opts: AgenticOptions)
     },
     {
       chat,
-      model: opts.model,
+      model: analystModel,
       ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}),
       ...(opts.corpus ? { corpus: opts.corpus, tags: opts.corpusTags ?? [] } : {}),
     },

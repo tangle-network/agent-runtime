@@ -82,6 +82,7 @@ needs `maxTokens` and times out on long authoring prompts) — never CC models.
 | entry point | what it answers | one-liner |
 |---|---|---|
 | `src/flywheel-run.mts` | **THE CLEAN RUN** — does the system improve ITSELF (gen0 → author-from-losses → gen1 → disjoint ROTATING holdout via `HOLDOUT_OFFSET`)? | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 tsx src/flywheel-run.mts` |
+| `src/flywheel-evolve.mts` | **THE EVOLUTION RUN** — G generations × POP authored candidates (`runStrategyEvolution`): cost-aware champion, gzip-bits per artifact, fresh-slice promotion gate | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 GENS=2 POP=2 tsx src/flywheel-evolve.mts` |
 | `src/strategy-author.mts` | agent-authored strategies (R0→R2 ladder) on a cheap env | `tsx src/strategy-author.mts` |
 | `src/agentic-run.mts` | depth-vs-breadth on EOPS through the canonical Supervisor (+16.4pp result) | `EOPS_GYM_DBS_DIR=… TASKS=16 tsx src/agentic-run.mts` |
 | `src/eops-gepa.mts` | GEPA over the analyst prompt + frozen holdout (verdict: prompt coordinate FLAT) | `N=12 HOLDOUT=6 GENS=2 tsx src/eops-gepa.mts` |

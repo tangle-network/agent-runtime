@@ -99,12 +99,13 @@ async function main(): Promise<void> {
   const { strategy: authored, file } = await authorStrategy({
     chat,
     model: authorModel,
-    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro',
+    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-flash',
     environmentName: environment.name,
     lossesJson: losses,
     budget,
     outDir: join(import.meta.dirname, 'authored'),
     temperature: 0.6,
+    maxTokens: 8192,
   })
   console.error(`  authored "${authored.name}" → ${file}`)
   console.error('  R0 PASS: loaded\n')

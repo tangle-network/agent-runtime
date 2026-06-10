@@ -88,12 +88,15 @@ async function main(): Promise<void> {
   const { strategy: authored, file } = await authorStrategy({
     chat,
     model: authorModel,
-    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-pro',
+    // The fallback is a FASTER model on purpose: the primary's failure modes are an
+    // empty reply (no maxTokens) or an edge 524 on a long generation — flash clears both.
+    fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-flash',
     environmentName: surface.name,
     lossesJson: losses,
     budget,
     outDir: join(import.meta.dirname, 'authored'),
     temperature: 0.6,
+    maxTokens: 8192,
   })
   console.error(`  authored "${authored.name}" → ${file}\n`)
 
