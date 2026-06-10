@@ -271,7 +271,9 @@ async function main(): Promise<void> {
     }
   }
 
-  console.error(`\n${'='.repeat(74)}\nSTEERING VERDICTS (each mode vs refine, paired on task ids)\n${'='.repeat(74)}`)
+  console.error(
+    `\n${'='.repeat(74)}\nSTEERING VERDICTS (each mode vs refine, paired on task ids)\nworker=${workerModel} analyst=${workerModel} · AIME[${offset},${offset + n}) budget=${budget} innerTurns=${process.env.INNER_TURNS ?? 2}\n${'='.repeat(74)}`,
+  )
   const verdicts: Record<string, PromotionVerdict> = {}
   const incumbentReport = reports.refine
   if (!incumbentReport) throw new Error('refine arm missing')
@@ -307,7 +309,21 @@ async function main(): Promise<void> {
     )
   }
   const outPath = process.env.OUT ?? '/tmp/steering-modes-result.json'
-  writeFileSync(outPath, JSON.stringify({ arms: arms.map((a) => a.name), reports, verdicts }, null, 2))
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        models: { worker: workerModel, analyst: workerModel },
+        domain: `aime[${offset},${offset + n})`,
+        budget,
+        arms: arms.map((a) => a.name),
+        reports,
+        verdicts,
+      },
+      null,
+      2,
+    ),
+  )
   console.error(`  full artifact → ${outPath}`)
 }
 

@@ -203,7 +203,21 @@ async function main(): Promise<void> {
     )
   }
   const outPath = process.env.OUT ?? '/tmp/prompt-compression-result.json'
-  writeFileSync(outPath, JSON.stringify({ variants: variants.map((v) => ({ ...v, words: v.prompt.split(/\s+/).length })), reports, verdicts }, null, 2))
+  writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        models: { worker: workerModel, analyst: workerModel, compressor: workerModel },
+        budget,
+        n,
+        variants: variants.map((v) => ({ ...v, words: v.prompt.split(/\s+/).length })),
+        reports,
+        verdicts,
+      },
+      null,
+      2,
+    ),
+  )
   console.error(`  full artifact → ${outPath}`)
 }
 
