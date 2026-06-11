@@ -1,0 +1,889 @@
+{
+ "experiment": "e3-memory-ab",
+ "spec": "docs/research/e3-certified-memory.md",
+ "ranAt": "2026-06-11T21:35:48.170Z",
+ "models": {
+  "worker": "deepseek-v4-pro",
+  "analyst": "deepseek-v4-pro"
+ },
+ "config": {
+  "n": 16,
+  "holdoutN": 4,
+  "offset": 0,
+  "kFacts": 3,
+  "budget": 3,
+  "innerTurns": 4,
+  "split": "itsm",
+  "primeMode": "relevance",
+  "store": "runs/2026-06-11/e3-certified-store/store.jsonl",
+  "proseCorpus": "runs/2026-06-11/e3-memory-ab-prose-corpus.jsonl"
+ },
+ "admission": "v1 minimal form (the spec allows it): pre-seeded FROZEN store — rows entered only via the seed CLI gate rule (promotionGate-promoted, or train-displacer + REPRODUCIBLE under --seed-displacers; every row names its certificate in verdictReason). In-stream admission deferred: it requires a per-candidate promotion gate and an author in the loop. Under a frozen store the certified-arm slope has no growth mechanism — this run binds lift/cost/holdout-transfer, not the growing-slope signature.",
+ "store": [
+  {
+   "name": "dualPersonaRefine",
+   "taskClass": "eops:gym-itsm-mcp",
+   "file": "programs/dualPersonaRefine-authored-1781124712624.mts",
+   "summary": "The strategy runs two initial shots with different personas, keeps the best artifact, then iteratively critiques and refines that artifact until success or budget exhaustion. Only one artifact persists; others are closed. No restarts—just continuous steering on the top result. Stops on perfect score, budget depletion, or when critique yields no improvement.",
+   "verdictReason": "displacer-reproducible:gate=no-margin,repro-gap=-0.9pp",
+   "score": 0.3501488095238095,
+   "usd": 0.02546770625,
+   "addedAt": "2026-06-11T20:41:45.158Z"
+  }
+ ],
+ "stream": [
+  {
+   "i": 0,
+   "taskId": "task_20251210_205620_593_391f1eff_ad65c160",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.0337997,
+    "ms": 116425,
+    "tokens": {
+     "input": 73106,
+     "output": 10789
+    }
+   },
+   "prose": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.037007799999999993,
+    "ms": 120852,
+    "tokens": {
+     "input": 80947,
+     "output": 11567
+    },
+    "facts": 0
+   },
+   "certified": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.022604899999999997,
+    "ms": 82511,
+    "tokens": {
+     "input": 50343,
+     "output": 6820
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 1,
+   "taskId": "task_20251212_172511_458_e6427839_47076c15",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.020560999999999996,
+    "ms": 53812,
+    "tokens": {
+     "input": 52341,
+     "output": 4417
+    }
+   },
+   "prose": {
+    "score": 0.5714285714285714,
+    "resolved": false,
+    "usd": 0.0178101,
+    "ms": 37770,
+    "tokens": {
+     "input": 45936,
+     "output": 3663
+    },
+    "facts": 1
+   },
+   "certified": {
+    "score": 0.5714285714285714,
+    "resolved": false,
+    "usd": 0.012926399999999998,
+    "ms": 35958,
+    "tokens": {
+     "input": 33067,
+     "output": 2733
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 2,
+   "taskId": "task_20251212_184405_886_e6427839_6413728a",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.0249423,
+    "ms": 72360,
+    "tokens": {
+     "input": 55817,
+     "output": 7452
+    }
+   },
+   "prose": {
+    "score": 0.3333333333333333,
+    "resolved": false,
+    "usd": 0.0173794,
+    "ms": 46686,
+    "tokens": {
+     "input": 39939,
+     "output": 4907
+    },
+    "facts": 0
+   },
+   "certified": {
+    "score": 0.3888888888888889,
+    "resolved": false,
+    "usd": 0.0177928,
+    "ms": 52748,
+    "tokens": {
+     "input": 43341,
+     "output": 4355
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 3,
+   "taskId": "task_20251212_191411_655_391f1eff_2fef896f",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0207007,
+    "ms": 49354,
+    "tokens": {
+     "input": 54178,
+     "output": 4043
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0215648,
+    "ms": 58512,
+    "tokens": {
+     "input": 53564,
+     "output": 4996
+    },
+    "facts": 2
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0098341,
+    "ms": 20538,
+    "tokens": {
+     "input": 26404,
+     "output": 1739
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 4,
+   "taskId": "task_20251212_191815_314_391f1eff_c23d76df",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0.6666666666666666,
+    "resolved": false,
+    "usd": 0.0234163,
+    "ms": 73534,
+    "tokens": {
+     "input": 50778,
+     "output": 7439
+    }
+   },
+   "prose": {
+    "score": 0.6666666666666666,
+    "resolved": false,
+    "usd": 0.0275911,
+    "ms": 91281,
+    "tokens": {
+     "input": 55443,
+     "output": 9962
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 0.3333333333333333,
+    "resolved": false,
+    "usd": 0.0191444,
+    "ms": 58101,
+    "tokens": {
+     "input": 45474,
+     "output": 5002
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 5,
+   "taskId": "task_20251216_131651_690_764e5ead_f8619b02",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0170091,
+    "ms": 50222,
+    "tokens": {
+     "input": 40109,
+     "output": 4524
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0092073,
+    "ms": 17943,
+    "tokens": {
+     "input": 24993,
+     "output": 1554
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0087168,
+    "ms": 16182,
+    "tokens": {
+     "input": 23732,
+     "output": 1452
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 6,
+   "taskId": "task_20251217_030654_663_99ba2325_f931fd42",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.021330599999999995,
+    "ms": 69065,
+    "tokens": {
+     "input": 41248,
+     "output": 8142
+    }
+   },
+   "prose": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.023645699999999995,
+    "ms": 48649,
+    "tokens": {
+     "input": 49955,
+     "output": 7872
+    },
+    "facts": 2
+   },
+   "certified": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.0163041,
+    "ms": 58352,
+    "tokens": {
+     "input": 36010,
+     "output": 5001
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 7,
+   "taskId": "task_20251217_153037_688_97d7df7d_be0bd794",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0215653,
+    "ms": 42405,
+    "tokens": {
+     "input": 58809,
+     "output": 3566
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0105513,
+    "ms": 14887,
+    "tokens": {
+     "input": 30980,
+     "output": 1143
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0175716,
+    "ms": 26544,
+    "tokens": {
+     "input": 50883,
+     "output": 2097
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 8,
+   "taskId": "task_20251217_183416_700_764e5ead_4c46beb0",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.021853599999999997,
+    "ms": 51902,
+    "tokens": {
+     "input": 50904,
+     "output": 5984
+    }
+   },
+   "prose": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.0357899,
+    "ms": 74797,
+    "tokens": {
+     "input": 85482,
+     "output": 9223
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.03195389999999999,
+    "ms": 88731,
+    "tokens": {
+     "input": 79101,
+     "output": 7476
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 9,
+   "taskId": "task_20251217_205244_161_764e5ead_20429ef8",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.010019,
+    "ms": 19745,
+    "tokens": {
+     "input": 25715,
+     "output": 2095
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.010022399999999999,
+    "ms": 18632,
+    "tokens": {
+     "input": 25950,
+     "output": 2034
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0099957,
+    "ms": 18982,
+    "tokens": {
+     "input": 25729,
+     "output": 2070
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 10,
+   "taskId": "task_20251217_211242_026_391f1eff_27934d6b",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0089979,
+    "ms": 21244,
+    "tokens": {
+     "input": 23492,
+     "output": 1773
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0091317,
+    "ms": 20899,
+    "tokens": {
+     "input": 24180,
+     "output": 1707
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0083371,
+    "ms": 15796,
+    "tokens": {
+     "input": 23306,
+     "output": 1223
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 11,
+   "taskId": "task_20251218_055646_898_97d7df7d_be7218cc",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.0251553,
+    "ms": 75801,
+    "tokens": {
+     "input": 49762,
+     "output": 9297
+    }
+   },
+   "prose": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.029530099999999997,
+    "ms": 65227,
+    "tokens": {
+     "input": 60557,
+     "output": 10330
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.0229687,
+    "ms": 60982,
+    "tokens": {
+     "input": 48637,
+     "output": 7616
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 12,
+   "taskId": "task_20251218_061956_641_109c89c0_423ed8ee",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.020155600000000003,
+    "ms": 57255,
+    "tokens": {
+     "input": 42450,
+     "output": 6746
+    }
+   },
+   "prose": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.0383897,
+    "ms": 97345,
+    "tokens": {
+     "input": 87680,
+     "output": 10987
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.0276184,
+    "ms": 99499,
+    "tokens": {
+     "input": 59087,
+     "output": 8993
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 13,
+   "taskId": "task_20251218_063226_501_97d7df7d_8fd400d1",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 0.5,
+    "resolved": false,
+    "usd": 0.021875699999999998,
+    "ms": 54488,
+    "tokens": {
+     "input": 51755,
+     "output": 5772
+    }
+   },
+   "prose": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.015852500000000002,
+    "ms": 47095,
+    "tokens": {
+     "input": 36635,
+     "output": 4420
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 0,
+    "resolved": false,
+    "usd": 0.019623599999999998,
+    "ms": 73058,
+    "tokens": {
+     "input": 41850,
+     "output": 6426
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 14,
+   "taskId": "task_20251218_082708_201_99ba2325_51726f9c",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.015779,
+    "ms": 42674,
+    "tokens": {
+     "input": 39426,
+     "output": 3592
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.008947199999999999,
+    "ms": 14997,
+    "tokens": {
+     "input": 25358,
+     "output": 1218
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.020843300000000002,
+    "ms": 59229,
+    "tokens": {
+     "input": 51346,
+     "output": 4945
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  },
+  {
+   "i": 15,
+   "taskId": "task_20251218_093719_611_764e5ead_5817d09a",
+   "taskClass": "eops:gym-itsm-mcp",
+   "cold": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.012721299999999998,
+    "ms": 24352,
+    "tokens": {
+     "input": 33641,
+     "output": 2390
+    }
+   },
+   "prose": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.0123087,
+    "ms": 21662,
+    "tokens": {
+     "input": 33703,
+     "output": 1998
+    },
+    "facts": 3
+   },
+   "certified": {
+    "score": 1,
+    "resolved": true,
+    "usd": 0.012256099999999997,
+    "ms": 20633,
+    "tokens": {
+     "input": 33480,
+     "output": 2011
+    },
+    "retrieved": "dualPersonaRefine",
+    "match": "class"
+   }
+  }
+ ],
+ "skipped": [],
+ "lifts": {
+  "proseVsCold": {
+   "point": -0.06845238095238096,
+   "low": -0.1785714285714286,
+   "high": 0.031249999999999997,
+   "pairs": 16,
+   "discordant": 4
+  },
+  "certifiedVsCold": {
+   "point": 0.007936507936507936,
+   "low": -0.13690476190476192,
+   "high": 0.18055555555555555,
+   "pairs": 16,
+   "discordant": 5
+  },
+  "certifiedVsProse": {
+   "point": 0.0763888888888889,
+   "low": -0.04166666666666666,
+   "high": 0.22916666666666666,
+   "pairs": 16,
+   "discordant": 4
+  }
+ },
+ "slope": {
+  "prose": {
+   "firstHalf": -0.011904761904761911,
+   "secondHalf": -0.125,
+   "growing": false
+  },
+  "certified": {
+   "firstHalf": -0.04662698412698413,
+   "secondHalf": 0.0625,
+   "growing": true
+  }
+ },
+ "holdout": {
+  "n": 4,
+  "rows": [
+   {
+    "i": 0,
+    "taskId": "task_20251218_104259_233_66392a82_74b17170",
+    "taskClass": "eops:gym-itsm-mcp",
+    "cold": {
+     "score": 0.6666666666666666,
+     "resolved": false,
+     "usd": 0.0199012,
+     "ms": 45097,
+     "tokens": {
+      "input": 47564,
+      "output": 5120
+     }
+    },
+    "prose": {
+     "score": 0.6666666666666666,
+     "resolved": false,
+     "usd": 0.028570099999999994,
+     "ms": 74839,
+     "tokens": {
+      "input": 58226,
+      "output": 10093
+     },
+     "facts": 3
+    },
+    "certified": {
+     "score": 0.6666666666666666,
+     "resolved": false,
+     "usd": 0.018228799999999996,
+     "ms": 45476,
+     "tokens": {
+      "input": 46448,
+      "output": 3904
+     },
+     "retrieved": "dualPersonaRefine",
+     "match": "class"
+    }
+   },
+   {
+    "i": 1,
+    "taskId": "task_20251218_114039_038_66392a82_c66d4f22",
+    "taskClass": "eops:gym-itsm-mcp",
+    "cold": {
+     "score": 0.6666666666666666,
+     "resolved": false,
+     "usd": 0.0363477,
+     "ms": 69293,
+     "tokens": {
+      "input": 92251,
+      "output": 7884
+     }
+    },
+    "prose": {
+     "score": 0.6666666666666666,
+     "resolved": false,
+     "usd": 0.038058100000000004,
+     "ms": 92121,
+     "tokens": {
+      "input": 91180,
+      "output": 9731
+     },
+     "facts": 3
+    },
+    "certified": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 7958,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     },
+     "retrieved": "dualPersonaRefine",
+     "match": "class"
+    }
+   },
+   {
+    "i": 2,
+    "taskId": "task_20251218_121722_423_1d219d93_8218da6c",
+    "taskClass": "eops:gym-itsm-mcp",
+    "cold": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 985,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     }
+    },
+    "prose": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 967,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     },
+     "facts": 3
+    },
+    "certified": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 992,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     },
+     "retrieved": "dualPersonaRefine",
+     "match": "class"
+    }
+   },
+   {
+    "i": 3,
+    "taskId": "task_20251218_124419_383_66392a82_52c8290e",
+    "taskClass": "eops:gym-itsm-mcp",
+    "cold": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 967,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     }
+    },
+    "prose": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 972,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     },
+     "facts": 3
+    },
+    "certified": {
+     "score": 0,
+     "resolved": false,
+     "usd": 0,
+     "ms": 975,
+     "tokens": {
+      "input": 0,
+      "output": 0
+     },
+     "retrieved": "dualPersonaRefine",
+     "match": "class"
+    }
+   }
+  ],
+  "lifts": {
+   "proseVsCold": {
+    "point": -0.16666666666666666,
+    "low": -0.5,
+    "high": 0,
+    "pairs": 4,
+    "discordant": 0
+   },
+   "certifiedVsCold": {
+    "point": -0.16666666666666666,
+    "low": -0.5,
+    "high": 0,
+    "pairs": 4,
+    "discordant": 1
+   },
+   "certifiedVsProse": {
+    "point": -0.16666666666666666,
+    "low": -0.5,
+    "high": 0,
+    "pairs": 4,
+    "discordant": 1
+   }
+  }
+ },
+ "retrieval": {
+  "hitRate": 1,
+  "byMatch": {
+   "class": 20,
+   "fallback": 0,
+   "miss": 0
+  },
+  "misses": []
+ },
+ "cost": {
+  "cold": {
+   "meanScore": 0.6354166666666666,
+   "meanUsd": 0.01999265,
+   "meanMs": 54664.875,
+   "totalUsd": 0.3198824
+  },
+  "prose": {
+   "meanScore": 0.5669642857142857,
+   "meanUsd": 0.020295606249999997,
+   "meanMs": 49827.125,
+   "totalUsd": 0.32472969999999995
+  },
+  "certified": {
+   "meanScore": 0.6433531746031746,
+   "meanUsd": 0.017405743749999997,
+   "meanMs": 49240.25,
+   "totalUsd": 0.27849189999999996
+  }
+ }
+}

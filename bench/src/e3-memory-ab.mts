@@ -37,12 +37,14 @@
  *     N=16 HOLDOUT=4 OUT=runs/$(date +%F)/e3-memory-ab.json tsx src/e3-memory-ab.mts
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
+import { createChatClient } from '@tangle-network/agent-eval'
 import {
   type AgenticOptions,
   type AgenticRunResult,
   type AgenticSurface,
   type AgenticTask,
+  authorStrategy,
   FileCorpus,
   runAgentic,
   type Strategy,
@@ -171,6 +173,85 @@ async function main(): Promise<void> {
   const corpusTags = ['eops', split, 'e3-memory-ab']
   const cache = new Map<string, Strategy>()
 
+  // IN-STREAM ADMISSION (the decisive-run increment): every ADMIT_EVERY tasks the author
+  // reads the certified arm's own recent losses, the candidate replays those SAME K
+  // tasks on fresh artifacts, and is admitted iff its mean beats the arm's observed
+  // mean. Admission is SEARCH — the experiment's verdict stays the slope + the
+  // read-only holdout, both untouched by this loop. 0 = off (the frozen-store form).
+  const admitEvery = Number(process.env.ADMIT_EVERY ?? 0)
+  const admissions: Array<{
+    afterTask: number
+    name: string
+    candidateMean: number
+    incumbentMean: number
+    admitted: boolean
+    error?: string
+  }> = []
+  const authorChat = createChatClient({
+    transport: 'router',
+    apiKey: opts.routerKey,
+    baseUrl: opts.routerBaseUrl,
+    defaultModel: process.env.AUTHOR_MODEL ?? model,
+  })
+  const programsDir = resolve(dirname(storePath), 'programs')
+
+  async function admissionRound(rowsSoFar: StreamRow[], streamTasks: AgenticTask[]): Promise<void> {
+    const recent = rowsSoFar.slice(-admitEvery)
+    const lossesJson = JSON.stringify(
+      recent.map((r) => ({
+        task: r.taskId,
+        score: Math.round(r.certified.score * 100) / 100,
+        resolved: r.certified.score >= 1,
+        retrieved: r.certified.retrieved,
+      })),
+    )
+    const incumbentMean = recent.reduce((sum, r) => sum + r.certified.score, 0) / recent.length
+    try {
+      const authored = await authorStrategy({
+        chat: authorChat,
+        model: process.env.AUTHOR_MODEL ?? model,
+        fallbackModel: process.env.AUTHOR_FALLBACK_MODEL ?? 'deepseek-v4-flash',
+        environmentName: surface.name,
+        lossesJson,
+        budget,
+        outDir: programsDir,
+        temperature: 0.6,
+        maxTokens: 8192,
+      })
+      const recentIds = new Set(recent.map((r) => r.taskId))
+      const replayTasks = streamTasks.filter((t) => recentIds.has(t.id))
+      let total = 0
+      let usd = 0
+      for (const t of replayTasks) {
+        const r = await runAgentic({ ...opts, surface, task: t, strategy: authored.strategy, budget })
+        total += r.score
+        usd += r.usd
+      }
+      const candidateMean = total / replayTasks.length
+      const admitted = candidateMean > incumbentMean
+      admissions.push({ afterTask: rowsSoFar.length, name: authored.strategy.name, candidateMean, incumbentMean, admitted })
+      console.error(
+        `  ── admission @${rowsSoFar.length}: ${authored.strategy.name} ${pct(candidateMean)} vs incumbent ${pct(incumbentMean)} → ${admitted ? 'ADMITTED' : 'rejected'}`,
+      )
+      if (admitted) {
+        store.admit({
+          name: authored.strategy.name,
+          taskClass: eopsTaskClass(replayTasks[0] as AgenticTask),
+          file: relative(dirname(storePath), authored.file),
+          summary: `in-stream authored @task ${rowsSoFar.length}; beat the certified arm's trailing-${admitEvery} mean`,
+          verdictReason: `instream-displacer:cand=${pct(candidateMean)},inc=${pct(incumbentMean)},k=${admitEvery}`,
+          score: candidateMean,
+          usd: usd / replayTasks.length,
+          addedAt: new Date().toISOString(),
+        })
+      }
+    } catch (e) {
+      const error = e instanceof Error ? e.message.slice(0, 200) : String(e)
+      admissions.push({ afterTask: rowsSoFar.length, name: '(author-failed)', candidateMean: 0, incumbentMean, admitted: false, error })
+      console.error(`  ── admission @${rowsSoFar.length}: FAILED (${error.slice(0, 80)}) — the arm continues`)
+    }
+  }
+
   const stream = await loadEopsTasks(n, offset, split)
   console.error(`=== E3 memory A/B · cold/prose/certified · stream n=${stream.length} + holdout ${holdoutN} · ${model} · budget=${budget} ===`)
   console.error(`    store: ${storePath} (${storeRows.length} row(s): ${storeRows.map((r) => `${r.name}@${r.taskClass}`).join(', ')})`)
@@ -230,6 +311,9 @@ async function main(): Promise<void> {
     console.error(
       `  [${i + 1}/${stream.length}] ${task.id.slice(-12)}: cold ${pct(row.cold.score)}  prose ${pct(row.prose.score)} (facts ${row.prose.facts})  certified ${pct(row.certified.score)} (${row.certified.match}${row.certified.retrieved ? `:${row.certified.retrieved}` : ''})`,
     )
+    if (admitEvery > 0 && rows.length % admitEvery === 0 && rows.length < stream.length) {
+      await admissionRound(rows, stream)
+    }
   }
   if (rows.length < 2) {
     throw new Error(`only ${rows.length} stream task(s) completed all three arms — no paired statistics possible; see skipped[] in the partial artifact`)
@@ -313,6 +397,8 @@ async function main(): Promise<void> {
     store: storeRows,
     stream: rows,
     skipped,
+    admissions,
+    finalStoreRows: store.rows().length,
     lifts,
     slope,
     ...(holdout ? { holdout } : {}),

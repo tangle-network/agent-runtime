@@ -60,7 +60,7 @@ export interface Retrieval {
   match: 'class' | 'fallback'
 }
 
-const certifiedReasons = /^(promoted|displacer-reproducible):/
+const certifiedReasons = /^(promoted|displacer-reproducible|instream-displacer):/
 
 function validateRow(row: CertifiedRow): void {
   const filled = (v: unknown): v is string => typeof v === 'string' && v.length > 0
