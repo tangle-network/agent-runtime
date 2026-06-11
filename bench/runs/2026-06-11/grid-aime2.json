@@ -1,0 +1,1439 @@
+{
+  "models": {
+    "worker": "deepseek-v4-flash",
+    "analyst": "deepseek-v4-flash",
+    "compressor": "deepseek-v4-flash"
+  },
+  "env": "aime",
+  "budget": 3,
+  "holdoutN": 16,
+  "cells": [
+    "base",
+    "steer",
+    "compress",
+    "steer+compress"
+  ],
+  "kappaOp": "llm-50",
+  "prompts": {
+    "false:llm-50:You are an extremely careful and methodi": "Act as a methodical math reasoning assistant for quantitative word problems. Always: 1) Read the entire problem, identify all quantities, relationships, and what is asked. 2) Write reasoning step-by-step, double-checking arithmetic. 3) Before submitting, verify your answer matches the question and units. Then use submit_answer tool to output only the numeric answer, no units, commas, or commentary."
+  },
+  "overheads": {
+    "false:llm-50:You are an extremely careful and methodi": {
+      "usd": 0.0012176,
+      "ms": 9523,
+      "tokens": {
+        "input": 249,
+        "output": 1039
+      }
+    }
+  },
+  "results": {
+    "base": {
+      "holdout": {
+        "n": 16,
+        "excluded": 0,
+        "perStrategy": {
+          "sample": {
+            "score": 0.3125,
+            "resolved": 0.3125,
+            "usd": 0.013774918749999998,
+            "ms": 37046.9375
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "aime-24",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.015457700000000001,
+                "ms": 44818,
+                "tokens": {
+                  "input": 3474,
+                  "output": 13105
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-25",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0140829,
+                "ms": 40066,
+                "tokens": {
+                  "input": 1887,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-26",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014139599999999999,
+                "ms": 42485,
+                "tokens": {
+                  "input": 2076,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-27",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0213535,
+                "ms": 54038,
+                "tokens": {
+                  "input": 3862,
+                  "output": 18359
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-28",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014109000000000002,
+                "ms": 40613,
+                "tokens": {
+                  "input": 1974,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-29",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0142224,
+                "ms": 43274,
+                "tokens": {
+                  "input": 2352,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-30",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014082,
+                "ms": 38206,
+                "tokens": {
+                  "input": 1884,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-31",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0141162,
+                "ms": 35249,
+                "tokens": {
+                  "input": 1998,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-32",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014091,
+                "ms": 38191,
+                "tokens": {
+                  "input": 1914,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-33",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0141288,
+                "ms": 33662,
+                "tokens": {
+                  "input": 2040,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-34",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014225100000000001,
+                "ms": 38306,
+                "tokens": {
+                  "input": 2361,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-35",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014147700000000001,
+                "ms": 43747,
+                "tokens": {
+                  "input": 2103,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-36",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014104499999999999,
+                "ms": 35110,
+                "tokens": {
+                  "input": 1959,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-37",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0067718,
+                "ms": 16175,
+                "tokens": {
+                  "input": 4485,
+                  "output": 4933
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-38",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1,
+                  1
+                ],
+                "usd": 0.0054014,
+                "ms": 14169,
+                "tokens": {
+                  "input": 3459,
+                  "output": 3967
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-39",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1,
+                  1
+                ],
+                "usd": 0.0159651,
+                "ms": 34642,
+                "tokens": {
+                  "input": 3354,
+                  "output": 13599
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "sample"
+        ]
+      },
+      "strategyName": "sample",
+      "words": 171
+    },
+    "steer": {
+      "holdout": {
+        "n": 16,
+        "excluded": 0,
+        "perStrategy": {
+          "refine": {
+            "score": 0.4375,
+            "resolved": 0.4375,
+            "usd": 0.0120737375,
+            "ms": 82875.125
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "aime-24",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0046391,
+                "ms": 30201,
+                "tokens": {
+                  "input": 1402,
+                  "output": 3835
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-25",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.005965700000000001,
+                "ms": 43583,
+                "tokens": {
+                  "input": 1325,
+                  "output": 5062
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-26",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015348300000000002,
+                "ms": 113485,
+                "tokens": {
+                  "input": 3245,
+                  "output": 13068
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-27",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1
+                ],
+                "usd": 0.010839500000000002,
+                "ms": 78134,
+                "tokens": {
+                  "input": 3227,
+                  "output": 8974
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-28",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.018767400000000004,
+                "ms": 124945,
+                "tokens": {
+                  "input": 6535,
+                  "output": 15279
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-29",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015498000000000001,
+                "ms": 115798,
+                "tokens": {
+                  "input": 3722,
+                  "output": 13074
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-30",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.012627000000000001,
+                "ms": 73995,
+                "tokens": {
+                  "input": 2182,
+                  "output": 10884
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-31",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1
+                ],
+                "usd": 0.0146656,
+                "ms": 91092,
+                "tokens": {
+                  "input": 2645,
+                  "output": 12611
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-32",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015525800000000001,
+                "ms": 105831,
+                "tokens": {
+                  "input": 2986,
+                  "output": 13300
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-33",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.017457200000000003,
+                "ms": 118455,
+                "tokens": {
+                  "input": 4980,
+                  "output": 14512
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-34",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015593900000000003,
+                "ms": 97541,
+                "tokens": {
+                  "input": 3719,
+                  "output": 13162
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-35",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015268800000000003,
+                "ms": 125821,
+                "tokens": {
+                  "input": 3288,
+                  "output": 12984
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-36",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014890600000000002,
+                "ms": 98787,
+                "tokens": {
+                  "input": 4814,
+                  "output": 12224
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-37",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0024146,
+                "ms": 14232,
+                "tokens": {
+                  "input": 1390,
+                  "output": 1816
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-38",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1
+                ],
+                "usd": 0.0068107,
+                "ms": 53218,
+                "tokens": {
+                  "input": 3159,
+                  "output": 5330
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-39",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0068676,
+                "ms": 40884,
+                "tokens": {
+                  "input": 1354,
+                  "output": 5874
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "refine"
+        ]
+      },
+      "strategyName": "refine",
+      "words": 171
+    },
+    "compress": {
+      "holdout": {
+        "n": 16,
+        "excluded": 0,
+        "perStrategy": {
+          "sample": {
+            "score": 0.4375,
+            "resolved": 0.4375,
+            "usd": 0.013626681250000001,
+            "ms": 41602.1875
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "aime-24",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1,
+                  1
+                ],
+                "usd": 0.0109333,
+                "ms": 31960,
+                "tokens": {
+                  "input": 2843,
+                  "output": 9164
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-25",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  0,
+                  1
+                ],
+                "usd": 0.017547800000000002,
+                "ms": 61248,
+                "tokens": {
+                  "input": 2070,
+                  "output": 15388
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-26",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014025300000000001,
+                "ms": 40888,
+                "tokens": {
+                  "input": 1695,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-27",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  0,
+                  1
+                ],
+                "usd": 0.0172225,
+                "ms": 62296,
+                "tokens": {
+                  "input": 1994,
+                  "output": 15113
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-28",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0186731,
+                "ms": 74968,
+                "tokens": {
+                  "input": 2169,
+                  "output": 16384
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-29",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014108100000000002,
+                "ms": 42821,
+                "tokens": {
+                  "input": 1971,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-30",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0139677,
+                "ms": 42257,
+                "tokens": {
+                  "input": 1503,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-31",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014001900000000001,
+                "ms": 35064,
+                "tokens": {
+                  "input": 1617,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-32",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  0,
+                  1
+                ],
+                "usd": 0.016251800000000004,
+                "ms": 50043,
+                "tokens": {
+                  "input": 2106,
+                  "output": 14200
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-33",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0118124,
+                "ms": 32879,
+                "tokens": {
+                  "input": 2279,
+                  "output": 10117
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-34",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014110800000000001,
+                "ms": 39365,
+                "tokens": {
+                  "input": 1980,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-35",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.014033400000000001,
+                "ms": 43610,
+                "tokens": {
+                  "input": 1722,
+                  "output": 12288
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-36",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.012643000000000001,
+                "ms": 38020,
+                "tokens": {
+                  "input": 2778,
+                  "output": 10736
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-37",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0061825000000000005,
+                "ms": 13825,
+                "tokens": {
+                  "input": 3408,
+                  "output": 4691
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-38",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0058169,
+                "ms": 13798,
+                "tokens": {
+                  "input": 3788,
+                  "output": 4255
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-39",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  1,
+                  1
+                ],
+                "usd": 0.0166964,
+                "ms": 42593,
+                "tokens": {
+                  "input": 2719,
+                  "output": 14437
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "sample"
+        ]
+      },
+      "strategyName": "sample",
+      "words": 57
+    },
+    "steer+compress": {
+      "holdout": {
+        "n": 16,
+        "excluded": 0,
+        "perStrategy": {
+          "refine": {
+            "score": 0.4375,
+            "resolved": 0.4375,
+            "usd": 0.010697500000000002,
+            "ms": 75814.5
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "aime-24",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0028942,
+                "ms": 18026,
+                "tokens": {
+                  "input": 1148,
+                  "output": 2318
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-25",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0,
+                  0,
+                  1
+                ],
+                "usd": 0.0160899,
+                "ms": 121316,
+                "tokens": {
+                  "input": 4320,
+                  "output": 13449
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-26",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015234000000000001,
+                "ms": 114991,
+                "tokens": {
+                  "input": 2864,
+                  "output": 13068
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-27",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0037721000000000005,
+                "ms": 26228,
+                "tokens": {
+                  "input": 1383,
+                  "output": 3052
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-28",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0119355,
+                "ms": 81090,
+                "tokens": {
+                  "input": 3738,
+                  "output": 9831
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-29",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015383700000000002,
+                "ms": 121745,
+                "tokens": {
+                  "input": 3341,
+                  "output": 13074
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-30",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.012550799999999999,
+                "ms": 68612,
+                "tokens": {
+                  "input": 1928,
+                  "output": 10884
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-31",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0152802,
+                "ms": 98110,
+                "tokens": {
+                  "input": 2721,
+                  "output": 13149
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-32",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0076182,
+                "ms": 59288,
+                "tokens": {
+                  "input": 1084,
+                  "output": 6630
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-33",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0156442,
+                "ms": 104696,
+                "tokens": {
+                  "input": 2805,
+                  "output": 13457
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-34",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015479600000000003,
+                "ms": 108553,
+                "tokens": {
+                  "input": 3338,
+                  "output": 13162
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-35",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.015154500000000001,
+                "ms": 127208,
+                "tokens": {
+                  "input": 2907,
+                  "output": 12984
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-36",
+            "cells": {
+              "refine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0130073,
+                "ms": 94245,
+                "tokens": {
+                  "input": 4238,
+                  "output": 10669
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-37",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0020414,
+                "ms": 13177,
+                "tokens": {
+                  "input": 1136,
+                  "output": 1546
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-38",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.0018419,
+                "ms": 12276,
+                "tokens": {
+                  "input": 1142,
+                  "output": 1363
+                }
+              }
+            }
+          },
+          {
+            "taskId": "aime-39",
+            "cells": {
+              "refine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.007232500000000001,
+                "ms": 43471,
+                "tokens": {
+                  "input": 1100,
+                  "output": 6275
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "refine"
+        ]
+      },
+      "strategyName": "refine",
+      "words": 57
+    }
+  },
+  "verdicts": {
+    "steer": {
+      "promoted": false,
+      "reason": "no-margin",
+      "mode": "superiority",
+      "n": 16,
+      "lift": {
+        "mean": 0.125,
+        "median": 0,
+        "low": 0,
+        "high": 0.3125
+      },
+      "latency": {
+        "mean": 45828.1875,
+        "median": 57539,
+        "low": 29458.375,
+        "high": 60760.875
+      }
+    },
+    "compress": {
+      "promoted": false,
+      "reason": "not-cheaper",
+      "mode": "non-inferiority",
+      "n": 16,
+      "lift": {
+        "mean": 0.125,
+        "median": 0,
+        "low": 0,
+        "high": 0.3125
+      },
+      "costSavings": {
+        "mean": 0.0001482374999999991,
+        "median": 0.00011429999999999947,
+        "low": -0.0009307062500000013,
+        "high": 0.0013298687499999995
+      },
+      "latency": {
+        "mean": 4555.25,
+        "median": 461,
+        "low": -99.125,
+        "high": 9475.9375
+      }
+    },
+    "steer+compress": {
+      "promoted": true,
+      "reason": "non-inferior-and-cheaper",
+      "mode": "non-inferiority",
+      "n": 16,
+      "lift": {
+        "mean": 0.125,
+        "median": 0,
+        "low": 0,
+        "high": 0.3125
+      },
+      "costSavings": {
+        "mean": 0.0030774187499999998,
+        "median": 0.0013142000000000006,
+        "low": 0.000552149999999999,
+        "high": 0.0060678062499999975
+      },
+      "latency": {
+        "mean": 38767.5625,
+        "median": 49806,
+        "low": 19362.9375,
+        "high": 56673.4375
+      }
+    }
+  }
+}
