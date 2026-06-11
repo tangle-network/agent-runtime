@@ -25,8 +25,10 @@
 import { writeFileSync } from 'node:fs'
 import {
   type AgenticTask,
+  anytimeReport,
   type BenchmarkReport,
   createWaterfallCollector,
+  renderAnytimeTable,
   defineStrategy,
   promotionGate,
   type PromotionVerdict,
@@ -269,6 +271,9 @@ async function main(): Promise<void> {
     if (process.env.WATERFALL) {
       console.error(waterfall.render({ width: 40, maxRows: 24 }))
     }
+    console.error(
+      renderAnytimeTable(anytimeReport(wf.spans, { targets: [0.5, 1] })),
+    )
   }
 
   console.error(

@@ -35,6 +35,13 @@ export {
   replaySpawnTree,
 } from '../durable/spawn-journal'
 export {
+  type AnytimeReport,
+  type AnytimeStrategySummary,
+  type AnytimeTaskCurve,
+  anytimeReport,
+  renderAnytimeTable,
+} from './anytime'
+export {
   type AuditIntentInput,
   type AuditIntentOptions,
   auditIntent,
