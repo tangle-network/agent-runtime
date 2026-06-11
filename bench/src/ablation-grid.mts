@@ -75,14 +75,20 @@ interface CompressOut {
   overhead: { usd: number; ms: number; tokens: { input: number; output: number } }
 }
 
-async function compressPrompt(text: string, kappa: string, routerKey: string, baseUrl: string): Promise<CompressOut> {
+async function compressPrompt(
+  text: string,
+  kappa: string,
+  routerKey: string,
+  baseUrl: string,
+  modelOverride?: string,
+): Promise<CompressOut> {
   const free = { usd: 0, ms: 0, tokens: { input: 0, output: 0 } }
   if (kappa === 'ddmin-2') return { prompt: ddmin(text, 2), overhead: free }
   if (kappa === 'ddmin-5') return { prompt: ddmin(text, 5), overhead: free }
   const fraction = kappa === 'llm-25' ? 0.25 : 0.5
   // The compressor is a fixed NON-THINKING model: a thinking model can burn the token
   // cap on reasoning and emit ~empty content, silently degenerating the κ arm.
-  const compressorModel = process.env.COMPRESSOR_MODEL ?? 'deepseek-v4-flash'
+  const compressorModel = modelOverride ?? process.env.COMPRESSOR_MODEL ?? 'deepseek-v4-flash'
   const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl, defaultModel: compressorModel })
   const words = text.split(/\s+/).length
   const target = Math.round(words * fraction)
@@ -170,9 +176,14 @@ async function main(): Promise<void> {
     const key = `${cell.gamma}:${kappaOp}:${base.slice(0, 40)}`
     let pending = promptCache.get(key)
     if (!pending) {
+      // The retry rotates to a NAMED fallback model (same-model retries do not help
+      // when the model itself is degenerate-mooding — the authorStrategy lesson).
       pending = compressPrompt(base, kappaOp, routerKey, routerBaseUrl).catch((first) => {
-        console.error(`  compress retry (${kappaOp}): ${first instanceof Error ? first.message.slice(0, 80) : first}`)
-        return compressPrompt(base, kappaOp, routerKey, routerBaseUrl)
+        const fallback = process.env.COMPRESSOR_FALLBACK_MODEL ?? 'gpt-4o-mini'
+        console.error(
+          `  compress retry on ${fallback} (${kappaOp}): ${first instanceof Error ? first.message.slice(0, 80) : first}`,
+        )
+        return compressPrompt(base, kappaOp, routerKey, routerBaseUrl, fallback)
       })
       promptCache.set(key, pending)
     }
