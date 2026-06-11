@@ -71,6 +71,7 @@ async function main(): Promise<void> {
       model: workerModel,
       innerTurns: Number(process.env.INNER_TURNS ?? 4),
       temperature: 0.7,
+      ...(process.env.WORKER_MAX_TOKENS ? { maxTokens: Number(process.env.WORKER_MAX_TOKENS) } : {}),
     },
     author: {
       chat: createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: authorModel }),

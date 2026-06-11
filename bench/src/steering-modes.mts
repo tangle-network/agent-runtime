@@ -179,7 +179,7 @@ improve the outcome, whether a FRESH restart is more promising, or whether furth
 is waste. Respond with EXACTLY one line in this format and nothing else:
 VERDICT: CONTINUE|RESTART|STOP confidence=<0.0-1.0> reason=<one short clause>`
 
-const belief: Strategy = defineStrategy('belief', async ({ surface, task, budget, shot, critique }) => {
+const belief: Strategy = defineStrategy('belief', async ({ surface, task, budget, shot, consult }) => {
   let handle = await surface.open(task)
   const progression: number[] = []
   let messages: Msg[] | undefined
@@ -194,13 +194,16 @@ const belief: Strategy = defineStrategy('belief', async ({ surface, task, budget
       progression.push(out.score)
       if (out.score >= 1) break
       if (shots === budget - 1) break
-      const verdictText = await critique(out.messages)
+      // The RAW channel — the findings protocol strips verdict formats; consult() does not.
+      const verdictText = await consult(out.messages, beliefInstruction)
       completions += 1
-      if (!verdictText) break // analyst says complete
+      if (!verdictText) break // analyst went down
       const m = verdictText.match(/VERDICT:\s*(CONTINUE|RESTART|STOP)/i)
       const decision = m?.[1]?.toUpperCase()
       if (!decision) parseFailures += 1
-      if (decision === 'STOP') break
+      // Calibration floor: an uncertain STOP is not obeyed — spend the budget.
+      const conf = Number.parseFloat(verdictText.match(/confidence=([\d.]+)/i)?.[1] ?? '1')
+      if (decision === 'STOP' && conf >= 0.7) break
       if (decision === 'RESTART') {
         await surface.close(handle)
         handle = await surface.open(task)
@@ -234,14 +237,17 @@ async function main(): Promise<void> {
     { name: 'refine', strategy: refine },
     { name: 'structural', strategy: structural },
     { name: 'contrastive', strategy: contrastive },
-    { name: 'belief', strategy: belief, analystInstruction: beliefInstruction },
+    { name: 'belief', strategy: belief },
   ]
+  const armFilter = process.env.ARMS?.split(',').map((a) => a.trim())
+  const selected = armFilter ? arms.filter((a) => armFilter.includes(a.name)) : arms
+  if (selected.length < 2) throw new Error(`ARMS must include refine + at least one mode (got: ${process.env.ARMS})`)
 
   console.error(
-    `=== STEERING MODES · ${arms.map((a) => a.name).join(' vs ')} · AIME[${offset},${offset + n}) · budget=${budget} · worker=${workerModel} ===`,
+    `=== STEERING MODES · ${selected.map((a) => a.name).join(' vs ')} · AIME[${offset},${offset + n}) · budget=${budget} · worker=${workerModel} ===`,
   )
   const reports: Record<string, BenchmarkReport> = {}
-  for (const arm of arms) {
+  for (const arm of selected) {
     const waterfall = createWaterfallCollector()
     const report = await runBenchmark({
       environment,
@@ -252,7 +258,7 @@ async function main(): Promise<void> {
         model: workerModel,
         innerTurns: Number(process.env.INNER_TURNS ?? 2),
         temperature: 0.7,
-        ...(arm.analystInstruction ? { analystInstruction: arm.analystInstruction } : {}),
+        ...(process.env.WORKER_MAX_TOKENS ? { maxTokens: Number(process.env.WORKER_MAX_TOKENS) } : {}),
       },
       strategies: [arm.strategy],
       budget,
@@ -282,7 +288,7 @@ async function main(): Promise<void> {
   const verdicts: Record<string, PromotionVerdict> = {}
   const incumbentReport = reports.refine
   if (!incumbentReport) throw new Error('refine arm missing')
-  for (const arm of arms) {
+  for (const arm of selected) {
     if (arm.name === 'refine') continue
     const candidate = reports[arm.name]
     if (!candidate) continue
@@ -321,7 +327,7 @@ async function main(): Promise<void> {
         models: { worker: workerModel, analyst: workerModel },
         domain: `aime[${offset},${offset + n})`,
         budget,
-        arms: arms.map((a) => a.name),
+        arms: selected.map((a) => a.name),
         reports,
         verdicts,
       },

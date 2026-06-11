@@ -43,6 +43,11 @@ spend a compute budget to beat a task's deployable check. You compose exactly tw
     A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective
     instruction (or null when it judges the work complete). Costs ~1 completion.
 
+  consult(messages, instruction): Promise<string | null>
+    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the
+    trajectory verbatim (no reformatting) — use it when you need a specific reply format
+    (a decision, a prediction). Costs ~1 completion.
+
   surface.open(task) / surface.close(handle)
     Open a persistent artifact you manage yourself (remember to close in a finally).
     close is idempotent — closing an already-closed handle is a safe no-op.
