@@ -628,3 +628,27 @@ describe('checkpoint and resume', () => {
     expect(phases).toEqual(['gen0', 'gen1', 'holdout'])
   })
 })
+
+describe('funnel alignment under the cost objective', () => {
+  it('the search tie-band defaults to the gate tolerance: a near-tie cheaper candidate displaces', () => {
+    const r = {
+      n: 1,
+      excluded: 0,
+      perStrategy: {
+        incumbent: { score: 0.733, resolved: 0, usd: 0.0249, ms: 0 },
+        cheaper: { score: 0.696, resolved: 0, usd: 0.0141, ms: 0 },
+      },
+      perTask: [],
+      pareto: [],
+    }
+    // ε=1pp (the score-objective default): the incumbent holds.
+    expect(pickChampion(r.perStrategy, ['incumbent', 'cheaper'], 'costAware', 0.01).name).toBe(
+      'incumbent',
+    )
+    // ε=5pp (the cost-objective default = the gate's scoreTolerance): the cheaper
+    // within-band candidate displaces and REACHES the gate.
+    expect(pickChampion(r.perStrategy, ['incumbent', 'cheaper'], 'costAware', 0.05).name).toBe(
+      'cheaper',
+    )
+  })
+})

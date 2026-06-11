@@ -90,6 +90,7 @@ async function main(): Promise<void> {
     ...(process.env.OBJECTIVE === 'cost'
       ? { objective: 'cost' as const, scoreTolerance: Number(process.env.SCORE_TOLERANCE ?? 0.05) }
       : {}),
+    ...(process.env.CHAMPION_EPSILON ? { championEpsilon: Number(process.env.CHAMPION_EPSILON) } : {}),
     ...(process.env.LOSSES_DETAIL === 'binary' ? { lossesDetail: 'binary' as const } : {}),
     ...(process.env.REPRO ? { reproducerCheck: {} } : {}),
     // Endurance: phase ledger on disk (resume skips completed phases) + the gym recycled

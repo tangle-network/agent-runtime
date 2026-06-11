@@ -368,7 +368,12 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   const populationSize = cfg.populationSize ?? 2
   const baselines = cfg.baselines ?? [sample, refine, sampleThenRefine]
   const policy = cfg.champion ?? 'costAware'
-  const epsilon = cfg.championEpsilon ?? 0.01
+  // FUNNEL ALIGNMENT: the search-side tie band must be no stricter than the promotion
+  // criterion, or the gate never sees the candidates it was designed to judge. Under the
+  // cost objective the gate accepts score within −scoreTolerance; a candidate that the
+  // gate would promote must therefore be able to DISPLACE in search at that same band.
+  const epsilon =
+    cfg.championEpsilon ?? (cfg.objective === 'cost' ? (cfg.scoreTolerance ?? 0.05) : 0.01)
   const byName = new Map<string, Strategy>(baselines.map((s) => [s.name, s]))
   const codeByName = new Map<string, string>()
 
