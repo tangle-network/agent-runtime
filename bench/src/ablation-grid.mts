@@ -162,7 +162,14 @@ async function main(): Promise<void> {
           return { environment: surface, tasks: loadSlice }
         })()
 
-  const worker = { routerBaseUrl, routerKey, model: workerModel, innerTurns: Number(process.env.INNER_TURNS ?? 4), temperature: 0.7 }
+  const worker = {
+    routerBaseUrl,
+    routerKey,
+    model: workerModel,
+    innerTurns: Number(process.env.INNER_TURNS ?? 4),
+    temperature: 0.7,
+    ...(process.env.WORKER_MAX_TOKENS ? { maxTokens: Number(process.env.WORKER_MAX_TOKENS) } : {}),
+  }
   const gammaPrompt = cells.some((c) => c.gamma) ? readFileSync(must('PROMPT_ARTIFACT'), 'utf8').trim() : undefined
 
   // The prompt each cell carries: original | γ artifact, then κ on top of whichever.

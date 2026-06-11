@@ -85,6 +85,9 @@ export interface AgenticOptions {
   routerKey: string
   model: string
   temperature?: number
+  /** Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
+   *  budgets on reasoning and return empty content without it). Omitted ⇒ provider default. */
+  maxTokens?: number
   /** Turns the agent may take within ONE shot before the driver intervenes. */
   innerTurns?: number
   /** The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
@@ -116,6 +119,9 @@ interface ShotTask {
   steer?: string // analyst-derived steer injected before this shot (depth)
   persona?: ShotPersona // role override — multi-agent loops give each shot its own hat
   tools?: string[] // restrict THIS shot to these domain tools (names); unknown names throw
+  /** analyst leaf only: a RAW instruction — the analyst answers it over the trajectory
+   *  directly (no findings schema). The verdict-capable channel. */
+  rawInstruction?: string
 }
 
 interface ShotOut {
@@ -158,6 +164,7 @@ async function runShot(
         tools,
         tool_choice: 'auto',
         temperature: opts.temperature ?? 0.7,
+        ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       }),
     })
     if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
@@ -211,12 +218,10 @@ interface AnalyzeOut {
   tokens: { input: number; output: number }
 }
 
-async function analyze(
-  task: AgenticTask,
-  messages: Msg[],
-  opts: AgenticOptions,
-): Promise<AnalyzeOut> {
-  const trajectory = messages
+/** The firewall's input shape: the trajectory as compacted text — calls, results,
+ *  assistant text. NEVER scores, NEVER check internals. Shared by both analyst channels. */
+function compactTrajectory(messages: Msg[]): string {
+  return messages
     .filter((m) => m.role === 'assistant' || m.role === 'tool')
     .map((m) => {
       if (m.role === 'tool') return `RESULT ${String(m.content).slice(0, 280)}`
@@ -227,6 +232,64 @@ async function analyze(
     })
     .join('\n')
     .slice(0, 7000)
+}
+
+/** The RAW analyst channel: the firewalled critic answers `instruction` over the
+ *  trajectory directly — no findings schema, no recommended-action extraction. The
+ *  channel for verdict-shaped steering (budget controllers, calibrated predictions)
+ *  whose output format the findings protocol would strip. Same firewall as analyze():
+ *  trajectory in, never scores. */
+async function consultAnalyst(
+  task: AgenticTask,
+  messages: Msg[],
+  instruction: string,
+  opts: AgenticOptions,
+): Promise<AnalyzeOut> {
+  const trajectory = compactTrajectory(messages)
+  const analystModel = opts.analystModel ?? opts.model
+  const chat = createChatClient({
+    transport: 'router',
+    apiKey: opts.routerKey,
+    baseUrl: opts.routerBaseUrl,
+    defaultModel: analystModel,
+  })
+  const res = await chat.chat({
+    model: analystModel,
+    temperature: 0.2,
+    maxTokens: 1024,
+    messages: [
+      { role: 'system', content: instruction },
+      {
+        role: 'user',
+        content: `TASK: ${task.userPrompt.slice(0, 1500)}\n\nTRAJECTORY:\n${trajectory}`,
+      },
+    ],
+  })
+  const usage = (
+    res as {
+      usage?: {
+        promptTokens?: number
+        prompt_tokens?: number
+        completionTokens?: number
+        completion_tokens?: number
+      }
+    }
+  ).usage
+  return {
+    steer: res.content.trim(),
+    tokens: {
+      input: usage?.promptTokens ?? usage?.prompt_tokens ?? 0,
+      output: usage?.completionTokens ?? usage?.completion_tokens ?? 0,
+    },
+  }
+}
+
+async function analyze(
+  task: AgenticTask,
+  messages: Msg[],
+  opts: AgenticOptions,
+): Promise<AnalyzeOut> {
+  const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
   const inner = createChatClient({
     transport: 'router',
@@ -381,8 +444,10 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
   return {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
-      const t = task as { task: AgenticTask; messages: Msg[] }
-      const { steer, tokens } = await analyze(t.task, t.messages, opts)
+      const t = task as { task: AgenticTask; messages: Msg[]; rawInstruction?: string }
+      const { steer, tokens } = t.rawInstruction
+        ? await consultAnalyst(t.task, t.messages, t.rawInstruction, opts)
+        : await analyze(t.task, t.messages, opts)
       const analystModel = opts.analystModel ?? opts.model
       artifact = {
         outRef: `analyst:${steer.length}`,
@@ -664,6 +729,11 @@ export interface StrategyCtx {
   shot(spec?: ShotSpec): Promise<ShotResult | null>
   /** The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down. */
   critique(messages: Msg[]): Promise<string | null>
+  /** The RAW analyst channel: the firewalled critic answers `instruction` over the
+   *  trajectory verbatim — no findings extraction, so verdict-shaped formats
+   *  (CONTINUE/STOP decisions, calibrated predictions) survive. Same firewall:
+   *  trajectory in, never scores. Null when the analyst went down. */
+  consult(messages: Msg[], instruction: string): Promise<string | null>
   /** The tools THIS artifact's task actually offers (names + descriptions only — never
    *  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
    *  that restricts shots MUST select from this list, never from hardcoded names. */
@@ -755,6 +825,19 @@ export function defineStrategy(
             if (settled.kind === 'down') return null
             const findings = settled.out as unknown as string
             return /^\s*COMPLETE\b/i.test(findings) ? null : findings
+          },
+          async consult(messages, instruction) {
+            const child = leaf(`analyst:${seq}`, 'analyst')
+            seq += 1
+            const res = scope.spawn(
+              child,
+              { task, messages, rawInstruction: instruction },
+              { budget: perChild(1), label: child.name },
+            )
+            if (!res.ok) return null
+            const settled = await drainOne(scope)
+            if (settled.kind === 'down') return null
+            return settled.out as unknown as string
           },
         }
         const r = await run(ctx)

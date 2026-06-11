@@ -76,12 +76,18 @@ function stubRouter(): CapturedChatRequest[] {
     'fetch',
     vi.fn(async (_url: string, init?: { body?: string }) => {
       captured.push(JSON.parse(init?.body ?? '{}') as CapturedChatRequest)
+      const body = {
+        choices: [{ message: { content: 'DONE' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }
+      // Both response-reading styles: runShot uses json(); agent-eval's llm-client
+      // reads text() — a stub missing either silently downs the analyst leaf.
       return {
         ok: true,
-        json: async () => ({
-          choices: [{ message: { content: 'DONE' } }],
-          usage: { prompt_tokens: 10, completion_tokens: 5 },
-        }),
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: async () => body,
+        text: async () => JSON.stringify(body),
       }
     }),
   )
@@ -629,5 +635,28 @@ describe('promotionGate non-inferiority', () => {
     })
     expect(b).toEqual(a)
     expect(a.promoted).toBe(true)
+  })
+})
+
+// ── The raw analyst channel (verdict-shaped steering survives) ─────────────────────
+
+describe('consult', () => {
+  it('the instruction reaches the analyst verbatim and the raw reply returns intact', async () => {
+    const captured = stubRouter()
+    const surface = fixtureSurface(() => ({ passes: 0, total: 1 }))
+    let reply: string | null = null
+    const controller = defineStrategy('controller', async ({ shot, consult }) => {
+      const out = await shot()
+      if (out)
+        reply = await consult(out.messages, 'Reply with EXACTLY: VERDICT: STOP confidence=0.9')
+      return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
+    })
+    await runAgentic({ surface, task, ...worker, strategy: controller, budget: 2 })
+    // The consult call is the SECOND router request; its system prompt is the raw instruction.
+    const consultReq = captured[1] as { messages?: Array<{ role: string; content: string }> }
+    expect(consultReq?.messages?.[0]?.role).toBe('system')
+    expect(consultReq?.messages?.[0]?.content).toContain('VERDICT: STOP')
+    // The stubbed model replies 'DONE'; consult returns it verbatim (no findings filter).
+    expect(reply).toBe('DONE')
   })
 })
