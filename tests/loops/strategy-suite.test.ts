@@ -660,3 +660,26 @@ describe('consult', () => {
     expect(reply).toBe('DONE')
   })
 })
+
+describe('advisory-field normalization', () => {
+  it('a body omitting progression/completions/shots yields a well-formed cell', async () => {
+    stubRouter()
+    const surface = fixtureSurface(() => ({ passes: 1, total: 2 }))
+    const sloppy = defineStrategy('sloppy', async ({ shot }) => {
+      await shot()
+      // An authored body returning only the verified-overridden fields.
+      return { score: 0, resolved: false } as never
+    })
+    const report = await runBenchmark({
+      environment: surface,
+      tasks: [task],
+      worker,
+      strategies: [sloppy],
+      budget: 1,
+      concurrency: 1,
+    })
+    const cell = report.perTask[0]?.cells?.sloppy
+    expect(cell?.progression).toEqual([])
+    expect(cell?.score).toBeCloseTo(0.5)
+  })
+})
