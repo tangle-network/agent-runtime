@@ -62,6 +62,14 @@ number below is single-objective + within-run — read them as Gate-A diagnostic
   No harness runs it yet; it is the durable next step, not a corpus-replay over the existing
   single-objective records.
 
+## The run archive (where results LIVE)
+
+Every run's full artifact is committed under `bench/runs/<date>/` — self-describing JSON
+(models + config + per-task cells + gate verdicts with CIs), portable to any repo without
+this codebase. `bench/runs/RUNS.md` is the index mapping artifacts → verdicts → the
+findings gist. **Set `OUT=bench/runs/<date>/<name>.json` on every run — never `/tmp`**
+(a reboot erases ramdisk; ~20 runs nearly died there once).
+
 ## Data flow (the whole experiment in one line)
 `rollout (worker → answer) → adapter.judge (valid?) → CORPUS RunRecord (k attempts, output+valid each) → corpus-replay --selector (pick WITHOUT the judge) → corpus-report CI → gate verdict`
 The expensive part (rollouts) produces a **reusable corpus**; selection + stats are free

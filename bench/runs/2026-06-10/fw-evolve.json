@@ -1,0 +1,2185 @@
+{
+  "gen0": {
+    "n": 12,
+    "excluded": 0,
+    "perStrategy": {
+      "sample": {
+        "score": 0.6448412698412699,
+        "resolved": 0.5,
+        "usd": 0.027464150000000003,
+        "ms": 39554.666666666664
+      },
+      "refine": {
+        "score": 0.5233134920634921,
+        "resolved": 0.25,
+        "usd": 0.021196950000000003,
+        "ms": 120184.08333333333
+      },
+      "sampleThenRefine": {
+        "score": 0.625,
+        "resolved": 0.5,
+        "usd": 0.019911599999999998,
+        "ms": 92141.58333333333
+      }
+    },
+    "perTask": [
+      {
+        "taskId": "task_20251210_205620_593_391f1eff_ad65c160",
+        "cells": {
+          "sample": {
+            "score": 0.5,
+            "resolved": false,
+            "progression": [
+              0,
+              0.5,
+              0.5
+            ],
+            "usd": 0.0309977,
+            "ms": 58428,
+            "tokens": {
+              "input": 78517,
+              "output": 6766
+            }
+          },
+          "refine": {
+            "score": 0.5,
+            "resolved": false,
+            "progression": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "usd": 0.034256,
+            "ms": 262186,
+            "tokens": {
+              "input": 74209,
+              "output": 10903
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0.5,
+            "resolved": false,
+            "progression": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "usd": 0.0325246,
+            "ms": 160928,
+            "tokens": {
+              "input": 80754,
+              "output": 7544
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251212_172511_458_e6427839_47076c15",
+        "cells": {
+          "sample": {
+            "score": 0.5714285714285714,
+            "resolved": false,
+            "progression": [
+              0.5714285714285714,
+              0.5714285714285714,
+              0.5714285714285714
+            ],
+            "usd": 0.0217937,
+            "ms": 36666,
+            "tokens": {
+              "input": 60927,
+              "output": 3196
+            }
+          },
+          "refine": {
+            "score": 0.5714285714285714,
+            "resolved": false,
+            "progression": [
+              0.5714285714285714,
+              0.5714285714285714,
+              0.5714285714285714
+            ],
+            "usd": 0.014916799999999997,
+            "ms": 73568,
+            "tokens": {
+              "input": 42723,
+              "output": 1909
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.5714285714285714,
+              1
+            ],
+            "usd": 0.014239699999999997,
+            "ms": 47821,
+            "tokens": {
+              "input": 39443,
+              "output": 2188
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251212_184405_886_e6427839_6413728a",
+        "cells": {
+          "sample": {
+            "score": 0.3333333333333333,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.3333333333333333,
+              0.3333333333333333
+            ],
+            "usd": 0.0283689,
+            "ms": 54753,
+            "tokens": {
+              "input": 71958,
+              "output": 6165
+            }
+          },
+          "refine": {
+            "score": 0.3333333333333333,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.3333333333333333,
+              0.3333333333333333
+            ],
+            "usd": 0.016010899999999998,
+            "ms": 128669,
+            "tokens": {
+              "input": 38175,
+              "output": 4144
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0.3333333333333333,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.3333333333333333,
+              0.3333333333333333
+            ],
+            "usd": 0.021726,
+            "ms": 161639,
+            "tokens": {
+              "input": 54325,
+              "output": 4935
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251212_191411_655_391f1eff_2fef896f",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1,
+              1,
+              1
+            ],
+            "usd": 0.02928,
+            "ms": 37714,
+            "tokens": {
+              "input": 79010,
+              "output": 5070
+            }
+          },
+          "refine": {
+            "score": 0.3333333333333333,
+            "resolved": false,
+            "progression": [
+              0,
+              0.3333333333333333,
+              0.3333333333333333
+            ],
+            "usd": 0.027746899999999998,
+            "ms": 120822,
+            "tokens": {
+              "input": 75788,
+              "output": 4555
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0,
+              1
+            ],
+            "usd": 0.020535699999999997,
+            "ms": 78722,
+            "tokens": {
+              "input": 53650,
+              "output": 4037
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251212_191815_314_391f1eff_c23d76df",
+        "cells": {
+          "sample": {
+            "score": 0.3333333333333333,
+            "resolved": false,
+            "progression": [
+              0,
+              0.3333333333333333,
+              0.3333333333333333
+            ],
+            "usd": 0.0307411,
+            "ms": 47464,
+            "tokens": {
+              "input": 78670,
+              "output": 6491
+            }
+          },
+          "refine": {
+            "score": 0.6666666666666666,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.6666666666666666,
+              0.6666666666666666
+            ],
+            "usd": 0.0287247,
+            "ms": 181543,
+            "tokens": {
+              "input": 68931,
+              "output": 7314
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0.6666666666666666,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.3333333333333333,
+              0.6666666666666666
+            ],
+            "usd": 0.027678099999999997,
+            "ms": 150870,
+            "tokens": {
+              "input": 69406,
+              "output": 6233
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251216_131651_690_764e5ead_f8619b02",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.6666666666666666,
+              1,
+              1
+            ],
+            "usd": 0.0263979,
+            "ms": 30101,
+            "tokens": {
+              "input": 72538,
+              "output": 4215
+            }
+          },
+          "refine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.6666666666666666,
+              1
+            ],
+            "usd": 0.014780299999999998,
+            "ms": 86754,
+            "tokens": {
+              "input": 40948,
+              "output": 2269
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1
+            ],
+            "usd": 0.0087578,
+            "ms": 25631,
+            "tokens": {
+              "input": 24140,
+              "output": 1378
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251217_030654_663_99ba2325_f931fd42",
+        "cells": {
+          "sample": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.017067699999999998,
+            "ms": 32279,
+            "tokens": {
+              "input": 43762,
+              "output": 3581
+            }
+          },
+          "refine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.0113154,
+            "ms": 54185,
+            "tokens": {
+              "input": 28621,
+              "output": 2481
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.013757399999999998,
+            "ms": 70949,
+            "tokens": {
+              "input": 32966,
+              "output": 3516
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251217_153037_688_97d7df7d_be0bd794",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.5,
+              1,
+              1
+            ],
+            "usd": 0.030841199999999996,
+            "ms": 27659,
+            "tokens": {
+              "input": 90561,
+              "output": 3339
+            }
+          },
+          "refine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.5,
+              1
+            ],
+            "usd": 0.019579399999999997,
+            "ms": 70095,
+            "tokens": {
+              "input": 57946,
+              "output": 1996
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.5,
+              1
+            ],
+            "usd": 0.020213699999999998,
+            "ms": 42322,
+            "tokens": {
+              "input": 59635,
+              "output": 2112
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251217_183416_700_764e5ead_4c46beb0",
+        "cells": {
+          "sample": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.032099499999999996,
+            "ms": 39219,
+            "tokens": {
+              "input": 88775,
+              "output": 4970
+            }
+          },
+          "refine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.038697199999999994,
+            "ms": 218424,
+            "tokens": {
+              "input": 95668,
+              "output": 9088
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.025499099999999997,
+            "ms": 120078,
+            "tokens": {
+              "input": 69949,
+              "output": 4104
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251217_205244_161_764e5ead_20429ef8",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1,
+              1,
+              1
+            ],
+            "usd": 0.029861699999999998,
+            "ms": 35303,
+            "tokens": {
+              "input": 77209,
+              "output": 6090
+            }
+          },
+          "refine": {
+            "score": 0.875,
+            "resolved": false,
+            "progression": [
+              0.875,
+              0.875,
+              0.875
+            ],
+            "usd": 0.0200469,
+            "ms": 125212,
+            "tokens": {
+              "input": 49597,
+              "output": 4698
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.75,
+              0.75,
+              1
+            ],
+            "usd": 0.024918799999999998,
+            "ms": 137417,
+            "tokens": {
+              "input": 66526,
+              "output": 4510
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251217_211242_026_391f1eff_27934d6b",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1,
+              1,
+              1
+            ],
+            "usd": 0.026421899999999995,
+            "ms": 41637,
+            "tokens": {
+              "input": 70121,
+              "output": 4896
+            }
+          },
+          "refine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1
+            ],
+            "usd": 0.0086921,
+            "ms": 29019,
+            "tokens": {
+              "input": 23360,
+              "output": 1531
+            }
+          },
+          "sampleThenRefine": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1
+            ],
+            "usd": 0.0089642,
+            "ms": 35059,
+            "tokens": {
+              "input": 23376,
+              "output": 1774
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_055646_898_97d7df7d_be7218cc",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0,
+              0.5,
+              1
+            ],
+            "usd": 0.0256985,
+            "ms": 33433,
+            "tokens": {
+              "input": 66793,
+              "output": 5146
+            }
+          },
+          "refine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.0195968,
+            "ms": 91732,
+            "tokens": {
+              "input": 48082,
+              "output": 4702
+            }
+          },
+          "sampleThenRefine": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.0201241,
+            "ms": 74263,
+            "tokens": {
+              "input": 52542,
+              "output": 3965
+            }
+          }
+        }
+      }
+    ],
+    "pareto": [
+      "sample",
+      "sampleThenRefine"
+    ],
+    "refineVsSample": {
+      "mean": -0.12152777777777779,
+      "low": -0.0625,
+      "high": 0,
+      "n": 12
+    }
+  },
+  "gen0Champion": {
+    "name": "sample",
+    "score": 0.6448412698412699,
+    "usd": 0.027464150000000003
+  },
+  "generations": [
+    {
+      "generation": 1,
+      "candidates": [
+        {
+          "name": "critiqueThenRefine",
+          "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781100275892.mts",
+          "gzipBits": 7840,
+          "codeChars": 3124
+        },
+        {
+          "name": "pair-review",
+          "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781100432892.mts",
+          "gzipBits": 5576,
+          "codeChars": 1773
+        }
+      ],
+      "report": {
+        "n": 12,
+        "excluded": 0,
+        "perStrategy": {
+          "sample": {
+            "score": 0.6555555555555556,
+            "resolved": 0.5,
+            "usd": 0.028586191666666667,
+            "ms": 40796.083333333336
+          },
+          "critiqueThenRefine": {
+            "score": 0.5545634920634921,
+            "resolved": 0.25,
+            "usd": 0.011801966666666665,
+            "ms": 88705.91666666667
+          },
+          "pair-review": {
+            "score": 0.6263227513227513,
+            "resolved": 0.4166666666666667,
+            "usd": 0.012466649999999998,
+            "ms": 81748.25
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "task_20251210_205620_593_391f1eff_ad65c160",
+            "cells": {
+              "sample": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.0313268,
+                "ms": 52954,
+                "tokens": {
+                  "input": 77898,
+                  "output": 7234
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0
+                ],
+                "usd": 0.0089004,
+                "ms": 73402,
+                "tokens": {
+                  "input": 20956,
+                  "output": 2376
+                }
+              },
+              "pair-review": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.0096593,
+                "ms": 101112,
+                "tokens": {
+                  "input": 21062,
+                  "output": 3037
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_172511_458_e6427839_47076c15",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.5714285714285714,
+                  0.5714285714285714,
+                  1
+                ],
+                "usd": 0.0249184,
+                "ms": 37034,
+                "tokens": {
+                  "input": 68776,
+                  "output": 3896
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.5714285714285714,
+                "resolved": false,
+                "progression": [
+                  0.5714285714285714,
+                  0.5714285714285714
+                ],
+                "usd": 0.0137751,
+                "ms": 78579,
+                "tokens": {
+                  "input": 37139,
+                  "output": 2394
+                }
+              },
+              "pair-review": {
+                "score": 0.5714285714285714,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0.5714285714285714
+                ],
+                "usd": 0.0141255,
+                "ms": 102417,
+                "tokens": {
+                  "input": 34512,
+                  "output": 3429
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_184405_886_e6427839_6413728a",
+            "cells": {
+              "sample": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0.3333333333333333
+                ],
+                "usd": 0.026142699999999998,
+                "ms": 43558,
+                "tokens": {
+                  "input": 70052,
+                  "output": 4661
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0.3333333333333333,
+                  0
+                ],
+                "usd": 0.0083459,
+                "ms": 85678,
+                "tokens": {
+                  "input": 18202,
+                  "output": 2623
+                }
+              },
+              "pair-review": {
+                "score": 0.2777777777777778,
+                "resolved": false,
+                "progression": [
+                  0.2777777777777778,
+                  0.2777777777777778
+                ],
+                "usd": 0.014764,
+                "ms": 95384,
+                "tokens": {
+                  "input": 36666,
+                  "output": 3422
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_191411_655_391f1eff_2fef896f",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0320216,
+                "ms": 50322,
+                "tokens": {
+                  "input": 84196,
+                  "output": 6148
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.3333333333333333,
+                  1
+                ],
+                "usd": 0.0167776,
+                "ms": 117688,
+                "tokens": {
+                  "input": 43356,
+                  "output": 3428
+                }
+              },
+              "pair-review": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1
+                ],
+                "usd": 0.010587499999999998,
+                "ms": 60054,
+                "tokens": {
+                  "input": 28094,
+                  "output": 1963
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_191815_314_391f1eff_c23d76df",
+            "cells": {
+              "sample": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0.3333333333333333
+                ],
+                "usd": 0.030773299999999996,
+                "ms": 46962,
+                "tokens": {
+                  "input": 78484,
+                  "output": 6571
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0.3333333333333333,
+                  0
+                ],
+                "usd": 0.008678799999999999,
+                "ms": 77051,
+                "tokens": {
+                  "input": 21486,
+                  "output": 2030
+                }
+              },
+              "pair-review": {
+                "score": 0.6666666666666666,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0.6666666666666666
+                ],
+                "usd": 0.0113727,
+                "ms": 77718,
+                "tokens": {
+                  "input": 28108,
+                  "output": 2673
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251216_131651_690_764e5ead_f8619b02",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.3333333333333333,
+                  1,
+                  1
+                ],
+                "usd": 0.026726599999999996,
+                "ms": 32232,
+                "tokens": {
+                  "input": 73729,
+                  "output": 4189
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.6666666666666666,
+                "resolved": false,
+                "progression": [
+                  0.6666666666666666,
+                  0
+                ],
+                "usd": 0.0129232,
+                "ms": 88865,
+                "tokens": {
+                  "input": 33764,
+                  "output": 2540
+                }
+              },
+              "pair-review": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1
+                ],
+                "usd": 0.0100955,
+                "ms": 91011,
+                "tokens": {
+                  "input": 25332,
+                  "output": 2269
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_030654_663_99ba2325_f931fd42",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0223061,
+                "ms": 38109,
+                "tokens": {
+                  "input": 56398,
+                  "output": 4897
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.0087838,
+                "ms": 78928,
+                "tokens": {
+                  "input": 18547,
+                  "output": 2927
+                }
+              },
+              "pair-review": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.0099878,
+                "ms": 60880,
+                "tokens": {
+                  "input": 22410,
+                  "output": 2968
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_153037_688_97d7df7d_be0bd794",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.5,
+                  0.5,
+                  1
+                ],
+                "usd": 0.030722899999999997,
+                "ms": 24756,
+                "tokens": {
+                  "input": 90427,
+                  "output": 3268
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  0
+                ],
+                "usd": 0.010537699999999999,
+                "ms": 65698,
+                "tokens": {
+                  "input": 27554,
+                  "output": 2065
+                }
+              },
+              "pair-review": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.5,
+                  1
+                ],
+                "usd": 0.0145268,
+                "ms": 37343,
+                "tokens": {
+                  "input": 41742,
+                  "output": 1822
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_183416_700_764e5ead_4c46beb0",
+            "cells": {
+              "sample": {
+                "score": 0.2,
+                "resolved": false,
+                "progression": [
+                  0.2,
+                  0.2,
+                  0.2
+                ],
+                "usd": 0.0367485,
+                "ms": 58590,
+                "tokens": {
+                  "input": 92553,
+                  "output": 8166
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.023430299999999998,
+                "ms": 144111,
+                "tokens": {
+                  "input": 56508,
+                  "output": 5889
+                }
+              },
+              "pair-review": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0
+                ],
+                "usd": 0.0230916,
+                "ms": 144352,
+                "tokens": {
+                  "input": 54818,
+                  "output": 6042
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_205244_161_764e5ead_20429ef8",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.029712199999999998,
+                "ms": 33280,
+                "tokens": {
+                  "input": 76608,
+                  "output": 6118
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.75,
+                "resolved": false,
+                "progression": [
+                  0.75,
+                  0
+                ],
+                "usd": 0.014146999999999998,
+                "ms": 106092,
+                "tokens": {
+                  "input": 35130,
+                  "output": 3280
+                }
+              },
+              "pair-review": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1
+                ],
+                "usd": 0.014925399999999998,
+                "ms": 114926,
+                "tokens": {
+                  "input": 33178,
+                  "output": 4520
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_211242_026_391f1eff_27934d6b",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.0257227,
+                "ms": 36532,
+                "tokens": {
+                  "input": 70104,
+                  "output": 4265
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0
+                ],
+                "usd": 0.0069933999999999994,
+                "ms": 78177,
+                "tokens": {
+                  "input": 17738,
+                  "output": 1520
+                }
+              },
+              "pair-review": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.008502899999999999,
+                "ms": 55672,
+                "tokens": {
+                  "input": 22095,
+                  "output": 1704
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251218_055646_898_97d7df7d_be7218cc",
+            "cells": {
+              "sample": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0.5
+                ],
+                "usd": 0.025912499999999998,
+                "ms": 35224,
+                "tokens": {
+                  "input": 66795,
+                  "output": 5340
+                }
+              },
+              "critiqueThenRefine": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  0
+                ],
+                "usd": 0.008330399999999998,
+                "ms": 70202,
+                "tokens": {
+                  "input": 18594,
+                  "output": 2502
+                }
+              },
+              "pair-review": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1
+                ],
+                "usd": 0.0079608,
+                "ms": 40110,
+                "tokens": {
+                  "input": 18539,
+                  "output": 2181
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "sample",
+          "critiqueThenRefine",
+          "pair-review"
+        ]
+      },
+      "champion": {
+        "name": "sample",
+        "score": 0.6555555555555556,
+        "usd": 0.028586191666666667
+      }
+    },
+    {
+      "generation": 2,
+      "candidates": [
+        {
+          "name": "plan-implement-verify",
+          "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781101898248.mts",
+          "gzipBits": 6248,
+          "codeChars": 2225
+        },
+        {
+          "name": "three-stage-pipeline",
+          "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781102094080.mts",
+          "gzipBits": 7848,
+          "codeChars": 2908
+        }
+      ],
+      "report": {
+        "n": 12,
+        "excluded": 0,
+        "perStrategy": {
+          "sample": {
+            "score": 0.5615079365079364,
+            "resolved": 0.25,
+            "usd": 0.0285144,
+            "ms": 42026.833333333336
+          },
+          "plan-implement-verify": {
+            "score": 0.5244708994708995,
+            "resolved": 0.3333333333333333,
+            "usd": 0.013015875000000001,
+            "ms": 66192.91666666667
+          },
+          "three-stage-pipeline": {
+            "score": 0,
+            "resolved": 0,
+            "usd": 0,
+            "ms": 0.5833333333333334
+          }
+        },
+        "perTask": [
+          {
+            "taskId": "task_20251210_205620_593_391f1eff_ad65c160",
+            "cells": {
+              "sample": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.0322587,
+                "ms": 62520,
+                "tokens": {
+                  "input": 77928,
+                  "output": 8073
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.010553899999999998,
+                "ms": 51353,
+                "tokens": {
+                  "input": 26090,
+                  "output": 2479
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_172511_458_e6427839_47076c15",
+            "cells": {
+              "sample": {
+                "score": 0.5714285714285714,
+                "resolved": false,
+                "progression": [
+                  0.5714285714285714,
+                  0.5714285714285714,
+                  0.5714285714285714
+                ],
+                "usd": 0.025116599999999996,
+                "ms": 41262,
+                "tokens": {
+                  "input": 67816,
+                  "output": 4338
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0.5714285714285714,
+                "resolved": false,
+                "progression": [
+                  0.5714285714285714,
+                  0.5714285714285714,
+                  0.5714285714285714
+                ],
+                "usd": 0.0126632,
+                "ms": 60448,
+                "tokens": {
+                  "input": 32560,
+                  "output": 2632
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_184405_886_e6427839_6413728a",
+            "cells": {
+              "sample": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0.3333333333333333,
+                  0.3333333333333333,
+                  0.3333333333333333
+                ],
+                "usd": 0.0295102,
+                "ms": 56853,
+                "tokens": {
+                  "input": 72477,
+                  "output": 7061
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0.3888888888888889,
+                "resolved": false,
+                "progression": [
+                  0.3888888888888889,
+                  0.3888888888888889,
+                  0.3888888888888889
+                ],
+                "usd": 0.009550900000000001,
+                "ms": 50835,
+                "tokens": {
+                  "input": 22886,
+                  "output": 2441
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_191411_655_391f1eff_2fef896f",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.3333333333333333,
+                  0.3333333333333333,
+                  1
+                ],
+                "usd": 0.0322471,
+                "ms": 48705,
+                "tokens": {
+                  "input": 83778,
+                  "output": 6467
+                }
+              },
+              "plan-implement-verify": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.006671799999999999,
+                "ms": 31472,
+                "tokens": {
+                  "input": 16875,
+                  "output": 1463
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 0,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251212_191815_314_391f1eff_c23d76df",
+            "cells": {
+              "sample": {
+                "score": 0.6666666666666666,
+                "resolved": false,
+                "progression": [
+                  0.6666666666666666,
+                  0.6666666666666666,
+                  0.6666666666666666
+                ],
+                "usd": 0.0321284,
+                "ms": 53242,
+                "tokens": {
+                  "input": 81296,
+                  "output": 7036
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0.3333333333333333,
+                "resolved": false,
+                "progression": [
+                  0.3333333333333333,
+                  0.3333333333333333,
+                  0.3333333333333333
+                ],
+                "usd": 0.0125112,
+                "ms": 67032,
+                "tokens": {
+                  "input": 28867,
+                  "output": 3501
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 0,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251216_131651_690_764e5ead_f8619b02",
+            "cells": {
+              "sample": {
+                "score": 0.6666666666666666,
+                "resolved": false,
+                "progression": [
+                  0.3333333333333333,
+                  0.6666666666666666,
+                  0.6666666666666666
+                ],
+                "usd": 0.024938499999999995,
+                "ms": 24425,
+                "tokens": {
+                  "input": 70559,
+                  "output": 3428
+                }
+              },
+              "plan-implement-verify": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.005941999999999999,
+                "ms": 27506,
+                "tokens": {
+                  "input": 14270,
+                  "output": 1510
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 0,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_030654_663_99ba2325_f931fd42",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0193605,
+                "ms": 40642,
+                "tokens": {
+                  "input": 49234,
+                  "output": 4173
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0191969,
+                "ms": 150373,
+                "tokens": {
+                  "input": 37949,
+                  "output": 7102
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_153037_688_97d7df7d_be0bd794",
+            "cells": {
+              "sample": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.0306011,
+                "ms": 25058,
+                "tokens": {
+                  "input": 90351,
+                  "output": 3178
+                }
+              },
+              "plan-implement-verify": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1
+                ],
+                "usd": 0.007517899999999999,
+                "ms": 22404,
+                "tokens": {
+                  "input": 20898,
+                  "output": 1135
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_183416_700_764e5ead_4c46beb0",
+            "cells": {
+              "sample": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0336417,
+                "ms": 42252,
+                "tokens": {
+                  "input": 92658,
+                  "output": 5313
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.0327617,
+                "ms": 142896,
+                "tokens": {
+                  "input": 83528,
+                  "output": 7003
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 0,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_205244_161_764e5ead_20429ef8",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.029557899999999998,
+                "ms": 33609,
+                "tokens": {
+                  "input": 77146,
+                  "output": 5831
+                }
+              },
+              "plan-implement-verify": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  0.75,
+                  1
+                ],
+                "usd": 0.011389999999999999,
+                "ms": 46001,
+                "tokens": {
+                  "input": 26853,
+                  "output": 3031
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 0,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251217_211242_026_391f1eff_27934d6b",
+            "cells": {
+              "sample": {
+                "score": 1,
+                "resolved": true,
+                "progression": [
+                  1,
+                  1,
+                  1
+                ],
+                "usd": 0.026660499999999997,
+                "ms": 36539,
+                "tokens": {
+                  "input": 70447,
+                  "output": 5024
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0.5,
+                  0.5,
+                  0.5
+                ],
+                "usd": 0.0111092,
+                "ms": 61425,
+                "tokens": {
+                  "input": 25928,
+                  "output": 3028
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          },
+          {
+            "taskId": "task_20251218_055646_898_97d7df7d_be7218cc",
+            "cells": {
+              "sample": {
+                "score": 0.5,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0.5
+                ],
+                "usd": 0.026151599999999997,
+                "ms": 39215,
+                "tokens": {
+                  "input": 66756,
+                  "output": 5568
+                }
+              },
+              "plan-implement-verify": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0.016321799999999997,
+                "ms": 82570,
+                "tokens": {
+                  "input": 38885,
+                  "output": 4233
+                }
+              },
+              "three-stage-pipeline": {
+                "score": 0,
+                "resolved": false,
+                "progression": [
+                  0,
+                  0,
+                  0
+                ],
+                "usd": 0,
+                "ms": 1,
+                "tokens": {
+                  "input": 0,
+                  "output": 0
+                }
+              }
+            }
+          }
+        ],
+        "pareto": [
+          "sample",
+          "plan-implement-verify",
+          "three-stage-pipeline"
+        ]
+      },
+      "champion": {
+        "name": "sample",
+        "score": 0.5615079365079364,
+        "usd": 0.0285144
+      }
+    }
+  ],
+  "archive": [
+    {
+      "name": "sample",
+      "source": "baseline",
+      "generation": 0,
+      "score": 0.5615079365079364,
+      "usd": 0.0285144
+    },
+    {
+      "name": "refine",
+      "source": "baseline",
+      "generation": 0,
+      "score": 0.5233134920634921,
+      "usd": 0.021196950000000003
+    },
+    {
+      "name": "sampleThenRefine",
+      "source": "baseline",
+      "generation": 0,
+      "score": 0.625,
+      "usd": 0.019911599999999998
+    },
+    {
+      "name": "critiqueThenRefine",
+      "source": "authored",
+      "generation": 1,
+      "parent": "sample",
+      "gzipBits": 7840,
+      "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781100275892.mts",
+      "score": 0.5545634920634921,
+      "usd": 0.011801966666666665
+    },
+    {
+      "name": "pair-review",
+      "source": "authored",
+      "generation": 1,
+      "parent": "sample",
+      "gzipBits": 5576,
+      "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781100432892.mts",
+      "score": 0.6263227513227513,
+      "usd": 0.012466649999999998
+    },
+    {
+      "name": "plan-implement-verify",
+      "source": "authored",
+      "generation": 2,
+      "parent": "sample",
+      "gzipBits": 6248,
+      "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781101898248.mts",
+      "score": 0.5244708994708995,
+      "usd": 0.013015875000000001
+    },
+    {
+      "name": "three-stage-pipeline",
+      "source": "authored",
+      "generation": 2,
+      "parent": "sample",
+      "gzipBits": 7848,
+      "file": "/home/drew/code/agent-runtime/bench/src/authored/authored-1781102094080.mts",
+      "score": 0,
+      "usd": 0
+    }
+  ],
+  "finalChampion": {
+    "name": "sample",
+    "score": 0.5615079365079364,
+    "usd": 0.0285144
+  },
+  "holdout": {
+    "n": 8,
+    "excluded": 0,
+    "perStrategy": {
+      "sample": {
+        "score": 0.5208333333333333,
+        "resolved": 0.375,
+        "usd": 0.030125199999999998,
+        "ms": 46641
+      }
+    },
+    "perTask": [
+      {
+        "taskId": "task_20251218_132315_968_66392a82_d610f253",
+        "cells": {
+          "sample": {
+            "score": 0.6666666666666666,
+            "resolved": false,
+            "progression": [
+              0.3333333333333333,
+              0.3333333333333333,
+              0.6666666666666666
+            ],
+            "usd": 0.03187419999999999,
+            "ms": 59900,
+            "tokens": {
+              "input": 75451,
+              "output": 8399
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_143555_095_97d7df7d_ece487bd",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              0.5,
+              1,
+              1
+            ],
+            "usd": 0.026237299999999998,
+            "ms": 29357,
+            "tokens": {
+              "input": 72692,
+              "output": 4027
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_155314_617_c5ca08eb_3ce3c52f",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1,
+              1,
+              1
+            ],
+            "usd": 0.033363699999999996,
+            "ms": 42494,
+            "tokens": {
+              "input": 90206,
+              "output": 5729
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_164829_676_97d7df7d_893f6b2c",
+        "cells": {
+          "sample": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.040417800000000004,
+            "ms": 87097,
+            "tokens": {
+              "input": 103420,
+              "output": 8538
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_171924_336_ad5a67e3_af252cf6",
+        "cells": {
+          "sample": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.0328137,
+            "ms": 62514,
+            "tokens": {
+              "input": 85487,
+              "output": 6516
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_183102_136_391f1eff_ac9a6986",
+        "cells": {
+          "sample": {
+            "score": 1,
+            "resolved": true,
+            "progression": [
+              1,
+              1,
+              1
+            ],
+            "usd": 0.0233253,
+            "ms": 33139,
+            "tokens": {
+              "input": 63088,
+              "output": 3999
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_183819_272_99ba2325_dd71c332",
+        "cells": {
+          "sample": {
+            "score": 0.5,
+            "resolved": false,
+            "progression": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "usd": 0.023652199999999998,
+            "ms": 36058,
+            "tokens": {
+              "input": 61424,
+              "output": 4750
+            }
+          }
+        }
+      },
+      {
+        "taskId": "task_20251218_184224_139_764e5ead_e6e42358",
+        "cells": {
+          "sample": {
+            "score": 0,
+            "resolved": false,
+            "progression": [
+              0,
+              0,
+              0
+            ],
+            "usd": 0.029317399999999997,
+            "ms": 22569,
+            "tokens": {
+              "input": 89339,
+              "output": 2287
+            }
+          }
+        }
+      }
+    ],
+    "pareto": [
+      "sample"
+    ]
+  },
+  "verdict": {
+    "promoted": false,
+    "reason": "identical-champion",
+    "n": 0,
+    "lift": {
+      "mean": 0,
+      "median": 0,
+      "low": 0,
+      "high": 0
+    }
+  },
+  "trajectory": [
+    {
+      "generation": 0,
+      "champion": "sample",
+      "score": 0.6448412698412699,
+      "usd": 0.027464150000000003
+    },
+    {
+      "generation": 1,
+      "champion": "sample",
+      "score": 0.6555555555555556,
+      "usd": 0.028586191666666667
+    },
+    {
+      "generation": 2,
+      "champion": "sample",
+      "score": 0.5615079365079364,
+      "usd": 0.0285144
+    }
+  ]
+}
