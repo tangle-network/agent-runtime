@@ -78,7 +78,17 @@ the default unfinished-items analyst in the existing steerer harness on EOPS. Sc
 criterion 1: decision regret, not prediction quality alone — a state that predicts
 better but does not choose better fails.
 
-Status: DESIGNED (the steerer-population fitness harness exists).
+Status: DESIGNED (the steerer-population fitness harness exists). **First arm RAN and was
+AUTOPSIED (2026-06-11): the −37.5pp result does NOT measure the corner — it measured a
+broken channel.** Ground truth (per-task artifact + a parser probe): the controller
+stopped after one shot on 14/16 unsolved tasks because its verdicts never existed —
+`critique()` routes through `observe()`'s findings-extraction protocol, which overrides
+the verdict-format instruction (probe: the analyst returned an ordinary recommendation,
+no `VERDICT:` line), so the body received nulls/plain steers, never a decision.
+Classification: infra/design-flaw, not real-result. **The corner is unmeasured.** Next
+arm requires a verdict-capable channel (a raw firewalled analyst call on the strategy
+ctx — trace-only input, raw text out — bypassing the findings schema) plus calibration;
+only then does the corner get a verdict.
 
 ## E1-coarse — the leakage-bounded author channel
 
@@ -111,7 +121,13 @@ explicit selection rules, fresh-slice promotion gate, band-aware holdout
 (`band.holdoutPoolN` — the estimand "paired lift on headroom tasks", pre-registered).
 Each run also feeds E2 for free (gzip-bits per authored artifact vs holdout gap).
 
-Status: RUNNING (n=24/budget-4 family; band + tool-selection arms land in the next run).
+Status: RUNNING → three family members completed (2026-06-10/11): powered n=24 HOLD;
+discriminating run (tool introspection) HOLD with the first train-side champion
+displacements + a REPRODUCIBLE certificate on the authored champion; cost-objective run
+#1 HOLD via the funnel misalignment (the search tie-band was stricter than the gate —
+fixed, the law recorded in HARNESS.md), rerun in flight. The replicated positives so far
+are cost-shaped (author at ~2.5× lower cost, ×3) and interaction-shaped (σ×κ promoted
+×2 on AIME). Live ledger: `.evolve/current.json` + the findings gist.
 
 ## Rejected without prejudice (named triggers, not dead)
 
