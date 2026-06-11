@@ -7,3 +7,4 @@ run-artifacts/
 corpus/
 .eops-task-cache/
 src/authored/
+.tmp-e3-*/

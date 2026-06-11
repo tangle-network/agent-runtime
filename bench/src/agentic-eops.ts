@@ -46,6 +46,28 @@ export function eopsTaskFromRow(row: {
   }
 }
 
+/** Load `n` EOPS tasks from the HF datasets-server, `offset` into the split — the one
+ *  task supply for the stream/holdout runners (disjoint slices via disjoint offsets). */
+export async function loadEopsTasks(n: number, offset: number, split: string): Promise<AgenticTask[]> {
+  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=${split}&offset=${offset}&length=${n}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
+  const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
+  return (body.rows ?? []).slice(0, n).map(({ row }) => eopsTaskFromRow(row))
+}
+
+/** The EOPS task class — the task FAMILY key certified memory matches on (the gym the
+ *  task runs against, e.g. `eops:gym-itsm-mcp`). Family-level on purpose: it is the
+ *  granularity the certifying runs gated at (a whole-split promotion gate certifies the
+ *  program for the family, not for one verifier signature). Missing meta fails loud. */
+export function eopsTaskClass(task: AgenticTask): string {
+  const server = metaOf(task).servers[0]
+  if (!server?.mcp_server_name) {
+    throw new Error(`eops task class: task ${task.id} has no servers[0].mcp_server_name`)
+  }
+  return `eops:${server.mcp_server_name}`
+}
+
 /** The EnterpriseOps surface. `gymDbsDir` = the unzipped gym_dbs.zip (resolves seed_database_file). */
 export function createEopsSurface(gymDbsDir: string): AgenticSurface {
   return {
