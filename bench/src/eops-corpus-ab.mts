@@ -23,7 +23,8 @@
  *   EOPS_GYM_DBS_DIR=… N=16 HOLDOUT=4 K_FACTS=3 WORKER_MODEL=deepseek-v4-pro tsx src/eops-corpus-ab.mts
  */
 import { type AgenticOptions, type AgenticTask, FileCorpus, runAgentic } from '@tangle-network/agent-runtime/loops'
-import { createEopsSurface, eopsTaskFromRow } from './agentic-eops'
+import { createEopsSurface, loadEopsTasks } from './agentic-eops'
+import { primeBlock } from './corpus-prime.mts'
 import { type PairedLift, pairedLift } from './stats.mts'
 
 function must(name: string): string {
@@ -32,13 +33,8 @@ function must(name: string): string {
   return v
 }
 
-async function loadItsmTasks(n: number, offset = 0): Promise<AgenticTask[]> {
-  const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent('ServiceNow-AI/EnterpriseOps-Gym')}&config=oracle&split=${process.env.EOPS_SPLIT ?? 'itsm'}&offset=${offset}&length=${n}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`EOPS HF rows HTTP ${res.status}`)
-  const body = (await res.json()) as { rows?: Array<{ row: Parameters<typeof eopsTaskFromRow>[0] }> }
-  return (body.rows ?? []).slice(0, n).map(({ row }) => eopsTaskFromRow(row))
-}
+const loadItsmTasks = (n: number, offset = 0): Promise<AgenticTask[]> =>
+  loadEopsTasks(n, offset, process.env.EOPS_SPLIT ?? 'itsm')
 
 const tags = ['eops', 'itsm', 'corpus-ab']
 const pct = (x: number) => `${(x * 100).toFixed(0)}%`
@@ -69,35 +65,13 @@ async function main(): Promise<void> {
   console.error(`=== corpus A/B (${primeMode}) · primed-vs-cold · stream n=${stream.length} + holdout ${holdoutN} · ${model} · k=${kFacts} facts ===`)
   console.error(`    corpus: ${corpusPath}\n`)
 
-  const contentWords = (t: string) =>
-    new Set(t.toLowerCase().match(/[a-z]{4,}/g) ?? [])
-  async function primeBlock(task?: AgenticTask): Promise<{ text: string; count: number }> {
-    const all = await corpus.query({ tags: ['audience:agent'], limit: 50 })
-    let facts = all
-    if (primeMode === 'relevance' && task) {
-      const want = contentWords(task.userPrompt)
-      facts = all
-        .map((f) => ({ f, hits: [...contentWords(f.claim)].filter((w) => want.has(w)).length }))
-        .filter((x) => x.hits >= 2)
-        .sort((a, b) => b.hits - a.hits)
-        .map((x) => x.f)
-    }
-    facts = facts.slice(0, kFacts)
-    if (facts.length === 0) return { text: '', count: 0 }
-    const lines = facts.map((f) => `- ${f.claim}${f.rationale ? ` (${f.rationale.slice(0, 120)})` : ''}`)
-    return {
-      text: `\n\nLEARNINGS FROM PRIOR RUNS (apply where relevant):\n${lines.join('\n')}`,
-      count: facts.length,
-    }
-  }
-
   async function runArm(task: AgenticTask, primed: boolean): Promise<{ score: number; facts: number } | null> {
     try {
       if (!primed) {
         const r = await runAgentic({ ...opts, surface, task, mode: 'depth', budget: maxShots })
         return { score: r.score, facts: 0 }
       }
-      const prime = await primeBlock(task)
+      const prime = await primeBlock(corpus, primeMode, kFacts, task)
       const primedTask: AgenticTask = { ...task, systemPrompt: `${task.systemPrompt}${prime.text}` }
       const r = await runAgentic({ ...opts, corpus, corpusTags: tags, surface, task: primedTask, mode: 'depth', budget: maxShots })
       return { score: r.score, facts: prime.count }
@@ -135,7 +109,7 @@ async function main(): Promise<void> {
       if (!cold) continue
       // read-only priming: query + inject, but do NOT pass the corpus (no writes).
       try {
-        const prime = await primeBlock(task)
+        const prime = await primeBlock(corpus, primeMode, kFacts, task)
         const primedTask: AgenticTask = { ...task, systemPrompt: `${task.systemPrompt}${prime.text}` }
         const r = await runAgentic({ ...opts, surface, task: primedTask, mode: 'depth', budget: maxShots })
         hrows.push({ cold: cold.score, primed: r.score })

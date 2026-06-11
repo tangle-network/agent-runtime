@@ -107,6 +107,7 @@ self-describing (models + config).
 | `src/ablation-grid.mts` | **THE FACTOR GRID** — σ steering × α evolve × γ prompt-artifact × κ compression as named cells on identical tasks, each gated vs `base` (κ cells non-inferiority); machinery bill + break-even printed | `ENV=aime\|math\|eops CELLS=base,steer,compress,steer+compress N=20 HOLDOUT=16 tsx src/ablation-grid.mts` |
 | `src/steering-modes.mts` | **THE STEERING HYPERCUBE** — sample / refine / structural (deterministic floor) / contrastive / belief arms, paired vs refine, with waterfalls + anytime tables | `N=16 OFFSET=40 BUDGET=3 tsx src/steering-modes.mts` |
 | `run-model-matrix.sh` | **THE MODEL MATRIX** — the 4-cell grid per worker model (deepseek ×2, kimi, glm, gpt-5.4-mini/5.5, haiku, sonnet), sequential, one artifact per model | `bash run-model-matrix.sh` |
+| `src/e3-memory-ab.mts` | **E3 — CERTIFIED MEMORY** (the OG flywheel read-side): cold vs prose vs certified-program retrieval, gate-only admission, the growing-slope signature (docs/research/e3-certified-memory.md) | `EOPS_GYM_DBS_DIR=… N=16 HOLDOUT=4 tsx src/e3-memory-ab.mts` |
 | `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
