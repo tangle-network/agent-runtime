@@ -842,10 +842,20 @@ export function defineStrategy(
         }
         const r = await run(ctx)
         // Override the body's self-reported score/resolved with the harness-verified
-        // values. The body's progression/completions/shots are advisory (display only).
+        // values. The body's progression/completions/shots are advisory (display only) —
+        // but NORMALIZED: an authored body that omits them must not poison downstream
+        // consumers (losses tables, anytime curves) with undefined.
         return {
           kind: 'done',
-          deliverable: { mode: name, ...r, score: verifiedBest, resolved: verifiedResolved },
+          deliverable: {
+            mode: name,
+            ...r,
+            progression: Array.isArray(r.progression) ? r.progression : [],
+            completions: typeof r.completions === 'number' ? r.completions : 0,
+            shots: typeof r.shots === 'number' ? r.shots : 0,
+            score: verifiedBest,
+            resolved: verifiedResolved,
+          },
         }
       },
     }),

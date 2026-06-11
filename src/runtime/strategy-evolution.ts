@@ -329,7 +329,7 @@ const compactLosses = (report: BenchmarkReport, detail: 'exact' | 'binary'): str
                     score: r2(c.score),
                     resolved: c.resolved,
                     usd: Math.round(c.usd * 10000) / 10000,
-                    progression: c.progression.map(r2),
+                    progression: (c.progression ?? []).map(r2),
                   },
             ]),
           ),
