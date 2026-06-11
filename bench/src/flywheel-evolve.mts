@@ -149,7 +149,7 @@ async function main(): Promise<void> {
         ? '  HOLD: no authored strategy displaced the gen0 champion.'
         : v.reason === 'few-tasks'
           ? `  NOT PROMOTED: only ${v.n} paired holdout tasks — below the evidence floor.`
-          : v.reason === 'score-inferior'
+          : v.reason === 'non-inferiority-unproven'
             ? '  NOT PROMOTED: could not prove score non-inferiority within tolerance.'
             : v.reason === 'not-cheaper'
               ? '  NOT PROMOTED: score holds but cost savings are not significant.'
