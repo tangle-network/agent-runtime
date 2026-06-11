@@ -69,15 +69,22 @@ and offline (zero new rollouts, zero judge calls).
 
 ## THE CANONICAL SUITE (2026-06-10) — the published path; start here
 
-The optimization layer now ships from the package (`PR #209–#211`); bench scripts compose it.
-A domain = an `Environment` (5 hooks); a strategy = how budget is spent to beat its check;
-`runBenchmark` returns per-strategy means + the per-task LOSSES table + the (score,$) Pareto
-frontier + paired-bootstrap refine-vs-sample. Promotion is the package gate
-(`promotionGate` — seeded paired bootstrap via agent-eval `heldoutSignificance`, minimum
-6 paired tasks, CI lower bound must clear zero); the authoring is the package primitive
-(`authorStrategy`, with a named `fallbackModel` retry). Models policy: cheap router models
-only (worker + author default `deepseek-v4-pro`; `moonshotai/kimi-k2.6` is selectable but
-needs `maxTokens` and times out on long authoring prompts) — never CC models.
+The optimization layer ships from the package; bench scripts compose it. A domain = an
+`Environment` (5 hooks); a strategy = how budget is spent to beat its check; `runBenchmark`
+returns per-strategy means + the per-task LOSSES table + the (score,$) Pareto frontier.
+Promotion is the package gate (`promotionGate` — seeded paired bootstrap, evidence floor,
+two modes: **superiority** and **non-inferiority** = score CI low > −tolerance AND cost
+savings CI low > 0, the "same quality, cheaper" gate; verdicts carry paired Δlatency).
+Authoring is `authorStrategy` (named `fallbackModel` retry). **Funnel-alignment law**: the
+search-side champion tie-band must be no stricter than the gate's tolerance (under
+`OBJECTIVE=cost` it defaults to it). Endurance envs on the evolve runner: `CHECKPOINT=path`
+(phase ledger + resume — a killed run re-pays ONE phase), `GYM_RECREATE='docker …'`
+(recreate the container at phase boundaries — the wedge killer). Observability:
+`createWaterfallCollector` (every spawn billed+timed) + `anytimeReport` (TTT / shots-to-
+target / COCO ERT / hill-climb AUC per satisficing target). Models policy: cheap router
+models only (defaults `deepseek-v4-pro`/`deepseek-v4-flash`; compressor = flash with
+`gpt-4o-mini` fallback) — never CC models; every verdict banner + artifact is
+self-describing (models + config).
 
 | entry point | what it answers | one-liner |
 |---|---|---|
@@ -89,6 +96,9 @@ needs `maxTokens` and times out on long authoring prompts) — never CC models.
 | `src/eops-corpus-ab.mts` | the across-run flywheel A/B (naive priming = **−11.6pp NEGATIVE**; `PRIME_MODE=relevance` = the unrun surviving design) | `N=16 HOLDOUT=4 PRIME_MODE=relevance tsx src/eops-corpus-ab.mts` |
 | `src/commit0-env-run.mts` | the HARD domain (implement whole libraries vs their test suites) through `runBenchmark` | `IDS=commit-0/wcwidth BUDGET=3 INNER_TURNS=10 tsx src/commit0-env-run.mts` |
 | `src/prompt-compression-gate.mts` | **THE COMPRESSION GATE** — does prompt compression preserve quality while cutting real cost? (nth-char/word-drop baselines vs LLM compression, each gated non-inferiority vs the original) | `N=12 BUDGET=2 tsx src/prompt-compression-gate.mts` |
+| `src/ablation-grid.mts` | **THE FACTOR GRID** — σ steering × α evolve × γ prompt-artifact × κ compression as named cells on identical tasks, each gated vs `base` (κ cells non-inferiority); machinery bill + break-even printed | `ENV=aime\|math\|eops CELLS=base,steer,compress,steer+compress N=20 HOLDOUT=16 tsx src/ablation-grid.mts` |
+| `src/steering-modes.mts` | **THE STEERING HYPERCUBE** — sample / refine / structural (deterministic floor) / contrastive / belief arms, paired vs refine, with waterfalls + anytime tables | `N=16 OFFSET=40 BUDGET=3 tsx src/steering-modes.mts` |
+| `run-model-matrix.sh` | **THE MODEL MATRIX** — the 4-cell grid per worker model (deepseek ×2, kimi, glm, gpt-5.4-mini/5.5, haiku, sonnet), sequential, one artifact per model | `bash run-model-matrix.sh` |
 | `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
@@ -102,7 +112,7 @@ is firewalled (trace-only), costs are real (router usage → `{usd, ms, tokens}`
 
 ### The QUEUED runs for the test fleet (wired, one command each, unrun)
 1. **Relevance-primed corpus A/B** — `PRIME_MODE=relevance K_FACTS=2 N=16 HOLDOUT=4` (the read-side design that survived the naive-priming negative).
-2. **Strategy tournament at power** — flywheel-run with `N=24 HOLDOUT=12` (or runBenchmark with all four built-ins), the within-run topology verdict.
+2. ~~Strategy tournament at power~~ — RAN (n=24, budget 4, ×3 configs): HOLD verdicts; the cost-frontier finding ×3 + the funnel-alignment law came out of these. Live ledger: `.evolve/current.json` + the findings gist.
 3. **Commit0 at real budget** — `BUDGET=3 INNER_TURNS=12 N=3` sample-vs-refine on the hard domain.
 4. **Cross-domain replication** — blocked on sourcing the csm/hr gym containers (`EOPS_SPLIT` is wired).
 
