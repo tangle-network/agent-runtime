@@ -23,16 +23,19 @@
  * SDK stays an optional peer, exactly like the executors' `SandboxClient` seam.
  *
  * Tradeoffs of detached mode (why it is opt-in, not the default): a detached
- * turn yields one terminal payload instead of a live event stream, so per-token
- * loop trace events and kernel token/cost aggregation are not produced for that
- * turn. Multi-variant fanout stays on the streaming `runLoop` path — N
- * concurrent sessions cannot be expressed as one resume key, and winner
- * selection needs every candidate.
+ * turn yields one terminal payload instead of a live event stream, so kernel
+ * token/cost aggregation is not produced for that turn. The trace sinks still
+ * observe detached work — `runDetachedTurn` synthesizes a single-iteration
+ * loop event stream (see `RunDetachedTurnOptions.traceEmitter`) so the span
+ * topology joins the inherited trace context, with cost/tokens reported as 0
+ * under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
+ * streaming `runLoop` path — N concurrent sessions cannot be expressed as one
+ * resume key, and winner selection needs every candidate.
  */
 
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
-import type { AgentRunSpec, SandboxClient } from '../runtime'
+import type { AgentRunSpec, LoopTraceEmitter, LoopTraceEvent, SandboxClient } from '../runtime'
 import { createSandboxForSpec } from '../runtime'
 import { deleteBoxSafe, sleep, throwAbort, throwIfAborted } from '../runtime/util'
 import type { DelegationRecord, DelegationResumeDriver, DelegationResumeTick } from './task-queue'
@@ -181,6 +184,18 @@ export interface RunDetachedTurnOptions {
   tickIntervalMs?: number
   /** Wall-clock cap forwarded to `driveTurn` — the SDK cancels and fails a session past it. */
   wallCapMs?: number
+  /**
+   * Loop-trace sink. When set, the detached turn synthesizes a
+   * single-iteration loop span tree (`runId` = `sessionId`, driver
+   * `'detached-turn'`) so trace-context inheritance survives the detached
+   * path — the same events the streaming `runLoop` path would emit, minus
+   * per-token telemetry: `driveTurn` yields one terminal payload, so token
+   * and cost figures are structurally unavailable and reported as 0 under
+   * this driver tag.
+   */
+  traceEmitter?: LoopTraceEmitter
+  /** Physical placement stamped on the synthesized dispatch event. Default `'sibling'`. */
+  placement?: 'sibling' | 'fleet'
 }
 
 /**
@@ -195,7 +210,14 @@ export interface RunDetachedTurnOptions {
  */
 export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<DetachedTurn> {
   const intervalMs = options.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS
-  const box = await createSandboxForSpec(options.client, options.spec, options.signal)
+  const trace = createDetachedTurnTrace(options)
+  trace.started()
+  const box = await createSandboxForSpec(options.client, options.spec, options.signal).catch(
+    (err) => {
+      trace.ended(err instanceof Error ? err.message : String(err))
+      throw err
+    },
+  )
   const drive = box as Partial<DriveTurnCapableBox>
   const onAbort = () => {
     void drive._sessionCancel?.(options.sessionId).catch(() => {})
@@ -216,6 +238,7 @@ export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<
       )
     }
     options.bindSandbox(sandboxId)
+    trace.dispatched(sandboxId)
     options.signal.addEventListener('abort', onAbort, { once: true })
     for (;;) {
       throwIfAborted(options.signal)
@@ -225,17 +248,110 @@ export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<
         ...(options.wallCapMs !== undefined ? { wallCapMs: options.wallCapMs } : {}),
       })
       throwIfAborted(options.signal)
-      if (tick.state === 'completed') return { text: tick.text, result: tick.result }
+      if (tick.state === 'completed') {
+        trace.ended()
+        return { text: tick.text, result: tick.result }
+      }
       if (tick.state === 'failed') {
         throw new Error(`detached turn ${options.sessionId} failed: ${tick.error}`)
       }
       options.report({ iteration: 0, phase: detachedRunningPhase(tick.elapsedMs) })
       await sleep(intervalMs, options.signal)
     }
+  } catch (err) {
+    trace.ended(err instanceof Error ? err.message : String(err))
+    throw err
   } finally {
     options.signal.removeEventListener('abort', onAbort)
     if (options.signal.aborted) onAbort()
     await deleteBoxSafe(box)
+  }
+}
+
+/**
+ * Synthesize the single-iteration loop event stream for one detached turn so
+ * the trace sinks (OTEL exporter, delegation journal) observe detached work
+ * exactly like a streamed `runLoop` run. `runId` = the deterministic session
+ * id; cost/token figures are structurally unavailable on the `driveTurn`
+ * surface and emitted as 0 under the `'detached-turn'` driver tag.
+ */
+function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
+  started(): void
+  dispatched(sandboxId: string): void
+  ended(error?: string): void
+} {
+  const emitter = options.traceEmitter
+  if (!emitter) {
+    return { started() {}, dispatched() {}, ended() {} }
+  }
+  const runId = options.sessionId
+  const agentRunName = options.spec.name ?? options.spec.profile.name ?? 'detached-turn'
+  const startMs = Date.now()
+  let done = false
+  const emit = (event: LoopTraceEvent): void => {
+    void emitter.emit(event)
+  }
+  return {
+    started(): void {
+      emit({
+        kind: 'loop.started',
+        runId,
+        timestamp: startMs,
+        payload: {
+          driver: 'detached-turn',
+          agentRunNames: [agentRunName],
+          maxIterations: 1,
+          maxConcurrency: 1,
+        },
+      })
+      emit({
+        kind: 'loop.iteration.started',
+        runId,
+        timestamp: startMs,
+        payload: { iterationIndex: 0, agentRunName, taskHash: options.sessionId },
+      })
+    },
+    dispatched(sandboxId: string): void {
+      emit({
+        kind: 'loop.iteration.dispatch',
+        runId,
+        timestamp: Date.now(),
+        payload: {
+          iterationIndex: 0,
+          agentRunName,
+          placement: options.placement ?? 'sibling',
+          sandboxId,
+        },
+      })
+    },
+    ended(error?: string): void {
+      if (done) return
+      done = true
+      const endMs = Date.now()
+      emit({
+        kind: 'loop.iteration.ended',
+        runId,
+        timestamp: endMs,
+        payload: {
+          iterationIndex: 0,
+          agentRunName,
+          costUsd: 0,
+          durationMs: endMs - startMs,
+          ...(error !== undefined ? { error } : {}),
+        },
+      })
+      emit({
+        kind: 'loop.ended',
+        runId,
+        timestamp: endMs,
+        payload: {
+          ...(error === undefined ? { winnerIterationIndex: 0 } : {}),
+          totalCostUsd: 0,
+          durationMs: endMs - startMs,
+          iterations: 1,
+        },
+      })
+    },
   }
 }
 

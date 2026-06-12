@@ -19,6 +19,7 @@
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
 import type { AgentRunSpec, Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
+import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type DetachedTurn,
   detachedTurnEvents,
@@ -50,6 +51,13 @@ export interface DelegateRunCtx {
   detachedSessionRef?: string
   /** Rebind the record's resume key (e.g. once the sandbox id is known). */
   updateDetachedSessionRef?(ref: string): void
+  /**
+   * Per-delegation trace sink supplied by the queue — loop events emitted
+   * here land on the delegation record as a compact span tree. Delegates
+   * compose it with their configured OTEL emitter so both sinks observe
+   * the same stream.
+   */
+  traceEmitter?: LoopTraceEmitter
 }
 
 /** @experimental */
@@ -156,7 +164,8 @@ export interface CreateDefaultCoderDelegateOptions {
    * are a cheap no-op when it isn't. Configurable by construction.
    *
    * Detached single-variant turns (taken when `ctx.detachedSessionRef` is set)
-   * bypass `runLoop` and therefore emit no loop trace events for that turn.
+   * bypass `runLoop`; `runDetachedTurn` synthesizes a single-iteration loop
+   * event stream for them so this emitter observes detached work too.
    */
   traceEmitter?: LoopTraceEmitter
   /** Tick cadence (ms) for the detached single-variant path. Default 5000. */
@@ -183,6 +192,7 @@ export function createDefaultCoderDelegate(
   return async (args, ctx) => {
     const task = coderTaskFromArgs(args)
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
+    const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
       const { agentRunSpec, output, validator } = coderProfile({
@@ -206,6 +216,8 @@ export function createDefaultCoderDelegate(
           bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
           signal: ctx.signal,
           report: ctx.report,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+          ...(executor.placement === 'fleet' ? { placement: 'fleet' as const } : {}),
           ...(options.detachedTickIntervalMs !== undefined
             ? { tickIntervalMs: options.detachedTickIntervalMs }
             : {}),
@@ -230,7 +242,11 @@ export function createDefaultCoderDelegate(
         output,
         validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
+        ctx: {
+          sandboxClient,
+          signal: ctx.signal,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+        },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -258,7 +274,11 @@ export function createDefaultCoderDelegate(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
+      ctx: {
+        sandboxClient,
+        signal: ctx.signal,
+        ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+      },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })

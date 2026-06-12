@@ -194,6 +194,26 @@ export function loopEventToOtelSpan(
 }
 
 /**
+ * Sink-neutral node in a reconstructed loop span tree. The root node's
+ * `parentSpanId` is `undefined` — sinks decide how to parent it (the OTEL
+ * mapper attaches the inherited delegation span; the delegation journal
+ * leaves it as the tree root).
+ */
+export interface LoopSpanNode {
+  spanId: string
+  parentSpanId?: string
+  /** `'loop'` | `'loop.round'` | `'loop.iteration'`. */
+  name: string
+  /** Topology level: loop root, plan round, or iteration branch. */
+  kind: 'loop' | 'round' | 'branch'
+  startMs: number
+  endMs: number
+  attrs: Record<string, string | number | boolean>
+  /** True when the iteration carried an error — maps to OTEL status code 2. */
+  error: boolean
+}
+
+/**
  * Build a nested, real-duration OTLP span tree for ONE loop run from its full
  * ordered `LoopTraceEvent` stream. Unlike `loopEventToOtelSpan` (one flat,
  * zero-duration span per event), this reconstructs the topology hierarchy a
@@ -214,9 +234,37 @@ export function buildLoopOtelSpans(
   traceId: string,
   rootParentSpanId?: string,
 ): OtelSpan[] {
-  if (events.length === 0) return []
   const tid = padTraceId(traceId)
-  const out: OtelSpan[] = []
+  return buildLoopSpanNodes(events).map((node) => ({
+    traceId: tid,
+    spanId: node.spanId,
+    parentSpanId: node.parentSpanId
+      ? padSpanId(node.parentSpanId)
+      : rootParentSpanId
+        ? padSpanId(rootParentSpanId)
+        : undefined,
+    name: node.name,
+    kind: 1,
+    startTimeUnixNano: msToNs(node.startMs),
+    endTimeUnixNano: msToNs(node.endMs),
+    attributes: toAttributes(node.attrs),
+    status: { code: node.error ? 2 : 1 },
+  }))
+}
+
+/**
+ * Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the
+ * loop → round → branch span tree from one run's ordered `LoopTraceEvent`
+ * stream. Consumed by the OTEL mapper above and by the MCP delegation
+ * journal's compact trace tee — one topology reconstruction, two sinks.
+ * Tolerates partial streams (a run that never reached `loop.ended` closes
+ * at the last observed event's timestamp).
+ */
+export function buildLoopSpanNodes(
+  events: ReadonlyArray<{ kind: string; runId: string; timestamp: number; payload: object }>,
+): LoopSpanNode[] {
+  if (events.length === 0) return []
+  const out: LoopSpanNode[] = []
   const num = (v: unknown): number | undefined =>
     typeof v === 'number' && Number.isFinite(v) ? v : undefined
   const str = (v: unknown): string | undefined =>
@@ -235,20 +283,20 @@ export function buildLoopOtelSpans(
     spanId: string,
     parentSpanId: string | undefined,
     name: string,
+    kind: LoopSpanNode['kind'],
     startMs: number,
     endMs: number,
     attrs: Record<string, string | number | boolean>,
-    statusCode = 1,
-  ): OtelSpan => ({
-    traceId: tid,
+    error = false,
+  ): LoopSpanNode => ({
     spanId,
-    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    parentSpanId,
     name,
-    kind: 1,
-    startTimeUnixNano: msToNs(startMs),
-    endTimeUnixNano: msToNs(endMs),
-    attributes: toAttributes(attrs),
-    status: { code: statusCode },
+    kind,
+    startMs,
+    endMs,
+    attrs,
+    error,
   })
 
   // root
@@ -272,7 +320,7 @@ export function buildLoopOtelSpans(
     const iters = num(ep.iterations)
     if (iters !== undefined) rootAttrs['tangle.loop.iterations'] = iters
   }
-  out.push(make(rootId, rootParentSpanId, 'loop', rootStart, rootEnd, rootAttrs))
+  out.push(make(rootId, undefined, 'loop', 'loop', rootStart, rootEnd, rootAttrs))
 
   // rounds + iterations
   const iterStartTs = new Map<number, number>()
@@ -284,7 +332,15 @@ export function buildLoopOtelSpans(
   const flushRound = (endMs: number) => {
     if (!pendingRound) return
     out.push(
-      make(pendingRound.id, rootId, 'loop.round', pendingRound.start, endMs, pendingRound.attrs),
+      make(
+        pendingRound.id,
+        rootId,
+        'loop.round',
+        'round',
+        pendingRound.start,
+        endMs,
+        pendingRound.attrs,
+      ),
     )
     pendingRound = undefined
   }
@@ -370,10 +426,11 @@ export function buildLoopOtelSpans(
             generateSpanId(),
             currentRoundId ?? rootId,
             'loop.iteration',
+            'branch',
             start,
             e.timestamp,
             attrs,
-            err ? 2 : 1,
+            err !== undefined,
           ),
         )
         break

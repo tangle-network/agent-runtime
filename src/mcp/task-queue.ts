@@ -26,11 +26,19 @@
  */
 
 import { ValidationError } from '../errors'
+import type { LoopTraceEmitter } from '../runtime/types'
 import {
   DelegationPersistenceError,
   type DelegationStore,
   InMemoryDelegationStore,
 } from './delegation-store'
+import {
+  capDelegationTrace,
+  createDelegationTraceCollector,
+  type DelegationTraceSpan,
+  generateDelegationSpanId,
+} from './delegation-trace'
+import type { TraceContext } from './trace-propagation'
 import type {
   DelegateCodeArgs,
   DelegateResearchArgs,
@@ -77,6 +85,24 @@ export interface DelegationRecord {
   detachedSessionRef?: string
   /** Feedback events keyed by this delegation's taskId. */
   feedback: DelegationFeedbackSnapshot[]
+  /**
+   * Compact loop-trace span tree teed from the delegation's run, oldest
+   * spans first. Appended when a delegated loop reaches `loop.ended` and
+   * settled (partial buffers included) at the terminal transition. Capped
+   * via `capDelegationTrace` — see `traceTruncated`.
+   */
+  trace?: DelegationTraceSpan[]
+  /** Present when oldest trace spans were dropped to honor the trace caps. */
+  traceTruncated?: true
+  /**
+   * Inherited trace identity (the queue's `traceContext` at submit time —
+   * typically `readTraceContextFromEnv()`), distinct from the span payload:
+   * a journal consumer joins records into the parent trace by these ids
+   * without parsing spans. Restored records keep their persisted identity.
+   */
+  traceId?: string
+  /** Caller span that dispatched the delegation, when one was inherited. */
+  parentSpanId?: string
 }
 
 /** @experimental */
@@ -115,6 +141,16 @@ export interface DelegationRunContext {
    * ref — erasing the resume key would silently make the record unresumable.
    */
   updateDetachedSessionRef(ref: string): void
+  /**
+   * Per-delegation loop-trace sink, always provided by the queue. Events
+   * emitted here are journaled onto the record as a compact span tree
+   * (`record.trace`) when each loop run ends and at the delegation's
+   * terminal transition. Delegates forward it into their `runLoop` ctx,
+   * composed with any process-wide OTEL emitter
+   * (`composeLoopTraceEmitters`). Optional in the type so consumer-built
+   * contexts stay source-compatible.
+   */
+  traceEmitter?: LoopTraceEmitter
 }
 
 /** @experimental */
@@ -192,6 +228,14 @@ export interface DelegationTaskQueueOptions {
    * degrading durable mode to memory-only would lie to the caller.
    */
   onPersistError?: (error: DelegationPersistenceError) => void
+  /**
+   * Inherited trace identity stamped on every submitted record
+   * (`traceId` / `parentSpanId`). The bin passes
+   * `readTraceContextFromEnv()` so journal consumers can join delegation
+   * records into the caller's trace. Restored records keep the identity
+   * they were persisted with.
+   */
+  traceContext?: TraceContext
 }
 
 /** @experimental */
@@ -205,6 +249,7 @@ export class DelegationTaskQueue {
   private readonly resumeDelegate?: DelegationResumeDriver
   private readonly maxTerminalRecords: number
   private readonly onPersistError: (error: DelegationPersistenceError) => void
+  private readonly traceContext: TraceContext | undefined
   private persistTail: Promise<void> = Promise.resolve()
   private persistFailure: DelegationPersistenceError | undefined
 
@@ -221,6 +266,7 @@ export class DelegationTaskQueue {
       }
     }
     this.maxTerminalRecords = options.maxTerminalRecords ?? Number.POSITIVE_INFINITY
+    this.traceContext = options.traceContext
     this.onPersistError =
       options.onPersistError ??
       ((error) => {
@@ -276,6 +322,14 @@ export class DelegationTaskQueue {
       feedback: [],
       idempotencyKey: input.idempotencyKey,
       detachedSessionRef: input.detachedSessionRef,
+      ...(this.traceContext !== undefined
+        ? {
+            traceId: this.traceContext.traceId,
+            ...(this.traceContext.parentSpanId !== undefined
+              ? { parentSpanId: this.traceContext.parentSpanId }
+              : {}),
+          }
+        : {}),
     }
     this.records.set(taskId, record)
     this.controllers.set(taskId, controller)
@@ -295,11 +349,13 @@ export class DelegationTaskQueue {
   /**
    * Snapshot the current state of a delegation. Returns `undefined` for
    * unknown ids so callers can distinguish missing from terminal.
+   * `includeTrace` attaches the journaled loop-trace span tree — off by
+   * default so status polls stay light.
    */
-  status(taskId: string): DelegationStatusResult | undefined {
+  status(taskId: string, opts?: { includeTrace?: boolean }): DelegationStatusResult | undefined {
     const record = this.records.get(taskId)
     if (!record) return undefined
-    return toStatusResult(record)
+    return toStatusResult(record, opts)
   }
 
   /**
@@ -383,6 +439,15 @@ export class DelegationTaskQueue {
     if (!record) return
     record.status = 'running'
     this.persist(record)
+    // Journal tee: each finished loop run inside the delegation appends its
+    // compact span tree to the record immediately (a long delegation's trace
+    // is durable before the terminal transition); `settle()` below drains
+    // partial buffers from runs that never reached `loop.ended`.
+    const traceCollector = createDelegationTraceCollector((spans) => {
+      if (isTerminal(currentStatus(record))) return
+      this.appendTrace(record, spans)
+      this.persist(record)
+    })
     try {
       const output = await input.run({
         signal: controller.signal,
@@ -392,6 +457,7 @@ export class DelegationTaskQueue {
             this.persist(record)
           }
         },
+        traceEmitter: traceCollector.emitter,
         ...(record.detachedSessionRef !== undefined
           ? { detachedSessionRef: record.detachedSessionRef }
           : {}),
@@ -406,6 +472,7 @@ export class DelegationTaskQueue {
           this.persist(record)
         },
       })
+      traceCollector.settle()
       // `cancel()` may have flipped the status to `cancelled` while the
       // run promise was pending. Read the field through a widening
       // helper so the narrowed `'running'` type from the assignment
@@ -417,6 +484,7 @@ export class DelegationTaskQueue {
       this.persist(record)
       this.enforceRetention()
     } catch (err) {
+      traceCollector.settle()
       if (currentStatus(record) === 'cancelled') return
       record.status = 'failed'
       record.completedAt = this.now()
@@ -426,6 +494,13 @@ export class DelegationTaskQueue {
     } finally {
       this.controllers.delete(taskId)
     }
+  }
+
+  private appendTrace(record: DelegationRecord, spans: DelegationTraceSpan[]): void {
+    if (spans.length === 0) return
+    const { trace, truncated } = capDelegationTrace([...(record.trace ?? []), ...spans])
+    record.trace = trace
+    if (truncated) record.traceTruncated = true
   }
 
   private rehydrate(loaded: DelegationRecord[]): void {
@@ -472,6 +547,7 @@ export class DelegationTaskQueue {
     controller: AbortController,
   ): Promise<void> {
     const intervalMs = driver.intervalMs ?? 5000
+    const resumeStartMs = Date.parse(this.now())
     const ctx: DelegationResumeContext = {
       signal: controller.signal,
       report: (progress) => {
@@ -485,6 +561,7 @@ export class DelegationTaskQueue {
         const tick = await driver.tick({ record: structuredClone(record), detachedSessionRef }, ctx)
         if (currentStatus(record) === 'cancelled') return
         if (tick.state === 'completed') {
+          this.appendResumeSpan(record, detachedSessionRef, resumeStartMs)
           record.status = 'completed'
           record.completedAt = this.now()
           record.result = {
@@ -497,6 +574,7 @@ export class DelegationTaskQueue {
           return
         }
         if (tick.state === 'failed') {
+          this.appendResumeSpan(record, detachedSessionRef, resumeStartMs, tick.error.message)
           record.status = 'failed'
           record.completedAt = this.now()
           record.error = tick.error
@@ -508,6 +586,7 @@ export class DelegationTaskQueue {
       }
     } catch (err) {
       if (currentStatus(record) === 'cancelled') return
+      this.appendResumeSpan(record, detachedSessionRef, resumeStartMs, errorToShape(err).message)
       record.status = 'failed'
       record.completedAt = this.now()
       record.error = errorToShape(err)
@@ -516,6 +595,36 @@ export class DelegationTaskQueue {
     } finally {
       this.controllers.delete(record.taskId)
     }
+  }
+
+  /**
+   * Journal the resumed segment of a detached run as one compact span. The
+   * resume driver re-attaches after a process restart, so the original
+   * process's loop events are gone — this span records the post-restart
+   * observation window (re-attach → terminal tick) under the
+   * `'detached-resume'` driver tag, keeping restored delegations observable
+   * in the journal alongside trace-carrying live runs.
+   */
+  private appendResumeSpan(
+    record: DelegationRecord,
+    detachedSessionRef: string,
+    startMs: number,
+    error?: string,
+  ): void {
+    this.appendTrace(record, [
+      {
+        spanId: generateDelegationSpanId(),
+        name: 'loop',
+        kind: 'loop',
+        startMs,
+        endMs: Date.parse(this.now()),
+        meta: {
+          'tangle.loop.driver': 'detached-resume',
+          'tangle.loop.detached_session_ref': detachedSessionRef,
+          ...(error !== undefined ? { 'tangle.loop.error': error } : {}),
+        },
+      },
+    ])
   }
 
   private persist(record: DelegationRecord): void {
@@ -614,7 +723,10 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-function toStatusResult(record: DelegationRecord): DelegationStatusResult {
+function toStatusResult(
+  record: DelegationRecord,
+  opts?: { includeTrace?: boolean },
+): DelegationStatusResult {
   const out: DelegationStatusResult = {
     taskId: record.taskId,
     profile: record.profile,
@@ -626,6 +738,12 @@ function toStatusResult(record: DelegationRecord): DelegationStatusResult {
   if (record.error) out.error = record.error
   if (record.costUsd !== undefined) out.costUsd = record.costUsd
   if (record.completedAt) out.completedAt = record.completedAt
+  if (record.traceId !== undefined) out.traceId = record.traceId
+  if (record.parentSpanId !== undefined) out.parentSpanId = record.parentSpanId
+  if (opts?.includeTrace === true && record.trace && record.trace.length > 0) {
+    out.trace = record.trace.map((span) => ({ ...span }))
+    if (record.traceTruncated) out.traceTruncated = true
+  }
   return out
 }
 
@@ -636,11 +754,13 @@ function toHistoryEntry(record: DelegationRecord): DelegationHistoryEntry {
     args: record.args,
     status: record.status,
     startedAt: record.startedAt,
+    hasTrace: record.trace !== undefined && record.trace.length > 0,
   }
   if (record.namespace) entry.namespace = record.namespace
   if (record.completedAt) entry.completedAt = record.completedAt
   if (record.costUsd !== undefined) entry.costUsd = record.costUsd
   if (record.feedback.length > 0) entry.feedback = [...record.feedback]
+  if (record.traceId !== undefined) entry.traceId = record.traceId
   return entry
 }
 

@@ -29,6 +29,10 @@ export const DELEGATION_STATUS_DESCRIPTION = [
   'patch, test/typecheck results, and diff stats. For a completed research',
   'task, `result.output` is the items + citations + proposedWrites bundle.',
   '',
+  'Pass includeTrace: true to also receive the journaled loop-trace span',
+  'tree (loop → round → iteration, with placement/cost/verdict metadata).',
+  'Default false — keep routine polls light.',
+  '',
   'Throws NotFoundError when taskId is unknown — never silently returns',
   '`pending` for a typo.',
 ].join('\n')
@@ -38,6 +42,11 @@ export const DELEGATION_STATUS_INPUT_SCHEMA = {
   type: 'object',
   properties: {
     taskId: { type: 'string', description: 'Returned by delegate_code / delegate_research.' },
+    includeTrace: {
+      type: 'boolean',
+      description:
+        'Also return the journaled loop-trace span tree for this delegation. Default false.',
+    },
   },
   required: ['taskId'],
   additionalProperties: false,
@@ -53,7 +62,14 @@ export function validateDelegationStatusArgs(raw: unknown): DelegationStatusArgs
   if (typeof taskId !== 'string' || taskId.trim().length === 0) {
     throw new TypeError('delegation_status: `taskId` must be a non-empty string')
   }
-  return { taskId: taskId.trim() }
+  const out: DelegationStatusArgs = { taskId: taskId.trim() }
+  if (value.includeTrace !== undefined) {
+    if (typeof value.includeTrace !== 'boolean') {
+      throw new TypeError('delegation_status: `includeTrace` must be a boolean')
+    }
+    out.includeTrace = value.includeTrace
+  }
+  return out
 }
 
 /** @experimental */
@@ -67,7 +83,10 @@ export function createDelegationStatusHandler(
 ): (raw: unknown) => Promise<DelegationStatusResult> {
   return async (raw) => {
     const args = validateDelegationStatusArgs(raw)
-    const status = options.queue.status(args.taskId)
+    const status = options.queue.status(
+      args.taskId,
+      args.includeTrace !== undefined ? { includeTrace: args.includeTrace } : undefined,
+    )
     if (!status) {
       throw new NotFoundError(`delegation_status: unknown taskId "${args.taskId}"`)
     }
