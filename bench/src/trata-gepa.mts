@@ -241,56 +241,43 @@ async function main(): Promise<void> {
     }>
     history: unknown[]
   }): Promise<DiagnosedFinding[]> => {
-    interface FailureItem {
-      question: string
-      themesMissed: string[]
-      themesHit: string[]
-      answer: string
-      note: string
-    }
+    interface FailureItem { themesMissed: string[]; themesHit: string[]; answer: string }
     const failures = new Map<string, FailureItem>()
+    let totalCells = 0; let skippedError = 0; let skippedResolved = 0
     for (const cand of input.candidates) {
       for (const cell of cand.campaign.cells) {
+        totalCells++
+        if (cell.error) { skippedError++; continue }
         const js = cell.judgeScores?.[judge.name]
-        if ((js?.composite ?? 0) >= 1) continue
+        if (!js) continue
+        if (js.composite >= 1) { skippedResolved++; continue }
         if (failures.has(cell.scenarioId)) continue
-        const task = taskById.get(cell.scenarioId)
-        if (!task) continue
         let themesMissed: string[] = []
         let themesHit: string[] = []
         try {
-          const d = JSON.parse(js?.notes ?? '{}') as {
-            themesMissed?: string[]
-            themesHit?: string[]
-          }
+          const d = JSON.parse(js.notes ?? '{}') as { themesMissed?: string[]; themesHit?: string[] }
           themesMissed = d.themesMissed ?? []
           themesHit = d.themesHit ?? []
-        } catch {
-          // no structured detail available
-        }
+        } catch { /* no structured detail */ }
         failures.set(cell.scenarioId, {
-          question: task.prompt.slice(0, 800),
           themesMissed,
           themesHit,
-          answer: (typeof cell.artifact === 'string' ? cell.artifact : '').slice(-1200),
-          note: (js?.notes ?? '').slice(0, 200),
+          answer: (typeof cell.artifact === 'string' ? cell.artifact : '').slice(-1500),
         })
       }
     }
+    console.log(`[trata-gepa] gen ${input.generation}: cells=${totalCells} err=${skippedError} resolved=${skippedResolved} failures=${failures.size}`)
     const items = [...failures.values()].slice(0, 8)
-    if (items.length === 0) {
-      console.log(`[trata-gepa] gen ${input.generation}: 0 failures to diagnose`)
-      return []
-    }
+    if (items.length === 0) return []
     const user = items
       .map(
         (f, i) =>
-          `### Failure ${i + 1}\nTASK (excerpt): ${f.question}\n` +
-          (f.themesMissed.length > 0 ? `MISSED THEMES: ${f.themesMissed.join(', ')}\n` : '') +
-          (f.themesHit.length > 0 ? `HIT THEMES: ${f.themesHit.join(', ')}\n` : '') +
-          `AGENT ANSWER (tail): ${f.answer}`,
+          `### Failure ${i + 1}\n` +
+          (f.themesMissed.length > 0 ? `THEMES MISSED: ${f.themesMissed.join(' | ')}\n` : '') +
+          (f.themesHit.length > 0 ? `THEMES HIT: ${f.themesHit.join(' | ')}\n` : '') +
+          `AGENT ANSWER (tail):\n${f.answer}`,
       )
-      .join('\n\n')
+      .join('\n\n---\n\n')
     const system =
       'You are a failure analyst for a financial analyst agent. The agent produces investment memos ' +
       'scored by a rubric with 4-6 analytical themes, each requiring specific quantitative claims. ' +
