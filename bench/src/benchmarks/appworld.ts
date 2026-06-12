@@ -166,3 +166,162 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
     },
   }
 }
+
+/**
+ * AppWorld in its NATIVE protocol: the worker is the driver's interactive ReAct
+ * episode (`react` subcommand) — write a python block, the engine executes it in
+ * the persistent world, the output feeds back, iterate until done or the turn
+ * backstop. The one-shot codegen adapter above plays a strictly harder game
+ * (no execution feedback — the first wrong API call kills the whole program at
+ * judge time), which flatlines the score against ANY steering; this adapter is
+ * the mode the benchmark's published baselines use, where behavior can actually
+ * move sub-tests.
+ *
+ * Protocol: the round task string is `@appworld-react <taskId> <split>` on line 1;
+ * everything after line 1 is the steer (an analyst correction, a push directive)
+ * and rides into the episode as the `directive` — so the existing arms steer this
+ * worker without modification. The artifact is the episode's own evaluation JSON
+ * (AppWorld's evaluator ran in-world); judge() parses it and never re-executes.
+ */
+
+interface ReactResult {
+  success?: boolean
+  passes?: number
+  fails?: number
+  num_tests?: number
+  failure_names?: string[]
+  turns?: number
+  input_tokens?: number
+  output_tokens?: number
+  transcript?: string
+}
+
+const REACT_HEADER = /^@appworld-react (\S+) (\S+)\n?/
+
+/** SandboxClient whose leaf is one full ReAct episode in the AppWorld engine. */
+export function appworldReactClient(cfg: {
+  model: string
+  routerBaseUrl: string
+  routerKey: string
+  maxTurns?: number
+}): unknown {
+  const maxTurns = cfg.maxTurns ?? Number(process.env.REACT_MAX_TURNS ?? 40)
+  let seq = 0
+  return {
+    async create() {
+      const id = `appworld-react-${seq++}`
+      return {
+        id,
+        async *streamPrompt(prompt: string) {
+          const m = prompt.match(REACT_HEADER)
+          if (!m) {
+            throw new Error(
+              `appworld-react leaf: prompt missing '@appworld-react <taskId> <split>' header — got: ${prompt.slice(0, 120)}`,
+            )
+          }
+          const [, taskId, split] = m
+          const directive = prompt.replace(REACT_HEADER, '').trim()
+          // Direct runner call (not the shared driver()) so the episode carries a
+          // wall-clock backstop — a hung in-engine turn must not hang the cell.
+          const stdout = await runVenvScriptStdin(
+            DRIVER,
+            ['react', '--task-id', taskId as string, '--split', split as string],
+            JSON.stringify({
+              directive,
+              model: cfg.model,
+              max_turns: maxTurns,
+              router_base: cfg.routerBaseUrl,
+              router_key: cfg.routerKey,
+            }),
+            { cwd: benchRoot, timeoutMs: 1_200_000 },
+          )
+          const lastLine = stdout.trim().split('\n').at(-1) ?? '{}'
+          const out = JSON.parse(lastLine) as ReactResult & { error?: string }
+          if (out.error) throw new Error(`appworld react episode error: ${out.error}`)
+          // Real usage from the episode — flat llm_call so the kernel meters it.
+          if (out.input_tokens || out.output_tokens) {
+            yield {
+              type: 'llm_call',
+              data: { tokensIn: out.input_tokens ?? 0, tokensOut: out.output_tokens ?? 0, model: cfg.model },
+            }
+          }
+          yield { type: 'result', data: { finalText: JSON.stringify(out) } }
+        },
+        async delete() {},
+      }
+    },
+  }
+}
+
+/** Artifact = the episode's evaluation JSON, verbatim (no fence extraction). */
+const reactEpisodeOutput: OutputAdapter<string> = {
+  parse(events) {
+    let text = ''
+    for (const ev of events) {
+      const d = (ev as { data?: Record<string, unknown> })?.data
+      const t = d?.finalText
+      if (typeof t === 'string' && t.length > 0) text = t
+    }
+    return text
+  },
+}
+
+export function createAppWorldReactAdapter(): BenchmarkAdapter {
+  const base = createAppWorldAdapter()
+  return {
+    name: 'appworld-react',
+    output: reactEpisodeOutput,
+    preflight: () => base.preflight(),
+
+    async loadTasks(opts: LoadOptions = {}): Promise<BenchTask[]> {
+      const tasks = await base.loadTasks(opts)
+      return tasks.map((t) => {
+        const meta = readMeta(t)
+        return {
+          ...t,
+          // Header carries task identity to the leaf; the body (empty at round 0)
+          // is the directive slot the arms append their steer into.
+          prompt: `@appworld-react ${meta.taskId} ${meta.split}\n`,
+        }
+      })
+    },
+
+    goldArtifact: () => Promise.resolve(undefined),
+
+    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+      const meta = readMeta(task)
+      let out: ReactResult
+      try {
+        out = JSON.parse(artifact) as ReactResult
+      } catch {
+        throw new Error(
+          `appworld-react judge: artifact is not the episode's evaluation JSON (task ${meta.taskId}): ${artifact.slice(0, 200)}`,
+        )
+      }
+      if (typeof out.success !== 'boolean' || typeof out.num_tests !== 'number') {
+        throw new Error(
+          `appworld-react judge: episode JSON missing success/num_tests (task ${meta.taskId}): ${artifact.slice(0, 200)}`,
+        )
+      }
+      const passes = out.passes ?? 0
+      const total = out.num_tests
+      const failures = Array.isArray(out.failure_names) ? out.failure_names : []
+      return {
+        resolved: out.success === true,
+        score: total > 0 ? passes / total : 0,
+        detail: JSON.stringify({
+          taskId: meta.taskId,
+          success: out.success,
+          passes,
+          fails: out.fails ?? 0,
+          total,
+          turns: out.turns,
+          ...(failures.length ? { failures } : {}),
+          ...(out.transcript ? { transcriptTail: out.transcript.slice(-800) } : {}),
+        }),
+      }
+    },
+
+    leafClient: (c) => appworldReactClient(c),
+  }
+}

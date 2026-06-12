@@ -165,6 +165,10 @@ def cmd_react(args) -> None:
                 "passes": n_pass,
                 "fails": n_fail,
                 "num_tests": int(evaluation["num_tests"]),
+                # Failed sub-test names — the evidence a trace analyst steers on.
+                "failure_names": [str(f)[:160] for f in failures][:8]
+                if isinstance(failures, list)
+                else [],
                 "turns": turns,
                 "input_tokens": in_tok,
                 "output_tokens": out_tok,
