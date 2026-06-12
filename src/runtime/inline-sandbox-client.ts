@@ -55,15 +55,27 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
           try {
             const artifact = await settle(exec, message, controller.signal)
             const out = artifact.out as { content?: string } | undefined
+            // Speak the runtime's metering protocol: `extractLlmCallEvent` reads
+            // flat `llm_call` events, not the nested result payload — without
+            // this the kernel meters the iteration as a fabricated $0 / 0 tokens.
+            const tokensIn = artifact.spent.tokens.input
+            const tokensOut = artifact.spent.tokens.output
+            const costUsd = artifact.spent.usd
+            if (tokensIn || tokensOut || costUsd) {
+              yield {
+                type: 'llm_call',
+                data: { tokensIn, tokensOut, costUsd },
+              } as unknown as SandboxEvent
+            }
             yield {
               type: 'result',
               data: {
                 finalText: out?.content ?? '',
                 tokenUsage: {
-                  inputTokens: artifact.spent.tokens.input,
-                  outputTokens: artifact.spent.tokens.output,
+                  inputTokens: tokensIn,
+                  outputTokens: tokensOut,
                 },
-                costUsd: artifact.spent.usd,
+                costUsd,
               },
             } as unknown as SandboxEvent
           } finally {

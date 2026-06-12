@@ -21,6 +21,7 @@ import { createProgrambenchAdapter } from './benchmarks/programbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
+import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
 import type { BenchmarkAdapter } from './benchmarks/types'
 
 export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -45,6 +46,7 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   // run (--network=none). The steering A/B counterpart to humaneval-gate.mts (selection).
   humaneval: createHumanEvalAdapter,
   mind2web: createMind2WebAdapter,
+  'trata-hedge': createTrataHedgeAdapter,
 }
 
 /** Resolve a benchmark key to its adapter, failing loud with the known keys. */

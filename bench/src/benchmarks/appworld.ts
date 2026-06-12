@@ -139,6 +139,7 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
         passes?: number
         fails?: number
         num_tests?: number
+        failure_names?: string[]
       }
       const passes = out.passes ?? 0
       const fails = out.fails ?? 0
@@ -147,10 +148,20 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
       // failed). Never default the total to a phantom denominator.
       const total = out.num_tests ?? passes + fails
       const score = total > 0 ? passes / total : 0
+      // failure_names = WHICH sub-tests failed — the evidence a trace analyst
+      // steers on. Carried in `detail` so it reaches the verdict's `notes`.
+      const failures = Array.isArray(out.failure_names) ? out.failure_names : []
       return {
         resolved: out.success === true,
         score,
-        detail: JSON.stringify({ taskId: meta.taskId, success: out.success, passes, fails, total }),
+        detail: JSON.stringify({
+          taskId: meta.taskId,
+          success: out.success,
+          passes,
+          fails,
+          total,
+          ...(failures.length ? { failures } : {}),
+        }),
       }
     },
   }

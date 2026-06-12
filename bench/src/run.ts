@@ -113,8 +113,9 @@ async function runExperimentPreset(
   const routerKey = must('TANGLE_API_KEY')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const backendType = (process.env.BACKEND as WorkerBackendType | undefined) ?? 'opencode'
+  const provider = process.env.WORKER_PROVIDER
   const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: routerKey, timeoutMs: 1_200_000 } as never)
-  const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType })
+  const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType, ...(provider ? { provider } : {}) })
   // ANALYST=llm|loop appends a targeted-steer arm (the LLM(trace) / agentic rung): llm =
   // one model call over the trace, loop = a whole sub-loop investigates. The honest
   // experiment vs the fixed-directive refine arm — refine@k vs analyst@k vs random@k.

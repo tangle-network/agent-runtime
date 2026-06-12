@@ -90,7 +90,8 @@ async function main() {
   console.log(`  blind (1 attempt): ${pct(r.blind)}`)
   for (const a of r.arms) {
     const tag = a.label === r.arms[0]?.label ? '  <- compute control' : `  delta vs control ${((a.deltaVsControl / Math.max(r.n, 1)) * 100).toFixed(1)}pp`
-    console.log(`  ${a.label}@${rounds}: ${pct(a.resolved)}${tag}`)
+    const steer = a.steer ? `  [steer fired ${a.steer.fired}/${a.steer.opportunities}]` : ''
+    console.log(`  ${a.label}@${rounds}: ${pct(a.resolved)}${tag}${steer}`)
   }
   console.log(`corpus: ${corpus}  ->  paired CI + BH via: tsx src/corpus-report.mts ${corpus}`)
 }

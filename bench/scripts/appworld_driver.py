@@ -244,6 +244,11 @@ def cmd_evaluate(args) -> None:
                 "passes": n_pass,
                 "fails": n_fail,
                 "num_tests": int(evaluation["num_tests"]),
+                # The failed sub-test names are the diagnosable evidence a trace
+                # analyst steers on — bounded so the JSON line stays small.
+                "failure_names": [str(f)[:160] for f in failures][:8]
+                if isinstance(failures, list)
+                else [],
             }
         )
     )
