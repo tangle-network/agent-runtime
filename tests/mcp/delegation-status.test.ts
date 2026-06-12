@@ -22,6 +22,17 @@ describe('validateDelegationStatusArgs', () => {
     expect(() => validateDelegationStatusArgs({})).toThrow(TypeError)
     expect(() => validateDelegationStatusArgs({ taskId: '   ' })).toThrow(TypeError)
   })
+
+  it('accepts a boolean includeTrace and rejects non-booleans', () => {
+    expect(validateDelegationStatusArgs({ taskId: 't' })).toEqual({ taskId: 't' })
+    expect(validateDelegationStatusArgs({ taskId: 't', includeTrace: true })).toEqual({
+      taskId: 't',
+      includeTrace: true,
+    })
+    expect(() => validateDelegationStatusArgs({ taskId: 't', includeTrace: 'yes' })).toThrow(
+      TypeError,
+    )
+  })
 })
 
 describe('createDelegationStatusHandler', () => {

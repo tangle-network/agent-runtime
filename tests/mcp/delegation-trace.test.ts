@@ -245,14 +245,9 @@ describe('DelegationTaskQueue trace tee', () => {
     })
     await new Promise((r) => setImmediate(r))
     await queue.flush()
-    const status = queue.status(taskId)!
+    const status = queue.status(taskId, { includeTrace: true })!
     expect(status.status).toBe('failed')
-    // the partial tree still landed on the record (status surface arrives in
-    // the includeTrace change; assert through history's underlying record here)
-    const queueRecords = queue as unknown as {
-      records: Map<string, { trace?: DelegationTraceSpan[] }>
-    }
-    expect(queueRecords.records.get(taskId)?.trace?.length).toBeGreaterThan(0)
+    expect(status.trace?.length).toBeGreaterThan(0)
   })
 
   it('round-trips the trace through FileDelegationStore JSON persistence', async () => {
@@ -275,13 +270,41 @@ describe('DelegationTaskQueue trace tee', () => {
     const second = await DelegationTaskQueue.restore({
       store: new FileDelegationStore({ filePath }),
     })
-    const restored = second as unknown as {
-      records: Map<string, { trace?: DelegationTraceSpan[]; status: string }>
-    }
-    const record = restored.records.get(taskId)!
-    expect(record.status).toBe('completed')
-    expect(record.trace?.map((s) => s.kind).sort()).toEqual(['branch', 'loop', 'round'])
-    const branch = record.trace!.find((s) => s.kind === 'branch')!
+    const status = second.status(taskId, { includeTrace: true })!
+    expect(status.status).toBe('completed')
+    expect(status.trace?.map((s) => s.kind).sort()).toEqual(['branch', 'loop', 'round'])
+    const branch = status.trace!.find((s) => s.kind === 'branch')!
     expect(branch.meta?.['tangle.sandbox.id']).toBe('sbx-1')
+  })
+
+  it('status omits the trace unless includeTrace is passed; history reports hasTrace only', async () => {
+    const queue = new DelegationTaskQueue()
+    const { taskId: traced } = queue.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: codeArgs,
+      run: async (ctx) => {
+        for (const event of loopEvents()) await ctx.traceEmitter?.emit(event)
+        return coderOutput()
+      },
+    })
+    const { taskId: untraced } = queue.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: { ...codeArgs, goal: 'other goal' },
+      run: async () => coderOutput(),
+    })
+    await new Promise((r) => setImmediate(r))
+    await queue.flush()
+
+    expect(queue.status(traced)!.trace).toBeUndefined()
+    expect(queue.status(traced, { includeTrace: false })!.trace).toBeUndefined()
+    expect(queue.status(traced, { includeTrace: true })!.trace?.length).toBe(3)
+    expect(queue.status(untraced, { includeTrace: true })!.trace).toBeUndefined()
+
+    const entries = queue.history()
+    const tracedEntry = entries.find((e) => e.taskId === traced)!
+    const untracedEntry = entries.find((e) => e.taskId === untraced)!
+    expect(tracedEntry.hasTrace).toBe(true)
+    expect(untracedEntry.hasTrace).toBe(false)
+    expect('trace' in tracedEntry).toBe(false)
   })
 })

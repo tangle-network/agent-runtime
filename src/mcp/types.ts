@@ -14,6 +14,7 @@
 
 import type { CoderOutput, CoderTask } from '../profiles/coder'
 import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
+import type { DelegationTraceSpan } from './delegation-trace'
 
 /** @experimental */
 export type DelegationProfile = 'coder' | 'researcher' | 'ui-auditor'
@@ -123,6 +124,13 @@ export interface DelegateFeedbackResult {
 /** @experimental */
 export interface DelegationStatusArgs {
   taskId: string
+  /**
+   * Return the delegation's compact loop-trace span tree alongside the
+   * status. Default false — status polls stay light; opt in when you need
+   * the topology (which iterations ran, where they were placed, what each
+   * cost) rather than just the state machine.
+   */
+  includeTrace?: boolean
 }
 
 /** @experimental */
@@ -242,6 +250,10 @@ export interface DelegationStatusResult {
   costUsd?: number
   startedAt: string
   completedAt?: string
+  /** Compact loop-trace span tree; present only when `includeTrace: true` was passed and spans were recorded. */
+  trace?: DelegationTraceSpan[]
+  /** Present when oldest trace spans were dropped to honor the trace caps. */
+  traceTruncated?: true
 }
 
 /** @experimental */
@@ -275,6 +287,12 @@ export interface DelegationHistoryEntry {
   costUsd?: number
   startedAt: string
   completedAt?: string
+  /**
+   * True when the record carries a journaled loop trace. History stays
+   * light by design — fetch the spans via
+   * `delegation_status { taskId, includeTrace: true }`.
+   */
+  hasTrace: boolean
 }
 
 /** @experimental */

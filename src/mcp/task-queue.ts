@@ -320,11 +320,16 @@ export class DelegationTaskQueue {
   /**
    * Snapshot the current state of a delegation. Returns `undefined` for
    * unknown ids so callers can distinguish missing from terminal.
+   * `includeTrace` attaches the journaled loop-trace span tree — off by
+   * default so status polls stay light.
    */
-  status(taskId: string): DelegationStatusResult | undefined {
+  status(
+    taskId: string,
+    opts?: { includeTrace?: boolean },
+  ): DelegationStatusResult | undefined {
     const record = this.records.get(taskId)
     if (!record) return undefined
-    return toStatusResult(record)
+    return toStatusResult(record, opts)
   }
 
   /**
@@ -658,7 +663,10 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-function toStatusResult(record: DelegationRecord): DelegationStatusResult {
+function toStatusResult(
+  record: DelegationRecord,
+  opts?: { includeTrace?: boolean },
+): DelegationStatusResult {
   const out: DelegationStatusResult = {
     taskId: record.taskId,
     profile: record.profile,
@@ -670,6 +678,10 @@ function toStatusResult(record: DelegationRecord): DelegationStatusResult {
   if (record.error) out.error = record.error
   if (record.costUsd !== undefined) out.costUsd = record.costUsd
   if (record.completedAt) out.completedAt = record.completedAt
+  if (opts?.includeTrace === true && record.trace && record.trace.length > 0) {
+    out.trace = record.trace.map((span) => ({ ...span }))
+    if (record.traceTruncated) out.traceTruncated = true
+  }
   return out
 }
 
@@ -680,6 +692,7 @@ function toHistoryEntry(record: DelegationRecord): DelegationHistoryEntry {
     args: record.args,
     status: record.status,
     startedAt: record.startedAt,
+    hasTrace: record.trace !== undefined && record.trace.length > 0,
   }
   if (record.namespace) entry.namespace = record.namespace
   if (record.completedAt) entry.completedAt = record.completedAt
