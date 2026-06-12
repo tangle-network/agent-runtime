@@ -72,7 +72,9 @@ export interface Arm {
  *  history passes straight in. The events are the trace an analyst reads. */
 export type SteerHistory = ReadonlyArray<{
   output?: string
-  verdict?: { valid?: boolean; score?: number }
+  /** `notes` carries the judge's failure detail (e.g. which sub-tests failed) —
+   *  the evidence an analyst steers on, not just the scalar verdict. */
+  verdict?: { valid?: boolean; score?: number; notes?: string }
   events?: readonly unknown[]
 }>
 
@@ -142,13 +144,23 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
       .map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
       .join('\n')
       .slice(-2000)
+    // The judge's verdict + failure detail is the analyst's ground truth for
+    // WHAT failed; the output/trace is where it finds WHY. Without this line the
+    // analyst sees plausible-looking output and punts with "no change needed".
+    const v = last?.verdict
+    const verdictLine = v
+      ? `Judge verdict: ${v.valid ? 'PASSED' : 'FAILED'} (score ${v.score ?? 0})${v.notes ? `\nJudge failure detail: ${String(v.notes).slice(0, 1200)}` : ''}`
+      : 'Judge verdict: (none recorded)'
     const { content } = await routerChatWithUsage(cfg, [
       {
         role: 'system',
         content:
-          "You review an AI agent's previous attempt at a task. Name the SPECIFIC error (a wrong value, a missing step, a misread requirement) and state the concrete correction in 1-3 sentences. If the attempt looks correct, reply exactly: no change needed.",
+          "You review an AI agent's previous attempt at a task. The judge's verdict and failure detail are ground truth for WHAT failed; read the attempt to determine WHY. Name the SPECIFIC cause (a wrong value, a guessed API signature, a missing step, a misread requirement) and state the concrete correction in 1-3 sentences. Reply exactly 'no change needed' ONLY if the judge verdict passed.",
       },
-      { role: 'user', content: `Previous answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}` },
+      {
+        role: 'user',
+        content: `${verdictLine}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
+      },
     ])
     return content
   }
@@ -258,6 +270,10 @@ export interface ArmAggregate {
   resolved: number
   /** Δ vs the control arm (`arms[0]`), in instances. */
   deltaVsControl: number
+  /** Treatment arms only: steers fired / multi-round instances where the steer
+   *  was consulted. fired=0 with opportunities>0 means the arm ran as a second
+   *  blind control — the vacuity guard aborts before that wastes a full run. */
+  steer?: { fired: number; opportunities: number }
 }
 
 export interface ExperimentResult {
@@ -272,6 +288,11 @@ interface ArmOutcome {
   resolved: boolean
   blind: boolean
   infraError: boolean
+  /** The loop ran past round 0, so the arm's steer was actually consulted. */
+  multiRound: boolean
+  /** Some round>0 task differed from the root prompt — the steer FIRED. A
+   *  treatment arm with opportunities but zero fires is a vacuous experiment. */
+  steered: boolean
 }
 
 /**
@@ -298,9 +319,11 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
   ): Promise<ArmOutcome> => {
     const validator: Validator<string> = {
       async validate(answer) {
-        if (!answer.trim()) return { valid: false, score: 0 }
+        if (!answer.trim()) return { valid: false, score: 0, notes: 'empty answer — never judged' }
         const v = await cfg.adapter.judge(task, answer)
-        return { valid: v.resolved === true, score: v.score }
+        // `notes` carries the benchmark judge's failure detail into the iteration
+        // history so an analyst steer sees WHAT failed, not just the scalar.
+        return { valid: v.resolved === true, score: v.score, ...(v.detail ? { notes: v.detail } : {}) }
       },
     }
     const runtime = createRuntimeHookRecorder()
@@ -355,7 +378,14 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
         ),
       )
     }
-    return { resolved, blind: iter0?.verdict?.valid === true, infraError }
+    const laterIterations = result.iterations.filter((it) => it.index > 0)
+    return {
+      resolved,
+      blind: iter0?.verdict?.valid === true,
+      infraError,
+      multiRound: laterIterations.length > 0,
+      steered: laterIterations.some((it) => it.task !== task.prompt),
+    }
   }
 
   const runArmRetried = async (
@@ -372,6 +402,21 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
   const counts = cfg.arms.map((a) => ({ label: a.label, resolved: 0 }))
   const agg = { n: 0, errored: 0, blind: 0 }
   let done = 0
+  // Vacuity guard: a treatment arm whose steer is consulted but NEVER fires is
+  // running as a second compute control — the experiment is silently vacuous
+  // and every dollar after detection is wasted. Fail loud at the earliest
+  // statistically-meaningful point instead of discovering it in the report.
+  const VACUITY_PROBE = 5
+  const steerStats = new Map(treatments.map((t) => [t.label, { opportunities: 0, fired: 0 }]))
+  const assertNotVacuous = (): void => {
+    for (const [label, s] of steerStats) {
+      if (s.opportunities >= VACUITY_PROBE && s.fired === 0)
+        throw new Error(
+          `experiment vacuous: treatment arm '${label}' was consulted in ${s.opportunities} multi-round instances and fired 0 steers — ` +
+            'it is running as a blind control. Fix the steer (or the evidence it reads) before spending the rest of the budget.',
+        )
+    }
+  }
 
   await runPool(tasks, conc, async (task) => {
     try {
@@ -396,6 +441,14 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
       outcomes.forEach((o, i) => {
         if (o.resolved && counts[i]) counts[i].resolved += 1
       })
+      treats.forEach((t, i) => {
+        const o = treats[i]?.result as ArmOutcome
+        const s = steerStats.get(t.label)
+        if (s && o?.multiRound) {
+          s.opportunities += 1
+          if (o.steered) s.fired += 1
+        }
+      })
       console.log(
         `  [${done}/${tasks.length}] ${task.id}: ${cfg.arms.map((a, i) => `${a.label}=${outcomes[i]?.resolved ? '✓' : '·'}`).join(' ')}`,
       )
@@ -404,6 +457,9 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
       agg.errored += 1
       console.log(`  [${done}/${tasks.length}] ${task.id}: ERR ${(err instanceof Error ? err.message : String(err)).slice(0, 70)} (excluded)`)
     }
+    // Outside the catch: a vacuity verdict must abort the run, not be logged
+    // as one more excluded instance.
+    assertNotVacuous()
   })
 
   const controlResolved = counts[0]?.resolved ?? 0
@@ -412,6 +468,11 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
     n: agg.n,
     errored: agg.errored,
     blind: agg.blind,
-    arms: counts.map((c) => ({ label: c.label, resolved: c.resolved, deltaVsControl: c.resolved - controlResolved })),
+    arms: counts.map((c) => ({
+      label: c.label,
+      resolved: c.resolved,
+      deltaVsControl: c.resolved - controlResolved,
+      ...(steerStats.has(c.label) ? { steer: steerStats.get(c.label) } : {}),
+    })),
   }
 }
