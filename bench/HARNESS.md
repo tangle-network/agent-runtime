@@ -64,10 +64,10 @@ number below is single-objective + within-run — read them as Gate-A diagnostic
 
 ## The run archive (where results LIVE)
 
-Every run's full artifact is committed under `bench/runs/<date>/` — self-describing JSON
+Every run's full artifact is committed under `agent-lab/runs/<date>/` — self-describing JSON
 (models + config + per-task cells + gate verdicts with CIs), portable to any repo without
-this codebase. `bench/runs/RUNS.md` is the index mapping artifacts → verdicts → the
-findings gist. **Set `OUT=bench/runs/<date>/<name>.json` on every run — never `/tmp`**
+this codebase. `agent-lab/runs/RUNS.md` is the index mapping artifacts → verdicts → the
+findings gist. **Set `OUT=runs/<date>/<name>.json` (in agent-lab) on every run — never `/tmp`**
 (a reboot erases ramdisk; ~20 runs nearly died there once).
 
 ## Data flow (the whole experiment in one line)
@@ -96,18 +96,8 @@ self-describing (models + config).
 
 | entry point | what it answers | one-liner |
 |---|---|---|
-| `src/flywheel-run.mts` | **THE CLEAN RUN** — does the system improve ITSELF (gen0 → author-from-losses → gen1 → disjoint ROTATING holdout via `HOLDOUT_OFFSET`)? | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 tsx src/flywheel-run.mts` |
-| `src/flywheel-evolve.mts` | **THE EVOLUTION RUN** — G generations × POP authored candidates (`runStrategyEvolution`): cost-aware champion, gzip-bits per artifact, fresh-slice promotion gate | `EOPS_GYM_DBS_DIR=… N=12 HOLDOUT=8 GENS=2 POP=2 tsx src/flywheel-evolve.mts` |
-| `src/strategy-author.mts` | agent-authored strategies (R0→R2 ladder) on a cheap env | `tsx src/strategy-author.mts` |
-| `src/agentic-run.mts` | depth-vs-breadth on EOPS through the canonical Supervisor (+16.4pp result) | `EOPS_GYM_DBS_DIR=… TASKS=16 tsx src/agentic-run.mts` |
-| `src/eops-gepa.mts` | GEPA over the analyst prompt + frozen holdout (verdict: prompt coordinate FLAT) | `N=12 HOLDOUT=6 GENS=2 tsx src/eops-gepa.mts` |
-| `src/eops-corpus-ab.mts` | the across-run flywheel A/B (naive priming = **−11.6pp NEGATIVE**; `PRIME_MODE=relevance` = the unrun surviving design) | `N=16 HOLDOUT=4 PRIME_MODE=relevance tsx src/eops-corpus-ab.mts` |
+| **the research lines** | the flywheel/evolution runs, σ×κ factor grid, steering hypercube, model matrix, E3 certified memory, depth-vs-breadth, corpus A/Bs — **moved to [tangle-network/agent-lab](https://github.com/tangle-network/agent-lab) (private)** with the EOPS/math domains and the run archive | `~/code/agent-lab` — map in its README |
 | `src/commit0-env-run.mts` | the HARD domain (implement whole libraries vs their test suites) through `runBenchmark` | `IDS=commit-0/wcwidth BUDGET=3 INNER_TURNS=10 tsx src/commit0-env-run.mts` |
-| `src/prompt-compression-gate.mts` | **THE COMPRESSION GATE** — does prompt compression preserve quality while cutting real cost? (nth-char/word-drop baselines vs LLM compression, each gated non-inferiority vs the original) | `N=12 BUDGET=2 tsx src/prompt-compression-gate.mts` |
-| `src/ablation-grid.mts` | **THE FACTOR GRID** — σ steering × α evolve × γ prompt-artifact × κ compression as named cells on identical tasks, each gated vs `base` (κ cells non-inferiority); machinery bill + break-even printed | `ENV=aime\|math\|eops CELLS=base,steer,compress,steer+compress N=20 HOLDOUT=16 tsx src/ablation-grid.mts` |
-| `src/steering-modes.mts` | **THE STEERING HYPERCUBE** — sample / refine / structural (deterministic floor) / contrastive / belief arms, paired vs refine, with waterfalls + anytime tables | `N=16 OFFSET=40 BUDGET=3 tsx src/steering-modes.mts` |
-| `run-model-matrix.sh` | **THE MODEL MATRIX** — the 4-cell grid per worker model (deepseek ×2, kimi, glm, gpt-5.4-mini/5.5, haiku, sonnet), sequential, one artifact per model | `bash run-model-matrix.sh` |
-| `src/e3-memory-ab.mts` | **E3 — CERTIFIED MEMORY** (the OG flywheel read-side): cold vs prose vs certified-program retrieval, gate-only admission, the growing-slope signature (docs/research/e3-certified-memory.md) | `EOPS_GYM_DBS_DIR=… N=16 HOLDOUT=4 tsx src/e3-memory-ab.mts` |
 | `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
@@ -118,7 +108,7 @@ gym_dbs.zip from github.com/ServiceNow/EnterpriseOps-Gym>`; restart it FRESH per
 not yet sourced). **Parallel lanes:** tasks carry the dataset's literal gym URL
 (`http://localhost:8006`); `EOPS_GYM_URL=http://localhost:8007` rebases every server URL,
 so N concurrent runs use N containers (`-p 8007:8005`, `-p 8008:8005`, …) instead of
-serializing on one wedge-prone gym. Bring-up check: `src/lane-probe.mts`. Cross-cutting laws baked into the suite: keep-best checkpoint scoring
+serializing on one wedge-prone gym. Bring-up check: `agent-lab/domains/lane-probe.mts`. Cross-cutting laws baked into the suite: keep-best checkpoint scoring
 (final-state scoring is biased −6–8pp), equal compute via the conserved pool, the analyst
 is firewalled (trace-only), costs are real (router usage → `{usd, ms, tokens}`).
 
