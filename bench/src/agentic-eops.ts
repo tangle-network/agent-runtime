@@ -69,12 +69,21 @@ export function eopsTaskClass(task: AgenticTask): string {
 }
 
 /** The EnterpriseOps surface. `gymDbsDir` = the unzipped gym_dbs.zip (resolves seed_database_file). */
+/** Parallel-lane override: tasks carry the dataset's literal gym URL
+ *  (http://localhost:8006); EOPS_GYM_URL rebases every server URL onto a different
+ *  container so N runs use N gyms concurrently (one flywheel per gym — the wedge law —
+ *  becomes one gym per LANE instead of a global serialization point). */
+function laneServer(server: GymServer): GymServer {
+  const lane = process.env.EOPS_GYM_URL
+  return lane ? { ...server, mcp_server_url: lane } : server
+}
+
 export function createEopsSurface(gymDbsDir: string): AgenticSurface {
   return {
     name: 'eops',
     async open(task: AgenticTask): Promise<ArtifactHandle> {
       // Clone the server config and seed a fresh isolated DB (seed() stamps server._database_id).
-      const server: GymServer = { ...metaOf(task).servers[0]! }
+      const server: GymServer = laneServer({ ...metaOf(task).servers[0]! })
       await seed(server, gymDbsDir)
       return { id: server._database_id ?? task.id, surface: 'eops', ctx: server }
     },

@@ -115,7 +115,10 @@ EOPS standup (one container): `docker run -d --rm --name eops -p 8006:8005
 shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest` + `EOPS_GYM_DBS_DIR=<unzipped
 gym_dbs.zip from github.com/ServiceNow/EnterpriseOps-Gym>`; restart it FRESH per big run
 (it wedges under load); `EOPS_SPLIT=csm|hr|…` selects other domains (their gym containers
-not yet sourced). Cross-cutting laws baked into the suite: keep-best checkpoint scoring
+not yet sourced). **Parallel lanes:** tasks carry the dataset's literal gym URL
+(`http://localhost:8006`); `EOPS_GYM_URL=http://localhost:8007` rebases every server URL,
+so N concurrent runs use N containers (`-p 8007:8005`, `-p 8008:8005`, …) instead of
+serializing on one wedge-prone gym. Bring-up check: `src/lane-probe.mts`. Cross-cutting laws baked into the suite: keep-best checkpoint scoring
 (final-state scoring is biased −6–8pp), equal compute via the conserved pool, the analyst
 is firewalled (trace-only), costs are real (router usage → `{usd, ms, tokens}`).
 
