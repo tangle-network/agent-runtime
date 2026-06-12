@@ -6,7 +6,7 @@
  */
 
 import { createAecBenchAdapter } from './benchmarks/aec-bench'
-import { createAppWorldAdapter } from './benchmarks/appworld'
+import { createAppWorldAdapter, createAppWorldReactAdapter } from './benchmarks/appworld'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
@@ -34,6 +34,9 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   commit0: createCommit0Adapter,
   programbench: createProgrambenchAdapter,
   appworld: createAppWorldAdapter,
+  // AppWorld's native interactive protocol — the worker is the in-engine ReAct
+  // episode (execution feedback every turn), the mode published baselines use.
+  'appworld-react': createAppWorldReactAdapter,
   'enterpriseops-gym': createEnterpriseOpsGymAdapter,
   'cad-design': createCadDesignAdapter,
   cadbench: createCadBenchAdapter,

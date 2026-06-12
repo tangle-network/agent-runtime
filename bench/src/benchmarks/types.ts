@@ -48,4 +48,10 @@ export interface BenchmarkAdapter {
    *  it to a patch parser. This is `benchmark = adapter` owning its deliverable,
    *  so the one flow (`runExperiment`) needs no per-benchmark branching. */
   output?: OutputAdapter<string>
+  /** Benchmark-owned worker leaf. Set when the benchmark's native protocol IS the
+   *  worker (e.g. AppWorld's interactive ReAct episode runs inside the engine,
+   *  not as a chat completion) — the experiment uses this instead of the
+   *  BACKEND-selected client; the steer still flows through the per-round prompt.
+   *  Typed loosely to avoid a runtime import cycle; the harness casts it. */
+  leafClient?: (cfg: { model: string; routerBaseUrl: string; routerKey: string }) => unknown
 }

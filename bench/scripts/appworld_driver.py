@@ -165,6 +165,10 @@ def cmd_react(args) -> None:
                 "passes": n_pass,
                 "fails": n_fail,
                 "num_tests": int(evaluation["num_tests"]),
+                # Failed sub-test names — the evidence a trace analyst steers on.
+                "failure_names": [str(f)[:160] for f in failures][:8]
+                if isinstance(failures, list)
+                else [],
                 "turns": turns,
                 "input_tokens": in_tok,
                 "output_tokens": out_tok,
@@ -174,6 +178,71 @@ def cmd_react(args) -> None:
             }
         )
     )
+
+
+def cmd_session(args) -> None:
+    """Dumb world shim: a persistent AppWorld session driven over stdin JSONL.
+    NO LLM calls here — the agent loop lives in the runtime (routerToolLoop);
+    this process only owns world state. One JSON object per line, both ways:
+      {"op":"execute","code":"..."} -> {"output":"...","task_completed":bool}
+      {"op":"evaluate"}             -> the evaluate verdict JSON (+failure_names)
+    Emits {"ready":true,"instruction":...} on start; exits on stdin EOF."""
+    try:
+        from appworld import AppWorld
+    except Exception as e:  # noqa: BLE001
+        fail(f"appworld import failed: {e}")
+    try:
+        with AppWorld(
+            task_id=args.task_id,
+            experiment_name="bench-session",
+            raise_on_failure=False,
+        ) as world:
+            print(json.dumps({"ready": True, "instruction": world.task.instruction}), flush=True)
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    cmd = json.loads(line)
+                except Exception as e:  # noqa: BLE001
+                    print(json.dumps({"error": f"bad command JSON: {e}"}), flush=True)
+                    continue
+                op = cmd.get("op")
+                if op == "execute":
+                    # An exception here is the AGENT's outcome (bad code), not an
+                    # infra fault — feed it back, keep the world alive.
+                    try:
+                        output = str(world.execute(str(cmd.get("code", ""))))
+                    except Exception as e:  # noqa: BLE001
+                        output = f"EXECUTION ERROR: {e}"
+                    print(
+                        json.dumps(
+                            {"output": output[:4000], "task_completed": bool(world.task_completed())}
+                        ),
+                        flush=True,
+                    )
+                elif op == "evaluate":
+                    ev = world.evaluate().to_dict()
+                    passes = ev.get("passes", [])
+                    failures = ev.get("failures", [])
+                    print(
+                        json.dumps(
+                            {
+                                "success": bool(ev.get("success")),
+                                "passes": len(passes) if isinstance(passes, list) else int(passes or 0),
+                                "fails": len(failures) if isinstance(failures, list) else int(failures or 0),
+                                "num_tests": int(ev.get("num_tests", 0)),
+                                "failure_names": [str(f)[:160] for f in failures][:8]
+                                if isinstance(failures, list)
+                                else [],
+                            }
+                        ),
+                        flush=True,
+                    )
+                else:
+                    print(json.dumps({"error": f"unknown op: {op}"}), flush=True)
+    except Exception as e:  # noqa: BLE001
+        fail(f"session of {args.task_id} failed: {e}")
 
 
 def cmd_load(args) -> None:
@@ -271,6 +340,10 @@ def main() -> None:
     p_react.add_argument("--task-id", required=True)
     p_react.add_argument("--split", required=True)
 
+    p_session = sub.add_parser("session")
+    p_session.add_argument("--task-id", required=True)
+    p_session.add_argument("--split", required=True)
+
     args = ap.parse_args()
     if args.cmd == "load":
         cmd_load(args)
@@ -278,6 +351,8 @@ def main() -> None:
         cmd_evaluate(args)
     elif args.cmd == "react":
         cmd_react(args)
+    elif args.cmd == "session":
+        cmd_session(args)
 
 
 if __name__ == "__main__":

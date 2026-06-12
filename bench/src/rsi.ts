@@ -39,8 +39,9 @@ async function main() {
   // worker is a completion (humaneval) or where box egress to the router is blocked.
   // Default `sandbox` is the in-box agent (coding/tool domains).
   const backend = process.env.BACKEND ?? 'sandbox'
-  const client: SandboxClient =
-    backend === 'router'
+  const client: SandboxClient = adapter.leafClient
+    ? (adapter.leafClient(router) as SandboxClient)
+    : backend === 'router'
       ? inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
       : new Sandbox({
           baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
