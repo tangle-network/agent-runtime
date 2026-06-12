@@ -1,25 +1,50 @@
 /**
- * commit0 Layer-1 gate runner — the verifier-grounded selector on REAL stateful
- * coding rollouts. Each shot is a fresh sandbox where an opencode agent clones the
- * stubbed repo at base_commit, implements the source, and WRITES its diff to a file
- * we read back over the sandbox FS — NOT pasted in the final message (a large diff
- * truncates there → `git apply` "corrupt patch", the failure that made the generic
- * stream-parse path unusable). The official commit0 pytest harness then grades each
- * diff to a continuous (passed+xfail)/total reward — the within-task variance the
+ * commit0 Layer-1 gate runner — the verifier-grounded selector AND the
+ * observe→steer efficacy experiment on REAL stateful coding rollouts. Each shot is
+ * a fresh sandbox where an opencode agent clones the stubbed repo at base_commit,
+ * implements the source, and WRITES its diff to a file we read back over the
+ * sandbox FS — NOT pasted in the final message (a large diff truncates there →
+ * `git apply` "corrupt patch", the failure that made the generic stream-parse path
+ * unusable). The official commit0 pytest harness then grades each diff to a
+ * continuous (passed+xfail)/total reward — the within-task variance the
  * verifier-grounded selector needs (unlike aec's per-task-deterministic scores).
  *
+ * ARMS (comma-separated, default `random`):
+ *   - random      — K independent blind shots (the equal-compute control).
+ *   - refineAudit — shot 0 blind, then for each later shot a TRACE-ONLY analyst
+ *     (ANALYST_MODEL, default deepseek-v4-pro, off-box via the router) reads the
+ *     prior shot's diff + stream-trace tail and its findings are appended to a
+ *     FRESH sandbox's prompt. The analyst never sees a judge score — judging is
+ *     phase 2, after every rollout, so selector≠judge holds by construction.
+ *   Both arms run K shots per task: equal compute is the non-negotiable invariant
+ *   (the analyst call is the steering overhead, one cheap router completion).
+ *
  * Two phases, deliberately split:
- *   1. ROLLOUTS run concurrently (sandbox-bound; CONCURRENCY shots in flight).
+ *   1. ROLLOUTS run concurrently (sandbox-bound; CONCURRENCY units in flight; a
+ *      steered arm's shots chain sequentially inside one unit).
  *   2. JUDGES run SEQUENTIALLY (Docker-bound). commit0 keys its report dir on
  *      hash(test_ids), shared across a repo's attempts, so concurrent judging of the
- *      same repo races/overwrites report.json — the `None`-score bug. One unique
- *      repo image is built once (rebuild_image), the rest reuse it.
+ *      same repo races/overwrites report.json — the `None`-score bug.
  *
- * Writes a corpus RunRecord/task (condition random@K) the existing
- * `corpus-replay --selector=verifier` + `corpus-report` consume unchanged. Fail loud.
+ * Judge prerequisite: the per-repo Docker image MUST exist before judging — the
+ * local Docker backend ignores `rebuild_image` (only the Modal context honors it),
+ * so run `./src/commit0-prereqs.sh <repo…>` (pulls wentingzhao/<repo>:v0, else
+ * builds via commit0.harness.build) for every repo in the task list first.
  *
- *   dotenvx run -f … -- env BENCH-less; N=8 K=4 WORKER_MODEL=gpt-4.1 CONCURRENCY=3 \
- *     CORPUS=/tmp/commit0.jsonl tsx src/commit0-gate.mts
+ * Fail loud: an attempt whose rollout errored, whose diff never materialized, or
+ * whose judge harness failed is recorded as an INFRA attempt (error on the
+ * AttemptRecord, no score) and its record is marked infraError — counted +
+ * reported, excluded by corpus-report, never a silent 0.
+ *
+ * Writes one corpus RunRecord per (task, arm) (conditions `random@K`,
+ * `refineAudit@K`) the existing `corpus-replay --selector=verifier` +
+ * `corpus-report` consume unchanged.
+ *
+ *   ./src/commit0-prereqs.sh wcwidth tinydb …   # once per repo set
+ *   dotenvx run -f … -- env N=8 K=2 ARMS=random,refineAudit \
+ *     WORKER_MODEL=deepseek-v4-pro CONCURRENCY=3 CORPUS=/tmp/commit0.jsonl \
+ *     tsx src/commit0-gate.mts
+ *   tsx src/corpus-report.mts /tmp/commit0.jsonl          # paired steering verdict
  *   tsx src/corpus-replay.mts /tmp/commit0.jsonl --selector=verifier
  */
 
@@ -37,6 +62,7 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
+import { type AnalystFn, llmAnalyst } from './experiment'
 import {
   type BenchRuntimeDecisionPoint,
   type BenchRuntimeHookEvent,
@@ -70,8 +96,25 @@ interface Shot {
   wallMs: number
   /** measured count of stream events from the rollout (0 if it errored before streaming) */
   events: number
+  /** bounded tail of the raw stream events — the trace the analyst reads (trace-only). */
+  traceEvents?: unknown[]
+  /** the analyst findings appended to this shot's prompt (steered arm, round ≥ 1). */
+  steer?: string
   runtimeEvents?: BenchRuntimeHookEvent[]
   runtimeDecisionPoints?: BenchRuntimeDecisionPoint[]
+}
+
+/** Last events of a rollout stream, kept for the trace-only analyst. */
+const TRACE_EVENTS_TAIL = 12
+/** Diff prefix shown to the analyst (it names files + hunks; the full diff can be 100KB+). */
+const ANALYST_DIFF_MAX = 6_000
+/** Findings ceiling appended to a steered prompt (the analyst is told 1-3 sentences). */
+const STEER_MAX = 1_500
+
+/** Append the analyst's findings to the base rollout prompt (fresh box — the
+ *  agent has no memory of the prior attempt, so the framing names it). */
+function steeredPrompt(base: string, steer: string): string {
+  return `${base}\n\n--- Analysis of a previous attempt at this task ---\n${steer}\n\nApply this correction while you implement.`
 }
 
 /** Build the rollout prompt: clone the stub, implement the source, write the diff to
@@ -135,7 +178,7 @@ const commit0Deliverable: Deliverable<RolloutDeliverable> = {
   },
 }
 
-async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
+async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: string): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
@@ -177,7 +220,8 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       },
       commit0Deliverable,
     )
-    const turn = await run.start(rolloutPrompt(meta))
+    const prompt = steer ? steeredPrompt(rolloutPrompt(meta), steer) : rolloutPrompt(meta)
+    const turn = await run.start(prompt)
     const ok = turn.out.diff.trim().length > 0
     return {
       task,
@@ -185,6 +229,8 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       diff: turn.out.diff,
       ok,
       events: turn.events.length,
+      traceEvents: turn.events.slice(-TRACE_EVENTS_TAIL),
+      ...(steer ? { steer } : {}),
       runtimeEvents: runtime.events,
       runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
@@ -198,6 +244,7 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
       diff: '',
       ok: false,
       events: 0,
+      ...(steer ? { steer } : {}),
       runtimeEvents: runtime.events,
       runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
@@ -249,7 +296,7 @@ function localRolloutPrompt(meta: Commit0Meta): string {
  * in place, then read the diff straight from git (complete — no message truncation).
  * Fault-isolated like runShot: any failure → a recorded NO-DIFF attempt, never a throw.
  */
-async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<Shot> {
+async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: string): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
   let dir: string | undefined
@@ -268,15 +315,27 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg): Pro
     const env = cfg.model.startsWith('openai/')
       ? { ...process.env, OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl }
       : process.env
-    const oc = await sh(cfg.opencodeBin, ['run', localRolloutPrompt(meta), '-m', cfg.model, '--dir', dir], { timeoutMs: cfg.timeoutMs, env })
-    const events = oc.out.split('\n').length
+    const prompt = steer ? steeredPrompt(localRolloutPrompt(meta), steer) : localRolloutPrompt(meta)
+    const oc = await sh(cfg.opencodeBin, ['run', prompt, '-m', cfg.model, '--dir', dir], { timeoutMs: cfg.timeoutMs, env })
+    const lines = oc.out.split('\n')
+    const events = lines.length
     // Read the diff straight from git, scoped to src_dir (excludes the .venv the agent made).
     const diffRes = await sh('bash', ['-c', `cd ${JSON.stringify(dir)} && git add -- ${JSON.stringify(meta.srcDir)} && git diff --cached -- ${JSON.stringify(meta.srcDir)}`], { timeoutMs: 60_000 })
     const diff = diffRes.out
     const ok = diff.trim().length > 0
-    return { task, attempt, diff, ok, events, wallMs: Date.now() - startedAt, ...(ok ? {} : { detail: `no diff (opencode rc=${oc.code}): ${oc.out.trim().slice(-160)}` }) }
+    return {
+      task,
+      attempt,
+      diff,
+      ok,
+      events,
+      traceEvents: lines.slice(-TRACE_EVENTS_TAIL),
+      ...(steer ? { steer } : {}),
+      wallMs: Date.now() - startedAt,
+      ...(ok ? {} : { detail: `no diff (opencode rc=${oc.code}): ${oc.out.trim().slice(-160)}` }),
+    }
   } catch (err) {
-    return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}` }
+    return { task, attempt, diff: '', ok: false, events: 0, ...(steer ? { steer } : {}), wallMs: Date.now() - startedAt, detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}` }
   } finally {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {})
   }
@@ -292,7 +351,16 @@ async function main(): Promise<void> {
   const k = Number(process.env.K ?? 4)
   const model = process.env.WORKER_MODEL ?? (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'gpt-4.1')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const needsRouterKey = backend === 'sandbox' || model.startsWith('openai/')
+  // The arms under test. `random` = K independent blind shots (the equal-compute
+  // control); `refineAudit` = blind shot 0, then trace-only-analyst-steered shots.
+  const armNames = (process.env.ARMS ?? 'random').split(',').map((s) => s.trim()).filter(Boolean)
+  for (const a of armNames) {
+    if (a !== 'random' && a !== 'refineAudit') throw new Error(`unknown arm ${a} (have: random, refineAudit)`)
+  }
+  // The analyst is an OFF-BOX router call (host-side), so it needs the router key
+  // even when the worker runs on its own auth.
+  const analystModel = process.env.ANALYST_MODEL ?? 'deepseek-v4-pro'
+  const needsRouterKey = backend === 'sandbox' || model.startsWith('openai/') || armNames.includes('refineAudit')
   const routerKey = needsRouterKey ? must('TANGLE_API_KEY') : (process.env.TANGLE_API_KEY ?? '')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const opencodeBin = process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
@@ -309,83 +377,149 @@ async function main(): Promise<void> {
   if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
   const adapter = createCommit0Adapter()
-  console.log(`=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} model=${model} rolloutConc=${concurrency} ===`)
+  console.log(`=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} arms=${armNames.join(',')} model=${model} analyst=${analystModel} rolloutConc=${concurrency} ===`)
   await adapter.preflight()
   const tasks = await adapter.loadTasks({ limit: n })
   console.log(`loaded ${tasks.length} task(s): ${tasks.map((t) => t.id).join(', ')}`)
 
   // Phase 1 — rollouts, concurrent. sandbox = remote box; local = cli-bridge (opencode
   // in a tmpdir, diff read from git). Both fault-isolated → a failure is a NO-DIFF, never a throw.
-  const units = tasks.flatMap((task) => Array.from({ length: k }, (_, attempt) => ({ task, attempt })))
-  const where = backend === 'local' ? 'local opencode (cli-bridge)' : `in-box (${PATCH_PATH})`
-  console.log(`\n▶ phase 1: ${units.length} rollouts (conc=${concurrency}) via ${where}`)
   const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, provider, timeoutMs, opencodeBin }
   const runRollout = backend === 'local' ? runShotLocal : runShot
-  const shots = await pool(units, concurrency, async (u) => {
-    const s = await runRollout(u.task, u.attempt, cfg)
-    console.log(`  rollout ${u.task.id}#${u.attempt}: ${s.ok ? `diff ${s.diff.length}B` : `NO DIFF (${s.detail})`} (${(s.wallMs / 1000) | 0}s)`)
-    return s
-  })
+  const analyze: AnalystFn = llmAnalyst({ routerBaseUrl, routerKey, model: analystModel })
+  const logShot = (armName: string, s: Shot) =>
+    console.log(`  rollout ${s.task.id}[${armName}]#${s.attempt}: ${s.ok ? `diff ${s.diff.length}B` : `NO DIFF (${s.detail})`}${s.steer ? ' [steered]' : ''} (${(s.wallMs / 1000) | 0}s)`)
+
+  interface TaggedShot {
+    arm: string
+    shot: Shot
+  }
+  // A unit is the pool's schedulable atom: one blind shot for the control arm
+  // (max packing), the WHOLE blind→analyst→steered chain for the steered arm
+  // (shot i+1 depends on shot i's trace). Units never throw — every failure is a
+  // recorded NO-DIFF/INFRA shot, so one flaky box cannot abort the pool.
+  const units: Array<() => Promise<TaggedShot[]>> = []
+  for (const task of tasks) {
+    for (const armName of armNames) {
+      if (armName === 'random') {
+        for (let attempt = 0; attempt < k; attempt += 1) {
+          units.push(async () => {
+            const s = await runRollout(task, attempt, cfg)
+            logShot(armName, s)
+            return [{ arm: armName, shot: s }]
+          })
+        }
+        continue
+      }
+      units.push(async () => {
+        const out: TaggedShot[] = []
+        let prev: Shot | undefined
+        for (let attempt = 0; attempt < k; attempt += 1) {
+          let steer: string | undefined
+          if (prev) {
+            // Trace-only: the analyst sees the prior shot's diff + stream tail,
+            // never a judge score (judging is phase 2 — selector≠judge by
+            // construction). "no change needed" is the policy's informed no-op.
+            try {
+              const events = prev.traceEvents?.length ? prev.traceEvents : prev.detail ? [prev.detail] : []
+              const feedback = (await analyze([{ output: prev.diff.slice(0, ANALYST_DIFF_MAX), events }])).trim()
+              if (feedback && !/^no change needed/i.test(feedback)) steer = feedback.slice(0, STEER_MAX)
+            } catch (err) {
+              // A steered arm whose analyst died is no longer a steered arm —
+              // record the attempt as INFRA rather than degrading to blind.
+              const msg = (err instanceof Error ? err.message : String(err)).slice(0, 200)
+              const s: Shot = { task, attempt, diff: '', ok: false, events: 0, wallMs: 0, detail: `analyst error: ${msg}` }
+              logShot(armName, s)
+              out.push({ arm: armName, shot: s })
+              break
+            }
+          }
+          const s = await runRollout(task, attempt, cfg, steer)
+          logShot(armName, s)
+          out.push({ arm: armName, shot: s })
+          prev = s
+        }
+        return out
+      })
+    }
+  }
+  const where = backend === 'local' ? 'local opencode (cli-bridge)' : `in-box (${PATCH_PATH})`
+  console.log(`\n▶ phase 1: ${tasks.length * armNames.length * k} rollouts in ${units.length} units (conc=${concurrency}) via ${where}`)
+  const tagged = (await pool(units, concurrency, (u) => u())).flat()
 
   // Phase 2 — judging, SEQUENTIAL (Docker-bound; commit0 keys its report dir on
   // hash(test_ids), shared across a repo's attempts → concurrent judging of one repo
-  // races/overwrites report.json). Judged PER TASK, writing each RunRecord immediately
-  // so a mid-run crash keeps completed tasks. First ok-diff attempt of a repo rebuilds
-  // its image; the rest reuse it.
+  // races/overwrites report.json). Judged PER (TASK, ARM), writing each RunRecord
+  // immediately so a mid-run crash keeps completed records. Fail loud: an attempt
+  // with no diff or a failed judge becomes an INFRA attempt (error recorded, no
+  // score) and the whole record is infra-excluded — never a silent 0.
   console.log(`\n▶ phase 2: judging sequentially per task (official commit0 pytest harness) → ${corpusPath}`)
-  let scoredTasks = 0
+  let scoredRecords = 0
+  let infraRecords = 0
+  let infraAttempts = 0
   for (const task of tasks) {
-    let built = false
-    const attempts: AttemptRecord[] = []
-    const runtimeEvents = shots
-      .filter((x) => x.task.id === task.id)
-      .flatMap((x) => x.runtimeEvents ?? [])
-    const runtimeDecisionPoints = shots
-      .filter((x) => x.task.id === task.id)
-      .flatMap((x) => x.runtimeDecisionPoints ?? [])
-    for (let i = 0; i < k; i += 1) {
-      const s = shots.find((x) => x.task.id === task.id && x.attempt === i)
-      let sc: { score: number; resolved: boolean } | undefined
-      if (s?.ok) {
-        process.env.COMMIT0_REBUILD_IMAGE = built ? '0' : '1' // build this repo's image once
-        built = true
-        try {
-          const v = await adapter.judge(s.task, s.diff)
-          sc = { score: v.score, resolved: v.resolved }
-          console.log(`  judge ${task.id}#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
-        } catch (err) {
-          console.log(`  judge ${task.id}#${i}: ERROR ${(err instanceof Error ? err.message : String(err)).slice(0, 160)}`)
+    let imageTouched = false
+    for (const armName of armNames) {
+      const armShots = tagged.filter((t) => t.arm === armName && t.shot.task.id === task.id).map((t) => t.shot)
+      const attempts: AttemptRecord[] = []
+      let recordInfra = false
+      for (let i = 0; i < k; i += 1) {
+        const s = armShots.find((x) => x.attempt === i)
+        let sc: { score: number; resolved: boolean } | undefined
+        let attemptError: string | undefined
+        if (s?.ok) {
+          // Local Docker backend: images must pre-exist (src/commit0-prereqs.sh);
+          // rebuild_image is honored by the Modal backend only, where the first
+          // judged attempt of a repo force-builds and the rest reuse.
+          process.env.COMMIT0_REBUILD_IMAGE = imageTouched ? '0' : '1'
+          imageTouched = true
+          try {
+            const v = await adapter.judge(s.task, s.diff)
+            sc = { score: v.score, resolved: v.resolved }
+            console.log(`  judge ${task.id}[${armName}]#${i}: score=${(v.score * 100).toFixed(1)}% resolved=${v.resolved}`)
+          } catch (err) {
+            attemptError = `judge harness failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 300)}`
+            console.log(`  judge ${task.id}[${armName}]#${i}: INFRA ${attemptError.slice(0, 200)}`)
+          }
+        } else {
+          attemptError = s ? `no diff: ${s.detail ?? 'unknown'}` : 'missing shot'
+          console.log(`  judge ${task.id}[${armName}]#${i}: INFRA (${attemptError.slice(0, 160)})`)
         }
-      } else {
-        console.log(`  judge ${task.id}#${i}: skipped (no diff)`)
+        if (attemptError) {
+          recordInfra = true
+          infraAttempts += 1
+        }
+        attempts.push({
+          round: i,
+          prompt: s?.steer ? `commit0-rollout + steer:\n${s.steer}` : 'commit0-rollout',
+          output: s?.diff ?? '',
+          ...(sc ? { valid: sc.resolved, score: sc.score } : {}),
+          ...(attemptError ? { error: attemptError } : {}),
+          wallMs: s?.wallMs ?? 0,
+          eventCount: s?.events ?? 0,
+          eventTypes: { 'sandbox.stream': s?.events ?? 0 },
+          traceTail: (s?.diff ?? '').slice(-600),
+        })
       }
-      attempts.push({
-        round: i,
-        prompt: 'commit0-rollout',
-        output: s?.diff ?? '',
-        ...(sc ? { valid: sc.resolved, score: sc.score } : {}),
-        wallMs: s?.wallMs ?? 0,
-        eventCount: s?.events ?? 0,
-        eventTypes: { 'sandbox.stream': s?.events ?? 0 },
-        traceTail: (s?.diff ?? '').slice(-600),
+      if (recordInfra) infraRecords += 1
+      else if (attempts.some((a) => a.score !== undefined)) scoredRecords += 1
+      const record = buildRunRecordFromAttempts(attempts, {
+        benchmark: adapter.name,
+        instanceId: task.id,
+        condition: `${armName}@${k}`,
+        model,
+        infraError: recordInfra,
+        runtimeEvents: armShots.flatMap((x) => x.runtimeEvents ?? []),
+        runtimeDecisionPoints: armShots.flatMap((x) => x.runtimeDecisionPoints ?? []),
       })
+      await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
     }
-    if (attempts.some((a) => a.score !== undefined)) scoredTasks += 1
-    const record = buildRunRecordFromAttempts(attempts, {
-      benchmark: adapter.name,
-      instanceId: task.id,
-      condition: `random@${k}`,
-      model,
-      infraError: false,
-      runtimeEvents,
-      runtimeDecisionPoints,
-    })
-    await appendRunRecord(corpusPath, record) // incremental: partial progress survives a crash
   }
 
   console.log(
-    `\n=== wrote ${tasks.length} task(s) (${scoredTasks} with ≥1 scored attempt) → ${corpusPath} ===\n` +
-      `  THE GATE: tsx src/corpus-replay.mts ${corpusPath} --selector=verifier`,
+    `\n=== wrote ${tasks.length * armNames.length} record(s) (${scoredRecords} fully scored, ${infraRecords} infra-excluded; ${infraAttempts} infra attempts) → ${corpusPath} ===\n` +
+      `  STEERING VERDICT: tsx src/corpus-report.mts ${corpusPath}\n` +
+      `  SELECTOR GATE:    tsx src/corpus-replay.mts ${corpusPath} --selector=verifier`,
   )
 }
 

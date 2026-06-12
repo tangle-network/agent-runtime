@@ -114,8 +114,10 @@ def main() -> None:
                 args.backend,
                 args.timeout,
                 1,  # num_cpus
-                # Per-repo image is normally pre-built once via `commit0 build`; set
-                # COMMIT0_REBUILD_IMAGE=1 to self-build on first touch (slow, multi-GB).
+                # rebuild_image is honored by the MODAL backend only (force_build).
+                # The local Docker execution context just creates a container from
+                # the existing wentingzhao/<repo>:v0 image — pre-pull/build it via
+                # bench/src/commit0-prereqs.sh or this run dies with ImageNotFound.
                 rebuild_image=os.environ.get("COMMIT0_REBUILD_IMAGE") == "1",
                 verbose=0,
             )
@@ -129,7 +131,10 @@ def main() -> None:
                 raise
             import traceback
 
-            fail(f"commit0 run_pytest_ids failed for {repo_name}: {e!r} | {traceback.format_exc()[-1200:]}")
+            hint = ""
+            if "ImageNotFound" in repr(e) or "No such image" in repr(e):
+                hint = f" | missing per-repo Docker image — run: bench/src/commit0-prereqs.sh {repo_name}"
+            fail(f"commit0 run_pytest_ids failed for {repo_name}: {e!r}{hint} | {traceback.format_exc()[-1200:]}")
 
         hashed = get_hash_string(test_ids_str)
         report_file = RUN_PYTEST_LOG_DIR / repo_name / branch / hashed / "report.json"

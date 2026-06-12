@@ -201,9 +201,15 @@ async function runHarness(meta: Commit0Meta, artifact: string): Promise<BenchSco
   if (typeof report.passed !== 'number' || typeof report.total !== 'number') {
     throw new Error(`commit0 judge returned no {passed,total}: ${stdout.slice(0, 400)}`)
   }
-  const score = report.total > 0 ? report.passed / report.total : 0
+  // total=0 means the harness MEASURED NOTHING (collection error with no declared
+  // test ids) — an unmeasured attempt, not a 0% one. Throw so the caller excludes
+  // it as infra instead of recording a fabricated zero.
+  if (report.total <= 0) {
+    throw new Error(`commit0 judge measured no tests for ${meta.instanceId} (total=0): ${stdout.slice(0, 400)}`)
+  }
+  const score = report.passed / report.total
   return {
-    resolved: report.total > 0 && report.passed === report.total,
+    resolved: report.passed === report.total,
     score,
     detail: JSON.stringify({ instanceId: meta.instanceId, passed: report.passed, total: report.total }),
   }
