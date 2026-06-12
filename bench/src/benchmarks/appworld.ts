@@ -22,6 +22,7 @@
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/loops'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
@@ -339,9 +340,17 @@ export function appworldToolLoopClient(cfg: {
           })
           // Real usage from the episode — flat llm_call so the kernel meters it.
           if (out.input_tokens || out.output_tokens) {
+            const costUsd = isModelPriced(cfg.model)
+              ? estimateCost(out.input_tokens ?? 0, out.output_tokens ?? 0, cfg.model)
+              : undefined
             yield {
               type: 'llm_call',
-              data: { tokensIn: out.input_tokens ?? 0, tokensOut: out.output_tokens ?? 0, model: cfg.model },
+              data: {
+                tokensIn: out.input_tokens ?? 0,
+                tokensOut: out.output_tokens ?? 0,
+                model: cfg.model,
+                ...(costUsd !== undefined ? { costUsd } : {}),
+              },
             }
           }
           yield { type: 'result', data: { finalText: JSON.stringify(out) } }
