@@ -88,6 +88,7 @@ async function main() {
     rounds,
     n: Number(process.env.N ?? 10),
     ids: process.env.IDS ? process.env.IDS.split(',') : undefined,
+    ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),
     concurrency: Number(process.env.CONCURRENCY ?? 3),
     ...(adapter.output ? { output: adapter.output } : {}),
     corpusPath: corpus,

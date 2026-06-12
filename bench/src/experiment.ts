@@ -254,6 +254,8 @@ export interface ExperimentConfig {
   rounds?: number
   n?: number
   ids?: string[]
+  /** Benchmark split passed through to the adapter's loadTasks (e.g. appworld dev vs test_normal). */
+  split?: string
   concurrency?: number
   /** Deliverable extraction. Default: the agent's final answer text. */
   output?: OutputAdapter<string>
@@ -307,7 +309,10 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
   const benchmark = cfg.adapter.name
 
   await cfg.adapter.preflight()
-  const tasks = await cfg.adapter.loadTasks(cfg.ids ? { ids: cfg.ids } : { limit: cfg.n ?? 8 })
+  const tasks = await cfg.adapter.loadTasks({
+    ...(cfg.ids ? { ids: cfg.ids } : { limit: cfg.n ?? 8 }),
+    ...(cfg.split ? { split: cfg.split } : {}),
+  })
 
   // One arm through the kernel for one task; persist a full RunRecord (the
   // flywheel fuel — state·steer·trace·output·verdict·cost, never a boolean).
