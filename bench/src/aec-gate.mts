@@ -22,7 +22,7 @@ import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { composeStrategies } from './directives'
-import { type RouterConfig, routerChatWithUsage } from './router-client'
+import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 import { pool } from './stats.mts'
 
 function must(name: string): string {

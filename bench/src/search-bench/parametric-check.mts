@@ -11,7 +11,7 @@
  */
 import { writeFileSync } from 'node:fs'
 import { runPool } from '../run-pool'
-import { routerChatWithUsage } from '../router-client'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 import { freshTasks } from './tasks-fresh'
 import { scoreTask, taskToPrompt } from './tasks'
 

@@ -24,7 +24,7 @@ import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { routerChatWithUsage } from '../router-client'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 import { scoreTask, taskToPrompt } from '../search-bench/tasks'
 import { type EvalCertification, type GeneratedEval, generatedEvalSchemaVersion, parseCandidate } from './schema'
 

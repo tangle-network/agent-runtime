@@ -24,6 +24,7 @@ import {
   type AgentProfile,
   type AgentRunSpec,
   createDriver,
+  routerChatWithUsage,
   type SandboxClient,
   type OutputAdapter,
   runLoop,
@@ -33,7 +34,6 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { appendRunRecord, buildRunRecord } from './corpus'
-import { routerChatWithUsage } from './router-client'
 import { createRuntimeHookRecorder } from './runtime-hook-recorder'
 import { runPool } from './run-pool'
 import { runSteeringExperiment } from './steering-experiment'
