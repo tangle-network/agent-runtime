@@ -122,19 +122,38 @@ export async function routerChatWithTools(
   }>,
   opts?: { temperature?: number; signal?: AbortSignal; toolChoice?: 'auto' | 'required' | 'none' },
 ): Promise<RouterChatToolsResult> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      tools,
-      tool_choice: opts?.toolChoice ?? 'auto',
-      temperature: opts?.temperature ?? 0.3,
-    }),
-    ...(opts?.signal ? { signal: opts.signal } : {}),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  // Same retry discipline as `routerChatWithUsage`: transient upstream failures
+  // back off; the "only temperature 1 is allowed" 400 some thinking models
+  // (kimi-k2.6) return retries once with temperature 1 instead of failing the run.
+  let temperature = opts?.temperature ?? 0.3
+  let lastErr = ''
+  let res: Response | undefined
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages,
+        tools,
+        tool_choice: opts?.toolChoice ?? 'auto',
+        temperature,
+      }),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    })
+    if (res.ok) break
+    const status = res.status
+    const text = (await res.text()).slice(0, 200)
+    lastErr = `router ${status}: ${text}`
+    if (status === 400 && /temperature/i.test(text) && temperature !== 1) {
+      temperature = 1
+      continue
+    }
+    if (![408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status)) throw new Error(lastErr)
+    if (attempt === 4) throw new Error(`${lastErr} (exhausted retries)`)
+    await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
+  }
+  if (!res || !res.ok) throw new Error(`${lastErr} (exhausted retries)`)
   const data = (await res.json()) as {
     choices?: Array<{
       message?: {
