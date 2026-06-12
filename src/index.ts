@@ -155,6 +155,7 @@ export type {
   EvalRunGeneration,
   EvalRunsExportConfig,
   EvalRunsExportResult,
+  LoopSpanNode,
   OtelAttribute,
   OtelExportConfig,
   OtelExporter,
@@ -163,6 +164,7 @@ export type {
 // ── OTEL export + trace propagation + eval-run provenance ────────────
 export {
   buildLoopOtelSpans,
+  buildLoopSpanNodes,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,

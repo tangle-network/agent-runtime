@@ -48,6 +48,20 @@ export {
   InMemoryDelegationStore,
 } from './delegation-store'
 export type {
+  CappedDelegationTrace,
+  DelegationTraceCaps,
+  DelegationTraceCollector,
+  DelegationTraceSpan,
+} from './delegation-trace'
+export {
+  buildDelegationTraceSpans,
+  capDelegationTrace,
+  composeLoopTraceEmitters,
+  createDelegationTraceCollector,
+  DELEGATION_TRACE_MAX_BYTES,
+  DELEGATION_TRACE_MAX_SPANS,
+} from './delegation-trace'
+export type {
   DetachedSessionRefParts,
   DetachedTurn,
   DriveTurnCapableBox,

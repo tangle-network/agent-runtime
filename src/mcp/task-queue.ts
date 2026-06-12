@@ -26,11 +26,17 @@
  */
 
 import { ValidationError } from '../errors'
+import type { LoopTraceEmitter } from '../runtime/types'
 import {
   DelegationPersistenceError,
   type DelegationStore,
   InMemoryDelegationStore,
 } from './delegation-store'
+import {
+  capDelegationTrace,
+  createDelegationTraceCollector,
+  type DelegationTraceSpan,
+} from './delegation-trace'
 import type {
   DelegateCodeArgs,
   DelegateResearchArgs,
@@ -77,6 +83,15 @@ export interface DelegationRecord {
   detachedSessionRef?: string
   /** Feedback events keyed by this delegation's taskId. */
   feedback: DelegationFeedbackSnapshot[]
+  /**
+   * Compact loop-trace span tree teed from the delegation's run, oldest
+   * spans first. Appended when a delegated loop reaches `loop.ended` and
+   * settled (partial buffers included) at the terminal transition. Capped
+   * via `capDelegationTrace` — see `traceTruncated`.
+   */
+  trace?: DelegationTraceSpan[]
+  /** Present when oldest trace spans were dropped to honor the trace caps. */
+  traceTruncated?: true
 }
 
 /** @experimental */
@@ -115,6 +130,16 @@ export interface DelegationRunContext {
    * ref — erasing the resume key would silently make the record unresumable.
    */
   updateDetachedSessionRef(ref: string): void
+  /**
+   * Per-delegation loop-trace sink, always provided by the queue. Events
+   * emitted here are journaled onto the record as a compact span tree
+   * (`record.trace`) when each loop run ends and at the delegation's
+   * terminal transition. Delegates forward it into their `runLoop` ctx,
+   * composed with any process-wide OTEL emitter
+   * (`composeLoopTraceEmitters`). Optional in the type so consumer-built
+   * contexts stay source-compatible.
+   */
+  traceEmitter?: LoopTraceEmitter
 }
 
 /** @experimental */
@@ -383,6 +408,15 @@ export class DelegationTaskQueue {
     if (!record) return
     record.status = 'running'
     this.persist(record)
+    // Journal tee: each finished loop run inside the delegation appends its
+    // compact span tree to the record immediately (a long delegation's trace
+    // is durable before the terminal transition); `settle()` below drains
+    // partial buffers from runs that never reached `loop.ended`.
+    const traceCollector = createDelegationTraceCollector((spans) => {
+      if (isTerminal(currentStatus(record))) return
+      this.appendTrace(record, spans)
+      this.persist(record)
+    })
     try {
       const output = await input.run({
         signal: controller.signal,
@@ -392,6 +426,7 @@ export class DelegationTaskQueue {
             this.persist(record)
           }
         },
+        traceEmitter: traceCollector.emitter,
         ...(record.detachedSessionRef !== undefined
           ? { detachedSessionRef: record.detachedSessionRef }
           : {}),
@@ -406,6 +441,7 @@ export class DelegationTaskQueue {
           this.persist(record)
         },
       })
+      traceCollector.settle()
       // `cancel()` may have flipped the status to `cancelled` while the
       // run promise was pending. Read the field through a widening
       // helper so the narrowed `'running'` type from the assignment
@@ -417,6 +453,7 @@ export class DelegationTaskQueue {
       this.persist(record)
       this.enforceRetention()
     } catch (err) {
+      traceCollector.settle()
       if (currentStatus(record) === 'cancelled') return
       record.status = 'failed'
       record.completedAt = this.now()
@@ -426,6 +463,13 @@ export class DelegationTaskQueue {
     } finally {
       this.controllers.delete(taskId)
     }
+  }
+
+  private appendTrace(record: DelegationRecord, spans: DelegationTraceSpan[]): void {
+    if (spans.length === 0) return
+    const { trace, truncated } = capDelegationTrace([...(record.trace ?? []), ...spans])
+    record.trace = trace
+    if (truncated) record.traceTruncated = true
   }
 
   private rehydrate(loaded: DelegationRecord[]): void {

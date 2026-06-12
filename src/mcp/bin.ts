@@ -67,6 +67,7 @@ import {
   settleDetachedCoderTurn,
 } from './delegates'
 import { FileDelegationStore } from './delegation-store'
+import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   createDriveTurnResumeDriver,
   type DetachedTurn,
@@ -409,6 +410,7 @@ async function loadResearcherSupport(
   const delegate: ResearcherDelegate = async (args, ctx) => {
     const task = buildResearchTask(args)
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
+    const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
       const preset = singleFactory({ task })
@@ -445,7 +447,7 @@ async function loadResearcherSupport(
         output: preset.output,
         validator: preset.validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
+        ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -461,7 +463,7 @@ async function loadResearcherSupport(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal, ...(traceEmitter ? { traceEmitter } : {}) },
+      ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })
