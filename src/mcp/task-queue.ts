@@ -36,6 +36,7 @@ import {
   capDelegationTrace,
   createDelegationTraceCollector,
   type DelegationTraceSpan,
+  generateDelegationSpanId,
 } from './delegation-trace'
 import type {
   DelegateCodeArgs,
@@ -521,6 +522,7 @@ export class DelegationTaskQueue {
     controller: AbortController,
   ): Promise<void> {
     const intervalMs = driver.intervalMs ?? 5000
+    const resumeStartMs = Date.parse(this.now())
     const ctx: DelegationResumeContext = {
       signal: controller.signal,
       report: (progress) => {
@@ -534,6 +536,7 @@ export class DelegationTaskQueue {
         const tick = await driver.tick({ record: structuredClone(record), detachedSessionRef }, ctx)
         if (currentStatus(record) === 'cancelled') return
         if (tick.state === 'completed') {
+          this.appendResumeSpan(record, detachedSessionRef, resumeStartMs)
           record.status = 'completed'
           record.completedAt = this.now()
           record.result = {
@@ -546,6 +549,7 @@ export class DelegationTaskQueue {
           return
         }
         if (tick.state === 'failed') {
+          this.appendResumeSpan(record, detachedSessionRef, resumeStartMs, tick.error.message)
           record.status = 'failed'
           record.completedAt = this.now()
           record.error = tick.error
@@ -557,6 +561,7 @@ export class DelegationTaskQueue {
       }
     } catch (err) {
       if (currentStatus(record) === 'cancelled') return
+      this.appendResumeSpan(record, detachedSessionRef, resumeStartMs, errorToShape(err).message)
       record.status = 'failed'
       record.completedAt = this.now()
       record.error = errorToShape(err)
@@ -565,6 +570,36 @@ export class DelegationTaskQueue {
     } finally {
       this.controllers.delete(record.taskId)
     }
+  }
+
+  /**
+   * Journal the resumed segment of a detached run as one compact span. The
+   * resume driver re-attaches after a process restart, so the original
+   * process's loop events are gone — this span records the post-restart
+   * observation window (re-attach → terminal tick) under the
+   * `'detached-resume'` driver tag, keeping restored delegations observable
+   * in the journal alongside trace-carrying live runs.
+   */
+  private appendResumeSpan(
+    record: DelegationRecord,
+    detachedSessionRef: string,
+    startMs: number,
+    error?: string,
+  ): void {
+    this.appendTrace(record, [
+      {
+        spanId: generateDelegationSpanId(),
+        name: 'loop',
+        kind: 'loop',
+        startMs,
+        endMs: Date.parse(this.now()),
+        meta: {
+          'tangle.loop.driver': 'detached-resume',
+          'tangle.loop.detached_session_ref': detachedSessionRef,
+          ...(error !== undefined ? { 'tangle.loop.error': error } : {}),
+        },
+      },
+    ])
   }
 
   private persist(record: DelegationRecord): void {

@@ -133,3 +133,33 @@ describe('runLocalHarness', () => {
     expect(calls[2][1]).toEqual(['run', 'go'])
   })
 })
+
+describe('runLocalHarness trace-context inheritance (in-process placement)', () => {
+  it('spawned harness CLIs inherit TRACE_ID / PARENT_SPAN_ID from the MCP process env', async () => {
+    const prevTrace = process.env.TRACE_ID
+    const prevParent = process.env.PARENT_SPAN_ID
+    process.env.TRACE_ID = 'trace-inherit-1'
+    process.env.PARENT_SPAN_ID = 'span-inherit-1'
+    try {
+      const seenEnvs: NodeJS.ProcessEnv[] = []
+      const spawnSpy = vi.fn(
+        (
+          _cmd: string,
+          _args: ReadonlyArray<string>,
+          opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'pipe' },
+        ) => {
+          seenEnvs.push(opts.env)
+          return makeFakeChild({ exitCode: 0 })
+        },
+      )
+      await runLocalHarness({ harness: 'claude', cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
+      expect(seenEnvs[0]?.TRACE_ID).toBe('trace-inherit-1')
+      expect(seenEnvs[0]?.PARENT_SPAN_ID).toBe('span-inherit-1')
+    } finally {
+      if (prevTrace === undefined) delete process.env.TRACE_ID
+      else process.env.TRACE_ID = prevTrace
+      if (prevParent === undefined) delete process.env.PARENT_SPAN_ID
+      else process.env.PARENT_SPAN_ID = prevParent
+    }
+  })
+})

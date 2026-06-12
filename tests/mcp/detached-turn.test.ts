@@ -22,7 +22,7 @@ import { createSiblingSandboxExecutor } from '../../src/mcp/executor'
 import { DelegationTaskQueue } from '../../src/mcp/task-queue'
 import { createDelegateCodeHandler } from '../../src/mcp/tools/delegate-code'
 import type { DelegateCodeArgs } from '../../src/mcp/types'
-import type { SandboxClient } from '../../src/runtime'
+import type { LoopTraceEvent, SandboxClient } from '../../src/runtime'
 
 const codeArgs: DelegateCodeArgs = { goal: 'fix bug', repoRoot: '/repo' }
 
@@ -221,6 +221,70 @@ describe('runDetachedTurn', () => {
         report: () => {},
       }),
     ).rejects.toThrow(/no id/)
+  })
+
+  it('synthesizes a single-iteration loop event stream for the trace sinks', async () => {
+    const fake = fakeDriveTurnBox({
+      ticks: [
+        { state: 'running', elapsedMs: 100 },
+        { state: 'completed', text: completedText, result: {} },
+      ],
+      id: 'sandbox_t1',
+    })
+    const events: LoopTraceEvent[] = []
+    await runDetachedTurn({
+      client: fakeClient(fake.box),
+      spec,
+      prompt: 'p',
+      sessionId: 'sess-trace-1',
+      bindSandbox: () => {},
+      signal: new AbortController().signal,
+      report: () => {},
+      tickIntervalMs: 1,
+      traceEmitter: { emit: (e) => void events.push(e) },
+    })
+    expect(events.map((e) => e.kind)).toEqual([
+      'loop.started',
+      'loop.iteration.started',
+      'loop.iteration.dispatch',
+      'loop.iteration.ended',
+      'loop.ended',
+    ])
+    // runId = the deterministic session id, so the stream is attributable
+    expect(new Set(events.map((e) => e.runId))).toEqual(new Set(['sess-trace-1']))
+    const started = events[0]!.payload as { driver: string; agentRunNames: string[] }
+    expect(started.driver).toBe('detached-turn')
+    expect(started.agentRunNames).toEqual(['coder-test'])
+    const dispatch = events[2]!.payload as { placement: string; sandboxId: string }
+    expect(dispatch).toMatchObject({ placement: 'sibling', sandboxId: 'sandbox_t1' })
+    const ended = events[4]!.payload as { winnerIterationIndex?: number; iterations: number }
+    expect(ended.winnerIterationIndex).toBe(0)
+    expect(ended.iterations).toBe(1)
+  })
+
+  it('records the error on the synthesized stream when the turn fails', async () => {
+    const fake = fakeDriveTurnBox({ ticks: [{ state: 'failed', error: 'wall cap exceeded' }] })
+    const events: LoopTraceEvent[] = []
+    await expect(
+      runDetachedTurn({
+        client: fakeClient(fake.box),
+        spec,
+        prompt: 'p',
+        sessionId: 'sess-trace-2',
+        bindSandbox: () => {},
+        signal: new AbortController().signal,
+        report: () => {},
+        tickIntervalMs: 1,
+        traceEmitter: { emit: (e) => void events.push(e) },
+      }),
+    ).rejects.toThrow(/wall cap exceeded/)
+    const iterationEnded = events.find((e) => e.kind === 'loop.iteration.ended')!
+    expect((iterationEnded.payload as { error?: string }).error).toMatch(/wall cap exceeded/)
+    expect(events[events.length - 1]!.kind).toBe('loop.ended')
+    expect(
+      (events[events.length - 1]!.payload as { winnerIterationIndex?: number })
+        .winnerIterationIndex,
+    ).toBeUndefined()
   })
 })
 
@@ -494,6 +558,27 @@ describe('createDefaultCoderDelegate detached path', () => {
     expect(fake.delete).toHaveBeenCalledTimes(1)
   })
 
+  it('journals the detached turn onto the record when dispatched through the queue', async () => {
+    const fake = fakeDriveTurnBox({
+      ticks: [{ state: 'running' }, { state: 'completed', text: completedText, result: {} }],
+      id: 'sandbox_88',
+    })
+    const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
+    const delegate = createDefaultCoderDelegate({ executor, detachedTickIntervalMs: 1 })
+    const queue = new DelegationTaskQueue()
+    const handler = createDelegateCodeHandler({ queue, delegate, detachedDispatch: true })
+    const { taskId } = await handler({ goal: 'fix', repoRoot: '/r' })
+    await until(() => queue.status(taskId)?.status === 'completed')
+    const status = queue.status(taskId, { includeTrace: true })!
+    expect(status.trace?.map((s) => s.kind)).toEqual(['loop', 'branch'])
+    const root = status.trace!.find((s) => s.kind === 'loop')!
+    expect(root.meta?.['tangle.loop.driver']).toBe('detached-turn')
+    const branch = status.trace!.find((s) => s.kind === 'branch')!
+    expect(branch.parentSpanId).toBe(root.spanId)
+    expect(branch.meta?.['tangle.sandbox.id']).toBe('sandbox_88')
+    expect(queue.history().find((e) => e.taskId === taskId)?.hasTrace).toBe(true)
+  })
+
   it('stays on the streaming runLoop path when no ref is present', async () => {
     const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
     const streamPrompt = vi.fn(async function* () {
@@ -584,13 +669,22 @@ describe('restored-record resume end-to-end', () => {
     expect(second.status(taskId)?.status).toBe('running')
     await until(() => second.status(taskId)?.status === 'completed')
     expect(resolved.every((id) => id === 'sandbox_e2e')).toBe(true)
-    const status = second.status(taskId)
+    const status = second.status(taskId, { includeTrace: true })
     expect(status?.result?.profile).toBe('coder')
     expect((status?.result?.output as { branch: string }).branch).toBe('feat/detached')
     expect(fake.driveTurn).toHaveBeenCalledWith('resume: fix bug', {
       sessionId: 'sess-e2e',
       turnId: 'sess-e2e',
     })
+    // the resumed segment is journaled even though the original process's
+    // loop events died with it
+    const resumeSpan = status?.trace?.find(
+      (s) => s.meta?.['tangle.loop.driver'] === 'detached-resume',
+    )
+    expect(resumeSpan).toBeDefined()
+    expect(resumeSpan?.meta?.['tangle.loop.detached_session_ref']).toBe(
+      'sandbox=sandbox_e2e;session=sess-e2e',
+    )
     await second.flush()
   })
 

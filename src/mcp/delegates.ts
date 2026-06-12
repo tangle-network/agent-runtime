@@ -164,7 +164,8 @@ export interface CreateDefaultCoderDelegateOptions {
    * are a cheap no-op when it isn't. Configurable by construction.
    *
    * Detached single-variant turns (taken when `ctx.detachedSessionRef` is set)
-   * bypass `runLoop` and therefore emit no loop trace events for that turn.
+   * bypass `runLoop`; `runDetachedTurn` synthesizes a single-iteration loop
+   * event stream for them so this emitter observes detached work too.
    */
   traceEmitter?: LoopTraceEmitter
   /** Tick cadence (ms) for the detached single-variant path. Default 5000. */
@@ -215,6 +216,8 @@ export function createDefaultCoderDelegate(
           bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
           signal: ctx.signal,
           report: ctx.report,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+          ...(executor.placement === 'fleet' ? { placement: 'fleet' as const } : {}),
           ...(options.detachedTickIntervalMs !== undefined
             ? { tickIntervalMs: options.detachedTickIntervalMs }
             : {}),

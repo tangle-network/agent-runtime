@@ -147,7 +147,7 @@ async function main(): Promise<void> {
 
   const researcherSupport =
     wantResearcher && executor
-      ? await loadResearcherSupport(executor.client, maxConcurrency, traceEmitter)
+      ? await loadResearcherSupport(executor, maxConcurrency, traceEmitter)
       : undefined
 
   // Detached dispatch + resume turn on together with the durable store, and
@@ -369,10 +369,11 @@ interface ResearcherSupport {
 }
 
 async function loadResearcherSupport(
-  sandboxClient: SandboxClient,
+  executor: DelegationExecutor,
   maxConcurrency: number,
   traceEmitter?: LoopTraceEmitter,
 ): Promise<ResearcherSupport | undefined> {
+  const sandboxClient = executor.client
   // Optional peer — when `@tangle-network/agent-knowledge` isn't installed,
   // we silently omit the researcher tool from the advertisement. The
   // dynamic-import path is resolved at runtime; TypeScript cannot see the
@@ -428,6 +429,8 @@ async function loadResearcherSupport(
           bindSandbox: (sandboxId) => rebind(formatDetachedSessionRef({ sandboxId, sessionId })),
           signal: ctx.signal,
           report: ctx.report,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+          ...(executor.placement === 'fleet' ? { placement: 'fleet' as const } : {}),
         })
         const output = await settleSingle(turn, args, sessionId, ctx.signal)
         ctx.report({ iteration: 1, phase: 'completed' })

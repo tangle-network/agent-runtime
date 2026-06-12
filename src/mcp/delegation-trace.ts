@@ -156,6 +156,24 @@ export function createDelegationTraceCollector(
 }
 
 /**
+ * 16-hex-char span id for journal spans synthesized outside the shared loop
+ * builder (e.g. the queue's detached-resume segment).
+ *
+ * @experimental
+ */
+export function generateDelegationSpanId(): string {
+  const bytes = new Uint8Array(8)
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    globalThis.crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < 8; i += 1) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
  * Fan one `LoopTraceEvent` stream into several emitters — e.g. the
  * process-wide OTEL exporter AND the per-delegation journal collector.
  * `undefined` entries are skipped; returns `undefined` when nothing is left
