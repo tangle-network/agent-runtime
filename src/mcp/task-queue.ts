@@ -38,6 +38,7 @@ import {
   type DelegationTraceSpan,
   generateDelegationSpanId,
 } from './delegation-trace'
+import type { TraceContext } from './trace-propagation'
 import type {
   DelegateCodeArgs,
   DelegateResearchArgs,
@@ -93,6 +94,15 @@ export interface DelegationRecord {
   trace?: DelegationTraceSpan[]
   /** Present when oldest trace spans were dropped to honor the trace caps. */
   traceTruncated?: true
+  /**
+   * Inherited trace identity (the queue's `traceContext` at submit time —
+   * typically `readTraceContextFromEnv()`), distinct from the span payload:
+   * a journal consumer joins records into the parent trace by these ids
+   * without parsing spans. Restored records keep their persisted identity.
+   */
+  traceId?: string
+  /** Caller span that dispatched the delegation, when one was inherited. */
+  parentSpanId?: string
 }
 
 /** @experimental */
@@ -218,6 +228,14 @@ export interface DelegationTaskQueueOptions {
    * degrading durable mode to memory-only would lie to the caller.
    */
   onPersistError?: (error: DelegationPersistenceError) => void
+  /**
+   * Inherited trace identity stamped on every submitted record
+   * (`traceId` / `parentSpanId`). The bin passes
+   * `readTraceContextFromEnv()` so journal consumers can join delegation
+   * records into the caller's trace. Restored records keep the identity
+   * they were persisted with.
+   */
+  traceContext?: TraceContext
 }
 
 /** @experimental */
@@ -231,6 +249,7 @@ export class DelegationTaskQueue {
   private readonly resumeDelegate?: DelegationResumeDriver
   private readonly maxTerminalRecords: number
   private readonly onPersistError: (error: DelegationPersistenceError) => void
+  private readonly traceContext: TraceContext | undefined
   private persistTail: Promise<void> = Promise.resolve()
   private persistFailure: DelegationPersistenceError | undefined
 
@@ -247,6 +266,7 @@ export class DelegationTaskQueue {
       }
     }
     this.maxTerminalRecords = options.maxTerminalRecords ?? Number.POSITIVE_INFINITY
+    this.traceContext = options.traceContext
     this.onPersistError =
       options.onPersistError ??
       ((error) => {
@@ -302,6 +322,14 @@ export class DelegationTaskQueue {
       feedback: [],
       idempotencyKey: input.idempotencyKey,
       detachedSessionRef: input.detachedSessionRef,
+      ...(this.traceContext !== undefined
+        ? {
+            traceId: this.traceContext.traceId,
+            ...(this.traceContext.parentSpanId !== undefined
+              ? { parentSpanId: this.traceContext.parentSpanId }
+              : {}),
+          }
+        : {}),
     }
     this.records.set(taskId, record)
     this.controllers.set(taskId, controller)
@@ -324,10 +352,7 @@ export class DelegationTaskQueue {
    * `includeTrace` attaches the journaled loop-trace span tree — off by
    * default so status polls stay light.
    */
-  status(
-    taskId: string,
-    opts?: { includeTrace?: boolean },
-  ): DelegationStatusResult | undefined {
+  status(taskId: string, opts?: { includeTrace?: boolean }): DelegationStatusResult | undefined {
     const record = this.records.get(taskId)
     if (!record) return undefined
     return toStatusResult(record, opts)
@@ -713,6 +738,8 @@ function toStatusResult(
   if (record.error) out.error = record.error
   if (record.costUsd !== undefined) out.costUsd = record.costUsd
   if (record.completedAt) out.completedAt = record.completedAt
+  if (record.traceId !== undefined) out.traceId = record.traceId
+  if (record.parentSpanId !== undefined) out.parentSpanId = record.parentSpanId
   if (opts?.includeTrace === true && record.trace && record.trace.length > 0) {
     out.trace = record.trace.map((span) => ({ ...span }))
     if (record.traceTruncated) out.traceTruncated = true
@@ -733,6 +760,7 @@ function toHistoryEntry(record: DelegationRecord): DelegationHistoryEntry {
   if (record.completedAt) entry.completedAt = record.completedAt
   if (record.costUsd !== undefined) entry.costUsd = record.costUsd
   if (record.feedback.length > 0) entry.feedback = [...record.feedback]
+  if (record.traceId !== undefined) entry.traceId = record.traceId
   return entry
 }
 

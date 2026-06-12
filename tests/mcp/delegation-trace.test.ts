@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { FileDelegationStore } from '../../src/mcp/delegation-store'
 import {
   buildDelegationTraceSpans,
   capDelegationTrace,
@@ -9,7 +10,6 @@ import {
   createDelegationTraceCollector,
   type DelegationTraceSpan,
 } from '../../src/mcp/delegation-trace'
-import { FileDelegationStore } from '../../src/mcp/delegation-store'
 import { DelegationTaskQueue } from '../../src/mcp/task-queue'
 import type { DelegateCodeArgs } from '../../src/mcp/types'
 import { buildLoopOtelSpans } from '../../src/otel-export'
@@ -33,7 +33,12 @@ function loopEvents(runId = 'run-1'): LoopTraceEvent[] {
       kind: 'loop.started',
       runId,
       timestamp: 1000,
-      payload: { driver: 'single-shot', agentRunNames: ['coder'], maxIterations: 1, maxConcurrency: 1 },
+      payload: {
+        driver: 'single-shot',
+        agentRunNames: ['coder'],
+        maxIterations: 1,
+        maxConcurrency: 1,
+      },
     },
     {
       kind: 'loop.plan',
@@ -51,7 +56,12 @@ function loopEvents(runId = 'run-1'): LoopTraceEvent[] {
       kind: 'loop.iteration.dispatch',
       runId,
       timestamp: 1003,
-      payload: { iterationIndex: 0, agentRunName: 'coder', placement: 'sibling', sandboxId: 'sbx-1' },
+      payload: {
+        iterationIndex: 0,
+        agentRunName: 'coder',
+        placement: 'sibling',
+        sandboxId: 'sbx-1',
+      },
     },
     {
       kind: 'loop.iteration.ended',
@@ -306,5 +316,75 @@ describe('DelegationTaskQueue trace tee', () => {
     expect(tracedEntry.hasTrace).toBe(true)
     expect(untracedEntry.hasTrace).toBe(false)
     expect('trace' in tracedEntry).toBe(false)
+  })
+})
+
+describe('DelegationTaskQueue trace identity', () => {
+  let dir: string | undefined
+
+  afterEach(async () => {
+    if (dir) await rm(dir, { recursive: true, force: true })
+    dir = undefined
+  })
+
+  it('stamps the inherited traceId/parentSpanId on submitted records and surfaces them', async () => {
+    const queue = new DelegationTaskQueue({
+      traceContext: { traceId: 'trace-abc', parentSpanId: 'span-def' },
+    })
+    const { taskId } = queue.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: codeArgs,
+      run: async () => coderOutput(),
+    })
+    await new Promise((r) => setImmediate(r))
+    await queue.flush()
+    const status = queue.status(taskId)!
+    expect(status.traceId).toBe('trace-abc')
+    expect(status.parentSpanId).toBe('span-def')
+    expect(queue.history().find((e) => e.taskId === taskId)?.traceId).toBe('trace-abc')
+  })
+
+  it('omits the identity when no traceContext is configured', async () => {
+    const queue = new DelegationTaskQueue()
+    const { taskId } = queue.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: codeArgs,
+      run: async () => coderOutput(),
+    })
+    await new Promise((r) => setImmediate(r))
+    const status = queue.status(taskId)!
+    expect(status.traceId).toBeUndefined()
+    expect(status.parentSpanId).toBeUndefined()
+  })
+
+  it('persists the identity through the store and keeps it on restore under a NEW context', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'dlg-trace-id-'))
+    const filePath = join(dir, 'state.json')
+    const first = await DelegationTaskQueue.restore({
+      store: new FileDelegationStore({ filePath }),
+      traceContext: { traceId: 'trace-original' },
+    })
+    const { taskId } = first.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: codeArgs,
+      run: async () => coderOutput(),
+    })
+    await new Promise((r) => setImmediate(r))
+    await first.flush()
+
+    const second = await DelegationTaskQueue.restore({
+      store: new FileDelegationStore({ filePath }),
+      traceContext: { traceId: 'trace-after-restart' },
+    })
+    // restored records keep the identity they were submitted under
+    expect(second.status(taskId)?.traceId).toBe('trace-original')
+    const { taskId: fresh } = second.submit<DelegateCodeArgs>({
+      profile: 'coder',
+      args: { ...codeArgs, goal: 'new goal' },
+      run: async () => coderOutput(),
+    })
+    expect(second.status(fresh)?.traceId).toBe('trace-after-restart')
+    await new Promise((r) => setImmediate(r))
+    await second.flush()
   })
 })

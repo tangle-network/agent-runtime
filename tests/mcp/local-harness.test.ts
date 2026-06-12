@@ -152,7 +152,12 @@ describe('runLocalHarness trace-context inheritance (in-process placement)', () 
           return makeFakeChild({ exitCode: 0 })
         },
       )
-      await runLocalHarness({ harness: 'claude', cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
+      await runLocalHarness({
+        harness: 'claude',
+        cwd: '/tmp/wt',
+        taskPrompt: 'go',
+        spawn: spawnSpy,
+      })
       expect(seenEnvs[0]?.TRACE_ID).toBe('trace-inherit-1')
       expect(seenEnvs[0]?.PARENT_SPAN_ID).toBe('span-inherit-1')
     } finally {

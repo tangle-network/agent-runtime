@@ -242,7 +242,11 @@ export function createDefaultCoderDelegate(
         output,
         validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
+        ctx: {
+          sandboxClient,
+          signal: ctx.signal,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+        },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -270,7 +274,11 @@ export function createDefaultCoderDelegate(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
+      ctx: {
+        sandboxClient,
+        signal: ctx.signal,
+        ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+      },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })

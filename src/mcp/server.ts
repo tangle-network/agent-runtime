@@ -58,6 +58,7 @@ import {
   DELEGATION_STATUS_INPUT_SCHEMA,
   DELEGATION_STATUS_TOOL_NAME,
 } from './tools/delegation-status'
+import type { TraceContext } from './trace-propagation'
 
 /** @experimental */
 export interface McpServerOptions {
@@ -96,6 +97,12 @@ export interface McpServerOptions {
    * duplicate name throws so delegation tools cannot be shadowed silently.
    */
   extraTools?: McpToolDescriptor[]
+  /**
+   * Inherited trace identity (`readTraceContextFromEnv()`) stamped on every
+   * record the DEFAULT queue creates. Ignored when `queue` is supplied —
+   * pass `traceContext` to that queue's constructor instead.
+   */
+  traceContext?: TraceContext
   /** Server display name surfaced via `initialize`. Default `'agent-runtime-mcp'`. */
   serverName?: string
   /** Server version surfaced via `initialize`. Default = the package version baked at build time. */
@@ -154,7 +161,11 @@ const DEFAULT_SERVER_VERSION = '0.22.0'
 
 /** @experimental */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
-  const queue = options.queue ?? new DelegationTaskQueue()
+  const queue =
+    options.queue ??
+    new DelegationTaskQueue(
+      options.traceContext !== undefined ? { traceContext: options.traceContext } : {},
+    )
   const feedbackStore = options.feedbackStore ?? new InMemoryFeedbackStore()
   const serverName = options.serverName ?? DEFAULT_SERVER_NAME
   const serverVersion = options.serverVersion ?? DEFAULT_SERVER_VERSION

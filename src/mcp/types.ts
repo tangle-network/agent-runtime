@@ -254,6 +254,10 @@ export interface DelegationStatusResult {
   trace?: DelegationTraceSpan[]
   /** Present when oldest trace spans were dropped to honor the trace caps. */
   traceTruncated?: true
+  /** Inherited trace identity recorded at submit — join key into the caller's trace. */
+  traceId?: string
+  /** Caller span that dispatched the delegation, when one was inherited. */
+  parentSpanId?: string
 }
 
 /** @experimental */
@@ -293,6 +297,8 @@ export interface DelegationHistoryEntry {
    * `delegation_status { taskId, includeTrace: true }`.
    */
   hasTrace: boolean
+  /** Inherited trace identity recorded at submit — join key into the caller's trace. */
+  traceId?: string
 }
 
 /** @experimental */

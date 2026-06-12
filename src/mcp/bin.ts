@@ -80,7 +80,11 @@ import {
 import type { DelegationExecutor } from './executor'
 import { createMcpServer } from './server'
 import { type DelegationResumeDriver, DelegationTaskQueue } from './task-queue'
-import { createPropagatingTraceEmitter, readTraceContextFromEnv } from './trace-propagation'
+import {
+  createPropagatingTraceEmitter,
+  readTraceContextFromEnv,
+  type TraceContext,
+} from './trace-propagation'
 import type { DelegateCodeArgs, DelegateResearchArgs, ResearchOutputShape } from './types'
 
 async function main(): Promise<void> {
@@ -126,9 +130,11 @@ async function main(): Promise<void> {
   // when OTEL_EXPORTER_OTLP_ENDPOINT is set (+ TRACE_ID / PARENT_SPAN_ID for
   // correlation with the caller's trace). A cheap no-op when the endpoint is
   // unset — the fleet forwards the env into this MCP's process to turn it on.
-  const { emitter: traceEmitter, exporter: traceExporter } = createPropagatingTraceEmitter(
-    readTraceContextFromEnv(),
-  )
+  // The same context is stamped onto every delegation record (traceId /
+  // parentSpanId) so journal consumers join records into the caller's trace.
+  const traceContext = readTraceContextFromEnv()
+  const { emitter: traceEmitter, exporter: traceExporter } =
+    createPropagatingTraceEmitter(traceContext)
   if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     process.stderr.write(
       `agent-runtime-mcp: exporting loop topology → ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}\n`,
@@ -170,11 +176,12 @@ async function main(): Promise<void> {
       ? buildResumeDriver({ sandboxClient, researcherResume: researcherSupport?.resume })
       : undefined
 
-  const durableQueue = await buildDurableQueueFromEnv(resumeDriver)
+  const durableQueue = await buildDurableQueueFromEnv(resumeDriver, traceContext)
   const server = createMcpServer({
     coderDelegate,
     researcherDelegate: researcherSupport?.delegate,
     detachedDispatch,
+    traceContext,
     ...(durableQueue ? { queue: durableQueue } : {}),
   })
 
@@ -200,6 +207,7 @@ async function main(): Promise<void> {
 
 async function buildDurableQueueFromEnv(
   resumeDriver: DelegationResumeDriver | undefined,
+  traceContext: TraceContext,
 ): Promise<DelegationTaskQueue | undefined> {
   const stateFile = process.env.AGENT_RUNTIME_DELEGATION_STATE_FILE?.trim()
   if (!stateFile) return undefined
@@ -214,6 +222,7 @@ async function buildDurableQueueFromEnv(
   // failed with a truthful driver-restart error.
   const queue = await DelegationTaskQueue.restore({
     store,
+    traceContext,
     ...(resumeDriver ? { resumeDelegate: resumeDriver } : {}),
     ...(maxTerminalRecords !== undefined ? { maxTerminalRecords } : {}),
     onPersistError: (error) => {
@@ -450,7 +459,11 @@ async function loadResearcherSupport(
         output: preset.output,
         validator: preset.validator,
         task,
-        ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
+        ctx: {
+          sandboxClient,
+          signal: ctx.signal,
+          ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+        },
         maxIterations: 1,
         maxConcurrency,
       })
@@ -466,7 +479,11 @@ async function loadResearcherSupport(
       output: fanout.output,
       validator: fanout.validator,
       task,
-      ctx: { sandboxClient, signal: ctx.signal, ...(loopEmitter ? { traceEmitter: loopEmitter } : {}) },
+      ctx: {
+        sandboxClient,
+        signal: ctx.signal,
+        ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
+      },
       maxIterations: variants,
       maxConcurrency: Math.min(maxConcurrency, variants),
     })

@@ -189,12 +189,12 @@ export function composeLoopTraceEmitters(
   if (live.length === 1) return live[0]
   return {
     emit(event: LoopTraceEvent): void | Promise<void> {
-      let pending: Promise<void>[] | undefined
+      const pending: Promise<void>[] = []
       for (const emitter of live) {
         const result = emitter.emit(event)
-        if (result) (pending ??= []).push(result)
+        if (result) pending.push(result)
       }
-      if (pending) return Promise.all(pending).then(() => undefined)
+      if (pending.length > 0) return Promise.all(pending).then(() => undefined)
     },
   }
 }
