@@ -53,12 +53,19 @@ async function main() {
   // Labels follow corpus-report's contract: the `random*` family is the compute
   // control; `refine*` families are the steering arms it pairs against it (so
   // `tsx src/corpus-report.mts <corpus>` emits the paired-bootstrap + BH verdict).
-  const policies: [Arm, ...Arm[]] = [
+  const allPolicies: [Arm, ...Arm[]] = [
     randomArm('random'), // compute control: independent retries, no steer
     analystArm('refineAudit', llmAnalyst(router)), // observe→steer: audit the prior attempt's trace, steer on the findings
     arm('refinePush', (root, _h, r) =>
       r === 0 ? root : `${root}\n\nShip the most complete working end-to-end result NOW. Prefer done over polish; finish it.`),
   ]
+  // ARMS=random  → blind-only floor probe (1/3 the cost of the full A/B); the
+  // control arm is always retained so deltas stay defined.
+  const armFilter = (process.env.ARMS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  const policies: [Arm, ...Arm[]] =
+    armFilter.length > 0
+      ? ([allPolicies[0], ...allPolicies.slice(1).filter((a) => armFilter.includes(a.label))] as [Arm, ...Arm[]])
+      : allPolicies
 
   const corpus = process.env.CORPUS ?? `${process.cwd()}/corpus/rsi-${adapter.name}.jsonl`
   // Optional in-box web-search provider pin (research benches): SEARCH=you|exa|… sets
