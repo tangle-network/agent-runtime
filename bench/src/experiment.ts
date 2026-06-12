@@ -319,11 +319,16 @@ export async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentRe
         ? { lineage: { streaming: 'poll' as const } }
         : {}),
     })
+    // An iteration that errored without a verdict is UNMEASURED — a rollout fault
+    // (no output) and a judge/validator fault (output produced, judge threw)
+    // alike. Either makes the cell's k-attempt outcome unknowable, so it is
+    // infra-excluded (counted + reported), never folded into an unresolved 0.
     const iter0 = result.iterations[0]
-    const infraError = iter0?.error !== undefined && iter0.output === undefined
-    if (infraError)
+    const infraIter = result.iterations.find((it) => it.error !== undefined && it.verdict === undefined)
+    const infraError = infraIter !== undefined
+    if (infraIter)
       console.error(
-        `  [infra-cause] ${label} ${task.id}: ${(iter0?.error instanceof Error ? (iter0.error.stack ?? iter0.error.message) : String(iter0?.error)).slice(0, 700)}`,
+        `  [infra-cause] ${label} ${task.id} r${infraIter.index}: ${(infraIter.error instanceof Error ? (infraIter.error.stack ?? infraIter.error.message) : String(infraIter.error)).slice(0, 700)}`,
       )
     const resolved = result.winner?.verdict?.valid === true
     if (cfg.corpusPath) {
