@@ -19,9 +19,11 @@
  * engine/data is absent — never a fabricated score.
  */
 
+import { spawn } from 'node:child_process'
 import { join } from 'node:path'
-import type { OutputAdapter } from '@tangle-network/agent-runtime/loops'
-import { benchRoot, preflightVenvImports, runVenvScriptStdin } from './_harness'
+import { createInterface } from 'node:readline'
+import { type OutputAdapter, routerToolLoop, type ToolSpec } from '@tangle-network/agent-runtime/loops'
+import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const DRIVER = join(benchRoot, 'scripts', 'appworld_driver.py')
@@ -168,20 +170,24 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
 }
 
 /**
- * AppWorld in its NATIVE protocol: the worker is the driver's interactive ReAct
- * episode (`react` subcommand) — write a python block, the engine executes it in
- * the persistent world, the output feeds back, iterate until done or the turn
- * backstop. The one-shot codegen adapter above plays a strictly harder game
- * (no execution feedback — the first wrong API call kills the whole program at
- * judge time), which flatlines the score against ANY steering; this adapter is
- * the mode the benchmark's published baselines use, where behavior can actually
- * move sub-tests.
+ * AppWorld in its NATIVE protocol, run by OUR runtime: the worker is
+ * `routerToolLoop` (the runtime's off-box agentic tool loop) with one tool —
+ * `execute_python` — bound to a persistent AppWorld world session. The driver's
+ * `session` subcommand is a dumb world shim (stdin JSONL: execute → output,
+ * evaluate → verdict); every inference turn, the metering, and the typed
+ * toolTrace the analyst steers on belong to the runtime, so runtime
+ * improvements are what this benchmark measures.
  *
- * Protocol: the round task string is `@appworld-react <taskId> <split>` on line 1;
- * everything after line 1 is the steer (an analyst correction, a push directive)
- * and rides into the episode as the `directive` — so the existing arms steer this
- * worker without modification. The artifact is the episode's own evaluation JSON
- * (AppWorld's evaluator ran in-world); judge() parses it and never re-executes.
+ * The one-shot codegen adapter above plays a strictly harder game (no execution
+ * feedback — the first wrong API call kills the whole program at judge time),
+ * which flatlines the score against ANY steering; this mode is what the
+ * benchmark's published baselines use, where behavior can move sub-tests.
+ *
+ * Protocol: the round task string is `@appworld-react <taskId> <split>` on
+ * line 1; everything after line 1 is the steer (an analyst correction, a push
+ * directive) appended to the system prompt — so the existing arms steer this
+ * worker without modification. The artifact is the episode evaluation JSON
+ * (AppWorld's evaluator ran in-world); judge() parses it, never re-executes.
  */
 
 interface ReactResult {
@@ -198,8 +204,85 @@ interface ReactResult {
 
 const REACT_HEADER = /^@appworld-react (\S+) (\S+)\n?/
 
-/** SandboxClient whose leaf is one full ReAct episode in the AppWorld engine. */
-export function appworldReactClient(cfg: {
+const SESSION_SYSTEM = [
+  'You are completing a task in AppWorld, a simulated multi-app environment.',
+  'Use the execute_python tool to run Python that calls the app APIs (the `apis.<app>.<function>(...)` surface).',
+  'Inspect API docs with `apis.api_docs.show_api_descriptions(app_name=...)` and `apis.api_docs.show_api_doc(app_name=..., api_name=...)`.',
+  'Authenticate where needed via the supervisor-provided credentials (`apis.supervisor.show_account_passwords()`).',
+  'Work incrementally: small snippets, read each output, correct course.',
+  'When every step of the task is done, run `apis.supervisor.complete_task()` and then reply WITHOUT calling the tool again.',
+].join('\n')
+
+const EXECUTE_TOOL: ToolSpec = {
+  type: 'function',
+  function: {
+    name: 'execute_python',
+    description:
+      'Execute a Python snippet in the persistent AppWorld world. State persists across calls. Returns the execution output (API results or errors).',
+    parameters: {
+      type: 'object',
+      properties: { code: { type: 'string', description: 'Python code calling apis.<app>.<fn>(...)' } },
+      required: ['code'],
+    },
+  },
+}
+
+/** One persistent world session: line-JSONL request/response over the driver. */
+async function withWorldSession<T>(
+  taskId: string,
+  split: string,
+  fn: (call: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>, instruction: string) => Promise<T>,
+): Promise<T> {
+  const child = spawn(venvPython, [DRIVER, 'session', '--task-id', taskId, '--split', split], {
+    cwd: benchRoot,
+  })
+  const rl = createInterface({ input: child.stdout })
+  const pending: Array<(line: string) => void> = []
+  const backlog: string[] = []
+  rl.on('line', (l) => {
+    const next = pending.shift()
+    if (next) next(l)
+    else backlog.push(l)
+  })
+  let stderr = ''
+  child.stderr.on('data', (c: Buffer) => {
+    stderr += c.toString('utf8')
+  })
+  const nextLine = (timeoutMs: number): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const fromBacklog = backlog.shift()
+      if (fromBacklog !== undefined) return resolve(fromBacklog)
+      const t = setTimeout(
+        () => reject(new Error(`appworld session: no response in ${timeoutMs}ms; stderr: ${stderr.slice(-400)}`)),
+        timeoutMs,
+      )
+      pending.push((l) => {
+        clearTimeout(t)
+        resolve(l)
+      })
+      child.once('exit', (code) => {
+        clearTimeout(t)
+        reject(new Error(`appworld session exited (${code}); stderr: ${stderr.slice(-400)}`))
+      })
+    })
+  try {
+    const ready = JSON.parse(await nextLine(120_000)) as { ready?: boolean; instruction?: string; error?: string }
+    if (!ready.ready) throw new Error(`appworld session failed to start: ${ready.error ?? 'no ready line'}`)
+    const call = async (cmd: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      child.stdin.write(`${JSON.stringify(cmd)}\n`)
+      const res = JSON.parse(await nextLine(180_000)) as Record<string, unknown>
+      if (typeof res.error === 'string') throw new Error(`appworld session op failed: ${res.error}`)
+      return res
+    }
+    return await fn(call, ready.instruction ?? '')
+  } finally {
+    child.stdin.end()
+    child.kill('SIGTERM')
+  }
+}
+
+/** SandboxClient whose leaf is OUR routerToolLoop driving a persistent world session. */
+export function appworldToolLoopClient(cfg: {
   model: string
   routerBaseUrl: string
   routerKey: string
@@ -209,7 +292,7 @@ export function appworldReactClient(cfg: {
   let seq = 0
   return {
     async create() {
-      const id = `appworld-react-${seq++}`
+      const id = `appworld-toolloop-${seq++}`
       return {
         id,
         async *streamPrompt(prompt: string) {
@@ -221,23 +304,35 @@ export function appworldReactClient(cfg: {
           }
           const [, taskId, split] = m
           const directive = prompt.replace(REACT_HEADER, '').trim()
-          // Direct runner call (not the shared driver()) so the episode carries a
-          // wall-clock backstop — a hung in-engine turn must not hang the cell.
-          const stdout = await runVenvScriptStdin(
-            DRIVER,
-            ['react', '--task-id', taskId as string, '--split', split as string],
-            JSON.stringify({
-              directive,
-              model: cfg.model,
-              max_turns: maxTurns,
-              router_base: cfg.routerBaseUrl,
-              router_key: cfg.routerKey,
-            }),
-            { cwd: benchRoot, timeoutMs: 1_200_000 },
-          )
-          const lastLine = stdout.trim().split('\n').at(-1) ?? '{}'
-          const out = JSON.parse(lastLine) as ReactResult & { error?: string }
-          if (out.error) throw new Error(`appworld react episode error: ${out.error}`)
+          const out = await withWorldSession(taskId as string, split as string, async (call, instruction) => {
+            const system = directive ? `${SESSION_SYSTEM}\n\n${directive}` : SESSION_SYSTEM
+            const loop = await routerToolLoop(
+              { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
+              system,
+              `Task: ${instruction}`,
+              [EXECUTE_TOOL],
+              async (name, args) => {
+                if (name !== 'execute_python') return `error: unknown tool ${name}`
+                const res = await call({ op: 'execute', code: String(args.code ?? '') })
+                const done = res.task_completed === true
+                return `${String(res.output ?? '')}${done ? '\n\n[TASK MARKED COMPLETE — reply with a final summary and do not call the tool again]' : ''}`
+              },
+              { maxTurns },
+            )
+            const verdict = (await call({ op: 'evaluate' })) as unknown as ReactResult
+            const transcript = loop.toolTrace
+              .slice(-3)
+              .map((t) => `CODE:\n${t.args.slice(0, 600)}\nOUTPUT:\n${t.result.slice(0, 600)}`)
+              .join('\n---\n')
+              .slice(0, 1600)
+            return {
+              ...verdict,
+              turns: loop.turns,
+              input_tokens: loop.usage.input,
+              output_tokens: loop.usage.output,
+              transcript,
+            } satisfies ReactResult
+          })
           // Real usage from the episode — flat llm_call so the kernel meters it.
           if (out.input_tokens || out.output_tokens) {
             yield {
@@ -322,6 +417,6 @@ export function createAppWorldReactAdapter(): BenchmarkAdapter {
       }
     },
 
-    leafClient: (c) => appworldReactClient(c),
+    leafClient: (c) => appworldToolLoopClient(c),
   }
 }
