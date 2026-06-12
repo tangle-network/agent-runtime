@@ -256,14 +256,18 @@ async function withWorldSession<T>(
         () => reject(new Error(`appworld session: no response in ${timeoutMs}ms; stderr: ${stderr.slice(-400)}`)),
         timeoutMs,
       )
-      pending.push((l) => {
-        clearTimeout(t)
-        resolve(l)
-      })
-      child.once('exit', (code) => {
+      // One exit listener per await leaks (25-turn episodes blow the listener
+      // cap) — remove it on the resolve path.
+      const onExit = (code: number | null): void => {
         clearTimeout(t)
         reject(new Error(`appworld session exited (${code}); stderr: ${stderr.slice(-400)}`))
+      }
+      pending.push((l) => {
+        clearTimeout(t)
+        child.removeListener('exit', onExit)
+        resolve(l)
       })
+      child.once('exit', onExit)
     })
   try {
     const ready = JSON.parse(await nextLine(120_000)) as { ready?: boolean; instruction?: string; error?: string }
