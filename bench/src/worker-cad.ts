@@ -308,11 +308,12 @@ export async function solveCadShot(task: BenchTask, cfg: CadWorkerConfig): Promi
     environment: 'universal',
     backend: {
       type: 'opencode',
+      // provider/model/baseUrl pinning only — in-box model auth is the box-provisioned
+      // OPENCODE_MODEL_API_KEY (foreign keys are 403'd at egress).
       model: {
         provider: cfg.provider ?? 'openai',
         model: cfg.model,
         baseUrl: cfg.routerBaseUrl,
-        apiKey: cfg.routerKey,
       },
     },
   })

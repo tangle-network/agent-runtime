@@ -68,7 +68,13 @@ async function main() {
   const r = await runExperiment({
     adapter,
     sandboxClient: client,
-    agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey, ...(Object.keys(searchEnv).length ? { env: searchEnv } : {}) }),
+    agentRun: sandboxAgentRun({
+      model,
+      routerBaseUrl,
+      // Cheap router models (deepseek/kimi/glm) need the openai-compat passthrough in-box.
+      ...(process.env.WORKER_PROVIDER ? { provider: process.env.WORKER_PROVIDER } : {}),
+      ...(Object.keys(searchEnv).length ? { env: searchEnv } : {}),
+    }),
     arms: policies,
     model,
     rounds,

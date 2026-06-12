@@ -189,12 +189,14 @@ export const loopAnalyst = (cfg: {
 export type WorkerBackendType = 'opencode' | 'hermes' | 'claude-code' | 'codex' | 'kimi-code' | 'pi'
 
 /** Build the standard sandbox `AgentRunSpec` for a benchmark — the worker the
- *  kernel injects. `backendType` is the cost dial; the router env wiring mirrors
- *  every sandbox path (opencode's provider auth reads OPENAI_* in-box). */
+ *  kernel injects. `backendType` is the cost dial. Model auth is the BOX'S OWN
+ *  provisioned credential: `backend.model` pins provider/model/baseUrl only, and
+ *  the platform generates the in-box provider config keyed to
+ *  `{env:OPENCODE_MODEL_API_KEY}`. Never pass an external router key into the
+ *  box — the egress proxy rejects foreign credentials (403, empty output). */
 export function sandboxAgentRun(opts: {
   model: string
   routerBaseUrl: string
-  routerKey: string
   backendType?: WorkerBackendType
   /** In-box model provider. Default `openai` (registered models like gpt-4.1).
    *  Cheap router models (deepseek/kimi/glm) are not in opencode's `openai`
@@ -202,9 +204,9 @@ export function sandboxAgentRun(opts: {
   provider?: string
   name?: string
   taskToPrompt?: (task: string) => string
-  /** Extra box-level env, merged ON TOP of the standard OPENAI_* auth (e.g.
-   *  `TANGLE_SEARCH_DEFAULT_PROVIDER` to pin the in-box agent's web-search provider,
-   *  provider keys like EXA_API_KEY). Allowlisted keys only reach the spawned CLI. */
+  /** Extra box-level env (e.g. `TANGLE_SEARCH_DEFAULT_PROVIDER` to pin the in-box
+   *  agent's web-search provider, provider keys like EXA_API_KEY). Allowlisted
+   *  keys only reach the spawned CLI. Must NOT carry router/model credentials. */
   env?: Record<string, string>
   /** The developer's AgentProfile — the one knob for "which agent" (prompt / model /
    *  tools / mcp). Spread through verbatim; the backend cost-dial is tagged into
@@ -218,10 +220,10 @@ export function sandboxAgentRun(opts: {
     name,
     taskToPrompt: opts.taskToPrompt ?? ((t) => t),
     sandboxOverrides: {
-      env: { OPENAI_API_KEY: opts.routerKey, OPENAI_BASE_URL: opts.routerBaseUrl, ...opts.env },
+      ...(opts.env ? { env: opts.env } : {}),
       backend: {
         type: backendType,
-        model: { provider: opts.provider ?? 'openai', model: opts.model, baseUrl: opts.routerBaseUrl, apiKey: opts.routerKey },
+        model: { provider: opts.provider ?? 'openai', model: opts.model, baseUrl: opts.routerBaseUrl },
       },
     },
   }

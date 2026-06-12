@@ -89,7 +89,7 @@ async function main(): Promise<void> {
     let output = ''
     let events: unknown[] = []
     try {
-      const agentRun = sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType: 'opencode', name: `worker-r${round}` })
+      const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType: 'opencode', name: `worker-r${round}` })
       const run = await openSandboxRun<string>(
         client,
         { agentRun, signal: controller.signal },

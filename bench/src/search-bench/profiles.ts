@@ -40,7 +40,10 @@ export interface BuildArmProfileArgs {
   arm: SearchArm
   /** Router base URL (…/v1). Used to derive the search-MCP endpoint. */
   routerBaseUrl: string
-  /** Bearer for the router search MCP. Required for a provider arm. */
+  /** Bearer for the router search MCP. Required for a provider arm. Valid for the
+   *  `bridge` (local) backend; in `sandbox` mode the box egress proxy rejects
+   *  foreign router credentials (403), so the provider arm needs the box-side
+   *  credential flow before sandbox-backed provider runs are trustworthy. */
   tangleApiKey: string
   /** Optional name/metadata to merge. */
   name?: string

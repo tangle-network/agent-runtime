@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const r = await runExperiment({
     adapter,
     sandboxClient: routerSandboxClient(cfg),
-    agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey }),
+    agentRun: sandboxAgentRun({ model, routerBaseUrl }),
     arms: policies,
     model,
     rounds,

@@ -49,7 +49,7 @@ const fakeAdapter = (): BenchmarkAdapter => ({
   },
 })
 
-const agentRun = sandboxAgentRun({ model: 'mock-model', routerBaseUrl: 'http://x', routerKey: 'k' })
+const agentRun = sandboxAgentRun({ model: 'mock-model', routerBaseUrl: 'http://x' })
 
 // --- the one flow runs end-to-end offline + captures REAL usage into the corpus ---
 {

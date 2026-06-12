@@ -100,7 +100,6 @@ export interface RunCfg {
   arms: SearchArm[]
   model: string
   routerBaseUrl: string
-  routerKey: string
   tangleApiKey: string
   sandboxBaseUrl: string
   sandboxKey: string
@@ -138,7 +137,6 @@ async function runCell(
     const agentRun = sandboxAgentRun({
       model: cfg.model,
       routerBaseUrl: cfg.routerBaseUrl,
-      routerKey: cfg.routerKey,
       backendType: harness,
       ...(cfg.provider ? { provider: cfg.provider } : {}),
       profile: buildArmProfile({
@@ -267,7 +265,6 @@ async function main(): Promise<void> {
     ...(bridge ? { bridge } : {}),
     model: env('MODEL', 'opencode/deepseek/deepseek-v4-flash'),
     routerBaseUrl: env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1'),
-    routerKey: env('ROUTER_KEY', tangleApiKey),
     tangleApiKey,
     sandboxBaseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'),
     sandboxKey: env('SANDBOX_KEY', tangleApiKey),

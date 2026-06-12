@@ -100,6 +100,9 @@ interface ShotCfg {
   sandboxBaseUrl: string
   sandboxKey: string
   routerBaseUrl: string
+  /** Host-side opencode (`COMMIT0_BACKEND=local`) only — routes `openai/*` models
+   *  through the router from THIS machine. The sandbox path never sends it into
+   *  the box: in-box model auth is the box-provisioned `OPENCODE_MODEL_API_KEY`. */
   routerKey: string
   model: string
   /** in-box opencode provider. `openai-compat` (default) is the generic passthrough,
@@ -143,9 +146,10 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
   // other rollout (the powered-run crash).
   const controller = new AbortController()
   const timer = cfg.timeoutMs > 0 ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
-  // opencode reads OPENAI_* from the box env (backend.model.apiKey alone is not enough
-  // — without these the in-box agent throws ProviderAuthError); the inline profile +
-  // backend override is the same generic AgentRunSpec the runLoop kernel boots.
+  // backend.model pins provider/model/baseUrl only; the platform writes the in-box
+  // provider config keyed to the box's own OPENCODE_MODEL_API_KEY. The inline
+  // profile + backend override is the same generic AgentRunSpec the runLoop kernel
+  // boots. Never inject an external key — the egress proxy 403s foreign credentials.
   const agentRun: AgentRunSpec<string> = {
     profile: { name: 'commit0-worker', metadata: { backendType: 'opencode' } },
     name: 'commit0-worker',
@@ -153,10 +157,9 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg): Promise<
     sandboxOverrides: {
       name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
       backend: {
         type: 'opencode',
-        model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
+        model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl },
       },
     },
   }
