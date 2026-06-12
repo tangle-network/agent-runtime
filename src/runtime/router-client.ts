@@ -1,7 +1,9 @@
 /**
- * One router chat-with-usage primitive (was copy-pasted across the CAD/browser
- * workers and the spawn research worker). A direct OpenAI-compatible completion
- * through the Tangle router — the cheapest dial, no sandbox, no tools.
+ * The one router chat client: direct OpenAI-compatible completions through the
+ * Tangle router — the cheapest dial, no sandbox. Three layers: `routerChatWithUsage`
+ * (chat-only), `routerChatWithTools` (one completion with function tools), and
+ * `routerToolLoop` (the off-box agentic loop over tool-calling). Shared by the
+ * built-in executors and the bench/lab harnesses.
  *
  * Reports REAL token usage so the backend-integrity guard sees a real backend.
  * Returns `undefined` usage when the provider omitted it — never a fabricated 0
@@ -42,7 +44,12 @@ export async function routerChatWithUsage(
       headers,
       // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
       // reasoning_content first — a small router default yields EMPTY content.
-      body: JSON.stringify({ model: cfg.model, messages, temperature, max_tokens: opts?.maxTokens ?? 8192 }),
+      body: JSON.stringify({
+        model: cfg.model,
+        messages,
+        temperature,
+        max_tokens: opts?.maxTokens ?? 8192,
+      }),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     })
     if (res.ok) return parseChatResult(await res.json(), cfg.model)
@@ -59,7 +66,8 @@ export async function routerChatWithUsage(
     // Cloudflare-origin family (520/522/524) are transient under heavy parallel
     // load — a fleet of concurrent gate runs hits 524 ("origin timeout") and must
     // retry, not crash the whole run.
-    if (![408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status)) throw new Error(lastErr)
+    if (![408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status))
+      throw new Error(lastErr)
     if (attempt < 4) await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
   }
   throw new Error(`${lastErr} (exhausted retries)`)
@@ -75,7 +83,8 @@ function parseChatResult(json: unknown, model: string): RouterChatResult {
     u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
       ? { input: u.prompt_tokens, output: u.completion_tokens }
       : undefined
-  const costUsd = usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
+  const costUsd =
+    usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
   return {
     content: data.choices?.[0]?.message?.content ?? '',
     ...(usage ? { usage } : {}),
@@ -107,18 +116,32 @@ export interface RouterChatToolsResult {
 export async function routerChatWithTools(
   cfg: RouterConfig,
   messages: ReadonlyArray<Record<string, unknown>>,
-  tools: ReadonlyArray<{ type: 'function'; function: { name: string; description?: string; parameters: unknown } }>,
+  tools: ReadonlyArray<{
+    type: 'function'
+    function: { name: string; description?: string; parameters: unknown }
+  }>,
   opts?: { temperature?: number; signal?: AbortSignal; toolChoice?: 'auto' | 'required' | 'none' },
 ): Promise<RouterChatToolsResult> {
   const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, tools, tool_choice: opts?.toolChoice ?? 'auto', temperature: opts?.temperature ?? 0.3 }),
+    body: JSON.stringify({
+      model: cfg.model,
+      messages,
+      tools,
+      tool_choice: opts?.toolChoice ?? 'auto',
+      temperature: opts?.temperature ?? 0.3,
+    }),
     ...(opts?.signal ? { signal: opts.signal } : {}),
   })
   if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> } }>
+    choices?: Array<{
+      message?: {
+        content?: string | null
+        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
+      }
+    }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
   const msg = data.choices?.[0]?.message
@@ -132,7 +155,10 @@ export async function routerChatWithTools(
     u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
       ? { input: u.prompt_tokens, output: u.completion_tokens }
       : undefined
-  const costUsd = usage && isModelPriced(cfg.model) ? estimateCost(usage.input, usage.output, cfg.model) : undefined
+  const costUsd =
+    usage && isModelPriced(cfg.model)
+      ? estimateCost(usage.input, usage.output, cfg.model)
+      : undefined
   return {
     content: msg?.content ?? null,
     toolCalls,
@@ -197,14 +223,19 @@ export async function routerToolLoop(
       usage.output += r.usage.output
     }
     if (r.content) lastText = r.content
-    if (r.toolCalls.length === 0) return { final: lastText, turns: turn, toolCalls, toolTrace, usage }
+    if (r.toolCalls.length === 0)
+      return { final: lastText, turns: turn, toolCalls, toolTrace, usage }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then
     // run each call on the host and fold the result back as a `tool` message.
     messages.push({
       role: 'assistant',
       content: r.content ?? '',
-      tool_calls: r.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.arguments } })),
+      tool_calls: r.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
     })
     for (const tc of r.toolCalls) {
       toolCalls += 1
@@ -214,7 +245,11 @@ export async function routerToolLoop(
       } catch {
         // Malformed tool args from the model are a real outcome, not an infra fault — feed
         // the error back so the model can correct, rather than throwing the whole loop.
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}` })
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}`,
+        })
         continue
       }
       const out = await execute(tc.name, args)

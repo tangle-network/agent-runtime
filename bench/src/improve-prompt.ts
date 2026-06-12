@@ -46,10 +46,9 @@ import { DEFAULT_MIND2WEB_DIRECTIVE, solveBrowserLocal } from './worker-browser'
 import { DEFAULT_BUILD123D_DIRECTIVE, solveBuild123dLocal } from './worker-build123d'
 import { DEFAULT_CAD_DIRECTIVE, solveCadRefineLocal } from './worker-cad'
 import { DEFAULT_RESEARCH_REFINE_DIRECTIVE, DEFAULT_SANDBOX_REFINE_DIRECTIVE } from './directives'
-import { createDriver, runLoop } from '@tangle-network/agent-runtime/loops'
+import { createDriver, routerChatWithUsage, runLoop } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, refineArm, sandboxAgentRun } from './experiment'
-import { routerChatWithUsage } from './router-client'
 
 interface RefineScenario extends Scenario {
   task: BenchTask

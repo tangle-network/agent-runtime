@@ -27,6 +27,7 @@ import { spawn } from 'node:child_process'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
+import { routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunLoopOptions } from '../run-loop'
 import { runLoop } from '../run-loop'
 import type {
@@ -146,11 +147,9 @@ function zeroSpend(): Spend {
  * the spend records zero tokens but the call still counts one iteration (a
  * phantom fabricated 0 is never emitted as a priced cost).
  *
- * NOTE for the Integrate phase: this duplicates the minimal body of
- * `bench/src/router-client.ts#routerChatWithUsage`. `bench/` is a sub-package
- * outside this package's `rootDir: "src"`, so it cannot be imported here without
- * breaking the build. Integrate should lift that helper into `src/loops/` and
- * have both call sites share it (do not re-copy a third time).
+ * Transport = `routerChatWithUsage` (`../router-client`): transient router
+ * failures (429/5xx/Cloudflare-origin) retry with backoff before the executor
+ * fails the task.
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
@@ -179,36 +178,19 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       const messages = taskToMessages(task, spec)
       const started = Date.now()
       const linked = linkSignals(signal, controller.signal)
-      const res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${seam.routerKey}` },
-        body: JSON.stringify({ model, messages, temperature: 0.2 }),
-        ...(linked ? { signal: linked } : {}),
-      })
-      if (!res.ok) {
-        throw new ValidationError(
-          `routerInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
-        )
-      }
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
-      }
-      const u = data.usage
-      const usage =
-        u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
-          ? { input: u.prompt_tokens, output: u.completion_tokens }
-          : undefined
-      const usd = usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : 0
-      const content = data.choices?.[0]?.message?.content ?? ''
+      const r = await routerChatWithUsage(
+        { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
+        messages,
+        linked ? { signal: linked } : {},
+      )
       const spent: Spend = {
         iterations: 1,
-        tokens: usage ? { input: usage.input, output: usage.output } : zeroTokenUsage(),
-        usd,
+        tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
+        usd: r.costUsd ?? 0,
         ms: Date.now() - started,
       }
-      const out = { content } as unknown
-      artifact = { outRef: contentRef('router', { model, content }), out, spent }
+      const out = { content: r.content } as unknown
+      artifact = { outRef: contentRef('router', { model, content: r.content }), out, spent }
       return artifact
     },
     teardown(_grace): Promise<{ destroyed: boolean }> {
@@ -224,11 +206,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }
 }
 
-/** An OpenAI-shape function tool the model may call. */
-export interface ToolSpec {
-  type: 'function'
-  function: { name: string; description?: string; parameters: unknown }
-}
+export type { ToolSpec }
 
 /**
  * Router seam WITH tool use — the tool-using router backend. Same direct

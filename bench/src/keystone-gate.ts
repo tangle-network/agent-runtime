@@ -48,6 +48,7 @@ import type {
 } from '@tangle-network/agent-runtime/loops'
 import {
   definePersona,
+  routerChatWithUsage,
   equalKOnCost,
   fanout,
   InMemoryResultBlobStore,
@@ -56,7 +57,6 @@ import {
   trajectoryReport,
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
-import { routerChatWithUsage } from './router-client'
 
 /** A fanout child's task: the prompt to solve with + the instance to grade against. The instance
  *  travels with the prompt so the solve-and-grade leaf can run `adapter.judge` without a closure

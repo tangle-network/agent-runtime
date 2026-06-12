@@ -182,6 +182,18 @@ export {
   promotionGate,
 } from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
+// The one router chat client (chat / chat-with-tools / off-box tool loop).
+// `ToolSpec` is exported with the executor seam block below.
+export {
+  type RouterChatResult,
+  type RouterChatToolsResult,
+  type RouterConfig,
+  type RouterToolCall,
+  type RouterToolLoopResult,
+  routerChatWithTools,
+  routerChatWithUsage,
+  routerToolLoop,
+} from './router-client'
 export {
   type BenchmarkCell,
   type BenchmarkConfig,

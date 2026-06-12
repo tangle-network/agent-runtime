@@ -36,7 +36,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { composeStrategies } from './directives'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type RouterConfig, routerChatWithUsage } from './router-client'
+import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 

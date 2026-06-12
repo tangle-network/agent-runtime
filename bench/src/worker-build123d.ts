@@ -21,7 +21,7 @@ import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
-import { routerChatWithUsage } from './router-client'
+import { routerChatWithUsage } from '@tangle-network/agent-runtime/loops'
 
 export { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 
