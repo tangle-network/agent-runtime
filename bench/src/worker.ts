@@ -22,8 +22,9 @@ import {
 export interface WorkerConfig {
   sandboxBaseUrl: string
   sandboxKey: string
+  /** Pins the in-box provider's baseUrl only. Model auth is the box-provisioned
+   *  credential (`OPENCODE_MODEL_API_KEY`) — never an external key. */
   routerBaseUrl: string
-  routerKey: string
   model: string
   provider?: string
   timeoutMs?: number
@@ -100,7 +101,7 @@ export async function solveShot(
       environment: 'universal',
       backend: {
         type: 'opencode',
-        model: { provider: cfg.provider ?? 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey },
+        model: { provider: cfg.provider ?? 'openai', model: cfg.model, baseUrl: cfg.routerBaseUrl },
       },
     },
   }

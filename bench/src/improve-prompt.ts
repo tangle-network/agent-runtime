@@ -337,7 +337,7 @@ async function main() {
           planner: refineArm('refine', directive).planner(scenario.task.prompt, rounds),
           maxIterations: rounds,
         }),
-        agentRun: sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType: 'opencode' }),
+        agentRun: sandboxAgentRun({ model, routerBaseUrl, backendType: 'opencode' }),
         output: answerOutput,
         validator: { async validate() { return { valid: false, score: 0 } } },
         task: scenario.task.prompt,

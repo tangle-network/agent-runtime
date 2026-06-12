@@ -114,7 +114,7 @@ async function runExperimentPreset(
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const backendType = (process.env.BACKEND as WorkerBackendType | undefined) ?? 'opencode'
   const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: routerKey, timeoutMs: 1_200_000 } as never)
-  const agentRun = sandboxAgentRun({ model, routerBaseUrl, routerKey, backendType })
+  const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType })
   // ANALYST=llm|loop appends a targeted-steer arm (the LLM(trace) / agentic rung): llm =
   // one model call over the trace, loop = a whole sub-loop investigates. The honest
   // experiment vs the fixed-directive refine arm — refine@k vs analyst@k vs random@k.
@@ -201,7 +201,6 @@ async function main() {
       sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
       sandboxKey: must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      routerKey: must('TANGLE_API_KEY'),
       model: process.env.WORKER_MODEL ?? 'gpt-5',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       // No timeout by default — the agent runs until it's done. Only honored if

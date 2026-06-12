@@ -41,7 +41,7 @@ interface WorkerResult {
 
 async function runWorker(
   client: Sandbox,
-  cfg: { backendType: WorkerBackendType; model: string; routerBaseUrl: string; routerKey: string },
+  cfg: { backendType: WorkerBackendType; model: string; routerBaseUrl: string },
   id: string,
   task: string,
   priorLearnings: string,
@@ -76,7 +76,6 @@ async function main(): Promise<void> {
     backendType: env('BACKEND', 'opencode') as WorkerBackendType,
     model: env('MODEL', 'gpt-4.1'),
     routerBaseUrl: env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1'),
-    routerKey,
   }
   const n = Math.min(Number(env('N', '2')), subtasks.length)
   const corpus = new FileCorpus(env('CORPUS', '/tmp/fleet-corpus.jsonl'))

@@ -25,7 +25,6 @@ async function main() {
   const model = process.env.WORKER_MODEL ?? 'gpt-5'
   const rounds = Number(process.env.ROUNDS ?? 3)
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const routerKey = must('TANGLE_API_KEY')
   // 20-min transport timeout — a multi-turn web-research agent legitimately takes
   // minutes; a short cap guillotines deep research and understates every arm.
   const client = new Sandbox({
@@ -39,10 +38,9 @@ async function main() {
     name: 'finsearch-worker',
     taskToPrompt: (q) => q,
     sandboxOverrides: {
-      // Box-level env so opencode's provider finds the key (BYOK backend.model.apiKey
-      // is not wired into the in-box agent in @tangle-network/sandbox 0.4.x).
-      env: { OPENAI_API_KEY: routerKey, OPENAI_BASE_URL: routerBaseUrl },
-      backend: { type: 'opencode', model: { provider: 'openai', model, baseUrl: routerBaseUrl, apiKey: routerKey } },
+      // backend.model pins provider/model/baseUrl only — in-box model auth is the
+      // box-provisioned OPENCODE_MODEL_API_KEY (foreign keys are 403'd at egress).
+      backend: { type: 'opencode', model: { provider: 'openai', model, baseUrl: routerBaseUrl } },
     },
   }
 

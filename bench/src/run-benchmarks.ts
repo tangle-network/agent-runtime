@@ -25,9 +25,8 @@ export interface RunBenchmarksOptions {
   benchmarks: string[] | 'all'
   /** The execution substrate, injected (fleet-swappable for scale). */
   sandboxClient: SandboxClient
-  /** Router endpoint + key the in-box worker calls. */
+  /** Router endpoint the in-box worker calls (auth = the box-provisioned key). */
   routerBaseUrl: string
-  routerKey: string
   /** The cost dial (which CLI/runtime runs in-box). Default opencode. */
   backendType?: WorkerBackendType
   /** Model id; defaults to the profile's default model, then gpt-5. */
@@ -58,7 +57,6 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<Record<
     const agentRun = sandboxAgentRun({
       model,
       routerBaseUrl: opts.routerBaseUrl,
-      routerKey: opts.routerKey,
       ...(opts.backendType ? { backendType: opts.backendType } : {}),
       profile: opts.profile,
     })

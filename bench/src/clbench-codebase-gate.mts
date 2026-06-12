@@ -119,8 +119,9 @@ async function runRollout(inst: Instance, lens: string | undefined, cfg: ShotCfg
     box = await acquireSandbox(client, {
       name: `clbench-cb-${inst.instanceId}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      env: { OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl },
-      backend: { type: 'opencode', model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl, apiKey: cfg.routerKey } },
+      // backend.model pins provider/model/baseUrl only — in-box model auth is the
+      // box-provisioned OPENCODE_MODEL_API_KEY (foreign keys are 403'd at egress).
+      backend: { type: 'opencode', model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl } },
     })
     const signal = cfg.timeoutMs > 0 ? AbortSignal.timeout(cfg.timeoutMs) : undefined
     for await (const _ev of box.streamPrompt(rolloutPrompt(inst, lens), signal ? { signal } : {})) {
