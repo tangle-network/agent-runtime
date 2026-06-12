@@ -45,40 +45,68 @@ const ANALYST_SYSTEM = [
   'Take a clear, decisive position — do not hedge with "it depends". Reconcile conflicting data points explicitly.',
 ].join(' ')
 
-async function workerComplete(
-  task: BenchTask,
-  cfg: { routerBaseUrl: string; routerKey: string; model: string; timeoutMs: number },
-): Promise<{ answer: string; inputTokens: number; outputTokens: number; durationMs: number }> {
-  const startedAt = Date.now()
-  const res = await fetch(`${cfg.routerBaseUrl}/chat/completions`, {
+const REFINE_INSTRUCTION =
+  'Review your analysis above. For each distinct analytical theme in the investment brief, ' +
+  'verify you have a dedicated section with at least one specific quantitative claim (a named figure, ' +
+  'percentage, ratio, or calculation) from the cited data files. Add any missing themes. ' +
+  'Rewrite any section that only gestures at a theme without a specific supporting data point. ' +
+  'Begin the revised analysis with "ANALYSIS:" on its own line.'
+
+async function chatOnce(
+  url: string,
+  key: string,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  timeoutMs: number,
+): Promise<{ content: string; promptTokens: number; completionTokens: number }> {
+  const res = await fetch(url, {
     method: 'POST',
-    signal: AbortSignal.timeout(cfg.timeoutMs),
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0,
-      max_tokens: 4096,
-      messages: [
-        { role: 'system', content: ANALYST_SYSTEM },
-        { role: 'user', content: task.prompt },
-      ],
-    }),
+    signal: AbortSignal.timeout(timeoutMs),
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, temperature: 0, max_tokens: 4096, messages }),
   })
-  if (!res.ok) {
-    const body = (await res.text()).slice(0, 300)
-    throw new Error(`router ${res.status} for ${task.id}: ${body}`)
-  }
+  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 300)}`)
   const j = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
-  const answer = j.choices?.[0]?.message?.content ?? ''
   return {
-    answer,
-    inputTokens: j.usage?.prompt_tokens ?? 0,
-    outputTokens: j.usage?.completion_tokens ?? 0,
-    durationMs: Date.now() - startedAt,
+    content: j.choices?.[0]?.message?.content ?? '',
+    promptTokens: j.usage?.prompt_tokens ?? 0,
+    completionTokens: j.usage?.completion_tokens ?? 0,
   }
+}
+
+async function workerComplete(
+  task: BenchTask,
+  cfg: { routerBaseUrl: string; routerKey: string; model: string; timeoutMs: number; kRounds: number; systemPrompt: string },
+): Promise<{ answer: string; inputTokens: number; outputTokens: number; durationMs: number }> {
+  const startedAt = Date.now()
+  const completionsUrl = `${cfg.routerBaseUrl}/chat/completions`
+
+  // Round 1: initial analysis.
+  const r1 = await chatOnce(cfg.routerBaseUrl + '/chat/completions', cfg.routerKey, cfg.model, [
+    { role: 'system', content: cfg.systemPrompt },
+    { role: 'user', content: task.prompt },
+  ], cfg.timeoutMs)
+  let answer = r1.content
+  let inputTokens = r1.promptTokens
+  let outputTokens = r1.completionTokens
+
+  // Round 2 (optional): self-critique for rubric coverage.
+  if (cfg.kRounds >= 2 && answer.trim()) {
+    const r2 = await chatOnce(completionsUrl, cfg.routerKey, cfg.model, [
+      { role: 'system', content: cfg.systemPrompt },
+      { role: 'user', content: task.prompt },
+      { role: 'assistant', content: answer },
+      { role: 'user', content: REFINE_INSTRUCTION },
+    ], cfg.timeoutMs)
+    if (r2.content.trim()) answer = r2.content
+    inputTokens += r2.promptTokens
+    outputTokens += r2.completionTokens
+  }
+
+  return { answer, inputTokens, outputTokens, durationMs: Date.now() - startedAt }
 }
 
 interface TaskResult {
@@ -155,10 +183,12 @@ async function main(): Promise<void> {
   const tasks = await adapter.loadTasks(loadOpts)
   if (tasks.length === 0) throw new Error('no tasks loaded')
 
-  const workerCfg = { routerBaseUrl: routerBase, routerKey, model, timeoutMs: 180_000 }
+  const kRounds = Number(process.env.K_ROUNDS ?? 1)
+  const systemPrompt = process.env.SYSTEM_PROMPT ?? ANALYST_SYSTEM
+  const workerCfg = { routerBaseUrl: routerBase, routerKey, model, timeoutMs: 180_000, kRounds, systemPrompt }
 
   console.log(
-    `trata-gate: ${tasks.length} tasks | model=${model} | judge=${process.env.JUDGE_MODEL ?? 'gemini-2.5-pro'} | concurrency=${concurrency}`,
+    `trata-gate: ${tasks.length} tasks | model=${model} | judge=${process.env.JUDGE_MODEL ?? 'gemini-2.5-pro'} | concurrency=${concurrency} | rounds=${kRounds}`,
   )
 
   let done = 0

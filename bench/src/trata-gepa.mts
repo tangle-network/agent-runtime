@@ -145,7 +145,7 @@ async function main(): Promise<void> {
 
   // Load all tasks and split deterministically.
   // Hash-shuffle by task id so both splits carry the same difficulty mix.
-  const tasks = await adapter.loadTasks({ limit: trainN + holdoutN })
+  const tasks = await adapter.loadTasks({})
   const idHash = (s: string): number => {
     let h = 2166136261
     for (let i = 0; i < s.length; i += 1) {
@@ -155,9 +155,8 @@ async function main(): Promise<void> {
     return h >>> 0
   }
   tasks.sort((a, b) => idHash(a.id) - idHash(b.id))
-  const half = Math.floor(tasks.length / 2)
-  const train = tasks.slice(0, Math.min(trainN, half))
-  const holdout = tasks.slice(half, half + Math.min(holdoutN, tasks.length - half))
+  const train = tasks.slice(0, Math.min(trainN, tasks.length))
+  const holdout = tasks.slice(train.length, train.length + Math.min(holdoutN, tasks.length - train.length))
   const toScenario = (t: BenchTask): TrataScenario => ({ id: t.id, kind: 'trata-hedge', task: t })
 
   console.log(
