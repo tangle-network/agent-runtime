@@ -162,6 +162,11 @@ def run_sql(server: dict, query: str) -> object:
     payload = {"query": query, "database_id": server.get("_database_id")}
     try:
         out = parse_body(request(url, payload, auth_headers(server), timeout=60))
+    except urllib.error.HTTPError as e:
+        if e.code == 400:
+            # 400 = SQL error (bad query / schema mismatch) — verifier fails, not a judge crash.
+            return None
+        fail(f"gym server unreachable at {url}: {e}")
     except urllib.error.URLError as e:
         fail(f"gym server unreachable at {url}: {e}")
     except Exception as e:  # noqa: BLE001
