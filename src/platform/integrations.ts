@@ -1,13 +1,15 @@
 /**
- * Server-side client for the Tangle platform's integrations hub
- * (`/v1/integrations/*`). Consumer apps use this instead of rolling
- * their own OAuth + connection tables.
+ * Server-side client for the Tangle platform's integration hub
+ * (`/v1/hub/*`). Consumer apps use this instead of rolling their own
+ * OAuth + connection tables.
  *
  * Auth: the caller supplies a bearer (either the user's API key from
  * cross-site exchange, or a platform service token) on construction.
- * Per-request override via `headers` is supported.
  *
- * Endpoint contract: `products/platform/api/src/routes/integrations.ts`.
+ * Endpoint contract (authoritative): the platform's `src/lib/hub-contract.ts`
+ * + `src/routes/hub.ts`. The platform wraps every response in
+ * `{ success, data }`; non-2xx or `success:false` surfaces as `PlatformHubError`
+ * carrying the real upstream status.
  */
 
 export interface PlatformHubClientOptions {
@@ -19,72 +21,112 @@ export interface PlatformHubClientOptions {
   fetchImpl?: typeof fetch
 }
 
+/** A live integration connection, as returned by `/v1/hub/connections`. */
 export interface PlatformConnection {
   id: string
   providerId: string
-  connectorId: string
-  status: 'connected' | 'pending' | 'revoked' | 'expired' | string
-  grantedScopes?: string[]
-  account?: { identity?: string; displayName?: string } & Record<string, unknown>
-  metadata?: Record<string, unknown>
-  expiresAt?: string | null
-  createdAt?: string
-  updatedAt?: string
+  displayName: string
+  accountDisplay: string | null
+  scopes: string[]
+  status: 'active' | 'revoked' | 'unhealthy' | 'reconnect_required' | (string & {})
+  health: 'unknown' | 'healthy' | 'unhealthy' | 'rate_limited' | (string & {})
+  createdAt: string
+  updatedAt: string
+  lastUsedAt: string | null
 }
 
+/** A connectable provider in the catalog (`/v1/hub/providers`). */
 export interface PlatformCatalogProvider {
   providerId: string
-  displayName?: string
-  description?: string
-  authMode?: string
-  connectors?: PlatformCatalogConnector[]
+  title?: string
+  authKind?: string
+  category?: string
+  scopes?: string[]
+  capabilityCount?: number
+  native?: boolean
+  /** Whether the OAuth app's credentials are wired — the UI offers Connect
+   *  only when true. */
+  configured?: boolean
   [k: string]: unknown
 }
 
-export interface PlatformCatalogConnector {
-  connectorId: string
-  displayName?: string
-  description?: string
-  scopes?: string[]
+export interface CatalogResult {
+  providers: PlatformCatalogProvider[]
+  /** Count of substrate-bundled connectors behind the catalog. */
+  substrateBundled?: number
   [k: string]: unknown
 }
 
 export interface StartAuthInput {
+  /** The provider to connect (goes in the URL path). */
   providerId: string
-  connectorId: string
+  /** Accepted for interface compatibility; the platform's start endpoint is
+   *  provider-level and does not consume a connector id. */
+  connectorId?: string
   /** Where the platform redirects the user back to after OAuth. */
   returnUrl: string
+  /** Accepted for interface compatibility; not consumed by the start endpoint. */
   requestedScopes?: string[]
-  state?: string
-  metadata?: Record<string, unknown>
-  /** Required when the bearer is a service token impersonating a user. */
-  ownerUserId?: string
+  /** CLI flow flag — affects the platform's post-auth redirect handling. */
+  cli?: boolean
 }
 
 export interface StartAuthResult {
+  /** The URL to send the user to. Normalized across the platform's two start
+   *  branches: github returns `authorizationUrl`, substrate returns
+   *  `redirectUrl`. */
   authorizationUrl: string
   state: string
+  expiresAt?: string
+  scopes?: string[]
 }
 
-export interface BundleCapabilityInput {
-  manifestId?: string
-  grantIds?: string[]
-  subject: { type: 'user' | 'team' | 'app'; id: string }
-  ttlMs: number
+export interface ConnectionHealth {
+  status: 'unknown' | 'healthy' | 'unhealthy' | 'rate_limited' | (string & {})
+  checkedAt: string
+  error?: { code: string; message: string }
 }
 
-export interface BundleCapabilityResult {
-  bundle: Record<string, unknown>
-  env: Record<string, string>
+export interface ConnectionHealthResult {
+  connection: PlatformConnection
+  health: ConnectionHealth
 }
 
+/** Last-known health for a connection, derived from the connection row. */
 export interface HealthCheck {
   connectionId: string
   providerId: string
-  connectorId: string
-  status: 'ok' | 'degraded' | 'failing' | 'unknown' | string
-  checks?: Record<string, unknown>
+  /** Mirrors `PlatformConnection.health`. */
+  status: ConnectionHealth['status']
   checkedAt?: string
+}
+
+export interface MintTokenInput {
+  /** The hub action the token authorizes (e.g. `slack.chat.postMessage`). */
+  actionPath: string
+  /** Bind to a specific connection, or … */
+  connectionId?: string
+  /** … resolve the connection by provider for the calling user. */
+  provider?: string
+}
+
+export interface MintTokenResult {
+  tokenId: string
+  token: string
+  expiresAt: string
+}
+
+export interface ExecInput {
+  /** The hub action path to execute. */
+  path: string
+  input?: unknown
+  connectionId?: string
+}
+
+export interface PlatformHubStatus {
+  contract?: unknown
+  principal: { kind: string; userId: string; [k: string]: unknown }
+  connections: { connectedProviderCount: number; unhealthyProviderCount: number }
 }
 
 export class PlatformHubError extends Error {
@@ -120,58 +162,105 @@ export class PlatformHubClient {
       ((url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => fetch(url, init))
   }
 
-  /** List the integration catalog (providers + connectors). */
-  catalog(): Promise<{ providers: PlatformCatalogProvider[] } & Record<string, unknown>> {
-    return this.request('GET', '/v1/integrations/catalog')
+  /** GET /v1/hub/providers — the connectable provider catalog. */
+  catalog(): Promise<CatalogResult> {
+    return this.request('GET', '/v1/hub/providers')
   }
 
-  /** List the calling user's integration connections. */
+  /** GET /v1/hub/connections — the calling user's live connections. */
   async listConnections(): Promise<PlatformConnection[]> {
     const data = await this.request<{ connections: PlatformConnection[] }>(
       'GET',
-      '/v1/integrations/connections',
+      '/v1/hub/connections',
     )
     return data.connections
   }
 
-  /** Revoke (and disable) a connection by id. */
-  revokeConnection(connectionId: string): Promise<{
-    connection: PlatformConnection
-    revokedGrants: unknown[]
-    providerRevocation: { ok: boolean }
-  }> {
-    return this.request(
-      'DELETE',
-      `/v1/integrations/connections/${encodeURIComponent(connectionId)}`,
-    )
-  }
-
-  /** Begin OAuth — returns the URL to send the user to. */
-  startAuth(input: StartAuthInput): Promise<StartAuthResult> {
-    return this.request('POST', '/v1/integrations/auth/start', input)
-  }
-
-  /** List connection healthchecks (last known state). */
-  async listHealthchecks(): Promise<HealthCheck[]> {
-    const data = await this.request<{ healthchecks: HealthCheck[] }>(
-      'GET',
-      '/v1/integrations/healthchecks',
-    )
-    return data.healthchecks
-  }
-
-  /** Trigger a fresh healthcheck pass. */
-  runHealthchecks(): Promise<{ scheduled: number }> {
-    return this.request('POST', '/v1/integrations/healthchecks/run', {})
+  /** DELETE /v1/hub/connections/:connectionId — revoke + disable a connection. */
+  revokeConnection(connectionId: string): Promise<{ connection: PlatformConnection }> {
+    return this.request('DELETE', `/v1/hub/connections/${encodeURIComponent(connectionId)}`)
   }
 
   /**
-   * Mint a sandbox-injectable capability bundle (env vars + scoped
-   * capability tokens) so a sandbox can invoke integrations on the
-   * user's behalf without seeing the underlying provider tokens.
+   * POST /v1/hub/connections/:provider/start — begin OAuth/grant. The provider
+   * is taken from the URL; the body carries `returnUrl` (+ `cli`). The platform's
+   * two start branches name the URL field differently (github → `authorizationUrl`,
+   * substrate → `redirectUrl`); this normalizes to `authorizationUrl`.
    */
-  bundleCapabilities(input: BundleCapabilityInput): Promise<BundleCapabilityResult> {
-    return this.request('POST', '/v1/integrations/capabilities/bundle', input)
+  async startAuth(input: StartAuthInput): Promise<StartAuthResult> {
+    const body: { returnUrl: string; cli?: boolean } = { returnUrl: input.returnUrl }
+    if (input.cli !== undefined) body.cli = input.cli
+    const data = await this.request<{
+      authorizationUrl?: string
+      redirectUrl?: string
+      state: string
+      expiresAt?: string
+      scopes?: string[]
+    }>('POST', `/v1/hub/connections/${encodeURIComponent(input.providerId)}/start`, body)
+    const authorizationUrl = data.authorizationUrl ?? data.redirectUrl
+    if (!authorizationUrl) {
+      throw new PlatformHubError(
+        'Platform hub start response missing an authorization URL',
+        502,
+        'HUB_INVALID_START_RESPONSE',
+        data,
+      )
+    }
+    return { authorizationUrl, state: data.state, expiresAt: data.expiresAt, scopes: data.scopes }
+  }
+
+  /**
+   * Last-known health for every connection. The platform has no global
+   * healthcheck listing — health rides on each connection row — so this derives
+   * the list from `listConnections()` (one request, no extra round-trips).
+   */
+  async listHealthchecks(): Promise<HealthCheck[]> {
+    const connections = await this.listConnections()
+    return connections.map((c) => ({
+      connectionId: c.id,
+      providerId: c.providerId,
+      status: c.health,
+      checkedAt: c.updatedAt,
+    }))
+  }
+
+  /**
+   * POST /v1/hub/connections/:connectionId/health — trigger a fresh health
+   * probe for one connection and return its updated state.
+   */
+  checkConnectionHealth(connectionId: string): Promise<ConnectionHealthResult> {
+    return this.request('POST', `/v1/hub/connections/${encodeURIComponent(connectionId)}/health`)
+  }
+
+  /**
+   * Trigger a fresh health probe across all of the user's connections. The
+   * platform exposes health per-connection only, so this fans out over
+   * `listConnections()`. `scheduled` is the number of probes dispatched.
+   */
+  async runHealthchecks(): Promise<{ scheduled: number }> {
+    const connections = await this.listConnections()
+    await Promise.allSettled(connections.map((c) => this.checkConnectionHealth(c.id)))
+    return { scheduled: connections.length }
+  }
+
+  /** GET /v1/hub/status — principal + aggregate connection counts. */
+  status(): Promise<PlatformHubStatus> {
+    return this.request('GET', '/v1/hub/status')
+  }
+
+  /**
+   * POST /v1/hub/tokens — mint a short-lived, action-scoped capability token a
+   * sandbox can use to invoke one hub action on the user's behalf without
+   * seeing the underlying provider credential.
+   */
+  mintToken(input: MintTokenInput): Promise<MintTokenResult> {
+    return this.request('POST', '/v1/hub/tokens', input)
+  }
+
+  /** POST /v1/hub/exec — execute a hub action and return its result. */
+  async exec(input: ExecInput): Promise<unknown> {
+    const data = await this.request<{ result: unknown }>('POST', '/v1/hub/exec', input)
+    return data.result
   }
 
   private async request<T>(

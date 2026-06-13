@@ -6,7 +6,7 @@
  *
  * See:
  *   - {@link PlatformAuthClient} for "Login with Tangle"
- *   - {@link PlatformHubClient} for the `/v1/integrations/*` surface
+ *   - {@link PlatformHubClient} for the `/v1/hub/*` surface
  */
 
 export {
@@ -18,15 +18,19 @@ export {
 } from './auth.js'
 
 export {
-  type BundleCapabilityInput,
-  type BundleCapabilityResult,
+  type CatalogResult,
+  type ConnectionHealth,
+  type ConnectionHealthResult,
+  type ExecInput,
   type HealthCheck,
-  type PlatformCatalogConnector,
+  type MintTokenInput,
+  type MintTokenResult,
   type PlatformCatalogProvider,
   type PlatformConnection,
   PlatformHubClient,
   type PlatformHubClientOptions,
   PlatformHubError,
+  type PlatformHubStatus,
   type StartAuthInput,
   type StartAuthResult,
 } from './integrations.js'
