@@ -58,7 +58,7 @@ import {
   openSandboxRun,
   type SandboxRun,
 } from '@tangle-network/agent-runtime/loops'
-import { Sandbox } from '@tangle-network/sandbox'
+import { Sandbox, type SandboxInstance } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
@@ -106,6 +106,67 @@ interface Shot {
 
 /** Last events of a rollout stream, kept for the trace-only analyst. */
 const TRACE_EVENTS_TAIL = 12
+/** Resume budget for turns that end without the patch on disk. The dominant
+ *  cause: the in-box model call has a hard 8192-token output cap (no platform
+ *  knob — `backend.model.maxThinkingTokens` is a no-op for openai-compat), and a
+ *  thinking-mode worker (deepseek v4 / kimi) sporadically burns the WHOLE cap on
+ *  one reasoning episode — finish reason `length`, zero content, zero tool
+ *  calls — which opencode treats as the conversation's natural end: it stops
+ *  mid-task AND rolls the session context back to the original prompt (the dead
+ *  turn's tool steps vanish from the model's view; only the workspace survives).
+ *  Each nudge resumes the SAME session with a self-sufficient re-grounding
+ *  prompt, giving the next call a fresh output budget over the surviving
+ *  workspace. Bounded; the shot timeout is the outer ceiling. Both arms run the
+ *  same policy, so equal compute holds. */
+const MAX_NUDGES = Number(process.env.MAX_NUDGES ?? 6)
+
+/** The resume prompt after a turn that ends with no work in the tree.
+ *  Self-sufficient on purpose: after a length-death the model's context holds
+ *  only the original prompt, so the nudge re-grounds it in the surviving
+ *  workspace instead of saying "continue" into amnesia (where it flails on
+ *  paths outside the workspace). */
+function nudgePrompt(meta: Commit0Meta): string {
+  return [
+    'Your previous turn was cut off mid-task.',
+    `The repo is already cloned at ${WORK_DIR} and may contain partial work — run \`cd ${WORK_DIR} && git status && git diff ${meta.baseCommit}\` to see where you left off, then continue implementing per the original instructions.`,
+    `Keep refreshing the deliverable after every batch of edits: from ${WORK_DIR} run \`git add -A && git diff ${meta.baseCommit} -- ${meta.srcDir} > ${PATCH_PATH}\`.`,
+  ].join('\n')
+}
+
+/** Where the in-box clone can land. The prompt says `${WORK_DIR}`, but `~` is
+ *  not one place in the box: the agent's bash home is the box user's home while
+ *  opencode's file tools resolve `~` to its own opencode-home. Harvest checks
+ *  each candidate. */
+const workDirCandidates = ['~/work', '/home/agent/work', '/home/agent/.opencode-home/work']
+
+/** Read the diff straight from the box's git state (base commit → working tree,
+ *  untracked included via `git add -A`) — the same harvest contract as the local
+ *  backend, so the deliverable does not depend on the agent remembering to write
+ *  the patch file. `git diff <base>` also survives the agent COMMITTING its work
+ *  (where the prompt's `git diff --cached` collapses to empty against HEAD).
+ *  Returns '' when no candidate workdir holds a repo or nothing changed. */
+async function harvestDiff(box: SandboxInstance, meta: Commit0Meta): Promise<string> {
+  const probe = workDirCandidates
+    .map((d) => `if [ -d ${d}/.git ]; then cd ${d} && git add -A >/dev/null 2>&1; git diff ${meta.baseCommit} -- ${meta.srcDir}; exit 0; fi`)
+    .join('; ')
+  const res = await box.exec(`${probe}; exit 3`)
+  return res.exitCode === 0 ? res.stdout : ''
+}
+
+/** Finish reason of the turn's last completed model step, from the raw opencode
+ *  `step-finish` part ('length' = output-cap truncation, 'tool-calls'/'stop' =
+ *  a real decision). Undefined when the stream carried no step-finish. */
+function lastStepFinishReason(events: unknown[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const data = (events[i] as { data?: Record<string, unknown> }).data
+    if (!data) continue
+    const part = ((data.properties as Record<string, unknown> | undefined)?.part ?? data.part) as
+      | { type?: string; reason?: string }
+      | undefined
+    if (part?.type === 'step-finish' && typeof part.reason === 'string') return part.reason
+  }
+  return undefined
+}
 /** Diff prefix shown to the analyst (it names files + hunks; the full diff can be 100KB+). */
 const ANALYST_DIFF_MAX = 6_000
 /** Findings ceiling appended to a steered prompt (the analyst is told 1-3 sentences). */
@@ -117,11 +178,17 @@ function steeredPrompt(base: string, steer: string): string {
   return `${base}\n\n--- Analysis of a previous attempt at this task ---\n${steer}\n\nApply this correction while you implement.`
 }
 
+/** In-box clone target. MUST be under the agent's writable home — `/work` is a
+ *  read-only mount in the universal environment, so a clone there dies with
+ *  "could not create work tree dir '/work': Read-only file system" and the whole
+ *  rollout produces no patch. */
+const WORK_DIR = '~/work'
+
 /** Build the rollout prompt: clone the stub, implement the source, write the diff to
  *  a FILE (the robust deliverable). Mirrors solveShot's file-read contract. */
 function rolloutPrompt(meta: Commit0Meta): string {
   return [
-    `Clone https://github.com/${meta.repo} into /work, then \`cd /work && git checkout ${meta.baseCommit}\`.`,
+    `Clone https://github.com/${meta.repo} into ${WORK_DIR}, then \`cd ${WORK_DIR} && git checkout ${meta.baseCommit}\`.`,
     `The public functions/classes under \`${meta.srcDir}\` are stubbed (empty \`pass\`/\`...\` bodies). Your job is to`,
     `implement COMPLETE, CORRECT bodies under \`${meta.srcDir}\` so the existing test suite under \`${meta.testDir}\` passes.`,
     '',
@@ -133,9 +200,11 @@ function rolloutPrompt(meta: Commit0Meta): string {
     `   pass as you can get — keep iterating; a partial implementation that fails most tests is not done.`,
     '5. Do NOT edit the tests — the evaluation re-runs them on a fresh clone.',
     '',
-    `When the suite is green (or you have maximized passing tests), from /work run EXACTLY:`,
-    `  git add -A && git diff --cached -- ${meta.srcDir} > ${PATCH_PATH}`,
-    `Then stop. The patch file is the only deliverable — do NOT paste the diff in your reply.`,
+    `KEEP THE DELIVERABLE CURRENT while you work: after EVERY batch of source edits, from ${WORK_DIR} run EXACTLY:`,
+    `  git add -A && git diff ${meta.baseCommit} -- ${meta.srcDir} > ${PATCH_PATH}`,
+    'so a partial-but-real patch always exists even if your session is cut off. When the suite is green (or you',
+    'have maximized passing tests), refresh it one final time and stop. The patch file is the only deliverable —',
+    'do NOT paste the diff in your reply.',
   ].join('\n')
 }
 
@@ -181,7 +250,9 @@ const commit0Deliverable: Deliverable<RolloutDeliverable> = {
 async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: string): Promise<Shot> {
   const meta = task.metadata as unknown as Commit0Meta
   const startedAt = Date.now()
-  const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey })
+  // timeoutMs: box creation regularly exceeds the SDK's 30s default under
+  // gateway load ("Request timed out after 30000ms"); match rsi.ts's ceiling.
+  const client = new Sandbox({ baseUrl: cfg.sandboxBaseUrl, apiKey: cfg.sandboxKey, timeoutMs: 1_200_000 })
   // A stream/transport ceiling for the flaky sandbox path (0 ⇒ untimed); the run
   // tears its own box down in `close()`. The whole rollout is fault-isolated: ANY
   // error (502 / stream drop / provision fail / abort) becomes a recorded NO-DIFF
@@ -221,20 +292,35 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
       commit0Deliverable,
     )
     const prompt = steer ? steeredPrompt(rolloutPrompt(meta), steer) : rolloutPrompt(meta)
-    const turn = await run.start(prompt)
-    const ok = turn.out.diff.trim().length > 0
+    let turn = await run.start(prompt)
+    const allEvents: unknown[] = [...turn.events]
+    // The patch FILE is primary; the git harvest is the agent-compliance-proof
+    // fallback (work done but never materialized, or committed past --cached).
+    let diff = turn.out.diff.trim() ? turn.out.diff : await harvestDiff(run.box, meta)
+    let nudges = 0
+    if (process.env.DEBUG_EVENTS === '1')
+      console.error(`[debug] ${task.id}#${attempt} turn0: events=${turn.events.length} finish=${lastStepFinishReason(turn.events)} diff=${diff.length} readError=${turn.readError ?? '-'}`)
+    while (nudges < MAX_NUDGES && diff.trim().length === 0) {
+      nudges += 1
+      turn = await run.resume(nudgePrompt(meta))
+      allEvents.push(...turn.events)
+      diff = turn.out.diff.trim() ? turn.out.diff : await harvestDiff(run.box, meta)
+      if (process.env.DEBUG_EVENTS === '1')
+        console.error(`[debug] ${task.id}#${attempt} nudge${nudges}: events=${turn.events.length} finish=${lastStepFinishReason(turn.events)} diff=${diff.length} readError=${turn.readError ?? '-'}`)
+    }
+    const ok = diff.trim().length > 0
     return {
       task,
       attempt,
-      diff: turn.out.diff,
+      diff,
       ok,
-      events: turn.events.length,
-      traceEvents: turn.events.slice(-TRACE_EVENTS_TAIL),
+      events: allEvents.length,
+      traceEvents: allEvents.slice(-TRACE_EVENTS_TAIL),
       ...(steer ? { steer } : {}),
       runtimeEvents: runtime.events,
       runtimeDecisionPoints: runtime.decisionPoints,
       wallMs: Date.now() - startedAt,
-      ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}` }),
+      ...(ok ? {} : { detail: `empty patch${turn.readError ? ` (read failed: ${turn.readError.slice(0, 120)})` : ''}${turn.out.lastErr ? `; lastError=${turn.out.lastErr}` : ''}; finish=${lastStepFinishReason(turn.events) ?? 'none'}; nudges=${nudges}` }),
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -376,10 +462,11 @@ async function main(): Promise<void> {
   if (!Number.isInteger(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
+  const ids = process.env.IDS?.split(',').map((s) => s.trim()).filter(Boolean)
   const adapter = createCommit0Adapter()
   console.log(`=== commit0 Layer-1 gate · backend=${backend} · N=${n} K=${k} arms=${armNames.join(',')} model=${model} analyst=${analystModel} rolloutConc=${concurrency} ===`)
   await adapter.preflight()
-  const tasks = await adapter.loadTasks({ limit: n })
+  const tasks = await adapter.loadTasks(ids?.length ? { ids } : { limit: n })
   console.log(`loaded ${tasks.length} task(s): ${tasks.map((t) => t.id).join(', ')}`)
 
   // Phase 1 — rollouts, concurrent. sandbox = remote box; local = cli-bridge (opencode
