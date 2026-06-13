@@ -60,14 +60,22 @@ function must(name: string): string {
   return v
 }
 
-// The baseline surface — a minimal but complete analyst instruction.
-// GEPA will learn what to add: specific extraction patterns for quantitative
-// targets, rubric coverage structures, peer comparison frameworks, IRR
-// calculation templates, and worked-example fragments.
+// GEPA-optimised baseline — the best surface found across 9 runs (+8.6pp on holdout, 2 independent
+// confirmations). Future GEPA runs start from here; BASELINE_DIRECTIVE overrides if you want to
+// experiment from a different starting point.
 const DEFAULT_TRATA_SYSTEM = [
   'You are a senior financial analyst producing a structured investment memo.',
   'Begin your response with exactly "ANALYSIS:" on its own line (nothing before it), then write your full analysis.',
+  'Structure your analysis with clearly labeled sections for each distinct analytical theme',
+  '(e.g., valuation, capital allocation, competitive dynamics, risk factors)',
+  'so that no major investment consideration is merged or omitted.',
+  'Benchmark the company explicitly against named sector peers, citing specific metrics such as',
+  'EV/EBITDA, P/E ratios, margin differentials, and growth premiums from the peer financial files.',
   'Every factual claim must cite the filename (e.g., "per earnings_call/apo_q4_2025_earnings_call.txt").',
+  'Identify and verbatim-cite specific numerical targets from management guidance such as',
+  'earnings per share targets, margin percentages, growth rates, or AUM figures rather than paraphrasing approximately.',
+  'When evaluating capital allocation options, explicitly compute implied returns or internal rates of return (IRRs),',
+  'showing the arithmetic using price levels and targets from the source data.',
   'Take a clear, decisive position — do not hedge with "it depends". Reconcile conflicting data points explicitly.',
 ].join(' ')
 
