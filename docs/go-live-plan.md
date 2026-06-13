@@ -11,14 +11,18 @@ All claims verified. Two corrections to the proposed plan (inbox-creds already m
 
 ## BLUF
 
-Ship a **cost + verification + transfer** product, not a "makes your agent smarter" product. The quality keystone (+16.4pp depth>breadth) is retracted to a non-significant tie (+4.7pp CI[−1.9,+11.4] at n=48). The 2-week slice — **Mode 0 (intelligence OFF / sandbox-stream) + Observe + the billing boundary** — runs entirely over already-shipped substrate; the **only** new artifact is the ~200-LOC `src/intelligence/` wrapper plus the budget-channel split. Dogfood on **gtm.tangle.tools**, not Harvey. The single most dangerous move is leaking the retracted quality claim into customer copy; the release gate below makes that structurally impossible.
+Ship a **verifiably-smarter-and-cheaper** product. The vision is intact: make agents smarter, hold them smarter at lower cost, slot in with the fewest LOC, gate every change, and run real research on the same harness. The one correction POWER-16 forces is *where* "smarter" comes from and *how* it's claimed: **smarter comes from gated search (spend compute to find a better artifact, certify the winner), not from a within-run trick that beats blind at equal compute** — that specific mechanism is the tie POWER-16 retracted (+4.1pp CI[−1.6,+10.2] at n=72; the n=16 +16.4pp was an underpowered streak). Once found and certified, the better artifact is **cheap to serve** (retrieval-is-execution) and the cost flywheel holds quality at −12 to −31%. The gate is not a limit on "smarter" — it is the **moat**: everyone else sells improvement from lucky streaks; we sell *"smarter, with the held-out evidence that proves it isn't a streak at your n."* The 2-week slice — **Mode 0 (intelligence OFF / sandbox-stream) + Observe + the billing boundary** — runs over already-shipped substrate; the only new artifact is the ~200-LOC `src/intelligence/` wrapper plus usage classification (inference vs intelligence). Dogfood on **gtm.tangle.tools**, not Harvey. The single most dangerous move is letting "smarter" ship *without* its gate+CI+n attached; the release gate below makes that structurally impossible.
+
+**Proven now vs proven next.** Proven: a gate-certified program transfers and lifts held-out score (+31.7/+36.7pp vs prose memory) at lower cost — a single smarter-and-cheaper *step*. Prove next (E4, the #1 experiment): that it **compounds** as the certified store grows. The honest claim today is the step; the flywheel is what we measure — the difference between "smarter once, cheaply" and "your agent compounds."
 
 ---
 
 ## 1. THE HONEST TAGLINE
 
-**The only customer claim the evidence backs:**
-> **"Verified improvements, not lucky streaks — and we hold your quality at lower cost."**
+**The customer claim the evidence backs:**
+> **"Agents that get verifiably smarter and cheaper — proven on held-out evidence, not lucky streaks."**
+
+"Verifiably" is the whole game: we *do* make agents smarter (via gated search + certification) and hold them cheaper (serve the certified artifact), and the held-out gate is what separates a real gain from a streak — the moat, not the disclaimer.
 
 The two replicated survivors, with provenance:
 
@@ -34,10 +38,10 @@ The two replicated survivors, with provenance:
 
 ## 2. THE DO-NOT-CLAIM LIST (the honesty firewall)
 
-This is where "take risks" stops. Boldness is allowed in *speed, scope, and dogfooding*; it is **forbidden in efficacy claims to a paying customer.** The line:
+This is where "take risks" stops. Boldness is allowed in *speed, scope, and dogfooding*. The firewall is narrow and precise: **"smarter" is allowed — but only with its gate, CI, and n attached.** An unqualified or un-gated efficacy claim to a paying customer is forbidden. The line:
 
-1. ✗ **"Our loop makes your agent measurably smarter / better / higher-quality than just running it."** The keystone collapsed to a tie. Compute dominates; cleverness is marginal at equal compute.
-2. ✗ **"+16.4pp" / "depth beats breadth" / any single-number quality lift** — the cautionary tale. The n=16 headline was an underpowered 6/0 streak.
+1. ✗ **"Our loop makes your agent smarter for free / by steering / without spending more compute."** The within-run-cleverness-beats-blind mechanism is the tie POWER-16 retracted; at equal compute, compute dominates. Smarter is real, but it comes from *gated search* (spend compute, certify the winner), not a free trick. ✓ ALLOWED: "we search for a better configuration and ship it only when it clears a held-out gate."
+2. ✗ **a bare "+Npp" / "depth beats breadth" / any single-number quality lift with no CI and n** — the cautionary tale. ✓ ALLOWED: a lift *with* its paired-bootstrap CI and n, from a gate that resolved at that n.
 3. ✗ **"Verified PRs improve your agent."** A passing-checks PR proves **non-regression on the customer's n**, not improvement. Rename to **"Gated PRs / Verified-Safe PRs."**
 4. ✗ **"Self-improving / it learns and gets better over time"** — accumulation is unproven; in-stream admission is DEAD (E3c/E3d, winner's curse). Only *selection of one certified artifact* is real.
 5. ✗ **"The flywheel compounds / cost keeps falling as it learns"** — until E4 proves a rising slope, the honest claim is *"one certified artifact cuts cost,"* singular.
@@ -48,7 +52,7 @@ This is where "take risks" stops. Boldness is allowed in *speed, scope, and dogf
 
 ## 3. THE TIER TABLE
 
-**Boundary law: the billing line falls on the spawn line.** Base-stream tokens = one reservation against the conserved pool; every intelligence action (analyst, corpus, loop) = a *distinct* reservation billing to a *distinct* channel. Today `budget.ts` conserves **separate token/usd/iteration channels but a single usd pool** (verified, lines 14–15) — splitting usd into `{inferenceUsd, intelligenceUsd}` is the one genuinely-new mechanism the OFF/eco boundary needs.
+**Boundary law: the billing line falls on the spawn line.** The implementation is *usage classification + spawn-gating*, NOT conserved-pool surgery (simpler, equally honest): the EffortPolicy decides which spawns are admitted — at `off`, no analyst/corpus/loop spawns are ever created — and every exported trace/outcome tags usage `{inferenceUsd, intelligenceUsd}` by class. At `off`, `intelligenceUsd` is provably 0 because zero intelligence spawns happened; the boundary is a property of what ran, not a split of the budget pool. The conserved `budget.ts` pool stays as-is; the genuinely-new mechanism is the EffortPolicy composer + the usage-class tag.
 
 | Tier | Capability (which spawns admit) | Bills | Enforcement | #268 dial |
 |---|---|---|---|---|

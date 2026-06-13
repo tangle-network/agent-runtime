@@ -4,11 +4,11 @@
 
 ## The honest claim (and the banned overclaim)
 
-The only customer claim the evidence backs: **"Verified improvements, not lucky streaks — and we hold your quality at lower cost."** Two replicated survivors: certification rigor predicts transfer (gate-certified artifacts transfer, +31.7/+36.7pp holdout, twice); the cost flywheel (certified memory + compression hold quality at −12 to −31% cost).
+The customer claim the evidence backs: **"Agents that get verifiably smarter and cheaper — proven on held-out evidence, not lucky streaks."** We *do* make agents smarter — via **gated search** (spend compute to find a better artifact, certify the winner), not a within-run trick that beats blind at equal compute (that mechanism is the tie POWER-16 retracted). Once certified, the better artifact is cheap to serve. Two replicated survivors back this: certification rigor predicts transfer (gate-certified artifacts transfer, +31.7/+36.7pp holdout, twice); the cost flywheel (certified memory + compression hold quality at −12 to −31% cost). **The gate is the moat, not the disclaimer** — everyone else sells improvement from lucky streaks; we attach the held-out evidence.
 
-**DO-NOT-CLAIM (normative — these strings must not reach a customer surface):**
-1. ✗ "makes your agent smarter / better / higher-quality than just running it" — the depth>breadth keystone collapsed to a tie (+4.1pp CI[−1.6,+10.2] at n=72); at equal compute, compute dominates and cleverness is marginal.
-2. ✗ any single-number quality lift ("+16.4pp", "depth beats breadth") — the n=16 headline was an underpowered streak.
+**DO-NOT-CLAIM (normative — "smarter" is allowed ONLY with its gate, CI, and n attached; un-gated efficacy claims must not reach a customer surface):**
+1. ✗ "smarter for free / by steering / without spending more compute" — the within-run-cleverness-beats-blind mechanism collapsed to a tie (+4.1pp CI[−1.6,+10.2] at n=72); smarter comes from gated search, not a free trick. ✓ ALLOWED: "we search for a better config and ship it only when it clears a held-out gate."
+2. ✗ a bare quality lift ("+16.4pp", "depth beats breadth") with no CI and n — the n=16 headline was an underpowered streak. ✓ ALLOWED: a lift *with* its paired-bootstrap CI and n.
 3. ✗ "Verified PRs improve your agent" — a passing-checks PR proves **non-regression on the customer's n**, not improvement. This mode is **"Gated PRs / Verified-Safe PRs."**
 4. ✗ "self-improving / learns and gets better over time" — accumulation is unproven (in-stream admission is dead, E3c/E3d); only selection of one certified artifact is real.
 
@@ -16,7 +16,7 @@ The only customer claim the evidence backs: **"Verified improvements, not lucky 
 
 ## Mode 0 — intelligence OFF (the billing floor)
 
-Below Observe sits **OFF**: the agent runs in a sandbox and streams output on the box-provisioned router credential, paying **inference + sandbox compute only** — no analysts, corpus, loops, or lifecycle. Intelligence is the paid add-on; OFF is the honest baseline the cost claim is measured against, the fail-closed degrade target, and the default. Billing law: **the billing line falls on the spawn line** — base-stream tokens bill `inferenceUsd`; every intelligence spawn bills a distinct `intelligenceUsd` channel, and `'off'` ⇒ `intelligenceUsd: 0` refuses every intelligence spawn at `reserve()` while the base stream runs untouched. Tiers: `off | eco | standard | thorough | max` (maps to #268 EffortPolicy).
+Below Observe sits **OFF**: the agent runs in a sandbox and streams output on the box-provisioned router credential, paying **inference + sandbox compute only** — no analysts, corpus, loops, or lifecycle. Intelligence is the paid add-on; OFF is the honest baseline the cost claim is measured against, the fail-closed degrade target, and the default. Billing law: **the billing line falls on the spawn line** — the EffortPolicy gates which spawns are admitted (`'off'` ⇒ zero analyst/corpus/loop spawns), and every trace tags usage `{inferenceUsd, intelligenceUsd}` by class, so at `off` `intelligenceUsd` is provably 0 (a property of what ran, not a budget-pool split). Tiers: `off | eco | standard | thorough | max` (maps to #268 EffortPolicy).
 
 **Product fail-closed ≠ experiment fail-closed:** behavior-changing intelligence (analyst steer, candidate promotion) fails closed by **not running and letting the base stream return** — never by aborting the user's turn (the experiment harness's hard-abort in `createScopeAnalyst` is correct for research, wrong for a product OFF tier).
 
