@@ -16,15 +16,37 @@
  * candidate (which would reintroduce a host↔sandbox worktree-transport
  * problem that does not need solving here).
  *
- * `maxShots` is the DEPTH dial: the harness runs once; if it produced no change
- * (the worktree stays clean), the generator refines the prompt and retries, up
- * to `maxShots` times. A harness that already changed files returns on shot 1.
+ * `maxShots` is the DEPTH dial — a multi-shot verify-in-session loop, NOT the
+ * kernel `runLoop`. Each shot runs one full harness session in the (persistent)
+ * worktree; between shots the loop refines based on what the last shot produced:
+ *   - empty tree   → "you changed nothing, make the edits" → retry
+ *   - dirty + `verify` fails → feed the verifier's failure into the next shot
+ *       (the worktree persists, so the harness RESUMES atop its own failing
+ *       edits with the error in hand — no `--resume` session plumbing needed,
+ *       and harness-agnostic across claude/codex/opencode)
+ *   - dirty + `verify` ok (or no verifier configured) → return the candidate
+ * A candidate that never verifies within `maxShots` is discarded (`applied:
+ * false`), never shipped — if you configured a verifier, a non-passing tree is
+ * not a candidate. With no verifier the legacy behavior holds: first dirty shot
+ * is the candidate.
  */
 
 import { spawnSync } from 'node:child_process'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { type LocalHarness, runLocalHarness } from '../mcp/local-harness'
 import type { CandidateGenerator } from './improvement-driver'
+
+/** Outcome of verifying a candidate worktree. `feedback` (compiler errors,
+ *  failing test output) is fed into the next shot when `ok` is false. */
+export interface VerifyResult {
+  ok: boolean
+  feedback?: string
+}
+
+/** Verifies the edited worktree. Sync or async; throws only on a setup fault
+ *  (a candidate that fails verification returns `{ok:false}`, it does not
+ *  throw). */
+export type Verifier = (worktreePath: string) => Promise<VerifyResult> | VerifyResult
 
 export interface AgenticGeneratorOptions {
   /** Local coding harness to run in the worktree. Default `claude`. */
@@ -34,6 +56,12 @@ export interface AgenticGeneratorOptions {
   /** Build the harness task prompt from the report + findings. Override for
    *  domain phrasing; the default turns findings into a concrete coder task. */
   buildPrompt?: (args: { report: unknown; findings: AnalystFinding[] }) => string
+  /** Verify the worktree after each dirtying shot. When set, a candidate that
+   *  fails verification is NOT returned — the failure feeds the next shot
+   *  (verify-in-session), up to `maxShots`; a candidate that never verifies is
+   *  discarded (`applied:false`), never shipped. Omitted ⇒ legacy behavior:
+   *  the first dirty shot is the candidate. See `commandVerifier`. */
+  verify?: Verifier
   /** Test seam — inject the harness runner (defaults to `runLocalHarness`). */
   runHarness?: typeof runLocalHarness
   /** Test seam — inject the worktree-dirty check (defaults to `git status`). */
@@ -45,30 +73,46 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt
   const run = opts.runHarness ?? runLocalHarness
   const dirty = opts.isDirty ?? worktreeDirty
+  const verify = opts.verify
 
   return {
     kind: `agentic:${harness}`,
     async generate({ worktreePath, report, findings, maxShots, signal }) {
-      let prompt = buildPrompt({ report, findings })
+      const basePrompt = buildPrompt({ report, findings })
       const shots = Math.max(1, maxShots)
+      // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
+      let attemptNote = ''
 
       for (let shot = 0; shot < shots; shot++) {
         if (signal.aborted) break
         await run({
           harness,
           cwd: worktreePath,
-          taskPrompt: prompt,
+          taskPrompt: attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt,
           timeoutMs: opts.timeoutMs,
           signal,
         })
-        // The worktree IS the signal: if the harness touched files, we have a
-        // candidate. We don't trust the harness's stdout — we trust the diff.
-        if (dirty(worktreePath)) {
+
+        // The worktree IS the signal: no edits ⇒ tell the next shot to act.
+        if (!dirty(worktreePath)) {
+          attemptNote = EMPTY_TREE_NOTE
+          continue
+        }
+
+        // Dirty: with no verifier the diff IS the candidate (we trust the diff,
+        // not the harness's stdout). With a verifier the candidate must pass it.
+        if (!verify) {
           return { applied: true, summary: summarize(findings) }
         }
-        // No change this shot — give the next attempt explicit feedback.
-        prompt = refine(prompt)
+        const result = await verify(worktreePath)
+        if (result.ok) {
+          return { applied: true, summary: summarize(findings) }
+        }
+        // Dirty but failing — resume next shot atop these edits with the error.
+        attemptNote = failureNote(result.feedback)
       }
+
+      // Shots exhausted: no verified candidate (or, sans verifier, no edits).
       return { applied: false, summary: '' }
     },
   }
@@ -91,8 +135,57 @@ function defaultBuildPrompt(args: { report: unknown; findings: AnalystFinding[] 
   return lines.join('\n')
 }
 
-function refine(prompt: string): string {
-  return `${prompt}\n\nNOTE: your previous attempt left the working tree unchanged. Make the concrete file edits now.`
+const EMPTY_TREE_NOTE =
+  'NOTE: your previous attempt left the working tree unchanged. Make the concrete file edits now.'
+
+/** Next-shot feedback when the worktree is dirty but failed verification. The
+ *  edits persist on disk, so the harness resumes atop them — tell it to fix in
+ *  place, not start over. Verifier detail is truncated to keep the prompt bounded. */
+function failureNote(feedback?: string): string {
+  const detail = feedback?.trim()
+  return [
+    'NOTE: your edits are in the working tree but verification FAILED.',
+    'Fix the problem in place — build on your existing edits, do not revert them.',
+    detail ? `Verifier output:\n${truncate(detail, 4000)}` : 'No verifier detail was captured.',
+  ].join('\n')
+}
+
+/** A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
+ *  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
+ *  `tsc --noEmit`, `pnpm build`, or a test command. A timeout is treated as a
+ *  FAILED candidate (a change that hangs the build is a bad change); a missing
+ *  binary or spawn fault throws (a setup bug, not a failed candidate — no
+ *  silent fallback). */
+export function commandVerifier(
+  command: string,
+  args: string[] = [],
+  timeoutMs = 300_000,
+): Verifier {
+  return (worktreePath: string): VerifyResult => {
+    const result = spawnSync(command, args, {
+      cwd: worktreePath,
+      encoding: 'utf-8',
+      timeout: timeoutMs,
+    })
+    if (result.signal) {
+      return {
+        ok: false,
+        feedback: `verifier '${command}' killed by ${result.signal} (likely timeout after ${timeoutMs}ms)`,
+      }
+    }
+    if (result.error) {
+      const code = (result.error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        throw new Error(
+          `commandVerifier: '${command}' not found in PATH (setup bug, not a failed candidate)`,
+        )
+      }
+      throw new Error(`commandVerifier: '${command}' failed to spawn: ${result.error.message}`)
+    }
+    if (result.status === 0) return { ok: true }
+    const out = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim()
+    return { ok: false, feedback: out.length > 0 ? out : `exit ${result.status}` }
+  }
 }
 
 /** A one-line summary for the commit message, derived from the findings. */

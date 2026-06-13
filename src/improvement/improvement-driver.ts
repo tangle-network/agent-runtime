@@ -11,8 +11,9 @@
  * the SAME driver at two settings of a dial.
  *   - cheap reflective path  → `reflectiveGenerator` (shots=1, no sandbox;
  *                              applies pre-drafted patches)
- *   - full agentic path      → `agenticGenerator` (shots=N, sandbox runLoop;
- *                              an agent reads code + report and edits)
+ *   - full agentic path      → `agenticGenerator` (shots=N, multi-shot
+ *                              verify-in-session loop; an agent reads code +
+ *                              report, edits, and re-tries on verifier failure)
  * Both emit changes into a worktree the driver finalizes into a
  * `CodeSurface{ worktreeRef }` the loop measures on the holdout. See
  * agent-eval's `docs/design/self-improvement-engine.md`.

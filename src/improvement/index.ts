@@ -13,7 +13,13 @@
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
  */
 
-export { type AgenticGeneratorOptions, agenticGenerator } from './agentic-generator'
+export {
+  type AgenticGeneratorOptions,
+  agenticGenerator,
+  commandVerifier,
+  type Verifier,
+  type VerifyResult,
+} from './agentic-generator'
 export {
   type CandidateGenerator,
   type ImprovementDriverOptions,

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { agenticGenerator } from '../src/improvement/agentic-generator'
+import { agenticGenerator, commandVerifier } from '../src/improvement/agentic-generator'
 import { improvementDriver } from '../src/improvement/improvement-driver'
 import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
@@ -164,5 +164,103 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     const surfaces = await driver.propose(ctx(FINDINGS, 2))
     expect(surfaces).toEqual([])
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
+  })
+})
+
+describe('agenticGenerator — verify-in-session loop', () => {
+  const edits = (cwd: string, body: string) => writeFileSync(join(cwd, 'app.ts'), body)
+
+  it('returns the candidate when a dirtying shot passes verification', async () => {
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      edits(cwd, 'export const x = 2\n')
+      return HARNESS_OK
+    })
+    const verify = vi.fn(() => ({ ok: true }))
+    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vok' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 3,
+      signal: new AbortController().signal,
+    })
+
+    expect(runHarness).toHaveBeenCalledTimes(1)
+    expect(verify).toHaveBeenCalledTimes(1)
+    expect(out.applied).toBe(true)
+  })
+
+  it('feeds the verifier failure into the next shot, then ships when it passes', async () => {
+    let shot = 0
+    const prompts: string[] = []
+    const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
+      prompts.push(taskPrompt)
+      shot++
+      edits(cwd, `export const x = ${100 + shot}\n`) // always differs from baseline (x=1)
+      return HARNESS_OK
+    })
+    // Fail shot 1, pass shot 2.
+    const verify = vi.fn(() =>
+      shot === 1 ? { ok: false, feedback: 'TS2322: x must be 2' } : { ok: true },
+    )
+    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vresume' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 4,
+      signal: new AbortController().signal,
+    })
+
+    expect(runHarness).toHaveBeenCalledTimes(2)
+    expect(out.applied).toBe(true)
+    // The second shot's prompt carries the verifier's failure (resume-with-error).
+    expect(prompts[1]).toContain('verification FAILED')
+    expect(prompts[1]).toContain('TS2322: x must be 2')
+    // The first shot's prompt is the clean base — no failure note yet.
+    expect(prompts[0]).not.toContain('verification FAILED')
+  })
+
+  it('discards (applied:false) a candidate that never verifies within maxShots', async () => {
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      edits(cwd, 'export const x = 9\n') // dirties every shot
+      return HARNESS_OK
+    })
+    const verify = vi.fn(() => ({ ok: false, feedback: 'still broken' }))
+    const gen = agenticGenerator({ runHarness: runHarness as never, verify })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'vfail' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: FINDINGS,
+      maxShots: 3,
+      signal: new AbortController().signal,
+    })
+
+    expect(runHarness).toHaveBeenCalledTimes(3)
+    expect(verify).toHaveBeenCalledTimes(3)
+    expect(out.applied).toBe(false) // an unverified tree is not a candidate
+  })
+
+  it('commandVerifier: exit 0 ⇒ ok, non-zero ⇒ feedback carries output', async () => {
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdv' })
+    const pass = commandVerifier('true')
+    expect(await pass(wt.path)).toEqual({ ok: true })
+
+    const fail = commandVerifier('sh', ['-c', 'echo boom >&2; exit 1'])
+    const res = await fail(wt.path)
+    expect(res.ok).toBe(false)
+    expect(res.feedback).toContain('boom')
+  })
+
+  it('commandVerifier: a missing binary throws (setup bug, not a failed candidate)', async () => {
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdmiss' })
+    const v = commandVerifier('definitely-not-a-real-binary-xyz')
+    expect(() => v(wt.path)).toThrow(/not found in PATH/)
   })
 })
