@@ -34,6 +34,17 @@ import {
 import { type Redactor, resolveRedactor } from './redact'
 
 export type {
+  AppliedIntelligence,
+  CertifiedArtifact,
+  CertifiedProfile,
+  CertifiedPromptSurface,
+  DeliveredAgent,
+  DeliveryConfig,
+  PullCertifiedOptions,
+  PullOutcome,
+} from './delivery'
+export { composeCertifiedPrompt, pullCertified, withCertifiedDelivery } from './delivery'
+export type {
   CorpusAccess,
   EffortOverrides,
   EffortSettings,
