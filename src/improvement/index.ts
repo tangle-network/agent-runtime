@@ -21,8 +21,15 @@ export {
   type VerifyResult,
 } from './agentic-generator'
 export {
+  type McpGeneratorOptions,
+  mcpGenerator,
+  type ToolGeneratorOptions,
+  toolGenerator,
+} from './buildable-generators'
+export {
   type CandidateGenerator,
   type ImprovementDriverOptions,
   improvementDriver,
 } from './improvement-driver'
+export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
