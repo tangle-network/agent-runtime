@@ -5,6 +5,21 @@ Design map produced alongside the Gen-7 `agenticGenerator` verify-loop pursuit. 
 and `products/intelligence/IMPROVEMENT-PLANE.md` (the hosted plane). This enumerates exactly what
 remains to make every artifact type a first-class citizen of the improvement loop.
 
+## TL;DR — the whole thing, simply
+
+It is **one loop** (`improvementDriver`: propose → verify → select → keep) with a **pluggable generator**. The generator is an agent that codes/finds something; what it produces is gated by a **verifier**. That is the entire system. Everything below is this one loop under different settings:
+
+- **build a tool** = `agenticGenerator` + `toolBuildPrompt` + `commandVerifier`
+- **build an MCP** = `agenticGenerator` + `mcpBuildPrompt` + `mcpServeVerifier`
+- **discover** (find a free OSS tool/MCP and wire it) = `agenticGenerator` + a discover prompt + the *same* verifier (the harness already has web/GitHub search — no new machine, no external dep; the verifier is the guardrail that lets us trust nothing we find)
+- **integrate** (wrap a keyed closed API) = the same, plus a credential-binding step
+
+There are **no separate "build/discover/integrate machines"** — they are three prompts over one factory. The only thing that ever differs per artifact type is *(prompt, verifier)*.
+
+**The recursion is structurally free.** The generator's own config — its prompts, its verifier choices, its strategy — is itself an artifact surface, so the *same loop can improve the loop*: collect every generation's outcome (what it built, did it verify, did it get promoted, did it lift — already recorded in the lane + run records), and feed that back to improve the generator. Self-similar by construction.
+
+**The one caveat that gates the recursion (and exploration):** improving the generator — or exploring massively across many starting points — only helps if the *judge is real*. Our evidence is blunt here: prompt-search on the generator was null, and population-based exploration optimized the proxy while tanking reality (E3, −21pp). Exploration and recursion both *amplify the fitness function*; on a weak judge they produce confident garbage faster. So the binding constraint is never the generator (it's lean and done) — it is the **judge**. The remaining real work is making the judge true: replay gives a fast label now; the historical outcome-harvester (re-query the stored keys at t+7/30/90d) gives the true one later and calibrates the replay. Build that, and the recursion + massive exploration become safe to turn on. Until then, do not.
+
 ## The keystone: every type rides one lane; types differ in only two stages
 
 The lifecycle is `generate → verify → certify → promote → compose → deliver`. Five of those six
