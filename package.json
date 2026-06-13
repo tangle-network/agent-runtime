@@ -39,6 +39,11 @@
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
+    "./intelligence": {
+      "types": "./dist/intelligence.d.ts",
+      "import": "./dist/intelligence.js",
+      "default": "./dist/intelligence.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",

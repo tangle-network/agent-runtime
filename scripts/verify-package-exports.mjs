@@ -30,6 +30,7 @@ try {
     '.': ['import', 'types'],
     './workflow': ['import', 'types'],
     './loops': ['import', 'types'],
+    './intelligence': ['import', 'types'],
     './mcp': ['import', 'types'],
   }
 
@@ -63,6 +64,18 @@ try {
         ]
         for (const name of expected) {
           if (!(name in workflow)) throw new Error('missing workflow export ' + name)
+        }
+
+        const intelligence = await import('@tangle-network/agent-runtime/intelligence')
+        const expectedIntelligence = [
+          'createIntelligenceClient',
+          'withTangleIntelligence',
+          'resolveEffort',
+          'isIntelligenceOff',
+          'defaultRedactor',
+        ]
+        for (const name of expectedIntelligence) {
+          if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
       `,
     ],
