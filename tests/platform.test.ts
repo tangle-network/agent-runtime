@@ -238,14 +238,21 @@ describe('PlatformHubClient', () => {
       return new Response(
         JSON.stringify({
           success: true,
-          data: { connections: [connection({ id: 'c2', providerId: 'slack', health: 'rate_limited' })] },
+          data: {
+            connections: [connection({ id: 'c2', providerId: 'slack', health: 'rate_limited' })],
+          },
         }),
         { status: 200 },
       )
     })
     const checks = await client.listHealthchecks()
     expect(checks).toEqual([
-      { connectionId: 'c2', providerId: 'slack', status: 'rate_limited', checkedAt: '2026-01-02T00:00:00.000Z' },
+      {
+        connectionId: 'c2',
+        providerId: 'slack',
+        status: 'rate_limited',
+        checkedAt: '2026-01-02T00:00:00.000Z',
+      },
     ])
   })
 
@@ -256,7 +263,10 @@ describe('PlatformHubClient', () => {
       return new Response(
         JSON.stringify({
           success: true,
-          data: { connection: connection(), health: { status: 'healthy', checkedAt: '2026-01-03T00:00:00.000Z' } },
+          data: {
+            connection: connection(),
+            health: { status: 'healthy', checkedAt: '2026-01-03T00:00:00.000Z' },
+          },
         }),
         { status: 200 },
       )
@@ -269,7 +279,10 @@ describe('PlatformHubClient', () => {
     const client = makeClient((url, init) => {
       expect(url).toBe('https://id.tangle.tools/v1/hub/tokens')
       expect(init?.method).toBe('POST')
-      expect(JSON.parse(String(init?.body))).toEqual({ actionPath: 'slack.chat.postMessage', provider: 'slack' })
+      expect(JSON.parse(String(init?.body))).toEqual({
+        actionPath: 'slack.chat.postMessage',
+        provider: 'slack',
+      })
       return new Response(
         JSON.stringify({
           success: true,

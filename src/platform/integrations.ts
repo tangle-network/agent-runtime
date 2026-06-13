@@ -178,10 +178,7 @@ export class PlatformHubClient {
 
   /** DELETE /v1/hub/connections/:connectionId — revoke + disable a connection. */
   revokeConnection(connectionId: string): Promise<{ connection: PlatformConnection }> {
-    return this.request(
-      'DELETE',
-      `/v1/hub/connections/${encodeURIComponent(connectionId)}`,
-    )
+    return this.request('DELETE', `/v1/hub/connections/${encodeURIComponent(connectionId)}`)
   }
 
   /**
@@ -232,10 +229,7 @@ export class PlatformHubClient {
    * probe for one connection and return its updated state.
    */
   checkConnectionHealth(connectionId: string): Promise<ConnectionHealthResult> {
-    return this.request(
-      'POST',
-      `/v1/hub/connections/${encodeURIComponent(connectionId)}/health`,
-    )
+    return this.request('POST', `/v1/hub/connections/${encodeURIComponent(connectionId)}/health`)
   }
 
   /**
