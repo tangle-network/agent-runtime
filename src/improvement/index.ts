@@ -20,12 +20,7 @@ export {
   type Verifier,
   type VerifyResult,
 } from './agentic-generator'
-export {
-  type McpGeneratorOptions,
-  mcpGenerator,
-  type ToolGeneratorOptions,
-  toolGenerator,
-} from './buildable-generators'
+export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
   type CandidateGenerator,
   type ImprovementDriverOptions,
