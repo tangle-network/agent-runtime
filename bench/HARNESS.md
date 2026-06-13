@@ -102,9 +102,10 @@ self-describing (models + config).
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
 EOPS standup (one container): `docker run -d --rm --name eops -p 8006:8005
-shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest` + `EOPS_GYM_DBS_DIR=<unzipped
-gym_dbs.zip from github.com/ServiceNow/EnterpriseOps-Gym>`; restart it FRESH per big run
-(it wedges under load); `EOPS_SPLIT=csm|hr|…` selects other domains (their gym containers
+shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest`. Seed files:
+`curl -L https://github.com/ServiceNow/EnterpriseOps-Gym/raw/main/gym_dbs.zip -o /tmp/gym_dbs.zip && unzip -o /tmp/gym_dbs.zip -d /tmp/gym_dbs` →
+`EOPS_GYM_DBS_DIR=/tmp/gym_dbs` (the zip unpacks to `/tmp/gym_dbs/Domain Wise DBs and Task-DB Mappings/`; set the parent). Restart containers FRESH per big run
+(they wedge under load); `EOPS_SPLIT=csm|hr|…` selects other domains (their gym containers
 not yet sourced). **Parallel lanes:** tasks carry the dataset's literal gym URL
 (`http://localhost:8006`); `EOPS_GYM_URL=http://localhost:8007` rebases every server URL,
 so N concurrent runs use N containers (`-p 8007:8005`, `-p 8008:8005`, …) instead of
