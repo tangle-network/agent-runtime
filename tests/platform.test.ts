@@ -107,38 +107,63 @@ describe('PlatformHubClient', () => {
     })
   }
 
-  it('lists connections via /v1/integrations/connections with bearer auth', async () => {
+  function connection(over: Record<string, unknown> = {}) {
+    return {
+      id: 'c1',
+      providerId: 'google',
+      displayName: 'Google',
+      accountDisplay: 'ada@x.co',
+      scopes: ['gmail.readonly'],
+      status: 'active',
+      health: 'healthy',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      lastUsedAt: null,
+      ...over,
+    }
+  }
+
+  it('lists the catalog via GET /v1/hub/providers', async () => {
     const client = makeClient((url, init) => {
-      expect(url).toBe('https://id.tangle.tools/v1/integrations/connections')
+      expect(url).toBe('https://id.tangle.tools/v1/hub/providers')
+      expect(init?.method).toBe('GET')
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { providers: [{ providerId: 'github', title: 'GitHub' }], substrateBundled: 12 },
+        }),
+        { status: 200 },
+      )
+    })
+    const cat = await client.catalog()
+    expect(cat.providers).toHaveLength(1)
+    expect(cat.substrateBundled).toBe(12)
+  })
+
+  it('lists connections via /v1/hub/connections with bearer auth', async () => {
+    const client = makeClient((url, init) => {
+      expect(url).toBe('https://id.tangle.tools/v1/hub/connections')
       expect(init?.method).toBe('GET')
       const headers = init?.headers as Record<string, string>
       expect(headers.authorization).toBe('Bearer sk-tan-xyz')
       return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            connections: [
-              { id: 'c1', providerId: 'google', connectorId: 'gmail', status: 'connected' },
-            ],
-          },
-        }),
+        JSON.stringify({ success: true, data: { connections: [connection()] } }),
         { status: 200 },
       )
     })
     const conns = await client.listConnections()
     expect(conns).toHaveLength(1)
     expect(conns[0].id).toBe('c1')
+    expect(conns[0].health).toBe('healthy')
   })
 
-  it('posts to /auth/start with the OAuth start payload', async () => {
+  it('starts auth at /v1/hub/connections/:provider/start with provider in the URL', async () => {
     const client = makeClient((url, init) => {
-      expect(url).toBe('https://id.tangle.tools/v1/integrations/auth/start')
+      expect(url).toBe('https://id.tangle.tools/v1/hub/connections/google/start')
       expect(init?.method).toBe('POST')
+      // provider rides in the URL; the body carries only returnUrl (+ cli).
       expect(JSON.parse(String(init?.body))).toEqual({
-        providerId: 'google',
-        connectorId: 'gmail',
         returnUrl: 'https://gtm.tangle.tools/integrations',
-        requestedScopes: ['gmail.readonly'],
       })
       return new Response(
         JSON.stringify({
@@ -158,24 +183,118 @@ describe('PlatformHubClient', () => {
     expect(out.authorizationUrl).toContain('accounts.google.com')
   })
 
-  it('revokes a connection via DELETE /v1/integrations/connections/{id}', async () => {
+  it('normalizes the substrate start branch (redirectUrl) to authorizationUrl', async () => {
+    const client = makeClient(
+      () =>
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              provider: 'slack',
+              redirectUrl: 'https://slack.com/oauth/authorize?...',
+              state: 's2',
+              expiresAt: '2026-01-01T00:10:00.000Z',
+              scopes: ['chat:write'],
+            },
+          }),
+          { status: 200 },
+        ),
+    )
+    const out = await client.startAuth({
+      providerId: 'slack',
+      connectorId: 'slack',
+      returnUrl: 'https://gtm.tangle.tools/integrations',
+    })
+    expect(out.authorizationUrl).toContain('slack.com/oauth')
+    expect(out.state).toBe('s2')
+    expect(out.scopes).toEqual(['chat:write'])
+  })
+
+  it('fails loud when a start response carries no URL on either field', async () => {
+    const client = makeClient(
+      () => new Response(JSON.stringify({ success: true, data: { state: 's' } }), { status: 200 }),
+    )
+    await expect(
+      client.startAuth({ providerId: 'x', connectorId: 'x', returnUrl: 'https://app/cb' }),
+    ).rejects.toMatchObject({ name: 'PlatformHubError', code: 'HUB_INVALID_START_RESPONSE' })
+  })
+
+  it('revokes a connection via DELETE /v1/hub/connections/{id}', async () => {
     const client = makeClient((url, init) => {
-      expect(url).toBe('https://id.tangle.tools/v1/integrations/connections/c1')
+      expect(url).toBe('https://id.tangle.tools/v1/hub/connections/c1')
       expect(init?.method).toBe('DELETE')
       return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            connection: { id: 'c1', providerId: 'google', connectorId: 'gmail', status: 'revoked' },
-            revokedGrants: [],
-            providerRevocation: { ok: true },
-          },
-        }),
+        JSON.stringify({ success: true, data: { connection: connection({ status: 'revoked' }) } }),
         { status: 200 },
       )
     })
     const out = await client.revokeConnection('c1')
     expect(out.connection.status).toBe('revoked')
+  })
+
+  it('derives listHealthchecks from the connection rows (no global endpoint)', async () => {
+    const client = makeClient((url) => {
+      expect(url).toBe('https://id.tangle.tools/v1/hub/connections')
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { connections: [connection({ id: 'c2', providerId: 'slack', health: 'rate_limited' })] },
+        }),
+        { status: 200 },
+      )
+    })
+    const checks = await client.listHealthchecks()
+    expect(checks).toEqual([
+      { connectionId: 'c2', providerId: 'slack', status: 'rate_limited', checkedAt: '2026-01-02T00:00:00.000Z' },
+    ])
+  })
+
+  it('probes one connection via POST /v1/hub/connections/:id/health', async () => {
+    const client = makeClient((url, init) => {
+      expect(url).toBe('https://id.tangle.tools/v1/hub/connections/c1/health')
+      expect(init?.method).toBe('POST')
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { connection: connection(), health: { status: 'healthy', checkedAt: '2026-01-03T00:00:00.000Z' } },
+        }),
+        { status: 200 },
+      )
+    })
+    const out = await client.checkConnectionHealth('c1')
+    expect(out.health.status).toBe('healthy')
+  })
+
+  it('mints an action-scoped token via POST /v1/hub/tokens', async () => {
+    const client = makeClient((url, init) => {
+      expect(url).toBe('https://id.tangle.tools/v1/hub/tokens')
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ actionPath: 'slack.chat.postMessage', provider: 'slack' })
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { tokenId: 't1', token: 'cap_abc', expiresAt: '2026-01-01T00:05:00.000Z' },
+        }),
+        { status: 200 },
+      )
+    })
+    const out = await client.mintToken({ actionPath: 'slack.chat.postMessage', provider: 'slack' })
+    expect(out.token).toBe('cap_abc')
+  })
+
+  it('executes an action via POST /v1/hub/exec and unwraps result', async () => {
+    const client = makeClient((url, init) => {
+      expect(url).toBe('https://id.tangle.tools/v1/hub/exec')
+      expect(init?.method).toBe('POST')
+      return new Response(
+        JSON.stringify({ success: true, data: { result: { ok: true, ts: '123' } } }),
+        { status: 200 },
+      )
+    })
+    const out = (await client.exec({ path: 'slack.chat.postMessage', input: { text: 'hi' } })) as {
+      ok: boolean
+    }
+    expect(out.ok).toBe(true)
   })
 
   it('throws PlatformHubError on a wrapped error envelope', async () => {
@@ -184,7 +303,7 @@ describe('PlatformHubClient', () => {
         new Response(
           JSON.stringify({
             success: false,
-            error: { code: 'VALIDATION_ERROR', message: 'OAuth returnUrl is not allowed' },
+            error: { code: 'HUB_INVALID_INPUT', message: 'OAuth returnUrl is not allowed' },
           }),
           { status: 400 },
         ),
@@ -198,7 +317,7 @@ describe('PlatformHubClient', () => {
       .catch((e: unknown) => e)
     expect(err).toBeInstanceOf(PlatformHubError)
     expect((err as PlatformHubError).status).toBe(400)
-    expect((err as PlatformHubError).code).toBe('VALIDATION_ERROR')
+    expect((err as PlatformHubError).code).toBe('HUB_INVALID_INPUT')
     expect((err as PlatformHubError).message).toBe('OAuth returnUrl is not allowed')
   })
 
