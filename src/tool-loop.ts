@@ -41,7 +41,62 @@ const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
  *  stuck-loop detection. The window resets on any different call. */
 const STUCK_LOOP_THRESHOLD = 3
 
-export type ToolLoopMessage = { role: string; content: string }
+/** One OpenAI-shaped tool-call entry carried on an assistant message. */
+export interface ToolLoopAssistantToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+/**
+ * A message in the running conversation the loop sends to `streamTurn`.
+ *
+ * The base `{ role, content }` covers `system` / `user` / plain `assistant`
+ * turns. Two optional fields carry the OpenAI function-calling contract so a
+ * strict model (Claude, and any OpenAI-compatible provider that validates tool
+ * history) reads its own tool use back instead of re-issuing the same call:
+ *
+ *   - an assistant turn that emitted tool calls carries `tool_calls`, and its
+ *     `content` is `null` when the turn was tool-only;
+ *   - each tool result is its own `{ role: 'tool', tool_call_id, content }`
+ *     message keyed to the call that produced it.
+ *
+ * Widening is additive: a `streamTurn` that reads only `role` + `content` still
+ * works; one that forwards the whole message to an OpenAI-compatible endpoint
+ * now sends correct tool history.
+ */
+export type ToolLoopMessage = {
+  role: string
+  content: string | null
+  tool_calls?: ToolLoopAssistantToolCall[]
+  tool_call_id?: string
+}
+
+/** A tool-call id is required to key a `role: 'tool'` result back to its call.
+ *  When the model omitted one, derive a stable id from the tool name so the
+ *  assistant `tool_calls` entry and its `tool` result still match. */
+function toolCallId(call: ToolLoopCall): string {
+  return call.toolCallId ?? `call_${call.toolName}`
+}
+
+/** The assistant turn that emitted `pending`, in OpenAI shape: text content
+ *  (null when the turn was tool-only) plus its `tool_calls` array. */
+function assistantToolCallMessage(turnText: string, pending: ToolLoopCall[]): ToolLoopMessage {
+  return {
+    role: 'assistant',
+    content: turnText.trim() || null,
+    tool_calls: pending.map((call) => ({
+      id: toolCallId(call),
+      type: 'function',
+      function: { name: call.toolName, arguments: JSON.stringify(call.args) },
+    })),
+  }
+}
+
+/** One `role: 'tool'` result message keyed to its call by `tool_call_id`. */
+function toolResultMessage(call: ToolLoopCall, content: string): ToolLoopMessage {
+  return { role: 'tool', tool_call_id: toolCallId(call), content }
+}
 
 function defaultRender(label: string, outcome: ToolCallOutcome): string {
   if (outcome.ok) return `- ${label} → ok: ${JSON.stringify(outcome.result)}`
@@ -158,8 +213,9 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       return { finalText, toolResults, turns, stopReason: 'backstop', cappedOut: true }
     }
 
-    if (turnText.trim()) messages.push({ role: 'assistant', content: turnText })
-    const lines: string[] = []
+    // The assistant turn that emitted the calls, carrying its tool_calls array,
+    // so a strict model reads its own tool use back in OpenAI shape.
+    messages.push(assistantToolCallMessage(turnText, pending))
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
       // Stuck-loop detection: hash the first pending call each turn (a model
@@ -198,6 +254,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
         if (accumulatedCostUsd >= opts.maxCostUsd) {
           const label = labelFor(call)
           toolResults.push({ call, label, outcome })
+          messages.push(toolResultMessage(call, render(label, outcome)))
           observer.toolCallAfter(toolTurn, callEventId, call, outcome)
           observer.turnAfter(toolTurn, turnEventId, {
             pendingToolCalls: pending.length,
@@ -211,8 +268,9 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       const label = labelFor(call)
       const rendered = render(label, outcome)
       toolResults.push({ call, label, outcome })
-      lines.push(rendered)
       outcomes.push({ call, label, outcome, rendered })
+      // One role:'tool' message per result, keyed to its call by tool_call_id.
+      messages.push(toolResultMessage(call, rendered))
       observer.toolCallAfter(toolTurn, callEventId, call, outcome)
     }
     observer.failureRecovery({
@@ -230,7 +288,6 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       })),
       failedToolCalls: outcomes.filter((item) => !item.outcome.ok).length,
     })
-    messages.push({ role: 'user', content: `Tool results:\n${lines.join('\n')}` })
   }
   observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'completed' })
   return { finalText, toolResults, turns, stopReason: 'completed', cappedOut: false }
@@ -329,8 +386,9 @@ export async function* streamToolLoop<Raw>(
       return
     }
 
-    if (turnText.trim()) messages.push({ role: 'assistant', content: turnText })
-    const lines: string[] = []
+    // The assistant turn that emitted the calls, carrying its tool_calls array,
+    // so a strict model reads its own tool use back in OpenAI shape.
+    messages.push(assistantToolCallMessage(turnText, pending))
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
       // Stuck-loop detection.
@@ -375,6 +433,7 @@ export async function* streamToolLoop<Raw>(
             label,
             outcome,
           }
+          messages.push(toolResultMessage(call, render(label, outcome)))
           observer.toolCallAfter(toolTurn, callEventId, call, outcome)
           observer.turnAfter(toolTurn, turnEventId, {
             pendingToolCalls: pending.length,
@@ -395,8 +454,9 @@ export async function* streamToolLoop<Raw>(
         outcome,
       }
       const rendered = render(label, outcome)
-      lines.push(rendered)
       outcomes.push({ call, label, outcome, rendered })
+      // One role:'tool' message per result, keyed to its call by tool_call_id.
+      messages.push(toolResultMessage(call, rendered))
       observer.toolCallAfter(toolTurn, callEventId, call, outcome)
     }
     observer.failureRecovery({
@@ -414,7 +474,6 @@ export async function* streamToolLoop<Raw>(
       })),
       failedToolCalls: outcomes.filter((item) => !item.outcome.ok).length,
     })
-    messages.push({ role: 'user', content: `Tool results:\n${lines.join('\n')}` })
   }
 }
 
@@ -663,7 +722,7 @@ function renderDecisionContext(
   turnText: string,
   outcomes: ExecutedToolCall[],
 ): string {
-  const recent = messages.slice(-6).map((message) => `[${message.role}]\n${message.content}`)
+  const recent = messages.slice(-6).map((message) => `[${message.role}]\n${message.content ?? ''}`)
   const assistant = turnText.trim() ? [`[assistant]\n${turnText}`] : []
   const toolResults = [`[tool results]\n${outcomes.map((item) => item.rendered).join('\n')}`]
   return trimText(

@@ -224,6 +224,7 @@ export {
   type StreamToolLoopYield,
   streamToolLoop,
   type ToolCallOutcome,
+  type ToolLoopAssistantToolCall,
   type ToolLoopCall,
   type ToolLoopEvent,
   type ToolLoopMessage,
