@@ -352,11 +352,10 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
     )
     process.exit(2)
   }
-  const baseUrl = process.env.SANDBOX_BASE_URL
-  return new SandboxCtor({
-    apiKey,
-    ...(baseUrl ? { baseUrl } : {}),
-  })
+  // @tangle-network/sandbox ≥0.6 makes baseUrl required; default it so the MCP server
+  // starts without forcing every caller to set SANDBOX_BASE_URL.
+  const baseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
+  return new SandboxCtor({ apiKey, baseUrl })
 }
 
 interface ResearcherProfilePreset {
@@ -391,12 +390,40 @@ async function loadResearcherSupport(
   const profilesSpecifier = '@tangle-network/agent-knowledge/profiles'
   const mod = await import(profilesSpecifier).catch(() => undefined)
   if (!mod) return undefined
-  type SingleFactory = (opts: { task: unknown }) => ResearcherProfilePreset
+  type SingleFactory = (opts: {
+    task: unknown
+    harness?: string
+    model?: string
+  }) => ResearcherProfilePreset
   type FanoutFactory = (opts: { task: unknown }) => ResearcherFanoutPreset
   const fanoutFactory = (mod as { multiHarnessResearcherFanout?: FanoutFactory })
     .multiHarnessResearcherFanout
   const singleFactory = (mod as { researcherProfile?: SingleFactory }).researcherProfile
   if (!fanoutFactory || !singleFactory) return undefined
+
+  // Worker harness + model + provider auth. Two reasons a researcher run otherwise makes
+  // zero LLM calls and "produces no winner" on a successful box: (1) the profile's default
+  // harness (opencode/zai-coding-plan/glm-5.1) is not broadly provisionable; (2) the
+  // sandbox SDK does not wire backend.model.apiKey into the in-box agent's OpenAI-compatible
+  // provider. So default to plain opencode and inject the router creds via box env. All
+  // three are env-overridable; TANGLE_API_KEY doubles as the router key.
+  const researcherHarness = process.env.MCP_RESEARCHER_HARNESS ?? 'opencode'
+  const researcherModel =
+    process.env.MCP_RESEARCHER_MODEL ?? process.env.MCP_WORKER_MODEL ?? 'moonshotai/kimi-k2.6'
+  const routerKey = process.env.TANGLE_API_KEY
+  const routerBaseUrl =
+    process.env.MCP_RESEARCHER_ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1'
+  const buildPreset = (task: unknown): ResearcherProfilePreset => {
+    const preset = singleFactory({ task, harness: researcherHarness, model: researcherModel })
+    if (routerKey) {
+      const spec = preset.agentRunSpec as { sandboxOverrides?: Record<string, unknown> }
+      spec.sandboxOverrides = {
+        ...(spec.sandboxOverrides ?? {}),
+        env: { OPENAI_API_KEY: routerKey, OPENAI_BASE_URL: routerBaseUrl },
+      }
+    }
+    return preset
+  }
 
   const settleSingle = async (
     turn: DetachedTurn,
@@ -405,7 +432,7 @@ async function loadResearcherSupport(
     signal: AbortSignal,
   ): Promise<ResearchOutputShape> => {
     const task = buildResearchTask(args)
-    const preset = singleFactory({ task })
+    const preset = buildPreset(task)
     if (!preset.validator) {
       throw new Error('agent-runtime-mcp: researcher preset exposes no validator; cannot settle')
     }
@@ -423,7 +450,7 @@ async function loadResearcherSupport(
     const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const preset = singleFactory({ task })
+      const preset = buildPreset(task)
       // Detached dispatch — same contract as the coder delegate: one session
       // on one box, driveTurn ticks, resume key bound to the sandbox id.
       if (ctx.detachedSessionRef !== undefined && ctx.updateDetachedSessionRef) {
