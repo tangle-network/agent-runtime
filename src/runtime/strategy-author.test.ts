@@ -110,4 +110,42 @@ describe('authorWithValidation', () => {
     expect(result.strategy.name).toBe('better') // best val (0.45) though below the 0.5 bar
     expect(result.valScore).toBeCloseTo(0.45)
   })
+
+  it('gives a DUD (near-zero train) a build-it-correctly critique, not an overfit one', async () => {
+    const { chat, seen } = scriptedChat([
+      fenced(candidateModule('broken')),
+      fenced(candidateModule('fixed')),
+    ])
+    const val: Record<string, ValidationResult> = {
+      broken: { valScore: 0.0, trainScore: 0.05 }, // DUD: ~0 on train = shots failing, NOT overfit
+      fixed: { valScore: 0.7, trainScore: 0.72 },
+    }
+    const result = await authorWithValidation({
+      ...baseOpts(chat),
+      validate: async (authored) => val[authored.strategy.name]!,
+      baselineValScore: 0.5,
+      rounds: 3,
+    })
+    expect(result.strategy.name).toBe('fixed')
+    expect(seen[1]).toContain('DID NOT WORK') // dud branch fired
+    expect(seen[1]).not.toContain('OVERFIT') // NOT the overfit critique
+    expect(seen[1]).toContain('listTools') // actionable cause (the common dud root)
+  })
+
+  it('recovers when an attempt throws (no code block / failed compile) instead of crashing', async () => {
+    const { chat, seen } = scriptedChat([
+      'no code block here at all',
+      fenced(candidateModule('recovered')),
+    ])
+    const result = await authorWithValidation({
+      ...baseOpts(chat),
+      validate: async () => ({ valScore: 0.8, trainScore: 0.8 }),
+      baselineValScore: 0.5,
+      rounds: 3,
+    })
+    expect(result.attempts).toBe(2) // first threw (no fence), second succeeded
+    expect(result.strategy.name).toBe('recovered')
+    expect(result.accepted).toBe(true)
+    expect(seen[1]).toContain('failed to compile/load') // the recovery critique
+  })
 })

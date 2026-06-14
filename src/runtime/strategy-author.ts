@@ -157,17 +157,30 @@ export interface AuthoredStrategy {
 /** Monotonic per-process counter making each authored filename unique within a millisecond. */
 let authoredFileSeq = 0
 
-/** The generalization critique appended to a revision attempt. Scores + prior code only —
- *  the firewall holds because none of this is verifier state. */
+/** The revision critique appended to a re-author attempt. Scores + prior code only — the firewall
+ *  holds because none of this is verifier state. Branches on the failure MODE: a near-zero TRAIN
+ *  score is a BROKEN strategy (its shots are failing), NOT overfit — telling a dud "you memorized
+ *  the practice set" steers it wrong, so duds get a build-it-correctly critique instead. */
 function revisionBlock(revision: AuthorStrategyOptions['revision']): string {
   if (!revision) return ''
+  const tp = (revision.trainProxyScore * 100).toFixed(0)
+  const vp = (revision.valScore * 100).toFixed(0)
+  const note = revision.note ? ` Note: ${revision.note}` : ''
+  const prior = `\nPrevious candidate:\n\`\`\`ts\n${revision.priorCode}\n\`\`\`\n`
+  if (revision.trainProxyScore < 0.1) {
+    return (
+      `\n\nYOUR PREVIOUS CANDIDATE DID NOT WORK — it scored ${tp}% even on the tasks you targeted, so its shots are ` +
+      `FAILING, not overfitting. Likely causes: passing \`tools\` with names not taken from await listTools(handle) ` +
+      `(unknown names fail every shot), a floating/un-awaited shot or critique, or returning the wrong result shape.${note}${prior}` +
+      `Write a WORKING strategy first: compose shot()/critique() correctly, await EVERY call, and do not restrict ` +
+      `\`tools\` unless you read listTools(handle) first. Output only the module code block.`
+    )
+  }
   return (
-    `\n\nYOUR PREVIOUS CANDIDATE OVERFIT. It scored ${(revision.trainProxyScore * 100).toFixed(0)}% on the tasks you targeted ` +
-    `but only ${(revision.valScore * 100).toFixed(0)}% on a HELD-OUT validation slice you did not see — it memorized the ` +
-    `practice set instead of generalizing.${revision.note ? ` Note: ${revision.note}` : ''}\n` +
-    `Previous candidate:\n\`\`\`ts\n${revision.priorCode}\n\`\`\`\n` +
-    `Author a NEW strategy that GENERALIZES to unseen tasks: favor task-agnostic structure (read state, ` +
-    `critique, continue) over task-specific branching on ids/values from the losses. Output only the module code block.`
+    `\n\nYOUR PREVIOUS CANDIDATE OVERFIT. It scored ${tp}% on the tasks you targeted but only ${vp}% on a HELD-OUT ` +
+    `validation slice you did not see — it memorized the practice set instead of generalizing.${note}${prior}` +
+    `Author a NEW strategy that GENERALIZES to unseen tasks: favor task-agnostic structure (read state, critique, ` +
+    `continue) over task-specific branching on ids/values from the losses. Output only the module code block.`
   )
 }
 
@@ -282,7 +295,22 @@ export async function authorWithValidation(
   let revision: AuthorStrategyOptions['revision']
 
   for (let attempt = 0; attempt < rounds; attempt++) {
-    const authored = await authorStrategy({ ...opts, ...(revision ? { revision } : {}) })
+    let authored: AuthoredStrategy
+    try {
+      authored = await authorStrategy({ ...opts, ...(revision ? { revision } : {}) })
+    } catch (e) {
+      // A thrown author (no code block, or the module failed to compile/import) is a failed
+      // ATTEMPT, not a fatal crash — record a 0 and revise with a compile-error note so the next
+      // round can recover, instead of aborting the whole candidate.
+      history.push({ valScore: 0, trainScore: 0, accepted: false })
+      revision = {
+        priorCode: revision?.priorCode ?? '(previous attempt produced no loadable module)',
+        trainProxyScore: 0,
+        valScore: 0,
+        note: `the previous attempt failed to compile/load — ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`,
+      }
+      continue
+    }
     const val = await opts.validate(authored)
     const accepted = val.valScore >= opts.baselineValScore - tolerance
     history.push({ valScore: val.valScore, trainScore: val.trainScore, accepted })
