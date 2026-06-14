@@ -17,6 +17,7 @@ import { createExecutor, inlineSandboxClient, type SandboxClient } from '@tangle
 import { Sandbox } from '@tangle-network/sandbox'
 import { ADAPTERS } from './adapters'
 import { type Arm, analystArm, arm, llmAnalyst, randomArm, runExperiment, sandboxAgentRun } from './experiment'
+import { makeSearchExecutor, webSearchTool } from './search-tool'
 
 const must = (k: string): string => {
   const v = process.env[k]
@@ -39,15 +40,35 @@ async function main() {
   // worker is a completion (humaneval) or where box egress to the router is blocked.
   // Default `sandbox` is the in-box agent (coding/tool domains).
   const backend = process.env.BACKEND ?? 'sandbox'
+  // SEARCH=you|exa upgrades the OFF-BOX router worker from a tool-less chat
+  // completion into a `router-tools` agentic loop with a live `web_search` tool
+  // (the Tangle router's search provider). This is the capability axis the research
+  // benches need: their prompts demand "live web/market sources" a plain chat
+  // worker cannot reach. Off-box, so no sandbox egress allowlist applies.
+  const searchProvider =
+    process.env.SEARCH && process.env.SEARCH !== 'default' && process.env.SEARCH !== 'off'
+      ? process.env.SEARCH
+      : undefined
   const client: SandboxClient = adapter.leafClient
     ? (adapter.leafClient(router) as SandboxClient)
-    : backend === 'router'
-      ? inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
-      : new Sandbox({
-          baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-          apiKey: routerKey,
-          timeoutMs: 1_200_000,
-        } as never)
+    : backend === 'router' && searchProvider
+      ? inlineSandboxClient(
+          createExecutor({
+            backend: 'router-tools',
+            routerBaseUrl,
+            routerKey,
+            model,
+            tools: [webSearchTool],
+            executeToolCall: makeSearchExecutor({ routerBaseUrl, routerKey, provider: searchProvider }),
+          }),
+        )
+      : backend === 'router'
+        ? inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
+        : new Sandbox({
+            baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+            apiKey: routerKey,
+            timeoutMs: 1_200_000,
+          } as never)
 
   // The steer policies under test. Each is an arm = a steer f(rootPrompt, history).
   // Labels follow corpus-report's contract: the `random*` family is the compute
@@ -64,7 +85,7 @@ async function main() {
   // Optional in-box web-search provider pin (research benches): SEARCH=you|exa|… sets
   // TANGLE_SEARCH_DEFAULT_PROVIDER in the box; EXA_API_KEY (if set) keys opencode-native exa.
   const searchEnv: Record<string, string> = {}
-  if (process.env.SEARCH && process.env.SEARCH !== 'default' && process.env.SEARCH !== 'off') searchEnv.TANGLE_SEARCH_DEFAULT_PROVIDER = process.env.SEARCH
+  if (searchProvider) searchEnv.TANGLE_SEARCH_DEFAULT_PROVIDER = searchProvider
   if (process.env.EXA_API_KEY) searchEnv.EXA_API_KEY = process.env.EXA_API_KEY
   const r = await runExperiment({
     adapter,
