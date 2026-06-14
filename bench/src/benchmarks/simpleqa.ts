@@ -183,7 +183,7 @@ interface GraderRouter {
 function graderRouter(): GraderRouter {
   const key = process.env.TANGLE_API_KEY
   if (!key) throw new Error('TANGLE_API_KEY is required for the SimpleQA grader (set the Tangle API key)')
-  const model = process.env.JUDGE_MODEL ?? 'gpt-5'
+  const model = process.env.JUDGE_MODEL ?? 'gpt-4.1'
   const baseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   return { baseUrl, key, model }
 }

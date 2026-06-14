@@ -108,7 +108,7 @@ async function runExperimentPreset(
   rest: string[],
   opts: { arms: [Arm, ...Arm[]]; rounds: number; corpus?: string },
 ): Promise<void> {
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
@@ -202,7 +202,7 @@ async function main() {
       sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
       sandboxKey: must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      model: process.env.WORKER_MODEL ?? 'gpt-5',
+      model: process.env.WORKER_MODEL ?? 'gpt-4.1',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       // No timeout by default — the agent runs until it's done. Only honored if
       // SHOT_TIMEOUT_MS is explicitly set.

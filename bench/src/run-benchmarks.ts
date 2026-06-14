@@ -49,7 +49,7 @@ export interface RunBenchmarksOptions {
 export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<Record<string, ExperimentResult>> {
   const keys = opts.benchmarks === 'all' ? Object.keys(ADAPTERS) : opts.benchmarks
   if (keys.length === 0) throw new Error('runBenchmarks: no benchmarks selected')
-  const model = opts.model ?? opts.profile.model?.default ?? 'gpt-5'
+  const model = opts.model ?? opts.profile.model?.default ?? 'gpt-4.1'
   const arms: [Arm, ...Arm[]] = opts.arms ?? [randomArm('blind')]
   const results: Record<string, ExperimentResult> = {}
   for (const key of keys) {

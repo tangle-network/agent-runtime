@@ -37,7 +37,7 @@ const defaultStrategies: ReadonlyArray<string> = [
 async function main(): Promise<void> {
   const benchKey = process.env.BENCH ?? 'enterpriseops-gym'
   const adapter = resolveAdapter(benchKey)
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const k = Number(process.env.K ?? defaultStrategies.length)

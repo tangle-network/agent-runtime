@@ -165,7 +165,7 @@ async function runArm(
 async function main(): Promise<void> {
   const n = Number(process.env.N ?? 5)
   const k = Number(process.env.K ?? 4)
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const concurrency = Number(process.env.CONCURRENCY ?? 6)

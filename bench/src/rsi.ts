@@ -29,7 +29,7 @@ async function main() {
   const make = ADAPTERS[process.env.BENCH ?? 'swe-bench']
   if (!make) throw new Error(`unknown BENCH=${process.env.BENCH} (have: ${Object.keys(ADAPTERS).join(', ')})`)
   const adapter = make()
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const rounds = Number(process.env.ROUNDS ?? 3)

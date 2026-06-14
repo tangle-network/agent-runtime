@@ -22,7 +22,7 @@ function must(name: string): string {
 }
 
 async function main() {
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
   const rounds = Number(process.env.ROUNDS ?? 3)
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   // 20-min transport timeout — a multi-turn web-research agent legitimately takes
