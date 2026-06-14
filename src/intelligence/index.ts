@@ -40,6 +40,25 @@ import {
 import { type Redactor, resolveRedactor } from './redact'
 
 export type {
+  CapabilityAuth,
+  CapabilityInterface,
+  CapabilityManifest,
+  CapabilitySurface,
+  CertifiedCapability,
+  CertProvenance,
+  ContentRef,
+  CredentialRef,
+  DeliveryBinding,
+  DeliveryBindingKind,
+  HostSpec,
+  JsonSchema,
+  ResolvedHook,
+  ResolvedRetrieval,
+  ResolvedSubagent,
+  ResolvedSurface,
+} from './capability'
+export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
+export type {
   AppliedIntelligence,
   CertifiedArtifact,
   CertifiedProfile,
@@ -65,6 +84,11 @@ export {
 } from './effort'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
+export type { ProvisionedHost, ResolveCtx } from './resolver'
+export {
+  composeCertifiedProfile,
+  composeCertifiedProfileFromWire,
+} from './resolver'
 
 /** Usage class for billing. Base-stream tokens bill `'inference'`; every
  *  intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The

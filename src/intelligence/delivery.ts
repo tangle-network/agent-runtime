@@ -147,11 +147,19 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
   }
 }
 
+/** Artifact-type buckets that fold into the system prompt, in fold order. A
+ *  certified `context` capability whose content is free text (`instructions`)
+ *  is delivered here so it actually reaches the agent — never bucketed into a
+ *  type the fold then silently skips. The resolver reuses this exact set so its
+ *  `promptAdditions` slot matches the folded prompt byte-for-byte. */
+export const promptFoldTypes = ['prompt-surface', 'skill', 'instructions'] as const
+
 /**
- * Fold the certified prompt surface (and any certified `prompt-surface` /
- * `skill` artifacts) into a base system prompt under a marked section, so the
- * deployed agent prompt == base + the gate-certified additions. Order is stable
- * (prompt surface first, then artifacts by type then path) so the same profile
+ * Fold the certified prompt surface (and any certified prompt-folding artifacts:
+ * `prompt-surface` / `skill` / `instructions`) into a base system prompt under a
+ * marked section, so the deployed agent prompt == base + the gate-certified
+ * additions. Order is stable (prompt surface first, then artifact buckets in
+ * `promptFoldTypes` order, then by path within a bucket) so the same profile
  * renders byte-identically each call. Returns `base` unchanged when there is no
  * usable certified content.
  */
@@ -159,8 +167,7 @@ export function composeCertifiedPrompt(base: string, certified: CertifiedProfile
   if (!certified) return base
   const parts: string[] = []
   if (certified.promptSurface?.surface.trim()) parts.push(certified.promptSurface.surface.trim())
-  for (const type of Object.keys(certified.artifacts).sort()) {
-    if (type !== 'prompt-surface' && type !== 'skill') continue
+  for (const type of promptFoldTypes) {
     const bucket = certified.artifacts[type] ?? []
     for (const a of [...bucket].sort((x, y) => (x.path ?? '').localeCompare(y.path ?? ''))) {
       if (a.content.trim()) parts.push(a.content.trim())

@@ -73,6 +73,9 @@ try {
           'resolveEffort',
           'isIntelligenceOff',
           'defaultRedactor',
+          'composeCertifiedProfile',
+          'manifestFromProfile',
+          'CapabilityNotAdmittedError',
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)

@@ -19,7 +19,14 @@ import type {
   AgentProfile,
   AgentProfileFileMount,
   AgentProfileMcpServer,
+  AgentSubagentProfile,
 } from '@tangle-network/sandbox'
+
+/** One hook command entry. The SDK declares `AgentProfile.hooks` as
+ *  `Record<string, AgentProfileHookCommand[]>` but does not re-export the element
+ *  type from the package entry, so derive it from `AgentProfile` by indexed
+ *  access — the single source of truth, no drift from the SDK shape. */
+type AgentProfileHookCommand = NonNullable<AgentProfile['hooks']>[string][number]
 
 /** MCP server key under which the agent-runtime delegation tools mount. */
 export const DELEGATION_MCP_SERVER_KEY = 'agent-runtime-delegation'
@@ -117,6 +124,22 @@ export interface ComposeProductionAgentProfileOptions {
   name?: string
   /** Environment source for key + OTEL resolution. Defaults to `process.env`. */
   env?: Record<string, string | undefined>
+  /** Box built-in tool ON/OFF flags merged over the base profile's `tools`
+   *  (overlay wins per key). The sandbox-seam mapping of a certified surface's
+   *  tool grants — `AgentProfile.tools` is `Record<string, boolean>` box flags,
+   *  so it carries grants, not arbitrary tool defs. */
+  tools?: Record<string, boolean>
+  /** Per-event hook commands merged over the base profile's `hooks`. An event
+   *  present in both has the extra commands appended after the base ones. */
+  hooks?: Record<string, AgentProfileHookCommand[]>
+  /** Subagent definitions merged over the base profile's `subagents` (overlay
+   *  wins per key). */
+  subagents?: Record<string, AgentSubagentProfile>
+  /** Resolved certified MCP connections injected into `AgentProfile.mcp` — the
+   *  sandbox-seam delivery of a `ResolvedSurface.mcpConnections`. Merged after
+   *  the base map and before the delegation entry, so a base/delegation key is
+   *  never silently shadowed by an injected one. */
+  mcpConnections?: Record<string, AgentProfileMcpServer>
 }
 
 /**
@@ -126,9 +149,14 @@ export interface ComposeProductionAgentProfileOptions {
  * the scorecard profile hash reflects the actual production profile.
  *
  * Merge rules:
- *   - `mcp`: base map preserved; the delegation entry is appended under
+ *   - `mcp`: base map preserved; `options.mcpConnections` (resolved certified
+ *     servers) merged over it; the delegation entry is appended last under
  *     {@link DELEGATION_MCP_SERVER_KEY}, and omitted entirely when no sandbox
  *     API key resolves.
+ *   - `tools`: base box-flags map preserved; `options.tools` overlaid per key.
+ *   - `hooks`: per event, base commands preserved; `options.hooks[event]`
+ *     appended after the base ones.
+ *   - `subagents`: base map preserved; `options.subagents` overlaid per key.
  *   - `prompt.systemPrompt`: replaced when `options.systemPrompt` is set.
  *   - `resources.files`: `options.extraFiles` concatenated after base files.
  *   - `name`: replaced when `options.name` is set.
@@ -144,9 +172,12 @@ export function composeProductionAgentProfile(
   })
 
   const baseMcp = baseProfile.mcp ?? {}
-  const mergedMcp: Record<string, AgentProfileMcpServer> = delegationMcp
-    ? { ...baseMcp, ...delegationMcp }
+  const withInjected: Record<string, AgentProfileMcpServer> = options.mcpConnections
+    ? { ...baseMcp, ...options.mcpConnections }
     : { ...baseMcp }
+  const mergedMcp: Record<string, AgentProfileMcpServer> = delegationMcp
+    ? { ...withInjected, ...delegationMcp }
+    : withInjected
 
   const baseFiles = baseProfile.resources?.files ?? []
   const mergedFiles: AgentProfileFileMount[] = options.extraFiles?.length
@@ -157,14 +188,41 @@ export function composeProductionAgentProfile(
     ? { ...baseProfile.prompt, systemPrompt: options.systemPrompt }
     : baseProfile.prompt
 
+  const mergedTools = options.tools
+    ? { ...(baseProfile.tools ?? {}), ...options.tools }
+    : baseProfile.tools
+
+  const mergedHooks = mergeHooks(baseProfile.hooks, options.hooks)
+
+  const mergedSubagents = options.subagents
+    ? { ...(baseProfile.subagents ?? {}), ...options.subagents }
+    : baseProfile.subagents
+
   return {
     ...baseProfile,
     name: options.name ?? baseProfile.name,
     prompt,
+    ...(mergedTools ? { tools: mergedTools } : {}),
+    ...(mergedHooks ? { hooks: mergedHooks } : {}),
+    ...(mergedSubagents ? { subagents: mergedSubagents } : {}),
     mcp: mergedMcp,
     resources: {
       ...baseProfile.resources,
       files: mergedFiles,
     },
   }
+}
+
+/** Merge per-event hook command lists: base commands first, overlay commands
+ *  appended after. Returns the base map unchanged when no overlay is given. */
+function mergeHooks(
+  base: Record<string, AgentProfileHookCommand[]> | undefined,
+  overlay: Record<string, AgentProfileHookCommand[]> | undefined,
+): Record<string, AgentProfileHookCommand[]> | undefined {
+  if (!overlay) return base
+  const merged: Record<string, AgentProfileHookCommand[]> = { ...(base ?? {}) }
+  for (const [event, commands] of Object.entries(overlay)) {
+    merged[event] = [...(merged[event] ?? []), ...commands]
+  }
+  return merged
 }
