@@ -106,7 +106,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.0",
-    "@tangle-network/agent-eval": "^0.89.0",
+    "@tangle-network/agent-eval": "^0.92.0",
     "@tangle-network/sandbox": "^0.6.0",
     "@types/node": "^25.6.0",
     "playwright": "^1.40.0",
