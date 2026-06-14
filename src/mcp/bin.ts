@@ -78,6 +78,11 @@ import {
   runDetachedTurn,
 } from './detached-turn'
 import type { DelegationExecutor } from './executor'
+import {
+  type ProvisionableSpec,
+  applyRouterEnv,
+  resolveResearcherProvisioning,
+} from './researcher-provisioning'
 import { createMcpServer } from './server'
 import { type DelegationResumeDriver, DelegationTaskQueue } from './task-queue'
 import {
@@ -353,8 +358,9 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
     process.exit(2)
   }
   // @tangle-network/sandbox ≥0.6 makes baseUrl required; default it so the MCP server
-  // starts without forcing every caller to set SANDBOX_BASE_URL.
-  const baseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
+  // starts without forcing every caller to set SANDBOX_BASE_URL. Treat empty/whitespace as
+  // unset (|| not ??) so `SANDBOX_BASE_URL=` still resolves to the default.
+  const baseUrl = process.env.SANDBOX_BASE_URL?.trim() || 'https://sandbox.tangle.tools'
   return new SandboxCtor({ apiKey, baseUrl })
 }
 
@@ -395,7 +401,11 @@ async function loadResearcherSupport(
     harness?: string
     model?: string
   }) => ResearcherProfilePreset
-  type FanoutFactory = (opts: { task: unknown }) => ResearcherFanoutPreset
+  type FanoutFactory = (opts: {
+    task: unknown
+    harnesses?: string[]
+    models?: (string | undefined)[]
+  }) => ResearcherFanoutPreset
   const fanoutFactory = (mod as { multiHarnessResearcherFanout?: FanoutFactory })
     .multiHarnessResearcherFanout
   const singleFactory = (mod as { researcherProfile?: SingleFactory }).researcherProfile
@@ -405,23 +415,13 @@ async function loadResearcherSupport(
   // zero LLM calls and "produces no winner" on a successful box: (1) the profile's default
   // harness (opencode/zai-coding-plan/glm-5.1) is not broadly provisionable; (2) the
   // sandbox SDK does not wire backend.model.apiKey into the in-box agent's OpenAI-compatible
-  // provider. So default to plain opencode and inject the router creds via box env. All
-  // three are env-overridable; TANGLE_API_KEY doubles as the router key.
-  const researcherHarness = process.env.MCP_RESEARCHER_HARNESS ?? 'opencode'
-  const researcherModel =
-    process.env.MCP_RESEARCHER_MODEL ?? process.env.MCP_WORKER_MODEL ?? 'moonshotai/kimi-k2.6'
-  const routerKey = process.env.TANGLE_API_KEY
-  const routerBaseUrl =
-    process.env.MCP_RESEARCHER_ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1'
+  // provider. resolveResearcherProvisioning picks a provisionable harness + model and the
+  // router creds (all env-overridable); applyRouterEnv injects them as box env. Applied to
+  // BOTH the single-variant path and every fanout agent-run so variants > 1 work too.
+  const { harness, model, routerKey, routerBaseUrl } = resolveResearcherProvisioning()
   const buildPreset = (task: unknown): ResearcherProfilePreset => {
-    const preset = singleFactory({ task, harness: researcherHarness, model: researcherModel })
-    if (routerKey) {
-      const spec = preset.agentRunSpec as { sandboxOverrides?: Record<string, unknown> }
-      spec.sandboxOverrides = {
-        ...(spec.sandboxOverrides ?? {}),
-        env: { OPENAI_API_KEY: routerKey, OPENAI_BASE_URL: routerBaseUrl },
-      }
-    }
+    const preset = singleFactory({ task, harness, model })
+    applyRouterEnv(preset.agentRunSpec as ProvisionableSpec, routerKey, routerBaseUrl)
     return preset
   }
 
@@ -499,7 +499,19 @@ async function loadResearcherSupport(
       ctx.report({ iteration: 1, phase: 'completed' })
       return output as ResearchOutputShape
     }
-    const fanout = fanoutFactory({ task })
+    // Match the single-variant fix: use a provisionable harness/model and inject router
+    // creds into every fanout agent-run, else variants > 1 makes zero LLM calls.
+    const fanoutHarnesses =
+      parseHarnesses(process.env.MCP_RESEARCHER_FANOUT_HARNESSES) ??
+      Array.from({ length: variants }, () => harness)
+    const fanout = fanoutFactory({
+      task,
+      harnesses: fanoutHarnesses,
+      models: fanoutHarnesses.map(() => model),
+    })
+    for (const spec of fanout.agentRuns) {
+      applyRouterEnv(spec as ProvisionableSpec, routerKey, routerBaseUrl)
+    }
     const result = await runLoop({
       driver: fanout.driver,
       agentRuns: fanout.agentRuns.slice(0, variants),
@@ -525,7 +537,8 @@ async function loadResearcherSupport(
     resume: {
       message(args) {
         const task = buildResearchTask(args)
-        const spec = singleFactory({ task }).agentRunSpec as AgentRunSpec<unknown>
+        // Use the same preset construction as dispatch so the displayed prompt can't drift.
+        const spec = buildPreset(task).agentRunSpec as AgentRunSpec<unknown>
         return spec.taskToPrompt(task)
       },
       async settle(turn, args, signal) {
