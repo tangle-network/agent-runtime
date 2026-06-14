@@ -39,7 +39,7 @@
 import { selfImprove } from '@tangle-network/agent-eval/contract'
 import type { CampaignResult, JudgeConfig, JudgeScore, Scenario } from '@tangle-network/agent-eval/campaign'
 import { heldoutSignificance, inMemoryCampaignStorage, pairHoldout } from '@tangle-network/agent-eval/campaign'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
 import type { BenchTask } from './benchmarks/types'
 
@@ -113,14 +113,32 @@ async function chatComplete(
 }
 
 function parseFindings(content: string): DiagnosedFinding[] {
-  const start = content.indexOf('[')
-  const end = content.lastIndexOf(']')
-  if (start < 0 || end <= start) return []
+  // Balanced-bracket scan so `]` inside string values doesn't terminate early.
+  const startIdx = content.indexOf('[')
+  if (startIdx < 0) return []
+  let depth = 0, inString = false, endIdx = -1
+  for (let i = startIdx; i < content.length; i++) {
+    const ch = content[i]
+    if (inString) {
+      if (ch === '\\') { i++; continue }
+      if (ch === '"') inString = false
+    } else {
+      if (ch === '"') inString = true
+      else if (ch === '[' || ch === '{') depth++
+      else if (ch === ']' || ch === '}') {
+        depth--
+        if (depth === 0 && ch === ']') { endIdx = i; break }
+      }
+    }
+  }
+  if (endIdx < 0) return []
+  const candidate = content.slice(startIdx, endIdx + 1)
   let arr: unknown
   try {
-    arr = JSON.parse(content.slice(start, end + 1))
-  } catch {
-    return []
+    arr = JSON.parse(candidate)
+  } catch (e1) {
+    try { arr = JSON.parse(candidate.replace(/,(\s*[}\]])/g, '$1')) }
+    catch { console.error(`[trata-gepa] parseFindings failed: ${(e1 as Error).message} | head: ${candidate.slice(0, 120)}`); return [] }
   }
   if (!Array.isArray(arr)) return []
   const sev = new Set(['critical', 'high', 'medium', 'low', 'info'])
@@ -142,7 +160,7 @@ async function main(): Promise<void> {
   await adapter.preflight()
 
   const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
-  const reflectModel = process.env.REFLECT_MODEL ?? 'gemini-2.5-pro'
+  const reflectModel = process.env.REFLECT_MODEL ?? 'gpt-4.1-mini'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const trainN = Number(process.env.TRAIN_N ?? 70)
@@ -163,9 +181,8 @@ async function main(): Promise<void> {
     return h >>> 0
   }
   tasks.sort((a, b) => idHash(a.id) - idHash(b.id))
-  const half = Math.floor(tasks.length / 2)
-  const train = tasks.slice(0, Math.min(trainN, half))
-  const holdout = tasks.slice(half, half + Math.min(holdoutN, tasks.length - half))
+  const train = tasks.slice(0, Math.min(trainN, tasks.length))
+  const holdout = tasks.slice(train.length, train.length + Math.min(holdoutN, tasks.length - train.length))
   const toScenario = (t: BenchTask): TrataScenario => ({ id: t.id, kind: 'trata-hedge', task: t })
 
   console.log(
@@ -397,12 +414,18 @@ async function main(): Promise<void> {
     console.log(`  (significance unavailable: ${(err instanceof Error ? err.message : String(err)).slice(0, 80)})`)
   }
 
+  const winnerSurface = result.winner.surface as string
   if (improved) {
-    console.log(`\n  LEARNED SYSTEM PROMPT:\n${result.winner.surface as string}`)
+    console.log(`\n  PROMOTED SYSTEM PROMPT:\n${winnerSurface}`)
     if (result.winner.rationale) console.log(`\n  rationale: ${result.winner.rationale}`)
   } else {
-    console.log('  kept baseline (gate did not ship a winner)')
+    console.log('  kept baseline (gate did not promote)')
+    console.log(`\n  BEST CANDIDATE SURFACE (set as BASELINE_DIRECTIVE to seed next run):\n${winnerSurface}`)
   }
+  try {
+    writeFileSync('/tmp/trata-gepa-winner-surface.txt', winnerSurface)
+    console.log('\n  (winner surface written to /tmp/trata-gepa-winner-surface.txt)')
+  } catch { /* non-fatal */ }
 }
 
 main().catch((err) => {

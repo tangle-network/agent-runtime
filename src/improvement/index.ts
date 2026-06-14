@@ -13,10 +13,18 @@
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
  */
 
-export { type AgenticGeneratorOptions, agenticGenerator } from './agentic-generator'
+export {
+  type AgenticGeneratorOptions,
+  agenticGenerator,
+  commandVerifier,
+  type Verifier,
+  type VerifyResult,
+} from './agentic-generator'
+export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
   type CandidateGenerator,
   type ImprovementDriverOptions,
   improvementDriver,
 } from './improvement-driver'
+export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'

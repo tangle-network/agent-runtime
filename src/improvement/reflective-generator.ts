@@ -8,8 +8,8 @@
  * construction (the patches are already drafted).
  *
  * This is the `shots=1, sandbox=off` setting of the one improvement driver.
- * The `agenticGenerator` (sandbox runLoop) is the `shots=N, sandbox=on`
- * setting — both plug into the same `improvementDriver`.
+ * The `agenticGenerator` (a multi-shot verify-in-session loop) is the
+ * `shots=N` setting — both plug into the same `improvementDriver`.
  */
 
 import { spawnSync } from 'node:child_process'
