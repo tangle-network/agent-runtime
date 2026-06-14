@@ -170,11 +170,23 @@ export async function runPersonaConversation(
     seed: opts.seed ?? 'Begin.',
     signal: opts.signal,
   })
+  // Worker-only cost. Prefer the worker's own metered llm_call spend. Fall back
+  // to the engine's aggregate spend ONLY for a scripted persona — there the
+  // harness has no LLM cost so the aggregate IS the worker's. For a
+  // profile-driven persona the aggregate also includes the persona-driver's
+  // spend, so attributing it to the worker would over-count; report the
+  // worker's metered spend (0 if its backend reported none) instead.
+  const costUsd =
+    counter.costUsd > 0
+      ? counter.costUsd
+      : opts.persona.kind === 'scripted'
+        ? result.spentCreditsCents / 100
+        : 0
   return {
     transcript: result.transcript,
     turns: result.turns,
     halted: result.halted,
-    costUsd: counter.costUsd > 0 ? counter.costUsd : result.spentCreditsCents / 100,
+    costUsd,
     tokensIn: counter.tokensIn,
     tokensOut: counter.tokensOut,
   }
