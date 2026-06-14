@@ -162,9 +162,10 @@ export function fanout<Task, Item, D>(
  * the deployable stop. The conserved pool IS the loop bound: once `spawn` fails closed the loop
  * stops. A loop that exhausted the pool without `until` ever satisfying is a concrete blocker.
  *
- * Findings are threaded through the `SteerContext` firewall in the analyst seam (`analyst.ts`);
- * absent a wired analyst on this surface the firewall stays dormant and `until` is consulted with
- * an empty findings array — never a fabricated finding (fail-loud honesty over a silent default).
+ * When `ctx.analyst` is set, each round runs it over the children settled so far and steers
+ * `until` on the resulting trace-derived findings (the analyst spawns into THIS scope, so its
+ * compute is conserved-pooled — equal-k holds by construction). Absent an analyst the findings
+ * argument is the empty array — never a fabricated finding (fail-loud honesty over a silent default).
  */
 export function loopUntil<Task, State, D>(
   seed: State,
@@ -175,6 +176,7 @@ export function loopUntil<Task, State, D>(
     async act(task, scope): Promise<Outcome<D>> {
       let state: LoopUntilState<State> = { round: 0, value: seed }
       const blockers: string[] = []
+      const settledSoFar: Settled<Outcome<D>>[] = []
       for (;;) {
         const label = spec.label ? spec.label(state.round) : `step:${state.round}`
         const child = ctx.spawnChild(label, ctx.persona.root)
@@ -188,8 +190,14 @@ export function loopUntil<Task, State, D>(
         }
         const settled = await drainOne(scope, label)
         if (settled.kind === 'down') blockers.push(blockerFromDown(settled))
+        settledSoFar.push(settled)
         state = spec.fold(state, settled)
-        const reached = spec.until(state, [])
+        // Wired analyst ⇒ steer `until` on trace-derived findings; absent ⇒ the dormant empty
+        // default (the analyst spawns into THIS scope, so its compute is conserved-pooled).
+        const findings = ctx.analyst
+          ? await ctx.analyst.analyze({ task, settledSoFar, nodeId: scope.view.root })
+          : []
+        const reached = spec.until(state, findings)
         if (reached) return reached
         state = { round: state.round + 1, value: state.value }
       }
@@ -316,9 +324,14 @@ export function verify<Task, Candidate, D>(
  * never a child's raw `verdict` — and the default gate (`flatWidenGate`) never widens, so the R2
  * firewall stays dormant. Terminal selection is `spec.synthesize` over every settled lineage.
  *
- * No analyst is wired on this frozen surface, so `decide` is consulted with an empty findings
- * array; a flat gate ignores it. A non-flat gate that wants findings reads them through the
- * `SteerContext` firewall the analyst seam owns — never fabricated here.
+ * When `ctx.analyst` is set, `decide` is consulted with that round's trace-derived findings;
+ * absent an analyst the findings argument is the empty array a flat gate ignores. The analyst
+ * spawns into THIS scope (conserved-pooled, so equal-k holds). Streaming caveat: a wired analyst
+ * drains its own child off the SHARED cursor by id-match, so on a NON-flat gate (which spawns
+ * widen children that are live concurrently) the analyst can consume a sibling's settlement before
+ * the widen loop sees it. The shipped default (`flatWidenGate`) never widens, so no widen child is
+ * ever live when the analyst runs and the wire is exact; a non-flat gate must drive the analyst on
+ * a scope whose siblings are quiesced, or read findings without the shared-cursor drain.
  */
 export function widen<Task, Seed, D>(spec: WidenSpec<Seed, D>): CombinatorShape<Task, D> {
   return (ctx: ShapeContext<D>): Agent<Task, Outcome<D>> => ({
@@ -342,7 +355,16 @@ export function widen<Task, Seed, D>(spec: WidenSpec<Seed, D>): CombinatorShape<
       let widenIndex = 0
       for (let s = await scope.next(); s !== null; s = await scope.next()) {
         gathered.push(s)
-        const decision: WidenDecision<D> = spec.gate.decide(s, [], scope.budget)
+        // Wired analyst ⇒ steer the gate on trace-derived findings; absent ⇒ the dormant empty
+        // default the flat gate ignores. The analyst spawns into THIS scope (conserved-pooled).
+        const findings = ctx.analyst
+          ? await ctx.analyst.analyze({
+              task: _task,
+              settledSoFar: gathered,
+              nodeId: scope.view.root,
+            })
+          : []
+        const decision: WidenDecision<D> = spec.gate.decide(s, findings, scope.budget)
         if (decision.kind !== 'widen') continue
         const label = `widen:${widenIndex}`
         widenIndex += 1

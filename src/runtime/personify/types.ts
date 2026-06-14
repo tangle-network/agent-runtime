@@ -36,6 +36,7 @@ import type {
   SpawnJournal,
   SupervisedResult,
 } from '../supervise/types'
+import type { ScopeAnalyst } from './wave-types'
 
 // ── The deliverable contract every shape synthesizes into ──────────────────────
 
@@ -174,6 +175,9 @@ export interface ShapeContext<D = unknown> {
   /** Derive a child `AgentSpec` from the persona's root spec with an overridden profile —
    *  the seam a shape uses to give a worker a narrower role/prompt than the root persona. */
   childSpec(profile: AgentProfile, harness?: BackendType | null): AgentSpec
+  /** The scope analyst (selector≠judge firewall) the combinator steers from. Absent ⇒ the
+   *  dormant default (empty findings → gates read deliverables/state only). */
+  readonly analyst?: ScopeAnalyst<D>
 }
 
 /**
@@ -234,6 +238,9 @@ export interface RunPersonifiedOptions<Task, D> {
   readonly handle?: RootHandle<Outcome<D>>
   readonly now?: () => number
   readonly signal?: AbortSignal
+  /** Optional scope analyst threaded into the shape's ShapeContext so loopUntil/widen steer
+   *  on trace-derived findings instead of the dormant empty default. */
+  readonly analyst?: ScopeAnalyst<D>
 }
 
 /** The composed run signature. */

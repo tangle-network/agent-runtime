@@ -20,7 +20,8 @@
  * throws; there is no silent empty-findings path that would let a combinator steer on nothing.
  */
 
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { AnalystFinding, AnalystRunInputs } from '@tangle-network/agent-eval'
+import type { AnalystRegistryLike } from '../../analyst-loop/types'
 import { AnalystError, PlannerError } from '../../errors'
 import type { Agent, Budget, DefaultVerdict, NodeId, Scope, Settled } from '../supervise/types'
 import { stringifySafe } from '../util'
@@ -170,6 +171,49 @@ function readAnalystFindings<D>(settled: Settled<Outcome<D>>): ReadonlyArray<Ana
     )
   }
   return out as ReadonlyArray<AnalystFinding>
+}
+
+// ── The panel-of-analysts adapter — N analyst KINDS merged into one ScopeAnalyst ───────
+
+/**
+ * Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a
+ * `runId` + `AnalystRunInputs` (a trace store / run record / artifact dir), NOT in-memory scope
+ * settlements — so the CALLER owns the projection from the combinator's drained children to the
+ * registry's inputs (e.g. the trace store the run already wrote). This adapter never invents that
+ * bridge; it only runs the projected inputs and firewalls the merged findings.
+ */
+export interface RegistryAnalyzeProjection {
+  readonly runId: string
+  readonly inputs: AnalystRunInputs
+  /** Optional `run` opts (e.g. `priorFindings`) forwarded verbatim to the registry. */
+  readonly opts?: Parameters<AnalystRegistryLike['run']>[2]
+}
+
+/**
+ * A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges
+ * N analyst KINDS into one `AnalystRunResult.findings`; `analyze` runs it over the caller-projected
+ * `{ runId, inputs }` and pipes the merged findings through the SAME `assertTraceDerivedFindings`
+ * firewall `createScopeAnalyst` uses (single-sourced selector≠judge). Distinct from `panel()`
+ * (judges-vs-one-artifact) — this is analysts-over-a-trace, the diagnosis side of the wire.
+ *
+ * Fail loud: a registry that throws propagates; a judge-derived finding aborts via the firewall.
+ * The projection is the caller's (`buildInputs`) — if the scope settlements do not cleanly map to
+ * the registry's `AnalystRunInputs`, that is a caller-side contract gap, surfaced there, not papered
+ * over with a fabricated input here.
+ */
+export function registryScopeAnalyst<D>(
+  registry: AnalystRegistryLike,
+  buildInputs: (input: ScopeAnalyzeInput<D>) => RegistryAnalyzeProjection,
+): ScopeAnalyst<D> {
+  return {
+    async analyze(input: ScopeAnalyzeInput<D>): Promise<ReadonlyArray<AnalystFinding>> {
+      const projection = buildInputs(input)
+      const result = await registry.run(projection.runId, projection.inputs, projection.opts)
+      const findings = result.findings
+      assertTraceDerivedFindings(findings)
+      return findings
+    },
+  }
 }
 
 // ── The single firewalled steer surface every combinator funnels through ──────────────
