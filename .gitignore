@@ -9,3 +9,6 @@ bench/experiments/
 **/__pycache__/
 .claude/
 bench/scripts/__pycache__/
+
+# local rollout-corpus scratch (raw jsonl, per work-line)
+corpus/

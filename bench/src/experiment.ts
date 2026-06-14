@@ -120,7 +120,7 @@ export const diverseArm = (label: string, lenses: string[]): Arm =>
  * (loopAnalyst). It observes BEHAVIOR (output, trace), never the judge's verdict —
  * the selector != judge firewall.
  */
-export type AnalystFn = (history: SteerHistory) => Promise<string>
+export type AnalystFn = (history: SteerHistory, task?: string) => Promise<string>
 
 /** analyst@k — round 0 is bare; later rounds prepend a TARGETED correction the
  *  analyst derived from the actual trace (not a fixed "double-check it" directive).
@@ -128,38 +128,35 @@ export type AnalystFn = (history: SteerHistory) => Promise<string>
 export const analystArm = (label: string, analyze: AnalystFn): Arm =>
   arm(label, async (root, history, round) => {
     if (round === 0) return root
-    const feedback = (await analyze(history)).trim()
+    const feedback = (await analyze(history, root)).trim()
     return feedback && !/^no change needed/i.test(feedback)
       ? `${root}\n\n--- Analysis of your previous attempt ---\n${feedback}\n\nApply this correction and give the final answer.`
       : root
   })
 
-/** Simple analyst: ONE model call reads a bounded view of the last attempt (its
- *  output + a tail of its trace events) and returns a concrete correction. */
+/** Simple analyst: ONE model call reads the public task plus a bounded view of the
+ *  last attempt (its output + a tail of its trace events) and returns a concrete
+ *  correction. Selector != judge firewall: it NEVER reads the held-out judge's
+ *  verdict or failure detail — that would be a non-deployable oracle gradient
+ *  toward the reference answer. A deployable steerer must locate the fault from the
+ *  task and the agent's own behavior alone. */
 export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; model: string }): AnalystFn =>
-  async (history) => {
+  async (history, task) => {
     const last = history.at(-1)
     const traceTail = (last?.events ?? [])
       .slice(-12)
       .map((e) => (typeof e === 'string' ? e : JSON.stringify(e)))
       .join('\n')
       .slice(-2000)
-    // The judge's verdict + failure detail is the analyst's ground truth for
-    // WHAT failed; the output/trace is where it finds WHY. Without this line the
-    // analyst sees plausible-looking output and punts with "no change needed".
-    const v = last?.verdict
-    const verdictLine = v
-      ? `Judge verdict: ${v.valid ? 'PASSED' : 'FAILED'} (score ${v.score ?? 0})${v.notes ? `\nJudge failure detail: ${String(v.notes).slice(0, 1200)}` : ''}`
-      : 'Judge verdict: (none recorded)'
     const { content } = await routerChatWithUsage(cfg, [
       {
         role: 'system',
         content:
-          "You review an AI agent's previous attempt at a task. The judge's verdict and failure detail are ground truth for WHAT failed; read the attempt to determine WHY. Name the SPECIFIC cause (a wrong value, a guessed API signature, a missing step, a misread requirement) and state the concrete correction in 1-3 sentences. Reply exactly 'no change needed' ONLY if the judge verdict passed.",
+          "You review an AI agent's previous attempt at a task. From the task, the attempt's output, and its execution trace ALONE, judge whether it correctly and completely solved the task. If you find a specific fault — a wrong value, a guessed API signature, a missing step, a misread requirement — name it and give the concrete correction in 1-3 sentences. Reply exactly 'no change needed' if the attempt looks correct and complete.",
       },
       {
         role: 'user',
-        content: `${verdictLine}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
+        content: `Task:\n${task ?? '(task unavailable)'}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
       },
     ])
     return content
