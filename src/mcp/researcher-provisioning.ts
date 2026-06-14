@@ -62,7 +62,9 @@ export function resolveResearcherProvisioning(
     DEFAULT_MODEL
   const routerKey = trimmed(env.MCP_RESEARCHER_ROUTER_KEY) ?? trimmed(env.TANGLE_API_KEY)
   const base = trimmed(env.MCP_RESEARCHER_ROUTER_BASE_URL) ?? resolveRouterBaseUrl(env as RouterEnv)
-  const routerBaseUrl = /\/v\d+\/?$/.test(base) ? base.replace(/\/$/, '') : `${base.replace(/\/$/, '')}/v1`
+  const routerBaseUrl = /\/v\d+\/?$/.test(base)
+    ? base.replace(/\/$/, '')
+    : `${base.replace(/\/$/, '')}/v1`
   const fanoutHarnesses = csv(env.MCP_RESEARCHER_FANOUT_HARNESSES)
   const fanoutModels = csv(env.MCP_RESEARCHER_FANOUT_MODELS)
   return {
@@ -76,8 +78,10 @@ export function resolveResearcherProvisioning(
 }
 
 /**
- * Merge the router creds into a spec's box env (in place). Merges — never replaces — any
- * env the preset already supplied. No-op when there is no router key.
+ * Overlay the router creds onto a spec's box env (in place): preserve every env var the
+ * preset already supplied and set OPENAI_API_KEY / OPENAI_BASE_URL on top (these two are
+ * intentionally authoritative — they point the in-box provider at the router). No-op when
+ * there is no router key.
  */
 export function applyRouterEnv(
   spec: ProvisionableSpec,

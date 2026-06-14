@@ -45,7 +45,7 @@ const OTEL_FORWARD_KEYS = [
   'PARENT_SPAN_ID',
 ] as const
 
-const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
+export const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
 
 export interface BuildDelegationMcpServerOptions {
   /** Sandbox API key forwarded as `TANGLE_API_KEY` to the MCP child. The

@@ -75,6 +75,7 @@ import {
   type ResearcherDelegate,
   settleDetachedCoderTurn,
 } from './delegates'
+import { DEFAULT_SANDBOX_BASE_URL } from './delegation-profile'
 import { FileDelegationStore } from './delegation-store'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
@@ -88,8 +89,8 @@ import {
 } from './detached-turn'
 import type { DelegationExecutor } from './executor'
 import {
-  type ProvisionableSpec,
   applyRouterEnv,
+  type ProvisionableSpec,
   resolveResearcherProvisioning,
 } from './researcher-provisioning'
 import { createMcpServer } from './server'
@@ -369,7 +370,7 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
   // @tangle-network/sandbox ≥0.6 makes baseUrl required; default it so the MCP server
   // starts without forcing every caller to set SANDBOX_BASE_URL. Treat empty/whitespace as
   // unset (|| not ??) so `SANDBOX_BASE_URL=` still resolves to the default.
-  const baseUrl = process.env.SANDBOX_BASE_URL?.trim() || 'https://sandbox.tangle.tools'
+  const baseUrl = process.env.SANDBOX_BASE_URL?.trim() || DEFAULT_SANDBOX_BASE_URL
   return new SandboxCtor({ apiKey, baseUrl })
 }
 
@@ -427,8 +428,14 @@ async function loadResearcherSupport(
   // provider. resolveResearcherProvisioning picks a provisionable harness + model and the
   // router creds (all env-overridable); applyRouterEnv injects them as box env. Applied to
   // BOTH the single-variant path and every fanout agent-run so variants > 1 work too.
-  const { harness, model, routerKey, routerBaseUrl, fanoutHarnesses: cfgFanoutHarnesses, fanoutModels } =
-    resolveResearcherProvisioning()
+  const {
+    harness,
+    model,
+    routerKey,
+    routerBaseUrl,
+    fanoutHarnesses: cfgFanoutHarnesses,
+    fanoutModels,
+  } = resolveResearcherProvisioning()
   const buildPreset = (task: unknown): ResearcherProfilePreset => {
     const preset = singleFactory({ task, harness, model })
     applyRouterEnv(preset.agentRunSpec as ProvisionableSpec, routerKey, routerBaseUrl)

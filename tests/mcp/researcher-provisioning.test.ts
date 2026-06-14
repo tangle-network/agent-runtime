@@ -89,6 +89,22 @@ describe('resolveResearcherProvisioning', () => {
     expect(p.fanoutModels).toEqual(['kimi', 'deepseek'])
   })
 
+  it('parses fanout models even without fanout harnesses set', () => {
+    const p = resolveResearcherProvisioning({
+      MCP_RESEARCHER_FANOUT_MODELS: 'kimi, deepseek',
+    } as unknown as NodeJS.ProcessEnv)
+    expect(p.fanoutHarnesses).toBeUndefined()
+    expect(p.fanoutModels).toEqual(['kimi', 'deepseek'])
+  })
+
+  it('appends /v1 to a non-versioned MCP_RESEARCHER_ROUTER_BASE_URL', () => {
+    expect(
+      resolveResearcherProvisioning({
+        MCP_RESEARCHER_ROUTER_BASE_URL: 'https://r.example.com',
+      } as unknown as NodeJS.ProcessEnv).routerBaseUrl,
+    ).toBe('https://r.example.com/v1')
+  })
+
   it('treats empty/whitespace env values as unset', () => {
     const p = resolveResearcherProvisioning({
       MCP_RESEARCHER_HARNESS: '  ',
@@ -129,9 +145,10 @@ describe('applyRouterEnv', () => {
   })
 })
 
-describe('buildPreset composition (resolve → apply)', () => {
-  // Mirrors what bin.ts buildPreset does to an agentRunSpec returned by researcherProfile,
-  // exercised through the public surface (no optional peer, no exported internals).
+describe('resolve → apply on a profile-shaped spec', () => {
+  // The two public functions bin.ts buildPreset composes (resolveResearcherProvisioning +
+  // applyRouterEnv). buildPreset additionally calls singleFactory(harness, model) — that
+  // peer call is not exercised here; this asserts the env-overlay half of the composition.
   it('overlays resolved router creds onto a profile-shaped spec, preserving preset env', () => {
     const provisioning = resolveResearcherProvisioning({
       TANGLE_API_KEY: 'tk',
