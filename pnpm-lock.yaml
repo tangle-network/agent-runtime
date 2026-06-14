@@ -16,8 +16,8 @@ importers:
         specifier: ^2.4.0
         version: 2.4.15
       '@tangle-network/agent-eval':
-        specifier: ^0.89.0
-        version: 0.89.0(@tangle-network/sandbox@0.6.1(viem@2.48.8(typescript@5.9.3)(zod@4.4.2)))(typescript@5.9.3)
+        specifier: ^0.92.0
+        version: 0.92.0(@tangle-network/sandbox@0.6.1(viem@2.48.8(typescript@5.9.3)(zod@4.4.2)))(typescript@5.9.3)
       '@tangle-network/sandbox':
         specifier: ^0.6.0
         version: 0.6.1(viem@2.48.8(typescript@5.9.3)(zod@4.4.2))
@@ -467,8 +467,8 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@tangle-network/agent-eval@0.89.0':
-    resolution: {integrity: sha512-ifpIj1rjaE0KtL0yteX/5kreSDyDvygs6iCee+OVSrZmxZD6ZfW/0iIm+2e15elrIAiW10UJo+tUBqp1Zqu+Lg==}
+  '@tangle-network/agent-eval@0.92.0':
+    resolution: {integrity: sha512-Sj/ejnn74ILewRM+48gkWbZnEInB0xQgF6bJC5DwpVeMdankuCuljZVR34Y66Ba+eg+YwNxf3BJUEX0aV4LB5w==}
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
@@ -1394,7 +1394,7 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@tangle-network/agent-eval@0.89.0(@tangle-network/sandbox@0.6.1(viem@2.48.8(typescript@5.9.3)(zod@4.4.2)))(typescript@5.9.3)':
+  '@tangle-network/agent-eval@0.92.0(@tangle-network/sandbox@0.6.1(viem@2.48.8(typescript@5.9.3)(zod@4.4.2)))(typescript@5.9.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
       '@ax-llm/ax': 19.0.45(zod@4.4.3)
