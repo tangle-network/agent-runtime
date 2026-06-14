@@ -134,3 +134,52 @@ export function isIntelligenceOff(settings: EffortSettings): boolean {
     settings.intelligenceBudgetUsd === 0
   )
 }
+
+/**
+ * The run-config overrides an `EffortSettings` compiles to — the bridge between the
+ * pure effort policy and the orchestration entrypoints (`runPersonified` / the
+ * improvement cycle). This is ONLY data: it never constructs an analyst or runs a
+ * loop. The caller reads these flags to decide WHAT to pass:
+ *
+ *  - `withAnalyst: false` ⇒ DO NOT construct/pass a `ScopeAnalyst` to `runPersonified`
+ *    (the dormant empty-findings path runs; the base agent still works). This is the
+ *    PRODUCT fail-closed at `off`/`eco` — "don't construct the analyst" — distinct from
+ *    the EXPERIMENT fail-closed inside `createScopeAnalyst` ("hard abort"), which stays
+ *    untouched. Degrade, never throw.
+ *  - `fanout` ⇒ the `ShapeBudget.fanout` width to pass (`1` at `off`, the tier's breadth
+ *    otherwise). Overrides the personify default fanout.
+ *  - `withLoops: false` ⇒ the improvement cycle is a no-op for this run (no refine /
+ *    fanout-vote multi-step loop spawns).
+ *  - `intelligenceBudgetUsd` ⇒ the intelligence-class spend ceiling carried through for
+ *    the billing clamp (passed verbatim; `0` refuses every intelligence spawn).
+ */
+export interface EffortOverridesCompiled {
+  /** Construct + pass a `ScopeAnalyst`? `false` ⇒ omit it (degrade to the base agent). */
+  withAnalyst: boolean
+  /** `ShapeBudget.fanout` width to pass to `runPersonified`. */
+  fanout: number
+  /** Run the multi-step improvement cycle, or no-op it for this run? */
+  withLoops: boolean
+  /** Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` uncapped. */
+  intelligenceBudgetUsd: number | null
+}
+
+/**
+ * Compile resolved `EffortSettings` into the orchestration overrides above. Pure: same
+ * input → same object, no I/O, no execution, no construction. It is the single place that
+ * maps the effort axes onto the run-config knobs, so no `if (effort)` leaks into the
+ * supervise kernel — the kernel stays effort-blind, the caller reads these flags once.
+ *
+ * `off`/`eco` (`analysts: false`) compile to `withAnalyst: false` ⇒ the caller omits the
+ * analyst and the run degrades to the dormant base agent rather than throwing. `fanout: 1`
+ * (no breadth) at `off`; `withLoops: false` no-ops the improvement cycle. `standard`+
+ * compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
+ */
+export function compileEffort(settings: EffortSettings): EffortOverridesCompiled {
+  return {
+    withAnalyst: settings.analysts,
+    fanout: settings.fanout,
+    withLoops: settings.loops,
+    intelligenceBudgetUsd: settings.intelligenceBudgetUsd,
+  }
+}

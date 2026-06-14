@@ -22,7 +22,13 @@
  * telemetry export.
  */
 
-import { createOtelExporter, loopEventToOtelSpan, type OtelExporter } from '../otel-export'
+import {
+  buildLoopOtelSpans,
+  createOtelExporter,
+  loopEventToOtelSpan,
+  type OtelExporter,
+} from '../otel-export'
+import type { LoopTraceEvent } from '../runtime/types'
 import {
   defaultEffortTier,
   type EffortOverrides,
@@ -47,10 +53,12 @@ export { composeCertifiedPrompt, pullCertified, withCertifiedDelivery } from './
 export type {
   CorpusAccess,
   EffortOverrides,
+  EffortOverridesCompiled,
   EffortSettings,
   EffortTier,
 } from './effort'
 export {
+  compileEffort,
   defaultEffortTier,
   isIntelligenceOff,
   resolveEffort,
@@ -154,6 +162,15 @@ export interface TraceHandle {
   }): void
 }
 
+/** Metadata for {@link IntelligenceClient.recordTrace}. */
+export interface RecordTraceMeta {
+  /** 32-hex trace id to anchor every span to. Defaults to a fresh id. */
+  traceId?: string
+  /** Span id of an enclosing span the loop root should parent under (e.g. a
+   *  `traceRun` span). Omitted ⇒ the loop root is the trace root. */
+  rootParentSpanId?: string
+}
+
 /** The resolved outcome of one traced run, surfaced on the export span and
  *  available to the caller for downstream billing assertions. */
 export interface TraceOutcome {
@@ -182,6 +199,16 @@ export interface IntelligenceClient {
    * `fn` propagates to the caller (the agent's own failures are not masked).
    */
   traceRun<T>(meta: TraceMeta, fn: (trace: TraceHandle) => Promise<T>): Promise<T>
+  /**
+   * Export a run's full loop topology — the ordered `LoopTraceEvent` stream a
+   * `runLoop`/`Supervisor` run emits — as a nested OTLP span tree (loop → round →
+   * iteration) into ONE trace. Reuses the shipped `buildLoopOtelSpans` builder
+   * (NO second span builder), so the topology a viewer renders matches the
+   * kernel's. `traceId` defaults to a fresh id; `rootParentSpanId` parents the
+   * loop root under an enclosing span (e.g. a `traceRun` span) when given.
+   * Best-effort: export failures are swallowed. Returns the resolved `traceId`.
+   */
+  recordTrace(events: ReadonlyArray<LoopTraceEvent>, meta?: RecordTraceMeta): string
   /**
    * Network-free readiness report: which adoption modes are reachable given
    * this config. Observe is always reachable; Recommend needs outcomes; PR
@@ -386,6 +413,30 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       }
       exportTrace(meta, outcome, recordedOutput)
       return result
+    },
+
+    recordTrace(events: ReadonlyArray<LoopTraceEvent>, meta?: RecordTraceMeta): string {
+      const traceId = meta?.traceId ?? freshTraceId()
+      const ex = getExporter()
+      if (!ex || events.length === 0) return traceId
+      // Reuse the shipped topology builder — loop → round → iteration span tree —
+      // so the structure matches the kernel's, never a second parallel builder.
+      try {
+        const spans = buildLoopOtelSpans(
+          events as ReadonlyArray<{
+            kind: string
+            runId: string
+            timestamp: number
+            payload: object
+          }>,
+          traceId,
+          meta?.rootParentSpanId,
+        )
+        for (const span of spans) ex.exportSpan(span)
+      } catch {
+        // Best-effort — a trace export must never fail the caller's run.
+      }
+      return traceId
     },
 
     doctor(): DoctorReport {

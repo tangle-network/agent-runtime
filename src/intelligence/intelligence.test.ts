@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LoopTraceEvent } from '../runtime/types'
 import {
+  compileEffort,
   createIntelligenceClient,
   defaultRedactor,
   isIntelligenceOff,
@@ -308,5 +310,165 @@ describe('doctor()', () => {
   it('reports exportConfigured:false when no endpoint resolves', () => {
     const client = createIntelligenceClient({ project: 'p', apiKey })
     expect(client.doctor().exportConfigured).toBe(false)
+  })
+})
+
+/** Pull every span's `name` + `traceId` across an OTLP export body. */
+function spansOf(body: unknown): Array<{ name: string; traceId: string }> {
+  const out: Array<{ name: string; traceId: string }> = []
+  const resourceSpans = (body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
+  for (const rs of resourceSpans) {
+    for (const ss of (rs as { scopeSpans?: unknown[] }).scopeSpans ?? []) {
+      for (const span of (ss as { spans?: unknown[] }).spans ?? []) {
+        const s = span as { name?: string; traceId?: string }
+        out.push({ name: String(s.name), traceId: String(s.traceId) })
+      }
+    }
+  }
+  return out
+}
+
+/** A minimal but real loop event stream: a plan round over two iterations. */
+function loopStream(runId = 'loop-run'): LoopTraceEvent[] {
+  return [
+    {
+      kind: 'loop.started',
+      runId,
+      timestamp: 1000,
+      payload: { driver: 'fanout', agentRunNames: ['a'], maxIterations: 4, maxConcurrency: 2 },
+    },
+    {
+      kind: 'loop.plan',
+      runId,
+      timestamp: 1001,
+      payload: { roundIndex: 0, plannedCount: 2, moveKind: 'fanout', childIndices: [0, 1] },
+    },
+    {
+      kind: 'loop.iteration.started',
+      runId,
+      timestamp: 1002,
+      payload: { iterationIndex: 0, agentRunName: 'a', taskHash: 'h0', groupId: 0 },
+    },
+    {
+      kind: 'loop.iteration.started',
+      runId,
+      timestamp: 1003,
+      payload: { iterationIndex: 1, agentRunName: 'a', taskHash: 'h1', groupId: 0 },
+    },
+    {
+      kind: 'loop.iteration.ended',
+      runId,
+      timestamp: 1010,
+      payload: {
+        iterationIndex: 0,
+        agentRunName: 'a',
+        costUsd: 0.001,
+        durationMs: 8,
+        verdict: { valid: false, score: 0.3 },
+        groupId: 0,
+      },
+    },
+    {
+      kind: 'loop.iteration.ended',
+      runId,
+      timestamp: 1012,
+      payload: {
+        iterationIndex: 1,
+        agentRunName: 'a',
+        costUsd: 0.002,
+        durationMs: 9,
+        verdict: { valid: true, score: 0.8 },
+        groupId: 0,
+      },
+    },
+    {
+      kind: 'loop.ended',
+      runId,
+      timestamp: 1020,
+      payload: { winnerIterationIndex: 1, totalCostUsd: 0.003, durationMs: 20, iterations: 2 },
+    },
+  ]
+}
+
+describe('recordTrace — loop topology via buildLoopOtelSpans (gap 2)', () => {
+  it('exports a nested loop→round→iteration span tree under ONE traceId', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, endpoint })
+    const traceId = client.recordTrace(loopStream(), { traceId: 'a'.repeat(32) })
+    await client.flush()
+
+    expect(traceId).toBe('a'.repeat(32))
+    const spans = calls.flatMap((c) => spansOf(c.body))
+    const names = spans.map((s) => s.name)
+    // The TREE builder emits topology-level names; a flat per-event builder would emit the
+    // raw event kinds (loop.started/loop.iteration.ended). Asserting these proves reuse of
+    // buildLoopOtelSpans, not a second span builder.
+    expect(names).toContain('loop')
+    expect(names).toContain('loop.round')
+    expect(names.filter((n) => n === 'loop.iteration').length).toBe(2)
+    // Every span shares the supplied traceId (one trace, not N).
+    const traceIds = new Set(spans.map((s) => s.traceId))
+    expect(traceIds.size).toBe(1)
+    expect([...traceIds][0]).toBe('a'.repeat(32))
+  })
+
+  it('mints a fresh traceId when none is supplied and survives a dead endpoint', async () => {
+    installFetchSpy('throw')
+    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint })
+    const traceId = client.recordTrace(loopStream())
+    expect(traceId).toMatch(/^[0-9a-f]{32}$/)
+    // Export failure is swallowed — recordTrace never throws.
+    await expect(client.flush()).resolves.toBeUndefined()
+  })
+
+  it('is a no-op (no fetch) on an empty event stream or with no endpoint', async () => {
+    const spy = vi.fn()
+    vi.stubGlobal('fetch', spy)
+    const withEndpoint = createIntelligenceClient({ project: 'p', apiKey, endpoint })
+    withEndpoint.recordTrace([])
+    await withEndpoint.flush()
+    const noEndpoint = createIntelligenceClient({ project: 'p', apiKey })
+    noEndpoint.recordTrace(loopStream())
+    await noEndpoint.flush()
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('compileEffort — EffortSettings → run-config overrides (gap 3/4)', () => {
+  it('off compiles to no-analyst, fanout 1, no loops, zero intelligence budget', () => {
+    const compiled = compileEffort(resolveEffort('off'))
+    expect(compiled).toEqual({
+      withAnalyst: false,
+      fanout: 1,
+      withLoops: false,
+      intelligenceBudgetUsd: 0,
+    })
+    // The product fail-closed: at off the caller omits the analyst (degrade, not throw).
+    expect(compiled.withAnalyst).toBe(false)
+  })
+
+  it('eco keeps the analyst but no breadth and no improvement loops', () => {
+    const compiled = compileEffort(resolveEffort('eco'))
+    expect(compiled.withAnalyst).toBe(true)
+    expect(compiled.fanout).toBe(1)
+    expect(compiled.withLoops).toBe(false)
+  })
+
+  it('standard turns the analyst on, opens breadth, and enables loops', () => {
+    const compiled = compileEffort(resolveEffort('standard'))
+    expect(compiled.withAnalyst).toBe(true)
+    expect(compiled.fanout).toBeGreaterThan(1)
+    expect(compiled.withLoops).toBe(true)
+  })
+
+  it('carries a per-field override through to the compiled overrides', () => {
+    // Overriding analysts back on at off lifts the analyst-construction gate.
+    const compiled = compileEffort(resolveEffort('off', { analysts: true, fanout: 4 }))
+    expect(compiled.withAnalyst).toBe(true)
+    expect(compiled.fanout).toBe(4)
+  })
+
+  it('max compiles to an uncapped intelligence budget', () => {
+    expect(compileEffort(resolveEffort('max')).intelligenceBudgetUsd).toBeNull()
   })
 })

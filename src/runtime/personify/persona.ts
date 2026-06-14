@@ -148,6 +148,7 @@ export async function runPersonified<Task, D>(
     ...(options.withinMs !== undefined ? { withinMs: options.withinMs } : {}),
     ...(options.now ? { now: options.now } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.hooks ? { hooks: options.hooks } : {}),
   }
   return supervisor.run(rootAgent, options.task, supervisorOpts)
 }
