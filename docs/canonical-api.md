@@ -4,7 +4,9 @@
 >
 > **`./loops` and `./runtime` are the SAME barrel** — `package.json` maps both subpaths to `src/runtime/index.ts` (`./loops` is the back-compat alias). Anything below shown as `/loops` is equally importable from `/runtime`, and vice-versa.
 >
-> **Read this before writing any orchestration, optimization, or measurement code in this repo.** The canonical path is below. If you are about to write `runConversation`, a "skill optimizer", a "profile-seam", a depth-vs-breadth A/B harness, a bootstrap loop, or a `new Sandbox(...)` + stream + read dance — **stop**, it already exists, and a parallel will silently break a load-bearing invariant (equal-k, selector≠judge, capture-integrity, or eval/prod parity).
+> **Read this before writing any orchestration, optimization, or measurement code in this repo.** The canonical path is below. If you are about to write a persona⟷agent conversation runner, a "skill optimizer", a "profile-seam", a depth-vs-breadth A/B harness, a bootstrap loop, or a `new Sandbox(...)` + stream + read dance — **stop**, it already exists (persona⟷agent dialogue → `runConversation`/`runPersonaConversation`, §3.1; the recursive driver⟷worker run → `runPersonified`+`loopUntil`, §3.1), and a parallel will silently break a load-bearing invariant (equal-k, selector≠judge, capture-integrity, or eval/prod parity).
+>
+> **Two things are called "conversation" — keep the layers straight.** `runConversation`/`runPersonaConversation` (`src/conversation/`, §3.1) = an **eval/dispatch** primitive: a worker `AgentProfile` under test conversing with a **persona driver** (a simulated user — an LLM role-playing the user, or a scripted turn list), worker-only metered, dropping into `runProfileMatrix`. `runPersonified`+`loopUntil` (`src/runtime/personify/`, §3.1) = the **recursive-atom execution** primitive: a persona running a topology shape over the keystone `Supervisor` (conserved budget, journaled artifact). They are different layers — do not collapse them.
 
 ## 1. Mental model — the spine
 
@@ -14,8 +16,11 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
-| Run a genome as a driver⟷worker shape, end-to-end | `runPersonified({ persona, shape, task, budget })` — `/runtime` (also `/loops`) | a `runConversation` / persona-runner / supervisor-wiring helper (it's the ONE place persona seams reach the built-in executors) |
+| Run a genome through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })` — `/runtime` (also `/loops`) | a hand-rolled `createSupervisor().run` + seam-wiring helper (it's the ONE place persona seams reach the built-in executors) |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape` — `/runtime` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
+| Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })` — root `.` (also `/loops`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |
+| Run **two `AgentProfile`s head-to-head** over a persistent transcript | `runConversation(...)` — `src/conversation/` (root `.`) | a hand-rolled two-agent turn loop |
+| Drop a persona⟷agent conversation into an eval matrix as its dispatch | `runPersonaDispatch` → `runProfileMatrix({ dispatch })` — root `.` / `agent-eval/campaign` | a per-agent custom dispatch bridge (the thing `runPersonaConversation` was built to kill) |
 | Best-of-N / parallel-research / map-reduce at equal compute | `fanout(items, opts)` — `/runtime` | `Promise.all` over N calls + manual argmax/merge (bypasses the budget pool → breaks equal-k) |
 | Produce-then-gate with a real checker | `verify(spec)` — `/runtime` | "generate, then self-check with the same model, ship if ok" (collapses selector+judge) |
 | Multi-judge review / rubric quorum over one artifact | `panel(spec)` — `/runtime` | a judge ensemble that feeds one judge's score into another / re-ranks behind a driver |
@@ -32,7 +37,7 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor` — `/runtime` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |
 | Evolve a **code** surface in a gated loop | `improvementDriver({ worktree, generator })` — `/improvement` | a "skill optimizer" / "topology mutator" that opens its own branches & applies patches |
 | Evolve a **prompt/string** surface | `gepaDriver({ llm, model, target })` (default inside `selfImprove`) — `agent-eval/contract` | a hand-rolled prompt-mutation reflection loop with its own Pareto bookkeeping |
-| Run a closed self-improvement loop (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | a `runConversation`-style optimize loop or a parallel skill-optimizer |
+| Run a closed self-improvement loop (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | a bespoke optimize loop or a parallel skill-optimizer |
 | Run the gated loop with full control (custom code-surface driver / gate) | `runImprovementLoop({ baselineSurface, dispatchWithSurface, driver, holdoutScenarios, gate })` — `agent-eval/contract` | your own propose→campaign→rank→re-score-on-holdout→gate→PR loop |
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate` — `agent-eval/contract` | a raw `h1>h0` point comparison on the training set (certifies false champions near coin-flip) |
 | Decide ship/hold from a **`BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/runtime` | comparing two strategies' mean scores directly; re-deriving the bootstrap |
@@ -71,7 +76,7 @@ const result = await runPersonified({ persona, shape: loopUntil(seed, spec), tas
   budget: { maxIterations: 12, maxTokens: 200_000 } })
 if (result.kind === 'winner' && result.out.kind === 'done') use(result.out.deliverable)
 ```
-**Do NOT** hand-roll a `runConversation` / persona-runner — a parallel runner silently fails to thread seams (router/sandbox config never reaches the executor).
+**Do NOT** hand-roll the persona+shape Supervisor wiring — `runPersonified` is the ONE place persona seams reach the built-in executors; a parallel runner silently fails to thread them (router/sandbox config never reaches the executor). (For persona⟷agent *eval* dialogue, that's a different primitive: `runConversation`/`runPersonaConversation`, §3.1.)
 `src/runtime/personify/persona.ts:121` (barrel `src/runtime/index.ts:122`)
 
 ---
@@ -96,7 +101,7 @@ const shape = loopUntil({ draft: '' }, {
 })
 await runPersonified({ persona, shape, task, budget })
 ```
-**Do NOT** write a `runConversation` / `while(notDone)` hand-loop / bespoke K-round steering loop — `loopUntil` IS it, and it gets conserved-budget metering (equal-k by construction), journal/replay, fail-loud blockers, and the selector≠judge firewall for free.
+**Do NOT** write a `while(notDone)` hand-loop / bespoke K-round steering loop — `loopUntil` IS it, and it gets conserved-budget metering (equal-k by construction), journal/replay, fail-loud blockers, and the selector≠judge firewall for free.
 `src/runtime/personify/combinators.ts:169` (barrel `src/runtime/index.ts:111`)
 
 ---
@@ -291,6 +296,24 @@ function openSandboxRun<Out>(client: SandboxClient, options: OpenSandboxRunOptio
 ```
 **Do NOT** hand-roll `new Sandbox`+acquire+stream+`box.fs.read`+delete, or a per-domain copy — route every new sandbox-rollout-with-resume caller through this (the harness is just `sandboxOverrides.backend.type`).
 `src/runtime/sandbox-run.ts:104` (`Deliverable:50`, `SandboxRun:68`, `OpenSandboxRunOptions:79`; barrel `src/runtime/index.ts:228`)
+
+#### The conversation/eval layer — persona⟷agent dialogue (`src/conversation/`)
+
+A DIFFERENT layer from `runPersonified`/`loopUntil` above: those run a genome through a topology over the Supervisor (recursive-atom execution). These run a **worker agent under test** in a multi-round dialogue against a **persona driver** (a simulated user) over a persistent transcript — the eval/dispatch layer. Profiles-vs-profiles; **only the worker is metered** (the persona is the test harness, not billed against the agent).
+
+**`runPersonaConversation`** · root `.` (barrel `src/index.ts:84`) · `src/conversation/run-persona.ts:130`
+The persona loop runner. `worker: AgentProfile` (under test) converses K rounds with `persona: PersonaDriver` — either `{ kind: 'profile', profile }` (an LLM role-playing the user from its facts) or `{ kind: 'scripted', turns }` (a deterministic fast-path). `backendFor(profile, role)` and `systemPromptOf(profile)` make a profile runnable; `maxTurns` caps the dialogue (required for a `profile` persona). Returns `{ transcript, turns, halted, costUsd, tokensIn, tokensOut }` — cost is **worker-only**.
+```ts
+const r = await runPersonaConversation({
+  worker, persona: { kind: 'profile', profile: userSim },
+  backendFor, systemPromptOf, maxTurns: 8,
+})
+```
+**`runPersonaDispatch`** wraps the runner as a `ProfileDispatchFn` so it drops straight into `runProfileMatrix({ dispatch })` — the same loop serves one cell and a whole matrix, **replacing the per-agent hand-rolled `dispatchWithSurface` bridges** it was built to kill.
+
+**`runConversation`** · root `.` · `src/conversation/run-conversation.ts` — the lower-level two-profile turn loop `runPersonaConversation` is built on (two `AgentProfile`s head-to-head over the transcript). Use `runPersonaConversation` unless you need raw two-agent control.
+
+**Do NOT** hand-roll a per-agent eval dispatch or a two-agent turn loop — `runPersonaConversation` + `runPersonaDispatch` are it, and they keep worker-only metering and eval/prod parity by construction.
 
 ### 3.2 The Genome — who the agent is + what it can do
 
@@ -659,7 +682,7 @@ const result = await selfImprove({
   budget: { generations: 2, populationSize: 3, holdoutScenarios: holdout }, autoOnPromote: 'none' })
 console.log(`lift ${result.lift} (${result.gateDecision})`)
 ```
-**Do NOT** build a `runConversation`-style optimize loop or a parallel skill-optimizer. For a code surface, pass your own `driver: improvementDriver(...)`. `agent` here is the same shape as `dispatchWithSurface`.
+**Do NOT** build a bespoke optimize loop or a parallel skill-optimizer. For a code surface, pass your own `driver: improvementDriver(...)`. `agent` here is the same shape as `dispatchWithSurface`.
 `node_modules/@tangle-network/agent-eval/dist/contract/index.d.ts:311` (`SelfImproveResult<TScenario,TArtifact>:234` — `lift:255`, `gateDecision:264`)
 
 ---
