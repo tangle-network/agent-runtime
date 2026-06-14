@@ -111,14 +111,41 @@ describe('pullCertified', () => {
   })
 
   it('errors loudly when no apiKey is available', async () => {
-    const fetchImpl = (async () => jsonResponse({})) as unknown as typeof fetch
+    // Stub the env so the test holds on machines/CI where TANGLE_API_KEY is set
+    // (resolveApiKey falls back to it when the passed key is empty).
+    vi.stubEnv('TANGLE_API_KEY', '')
+    try {
+      const fetchImpl = (async () => jsonResponse({})) as unknown as typeof fetch
+      const outcome = await pullCertified({
+        target: 'p',
+        apiKey: '',
+        baseUrl: 'https://plane.test',
+        fetchImpl,
+      })
+      expect(outcome).toMatchObject({ succeeded: false })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('fails closed when the plane hangs past timeoutMs', async () => {
+    // A fetch that rejects when its abort signal fires (what a hung request +
+    // AbortSignal.timeout produces) must surface as a typed fail-closed result.
+    const fetchImpl = ((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () =>
+          reject(new Error('The operation was aborted')),
+        )
+      })) as unknown as typeof fetch
     const outcome = await pullCertified({
       target: 'p',
-      apiKey: '',
+      apiKey: 'k',
       baseUrl: 'https://plane.test',
+      timeoutMs: 20,
       fetchImpl,
     })
-    expect(outcome).toMatchObject({ succeeded: false })
+    expect(outcome.succeeded).toBe(false)
+    if (!outcome.succeeded) expect(outcome.error).toMatch(/abort|fail/i)
   })
 })
 

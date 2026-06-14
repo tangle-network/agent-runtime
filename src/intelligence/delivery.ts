@@ -74,7 +74,13 @@ export interface PullCertifiedOptions {
   baseUrl?: string
   /** fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch. */
   fetchImpl?: typeof fetch
+  /** Abort the pull after this many ms so a hung plane never blocks the caller.
+   *  Default 10000. The timeout surfaces as a normal fail-closed `succeeded:
+   *  false` (the agent runs on its base surface). */
+  timeoutMs?: number
 }
+
+const defaultPullTimeoutMs = 10_000
 
 function resolvePlaneBaseUrl(baseUrl: string | undefined): string {
   if (baseUrl) return baseUrl.replace(/\/+$/, '')
@@ -106,7 +112,10 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
   const url = `${baseUrl}/v1/profiles/${encodeURIComponent(opts.target)}/composed`
   let res: Response
   try {
-    res = await doFetch(url, { headers: { authorization: `Bearer ${apiKey}` } })
+    res = await doFetch(url, {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? defaultPullTimeoutMs),
+    })
   } catch (err) {
     return {
       succeeded: false,
@@ -183,6 +192,8 @@ export interface DeliveryConfig extends IntelligenceConfig {
   baseUrl?: string
   /** Min interval between certified-profile pulls. Default 5m. */
   refreshMs?: number
+  /** Per-pull timeout in ms (fail-closed on a hung plane). Default 10000. */
+  timeoutMs?: number
   /** fetch impl for the pull (tests). Defaults to global fetch. */
   fetchImpl?: typeof fetch
 }
@@ -214,6 +225,7 @@ export function withCertifiedDelivery<I, O>(
         target,
         apiKey: config.apiKey,
         baseUrl: config.baseUrl,
+        timeoutMs: config.timeoutMs,
         fetchImpl: config.fetchImpl,
       })
       lastPullAt = Date.now()
