@@ -43,6 +43,7 @@ import type {
   ShapeBudget,
   ShapeContext,
 } from './types'
+import type { ScopeAnalyst } from './wave-types'
 
 // ── definePersona ─────────────────────────────────────────────────────────────
 
@@ -80,10 +81,15 @@ export function definePersona<D = unknown>(input: DefinePersonaInput<D>): Person
  * profile. The shape never touches the registry — resolution stays single-sourced in the
  * scope/registry the supervisor owns.
  */
-export function createShapeContext<D>(persona: Persona<D>, budget: ShapeBudget): ShapeContext<D> {
+export function createShapeContext<D>(
+  persona: Persona<D>,
+  budget: ShapeBudget,
+  analyst?: ScopeAnalyst<D>,
+): ShapeContext<D> {
   return {
     persona,
     budget,
+    ...(analyst ? { analyst } : {}),
     spawnChild(name, spec): Agent<unknown, Outcome<D>> {
       // The wrapped agent is SPAWNED, not run — the resolved Executor drives it. `act`
       // is never invoked by the keystone for a spawned child; it throws if mis-used as a
@@ -124,7 +130,7 @@ export async function runPersonified<Task, D>(
   const { persona } = options
   const shape = resolveShape<Task, D>(options.shape)
   const shapeBudget = resolveShapeBudget(options.budget, options.shapeBudget)
-  const ctx = createShapeContext(persona, shapeBudget)
+  const ctx = createShapeContext(persona, shapeBudget, options.analyst)
   const rootAgent = shape(ctx)
 
   const executors = personaRegistry(persona)

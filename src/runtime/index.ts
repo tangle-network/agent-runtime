@@ -104,6 +104,8 @@ export {
   buildSteerContext,
   type CreateScopeAnalystOptions,
   createScopeAnalyst,
+  type RegistryAnalyzeProjection,
+  registryScopeAnalyst,
 } from './personify/analyst'
 export {
   fanout,
