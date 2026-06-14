@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const make = ADAPTERS[process.env.BENCH ?? 'commit0']
   if (!make) throw new Error(`unknown BENCH=${process.env.BENCH} (have: ${Object.keys(ADAPTERS).join(', ')})`)
   const adapter = make()
-  const model = process.env.WORKER_MODEL ?? 'gpt-4.1'
+  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const backendType = (process.env.BACKEND as 'opencode' | 'claude-code' | undefined) ?? 'opencode'

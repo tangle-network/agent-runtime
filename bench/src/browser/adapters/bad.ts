@@ -121,7 +121,7 @@ export function badBrowserAdapter(cfg: BadAdapterConfig = {}): BrowserAgentAdapt
         '--provider',
         cfg.provider ?? 'openai',
         '--model',
-        cfg.model ?? 'gpt-4o',
+        cfg.model ?? 'deepseek-v4-flash',
         '--max-turns',
         String(task.maxSteps ?? cfg.maxTurns ?? 20),
         '--headless',

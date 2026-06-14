@@ -39,7 +39,7 @@ async function judgeCriteria(
 ): Promise<{ passed: boolean[]; note: string }> {
   const base = (process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1').replace(/\/$/, '')
   const key = must('TANGLE_API_KEY')
-  const model = process.env.JUDGE_MODEL ?? 'gpt-4o'
+  const model = process.env.JUDGE_MODEL ?? 'deepseek-v4-flash'
   const numbered = criteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
   const text =
     `You are strictly grading a 3D model that was built by a Blender bpy script for this instruction:\n"${instruction}"\n\n` +

@@ -50,7 +50,7 @@ export interface RoleProfile {
 export const workerProfile: RoleProfile = {
   id: 'worker/default',
   role: 'worker',
-  model: 'gpt-5',
+  model: 'deepseek-v4-flash',
   systemPrompt:
     'You are a worker. Use the available tools to bring the artifact to the required final state. ' +
     'Address every distinct change the request implies; after each tool result, check what remains ' +
@@ -66,7 +66,7 @@ export const workerProfile: RoleProfile = {
 export const analystProfile: RoleProfile = {
   id: 'analyst/trace',
   role: 'analyst',
-  model: 'gpt-5',
+  model: 'deepseek-v4-flash',
   systemPrompt:
     'You audit a worker’s trajectory. From ONLY the task and the worker’s tool-call trace (calls + ' +
     'their RESULTS), list every required change that does NOT yet appear done or verified. Judge from ' +
@@ -82,7 +82,7 @@ export const analystProfile: RoleProfile = {
 export const driverProfile: RoleProfile = {
   id: 'driver/operator',
   role: 'driver',
-  model: 'gpt-5',
+  model: 'deepseek-v4-flash',
   systemPrompt: [
     'You are the OPERATOR. You lead one or more worker agents to fully complete a task over a shared',
     'artifact. You may delegate, investigate, and — when it is faster or more reliable — do the work',

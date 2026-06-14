@@ -74,7 +74,7 @@ async function main(): Promise<void> {
   const n = Number(process.env.N ?? 20)
   const k = Number(process.env.K ?? 4)
   const offset = Number(process.env.OFFSET ?? 0)
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const solveConcurrency = Number(process.env.CONCURRENCY ?? 8)

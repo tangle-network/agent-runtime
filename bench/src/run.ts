@@ -108,7 +108,7 @@ async function runExperimentPreset(
   rest: string[],
   opts: { arms: [Arm, ...Arm[]]; rounds: number; corpus?: string },
 ): Promise<void> {
-  const model = process.env.WORKER_MODEL ?? 'gpt-5'
+  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
@@ -202,7 +202,7 @@ async function main() {
       sandboxBaseUrl: process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools',
       sandboxKey: must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-      model: process.env.WORKER_MODEL ?? 'gpt-5',
+      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       // No timeout by default — the agent runs until it's done. Only honored if
       // SHOT_TIMEOUT_MS is explicitly set.
@@ -295,7 +295,7 @@ async function main() {
       sandboxKey: local ? (process.env.TANGLE_API_KEY ?? '') : must('TANGLE_API_KEY'),
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey: must('TANGLE_API_KEY'),
-      model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
       provider: process.env.WORKER_PROVIDER ?? 'openai',
       timeoutMs: process.env.SHOT_TIMEOUT_MS ? Number(process.env.SHOT_TIMEOUT_MS) : undefined,
       rounds: process.env.ROUNDS ? Number(process.env.ROUNDS) : undefined,
@@ -345,7 +345,7 @@ async function main() {
     const cfg = {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey: must('TANGLE_API_KEY'),
-      model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
       directive,
     }
     await m2w.preflight()
@@ -382,7 +382,7 @@ async function main() {
       badDesignAuditReviewer({
         baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
         apiKey: must('TANGLE_API_KEY'),
-        model: process.env.WORKER_MODEL ?? 'claude-sonnet-4-6',
+        model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
         profile: process.env.UI_REVIEW_PROFILE,
         pages: process.env.UI_REVIEW_PAGES ? Number(process.env.UI_REVIEW_PAGES) : undefined,
       }),
@@ -435,10 +435,10 @@ async function main() {
     const adapter = badBrowserAdapter({
       baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       apiKey: must('ROUTER_KEY'),
-      model: process.env.WORKER_MODEL ?? 'gpt-4o',
+      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
       captureScreenshots: true,
     })
-    console.log(`[solve-web-live] ${task.id}: "${goal}" @ ${startUrl} with ${process.env.WORKER_MODEL ?? 'gpt-4o'}…`)
+    console.log(`[solve-web-live] ${task.id}: "${goal}" @ ${startUrl} with ${process.env.WORKER_MODEL ?? 'deepseek-v4-flash'}…`)
     const run = await adapter.run(task)
     console.log(`steps=${run.steps.length} finalUrl=${run.finalUrl} cost=$${(run.costUsd ?? 0).toFixed(3)} selfReported=${run.selfReportedSuccess}`)
     const verdict = judgeBrowserRun(task, run)

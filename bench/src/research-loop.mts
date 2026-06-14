@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   const makeAdapter = ADAPTERS[benchName]
   if (!makeAdapter) throw new Error(`unknown BENCH=${benchName} (have: ${Object.keys(ADAPTERS).join(', ')})`)
 
-  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'gpt-4o-mini'
+  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const search = process.env.SEARCH ?? 'you'

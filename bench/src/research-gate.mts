@@ -44,7 +44,7 @@ async function main(): Promise<void> {
 
   const n = Number(process.env.N ?? 6)
   const k = Number(process.env.K ?? 3)
-  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'gpt-4o-mini'
+  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const search = process.env.SEARCH ?? 'default'
   const cfg: ShotCfg = {
     model,

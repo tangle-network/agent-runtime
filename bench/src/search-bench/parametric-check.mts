@@ -16,7 +16,7 @@ import { freshTasks } from './tasks-fresh'
 import { scoreTask, taskToPrompt } from './tasks'
 
 async function main(): Promise<void> {
-  const model = process.env.MODEL ?? 'gpt-4.1'
+  const model = process.env.MODEL ?? 'deepseek-v4-flash'
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('missing TANGLE_API_KEY')
   const cfg = {
