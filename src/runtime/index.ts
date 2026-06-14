@@ -261,9 +261,13 @@ export {
 export {
   type AuthoredStrategy,
   type AuthorStrategyOptions,
+  type AuthorWithValidationOptions,
+  type AuthorWithValidationResult,
   assertStrategyContract,
   authorStrategy,
+  authorWithValidation,
   strategyAuthorContract,
+  type ValidationResult,
 } from './strategy-author'
 export {
   type ChampionPick,

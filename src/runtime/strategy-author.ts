@@ -99,6 +99,20 @@ export interface AuthorStrategyOptions {
   /** Completion cap — required by thinking-model authors that stream reasoning first. */
   maxTokens?: number
   signal?: AbortSignal
+  /** Generalization feedback from a prior attempt that overfit — appended to the prompt so
+   *  the author revises toward transfer. Firewall-safe: it carries SCORES (the same shape as
+   *  `lossesJson`) and the prior code, never verifier internals. Default-off; set by
+   *  `authorWithValidation` between rounds. */
+  revision?: {
+    /** The prior candidate's code (so the author revises it, not restarts blind). */
+    priorCode: string
+    /** Its score on the tasks the author targeted (the losses' optimization set). */
+    trainProxyScore: number
+    /** Its score on a held-out validation slice the author did NOT see — the overfit tell. */
+    valScore: number
+    /** Optional one-line analyst note on HOW it overfit (a scalar/text critique, not verifiers). */
+    note?: string
+  }
 }
 
 /** Static CONTRACT lint over an authored strategy module — the module-boundary
@@ -140,6 +154,23 @@ export interface AuthoredStrategy {
   code: string
 }
 
+/** Monotonic per-process counter making each authored filename unique within a millisecond. */
+let authoredFileSeq = 0
+
+/** The generalization critique appended to a revision attempt. Scores + prior code only —
+ *  the firewall holds because none of this is verifier state. */
+function revisionBlock(revision: AuthorStrategyOptions['revision']): string {
+  if (!revision) return ''
+  return (
+    `\n\nYOUR PREVIOUS CANDIDATE OVERFIT. It scored ${(revision.trainProxyScore * 100).toFixed(0)}% on the tasks you targeted ` +
+    `but only ${(revision.valScore * 100).toFixed(0)}% on a HELD-OUT validation slice you did not see — it memorized the ` +
+    `practice set instead of generalizing.${revision.note ? ` Note: ${revision.note}` : ''}\n` +
+    `Previous candidate:\n\`\`\`ts\n${revision.priorCode}\n\`\`\`\n` +
+    `Author a NEW strategy that GENERALIZES to unseen tasks: favor task-agnostic structure (read state, ` +
+    `critique, continue) over task-specific branching on ids/values from the losses. Output only the module code block.`
+  )
+}
+
 /** One authoring attempt: chat with the given model, extract the fenced module. Throws
  *  when the reply carries no code block. */
 async function requestAuthoredCode(
@@ -159,7 +190,7 @@ async function requestAuthoredCode(
         },
         {
           role: 'user',
-          content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}):\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.`,
+          content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}):\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget. Use the losses to target the observed failure mode. Output only the module code block.${revisionBlock(opts.revision)}`,
         },
       ],
     },
@@ -186,11 +217,91 @@ export async function authorStrategy(opts: AuthorStrategyOptions): Promise<Autho
   }
   assertStrategyContract(code)
   mkdirSync(opts.outDir, { recursive: true })
-  const file = join(opts.outDir, `authored-${Date.now()}.mts`)
+  // Per-call sequence so repeated authoring (authorWithValidation's revision rounds) never
+  // collides on a same-millisecond filename — a collision would make `import()` return the
+  // cached first module instead of the new candidate.
+  const file = join(opts.outDir, `authored-${Date.now()}-${authoredFileSeq++}.mts`)
   writeFileSync(file, code)
   const mod = (await import(`file://${file}`)) as { default?: Strategy }
   if (!mod.default || typeof mod.default.driver !== 'function' || !mod.default.name) {
     throw new Error(`authorStrategy: ${file} does not export a default Strategy`)
   }
   return { strategy: mod.default, file, code }
+}
+
+/** The held-out scoring of one authored candidate — supplied by the caller (the runtime stays
+ *  decoupled from any surface). Both scores are harness-verified numbers (firewall-safe). */
+export interface ValidationResult {
+  /** Score on the held-out validation slice the author did NOT see (0..1) — generalization. */
+  valScore: number
+  /** Score on the optimization/loss set (0..1) — the overfit contrast for the revision critique. */
+  trainScore: number
+  /** Optional one-line note on the failure mode (a scalar/text critique, never verifier state). */
+  note?: string
+}
+
+export interface AuthorWithValidationOptions extends AuthorStrategyOptions {
+  /** Score an authored candidate on a held-out validation slice + its optimization set. */
+  validate: (authored: AuthoredStrategy) => Promise<ValidationResult>
+  /** The validation-slice score the candidate must clear to count as generalizing. */
+  baselineValScore: number
+  /** Max authoring attempts; each revision after the first sees the prior val gap. Default 3. */
+  rounds?: number
+  /** Accept once valScore >= baselineValScore - tolerance. Default 0. */
+  tolerance?: number
+}
+
+export interface AuthorWithValidationResult extends AuthoredStrategy {
+  /** Authoring attempts made (1..rounds). */
+  attempts: number
+  /** The chosen candidate's held-out validation score. */
+  valScore: number
+  /** True if any attempt cleared the validation bar (else the best-generalizing one is returned). */
+  accepted: boolean
+  /** Per-attempt validation scores, in order. */
+  history: Array<{ valScore: number; trainScore: number; accepted: boolean }>
+}
+
+/**
+ * Validation-gated, self-revising author. Authors a candidate, scores it on a held-out
+ * validation slice (via the injected `validate`), and — if it underperforms there — re-authors
+ * with the validation gap as a scalar critique, up to `rounds`. Returns the candidate that best
+ * GENERALIZES (highest validation score), not the one that best fits the losses.
+ *
+ * This is the reproduction-aware author: it closes a generalization feedback loop at authoring
+ * time, so overfit is rejected before submission rather than caught (rarely) by the downstream
+ * gate. Firewall-safe — the only signal fed back is held-out SCORES, never the verifiers.
+ */
+export async function authorWithValidation(
+  opts: AuthorWithValidationOptions,
+): Promise<AuthorWithValidationResult> {
+  const rounds = Math.max(1, opts.rounds ?? 3)
+  const tolerance = opts.tolerance ?? 0
+  const history: AuthorWithValidationResult['history'] = []
+  let best: { authored: AuthoredStrategy; val: ValidationResult } | null = null
+  let revision: AuthorStrategyOptions['revision']
+
+  for (let attempt = 0; attempt < rounds; attempt++) {
+    const authored = await authorStrategy({ ...opts, ...(revision ? { revision } : {}) })
+    const val = await opts.validate(authored)
+    const accepted = val.valScore >= opts.baselineValScore - tolerance
+    history.push({ valScore: val.valScore, trainScore: val.trainScore, accepted })
+    if (!best || val.valScore > best.val.valScore) best = { authored, val }
+    if (accepted) break
+    revision = {
+      priorCode: authored.code,
+      trainProxyScore: val.trainScore,
+      valScore: val.valScore,
+      ...(val.note ? { note: val.note } : {}),
+    }
+  }
+
+  if (!best) throw new Error('authorWithValidation: no candidate authored')
+  return {
+    ...best.authored,
+    attempts: history.length,
+    valScore: best.val.valScore,
+    accepted: history.some((h) => h.accepted),
+    history,
+  }
 }
