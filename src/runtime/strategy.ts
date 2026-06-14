@@ -27,6 +27,7 @@ import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
 import type { Corpus } from './personify/wave-types'
+import { routerToolLoop } from './router-client'
 import { createSupervisor } from './supervise/supervisor'
 import type {
   Agent,
@@ -149,62 +150,45 @@ async function runShot(
   opts: AgenticOptions,
   modelOverride?: string,
 ): Promise<ShotOut> {
-  const innerTurns = opts.innerTurns ?? 4
-  let completions = 0
-  let toolCalls = 0
+  // The canonical off-box tool loop (routerToolLoop) drives the turns; this shot supplies
+  // the carried conversation (depth continuation, via initialMessages) and the tool dispatch
+  // (surface.call). An ERROR:-prefixed result or a thrown call is a real tool outcome —
+  // counted as a toolError and fed back to the model, never thrown to kill the shot.
   let toolErrors = 0
-  const tokens = { input: 0, output: 0 }
-  for (let t = 0; t < innerTurns; t += 1) {
-    const res = await fetch(`${opts.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${opts.routerKey}` },
-      body: JSON.stringify({
-        model: modelOverride ?? opts.model,
-        messages,
-        tools,
-        tool_choice: 'auto',
-        temperature: opts.temperature ?? 0.7,
-        ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
-      }),
-    })
-    if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-    completions += 1
-    const data = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string; tool_calls?: ToolCall[] } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
-    }
-    if (typeof data.usage?.prompt_tokens === 'number') tokens.input += data.usage.prompt_tokens
-    if (typeof data.usage?.completion_tokens === 'number')
-      tokens.output += data.usage.completion_tokens
-    const msg = data.choices?.[0]?.message
-    if (!msg) break
-    const calls = msg.tool_calls ?? []
-    messages.push({
-      role: 'assistant',
-      content: msg.content ?? '',
-      ...(calls.length ? { tool_calls: calls } : {}),
-    })
-    if (calls.length === 0) break
-    for (const call of calls) {
-      toolCalls += 1
-      let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(call.function.arguments || '{}')
-      } catch {
-        toolErrors += 1
-      }
-      let out: string
-      try {
-        out = await surface.call(handle, call.function.name, args)
-        if (out.startsWith('ERROR:')) toolErrors += 1
-      } catch (e) {
-        toolErrors += 1
-        out = `ERROR: ${e instanceof Error ? e.message : String(e)}`
-      }
-      messages.push({ role: 'tool', tool_call_id: call.id, content: out })
+  const execute = async (name: string, args: Record<string, unknown>): Promise<string> => {
+    try {
+      const out = await surface.call(handle, name, args)
+      if (out.startsWith('ERROR:')) toolErrors += 1
+      return out
+    } catch (e) {
+      toolErrors += 1
+      return `ERROR: ${e instanceof Error ? e.message : String(e)}`
     }
   }
-  return { messages, completions, toolCalls, toolErrors, tokens }
+  const r = await routerToolLoop(
+    {
+      routerBaseUrl: opts.routerBaseUrl,
+      routerKey: opts.routerKey,
+      model: modelOverride ?? opts.model,
+    },
+    '',
+    '',
+    tools,
+    execute,
+    {
+      maxTurns: opts.innerTurns ?? 4,
+      temperature: opts.temperature ?? 0.7,
+      initialMessages: messages,
+      ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+    },
+  )
+  return {
+    messages: r.messages,
+    completions: r.turns,
+    toolCalls: r.toolCalls,
+    toolErrors,
+    tokens: r.usage,
+  }
 }
 
 /** The trace-analyst (selector≠judge): reads ONLY the trajectory + task, never the score. */

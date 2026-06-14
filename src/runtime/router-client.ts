@@ -120,7 +120,12 @@ export async function routerChatWithTools(
     type: 'function'
     function: { name: string; description?: string; parameters: unknown }
   }>,
-  opts?: { temperature?: number; signal?: AbortSignal; toolChoice?: 'auto' | 'required' | 'none' },
+  opts?: {
+    temperature?: number
+    signal?: AbortSignal
+    toolChoice?: 'auto' | 'required' | 'none'
+    maxTokens?: number
+  },
 ): Promise<RouterChatToolsResult> {
   const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
@@ -131,6 +136,7 @@ export async function routerChatWithTools(
       tools,
       tool_choice: opts?.toolChoice ?? 'auto',
       temperature: opts?.temperature ?? 0.3,
+      ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     }),
     ...(opts?.signal ? { signal: opts.signal } : {}),
   })
@@ -182,6 +188,9 @@ export interface RouterToolLoopResult {
    *  steerer reads (behavior, never the verdict) to diagnose + redirect the next shot. */
   toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
+  /** The full conversation after the loop (seed + every assistant/tool turn). Lets a caller
+   *  CARRY the messages into the next shot (depth continuation) and read the trajectory. */
+  messages: Array<Record<string, unknown>>
 }
 
 /**
@@ -201,13 +210,23 @@ export async function routerToolLoop(
   user: string,
   tools: ReadonlyArray<ToolSpec>,
   execute: (name: string, args: Record<string, unknown>) => Promise<string>,
-  opts?: { maxTurns?: number; temperature?: number; signal?: AbortSignal },
+  opts?: {
+    maxTurns?: number
+    temperature?: number
+    signal?: AbortSignal
+    maxTokens?: number
+    /** Seed the loop with an existing conversation (depth continuation) instead of
+     *  `[system, user]`. When set, `system`/`user` are ignored. The array is copied. */
+    initialMessages?: ReadonlyArray<Record<string, unknown>>
+  },
 ): Promise<RouterToolLoopResult> {
   const maxTurns = opts?.maxTurns ?? 4
-  const messages: Array<Record<string, unknown>> = [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
-  ]
+  const messages: Array<Record<string, unknown>> = opts?.initialMessages
+    ? [...opts.initialMessages]
+    : [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ]
   let toolCalls = 0
   let lastText = ''
   const usage = { input: 0, output: 0 }
@@ -216,6 +235,7 @@ export async function routerToolLoop(
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     const r = await routerChatWithTools(cfg, messages, tools, {
       ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts?.maxTokens ? { maxTokens: opts.maxTokens } : {}),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     })
     if (r.usage) {
@@ -224,7 +244,7 @@ export async function routerToolLoop(
     }
     if (r.content) lastText = r.content
     if (r.toolCalls.length === 0)
-      return { final: lastText, turns: turn, toolCalls, toolTrace, usage }
+      return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then
     // run each call on the host and fold the result back as a `tool` message.
@@ -257,5 +277,5 @@ export async function routerToolLoop(
       toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
     }
   }
-  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage }
+  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage, messages }
 }
