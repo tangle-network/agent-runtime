@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: process.env.TANGLE_API_KEY ?? '',
-    model: process.env.WORKER_MODEL ?? 'gpt-4o-mini',
+    model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
     innerTurns: 6,
   }
   if (!worker.routerKey) throw new Error('set TANGLE_API_KEY (the worker calls the router)')

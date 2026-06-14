@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       type: 'opencode',
       model: {
         provider: process.env.WORKER_PROVIDER ?? 'openai',
-        model: process.env.WORKER_MODEL ?? 'gpt-4.1',
+        model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
         baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       },
       profile: { name: 'skill-smoke', resources: { skills: [defineInlineResource(skillName, skillMd)] } },

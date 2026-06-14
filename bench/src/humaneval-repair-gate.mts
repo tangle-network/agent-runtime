@@ -94,7 +94,7 @@ async function main(): Promise<void> {
   const n = Number(process.env.N ?? 82)
   const k = Number(process.env.K ?? 3)
   const offset = Number(process.env.OFFSET ?? 82)
-  const model = process.env.WORKER_MODEL ?? 'gpt-3.5-turbo'
+  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const cfg: RouterConfig = { routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1', routerKey: must('TANGLE_API_KEY'), model }
   const concurrency = Number(process.env.CONCURRENCY ?? 6)
   if (k < 2) throw new Error('K must be >= 2 (repair needs at least write + one fix)')

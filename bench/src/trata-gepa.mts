@@ -160,7 +160,7 @@ async function main(): Promise<void> {
   await adapter.preflight()
 
   const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
-  const reflectModel = process.env.REFLECT_MODEL ?? 'gpt-4.1-mini'
+  const reflectModel = process.env.REFLECT_MODEL ?? 'deepseek-v4-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const routerKey = must('TANGLE_API_KEY')
   const trainN = Number(process.env.TRAIN_N ?? 70)

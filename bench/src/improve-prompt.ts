@@ -530,7 +530,7 @@ async function main() {
     let content: string | undefined
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       try {
-        content = await chatComplete(routerBaseUrl, routerKey, process.env.REFLECT_MODEL ?? 'gpt-4o', system, user)
+        content = await chatComplete(routerBaseUrl, routerKey, process.env.REFLECT_MODEL ?? 'deepseek-v4-flash', system, user)
         break
       } catch (err) {
         const msg = (err as Error).message
@@ -571,7 +571,7 @@ async function main() {
     llm: {
       baseUrl: routerBaseUrl,
       apiKey: routerKey,
-      model: process.env.REFLECT_MODEL ?? 'gpt-4o',
+      model: process.env.REFLECT_MODEL ?? 'deepseek-v4-flash',
     },
     driverTarget: reflectionTarget,
     mutationPrimitives: reflectionPrimitives,
