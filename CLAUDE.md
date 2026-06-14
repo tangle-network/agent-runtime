@@ -6,6 +6,29 @@ Imports `@tangle-network/agent-eval` for the control loop, knowledge-readiness s
 
 > **This file is the timeless contract — pointers, not state.** No gate numbers, no "as of this writing", no run ids, no evidence claims, no session/generation status. Those live in `.evolve/current.json` (live state) and `memory/` (the evidence ledger); link to them, never inline them here. If you catch yourself writing a number or a result into this file, it belongs in one of those instead.
 
+## Reporting results in plain language — the agent-profile frame
+
+The global style rule (lead with the answer, define every term, no stacked jargon) lives in `~/.claude/AGENTS.md`. This is the project's glossary that rule points to — translate every result into these words, never the raw harness terms.
+
+**The one-sentence frame:** we are making an agent **self-improve across its whole profile** — the parts that make it what it is. Every experiment turns ONE of these knobs; every result says which knob, and whether the agent measurably solved more problems on tasks it never practiced on.
+
+| Profile lever | Plain meaning | "improving it" = |
+|---|---|---|
+| **prompt** | the agent's standing instructions | reword/restructure what we tell it |
+| **skills** | reusable how-to notes injected into it | add a written tactic ("check state first") |
+| **tools** | the actions it's allowed to take | grant/build the right actions (or an **MCP** = a server that hands it tools/data) |
+| **memory / RAG** | what it can recall or look up | give it a notebook / a search-the-docs ability |
+
+**Say the right column, never the left:**
+- "holdout" → "the held-back exam — fresh problems it never practiced on, so a good score isn't memorization."
+- "the screen / train set" → "the practice problems."
+- "certified candidate" → "an option that passed the practice round."
+- "compose / stack the certified set" → "give it all the passing options at once."
+- "baseline" → "the agent's default setup — what we measure against."
+- "marginal lift" → "extra points this one change earns on its own."
+- "equal-k / compute-matched" → "same amount of work both times, so it's a fair test."
+- "the gate / significant" → "beat the default by enough that it isn't luck."
+
 ## Orient first — read these, don't re-derive the repo from source
 
 This repo's bottleneck is agents paying a **re-discovery tax**: re-reading 15 files to rebuild a mental model that already exists. Before exploring, read, in order:
