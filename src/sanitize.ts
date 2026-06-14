@@ -269,6 +269,7 @@ export function sanitizeRuntimeStreamEvent(
       timestamp: event.timestamp,
       proposalId: event.proposalId,
       title: options.includeControlPayloads ? event.title : undefined,
+      content: options.includeControlPayloads ? event.content : undefined,
       status: event.status,
     }
   }

@@ -368,6 +368,10 @@ export type RuntimeStreamEvent =
       proposalId: string
       title: string
       status?: 'pending' | 'approved' | 'rejected'
+      // Proposal body — the assessable deliverable. Same role as `content` on
+      // the `artifact` variant; produced-state grading correctness-checks it.
+      // Optional: a title-only filing carries none.
+      content?: string
       timestamp?: string
     }
   | {

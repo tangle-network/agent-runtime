@@ -495,6 +495,7 @@ function mapCommonBackendEvent(
       title: stringValue(data.title) ?? stringValue(record.title) ?? proposalId,
       status:
         status === 'pending' || status === 'approved' || status === 'rejected' ? status : undefined,
+      content: stringValue(data.content) ?? stringValue(data.body) ?? stringValue(record.content),
       timestamp: nowIso(),
     }
   }
