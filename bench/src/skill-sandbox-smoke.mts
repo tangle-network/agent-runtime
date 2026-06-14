@@ -1,10 +1,18 @@
 /**
- * Proof that a SKILL.md from an AgentProfile actually lands on disk inside the sandbox where
- * the coding harness (opencode) loads it — the "are we on the right surface" check before any
- * benchmark. Creates one opencode box with resources.skills=[reproduce-first], then execs the
- * box to find the materialized SKILL.md. No model call needed: skills materialize before boot.
+ * Proof that a SKILL.md from an AgentProfile actually materializes inside the sandbox where the
+ * coding harness loads it — the "are we on the right surface" check before any benchmark.
+ * Creates one opencode box with resources.skills, then asks the IN-SESSION agent to read the
+ * skill back. PASS keys on a UNIQUE MARKER in the skill body, so a hit is unambiguously OUR
+ * skill — not opencode's bundled /nix/store skills and not the agent's prose.
  *
- * Run: dotenvx run -f ~/company/devops/secrets/.env.keys -- npx tsx src/skill-sandbox-smoke.mts
+ * Two gotchas this guards against (both produced false readings during bring-up):
+ *   1. PATH: opencode's discovery dir is ~/.opencode/skill/<name>/SKILL.md (SINGULAR "skill");
+ *      claude-code uses ~/.claude/skills/. resources.skills lands in the backend's own dir.
+ *   2. VIEW: a bare box.exec() WITHOUT a sessionId sees a DIFFERENT filesystem than the agent
+ *      session (SDK ExecOptions docs). So we verify through the in-SESSION agent (streamPrompt),
+ *      the path the bench actually runs — not a detached exec.
+ *
+ * Run: dotenvx run -f ~/company/devops/secrets/.env.keys -- pnpm exec tsx bench/src/skill-sandbox-smoke.mts
  */
 import { Sandbox, defineInlineResource } from '@tangle-network/sandbox'
 
@@ -14,12 +22,16 @@ const must = (k: string): string => {
   return v
 }
 
+const skillName = 'reproduce-first'
+// A unique token that cannot occur in opencode's bundled skills or in plausible prose.
+const marker = 'SKILLMAT-OK-7f3c91'
 const skillMd = [
   '---',
-  'name: reproduce-first',
+  `name: ${skillName}`,
   'description: Reproduce the failing test before changing any code.',
   '---',
   '',
+  `Materialization proof token: ${marker}`,
   'When fixing a bug: run the failing test FIRST to observe the real error, make the smallest',
   'change that turns it green, then re-run to confirm.',
 ].join('\n')
@@ -31,7 +43,7 @@ async function main(): Promise<void> {
     timeoutMs: 600_000,
   } as never)
 
-  console.error('[smoke] creating opencode box with resources.skills=[reproduce-first]…')
+  console.error(`[smoke] creating opencode box with resources.skills=[${skillName}]…`)
   const box: Record<string, (...a: never[]) => unknown> & { id?: string } = (await client.create({
     backend: {
       type: 'opencode',
@@ -40,17 +52,19 @@ async function main(): Promise<void> {
         model: process.env.WORKER_MODEL ?? 'gpt-4.1',
         baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       },
-      profile: { name: 'skill-smoke', resources: { skills: [defineInlineResource('reproduce-first', skillMd)] } },
+      profile: { name: 'skill-smoke', resources: { skills: [defineInlineResource(skillName, skillMd)] } },
     },
   } as never)) as never
   console.error('[smoke] box id:', box.id, '— waiting for running…')
   await box.waitFor('running' as never, { timeoutMs: 180_000 } as never)
-  console.error('[smoke] box running; asking the IN-BOX agent to report its skills (streamPrompt/SSE — the bench path)…')
+  console.error('[smoke] box running; asking the IN-SESSION agent to read the materialized skill back…')
 
+  // cat the skill at BOTH backend discovery dirs (opencode singular, claude-code plural) + a
+  // name-scoped find; the marker appears wherever resources.skills actually landed it.
   const prompt =
-    'Run this exact shell command and paste its full output verbatim:\n' +
-    '`ls -la ~/.claude/skills ~/.config/opencode/skills 2>/dev/null; echo "--FIND--"; find / -name SKILL.md 2>/dev/null | head -20; echo DONE`\n' +
-    'Then tell me the names of the skills available to you.'
+    'Run this exact shell command and paste its raw output verbatim, nothing else:\n' +
+    `\`cat ~/.opencode/skill/${skillName}/SKILL.md ~/.claude/skills/${skillName}/SKILL.md 2>/dev/null; ` +
+    `echo "--FIND--"; find / -name SKILL.md 2>/dev/null | grep -i ${skillName} | grep -vi /nix/store || echo NOFILE\``
   let out = ''
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), 220_000)
@@ -69,8 +83,14 @@ async function main(): Promise<void> {
   } catch {
     /* best-effort cleanup */
   }
-  const landed = /reproduce-first/i.test(out) && /SKILL\.md/i.test(out)
-  console.error(`\n[smoke] VERDICT: ${landed ? 'PASS — skill materialized on disk in the box (right surface)' : 'FAIL — skill NOT found on disk; check the resources.skills path/shape'}`)
+
+  // Deterministic: PASS only if the agent read OUR unique marker out of the file — not a loose
+  // match on the skill name (which appears in the prompt/prose) or on "SKILL.md" (bundled skills).
+  const landed = out.includes(marker)
+  const path = /\.opencode\/skill\//.test(out) ? '~/.opencode/skill (opencode)' : /\.claude\/skills\//.test(out) ? '~/.claude/skills (claude-code)' : '(path not surfaced)'
+  console.error(
+    `\n[smoke] VERDICT: ${landed ? `PASS — resources.skills materialized + the in-session agent read the marker at ${path}` : 'FAIL — marker NOT read back; resources.skills did not land where the harness reads (check backend discovery dir)'}`,
+  )
   process.exit(landed ? 0 : 2)
 }
 
