@@ -30,6 +30,7 @@ import type {
   Settled,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { RuntimeHookEvent, RuntimeHooks } from '../../src/runtime-hooks'
 
 // ── Offline mock leaf runtime ─────────────────────────────────────────────────────
 //
@@ -606,5 +607,68 @@ describe('meta-orchestrator (depth-2 sub-driver loops)', () => {
     const tree = await journal.loadTree('meta-run')
     const spawned = (tree ?? []).filter((e) => e.kind === 'spawned')
     expect(spawned.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+// ── 8. runPersonified forwards the RuntimeHooks stream (gap 1) ────────────────────────
+//
+// The supervisor threads `SupervisorOpts.hooks` into the root Scope, which emits
+// `agent.spawn`/`agent.child` per child lifecycle. `runPersonified` only had to forward
+// `options.hooks` into `supervisorOpts.hooks` for those events to reach an observer — the
+// load-bearing one-liner that lets the Intelligence SDK subscribe to a personified run.
+
+describe('runPersonified · hooks forwarding', () => {
+  it('forwards agent.spawn/agent.child events to the supplied RuntimeHooks', async () => {
+    const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
+      const i = indexOf(task)
+      return {
+        out: `thesis-${i}`,
+        events: ev(10, 10),
+        verdict: { valid: true, score: 0.4 + i * 0.2 },
+      }
+    })
+
+    const events: RuntimeHookEvent[] = []
+    const hooks: RuntimeHooks = {
+      onEvent: (event) => {
+        events.push(event)
+      },
+    }
+
+    const result = await runPersonified<{ topic: string }, string>({
+      persona,
+      shape: angleFanout<string>(),
+      task: { topic: 'ACME' },
+      budget: wideBudget,
+      shapeBudget: wideShapeBudget,
+      runId: 'analyst:hooks-run',
+      journal: new InMemorySpawnJournal(),
+      blobs: new InMemoryResultBlobStore(),
+      now: () => 0,
+      hooks,
+    })
+
+    expect(result.kind).toBe('winner')
+    const targets = events.map((e) => e.target)
+    // Three fanout angles spawn → three agent.spawn events; each settled child emits agent.child.
+    expect(targets).toContain('agent.spawn')
+    expect(targets).toContain('agent.child')
+    expect(targets.filter((t) => t === 'agent.spawn').length).toBeGreaterThanOrEqual(3)
+    // The spawn payload carries the child label the shape assigned — a real topology stream,
+    // not a placeholder ping.
+    const spawn = events.find((e) => e.target === 'agent.spawn')
+    expect((spawn?.payload as { label?: string } | undefined)?.label).toMatch(/angle:/)
+  })
+
+  it('runs silently (no events) when no hooks are supplied — unchanged default', async () => {
+    const persona = makePersona<string>('analyst', 'equity analyst', () => ({
+      out: 'thesis',
+      events: ev(10, 10),
+      verdict: { valid: true, score: 0.9 },
+    }))
+    // No hooks field — the supervisorOpts omits hooks entirely (the conditional spread),
+    // so the Scope's notify is a no-op. This is the today-default the change preserves.
+    const result = await runShape(persona, angleFanout<string>(), { topic: 'ACME' })
+    expect(result.kind).toBe('winner')
   })
 })

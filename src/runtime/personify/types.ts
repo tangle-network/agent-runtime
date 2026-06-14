@@ -26,6 +26,7 @@
  */
 
 import type { AgentProfile, BackendType } from '@tangle-network/sandbox'
+import type { RuntimeHooks } from '../../runtime-hooks'
 import type {
   Agent,
   AgentSpec,
@@ -241,6 +242,12 @@ export interface RunPersonifiedOptions<Task, D> {
   /** Optional scope analyst threaded into the shape's ShapeContext so loopUntil/widen steer
    *  on trace-derived findings instead of the dormant empty default. */
   readonly analyst?: ScopeAnalyst<D>
+  /**
+   * Lifecycle stream sink, forwarded to `SupervisorOpts.hooks` so the root `Scope`'s
+   * `agent.spawn`/`agent.child` events flow to an observer (e.g. the Intelligence SDK's
+   * trace export). Absent ⇒ no stream (the run is silent, as today).
+   */
+  readonly hooks?: RuntimeHooks
 }
 
 /** The composed run signature. */
