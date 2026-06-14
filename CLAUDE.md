@@ -10,6 +10,7 @@ Imports `@tangle-network/agent-eval` for the control loop, knowledge-readiness s
 
 This repo's bottleneck is agents paying a **re-discovery tax**: re-reading 15 files to rebuild a mental model that already exists. Before exploring, read, in order:
 
+0. **`docs/canonical-api.md`** — THE API reference + anti-reinvention decision table ("I want to ___ → use ___ → NOT ___"). The genome→run→optimize→gate spine, the recursive atom (persona=driver, `spawnChild`=worker|sub-driver, isolated|`Workspace` artifact, conserved sub-budgets, analyst dimensions+gaps), every signature `file:line`-verified. **Read before writing ANY orchestration/optimization/measurement code** — if you're about to write `runConversation`, a "skill optimizer", a "profile-seam", or a `new Sandbox(...)` loop, it already exists.
 1. **`docs/architecture.md`** — the canonical spine (one recursive `Agent` atom; two timescales; benchmark-as-adapter; selector≠judge). Wins on any architecture conflict. `docs/README.md` indexes the rest; `docs/roadmap-rsi.md` is the dependency-ordered build plan; `docs/architecture-interpretations.md` defines **the decision gate**.
 2. **`bench/HARNESS.md`** — the experiment-harness map: commands, the `rollout → corpus → selector → CI → gate` data flow, the wired/needs-creds/scaffolded matrix, and run-the-gate-in-2-lines. Read it before touching `bench/`.
 3. **`.evolve/current.json`** — the single source of truth for the active goal + generation + the live science state. Then `.evolve/progress.md` and the newest `.evolve/pursuits/*.md`.

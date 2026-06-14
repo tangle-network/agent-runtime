@@ -35,14 +35,24 @@ A `Driver<Task, Output, Decision>` is just `plan(task, history) → Task[]`
 (`[task]`→refine, N copies→fanout, `[]`→stop) + `decide(history) → Decision`.
 Topology is data; the kernel is topology-agnostic.
 
-### Three shipped drivers — `@tangle-network/agent-runtime/loops`
+### Topology drivers — `@tangle-network/agent-runtime/loops`
 
-- **`createRefineDriver({ maxIterations?, refineTask? })`** — one task/iteration,
-  validator-gated; replay or rewrite the task until valid or capped. Use for
-  incremental patches, document revision, anything monotonic.
-- **`createFanoutVoteDriver({ n, selector? })`** — N parallel attempts in
-  iteration 0, score once, pick the winner (default: highest valid score). Use
-  for multi-harness coder fanout, redundant research with disagreement detection.
+> **Stale-name correction (gen-6 consolidation, #165):** the standalone
+> `createRefineDriver` / `createFanoutVoteDriver` factories were **removed** —
+> refine/fanout collapsed into the one recursive agent tree. Canonical today:
+> the personify combinators `loopUntil`(depth/refine) / `fanout`(breadth/vote)
+> and the `Strategy` values `refine` / `sample`, plus `createDriver` for an
+> agent-authored topology. Verify names in `src/runtime/index.ts`; see
+> `build-with-agent-runtime` + `docs/canonical-api.md` §3.1/§3.3 for the live
+> signatures. Likewise `createSandboxPlanner` is gone — pass a `TopologyPlanner`
+> to `createDriver({ planner })` directly.
+
+- **`refine` / `loopUntil`** — one attempt/round, validator-gated; iterate over
+  one evolving artifact until valid or budget-capped. Use for incremental
+  patches, document revision, anything monotonic. (Replaces `createRefineDriver`.)
+- **`sample` / `fanout`** — N attempts at equal budget, score once, pick the
+  winner via the single-sourced selector. Use for multi-harness coder fanout,
+  redundant research with disagreement detection. (Replaces `createFanoutVoteDriver`.)
 - **`createDriver({ planner, maxIterations?, maxFanout? })`** — **the
   agent authors the topology.** `plan`/`decide` are backed by an injected
   `TopologyPlanner` that emits one `TopologyMove` per round
@@ -56,16 +66,18 @@ round-robins `agentRuns[]` to decide which harness (claude-code / codex /
 opencode / pi) runs each branch. One driver spans all backends, including
 fanning a single round across several.
 
-### Wiring an LLM planner — `createSandboxPlanner`
+### Wiring an LLM planner — inject a `TopologyPlanner`
+
+`createDriver({ planner })` takes an injected `TopologyPlanner` (the standalone
+`createSandboxPlanner` factory was removed in the gen-6 consolidation — verify
+the live shape in `src/runtime/driver.ts` / `src/runtime/index.ts`). The planner
+is the brain (it may call any harness/LLM to author the move); the driver maps
+each `TopologyMove` onto kernel structure.
 
 ```ts
-import { createDriver, createSandboxPlanner, runLoop } from '@tangle-network/agent-runtime/loops'
+import { createDriver, runLoop, type TopologyPlanner } from '@tangle-network/agent-runtime/loops'
 
-const planner = createSandboxPlanner<Task, Out>({
-  client, profile: plannerProfile,          // any harness; cheap model is fine
-  decodeTask: (raw) => raw as Task,          // envelope task → domain Task
-  // buildPrompt?  — defaults to a history-summary prompt; override to customize
-})
+const planner: TopologyPlanner<Task, Out> = {/* plan() → one {kind:'refine'|'fanout'|'stop',…} per round */}
 const result = await runLoop({
   driver: createDriver({ planner, maxIterations: 8 }),
   agentRuns: workerSpecs, output, validator, task, ctx: { sandboxClient: client },
@@ -88,23 +100,25 @@ a topology nobody chose.
 - Dynamic driver: set the kernel's `runLoop` `maxIterations >=` the driver's so
   the driver's cap governs and the loop closes on a clean `'done'`.
 
-## Campaign bridge — `loopDispatch` / `loopCampaignDispatch`
+## Campaign bridge — `loopDispatch`
 
 To run `runLoop` as an agent-eval campaign cell, do NOT hand-build the ExecCtx +
 forward trace + report usage every time (the third is silent — forgetting it
-yields a `{0,0}` cell `assertRealBackend` reads as a stub). Use the adapter:
+yields a `{0,0}` cell `assertRealBackend` reads as a stub). Use the one bridge,
+`loopDispatch` (the old `loopCampaignDispatch` name was consolidated away; verify
+in `src/runtime/index.ts`):
 
 ```ts
-import { loopCampaignDispatch } from '@tangle-network/agent-runtime/loops'
-const dispatch = loopCampaignDispatch({
+import { loopDispatch } from '@tangle-network/agent-runtime/loops'
+const dispatch = loopDispatch({
   sandboxClient,
-  toLoopOptions: (scenario) => ({ driver, agentRun, output, validator, task: toTask(scenario) }),
+  toLoopOptions: (scenario, profile) => ({ driver, agentRun, output, validator, task: toTask(scenario) }),
   // toArtifact? — defaults to result.winner?.output
 })
 // pass `dispatch` to runCampaign / runEvalCampaign; usage + trace are auto-forwarded
 ```
 
-`loopDispatch` is the `runProfileMatrix` variant (profile is an axis).
+`loopDispatch` doubles as the `runProfileMatrix` variant (the `profile` arg is an axis).
 
 ## Identity-gated optimization — agent-eval's `selfImprove`
 
@@ -159,11 +173,12 @@ Mount it on a production `AgentProfile.mcp`; do not re-implement delegation.
 
 ## Acceptance checklist
 
-- [ ] Topology is a `Driver`, not hard-coded control flow. Reuse refine /
-      fanout-vote / dynamic; build a custom `Driver` against
-      `loops/types.ts:Driver` only when none fit — never fork the kernel.
-- [ ] `runLoop` is bridged to campaigns via `loopDispatch` / `loopCampaignDispatch`
-      (usage + trace auto-forwarded), not a hand-rolled ExecCtx.
+- [ ] Topology is a `Driver`/combinator, not hard-coded control flow. Reuse
+      `refine`/`loopUntil`, `sample`/`fanout`, or the agent-authored `createDriver`;
+      build a custom `Driver` against `loops/types.ts:Driver` only when none fit —
+      never fork the kernel.
+- [ ] `runLoop` is bridged to campaigns via `loopDispatch` (usage + trace
+      auto-forwarded), not a hand-rolled ExecCtx.
 - [ ] Every optimizable prompt is registered through `selfImprove` (or the
       product's existing `runImprovementLoop`), identity-gated on a held-out set.
 - [ ] Boundaries fail loud: no `null` sandbox client, no silent adapter return,

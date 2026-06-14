@@ -52,6 +52,14 @@ export {
   SqlConversationJournal,
 } from './journal-sql'
 export { runConversation, runConversationStream } from './run-conversation'
+export {
+  type PersonaConversationResult,
+  type PersonaDriver,
+  type RunPersonaConfig,
+  type RunPersonaConversationOptions,
+  runPersonaConversation,
+  runPersonaDispatch,
+} from './run-persona'
 export { slugifySpeaker, turnId } from './turn-id'
 export type {
   AuthSource,

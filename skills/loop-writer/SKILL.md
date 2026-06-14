@@ -24,7 +24,7 @@ The driver owns strategy.
 
 | Objective | Use |
 |---|---|
-| Try N attempts, pick best | `fanout` or `createFanoutVoteDriver` |
+| Try N attempts, pick best | `fanout` (or the `sample` strategy) |
 | Ordered stages | `pipeline` |
 | Improve until executable check passes | `loopUntil` + verifier |
 | Review from several lenses | `panel` |
@@ -138,16 +138,15 @@ Git is the durable workspace seam:
 - resume derives completion from git state, not only a side journal
 - conflicts become blockers/questions, not silent overwrite
 
-Proof command for the local substrate join:
+Proof command (real sandbox, real observe→steer join):
 
 ```bash
-pnpm exec tsx bench/src/observe-steer-workspace-loop.mts
+TANGLE_API_KEY=... pnpm exec tsx bench/src/cloud-loop.mts
 ```
 
-It proves `Scope.spawn -> coordination tools -> gitWorkspace -> observe ->
-Scope.send -> corrective worker -> integration pass`. Until the same proof runs
-with `openSandboxRun` and a remote branch, claim local substrate closure and
-serial git accumulation, not full cloud migration safety.
+It proves `openSandboxRun -> observe -> steer -> corrective worker` over a live
+sandbox. The old `observe-steer-workspace-loop.mts` used mock executors and is
+deleted — the live proof is the only valid one.
 
 ## Final Check
 
