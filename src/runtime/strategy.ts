@@ -166,7 +166,11 @@ async function runShot(
     }
   }
   const r = await routerToolLoop(
-    { routerBaseUrl: opts.routerBaseUrl, routerKey: opts.routerKey, model: modelOverride ?? opts.model },
+    {
+      routerBaseUrl: opts.routerBaseUrl,
+      routerKey: opts.routerKey,
+      model: modelOverride ?? opts.model,
+    },
     '',
     '',
     tools,
@@ -178,7 +182,13 @@ async function runShot(
       ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
     },
   )
-  return { messages: r.messages, completions: r.turns, toolCalls: r.toolCalls, toolErrors, tokens: r.usage }
+  return {
+    messages: r.messages,
+    completions: r.turns,
+    toolCalls: r.toolCalls,
+    toolErrors,
+    tokens: r.usage,
+  }
 }
 
 /** The trace-analyst (selector≠judge): reads ONLY the trajectory + task, never the score. */

@@ -120,7 +120,12 @@ export async function routerChatWithTools(
     type: 'function'
     function: { name: string; description?: string; parameters: unknown }
   }>,
-  opts?: { temperature?: number; signal?: AbortSignal; toolChoice?: 'auto' | 'required' | 'none'; maxTokens?: number },
+  opts?: {
+    temperature?: number
+    signal?: AbortSignal
+    toolChoice?: 'auto' | 'required' | 'none'
+    maxTokens?: number
+  },
 ): Promise<RouterChatToolsResult> {
   const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
