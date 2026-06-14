@@ -8,8 +8,8 @@ import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import type { BrowserTask } from './browser/agent-adapter'
-import { Sandbox } from '@tangle-network/sandbox'
 import { ADAPTERS } from './adapters'
+import { resolveBenchClient } from './resolve-client'
 import { DEFAULT_SANDBOX_REFINE_DIRECTIVE, GEPA_LEARNED_DIRECTIVE, composeStrategies } from './directives'
 import {
   analystArm,
@@ -114,7 +114,7 @@ async function runExperimentPreset(
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
   const backendType = (process.env.BACKEND as WorkerBackendType | undefined) ?? 'opencode'
   const provider = process.env.WORKER_PROVIDER
-  const client = new Sandbox({ baseUrl: sandboxBaseUrl, apiKey: routerKey, timeoutMs: 1_200_000 } as never)
+  const client = resolveBenchClient({ backend: 'sandbox', routerBaseUrl, routerKey, model, sandboxBaseUrl })
   const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType, ...(provider ? { provider } : {}) })
   // ANALYST=llm|loop appends a targeted-steer arm (the LLM(trace) / agentic rung): llm =
   // one model call over the trace, loop = a whole sub-loop investigates. The honest

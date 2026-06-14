@@ -13,11 +13,10 @@
  * is fresh-box-per-attempt today, so it would degrade to a re-attempt. The
  * prompt-steering policies below (critical-audit, aggressive-push) are live now.
  */
-import { createExecutor, inlineSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
-import { Sandbox } from '@tangle-network/sandbox'
+import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import { ADAPTERS } from './adapters'
 import { type Arm, analystArm, arm, llmAnalyst, randomArm, runExperiment, sandboxAgentRun } from './experiment'
-import { makeSearchExecutor, webSearchTool } from './search-tool'
+import { resolveBenchClient } from './resolve-client'
 
 const must = (k: string): string => {
   const v = process.env[k]
@@ -51,24 +50,14 @@ async function main() {
       : undefined
   const client: SandboxClient = adapter.leafClient
     ? (adapter.leafClient(router) as SandboxClient)
-    : backend === 'router' && searchProvider
-      ? inlineSandboxClient(
-          createExecutor({
-            backend: 'router-tools',
-            routerBaseUrl,
-            routerKey,
-            model,
-            tools: [webSearchTool],
-            executeToolCall: makeSearchExecutor({ routerBaseUrl, routerKey, provider: searchProvider }),
-          }),
-        )
-      : backend === 'router'
-        ? inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
-        : new Sandbox({
-            baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
-            apiKey: routerKey,
-            timeoutMs: 1_200_000,
-          } as never)
+    : resolveBenchClient({
+        backend,
+        routerBaseUrl,
+        routerKey,
+        model,
+        ...(searchProvider ? { searchProvider } : {}),
+        ...(process.env.SANDBOX_BASE_URL ? { sandboxBaseUrl: process.env.SANDBOX_BASE_URL } : {}),
+      })
 
   // The steer policies under test. Each is an arm = a steer f(rootPrompt, history).
   // Labels follow corpus-report's contract: the `random*` family is the compute
