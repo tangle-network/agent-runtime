@@ -23,6 +23,7 @@
 import {
   type AgentProfile,
   type AgentRunSpec,
+  type BackendType,
   createDriver,
   routerChatWithUsage,
   type SandboxClient,
@@ -192,10 +193,11 @@ export const loopAnalyst = (cfg: {
     return result.winner?.output ?? [...result.iterations].reverse().find((it) => (it.output ?? '').trim())?.output ?? ''
   }
 
-/** Cost-dial backend types we drive (tcloud `BackendType`). `hermes` = the
- *  inference-router agent (the cheap "router llm-call" dial); the rest are agent
- *  CLIs. This is the ONLY knob that changes which agent runs — no per-backend worker. */
-export type WorkerBackendType = 'opencode' | 'hermes' | 'claude-code' | 'codex' | 'kimi-code' | 'pi'
+/** Cost-dial backend = the SDK's canonical `BackendType` (single source of truth; no local
+ *  literal copy that drifts from the harness set). `hermes` = the inference-router agent (the
+ *  cheap "router llm-call" dial); the rest are agent CLIs. The ONLY knob that changes which
+ *  agent runs — no per-backend worker. */
+export type WorkerBackendType = BackendType
 
 /** Build the standard sandbox `AgentRunSpec` for a benchmark — the worker the
  *  kernel injects. `backendType` is the cost dial. Model auth is the BOX'S OWN
