@@ -27,6 +27,15 @@
  *   MCP_CODER_FANOUT_HARNESSES       comma-separated harness ids to use for variants > 1
  *   MCP_DISABLE_CODER                set to `1` to omit `delegate_code`
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
+ *   MCP_RESEARCHER_HARNESS           researcher worker harness (default `opencode`)
+ *   MCP_RESEARCHER_MODEL             researcher worker model id (falls back to
+ *                                    MCP_WORKER_MODEL, then WORKER_MODEL, then a default)
+ *   MCP_RESEARCHER_FANOUT_HARNESSES  comma-separated harnesses for researcher variants > 1
+ *   MCP_RESEARCHER_FANOUT_MODELS     comma-separated per-harness models, index-aligned
+ *   MCP_RESEARCHER_ROUTER_KEY        OpenAI-compatible router key for the in-box agent
+ *                                    (defaults to TANGLE_API_KEY)
+ *   MCP_RESEARCHER_ROUTER_BASE_URL   router base for the in-box agent (defaults to the
+ *                                    repo's resolveRouterBaseUrl, normalized to `/v1`)
  *   AGENT_RUNTIME_DELEGATION_STATE_FILE
  *                                    optional — absolute path of a JSON state
  *                                    file. When set, delegation records persist
@@ -418,7 +427,8 @@ async function loadResearcherSupport(
   // provider. resolveResearcherProvisioning picks a provisionable harness + model and the
   // router creds (all env-overridable); applyRouterEnv injects them as box env. Applied to
   // BOTH the single-variant path and every fanout agent-run so variants > 1 work too.
-  const { harness, model, routerKey, routerBaseUrl } = resolveResearcherProvisioning()
+  const { harness, model, routerKey, routerBaseUrl, fanoutHarnesses: cfgFanoutHarnesses, fanoutModels } =
+    resolveResearcherProvisioning()
   const buildPreset = (task: unknown): ResearcherProfilePreset => {
     const preset = singleFactory({ task, harness, model })
     applyRouterEnv(preset.agentRunSpec as ProvisionableSpec, routerKey, routerBaseUrl)
@@ -500,21 +510,25 @@ async function loadResearcherSupport(
       return output as ResearchOutputShape
     }
     // Match the single-variant fix: use a provisionable harness/model and inject router
-    // creds into every fanout agent-run, else variants > 1 makes zero LLM calls.
-    const fanoutHarnesses =
-      parseHarnesses(process.env.MCP_RESEARCHER_FANOUT_HARNESSES) ??
-      Array.from({ length: variants }, () => harness)
+    // creds into every fanout agent-run, else variants > 1 makes zero LLM calls. Default to
+    // `variants` copies of the working harness; MCP_RESEARCHER_FANOUT_HARNESSES overrides for
+    // diversity (with optional per-harness MCP_RESEARCHER_FANOUT_MODELS).
+    const fanoutHarnesses = cfgFanoutHarnesses ?? Array.from({ length: variants }, () => harness)
     const fanout = fanoutFactory({
       task,
       harnesses: fanoutHarnesses,
-      models: fanoutHarnesses.map(() => model),
+      models: fanoutHarnesses.map((_, i) => fanoutModels?.[i] ?? model),
     })
     for (const spec of fanout.agentRuns) {
       applyRouterEnv(spec as ProvisionableSpec, routerKey, routerBaseUrl)
     }
+    // The harness list may be shorter than `variants` (misconfig) — never claim more
+    // iterations than there are runs.
+    const runs = fanout.agentRuns.slice(0, variants)
+    const effectiveVariants = Math.max(1, runs.length)
     const result = await runLoop({
       driver: fanout.driver,
-      agentRuns: fanout.agentRuns.slice(0, variants),
+      agentRuns: runs,
       output: fanout.output,
       validator: fanout.validator,
       task,
@@ -523,8 +537,8 @@ async function loadResearcherSupport(
         signal: ctx.signal,
         ...(loopEmitter ? { traceEmitter: loopEmitter } : {}),
       },
-      maxIterations: variants,
-      maxConcurrency: Math.min(maxConcurrency, variants),
+      maxIterations: effectiveVariants,
+      maxConcurrency: Math.min(maxConcurrency, effectiveVariants),
     })
     const output = result.winner?.output
     if (!output) throw new Error('researcher delegate fanout produced no winner')

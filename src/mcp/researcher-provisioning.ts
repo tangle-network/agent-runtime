@@ -19,6 +19,10 @@ export interface ResearcherProvisioning {
   routerKey?: string
   /** OpenAI-compatible router base, always ending in a `/vN` segment. */
   routerBaseUrl: string
+  /** Explicit fanout harness list (MCP_RESEARCHER_FANOUT_HARNESSES); undefined ⇒ caller defaults. */
+  fanoutHarnesses?: string[]
+  /** Per-harness fanout model overrides (MCP_RESEARCHER_FANOUT_MODELS), index-aligned. */
+  fanoutModels?: string[]
 }
 
 /** A sandbox agent-run spec whose box env can be overridden. */
@@ -32,6 +36,14 @@ const DEFAULT_MODEL = 'moonshotai/kimi-k2.6'
 function trimmed(value: string | undefined): string | undefined {
   const t = value?.trim()
   return t ? t : undefined
+}
+
+function csv(value: string | undefined): string[] | undefined {
+  const list = value
+    ?.split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+  return list && list.length > 0 ? list : undefined
 }
 
 /**
@@ -51,7 +63,16 @@ export function resolveResearcherProvisioning(
   const routerKey = trimmed(env.MCP_RESEARCHER_ROUTER_KEY) ?? trimmed(env.TANGLE_API_KEY)
   const base = trimmed(env.MCP_RESEARCHER_ROUTER_BASE_URL) ?? resolveRouterBaseUrl(env as RouterEnv)
   const routerBaseUrl = /\/v\d+\/?$/.test(base) ? base.replace(/\/$/, '') : `${base.replace(/\/$/, '')}/v1`
-  return { harness, model, ...(routerKey ? { routerKey } : {}), routerBaseUrl }
+  const fanoutHarnesses = csv(env.MCP_RESEARCHER_FANOUT_HARNESSES)
+  const fanoutModels = csv(env.MCP_RESEARCHER_FANOUT_MODELS)
+  return {
+    harness,
+    model,
+    ...(routerKey ? { routerKey } : {}),
+    routerBaseUrl,
+    ...(fanoutHarnesses ? { fanoutHarnesses } : {}),
+    ...(fanoutModels ? { fanoutModels } : {}),
+  }
 }
 
 /**
