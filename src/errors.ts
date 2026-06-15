@@ -25,13 +25,10 @@ import { AgentEvalError } from '@tangle-network/agent-eval'
 export {
   AgentEvalError,
   type AgentEvalErrorCode,
-  CaptureIntegrityError,
   ConfigError,
   JudgeError,
   NotFoundError,
-  ReplayError,
   ValidationError,
-  VerificationError,
 } from '@tangle-network/agent-eval'
 
 /**
