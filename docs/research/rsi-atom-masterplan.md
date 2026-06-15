@@ -48,12 +48,16 @@ The driver must **never** send one-word/two-sentence steers. It writes amazing, 
 
 Bias (standing rule): **run what exists, delete the cruft slowing us + the agents down, improve the arch. Do NOT build new where a thing already exists.** Gates (build+test+lint) green after every step; nothing merged red; revert-on-red, never force.
 
-| Track | Action | Status |
+| Track | Action | Status (workflow `wqwmzxpmv`, 6 agents) |
 |---|---|---|
-| **DELETE `createDriver`** | migrate the 12 callers (loop-runner + bench experiment harness `experiment.ts`/`steering-experiment.ts`/`improve-prompt.ts`/`research-loop.mts`/`generate-eval` + 4 tests + the `index.ts` export) onto `defineStrategy`/`runAgentic` (the Supervisor path — EXISTS), then delete `driver.ts`'s `TopologyPlanner`/`createDriver`. Conservative: migrate what's clean, flag + leave any caller that can't move cleanly. | 🔨 |
-| **RUN commit0** | run the EXISTING commit0 adapter through the EXISTING Supervisor path (`keystone-gate`/`runAgentic`) — fixtures smoke (`COMMIT0_FIXTURES=1`, no creds) now; real run when a worker model is available. **Do NOT build a new harness.** | 🔨 |
-| **DEEP-CLEAN** | delete confirmed-dead bench one-off scripts + any code orphaned by the createDriver deletion. | 🔨 |
-| **DEDUP** | collapse `runAgentic` ≡ `runPersonified` only if a clean delegation exists (else flag). | 🔨 |
-| **IMPROVE — recursion (#2)** | the recursive driver-executor — AFTER the deck is cleared by the deletions above. | ⬜ |
+| **RUN commit0** | ran the EXISTING commit0 adapter + keystone-gate (Supervisor path), `COMMIT0_FIXTURES=1`, no creds, **no new code**. | ✅ **RAN** — fixtures smoke 5/5 pass; the existing harness runs end-to-end |
+| **DELETE `createDriver`** | attempt to migrate 12 callers → delete. | ⛔ **BLOCKED (real, not caution): 13/15 callers can't migrate.** `createDriver` is a *different PARADIGM* — string-prompt→string-answer over a `SandboxClient`, judged by `adapter.judge` (round-synchronous `runLoop`). `defineStrategy`/`runAgentic` operate over an `AgenticSurface` (stateful tool-call env, `shot()`/`critique()`, passes/total). The **entire bench gate/experiment harness** (`experiment.ts` Arm=`TopologyPlanner`, equal-k control, RunRecord corpus, vacuity guard) sits on the createDriver paradigm. You can't delete a *line* — you'd delete/re-paradigm the whole old **measurement** harness. Executor correctly deleted NOTHING; gates green, zero breakage. |
+| **DEEP-CLEAN** | confirmed-dead bench scripts. | ✅ none new (already clean from `bdae618`) |
+| **DEDUP** | `runAgentic` ≡ `runPersonified`. | ⛔ not a clean delegation — different executors/domains/results |
 
-Then #2 (recursion) → #1 generator + cache → AgentProfile superset (#4) + fusion **last** (deferred until the loop is proven on a real commit0 run — anti-Foreman: one room before the cathedral).
+### THE FORK (yours — the only thing that unblocks the delete)
+`createDriver`/`experiment.ts` is the OLD measurement paradigm (stateless string-prompt-sandbox gates — the *narrow* Gate-A thing the program has moved away from). Two honest options:
+- **(A) Aggressive delete now** — rip out `experiment.ts` + `createDriver` + the runLoop-bench harness + its 4 tests (a big real deletion). **Cost:** lose the equal-k control + RunRecord corpus + the rigorous gating that produced the session's Gate-A/B evidence, *before* the new path replaces it.
+- **(B) Earned delete (recommended)** — the new path RUNS (commit0 proved today). Make `keystone-gate`/the Supervisor path cover what `experiment.ts` does (equal-k control + corpus), **then** delete the whole old paradigm in ONE clean cut. RUN-proven → cover → DELETE. Anti-Foreman: don't rip out working measurement before the replacement covers it.
+
+Then #2 (recursion) → #1 generator + cache → AgentProfile superset (#4) + fusion **last**.
