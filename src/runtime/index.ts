@@ -279,6 +279,17 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
+// verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
+// coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
+export {
+  type CoordinationDriverOptions,
+  coordinationDriverAgent,
+  type DriverChat,
+  type DriverMessage,
+  type DriverToolCall,
+  type DriverTurn,
+} from './supervise/coordination-driver'
 // The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
 // resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
 // the SAME conserved pool.
