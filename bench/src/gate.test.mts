@@ -1,5 +1,5 @@
 /**
- * Offline gate-plumbing test. A deterministic stub `ExecutorRegistry` is injected so the keystone
+ * Offline gate-plumbing test. A deterministic stub `ExecutorRegistry` is injected so the gate
  * path runs with NO network: it proves the bridge wiring end-to-end — the persona + `fanout`
  * drives the `Supervisor`, the per-child deployable verdict drives selection, the paired metric is
  * derived from the run's own trajectory, and the conserved pool yields equal-k across arms.
@@ -7,7 +7,7 @@
  * The LIVE solve-and-grade path (`benchSolverRegistry` → router + `adapter.judge`) is exercised
  * by a real gate run against a deployable-checker domain, not here.
  *
- *   tsx bench/src/keystone-gate.test.mts
+ *   tsx bench/src/gate.test.mts
  */
 
 import assert from 'node:assert/strict'
@@ -21,7 +21,7 @@ import type {
   ExecutorResult,
 } from '@tangle-network/agent-runtime/loops'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
-import { runKeystoneGate, type SolveTask } from './keystone-gate'
+import { runGate, type SolveTask } from './gate'
 
 /** A child whose verdict is decided purely by whether its prompt carries the STRONG marker — so a
  *  diverse arm that injects a STRONG strategy beats a blind arm that never does. Fixed spend per
@@ -82,7 +82,7 @@ function stubAdapter(n: number): BenchmarkAdapter {
 
 const profile = { name: 'stub-solver', model: { default: 'stub-model' } } as never
 
-const report = await runKeystoneGate({
+const report = await runGate({
   adapter: stubAdapter(5),
   profile,
   strategies: ['plain restate', 'use the STRONG verified approach', 'enumerate edge cases'],
@@ -126,4 +126,4 @@ assert.equal(
   'identical token spend across arms',
 )
 
-console.log('keystone-gate.test: OK — gate runs through the Supervisor, deployable selection + equal-k verified')
+console.log('gate.test: OK — gate runs through the Supervisor, deployable selection + equal-k verified')

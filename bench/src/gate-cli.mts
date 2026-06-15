@@ -1,8 +1,8 @@
 /**
- * Run the diverse-vs-blind gate THROUGH the recursive keystone, end to end, in two lines:
+ * Run the diverse-vs-blind gate THROUGH the recursive atom, end to end, in two lines:
  *
  *   export TANGLE_API_KEY=...        # router + the deployable judge's creds
- *   BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 tsx src/keystone-gate-cli.mts
+ *   BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 tsx src/gate-cli.mts
  *
  * The arms are equal-k by construction (both open K children; blind = K identical copies,
  * diverse = K distinct strategy directives). The deployable selector is the benchmark's OWN
@@ -17,7 +17,7 @@
 
 import type { AgentProfile } from '@tangle-network/agent-runtime/loops'
 import { resolveAdapter } from './adapters'
-import { runKeystoneGate } from './keystone-gate'
+import { runGate } from './gate'
 
 const must = (k: string): string => {
   const v = process.env[k]
@@ -45,12 +45,12 @@ async function main(): Promise<void> {
   if (strategies.length < 2) throw new Error('K must be >= 2')
 
   const profile = {
-    name: 'keystone-gate-solver',
+    name: 'gate-solver',
     model: { default: model },
     prompt: { systemPrompt: 'You are an expert agent. Produce the single best deliverable the task’s grader will accept.' },
   } as unknown as AgentProfile
 
-  const report = await runKeystoneGate({
+  const report = await runGate({
     adapter,
     profile,
     strategies,
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
   const blind = report.arms.find((a) => a.label === 'blind')!
   const diverse = report.arms.find((a) => a.label === 'diverse')!
 
-  console.log(`\n=== keystone gate: ${report.benchmark} (k=${report.k}, n=${report.n}) ===`)
+  console.log(`\n=== gate: ${report.benchmark} (k=${report.k}, n=${report.n}) ===`)
   console.log(
     `VERDICT: diverse ${report.deltaScorePp >= 0 ? '+' : ''}${report.deltaScorePp.toFixed(1)}pp graded-score ` +
       `(binary ${report.deltaPp >= 0 ? '+' : ''}${report.deltaPp.toFixed(1)}pp) vs blind` +

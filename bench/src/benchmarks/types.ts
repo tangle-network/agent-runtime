@@ -46,7 +46,8 @@ export interface BenchmarkAdapter {
   /** How to extract the judged artifact from a run's event stream. Optional —
    *  defaults to the agent's final answer text (the research/QA case). SWE sets
    *  it to a patch parser. This is `benchmark = adapter` owning its deliverable,
-   *  so the one flow (`runExperiment`) needs no per-benchmark branching. */
+   *  so the gate runner (`runGate` / `runBenchmark`) needs no
+   *  per-benchmark branching. */
   output?: OutputAdapter<string>
   /** Benchmark-owned worker leaf. Set when the benchmark's native protocol IS the
    *  worker (e.g. AppWorld's interactive ReAct episode runs inside the engine,

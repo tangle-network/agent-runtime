@@ -10,7 +10,7 @@
 
 ## 1. Mental model — the spine
 
-A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface, not separate knobs) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled, resumable artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry, driven by `runKeystoneGate`/`keystone-gate-cli.mts` over the keystone Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic` on the reactive substrate), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `improvementDriver`/`gepaDriver` + `reflectiveGenerator`/`agenticGenerator`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite. The selector is never the judge; observation attaches to the *loop* via `RuntimeHooks`, never to the portable genome.
+A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface, not separate knobs) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled, resumable artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry, driven by `runGate`/`gate-cli.mts` over the keystone Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic` on the reactive substrate), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `improvementDriver`/`gepaDriver` + `reflectiveGenerator`/`agenticGenerator`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite. The selector is never the judge; observation attaches to the *loop* via `RuntimeHooks`, never to the portable genome.
 
 ## 2. Decision table — "I want to ___ → use ___ → NOT ___"
 
@@ -42,9 +42,9 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate` — `agent-eval/contract` | a raw `h1>h0` point comparison on the training set (certifies false champions near coin-flip) |
 | Decide ship/hold from a **`BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/runtime` | comparing two strategies' mean scores directly; re-deriving the bootstrap |
 | Run the full multi-generation strategy flywheel + certify | `runStrategyEvolution(config)` — `/runtime` | a bespoke gen0→author→gen1→holdout loop with hand-rolled champion selection + overfit check |
-| Add or run a benchmark from the CLI/harness | `ADAPTERS` / `resolveAdapter(key)`, run via `bench/src/keystone-gate-cli.mts` | a per-script `switch(bench)` or a local benchmark-factory map |
-| Wire a new benchmark | implement `BenchmarkAdapter` (5 methods) + feed to `runKeystoneGate` — `bench` | a bespoke per-benchmark run script with its own (self-authored) scoring |
-| Measure a topology on a benchmark at equal compute | `runKeystoneGate(cfg)` (or `runAgentic`/`runBenchmark`) — equal-k holds by construction via the conserved budget pool — `bench`/`/runtime` | a batch-blind/batch-oracle/compare zoo, your own usage capture, or equal-k bookkeeping |
+| Add or run a benchmark from the CLI/harness | `ADAPTERS` / `resolveAdapter(key)`, run via `bench/src/gate-cli.mts` | a per-script `switch(bench)` or a local benchmark-factory map |
+| Wire a new benchmark | implement `BenchmarkAdapter` (5 methods) + feed to `runGate` — `bench` | a bespoke per-benchmark run script with its own (self-authored) scoring |
+| Measure a topology on a benchmark at equal compute | `runGate(cfg)` (or `runAgentic`/`runBenchmark`) — equal-k holds by construction via the conserved budget pool — `bench`/`/runtime` | a batch-blind/batch-oracle/compare zoo, your own usage capture, or equal-k bookkeeping |
 | Observe a run's full cost/time | `createWaterfallCollector()` → `anytimeReport()` — `/runtime` | a per-step cost/token tally by inspecting events yourself (drifts from billed totals) |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)` — root export | a second event-bus or callback-prop zoo (there is ONE stream) |
 | See the live recursive agent tree | `createTopologyView()` / `renderTopologyTree()` — `/topology` | a parent-id `Map` you track yourself or a manual `SpawnJournal` walk |
@@ -497,7 +497,7 @@ console.log(report.refineVsSample, report.pareto)
 ---
 
 **`ADAPTERS` + `resolveAdapter`** · `bench/src/adapters.ts` (harness-local, not a package export)
-The single source of truth mapping a benchmark key to its `BenchmarkAdapter` factory. Wired keys: `swe-bench, terminal-bench, aec-bench, commit0, programbench, appworld, appworld-react, enterpriseops-gym, cad-design, cadbench, cadgenbench, frames, finsearchcomp, simpleqa, hotpotqa, humaneval, mind2web, trata-hedge`. Adding one is ONE import + one registry line; `keystone-gate-cli.mts`, `aec-gate.mts`, `corpus-replay.mts`, `research-gate.mts`, and `trata-gate.mts` all read it. `resolveAdapter` fails loud with the known keys.
+The single source of truth mapping a benchmark key to its `BenchmarkAdapter` factory. Wired keys: `swe-bench, terminal-bench, aec-bench, commit0, programbench, appworld, appworld-react, enterpriseops-gym, cad-design, cadbench, cadgenbench, frames, finsearchcomp, simpleqa, hotpotqa, humaneval, mind2web, trata-hedge`. Adding one is ONE import + one registry line; `gate-cli.mts`, `aec-gate.mts`, `corpus-replay.mts`, `research-gate.mts`, and `trata-gate.mts` all read it. `resolveAdapter` fails loud with the known keys.
 
 ```ts
 export const ADAPTERS: Record<string, () => BenchmarkAdapter>
@@ -527,22 +527,22 @@ interface BenchmarkAdapter {
 
 ---
 
-**`runKeystoneGate` (the diverse-vs-blind gate)** · `bench/src/keystone-gate.ts`
-Runs one gate — N benchmark instances × two arms (each arm a `fanout` of `k = strategies.length` children through the keystone `Supervisor`), judged by the adapter, the trajectory ledger backing both the resolve metric and the cross-arm equal-k proof. The conserved budget pool makes the **equal-compute invariant** hold by construction (both arms spawn the same k children); the winning child's deployable verdict (`defaultSelectWinner`, replayed off the journal) decides resolution. Fails loud (`< 2 strategies` throws). This is the canonical replacement for the deleted `bench/src/experiment.ts` flow.
+**`runGate` (the diverse-vs-blind gate)** · `bench/src/gate.ts`
+Runs one gate — N benchmark instances × two arms (each arm a `fanout` of `k = strategies.length` children through the `Supervisor`), judged by the adapter, the trajectory ledger backing both the resolve metric and the cross-arm equal-k proof. The conserved budget pool makes the **equal-compute invariant** hold by construction (both arms spawn the same k children); the winning child's deployable verdict (`defaultSelectWinner`, replayed off the journal) decides resolution. Fails loud (`< 2 strategies` throws).
 
 ```ts
-async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<KeystoneGateReport>
+async function runGate(opts: RunGateOptions): Promise<GateReport>
 // opts = { adapter: BenchmarkAdapter; strategies: string[] /* k = strategies.length */;
 //   n?; ids?; split?; concurrency?; …worker seam }
 ```
 ```ts
-const report = await runKeystoneGate({
+const report = await runGate({
   adapter: resolveAdapter('enterpriseops-gym'),
   strategies: ['solve directly and concisely', 'check state first, then act', …],
   n: 20, concurrency: 3 })
 ```
 **Do NOT** write a batch-blind/batch-oracle/compare loop, your own usage capture, or your own equal-k bookkeeping — the conserved pool gives compute-matched arms by construction.
-`bench/src/keystone-gate.ts:325` (`RunKeystoneGateOptions`)
+`bench/src/gate.ts:325` (`RunGateOptions`)
 
 ---
 
@@ -571,16 +571,16 @@ function sandboxAgentRun(opts: { model: string; routerBaseUrl: string; backendTy
 
 ---
 
-**`keystone-gate-cli.mts` (the harness CLI)** · `bench/src/keystone-gate-cli.mts` (run via `tsx`)
-The instantiated diverse-vs-blind gate in one file: pick a benchmark via `BENCH=` (`ADAPTERS` lookup), the `K` strategies fix both arms' child count, run them through `runKeystoneGate` over the keystone Supervisor at equal compute (conserved pool), print the per-arm resolve Δ. Strategy selection is data; equal-k holds by construction.
+**`gate-cli.mts` (the harness CLI)** · `bench/src/gate-cli.mts` (run via `tsx`)
+The instantiated diverse-vs-blind gate in one file: pick a benchmark via `BENCH=` (`ADAPTERS` lookup), the `K` strategies fix both arms' child count, run them through `runGate` over the Supervisor at equal compute (conserved pool), print the per-arm resolve Δ. Strategy selection is data; equal-k holds by construction.
 
 ```bash
-BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 TANGLE_API_KEY=… tsx bench/src/keystone-gate-cli.mts
+BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 TANGLE_API_KEY=… tsx bench/src/gate-cli.mts
 # then the paired-bootstrap + BH verdict over the corpus:
 tsx bench/src/corpus-report.mts corpus/<name>.jsonl
 ```
-**Do NOT** write a new top-level run script that re-parses env and re-wires the gate — copy `keystone-gate-cli.mts`'s strategy/backend pattern or add your strategy to its `defaultStrategies` array.
-`bench/src/keystone-gate-cli.mts` (default `BENCH=enterpriseops-gym`)
+**Do NOT** write a new top-level run script that re-parses env and re-wires the gate — copy `gate-cli.mts`'s strategy/backend pattern or add your strategy to its `defaultStrategies` array.
+`bench/src/gate-cli.mts` (default `BENCH=enterpriseops-gym`)
 
 ### 3.4 The Gated Optimizer — evolve the genome, certify wins
 
@@ -905,7 +905,7 @@ const opt = await selfImprove({
 console.log(`prompt lift ${opt.lift} → ${opt.gateDecision}`)  // gateDecision ∈ ship|hold|need_more_work|model_ceiling|arch_ceiling
 ```
 
-For the **multi-generation strategy flywheel** (gen0 → author-from-losses → genN → frozen-holdout → reproducer cert, with checkpoint/resume), replace steps 2–3b with one `runStrategyEvolution({ environment, tasks, trainN, holdoutN, worker, author, generations, outDir })` and read `report.verdict` (NOT `report.trajectory`) as the evidence. For a **sandbox coding rollout** measured against an external deterministic judge, use the bench-harness path instead: `runKeystoneGate({ adapter: resolveAdapter('commit0'), strategies, n, … })` (the two arms each `fanout` k children through the keystone Supervisor at equal compute; the winning child's deployable verdict decides resolution).
+For the **multi-generation strategy flywheel** (gen0 → author-from-losses → genN → frozen-holdout → reproducer cert, with checkpoint/resume), replace steps 2–3b with one `runStrategyEvolution({ environment, tasks, trainN, holdoutN, worker, author, generations, outDir })` and read `report.verdict` (NOT `report.trajectory`) as the evidence. For a **sandbox coding rollout** measured against an external deterministic judge, use the bench-harness path instead: `runGate({ adapter: resolveAdapter('commit0'), strategies, n, … })` (the two arms each `fanout` k children through the keystone Supervisor at equal compute; the winning child's deployable verdict decides resolution).
 
 ## 5. The recursive atom — recursion · artifact · budget · analysts
 
@@ -944,9 +944,9 @@ Both implement the same "recursive agent decision" atom; both run over the one `
 
 | | Reactive: `Supervisor`/`Scope` + personify combinators (the agent-driver) | Round-synchronous: `runLoop` kernel (the leaf) |
 |---|---|---|
-| Entry | `runPersonified`, `runAgentic`, `runBenchmark`, `createSupervisor`, `runKeystoneGate` (bench) | `runLoop`; benches drive it via `openSandboxRun` + `sandboxAgentRun` |
+| Entry | `runPersonified`, `runAgentic`, `runBenchmark`, `createSupervisor`, `runGate` (bench) | `runLoop`; benches drive it via `openSandboxRun` + `sandboxAgentRun` |
 | Shape of a turn | spawn-on-demand children on a conserved budget pool; react via `scope.next()` | a planned round of N tasks → one sandbox/iteration each → decide |
-| Equal-k | by construction (atomic reservation pool, refund-on-settle) — `runKeystoneGate` inherits it | `maxIterations` count + `maxConcurrency` cap; per-`Iteration` cost aggregation |
+| Equal-k | by construction (atomic reservation pool, refund-on-settle) — `runGate` inherits it | `maxIterations` count + `maxConcurrency` cap; per-`Iteration` cost aggregation |
 | Persistence | journal → content-addressed replay/resume of the exact `Settled` | fresh box per round (or `lineage` for session continuity/fork-fanout) |
 | Best for | **NEW recursive/keystone work**: depth/breadth strategies, multi-agent shapes, nested drivers, anytime/cost analysis | **sandbox coding rollouts** driven the round-synchronous way against external benchmarks; what most benches drive today |
 | Genome carrier | `Persona` (`definePersona`) → `AgentSpec.profile` | `AgentRunSpec.profile` (via `sandboxAgentRun`) |

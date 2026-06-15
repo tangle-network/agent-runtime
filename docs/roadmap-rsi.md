@@ -12,15 +12,12 @@ Building the recursive-driver layer is gated on **Gate A** (the inner GO/NO-GO) 
 
 So the phases are ordered to make each step measurable on an honest baseline *before* the next is built. Build order: **honest baseline → the cheap win (selector) → wire the intelligence (analyses) → grow the language (ISA) → the use case (acquisition)**. The cleanup and doc tracks run in parallel because they are additive-safe.
 
-> **Status (updated POWER-16).** These phases were written against the
-> `runLoop`/`createDriver` substrate — and **`createDriver` (`src/runtime/driver.ts`,
-> with `TopologyPlanner`/`TopologyMove`/`PlannerContext`) has since been DELETED**
-> (commit `2101f2d`). The canonical "drive an agent" path is now the **agent-driver**:
+> **Status (updated POWER-16).** The canonical "drive an agent" path is the **agent-driver**:
 > an `AgentProfile` driving another via `createCoordinationTools`
 > (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
 > (`src/runtime/supervise/`), plus `runAgentic`/`defineStrategy`/`runPersonified`
-> (`strategy.ts`/`persona.ts`); the `runLoop` kernel (`src/runtime/run-loop.ts`) stays
-> as one leaf backend. **Gate A's +16.4pp anchor was
+> (`strategy.ts`/`persona.ts`); the `runLoop` kernel (`src/runtime/run-loop.ts`) is
+> one leaf backend. **Gate A's +16.4pp anchor was
 > RETRACTED to a TIE at power.** On the canonical `Scope`/`Supervisor` + `observe()` +
 > `defineStrategy` loop the n=16 EOPS-itsm signal (depth +16.4pp CI [+5.3, +29.8], 6W/0L,
 > deepseek-v4-pro; +8.3pp disjoint) did **not** replicate: at n=48 depth−breadth = +4.7pp
@@ -33,9 +30,8 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 > (across-run, multi-objective) remains the success criterion and remains
 > uninstrumented**; its minimal single-objective form is the gen0 → `authorStrategy`
 > (`src/runtime/strategy-author.ts`) → gen1 → rotating disjoint holdout under the seeded
-> `promotionGate` (`src/runtime/promotion-gate.ts`) flow — the old `flywheel-run.mts`
-> harness was deleted in the nuke; standing the runner back up over those primitives is
-> the open work. Per-phase status is in the phase map.
+> `promotionGate` (`src/runtime/promotion-gate.ts`) flow — standing that runner up over those
+> primitives is the open work. Per-phase status is in the phase map.
 
 ---
 
@@ -43,10 +39,10 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 
 | Phase | Goal | Depends on | Exit gate | Risk | Status (2026-06-10) |
 |---|---|---|---|---|---|
-| **0** | Honest baseline + preconditions (no kernel change) | — | Every runner reports `random@k` at equal k; corpus has a measurable discordant-pair rate | low | **done** — `runPool` landed (`bench/src/run-pool.ts`); the `random@k`-control runners (`steering-experiment.ts`/`experiment.ts`) were deleted in the nuke, with the corpus + `corpus-report.mts` BH-FDR path surviving |
+| **0** | Honest baseline + preconditions (no kernel change) | — | Every runner reports `random@k` at equal k; corpus has a measurable discordant-pair rate | low | **done** — `runPool` landed (`bench/src/run-pool.ts`); the corpus + `corpus-report.mts` BH-FDR path is the `random@k`-control measurement surface |
 | **1** | Deployable non-oracle selector | 0 | `selector@k > random@k` significant (paired bootstrap + BH), low test-retest flip rate, on a frozen held-out split | low–med | **built + measured** — verifier-grounded selector positive on HumanEval (+12pp verifier−sc CI [+4,+22] / +18pp random−blind, BH-sig, n=50 k=4); answer-agreement negative (finsearch −8.2pp, aec −9.4pp) |
-| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A** (inner GO/NO-GO for the recursive-driver layer): `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, significant, survives test-retest — NOT flywheel success (Gate B) | med | the kernel-side `analyses → plan()` wire was **deleted** (`driver.ts` nuked); the diagnosis→steer edge now lives on the agent-driver (`observe()` → `createCoordinationTools`); Gate A itself **ran on the Supervisor substrate, then RETRACTED to a tie at power** (header note) |
-| **3** | Grow the ISA (`select` then `seq`) | 2 | A planner emitting `select`/`seq` beats the flat-ISA planner on the same harness | med (3a) / high (3b) | **superseded + deleted** — the `TopologyMove` enum (with the emittable `select`) was nuked along with `driver.ts`; `defineStrategy` (`src/runtime/strategy.ts`) is the strictly richer program space that replaces it |
+| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A** (inner GO/NO-GO for the recursive-driver layer): `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, significant, survives test-retest — NOT flywheel success (Gate B) | med | the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools`); Gate A itself **ran on the Supervisor substrate, then RETRACTED to a tie at power** (header note) |
+| **3** | Grow the ISA (`select` then `seq`) | 2 | A strategy expressing `select`/`seq` beats a flat one on the same harness | med (3a) / high (3b) | **superseded** — `defineStrategy` (`src/runtime/strategy.ts`) is the richer program space: a strategy is ordinary code with arbitrary sequencing and branching |
 | **4** | Acquisition adapter (research use case) | 0, 1 (parallel to 2) | Active acquisition beats random acquisition on the deployable coverage-vs-budget curve under a *structural* gap signal | med–high | open |
 
 ---
@@ -56,7 +52,7 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 **No kernel change.** Removes the confound that makes every steering number untrustworthy today.
 
 - **Land `runPool`** — **done**: `bench/src/run-pool.ts` exists and the batch runners route through it. Cleanup-track item 1.
-- **Close the compute-vs-steering confound.** The runners that made the `random@k` control a *required*, structural field — `bench/src/steering-experiment.ts` and `bench/src/experiment.ts` (`runExperiment` + `randomArm`), plus the `finsearch-loop.ts` preset — were **deleted** in the nuke. The compute-matched control now has to be re-supplied by whatever runner drives the agent-driver over the corpus; it is no longer enforced by a surviving harness.
+- **Close the compute-vs-steering confound.** The `random@k` compute-matched control is supplied by whatever runner drives the agent-driver over the corpus (the blind arm is the mandatory equal-compute control on the same run); confirm every runner reports it at equal k.
 - **PRECONDITION CHECK (blocking).** Verify there is `k>1` answer **diversity** in the corpus. A near-deterministic model makes `oracle@k ≈ pass@1` (identical shots) — a no-oracle selector then has *nothing to choose among* and Phase 1 is unmeasurable (0 discordant pairs). Generate the corpus with `MODELS` heterogeneity or temperature > 0 and confirm a non-zero discordant-pair rate before spending on Phase 1.
 
 **Exit gate:** all three runners report `random@k` at equal k; the corpus exhibits a measurable discordant-pair rate.
@@ -68,7 +64,7 @@ At audit time the selector was **faked with the judge**: `defaultSelectWinner` (
 - **Build `rank(attempts: AttemptRecord[]) -> index`** — a pure function over *stored outputs/traces only* (self-consistency / answer-agreement / a PRM). Never reads `verdict`. (Open: evaluate `@tangle-network/agent-eval`'s `/prm` subpath before hand-rolling agreement scoring.)
 - **Inject** via `RunLoopOptions.selectWinner` (`src/runtime/run-loop.ts:104`, honored at `:881`). No kernel surgery. Note: `branchPoint` (`:797`) also ranks edge lineage on `verdict.score` — make it selector-aware for a fully oracle-free deployment.
 - **Measure OFFLINE first** via `corpus-replay.mts`'s `scoreCandidateOffline` seam: per instance, pick one of the k stored outputs, then judge only the pick (zero new rollouts; deterministic judges free, LLM judge = 1 call/instance). Report `selector@k − random@k` (PRIMARY family) and `selector@k − oracle@k` (exploratory headroom-gap) as `TestEntry` rows in `corpus-report.mts` (reuse `pairedLift` + `benjaminiHochberg`). Compute the **test-retest** flip rate from the same corpus (run the picker twice; report flip fraction + paired-bootstrap CI). Power with `requiredSampleSize`/`pairedMde` from `agent-eval/statistics`.
-- **Ship gate** via `heldoutSignificance(pairHoldout(...))` (now packaged as `promotionGate`, `src/runtime/promotion-gate.ts` — the `improve-prompt.ts` pattern it was extracted from was deleted in the nuke) or `compareDrivers`, on a frozen held-out split disjoint from the threshold-tuning split.
+- **Ship gate** via `heldoutSignificance(pairHoldout(...))` (packaged as `promotionGate`, `src/runtime/promotion-gate.ts`) or `compareDrivers`, on a frozen held-out split disjoint from the threshold-tuning split.
 
 **Exit gate:** `selector@k > random@k` (paired bootstrap, BH-FDR) with a low test-retest flip rate, on a frozen held-out split.
 
@@ -76,20 +72,19 @@ At audit time the selector was **faked with the judge**: `defaultSelectWinner` (
 
 ## Phase 2 — Wire `analyses → driver`
 
-The load-bearing edge. **Status: re-homed onto the agent-driver.** The kernel-side wire — `PlannerContext.analyses` populated by an `analyze` hook on `createDriver` — was **deleted** (`src/runtime/driver.ts` nuked, commit `2101f2d`). The diagnosis→decision edge now runs on the **agent-driver**: a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate type from `@tangle-network/agent-eval` — **never redefined**, the layering rule) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runLoop` kernel (`src/runtime/run-loop.ts`) stays analyst-free. **No bench feeds the findings-fed treatment arm against the `random@k` control under the Phase-1 selector live yet** — that is the remaining work on this substrate.
+The load-bearing edge. **Status: lives on the agent-driver.** The diagnosis→decision edge runs on the **agent-driver**: a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate type from `@tangle-network/agent-eval` — **never redefined**, the layering rule) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runLoop` kernel (`src/runtime/run-loop.ts`) stays analyst-free. **No bench feeds the findings-fed treatment arm against the `random@k` control under the Phase-1 selector live yet** — that is the remaining work on this substrate.
 
 **Exit gate — Gate A (inner GO/NO-GO).** `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop building the *within-run recursive-driver layer* — ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the *steering machinery*. The recursive-driver layer is unjustified overhead unless this clears. **This is scoped to within-run steering only — it is NOT the flywheel-success criterion (Gate B, [learning-flywheel.md](./learning-flywheel.md)); a failed Gate A never deletes the corpus+controller product.**
 
-**Gate A status: TIE at power (POWER-16), on the `Scope`/`Supervisor` substrate** — the n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) collapsed to depth−breadth +4.7pp CI [−1.9, +11.4] at n=48 (header note). At most a small effect, not a cleared keystone; the program pivoted off it. The old kernel-side planner arm — findings reaching a `plan()` move enum live — is moot: that path (`createDriver`/`PlannerContext`) was deleted.
+**Gate A status: TIE at power (POWER-16), on the `Scope`/`Supervisor` substrate** — the n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) collapsed to depth−breadth +4.7pp CI [−1.9, +11.4] at n=48 (header note). At most a small effect, not a cleared keystone; the program pivoted off it.
 
 ## Phase 3 — Grow the ISA (program synthesis)
 
-**Status: 3a landed; 3b superseded.**
+**Status: superseded by `defineStrategy`.**
 
-- **3a — emittable `select`: DELETED.** The `TopologyMove` enum (incl. the emittable `{kind:'select'}`) was nuked along with `src/runtime/driver.ts` — the move-enum planner is gone, not grown.
-- **3b — `seq`/sub-program: SUPERSEDED.** Growing the move enum was never the program-synthesis path. `defineStrategy` (`src/runtime/strategy.ts`) is the strictly richer program space — a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing, branching, and state — and `authorStrategy` (`src/runtime/strategy-author.ts`) makes it agent-authorable. Program-space work happens there.
+The program-synthesis path is `defineStrategy` (`src/runtime/strategy.ts`): a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing, branching, and state, and `authorStrategy` (`src/runtime/strategy-author.ts`) makes it agent-authorable. `select`/`seq` are expressed directly in strategy code rather than as an emittable move enum. Program-space work happens there.
 
-**Exit gate (carried by the new substrate):** an authored strategy (`authorStrategy`, `src/runtime/strategy-author.ts`) beats the incumbent on a frozen holdout under `promotionGate` (`src/runtime/promotion-gate.ts`) — the old `flywheel-run.mts` runner was deleted in the nuke; re-standing it up over those primitives is the open work.
+**Exit gate (carried by the strategy substrate):** an authored strategy (`authorStrategy`, `src/runtime/strategy-author.ts`) beats the incumbent on a frozen holdout under `promotionGate` (`src/runtime/promotion-gate.ts`); standing that runner up over those primitives is the open work.
 
 ## Phase 4 — Acquisition adapter (the research use case)
 
@@ -99,7 +94,7 @@ Runs in **parallel** to Phases 1–2 (bench-only, no kernel code). This is the k
 - **Persist via the existing `KnowledgeAdapter`** (`analyst-loop/types.ts:25-42`, `agent/knowledge-adapter.ts:61`) through `runAnalystLoop` — proposals → wiki writes go through the seam, **not** a side channel.
 - **The gap signal must be STRUCTURAL** — graph topology, citation/embedding density, redundancy-discounted coverage — **not an LLM vibe.** A miscalibrated acquisition function underperforms random sampling ([interpretations §3.2](./architecture-interpretations.md#32-active-learning--experimental-design)); the structural signal is what makes this active learning rather than coverage-greedy ingestion.
 - **No mocks** — real vault, real `bad` runs (repo doctrine).
-- Source-selection is authored as a `defineStrategy` program (`src/runtime/strategy.ts`) driven over the `Scope`/`Supervisor`, not a kernel-side planner move — the `TopologyPlanner`/`select`-enum path was deleted.
+- Source-selection is authored as a `defineStrategy` program (`src/runtime/strategy.ts`) driven over the `Scope`/`Supervisor`.
 
 **Exit gate:** active acquisition beats random acquisition on the deployable coverage-vs-budget curve (held-out, write-only downstream judge) under the structural gap signal.
 
@@ -112,7 +107,7 @@ Runs in **parallel** to Phases 1–2 (bench-only, no kernel code). This is the k
 | 1 | Hand-rolled pools | `bench/src/run-pool.ts` | **landed** — the batch runners route through `runPool` | low |
 | 2 | Decentralized directive | `worker-browser.ts:44` | Move `DEFAULT_MIND2WEB_DIRECTIVE` into `directives.ts` (the doctrine that file states) | low |
 | 3 | `RunRecord` name collision | `bench/src/corpus.ts:22,38` | Rename bench's `RunRecord`/`AttemptRecord` → `FlywheelRunRecord`/`-Attempt` (collides with substrate `RunRecord`) | low |
-| 4 | `createRefineDriver` redundancy | — | **resolved** — `createDriver` and the whole `create*Driver` factory zoo were deleted (`src/runtime/driver.ts` nuked); refine/fanout are personify combinators or `defineStrategy` programs | — |
+| 4 | Refine/fanout topology | — | **resolved** — refine/fanout are personify combinators or `defineStrategy` programs over the `Scope`/`Supervisor` | — |
 | 5 | `terminal-compare` forked refine loop | `terminal-compare.ts:418-457` | Optional: migrate onto `runRefineLoop` (keep tb-specific `captureRunRecord`) after #1 lands | med |
 
 No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
@@ -138,15 +133,15 @@ No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
 1. **Home of `architecture-interpretations.md`.** Here, or in `agent-eval` (the selector/judge substrate spans both packages)?
 
 *Resolved:* `agent-spine.md` / `ExecutionEnvironment` — **dropped**; the recursive-atom framing supersedes it and it is absent from `src/`.
-*Resolved:* **`analyses` source (Phase 2)** — the kernel-side `analyze`/`createDriver` wire was deleted; the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools` over the `Scope`/`Supervisor`), and `run-loop.ts` stays analyst-free.
+*Resolved:* **`analyses` source (Phase 2)** — the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools` over the `Scope`/`Supervisor`), and `run-loop.ts` stays analyst-free.
 *Resolved:* **first selector signal (Phase 1)** — verifier-grounded (a runnable checker); answer-agreement measured negative on both corpora.
 
 ## Evidence anchors
 
-- Agent-driver: `src/mcp/tools/coordination.ts` (`createCoordinationTools` — spawn · observe · steer · stop) over `src/runtime/supervise/` (`Scope`/`Supervisor`). This replaces the **deleted** `src/runtime/driver.ts` (`createDriver`/`TopologyPlanner`/`TopologyMove`/`PlannerContext`, nuked in commit `2101f2d`).
+- Agent-driver: `src/mcp/tools/coordination.ts` (`createCoordinationTools` — spawn · observe · steer · stop) over `src/runtime/supervise/` (`Scope`/`Supervisor`).
 - Strategy program space: `src/runtime/strategy.ts` (`defineStrategy`/`ShotPersona`), `src/runtime/strategy-author.ts` (`authorStrategy`), `src/runtime/run-benchmark.ts` (`runBenchmark`/`Environment`).
 - Selection: `src/runtime/run-loop.ts:983` (`defaultSelectWinner`), `:797` (`branchPoint`), `:104` (`selectWinner` inject); deployable selector = `bench/src/selector.ts` replayed via `corpus-replay.mts --selector`.
 - Analyst seam: `src/analyst-loop/types.ts` (`KnowledgeAdapter`); the trace observer feeding the canonical loop is `observe()` (`src/runtime/observe.ts`).
-- Shared loop: `bench/src/refine-loop.ts` (`RefineLoopSpec`). The one-experiment-flow file (`bench/src/experiment.ts`, `runExperiment`) was deleted in the nuke.
-- Gate harness: the runners that enforced the `random@k` control — `bench/src/steering-experiment.ts`, `bench/src/experiment.ts`, `bench/src/run.ts` — and the gen0 → `authorStrategy` → gen1 → holdout `flywheel-run.mts` were all deleted; `terminal-compare.ts` survives. The flywheel runner must be re-stood-up over `authorStrategy` (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` (`src/runtime/promotion-gate.ts`).
+- Shared loop: `bench/src/refine-loop.ts` (`RefineLoopSpec`).
+- Gate harness: the recursive diverse-vs-blind gate is `bench/src/gate.ts` (`runGate`) / `bench/src/gate-cli.mts`; `terminal-compare.ts` is a standalone compare runner. The flywheel runner (gen0 → `authorStrategy` → gen1 → holdout) is open work over `authorStrategy` (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` (`src/runtime/promotion-gate.ts`).
 - Measurement: `bench/src/corpus.ts` (RunRecord writer), `corpus-replay.mts` (offline selector replay), `corpus-report.mts` (`pairedLift` + BH-FDR); `@tangle-network/agent-eval` `statistics` (`requiredSampleSize`, `pairedMde`, `pairedBootstrap`, `benjaminiHochberg`, `cohensD`) and `/campaign` (`heldoutSignificance`, `pairHoldout`, `compareDrivers`); promotion = `src/runtime/promotion-gate.ts` (`promotionGate` — seeded paired bootstrap, evidence floor 6 paired tasks, CI lower bound must clear the threshold).

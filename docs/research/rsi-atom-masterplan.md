@@ -50,7 +50,7 @@ Bias (standing rule): **run what exists, delete the cruft slowing us + the agent
 
 | Track | Action | Status (workflow `wqwmzxpmv`, 6 agents) |
 |---|---|---|
-| **RUN commit0** | ran the EXISTING commit0 adapter + keystone-gate (Supervisor path), `COMMIT0_FIXTURES=1`, no creds, **no new code**. | ✅ **RAN** — fixtures smoke 5/5 pass; the existing harness runs end-to-end |
+| **RUN commit0** | ran the EXISTING commit0 adapter + gate (Supervisor path), `COMMIT0_FIXTURES=1`, no creds, **no new code**. | ✅ **RAN** — fixtures smoke 5/5 pass; the existing harness runs end-to-end |
 | **DELETE `createDriver`** | attempt to migrate 12 callers → delete. | ⛔ **BLOCKED (real, not caution): 13/15 callers can't migrate.** `createDriver` is a *different PARADIGM* — string-prompt→string-answer over a `SandboxClient`, judged by `adapter.judge` (round-synchronous `runLoop`). `defineStrategy`/`runAgentic` operate over an `AgenticSurface` (stateful tool-call env, `shot()`/`critique()`, passes/total). The **entire bench gate/experiment harness** (`experiment.ts` Arm=`TopologyPlanner`, equal-k control, RunRecord corpus, vacuity guard) sits on the createDriver paradigm. You can't delete a *line* — you'd delete/re-paradigm the whole old **measurement** harness. Executor correctly deleted NOTHING; gates green, zero breakage. |
 | **DEEP-CLEAN** | confirmed-dead bench scripts. | ✅ none new (already clean from `bdae618`) |
 | **DEDUP** | `runAgentic` ≡ `runPersonified`. | ⛔ not a clean delegation — different executors/domains/results |
@@ -58,7 +58,7 @@ Bias (standing rule): **run what exists, delete the cruft slowing us + the agent
 ### ✅ FULL NUKE DONE (`2101f2d`, net −3,492 LOC)
 Deleted `createDriver` + the entire old string-prompt/`experiment.ts` measurement + eval-gen apparatus (15 files). Survivors (`search-bench`/`cloud-loop`/`fleet`/`commit0-gate`) re-homed onto the new pure helper `bench/src/sandbox-run.ts`. **Kernel (`runLoop`) + `Scope`/`Supervisor` untouched.** Gates hand-verified: build 0, typecheck 0 (root+bench), lint 0, 905 tests pass; zero dangling code refs.
 - **Accepted casualties** (rebuild on the agent-driver/Supervisor path when wanted): `generate-eval` (eval data engine), `profile-coord` (AgentProfile-coordinate optimizer #293), `run.ts` non-experiment subcommands (preflight/verify-judge/solve-one/ui-review).
-- **Measurement rigor is NOT lost** — `pairedBootstrap`/`heldoutSignificance`/`promotionGate`/`runEvalCampaign`/`Scorecard` live in agent-eval; re-wire them to `keystone-gate` (the Supervisor path that already RUNS).
+- **Measurement rigor is NOT lost** — `pairedBootstrap`/`heldoutSignificance`/`promotionGate`/`runEvalCampaign`/`Scorecard` live in agent-eval; re-wire them to `gate` (the Supervisor path that already RUNS).
 
 ### 🔨 Follow-up — doc/skill rot (finishes the nuke)
 ~15 docs + 3 skills still describe deleted `createDriver`/`TopologyPlanner`/`runExperiment` as live API (CLAUDE.md code-map, docs/canonical-api, glossary, architecture*, roadmap-rsi, README, bench/HARNESS, skills/{agent-runtime-adoption,loop-writer,build-with-agent-runtime}). Update to the agent-driver/Supervisor reality before they mislead.

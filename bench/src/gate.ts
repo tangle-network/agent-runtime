@@ -1,10 +1,10 @@
 /**
- * The keystone gate — run the open binding question THROUGH the recursive runtime.
+ * The gate — run the open binding question THROUGH the recursive runtime.
  *
- * The bench unifier (`run-benchmarks.ts`) drives the old `runLoop`. This module drives the
- * KEYSTONE instead: a `Persona` + the generic `fanout` combinator over the budget-conserving
- * `Supervisor`, so the diverse-strategy-vs-blind gate is measured through the same recursive
- * atom every personified loop uses — not a bespoke experiment harness.
+ * The bench unifier (`run-benchmarks.ts`) drives `runLoop`. This module drives the recursive atom
+ * instead: a `Persona` + the generic `fanout` combinator over the budget-conserving `Supervisor`,
+ * so the diverse-strategy-vs-blind gate is measured through the same recursive atom every
+ * personified loop uses — not a bespoke harness.
  *
  * The one specificity is the developer's `AgentProfile` + the strategy list. Everything else is
  * free below it: orchestration, the conserved-budget equal-k guarantee, the trajectory ledger.
@@ -95,7 +95,7 @@ const fnv = (prefix: string, value: unknown): string => {
 }
 
 /** Extract the judged artifact from the model reply using the adapter's OWN deliverable parser
- *  (e.g. the last fenced ```json block for a transcript bench), so the keystone leaf honors
+ *  (e.g. the last fenced ```json block for a transcript bench), so the gate leaf honors
  *  `benchmark = adapter owns its deliverable`. Falls back to the trimmed reply when the adapter
  *  defines no output parser (the research/QA case). */
 function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
@@ -220,7 +220,7 @@ function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask): Co
   })
 }
 
-export interface RunKeystoneGateOptions {
+export interface RunGateOptions {
   readonly adapter: BenchmarkAdapter
   /** The ONE specificity: who the solver is (prompt / model / tools). */
   readonly profile: AgentProfile
@@ -252,7 +252,7 @@ export interface RunKeystoneGateOptions {
 /** One arm's aggregate over the n instances. `errored` = runs that ended `no-winner` for an
  *  infra reason (budget/abort) — excluded from the resolve denominator, like an infra-errored
  *  cell. A genuine all-children-down counts as not-resolved (a real failure, kept in n). */
-export interface KeystoneArmResult {
+export interface GateArmResult {
   readonly label: string
   readonly n: number
   readonly resolved: number
@@ -268,13 +268,13 @@ export interface KeystoneArmResult {
   readonly sampleBlocker?: string
 }
 
-export interface KeystoneGateReport {
+export interface GateReport {
   readonly benchmark: string
   readonly k: number
   readonly n: number
   /** Per-instance paired booleans — the input a paired-bootstrap / BH test consumes downstream. */
   readonly perTask: ReadonlyArray<{ readonly id: string; readonly blind: boolean; readonly diverse: boolean }>
-  readonly arms: ReadonlyArray<KeystoneArmResult>
+  readonly arms: ReadonlyArray<GateArmResult>
   /** diverse.resolveRate − blind.resolveRate, in percentage points (binary all-pass delta). */
   readonly deltaPp: number
   /** diverse.meanScore − blind.meanScore, in points (the graded middle-band delta — the more
@@ -317,14 +317,14 @@ function selectedOutcome(report: TrajectoryReport): { resolved: boolean; score: 
 }
 
 /**
- * Run the diverse-vs-blind gate through the keystone over the adapter's tasks. For each instance,
- * each arm runs a `fanout` of k children to a typed `SupervisedResult`; the winning child's
- * deployable verdict decides resolution, the conserved pool guarantees equal k, and the trajectory
- * ledger backs both the resolve metric and the cross-arm equal-k proof.
+ * Run the diverse-vs-blind gate through the recursive atom over the adapter's tasks. For each
+ * instance, each arm runs a `fanout` of k children to a typed `SupervisedResult`; the winning
+ * child's deployable verdict decides resolution, the conserved pool guarantees equal k, and the
+ * trajectory ledger backs both the resolve metric and the cross-arm equal-k proof.
  */
-export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<KeystoneGateReport> {
+export async function runGate(opts: RunGateOptions): Promise<GateReport> {
   if (opts.strategies.length < 2) {
-    throw new Error('runKeystoneGate: need >= 2 strategies (k = strategies.length fixes both arms’ child count)')
+    throw new Error('runGate: need >= 2 strategies (k = strategies.length fixes both arms’ child count)')
   }
   const k = opts.strategies.length
   await opts.adapter.preflight()
@@ -333,7 +333,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
     ...(opts.ids ? { ids: opts.ids } : {}),
     ...(opts.split ? { split: opts.split } : {}),
   })
-  if (tasks.length === 0) throw new Error('runKeystoneGate: adapter.loadTasks returned no tasks')
+  if (tasks.length === 0) throw new Error('runGate: adapter.loadTasks returned no tasks')
 
   const registry = opts.solverRegistry ?? benchSolverRegistry(opts)
   const perChildTokens = opts.perChildTokens ?? 60_000
@@ -405,7 +405,7 @@ export async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<Key
     perTask.push(row)
   }
 
-  const arms: KeystoneArmResult[] = armDefs.map((a) => {
+  const arms: GateArmResult[] = armDefs.map((a) => {
     const e = acc.get(a.label)!
     const denom = Math.max(1, tasks.length - e.errored)
     return {

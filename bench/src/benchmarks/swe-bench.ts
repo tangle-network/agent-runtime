@@ -28,7 +28,8 @@ import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './typ
  * The SWE deliverable, extracted from the agent's event STREAM (not the box FS).
  * `runLoop`'s `OutputAdapter` only sees events, so the agent prints its unified
  * diff in a fenced block and this pulls the last one out — the seam that lets the
- * SWE benchmark run through the one flow (`runExperiment`) like any other.
+ * SWE benchmark run through the gate runner (`runGate` / `runBenchmark`)
+ * like any other.
  */
 export const swePatchOutput: OutputAdapter<string> = {
   parse(events) {

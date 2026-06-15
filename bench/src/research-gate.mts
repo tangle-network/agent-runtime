@@ -8,13 +8,11 @@
  * (parametric control). Pure router HTTP (bearer `TANGLE_API_KEY`) — never touches the
  * sandbox, so it never contends with sandbox-bound gates.
  *
- * The retrieve→answer body is the shared `runResearchShot` (research-shot.ts) — the SAME
- * body the kernel-driven variant uses (research-loop.mts), so this flat best-of-k pool and
- * the real-kernel multi-round loop score identical shots. Reuses `runPool` (bounded
- * concurrency), `appendRunRecord` (the durable corpus), and the bench's own `adapter.judge`;
- * nothing is reinvented. The AGENTIC HARNESS regime (opencode/pi multi-turn in a box) runs
- * through `runExperiment` / `rsi.ts` with `sandboxAgentRun`; this file is the flat,
- * non-agentic search-RAG baseline.
+ * The retrieve→answer body is the shared `runResearchShot` (research-shot.ts). Reuses
+ * `runPool` (bounded concurrency), `appendRunRecord` (the durable corpus), and the bench's own
+ * `adapter.judge`; nothing is reinvented. The AGENTIC HARNESS regime (opencode/pi multi-turn in
+ * a box) runs through the gate (`runGate`) with a sandbox-backed executor; this
+ * file is the flat, non-agentic search-RAG baseline.
  *
  * Each shot's answer is graded by the bench judge; writes one corpus RunRecord/task
  * tagged `search:<provider>` + `model` so the leaderboard slices by arm. Fault-isolated

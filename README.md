@@ -219,8 +219,8 @@ first. The canonical path is the optimization suite (`runBenchmark`/`runStrategy
 domains: the EnterpriseOps gym, commit0, answer-shaped math). The live evidence ledger is
 `.evolve/current.json` — results never live in this README.
 
-The recursive diverse-vs-blind gate runs through the keystone: `keystone-gate-cli.mts` →
-`runKeystoneGate` composes a `Persona` + the generic `fanout` combinator over the budget-conserving
+The recursive diverse-vs-blind gate runs through the keystone: `gate-cli.mts` →
+`runGate` composes a `Persona` + the generic `fanout` combinator over the budget-conserving
 `Supervisor`, with each child solved via the router and graded by the benchmark's own deployable
 `adapter.judge` (selector ≠ oracle). Each rollout is written to a durable canonical corpus; the deep
 statistics (paired bootstrap with Benjamini-Hochberg correction, selector replay) come from

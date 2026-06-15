@@ -110,7 +110,7 @@ then `openSandboxRun(client, { agentRun: sandboxAgentRun({ profile }), ... },
 deliverable)` per task, A/B-ing a blind arm against an `llmAnalyst`-steered arm
 at equal compute (both helpers live in `bench/src/sandbox-run.ts`; the blind arm
 is the mandatory equal-compute control). See `bench/src/commit0-gate.mts` /
-`keystone-gate.ts` for the live shape.
+`gate.ts` for the live shape.
 
 ## Two substrates — pick one, don't invent a third
 

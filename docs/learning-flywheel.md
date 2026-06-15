@@ -181,8 +181,7 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
    reward modeling). *This is the bottleneck. Without it, nothing above is reachable —
    GEPA can search any space only if you can afford the metric evals.*
 2. **Controller-as-signature-program.** steer/topology/stop as jointly-optimizable
-   signatures; worker as opaque tool. The kernel-side `createDriver(planner)` form was
-   **deleted** (`src/runtime/driver.ts` nuked); the compiled-program controller now lives
+   signatures; worker as opaque tool. The compiled-program controller lives
    as a `defineStrategy`/`authorStrategy` program (`src/runtime/strategy.ts`) driven over
    the `Scope`/`Supervisor`.
 3. **Trace-aware, multi-objective optimizer.** GEPA/MIPRO reflecting on **traces** (not
@@ -303,7 +302,7 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
 ## Where the pieces live
 
 - Kernel + controller seam: `src/runtime/` — the `runLoop` kernel (`run-loop.ts`, one
-  leaf execution backend; `createDriver` was deleted) and the canonical agent-driver:
+  leaf execution backend) and the canonical agent-driver:
   `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
   substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.
 - **The published optimization suite**: `@tangle-network/agent-runtime/loops` (a build
@@ -316,8 +315,7 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   must clear the threshold).
 - Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`,
   `terminal-compare.ts`, `corpus-report.mts`). The gen0 → `authorStrategy` → gen1 →
-  rotating-disjoint-holdout runner (`flywheel-run.mts`, the minimal single-objective
-  Gate-B form) was deleted in the nuke; re-standing it up over `authorStrategy`
-  (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` is open work.
+  rotating-disjoint-holdout runner (the minimal single-objective Gate-B form) over
+  `authorStrategy` (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` is open work.
 - Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`selfImprove`,
   `runImprovementLoop`, `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).

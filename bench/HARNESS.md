@@ -6,7 +6,7 @@ with the code, the code wins — fix this page in the same turn (the anti-redisc
 Verified against source 2026-06-10 · agent-eval pinned `^0.83.0`. The CANONICAL surface is now
 the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
 `Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST. The recursive
-diverse-vs-blind gate runs through the keystone (`keystone-gate-cli.mts` → `runKeystoneGate`);
+diverse-vs-blind gate runs through the keystone (`gate-cli.mts` → `runGate`);
 the offline selector replay (`corpus-replay.mts` / `corpus-report.mts`) gates the legacy corpora.
 
 ## What this harness answers
@@ -123,12 +123,12 @@ is firewalled (trace-only), costs are real (router usage → `{usd, ms, tokens}`
 the gate + measurement tools:
   corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
   corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
-  keystone-gate-cli.mts  the recursive diverse-vs-blind gate through `runKeystoneGate` (Supervisor)
+  gate-cli.mts  the recursive diverse-vs-blind gate through `runGate` (Supervisor)
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
   terminal-compare.ts  Terminal-Bench compare (own main)
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
   node --test --import tsx src/{selector,refine-loop}.test.mts
-  tsx src/keystone-gate.test.mts   # offline plumbing test (no creds)
+  tsx src/gate.test.mts   # offline plumbing test (no creds)
 
 ## Run the GATE — today, zero creds (it already runs)
 ```
@@ -145,28 +145,28 @@ It needs WITHIN-TASK score spread to move — flat on aec (closed-form), live on
 The committed `corpus/finsearch.jsonl` (152 records: random@3 / refineHand@3 / refineGepa@3)
 makes the gate replayable with no rollouts. To gate the DIVERSE arm you generate a
 diverse-strategy corpus (k different `composeStrategies` prefixes per instance) by running
-`keystone-gate-cli.mts` with the distinct-directive arms — the blind (identical-children) arm is the
+`gate-cli.mts` with the distinct-directive arms — the blind (identical-children) arm is the
 control on the same run.
 
 ## Run the DIVERSE-vs-blind gate THROUGH the keystone (the recursive runtime, live)
 ```
 cd bench
 export TANGLE_API_KEY=…                                 # router + the deployable judge
-BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 pnpm keystone-gate
+BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 pnpm gate-cli
 ```
-`keystone-gate-cli.mts` → `runKeystoneGate` (`src/keystone-gate.ts`): a `Persona` + the generic
+`gate-cli.mts` → `runGate` (`src/gate.ts`): a `Persona` + the generic
 `fanout` combinator over the budget-conserving `Supervisor`. Blind = K identical children, diverse
 = K distinct strategy directives — equal-k by construction (conserved pool), proven by
 `equalKOnCost`. The DEPLOYABLE selector is the benchmark's OWN `adapter.judge` (each child solves
 via the router, is graded by the runnable checker, and that `BenchScore` is the child's verdict
 `defaultSelectWinner` ranks on — selector ≠ oracle/LLM-judge). Pick a deployable-checker bench
 (enterpriseops-gym / swe-bench / terminal-bench), NOT finsearchcomp (LLM-judge → not deployable).
-Offline plumbing test (no creds): `tsx src/keystone-gate.test.mts`. This is the two-runtime
-reconciliation — the gate now runs through the SAME recursive atom every personified loop uses.
+Offline plumbing test (no creds): `tsx src/gate.test.mts`. The gate runs through the SAME recursive
+atom every personified loop uses.
 
 ## Generate a fresh corpus + gate it
-The rollout generators now live with their domains: the recursive keystone gate
-(`keystone-gate-cli.mts`) and the optimization-suite env runs (`commit0-env-run.mts`,
+The rollout generators now live with their domains: the recursive gate
+(`gate-cli.mts`) and the optimization-suite env runs (`commit0-env-run.mts`,
 `research-gate.mts` for the off-sandbox RAG baseline) each append corpus `RunRecord`s. Gate any
 written corpus offline with the selector:
 ```
@@ -180,7 +180,7 @@ Strategy-space search is the package's `runStrategyEvolution` (the optimization 
 lenses (`directives.ts`) layer on top of the shared base directive consumed by the gate arms.
 
 ## Workers (the rollout substrate)
-The keystone gate solves each child via the router and grades it with the benchmark's own
+The gate solves each child via the router and grades it with the benchmark's own
 deployable `adapter.judge`; `research-gate.mts` is the off-sandbox retrieve→answer baseline
 (`SEARCH=<provider>` selects the web-search arm). The steer text lives in `directives.ts`, NOT in the
 worker (the worker is substrate). A strategy is a prompt PREFIX; the judge is unchanged.
@@ -199,7 +199,7 @@ Every unbuilt/scaffold adapter fails LOUD (throws with the integration step) rat
 ## Is it runnable RIGHT NOW? (verify the map, don't trust it blindly)
 ```
 ls src/*.mts src/*.ts          # the real tool list (each its own main — source of truth)
-tsx src/keystone-gate.test.mts # offline plumbing test (no creds)
+tsx src/gate.test.mts # offline plumbing test (no creds)
 ```
 Creds: the router/sandbox paths read `ROUTER_KEY`/`SANDBOX_KEY` (+ `ROUTER_BASE`/`SANDBOX_BASE_URL`)
 from the environment. Source them from the operator's private secret store (documented in the

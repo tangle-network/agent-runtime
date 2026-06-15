@@ -6,7 +6,7 @@
   "description": "Private experiment workspace for the agent-runtime optimization suite: Environment + Strategy/defineStrategy + runBenchmark over deterministic checks (EnterpriseOps-Gym, SWE-bench, answer-shaped domains). Map: bench/HARNESS.md.",
   "scripts": {
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
-    "keystone-gate": "tsx src/keystone-gate-cli.mts",
+    "gate-cli": "tsx src/gate-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "terminal-compare": "tsx src/terminal-compare.ts"
   },

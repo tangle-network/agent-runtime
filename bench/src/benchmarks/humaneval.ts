@@ -1,7 +1,7 @@
 /**
  * HumanEval adapter — the deployable-checker domain as a `BenchmarkAdapter`, so the
- * one flow (`runExperiment`) can A/B the STEERING regime on it: a real rollout
- * through `runLoop` (maxTurns>0) that self-corrects across rounds, vs blind
+ * gate runner (`runGate`) can A/B the STEERING regime on it: a real rollout
+ * through the `Supervisor` that self-corrects across rounds, vs blind
  * random@k. This is the experiment `humaneval-gate.mts` names as "the next one" —
  * the gate measures SELECTION over stateless single completions; this measures
  * whether observe→steer (self-correction) beats blind compute at equal k.

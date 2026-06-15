@@ -212,7 +212,7 @@ There were **three encodings of "pick the next move."** Two are now deleted — 
 |---|---|---|
 | `Agent.act(task, scope)` | `supervise/` | **the keystone atom** — the tree's move language |
 | `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | ~~`driver.ts`~~ | **DELETED** (`src/runtime/driver.ts` nuked, commit `2101f2d`) — the `runLoop` kernel (`run-loop.ts`) survives as a *leaf backend*; the analyst→steer wire moved onto the agent-driver (`createCoordinationTools` over the `Scope`/`Supervisor`) |
-| `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`keystone-gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
+| `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
 
 The op-set's *ideas* survive, mapped onto the atom: `fanout` = N × `scope.spawn`, `refine`/`steer` =
 `scope.send`, `parallel sub-loops` = spawn N driver-Agents, `select` = `defaultSelectWinner`, `stop` =
