@@ -279,6 +279,9 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
+// settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
+export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
 // The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
 // verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
 // coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
