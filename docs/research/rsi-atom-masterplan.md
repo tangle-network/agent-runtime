@@ -44,7 +44,16 @@ The driver must **never** send one-word/two-sentence steers. It writes amazing, 
 - **Correction banked:** the 2 "dead fences" are **load-bearing fail-loud guards**, NOT dead code — they are the recursion *cap*, replaced by #2 (not deleted blindly).
 - **"Old nonsense" is gated, not skipped:** `createDriver` / the fences / the dedup are load-bearing for the *current* (wrong) shape; they retire as #2/#5/#6 land — tracked above, not lost.
 
-## 6. The next action (always keep current)
+## 6. ACTIVE PUSH (this session) — RUN · DELETE · IMPROVE, minimize BUILD
 
-✅ #1 done (`buildWorkerDriverSystemPrompt`, agent-eval `ec8c991`).
-→ **#2: the recursive driver-executor in agent-runtime** — mount `createCoordinationTools` over a spawn's own scope, run the tool-loop driving the agent-eval worker-driver prompt, resolve a driver-profile to it recursively, replace the 2 fences with recursive spawn. Then #3 (completion-oracle), then prove on commit0 (#7). The deletions (#5/#6) come last, once the agent-driver path covers the cases.
+Bias (standing rule): **run what exists, delete the cruft slowing us + the agents down, improve the arch. Do NOT build new where a thing already exists.** Gates (build+test+lint) green after every step; nothing merged red; revert-on-red, never force.
+
+| Track | Action | Status |
+|---|---|---|
+| **DELETE `createDriver`** | migrate the 12 callers (loop-runner + bench experiment harness `experiment.ts`/`steering-experiment.ts`/`improve-prompt.ts`/`research-loop.mts`/`generate-eval` + 4 tests + the `index.ts` export) onto `defineStrategy`/`runAgentic` (the Supervisor path — EXISTS), then delete `driver.ts`'s `TopologyPlanner`/`createDriver`. Conservative: migrate what's clean, flag + leave any caller that can't move cleanly. | 🔨 |
+| **RUN commit0** | run the EXISTING commit0 adapter through the EXISTING Supervisor path (`keystone-gate`/`runAgentic`) — fixtures smoke (`COMMIT0_FIXTURES=1`, no creds) now; real run when a worker model is available. **Do NOT build a new harness.** | 🔨 |
+| **DEEP-CLEAN** | delete confirmed-dead bench one-off scripts + any code orphaned by the createDriver deletion. | 🔨 |
+| **DEDUP** | collapse `runAgentic` ≡ `runPersonified` only if a clean delegation exists (else flag). | 🔨 |
+| **IMPROVE — recursion (#2)** | the recursive driver-executor — AFTER the deck is cleared by the deletions above. | ⬜ |
+
+Then #2 (recursion) → #1 generator + cache → AgentProfile superset (#4) + fusion **last** (deferred until the loop is proven on a real commit0 run — anti-Foreman: one room before the cathedral).
