@@ -200,9 +200,16 @@ async function driveTask(
 // ── Blind arm: K independent workers, best-of-K by the checker (no orchestration) ─────────────
 async function blindTask(task: HumanEvalTask): Promise<boolean> {
   for (let i = 0; i < K; i += 1) {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: basePrompt(task) }], {
-      temperature: WORKER_TEMP,
-    })
+    // A transient router error is a FAILED attempt, not a crash — the driver arm already types
+    // an executor throw into a `down` settlement, so the blind arm must match (fair comparison).
+    let res: { content: string }
+    try {
+      res = await routerChatWithUsage(cfg, [{ role: 'user', content: basePrompt(task) }], {
+        temperature: WORKER_TEMP,
+      })
+    } catch {
+      continue
+    }
     if ((await runChecker(task, extractCode(res.content))).pass === 1) return true
   }
   return false
