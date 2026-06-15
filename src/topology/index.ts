@@ -6,6 +6,14 @@
  * `.render()` for the agent tree; or fold a journal replay with `renderTopologyTree`.
  */
 
+// The animated visual replay: fold the SAME hook stream into a timestamped timeline +
+// a self-contained, scrubbable HTML player (delivered/running/failed colored per node).
+export {
+  createReplayRecorder,
+  type ReplayEvent,
+  type ReplayTimeline,
+  renderReplayHtml,
+} from './replay'
 export type {
   RenderOptions,
   TopologyNode,
