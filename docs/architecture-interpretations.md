@@ -2,7 +2,7 @@
 
 Companion to [architecture.md](./architecture.md) (the spine) and [learning-flywheel.md](./learning-flywheel.md) (the moat thesis). Where `architecture.md` states *what the system is meant to be*, this doc stress-tests *whether it coheres* — by reading the same atom through five independent lenses, including an adversarial one, and recording where each framing holds and where it breaks. The five lenses converge on one diagnosis and one decision gate; that convergence is the point.
 
-`Status` (re-verified against `origin/main`, 2026-06-10): two of this doc's load-bearing claims have since been measured or built. (1) The `analyses` channel the diagnosis hinges on now **exists** — `PlannerContext.analyses` (`src/runtime/driver.ts:80`), populated by the `analyze` hook on `createDriver` — **wired but not yet fed live by any bench**. (2) **Gate A (§5) has been run and cleared**, on the `Scope`/`Supervisor` + `observe()` substrate (EOPS itsm: depth +16.4pp CI [+5.3, +29.8], n=16 — details in §5), domain-bounded. The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
+`Status` (re-verified against `origin/main`): two of this doc's load-bearing claims have since been resolved, and the substrate this doc instruments has been **deleted**. (1) The `createDriver`/`TopologyPlanner` string-prompt planner — and its `PlannerContext.analyses` channel — was **nuked** (`src/runtime/driver.ts` removed, commit `2101f2d`). The analyst→driver diagnosis the lenses hinge on now lives on the **agent-driver**: a parent `AgentProfile` reads `observe()` findings and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. (2) **Gate A (§5) has been run** on that `Scope`/`Supervisor` + `observe()` substrate — it cleared at n=16 (EOPS itsm: depth +16.4pp CI [+5.3, +29.8]) but **retracted to a TIE at power** (POWER-16, depth−breadth +4.7pp CI [−1.9, +11.4] at n=48; see §5). The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
 
 ---
 
@@ -14,10 +14,11 @@ Strip the vocabulary and the built system is **best-of-N sampling + a selector +
 
 Everything below is an elaboration of that sentence from a different angle.
 
-*(Status: the edge now exists — `PlannerContext.analyses` + the `analyze` hook,
-`src/runtime/driver.ts:80` — built and tested, not yet fed live by any bench. The
-within-run question the gate poses has since been answered positively on the
-`Scope`/`Supervisor` substrate — §5.)*
+*(Status: the kernel-side `createDriver`/`PlannerContext.analyses` edge was **deleted**.
+The diagnosis→steer edge now lives on the agent-driver — a parent `AgentProfile` reads
+`observe()` findings and steers its child via `createCoordinationTools` over the
+`Scope`/`Supervisor`. The within-run question the gate poses has been answered there,
+positively at small n then retracted to a TIE at power — §5.)*
 
 ---
 
@@ -45,19 +46,23 @@ within-run question the gate poses has since been answered positively on the
   │  plan() ─▶ {refine | fanout | stop} ─▶ workers ─▶ selector     │
   │    ▲ reads history verdict.score ✓          │                 │
   │    │                                         └▶ TODAY = JUDGE  │
-  │    ╳  analyses[] → plan(): WIRED (driver.ts:80), not fed live  │
+  │    ╳  analyses[] → plan(): the kernel-side wire was DELETED;    │
+  │       the edge now lives on the agent-driver (observe()→steer)  │
   └───────────────────────────────────────────────────────────────┘
    The ╳ was the gap when the lenses ran: the driver decided from a
-   return code. The channel now exists; no bench feeds it live yet.
+   return code. The string-prompt planner that carried it is gone; the
+   diagnosis→steer edge now lives on the Scope/Supervisor agent-driver.
 ```
 
 Two structural facts as of the original audit, with their current status:
 
-1. `PlannerContext` had no `analyses` channel. **Now it does** — `analyses?:
-   ReadonlyArray<AnalystFinding>` (`src/runtime/driver.ts:80`), populated by the optional
-   `analyze` hook on `createDriver`, so the planner can decide from the diagnosis, not the
-   verdict score alone. Honest status: **wired but not yet fed live by any bench** — the
-   diagram's ╳ marks the edge as built-not-exercised, no longer as missing.
+1. `PlannerContext` had no `analyses` channel — and `PlannerContext`/`createDriver`
+   itself has since been **deleted** (`src/runtime/driver.ts` nuked, commit `2101f2d`).
+   The diagnosis→decision edge moved off the kernel-side planner onto the **agent-driver**:
+   a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate
+   type) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`)
+   over the `Scope`/`Supervisor` — so an agent decides from the diagnosis, not the verdict
+   score alone. Honest status: the steer path is live on the Supervisor substrate (§5).
 2. The selector ranked with the **judge's score** — an oracle. The deployable, no-oracle
    selector has since been **built and measured**: a **verifier-grounded** selector is
    positive on a deployable-checker domain (HumanEval, n=50, k=4: verifier-pick captures
@@ -138,7 +143,7 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.3 Program synthesis / interpreter
 
-`runLoop` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: `select` is now emittable — `TopologyMove`, `src/runtime/driver.ts:52` — and the richer program space this lens asks for exists as `defineStrategy` (`src/runtime/strategy.ts`): a strategy is ordinary code, which supersedes growing the move enum.)*
+`runLoop` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: the move-enum planner — `TopologyMove`/`createDriver` — was **deleted** entirely. The richer program space this lens asks for is the canonical path now: `defineStrategy` (`src/runtime/strategy.ts`), where a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing and branching, authored by `authorStrategy` (`src/runtime/strategy-author.ts`) — it supersedes the move enum rather than growing it.)*
 
 ### 3.4 Two-timescale / recursive self-improvement
 
@@ -183,13 +188,15 @@ Build the adaptive driver **only if** this comes back positive:
 
 Until `refine@k-with-findings > random@k at equal compute under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
 
-**Measured (2026-06-09): POSITIVE, domain-bounded.** On EnterpriseOps-Gym itsm,
-depth-steered continuation (analyst-fed, `observe()`) beats blind breadth at equal
-compute under keep-best checkpoint scoring: **+16.4pp CI [+5.3, +29.8], 6 wins / 0
-losses, n=16**, deepseek-v4-pro; replicated **+8.3pp** on a disjoint task slice. The
-gate cleared on the `Scope`/`Supervisor` + `defineStrategy` substrate
-(`src/runtime/strategy.ts`), **not** on the `runLoop`/`PlannerContext` path this doc
-instruments. The boundary: **negative on stateless retrieval** (FinSearchComp),
+**Measured: cleared at n=16, then RETRACTED to a TIE at power (POWER-16).** On
+EnterpriseOps-Gym itsm, depth-steered continuation (analyst-fed, `observe()`) beat blind
+breadth at equal compute under keep-best checkpoint scoring at **+16.4pp CI [+5.3, +29.8],
+6 wins / 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice) — but
+at n=48 this collapsed to depth−breadth **+4.7pp CI [−1.9, +11.4], a tie**, so the program
+pivoted off this anchor (architecture.md §11). The gate ran on the `Scope`/`Supervisor` +
+`defineStrategy` substrate (`src/runtime/strategy.ts`); the string-prompt planner path this
+doc originally instrumented has since been **deleted** outright. The boundary still holds:
+**negative on stateless retrieval** (FinSearchComp),
 **null-to-negative on stateless codegen** (HumanEval steer null at equal k;
 exec-grounded repair −17.1pp), **positive on stateful agentic domains** with a
 correctable middle band scored keep-best (EOPS).
@@ -212,20 +219,23 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
 
 ## 7. Evidence anchors
 
-- `src/runtime/driver.ts` — `PlannerContext` (`:64`) with the `analyses` channel (`:80`)
-  and the `analyze` hook on `createDriver`; `TopologyMove` (`:52`) — refine/fanout/stop
-  plus an emittable `select`.
-- `src/runtime/run-loop.ts` — `defaultSelectWinner` (`:983`) / `branchPoint` (`:797`);
-  `RunLoopOptions.selectWinner` (`:104`) is the selector-injection seam.
+- `src/mcp/tools/coordination.ts` — `createCoordinationTools`: the agent-driver's MCP
+  (spawn · observe · steer · stop). This replaces the deleted `src/runtime/driver.ts`
+  (`createDriver`/`PlannerContext`/`TopologyMove`, nuked in commit `2101f2d`) — the
+  diagnosis→decision edge now runs over the `Scope`/`Supervisor` (`src/runtime/supervise/`).
+- `src/runtime/run-loop.ts` — the surviving leaf kernel; `defaultSelectWinner` (`:983`) /
+  `branchPoint` (`:797`); `RunLoopOptions.selectWinner` (`:104`) is the selector-injection seam.
 - `src/runtime/strategy.ts` / `src/runtime/strategy-author.ts` — `defineStrategy` /
-  `authorStrategy`: the program space where the Gate-A-positive strategies run.
-- `src/analyst-loop/` — `runAnalystLoop`; the driver-side seam is the `analyze` hook.
+  `authorStrategy`: the program space where the Gate-A strategies run.
+- `src/analyst-loop/` — `runAnalystLoop`; the trace observer feeding the canonical loop
+  is `observe()` (`src/runtime/observe.ts`), consumed by the agent-driver.
 - Prompt-space optimization lives in agent-eval (`selfImprove`); the analyst-prompt
   coordinate is measured flat (frozen-holdout tie, 2026-06-09).
 - `bench/src/selector.ts` + `bench/src/corpus-replay.mts --selector` — the deployable
   selector and its offline replay harness.
 - `bench/src/refine-loop.ts` — shared k-shot loop.
-- `bench/src/finsearch-loop.ts` / `bench/src/run.ts` — where random@k / pass@k is
-  computed; the original headline `random@3` was judge-selected (oracle upper bound).
+- random@k / pass@k computation (the original headline `random@3` was judge-selected, an
+  oracle upper bound) lived in the now-deleted `finsearch-loop.ts`/`run.ts`; the surviving
+  measurement path is `bench/src/corpus-replay.mts` + `corpus-report.mts` over the corpus.
 
 **Literature.** Parallel sampling + sound selector wins: Brown 2024 (repeated sampling), Wang 2022 (self-consistency), Lightman 2023 (process reward). Intrinsic self-refine degrades on hard tasks: Huang 2023, Kamoi 2024, Stechly 2024. The loop is not a new method class — it is a known combination whose winning half is not yet honestly built.

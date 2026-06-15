@@ -60,7 +60,7 @@ signature + the exact "do NOT build".
 | **Author a new topology/strategy compactly** | `defineStrategy(name, body)` w/ `ctx.shot()`+`ctx.critique()` — `/loops` | canonical-api §3.3 |
 | **Add a stateful tool-using domain** | implement `AgenticSurface` (5 hooks) — `/loops` | canonical-api §3.3 |
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
-| **Benchmark: add/run an external benchmark from the harness** | `ADAPTERS`/`resolveAdapter(key)` + `runExperiment` — `bench` | canonical-api §3.3 |
+| **Benchmark: add/run an external benchmark from the harness** | `ADAPTERS`/`resolveAdapter(key)` + a bench gate (`*-gate.mts`) over `openSandboxRun` + `sandboxAgentRun` (`bench/src/sandbox-run.ts`) | canonical-api §3.3 |
 | **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/runtime` | canonical-api §3.1 |
 | **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — `/improvement` | canonical-api §3.4 |
 | **Optimize a PROMPT/config surface** (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | canonical-api §3.4 |
@@ -105,18 +105,22 @@ surface with `selfImprove` → certify on a frozen holdout with the gate.** For 
 multi-generation flywheel, replace the measure/certify steps with one
 `runStrategyEvolution(...)` and read `report.verdict` (NOT `report.trajectory`)
 as the evidence. For a sandbox coding rollout judged by an external deterministic
-checker, use the bench path: `runExperiment({ adapter: resolveAdapter(...),
-sandboxClient, agentRun: sandboxAgentRun({ profile }), arms: [randomArm(...),
-analystArm(...)] })` — `arms[0]` is the mandatory equal-compute control.
+checker, use the bench-gate path: `resolveAdapter(...)` to pick the benchmark,
+then `openSandboxRun(client, { agentRun: sandboxAgentRun({ profile }), ... },
+deliverable)` per task, A/B-ing a blind arm against an `llmAnalyst`-steered arm
+at equal compute (both helpers live in `bench/src/sandbox-run.ts`; the blind arm
+is the mandatory equal-compute control). See `bench/src/commit0-gate.mts` /
+`keystone-gate.ts` for the live shape.
 
 ## Two substrates — pick one, don't invent a third
 
 Both implement the same recursive-decision atom over the one `Executor` port and
 share `defaultSelectWinner`. **Reactive** (`Supervisor`/`Scope` + personify
 combinators: `runPersonified`/`runAgentic`/`runBenchmark`) — prefer for NEW
-recursive work; equal-k by construction. **Round-synchronous** (`runLoop` +
-`createDriver`, `runExperiment`) — sandbox coding rollouts against external
-benchmarks. The full when-which map is `docs/canonical-api.md` §6.
+recursive work; equal-k by construction. **Round-synchronous** (`runLoop` driven
+by a caller-supplied `Driver`, plus the bench gates over `openSandboxRun`) —
+sandbox coding rollouts against external benchmarks. The full when-which map is
+`docs/canonical-api.md` §6.
 
 ## Observe / ship with the Intelligence SDK
 

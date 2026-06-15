@@ -35,58 +35,66 @@ A `Driver<Task, Output, Decision>` is just `plan(task, history) → Task[]`
 (`[task]`→refine, N copies→fanout, `[]`→stop) + `decide(history) → Decision`.
 Topology is data; the kernel is topology-agnostic.
 
-### Topology drivers — `@tangle-network/agent-runtime/loops`
+### Topology — `@tangle-network/agent-runtime/loops`
 
-> **Stale-name correction (gen-6 consolidation, #165):** the standalone
-> `createRefineDriver` / `createFanoutVoteDriver` factories were **removed** —
-> refine/fanout collapsed into the one recursive agent tree. Canonical today:
-> the personify combinators `loopUntil`(depth/refine) / `fanout`(breadth/vote)
-> and the `Strategy` values `refine` / `sample`, plus `createDriver` for an
-> agent-authored topology. Verify names in `src/runtime/index.ts`; see
-> `build-with-agent-runtime` + `docs/canonical-api.md` §3.1/§3.3 for the live
-> signatures. Likewise `createSandboxPlanner` is gone — pass a `TopologyPlanner`
-> to `createDriver({ planner })` directly.
+Topology is the **one recursive agent tree**: each round an agent decides to refine, fan out, spawn a sub-agent, or stop — and a spawned child can itself be a driver. The surfaces:
 
 - **`refine` / `loopUntil`** — one attempt/round, validator-gated; iterate over
   one evolving artifact until valid or budget-capped. Use for incremental
-  patches, document revision, anything monotonic. (Replaces `createRefineDriver`.)
+  patches, document revision, anything monotonic.
 - **`sample` / `fanout`** — N attempts at equal budget, score once, pick the
   winner via the single-sourced selector. Use for multi-harness coder fanout,
-  redundant research with disagreement detection. (Replaces `createFanoutVoteDriver`.)
-- **`createDriver({ planner, maxIterations?, maxFanout? })`** — **the
-  agent authors the topology.** `plan`/`decide` are backed by an injected
-  `TopologyPlanner` that emits one `TopologyMove` per round
-  (`{kind:'refine',task}` | `{kind:'fanout',tasks}` | `{kind:'stop'}`). The
-  planner is invoked once per round in `plan()`; `decide()` reads the cached move
-  so an LLM planner is never double-called. Use when the right shape is
-  task-dependent (scout-then-fanout, refine-then-branch, decompose).
+  redundant research with disagreement detection.
+- **`runAgentic({ surface, task, mode|strategy, budget })`** /
+  **`defineStrategy(name, body)`** — author the topology as a `Strategy` on the
+  keystone `Supervisor`. `runAgentic` runs a built-in `mode` (`'depth'`→refine,
+  `'breadth'`→sample) or a custom `strategy`; `defineStrategy` composes
+  `ctx.shot()` (one harness-scored attempt) + `ctx.critique()` (the firewalled
+  analyst — trajectory in, never scores) in ~15 lines. Equal-k holds by
+  construction; the body is harness-re-verified, so an authored strategy can't
+  fabricate a win. Use when the right shape is task-dependent (scout-then-fanout,
+  refine-then-branch, decompose).
+- **`createCoordinationTools`** — the agent-driving-agent loop: a driver agent
+  spawns / steers / awaits child agents (and sub-drivers) through MCP verbs over a
+  live `Scope`, recursively. Use when a driver should reason about and orchestrate
+  its workers in natural language.
 
-Topology is **orthogonal to harness**: a driver returns `Task[]`; the kernel
-round-robins `agentRuns[]` to decide which harness (claude-code / codex /
-opencode / pi) runs each branch. One driver spans all backends, including
-fanning a single round across several.
+Topology is **orthogonal to harness** — a strategy decides the shape; the executor
+decides which harness (claude-code / codex / opencode / pi / router) runs each
+node. One driver spans all backends.
 
-### Wiring an LLM planner — inject a `TopologyPlanner`
+### Authoring an agent-chosen topology — `runAgentic` / `defineStrategy`
 
-`createDriver({ planner })` takes an injected `TopologyPlanner` (the standalone
-`createSandboxPlanner` factory was removed in the gen-6 consolidation — verify
-the live shape in `src/runtime/driver.ts` / `src/runtime/index.ts`). The planner
-is the brain (it may call any harness/LLM to author the move); the driver maps
-each `TopologyMove` onto kernel structure.
+The agent authors its own topology by composing two firewalled steps inside a
+`Strategy` on the keystone `Supervisor` — `ctx.shot()` (one harness-scored worker
+attempt over an artifact) and `ctx.critique()` (the analyst — trajectory in,
+never scores). `runAgentic` runs it over one `AgenticSurface` on a conserved
+budget pool, so equal-k holds by construction.
 
 ```ts
-import { createDriver, runLoop, type TopologyPlanner } from '@tangle-network/agent-runtime/loops'
+import { runAgentic, defineStrategy } from '@tangle-network/agent-runtime/loops'
 
-const planner: TopologyPlanner<Task, Out> = {/* plan() → one {kind:'refine'|'fanout'|'stop',…} per round */}
-const result = await runLoop({
-  driver: createDriver({ planner, maxIterations: 8 }),
-  agentRuns: workerSpecs, output, validator, task, ctx: { sandboxClient: client },
+const sampleThenRefine = defineStrategy('sampleThenRefine', async (ctx) => {
+  const h = await ctx.surface.open(ctx.task)
+  let best = await ctx.shot({ handle: h })                 // one breadth attempt
+  for (let i = 1; i < ctx.budget && best && best.score < 1; i++) {
+    const steer = await ctx.critique(best.messages)        // analyst — trajectory only
+    if (!steer) break
+    best = await ctx.shot({ handle: h, messages: best.messages, steer })
+  }
+  await ctx.surface.close(h)
+  return { score: best?.score ?? 0, resolved: (best?.score ?? 0) >= 1, completions: 0, progression: [], shots: 0 }
 })
+
+const result = await runAgentic({ surface, task, strategy: sampleThenRefine, budget: 4 })
 ```
 
-The planner emits a JSON envelope (`{ kind, tasks?, n?, rationale }`); a missing,
-unparseable, or unknown-kind envelope throws `PlannerError` — the loop never runs
-a topology nobody chose.
+The deliverable score is **harness-verified** — computed from the shots the
+harness actually brokered and scored via `surface.score()`, never the value the
+(possibly authored) body returns; an authored strategy can only report what its
+real shots achieved. For an LLM driving *another* agent through MCP verbs (the
+agent-driving-agent loop), expose `createCoordinationTools` over a live `Scope`
+(see the recursive-driver section below) instead of authoring a fixed strategy.
 
 ### Driver gotchas
 
@@ -173,10 +181,10 @@ Mount it on a production `AgentProfile.mcp`; do not re-implement delegation.
 
 ## Acceptance checklist
 
-- [ ] Topology is a `Driver`/combinator, not hard-coded control flow. Reuse
-      `refine`/`loopUntil`, `sample`/`fanout`, or the agent-authored `createDriver`;
-      build a custom `Driver` against `loops/types.ts:Driver` only when none fit —
-      never fork the kernel.
+- [ ] Topology is a combinator/`Strategy`, not hard-coded control flow. Reuse
+      `refine`/`loopUntil`, `sample`/`fanout`, or author one with
+      `runAgentic`/`defineStrategy` (or `createCoordinationTools` for an
+      agent-driving-agent loop) — never fork the kernel.
 - [ ] `runLoop` is bridged to campaigns via `loopDispatch` (usage + trace
       auto-forwarded), not a hand-rolled ExecCtx.
 - [ ] Every optimizable prompt is registered through `selfImprove` (or the

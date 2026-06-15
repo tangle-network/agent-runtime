@@ -10,7 +10,7 @@
 
 ## 1. Mental model — the spine
 
-A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface, not separate knobs) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled, resumable artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry, driven by `runExperiment`/`rsi.ts` on the round-synchronous substrate, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic` on the reactive substrate), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `improvementDriver`/`gepaDriver` + `reflectiveGenerator`/`agenticGenerator`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite. The selector is never the judge; observation attaches to the *loop* via `RuntimeHooks`, never to the portable genome.
+A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface, not separate knobs) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled, resumable artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry, driven by `runKeystoneGate`/`keystone-gate-cli.mts` over the keystone Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic` on the reactive substrate), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `improvementDriver`/`gepaDriver` + `reflectiveGenerator`/`agenticGenerator`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite. The selector is never the judge; observation attaches to the *loop* via `RuntimeHooks`, never to the portable genome.
 
 ## 2. Decision table — "I want to ___ → use ___ → NOT ___"
 
@@ -42,9 +42,9 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate` — `agent-eval/contract` | a raw `h1>h0` point comparison on the training set (certifies false champions near coin-flip) |
 | Decide ship/hold from a **`BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/runtime` | comparing two strategies' mean scores directly; re-deriving the bootstrap |
 | Run the full multi-generation strategy flywheel + certify | `runStrategyEvolution(config)` — `/runtime` | a bespoke gen0→author→gen1→holdout loop with hand-rolled champion selection + overfit check |
-| Add or run a benchmark from the CLI/harness | `ADAPTERS` / `resolveAdapter(key)`, run via `bench/src/rsi.ts` | a per-script `switch(bench)` or a local benchmark-factory map |
-| Wire a new benchmark | implement `BenchmarkAdapter` (5 methods) + feed to `runExperiment` — `bench` | a bespoke per-benchmark run script with its own (self-authored) scoring |
-| Measure a topology on a benchmark at equal compute | `runExperiment(cfg)` with `arms[0]` = a `randomArm` control — `bench` | a batch-blind/batch-oracle/compare zoo, your own usage capture, or equal-k bookkeeping |
+| Add or run a benchmark from the CLI/harness | `ADAPTERS` / `resolveAdapter(key)`, run via `bench/src/keystone-gate-cli.mts` | a per-script `switch(bench)` or a local benchmark-factory map |
+| Wire a new benchmark | implement `BenchmarkAdapter` (5 methods) + feed to `runKeystoneGate` — `bench` | a bespoke per-benchmark run script with its own (self-authored) scoring |
+| Measure a topology on a benchmark at equal compute | `runKeystoneGate(cfg)` (or `runAgentic`/`runBenchmark`) — equal-k holds by construction via the conserved budget pool — `bench`/`/runtime` | a batch-blind/batch-oracle/compare zoo, your own usage capture, or equal-k bookkeeping |
 | Observe a run's full cost/time | `createWaterfallCollector()` → `anytimeReport()` — `/runtime` | a per-step cost/token tally by inspecting events yourself (drifts from billed totals) |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)` — root export | a second event-bus or callback-prop zoo (there is ONE stream) |
 | See the live recursive agent tree | `createTopologyView()` / `renderTopologyTree()` — `/topology` | a parent-id `Map` you track yourself or a manual `SpawnJournal` walk |
@@ -58,7 +58,7 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 
 ### 3.1 The Execution Spine — the driver⟷worker run
 
-Two substrates coexist for the same "recursive agent decision" atom (see §5): the reactive **`Supervisor`/`Scope` + personify combinators** (canonical core — prefer for new recursive work) and the round-synchronous **`runLoop` + `createDriver`** kernel (what most sandbox benches drive today). Both run over the one open `Executor` port and share one selector (`defaultSelectWinner`).
+Two substrates coexist for the same "recursive agent decision" atom (see §5): the reactive **`Supervisor`/`Scope` + personify combinators** (canonical core — the agent-driver path; prefer for new recursive work) and the round-synchronous **`runLoop`** kernel (the leaf, what most sandbox benches drive today). Both run over the one open `Executor` port and share one selector (`defaultSelectWinner`). The "drive an agent" topology is authored either by an `AgentProfile` calling the coordination toolbox (`createCoordinationTools`, `/mcp`) over a live `Scope`, or by the packaged `runAgentic`/`defineStrategy` depth/breadth shapes.
 
 ---
 
@@ -440,7 +440,7 @@ const result = await runAgentic({ surface, task, routerBaseUrl, routerKey, model
   analystInstruction: tunedSteererPrompt /* the GEPA knob — the analyst IS the steerer */,
   mode: 'depth', budget: 4 })
 ```
-**Do NOT** hand-roll a `Supervisor.run()` with a journal/blob-store/registry, or a depth/breadth loop. Prefer this over `runLoop`+`createDriver` for new recursive work.
+**Do NOT** hand-roll a `Supervisor.run()` with a journal/blob-store/registry, or a depth/breadth loop. Prefer this over the round-synchronous `runLoop` kernel for new recursive work.
 `src/runtime/strategy.ts:985` (`AgenticRunResult` type `:509`, `RunAgenticOptions` `:969`; `depthDriver:531`/`breadthDriver` reference impls; barrel `src/runtime/index.ts:249`)
 
 ---
@@ -497,7 +497,7 @@ console.log(report.refineVsSample, report.pareto)
 ---
 
 **`ADAPTERS` + `resolveAdapter`** · `bench/src/adapters.ts` (harness-local, not a package export)
-The single source of truth mapping a benchmark key to its `BenchmarkAdapter` factory. Wired keys: `swe-bench, terminal-bench, aec-bench, commit0, programbench, appworld, appworld-react, enterpriseops-gym, cad-design, cadbench, cadgenbench, frames, finsearchcomp, simpleqa, hotpotqa, humaneval, mind2web, trata-hedge`. Adding one is ONE import + one registry line; `rsi.ts`, `run.ts`, `run-benchmarks.ts`, and `corpus-replay.mts` all read it. `resolveAdapter` fails loud with the known keys.
+The single source of truth mapping a benchmark key to its `BenchmarkAdapter` factory. Wired keys: `swe-bench, terminal-bench, aec-bench, commit0, programbench, appworld, appworld-react, enterpriseops-gym, cad-design, cadbench, cadgenbench, frames, finsearchcomp, simpleqa, hotpotqa, humaneval, mind2web, trata-hedge`. Adding one is ONE import + one registry line; `keystone-gate-cli.mts`, `aec-gate.mts`, `corpus-replay.mts`, `research-gate.mts`, and `trata-gate.mts` all read it. `resolveAdapter` fails loud with the known keys.
 
 ```ts
 export const ADAPTERS: Record<string, () => BenchmarkAdapter>
@@ -527,80 +527,60 @@ interface BenchmarkAdapter {
 
 ---
 
-**`runExperiment` (the ONE flow)** · `bench/src/experiment.ts`
-Runs one experiment — N benchmark instances × a set of `Arm`s, each arm a topology driven through the REAL `runLoop` kernel, judged by the adapter, every full `RunRecord` written to the flywheel corpus. Returns per-arm resolved counts + Δ-vs-control. Owns the **equal-compute invariant** (`arms[0]` is the required `random@k` control, enforced at the type level so no delta is reported without its control), the vacuity guard (aborts if a treatment's steer never fires), infra-error exclusion (an errored iteration with no verdict is excluded + counted, never a 0), and corpus persistence.
+**`runKeystoneGate` (the diverse-vs-blind gate)** · `bench/src/keystone-gate.ts`
+Runs one gate — N benchmark instances × two arms (each arm a `fanout` of `k = strategies.length` children through the keystone `Supervisor`), judged by the adapter, the trajectory ledger backing both the resolve metric and the cross-arm equal-k proof. The conserved budget pool makes the **equal-compute invariant** hold by construction (both arms spawn the same k children); the winning child's deployable verdict (`defaultSelectWinner`, replayed off the journal) decides resolution. Fails loud (`< 2 strategies` throws). This is the canonical replacement for the deleted `bench/src/experiment.ts` flow.
 
 ```ts
-async function runExperiment(cfg: ExperimentConfig): Promise<ExperimentResult>
-// cfg = { adapter: BenchmarkAdapter; sandboxClient: SandboxClient; agentRun: AgentRunSpec<string>;
-//   arms: [Arm, ...Arm[]]; model: string; rounds?; n?; ids?; concurrency?; output?: OutputAdapter<string>;
-//   corpusPath?; infraRetries?; now? }
-// → { benchmark; n; errored; blind; arms: ArmAggregate[] }
+async function runKeystoneGate(opts: RunKeystoneGateOptions): Promise<KeystoneGateReport>
+// opts = { adapter: BenchmarkAdapter; strategies: string[] /* k = strategies.length */;
+//   n?; ids?; split?; concurrency?; …worker seam }
 ```
 ```ts
-const r = await runExperiment({
-  adapter, sandboxClient: client, agentRun: sandboxAgentRun({ model, routerBaseUrl }),
-  arms: [randomArm('random'), analystArm('refineAudit', llmAnalyst(router))],
-  model, rounds: 3, n: 20, concurrency: 3,
-  ...(adapter.output ? { output: adapter.output } : {}),
-  corpusPath: `corpus/rsi-${adapter.name}.jsonl` })
+const report = await runKeystoneGate({
+  adapter: resolveAdapter('enterpriseops-gym'),
+  strategies: ['solve directly and concisely', 'check state first, then act', …],
+  n: 20, concurrency: 3 })
 ```
-**Do NOT** write a batch-blind/batch-oracle/compare loop, your own usage capture, or your own equal-k bookkeeping — the compute-matched control is mandatory by construction.
-`bench/src/experiment.ts:302` (`ExperimentConfig:244`)
+**Do NOT** write a batch-blind/batch-oracle/compare loop, your own usage capture, or your own equal-k bookkeeping — the conserved pool gives compute-matched arms by construction.
+`bench/src/keystone-gate.ts:325` (`RunKeystoneGateOptions`)
 
 ---
 
-**`Arm` + steer-policy combinators (`arm`/`randomArm`/`refineArm`/`diverseArm`/`analystArm`)** · `bench/src/experiment.ts`
-An `Arm` is a labelled topology = a steer `f(rootPrompt, history, round)` wrapped in the shared stop/topology shell (stop on valid-or-budget, width 1, sequential). The combinators are points in steer-space: `randomArm` (ignore history — the compute control), `refineArm` (carry prior answer + directive), `diverseArm` (rotate strategy lenses), `analystArm` (prepend a trace-derived correction). The only thing that varies between arms is the steer `f`; stop+topology live once in `arm`, so an arm cannot accidentally change compute. `analystArm` observes BEHAVIOR (output, trace, judge failure-detail in `notes`) and never the scalar verdict — the selector≠judge firewall.
+**`runAgentic` / `defineStrategy` (author a topology) + `llmAnalyst` (the firewalled steer)**
+A single arm's topology is a `Strategy` value, not an `Arm` object. Use `runAgentic({ mode: 'depth'|'breadth', … })` for the packaged depth (one persistent artifact carried across analyst-steered shots) / breadth (K independent rollouts, verifier picks best) shapes, or `defineStrategy(name, body)` to author a custom one in ~15 lines (`ctx.shot` + `ctx.critique`) — see §3.2. The steer the analyst returns is HARNESS-VERIFIED by construction (trajectory in, never the score), and `llmAnalyst` (one router call over the last attempt's output + trace tail + judge failure-detail) is the off-the-shelf `AnalystFn` a strategy reads via `ctx.critique`.
 
 ```ts
-const arm = (label: string, steer: Steer): Arm   // Steer = (rootPrompt, history: SteerHistory, round) => string | Promise<string>
-const randomArm = (label='random'): Arm
-const refineArm = (label, directive): Arm
-const diverseArm = (label, lenses: string[]): Arm
-const analystArm = (label, analyze: AnalystFn): Arm
+const llmAnalyst = (cfg: { routerBaseUrl; routerKey; model }): AnalystFn  // AnalystFn = (history, task?) => Promise<string>
 ```
-**Do NOT** write a per-arm loop with its own stop/width, or let a steer read the judge's score (only its `notes` failure-detail).
-`bench/src/experiment.ts:87` (`randomArm:98`, `refineArm:101`, `diverseArm:109`, `analystArm:128`)
+**Do NOT** write a fresh "read the trace and suggest a fix" prompt or reach for `routerChatWithUsage` directly — `llmAnalyst` already encodes the verdict-as-ground-truth + selector≠judge firewall; package the move set with `runAgentic`/`defineStrategy`, not a hand-rolled per-arm loop.
+`bench/src/sandbox-run.ts:58` (`llmAnalyst`, `AnalystFn:50`, `SteerHistory:39`); `src/runtime/strategy.ts` (`runAgentic`/`defineStrategy`)
 
 ---
 
-**`llmAnalyst` + `loopAnalyst`** · `bench/src/experiment.ts`
-`AnalystFn = (history) => Promise<string>` — the investigation that reads a prior attempt's trace and returns a targeted correction. `llmAnalyst` = ONE router call over the last attempt's output + trace tail + judge failure-detail (the verdict+detail is ground truth for WHAT failed; without it the analyst sees plausible output and punts). `loopAnalyst` = a WHOLE sub-loop (a sandbox agent re-investigates) whose conclusion IS the steer — the recursive Agent atom in practice (one loop's steer is itself a `runLoop`).
-
-```ts
-const llmAnalyst = (cfg: { routerBaseUrl; routerKey; model }): AnalystFn
-const loopAnalyst = (cfg: { sandboxClient: SandboxClient; agentRun: AgentRunSpec<string>; rounds? }): AnalystFn
-```
-**Do NOT** write a fresh "read the trace and suggest a fix" prompt or reach for `routerChatWithUsage` directly — `llmAnalyst` already encodes the verdict-as-ground-truth + selector≠judge firewall.
-`bench/src/experiment.ts:139` (`loopAnalyst:172`)
-
----
-
-**`sandboxAgentRun`** · `bench/src/experiment.ts`
+**`sandboxAgentRun`** · `bench/src/sandbox-run.ts`
 Builds the standard sandbox `AgentRunSpec<string>` the kernel injects as the worker: the cost-dial backend (`backendType`), the in-box model provider, optional box env, and the developer's `AgentProfile` (the genome — spread through verbatim). **Box-credential invariant:** model auth is the BOX'S OWN provisioned credential; `backend.model` pins provider/model/baseUrl ONLY — never pass an external router key into the box (the egress proxy rejects it → 403, empty output). Cheap router models (deepseek/kimi/glm) need `provider: 'openai-compat'` or they 404 in-box. **This is the "profile seam" an agent reinvents** — the genome flows in via `profile`. (Lives in `bench/`, not the package.)
 
 ```ts
 function sandboxAgentRun(opts: { model: string; routerBaseUrl: string; backendType?: WorkerBackendType;
   provider?: string; name?: string; taskToPrompt?: (t)=>string; env?: Record<string,string>;
   profile?: AgentProfile }): AgentRunSpec<string>
-// WorkerBackendType = 'opencode'|'hermes'|'claude-code'|'codex'|'kimi-code'|'pi'
+// WorkerBackendType = BackendType (the SDK's: 'opencode'|'hermes'|'claude-code'|'codex'|'kimi-code'|'pi'|…)
 ```
 **Do NOT** hand-build a profile→sandbox-backend seam or pass a router key into the box. Genome → `profile`; backend → `backendType`; box env → `env` (no credentials).
-`bench/src/experiment.ts:209` (`WorkerBackendType:201`)
+`bench/src/sandbox-run.ts:92` (`WorkerBackendType:84`)
 
 ---
 
-**`rsi.ts` (the harness CLI)** · `bench/src/rsi.ts` (run via `tsx`)
-The instantiated RSI driver experiment in one file: pick a benchmark via `BENCH=` (`ADAPTERS` lookup), pick steer `policies` (the arms), pick the backend (sandbox in-box agent vs `BACKEND=router` off-box completion vs `adapter.leafClient`), run them through `runExperiment` at equal compute, print `blind%` + per-arm Δ. Backend selection is data; the `random*` family MUST be present as the compute control.
+**`keystone-gate-cli.mts` (the harness CLI)** · `bench/src/keystone-gate-cli.mts` (run via `tsx`)
+The instantiated diverse-vs-blind gate in one file: pick a benchmark via `BENCH=` (`ADAPTERS` lookup), the `K` strategies fix both arms' child count, run them through `runKeystoneGate` over the keystone Supervisor at equal compute (conserved pool), print the per-arm resolve Δ. Strategy selection is data; equal-k holds by construction.
 
 ```bash
-BENCH=enterpriseops-gym N=20 ROUNDS=3 BACKEND=sandbox tsx bench/src/rsi.ts
-# then the paired-bootstrap + BH verdict:
-tsx bench/src/corpus-report.mts corpus/rsi-<name>.jsonl
+BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 TANGLE_API_KEY=… tsx bench/src/keystone-gate-cli.mts
+# then the paired-bootstrap + BH verdict over the corpus:
+tsx bench/src/corpus-report.mts corpus/<name>.jsonl
 ```
-**Do NOT** write a new top-level run script that re-parses env and re-wires `runExperiment` — copy `rsi.ts`'s arm/backend pattern or add your policy to its `policies` array.
-`bench/src/rsi.ts` (default `BENCH=swe-bench`, `BACKEND=sandbox`)
+**Do NOT** write a new top-level run script that re-parses env and re-wires the gate — copy `keystone-gate-cli.mts`'s strategy/backend pattern or add your strategy to its `defaultStrategies` array.
+`bench/src/keystone-gate-cli.mts` (default `BENCH=enterpriseops-gym`)
 
 ### 3.4 The Gated Optimizer — evolve the genome, certify wins
 
@@ -925,7 +905,7 @@ const opt = await selfImprove({
 console.log(`prompt lift ${opt.lift} → ${opt.gateDecision}`)  // gateDecision ∈ ship|hold|need_more_work|model_ceiling|arch_ceiling
 ```
 
-For the **multi-generation strategy flywheel** (gen0 → author-from-losses → genN → frozen-holdout → reproducer cert, with checkpoint/resume), replace steps 2–3b with one `runStrategyEvolution({ environment, tasks, trainN, holdoutN, worker, author, generations, outDir })` and read `report.verdict` (NOT `report.trajectory`) as the evidence. For a **sandbox coding rollout** measured against an external deterministic judge, use the bench-harness path instead: `runExperiment({ adapter: resolveAdapter('commit0'), sandboxClient, agentRun: sandboxAgentRun({ model, routerBaseUrl, profile }), arms: [randomArm('random'), analystArm('refineAudit', llmAnalyst(router))], ... })`.
+For the **multi-generation strategy flywheel** (gen0 → author-from-losses → genN → frozen-holdout → reproducer cert, with checkpoint/resume), replace steps 2–3b with one `runStrategyEvolution({ environment, tasks, trainN, holdoutN, worker, author, generations, outDir })` and read `report.verdict` (NOT `report.trajectory`) as the evidence. For a **sandbox coding rollout** measured against an external deterministic judge, use the bench-harness path instead: `runKeystoneGate({ adapter: resolveAdapter('commit0'), strategies, n, … })` (the two arms each `fanout` k children through the keystone Supervisor at equal compute; the winning child's deployable verdict decides resolution).
 
 ## 5. The recursive atom — recursion · artifact · budget · analysts
 
@@ -962,11 +942,11 @@ The three ⚠️ gaps are the natural completion of the atom — a **panel of an
 
 Both implement the same "recursive agent decision" atom; both run over the one `Executor` port; both share `defaultSelectWinner`. They are a deliberate pair — **do not invent a third.**
 
-| | Reactive: `Supervisor`/`Scope` + personify combinators | Round-synchronous: `runLoop` + `createDriver` |
+| | Reactive: `Supervisor`/`Scope` + personify combinators (the agent-driver) | Round-synchronous: `runLoop` kernel (the leaf) |
 |---|---|---|
-| Entry | `runPersonified`, `runAgentic`, `runBenchmark`, `createSupervisor` | `runLoop`, `runExperiment` (bench), `rsi.ts` |
+| Entry | `runPersonified`, `runAgentic`, `runBenchmark`, `createSupervisor`, `runKeystoneGate` (bench) | `runLoop`; benches drive it via `openSandboxRun` + `sandboxAgentRun` |
 | Shape of a turn | spawn-on-demand children on a conserved budget pool; react via `scope.next()` | a planned round of N tasks → one sandbox/iteration each → decide |
-| Equal-k | by construction (atomic reservation pool, refund-on-settle) | enforced at the experiment layer (`arms[0]` control + vacuity guard) |
+| Equal-k | by construction (atomic reservation pool, refund-on-settle) — `runKeystoneGate` inherits it | `maxIterations` count + `maxConcurrency` cap; per-`Iteration` cost aggregation |
 | Persistence | journal → content-addressed replay/resume of the exact `Settled` | fresh box per round (or `lineage` for session continuity/fork-fanout) |
 | Best for | **NEW recursive/keystone work**: depth/breadth strategies, multi-agent shapes, nested drivers, anytime/cost analysis | **sandbox coding rollouts** driven the round-synchronous way against external benchmarks; what most benches drive today |
 | Genome carrier | `Persona` (`definePersona`) → `AgentSpec.profile` | `AgentRunSpec.profile` (via `sandboxAgentRun`) |

@@ -154,7 +154,7 @@ The product SDK should be a thin layer over shipped primitives:
 | manifest and mutable surfaces | `defineAgent` |
 | trace-to-finding loop | `runAnalystLoop` |
 | code/tool/MCP candidate generation | `improvementDriver`, `agenticGenerator`, verifiers |
-| loop execution | `runLoop`, `createRefineDriver`, `createFanoutVoteDriver`, `createDriver` |
+| loop execution | `runLoop` (kernel), `runAgentic` / `defineStrategy` (Supervisor), `createCoordinationTools` (agent-driver) |
 | promotion | `promotionGate`, held-out gates in `@tangle-network/agent-eval` |
 
 The wrapper should live behind a new subpath such as:

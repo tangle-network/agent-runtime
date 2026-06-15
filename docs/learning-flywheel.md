@@ -181,8 +181,10 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
    reward modeling). *This is the bottleneck. Without it, nothing above is reachable —
    GEPA can search any space only if you can afford the metric evals.*
 2. **Controller-as-signature-program.** steer/topology/stop as jointly-optimizable
-   signatures; worker as opaque tool. (`createDriver(planner)` where `planner` is the
-   compiled program.)
+   signatures; worker as opaque tool. The kernel-side `createDriver(planner)` form was
+   **deleted** (`src/runtime/driver.ts` nuked); the compiled-program controller now lives
+   as a `defineStrategy`/`authorStrategy` program (`src/runtime/strategy.ts`) driven over
+   the `Scope`/`Supervisor`.
 3. **Trace-aware, multi-objective optimizer.** GEPA/MIPRO reflecting on **traces** (not
    pass/fail), optimizing for **correctness AND clean/fast trace** (Pareto). `meta-harness`
    is the code-level search engine that sits HERE — it evolves controller *code* on a Pareto
@@ -300,8 +302,10 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
 
 ## Where the pieces live
 
-- Kernel + controller seam: `src/runtime/` (`runLoop` + `createDriver` — one execution
-  backend) and the canonical `Scope`/`Supervisor` substrate (`src/runtime/supervise/`).
+- Kernel + controller seam: `src/runtime/` — the `runLoop` kernel (`run-loop.ts`, one
+  leaf execution backend; `createDriver` was deleted) and the canonical agent-driver:
+  `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
+  substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.
 - **The published optimization suite**: `@tangle-network/agent-runtime/loops` (a build
   alias — the source is `src/runtime/`, there is no `src/loops/` directory):
   `Environment`/`Strategy`/`defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark`
@@ -311,8 +315,9 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   agent-eval's `heldoutSignificance`: evidence floor 6 paired tasks, the CI lower bound
   must clear the threshold).
 - Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`,
-  `flywheel-run.mts` — gen0 → `authorStrategy` → gen1 → rotating disjoint holdout under
-  the seeded `promotionGate` (the minimal single-objective Gate-B form),
-  `terminal-compare.ts`, `corpus-report.mts`).
+  `terminal-compare.ts`, `corpus-report.mts`). The gen0 → `authorStrategy` → gen1 →
+  rotating-disjoint-holdout runner (`flywheel-run.mts`, the minimal single-objective
+  Gate-B form) was deleted in the nuke; re-standing it up over `authorStrategy`
+  (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` is open work.
 - Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`selfImprove`,
   `runImprovementLoop`, `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).
