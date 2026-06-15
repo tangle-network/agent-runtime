@@ -163,18 +163,30 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // would silently corrupt the conserved spend total, so fail loud here — on the success path
       // only, where the act() error precedence does not apply.
       pool.assertNoOpenTickets()
-      // The driver synthesized a winner. Content-address it for the replay `outRef`, put
-      // it once, and sum the conserved spend off every journaled settlement. No
-      // re-ranking — the driver already selected.
       const out = actOutcome.out
-      const outRef = contentAddress(out)
-      await opts.blobs.put(outRef, out)
+      // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
+      // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
+      // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
+      // contract is to refuse coercing a non-result into a best-effort Out (Foreman's 0/18 lesson).
+      if (out !== undefined) {
+        // The driver synthesized a winner. Content-address it for the replay `outRef`, put it
+        // once, and sum the conserved spend off every journaled settlement. No re-ranking — the
+        // driver already selected.
+        const outRef = contentAddress(out)
+        await opts.blobs.put(outRef, out)
+        return {
+          kind: 'winner',
+          out,
+          outRef,
+          tree,
+          spentTotal: await spentTotalFromJournal(journal, opts.runId),
+        }
+      }
       return {
-        kind: 'winner',
-        out,
-        outRef,
+        kind: 'no-winner',
+        reason: classifyNoWinner(controller, pool, opts, breaker),
         tree,
-        spentTotal: await spentTotalFromJournal(journal, opts.runId),
+        downCount: breaker.downCount(),
       }
     }
 

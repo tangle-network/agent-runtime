@@ -42,6 +42,7 @@ import { type NestedScopeSeam, nestedScopeSeamKey } from './scope'
 import type {
   Agent,
   AgentSpec,
+  DefaultVerdict,
   ExecutorContext,
   ExecutorFactory,
   ExecutorRegistry,
@@ -147,11 +148,22 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
       // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
       const out = await driver.act(task, nestedScope)
 
-      // Sum the conserved spend off the nested tree's settled events — the same evidence
-      // the supervisor's `spentTotal` reads — so the parent's reconcile rolls the whole
-      // sub-tree's spend into the conserved total (settlements bubble up).
-      const spent = await sumNestedSpend(journal, nestedRoot)
-      artifact = { outRef: `${driverRuntime}:${nestedRoot}`, out, spent }
+      // Read the nested tree's settled events ONCE — the same evidence the supervisor's
+      // `spentTotal` reads — and roll up both the conserved spend AND the delivery verdict.
+      const settled = await loadSettled(journal, nestedRoot)
+      const spent = sumSpend(settled)
+      // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
+      // children settled `valid` (the child its keep-best finalize returns). Deriving the
+      // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
+      // `valid` only when it itself selected a delivered child — so a node never settles
+      // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
+      const verdict = deriveDeliveryVerdict(settled)
+      artifact = {
+        outRef: `${driverRuntime}:${nestedRoot}`,
+        out,
+        spent,
+        ...(verdict ? { verdict } : {}),
+      }
       return artifact
     },
     teardown(): Promise<{ destroyed: boolean }> {
@@ -210,18 +222,28 @@ function nextNestOrdinal(journal: SpawnJournal): number {
   return c.n++
 }
 
-/** Sum the conserved spend over a nested tree's settled events — the honest per-channel
- *  roll-up of the whole sub-tree, read off the same journal the supervisor sums. */
-async function sumNestedSpend(journal: SpawnJournal, nestedRoot: string): Promise<Spend> {
+/** The nested tree's `settled` events — the one evidence list the spend AND verdict roll-ups
+ *  both read off the same journal the supervisor sums. */
+async function loadSettled(
+  journal: SpawnJournal,
+  nestedRoot: string,
+): Promise<Extract<SpawnEvent, { kind: 'settled' }>[]> {
   const events = await journal.loadTree(nestedRoot)
   if (events === undefined) {
     throw new ValidationError(
       `driverExecutor: nested tree '${nestedRoot}' missing from the journal after run (corrupted log)`,
     )
   }
+  return events.filter(
+    (ev): ev is Extract<SpawnEvent, { kind: 'settled' }> => ev.kind === 'settled',
+  )
+}
+
+/** Sum the conserved spend over the nested tree's settled events — the honest per-channel
+ *  roll-up of the whole sub-tree. */
+function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
   const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
-  for (const ev of events as SpawnEvent[]) {
-    if (ev.kind !== 'settled') continue
+  for (const ev of settled) {
     total.iterations += ev.spent.iterations
     total.tokens.input += ev.spent.tokens.input
     total.tokens.output += ev.spent.tokens.output
@@ -229,6 +251,39 @@ async function sumNestedSpend(journal: SpawnJournal, nestedRoot: string): Promis
     total.ms += ev.spent.ms
   }
   return total
+}
+
+/** Derive the driver child's delivery verdict from its DIRECT children's settlements:
+ *  `valid` iff any direct child settled `done` AND `valid` (the keep-best finalize's pick);
+ *  `score` = the best delivered score. Returns `undefined` when no child settled at all (the
+ *  driver itself produced nothing to bubble a verdict from). Fail-closed: a child whose verdict
+ *  carried no `valid` counts as not-delivered. */
+function deriveDeliveryVerdict(
+  settled: ReadonlyArray<{ status: 'done' | 'down'; verdict?: DefaultVerdict }>,
+): DefaultVerdict | undefined {
+  let sawChild = false
+  let anyValid = false
+  let bestValidScore: number | undefined
+  let bestDoneScore: number | undefined
+  for (const ev of settled) {
+    sawChild = true
+    if (ev.status !== 'done') continue
+    const score = ev.verdict?.score
+    if (score !== undefined && (bestDoneScore === undefined || score > bestDoneScore)) {
+      bestDoneScore = score
+    }
+    if (ev.verdict?.valid === true) {
+      anyValid = true
+      if (score !== undefined && (bestValidScore === undefined || score > bestValidScore)) {
+        bestValidScore = score
+      }
+    }
+  }
+  if (!sawChild) return undefined
+  return {
+    valid: anyValid,
+    score: anyValid ? (bestValidScore ?? 1) : (bestDoneScore ?? 0),
+  }
 }
 
 function readNestedScopeSeam(ctx: ExecutorContext): NestedScopeSeam {

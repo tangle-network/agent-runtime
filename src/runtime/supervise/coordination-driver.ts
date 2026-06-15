@@ -112,10 +112,11 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         const res = await opts.chat.next({ system, messages, tools: toolSpecs })
         const calls = res.toolCalls ?? []
         if (calls.length === 0) {
-          // The driver named no tool call — it is finished. Its content is the answer; if it
-          // gave none, fall back to the best settled child (keep-best, never a vacuous return).
-          const answer = res.content ?? (await finalize(coord, opts.blobs))
-          return answer
+          // The driver named no tool call — it is finished. Its deliverable is the best DELIVERED
+          // child (the completion-oracle), NOT its own prose: a driver cannot self-declare done
+          // (Foreman 0/18). No delivered child → it delivered nothing — finalize returns undefined,
+          // which the supervisor types as a no-winner instead of wrapping a self-reported answer.
+          return finalize(coord, opts.blobs)
         }
         messages.push({ role: 'assistant', content: res.content ?? '', toolCalls: calls })
         for (const tc of calls) {
@@ -146,16 +147,22 @@ async function runTool(tool: McpToolDescriptor, args: Record<string, unknown>): 
   }
 }
 
-/** Keep-best finalize: return the highest-scoring settled child's output (read through blobs).
- *  Returns undefined when no child settled `done` — an honest "the driver produced nothing". */
+/** Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
+ *  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
+ *  child delivered — an honest "the driver produced nothing", never a high-scoring result that
+ *  ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
+ *  matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
+ *  unchecked best-effort. */
 async function finalize(
-  coord: { settled(): ReadonlyArray<{ status: string; score?: number; outRef?: string }> },
+  coord: {
+    settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
+  },
   blobs: ResultBlobStore,
 ): Promise<unknown> {
-  const done = coord.settled().filter((w) => w.status === 'done')
-  if (done.length === 0) return undefined
-  let best = done[0]!
-  for (const w of done) if ((w.score ?? 0) > (best.score ?? 0)) best = w
+  const delivered = coord.settled().filter((w) => w.status === 'done' && w.valid === true)
+  if (delivered.length === 0) return undefined
+  let best = delivered[0]!
+  for (const w of delivered) if ((w.score ?? 0) > (best.score ?? 0)) best = w
   return best.outRef ? await blobs.get(best.outRef) : undefined
 }
 
