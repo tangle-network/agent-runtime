@@ -12,12 +12,15 @@ Building the recursive-driver layer is gated on **Gate A** (the inner GO/NO-GO) 
 
 So the phases are ordered to make each step measurable on an honest baseline *before* the next is built. Build order: **honest baseline → the cheap win (selector) → wire the intelligence (analyses) → grow the language (ISA) → the use case (acquisition)**. The cleanup and doc tracks run in parallel because they are additive-safe.
 
-> **Status (2026-06-10).** These phases were written against the `runLoop`/`createDriver`
-> substrate (then `src/loops/`, now `src/runtime/` — `@tangle-network/agent-runtime/loops`
-> is a build alias). **Gate A has since been run and cleared on the other substrate** —
-> the canonical `Scope`/`Supervisor` + `observe()` + `defineStrategy` loop (EOPS itsm:
-> depth +16.4pp CI [+5.3, +29.8], n=16, 6W/0L, deepseek-v4-pro; +8.3pp on a disjoint
-> slice) — domain-bounded: negative on stateless retrieval (FinSearchComp),
+> **Status (updated 2026-06-13, POWER-16).** These phases were written against the
+> `runLoop`/`createDriver` substrate (then `src/loops/`, now `src/runtime/` —
+> `@tangle-network/agent-runtime/loops` is a build alias). **Gate A's +16.4pp anchor was
+> RETRACTED to a TIE at power.** On the canonical `Scope`/`Supervisor` + `observe()` +
+> `defineStrategy` loop the n=16 EOPS-itsm signal (depth +16.4pp CI [+5.3, +29.8], 6W/0L,
+> deepseek-v4-pro; +8.3pp disjoint) did **not** replicate: at n=48 depth−breadth = +4.7pp
+> CI [−1.9, +11.4] (a tie; +4.1pp at n=72) — an underpowered overestimate, at most a small
+> effect. The program has pivoted off this anchor (`.evolve/current.json`). It remains
+> domain-bounded: negative on stateless retrieval (FinSearchComp),
 > null-to-negative on stateless codegen (HumanEval; exec-grounded repair −17.1pp). The
 > live optimization portfolio is
 > [docs/research/optimization-space.md](./research/optimization-space.md). **Gate B
@@ -69,7 +72,7 @@ The load-bearing edge. **Status: wired, not yet fed live.** `PlannerContext` now
 
 **Exit gate — Gate A (inner GO/NO-GO).** `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop building the *within-run recursive-driver layer* — ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the *steering machinery*. The recursive-driver layer is unjustified overhead unless this clears. **This is scoped to within-run steering only — it is NOT the flywheel-success criterion (Gate B, [learning-flywheel.md](./learning-flywheel.md)); a failed Gate A never deletes the corpus+controller product.**
 
-**Gate A status: cleared (2026-06-09), on the `Scope`/`Supervisor` substrate** — depth-steered continuation (analyst-fed via `observe()`) beats blind breadth +16.4pp CI [+5.3, +29.8] on EOPS at equal compute under keep-best scoring (header note), domain-bounded. The `runLoop`-substrate arm specifically — findings reaching `plan()` live — remains unexercised.
+**Gate A status: TIE at power (POWER-16, 2026-06-13), on the `Scope`/`Supervisor` substrate** — the n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) collapsed to depth−breadth +4.7pp CI [−1.9, +11.4] at n=48 (header note). At most a small effect, not a cleared keystone; the program pivoted off it. The `runLoop`-substrate arm specifically — findings reaching `plan()` live — remains unexercised.
 
 ## Phase 3 — Grow the ISA (program synthesis)
 

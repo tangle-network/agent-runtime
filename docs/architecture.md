@@ -332,8 +332,9 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
    bench** (EnterpriseOps-Gym / commit0 / swe-bench) — a domain that can exhibit depth.
    FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
    one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
-   result is bench-specific, not domain-general). **Status: cleared** — depth-steered
-   continuation beats blind breadth on EOPS at equal compute, significant (§11).
+   result is bench-specific, not domain-general). **Status: TIE at power (POWER-16,
+   2026-06-13)** — the n=16 "+16.4pp cleared" signal collapsed to depth−breadth +4.7pp
+   CI [−1.9, +11.4] at n=48; at most a small effect, not a cleared keystone (§11).
 2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
    beats compute-matched random.
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
@@ -386,12 +387,19 @@ judge, 0 infra-excluded):
 So rung-0 is **not** "steering is futile" — it is "the toy loses, and we have not
 yet run the machine we built."
 
-**Gate A — POSITIVE, domain-bounded (EnterpriseOps-Gym itsm, 2026-06-09).** On the
-canonical loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst +
-`defineStrategy` (`src/runtime/strategy.ts`), **not** the `runLoop`/`PlannerContext`
-path — depth-steered continuation beats breadth (blind best-of-K) at equal compute
-under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins / 0 losses,
-n=16**, deepseek-v4-pro; replicated **+8.3pp** on a disjoint task slice. Both arms
+**Gate A — RETRACTED to a TIE at power (POWER-16, 2026-06-13).** The headline
++16.4pp depth>breadth result did **not** replicate when powered. On the canonical
+loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst + `defineStrategy`
+(`src/runtime/strategy.ts`), **not** the `runLoop`/`PlannerContext` path — the
+original signal was depth-steered continuation beating breadth (blind best-of-K) at
+equal compute under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins
+/ 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice). At n=48
+(4 gym lanes, depth verified firing, both arms best-checkpoint) this collapsed to
+**depth−breadth = +4.7pp, CI [−1.9, +11.4] — a TIE** (and +4.1pp, CI [−1.6, +10.2]
+at n=72). The n=16 number was an underpowered overestimate (a 6/0 streak); depth>breadth
+is at most a *small* effect (~5pp, would need n≈96–200 to confirm), not a cleared
+keystone. Per the pre-registered POWER-16 rule the program pivoted **off** this anchor;
+see `.evolve/current.json` (the live science ledger). Method note retained: both arms
 must be scored with the same selection policy (keep-best) — scoring the depth arm on
 final state only silently biases against it.
 
