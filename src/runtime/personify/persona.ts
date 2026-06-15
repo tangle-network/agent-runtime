@@ -20,6 +20,7 @@
 
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
+import { withDriverExecutor } from '../supervise/driver-executor'
 import { createExecutorRegistry } from '../supervise/runtime'
 import { createSupervisor } from '../supervise/supervisor'
 import type {
@@ -91,15 +92,18 @@ export function createShapeContext<D>(
     budget,
     ...(analyst ? { analyst } : {}),
     spawnChild(name, spec): Agent<unknown, Outcome<D>> {
-      // The wrapped agent is SPAWNED, not run — the resolved Executor drives it. `act`
-      // is never invoked by the keystone for a spawned child; it throws if mis-used as a
-      // root (fail loud) rather than silently returning a vacuous outcome.
+      // The wrapped agent is SPAWNED, not run — the resolved Executor drives it. The
+      // executor is a LEAF for a plain spec OR the recursive driver-executor for a
+      // `role:'driver'` spec (a child that is itself a driver — agents drive agents). `act`
+      // is never invoked by the keystone for a spawned child (the executor drives it); it
+      // throws if mis-used as a root (fail loud), never a vacuous outcome.
       const agent = {
         name,
         executorSpec: spec,
         act(): Promise<Outcome<D>> {
           throw new ValidationError(
-            `personify: spawned child "${name}" was run as a driver; its executorSpec drives a leaf`,
+            `personify: spawned child "${name}" was run directly; its executorSpec drives it ` +
+              '(a leaf, or — for a driver child — a nested scope through the recursive driver-executor)',
           )
         },
       }
@@ -200,13 +204,17 @@ const defaultFanout = 3
  */
 function personaRegistry<D>(persona: Persona<D>): ExecutorRegistry {
   const { registry, seams } = persona.executors
-  if (registry) return registry
+  // `withDriverExecutor` routes a `role:'driver'` child to the recursive driver-executor
+  // (a child that drives its own children) BEFORE the base leaf resolution — so a persona
+  // shape can spawn a driver child and the recursion composes. A plain leaf child falls
+  // through to the base registry unchanged.
+  if (registry) return withDriverExecutor(registry)
   if (!seams) {
     throw new ValidationError(
       `personify: persona "${persona.name}" supplies neither a registry nor seams`,
     )
   }
-  return withSeams(createExecutorRegistry(), seams)
+  return withDriverExecutor(withSeams(createExecutorRegistry(), seams))
 }
 
 /**

@@ -279,6 +279,16 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
+// resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
+// the SAME conserved pool.
+export {
+  driverChild,
+  driverExecutorFactory,
+  driverRuntime,
+  isDriverSpec,
+  withDriverExecutor,
+} from './supervise/driver-executor'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
@@ -292,7 +302,12 @@ export {
   type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'
-export { createScope, settledToIteration } from './supervise/scope'
+export {
+  createScope,
+  type NestedScopeSeam,
+  nestedScopeSeamKey,
+  settledToIteration,
+} from './supervise/scope'
 export {
   createRootHandle,
   createSupervisor,
