@@ -272,6 +272,14 @@ export {
   type StrategyEvolutionConfig,
   selectChampion,
 } from './strategy-evolution'
+// The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
+// SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
+export {
+  type AuthoredProfile,
+  asAuthoredProfile,
+  authoredWorker,
+  supervisorSkill,
+} from './supervise/authoring'
 export {
   type BudgetPool,
   type BudgetReadout,
