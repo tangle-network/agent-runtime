@@ -32,7 +32,7 @@
 import { createChatClient } from '@tangle-network/agent-eval'
 import { observe, openSandboxRun } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
-import { answerOutput, sandboxAgentRun } from './experiment'
+import { answerOutput, sandboxAgentRun } from './sandbox-run'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback

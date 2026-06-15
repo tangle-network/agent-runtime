@@ -1,16 +1,14 @@
 /**
  * @experimental
  *
- * Analyst-on-scope (G1) — the PORT of the round-synchronous driver's analyze→findings→steer
- * wire (`dynamic.ts`) onto the reactive `Scope`.
+ * Analyst-on-scope (G1) — the analyze→findings→steer wire over the reactive `Scope`.
  *
- * The old dynamic driver wired the analyst at round boundaries: `plan` ran the analyst over
- * `history` BEFORE the planner and handed the findings forward via `PlannerContext.analyses`,
- * behind a provenance firewall (`assertTraceDerivedFindings`) that keeps the external write-only
- * judge out of the steer decision (selector ≠ judge). The reactive `Scope` has no rounds, so this
- * module carries the same wire across: a combinator's `act` asks a `ScopeAnalyst` to turn the
- * children it has drained off `scope.next()` SO FAR into `AnalystFinding[]`, and steers from THOSE
- * findings through a single `SteerContext`.
+ * The analyst runs over the children drained so far and hands its findings to the steer
+ * decision behind a provenance firewall (`assertTraceDerivedFindings`) that keeps the external
+ * write-only judge out of that decision (selector ≠ judge). The reactive `Scope` has no rounds:
+ * a combinator's `act` asks a `ScopeAnalyst` to turn the children it has drained off
+ * `scope.next()` SO FAR into `AnalystFinding[]`, and steers from THOSE findings through a single
+ * `SteerContext`.
  *
  * The analyst itself is not a new type — it is "just an `Agent<unknown, AnalystFinding[]>`" the
  * combinator spawns over a child's trace (harness `null`/`cli`). `createScopeAnalyst` spawns that

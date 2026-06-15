@@ -62,7 +62,7 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import type { BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type AnalystFn, llmAnalyst } from './experiment'
+import { type AnalystFn, llmAnalyst } from './sandbox-run'
 import {
   type BenchRuntimeDecisionPoint,
   type BenchRuntimeHookEvent,

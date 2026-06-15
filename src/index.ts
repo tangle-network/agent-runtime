@@ -111,7 +111,7 @@ export {
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
-// ── Delegated loop-runner (configured code/research/review/audit/self-improve/dynamic) ──
+// ── Delegated loop-runner (configured code/research/review/audit/self-improve) ──
 export {
   auditLoopRunner,
   type CoderLoopRunnerOptions,
@@ -121,8 +121,6 @@ export {
   type DelegatedLoopRegistry,
   type DelegatedLoopResult,
   type DelegatedLoopRunner,
-  type DynamicLoopRunnerOptions,
-  dynamicLoopRunner,
   isDelegatedLoopMode,
   type ResearchLoopResult,
   type ResearchLoopRunnerOptions,

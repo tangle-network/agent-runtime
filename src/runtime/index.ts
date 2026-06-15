@@ -20,7 +20,8 @@ export type {
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
-// `runLoop` + `createDriver` = the round-synchronous path most benches still drive.
+// the round-synchronous `runLoop` kernel = the path most benches still drive, with a
+// caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the durable journal +
@@ -58,15 +59,6 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
-export type {
-  AnalyzeInput,
-  CreateDriverOptions,
-  DriverDecision,
-  PlannerContext,
-  TopologyMove,
-  TopologyPlanner,
-} from './driver'
-export { createDriver, renderAnalyses } from './driver'
 export {
   type HarvestCorpusOptions,
   type HarvestFailure,

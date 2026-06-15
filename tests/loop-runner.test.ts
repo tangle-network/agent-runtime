@@ -70,9 +70,8 @@ describe('coderLoopRunner — code mode over the hardened delegate', () => {
   })
 })
 
-import { dynamicLoopRunner, researchLoopRunner, type VetoedFact } from '../src/loop-runner'
+import { researchLoopRunner, type VetoedFact } from '../src/loop-runner'
 import type { FactCandidate } from '../src/mcp/kb-gate'
-import type { AgentRunSpec, OutputAdapter, TopologyPlanner, Validator } from '../src/runtime'
 
 const neverAbort = new AbortController().signal
 
@@ -112,52 +111,5 @@ describe('researchLoopRunner — valid-only KB growth with remediation', () => {
     expect(res.rounds).toBe(2)
     expect(res.accepted.map((f) => f.claim).sort()).toEqual(['profit was 50', 'revenue was 100'])
     expect(res.vetoed).toHaveLength(0)
-  })
-})
-
-describe('dynamicLoopRunner — agent-authored topology over runLoop', () => {
-  interface T {
-    goal: string
-  }
-  interface O {
-    score: number
-  }
-  it('runs the planner-driven loop and returns a finished LoopResult', async () => {
-    const moves = [{ kind: 'refine' as const, task: { goal: 'g' } }, { kind: 'stop' as const }]
-    let i = 0
-    const planner: TopologyPlanner<T, O> = () => moves[i++]!
-    const output: OutputAdapter<O> = {
-      parse: (events) => ({ score: (events.at(-1)?.data as { score?: number })?.score ?? 0 }),
-    }
-    const validator: Validator<O> = {
-      async validate(o) {
-        return { valid: o.score >= 0.5, score: o.score }
-      },
-    }
-    const spec: AgentRunSpec<T> = {
-      profile: { name: 'w' },
-      name: 'w',
-      taskToPrompt: (t) => t.goal,
-    }
-    const client = {
-      async create() {
-        return {
-          async *streamPrompt() {
-            yield { type: 'result', data: { score: 0.9 } }
-          },
-        } as unknown as import('@tangle-network/sandbox').SandboxInstance
-      },
-    }
-    const runner = dynamicLoopRunner<T, O>({
-      sandboxClient: client,
-      planner,
-      task: { goal: 'g' },
-      output,
-      validator,
-      agentRun: spec,
-    })
-    const res = await runner(neverAbort)
-    expect(res.decision).toBe('done')
-    expect(res.winner?.output.score).toBeCloseTo(0.9, 6)
   })
 })

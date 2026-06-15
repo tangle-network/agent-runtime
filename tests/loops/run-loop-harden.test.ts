@@ -2,14 +2,12 @@ import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createDriver,
   type LoopTraceEmitter,
   type LoopTraceEvent,
   type OutputAdapter,
   runLoop,
-  type TopologyMove,
-  type TopologyPlanner,
 } from '../../src/runtime'
+import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 interface Task {
   goal: string
@@ -46,13 +44,13 @@ describe('runLoop — abort short-circuits before launching a fresh batch', () =
     }
     // The planner aborts the loop during its own (async) plan() call. The kernel
     // must observe the abort right after plan() returns and NOT reserve+dispatch.
-    const planner: TopologyPlanner<Task, Out> = async () => {
+    const planner: ScriptedPlanner<Task, Out> = async () => {
       ctrl.abort()
       return { kind: 'refine', task: { goal: 'x' } }
     }
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -81,10 +79,10 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
   it('an AbortError thrown during streamPrompt rejects the loop, not a recorded empty iteration', async () => {
     const ctrl = new AbortController()
     const client = { create: async () => abortingBox(ctrl) }
-    const planner: TopologyPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
+    const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -98,10 +96,10 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
     const client = { create: async () => abortingBox(ctrl) }
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
-    const planner: TopologyPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
+    const planner: ScriptedPlanner<Task, Out> = () => ({ kind: 'refine', task: { goal: 'x' } })
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'x' },
@@ -118,9 +116,9 @@ describe('runLoop — fail-loud on abort mid-iteration (no soft-failure masking)
 
 describe('runLoop — teardown observability + parallelism', () => {
   it('emits loop.teardown.failed when a kept-alive worker box delete throws', async () => {
-    const moves: TopologyMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
+    const moves: ScriptedMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let round = 0
-    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+    const planner: ScriptedPlanner<Task, Out> = () => moves[round++]!
     const client = {
       async create(): Promise<SandboxInstance> {
         return {
@@ -139,7 +137,7 @@ describe('runLoop — teardown observability + parallelism', () => {
     // onWorkerBox keeps the box alive across plan(); teardown runs at loop end,
     // and the throwing delete must surface as a loop.teardown.failed span.
     await runLoop({
-      driver: createDriver<Task, Out>({ planner }),
+      driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'g' },
@@ -157,7 +155,7 @@ describe('runLoop — teardown observability + parallelism', () => {
   it('tears down all kept-alive boxes even when one delete throws', async () => {
     const deleted: string[] = []
     let n = 0
-    const moves: TopologyMove<Task>[] = [
+    const moves: ScriptedMove<Task>[] = [
       {
         kind: 'fanout',
         tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }],
@@ -165,7 +163,7 @@ describe('runLoop — teardown observability + parallelism', () => {
       { kind: 'stop' },
     ]
     let round = 0
-    const planner: TopologyPlanner<Task, Out> = () => moves[round++]!
+    const planner: ScriptedPlanner<Task, Out> = () => moves[round++]!
     const client = {
       async create(): Promise<SandboxInstance> {
         const id = `box-${n++}`
@@ -182,7 +180,7 @@ describe('runLoop — teardown observability + parallelism', () => {
       },
     }
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'a' },
