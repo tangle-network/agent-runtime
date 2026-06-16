@@ -71,12 +71,24 @@ export interface AnalystFindingEvent {
   readonly findings: unknown
 }
 
-/** Every message a worker/sub-driver/analyst sends up to the driver — the one typed pipe. New kinds
- *  are additive: a `{type:'question'}` consumer keeps matching. */
+/** A parent→child message (the down-leg): recorded for observability, delivered via the child inbox,
+ *  never pulled back by the parent. `delivered` mirrors whether the live child accepted it. */
+export interface DownMessageEvent {
+  readonly toWorker: string
+  readonly instruction: string
+  readonly delivered: boolean
+}
+
+/** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
+ *  the driver to `pull`. DOWN (parent→child): steer / answer / resume — record-only (history +
+ *  subscribers), routed to the child inbox. New kinds are additive. */
 export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
   | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
+  | { readonly type: 'steer'; readonly down: DownMessageEvent }
+  | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
+  | { readonly type: 'resume'; readonly down: DownMessageEvent }
 
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
@@ -189,6 +201,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     return true
   }
 
+  // The down-leg: record a parent→child message on the bus for the audit trail (history +
+  // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
+  const sendDown = async (type: 'steer' | 'resume', down: DownMessageEvent): Promise<void> => {
+    await bus.publish({ type, down }, { queue: false })
+  }
+
   // Consumer projection: the wire shape the driver sees for a pulled bus event.
   const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
     if (ev.type === 'settled') {
@@ -205,7 +223,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         : { type: 'settled', settled: w.id, status: 'down', reason: w.reason }
     }
     if (ev.type === 'question') return { type: 'question', question: ev.question }
-    return { type: 'finding', ...ev.finding }
+    if (ev.type === 'finding') return { type: 'finding', ...ev.finding }
+    // Down-leg kinds are record-only (never queued), so the driver never pulls them; project
+    // defensively for completeness.
+    return { type: ev.type, ...ev.down }
   }
 
   const nextQuestionId = (from: string): string => `${from}:q${questionSeq++}`
@@ -330,7 +351,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     },
     {
       name: 'steer_worker',
-      description: 'Deliver an out-of-band instruction to a running worker inbox.',
+      description: 'Deliver an out-of-band instruction to a running worker inbox (parent→child).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -339,12 +360,34 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         },
         required: ['workerId', 'instruction'],
       },
-      handler: (raw) => {
+      handler: async (raw) => {
         const a = obj(raw)
-        const delivered = opts.scope.send(str(a.workerId, 'workerId'), {
-          steer: str(a.instruction, 'instruction'),
-        })
-        return Promise.resolve({ delivered })
+        const workerId = str(a.workerId, 'workerId')
+        const instruction = str(a.instruction, 'instruction')
+        const delivered = opts.scope.send(workerId, { steer: instruction })
+        await sendDown('steer', { toWorker: workerId, instruction, delivered })
+        return { delivered }
+      },
+    },
+    {
+      name: 'resume_worker',
+      description:
+        'Resume a parked/idle worker with a follow-up message, continuing its session (parent→child).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          workerId: idArg,
+          message: { type: 'string', description: 'The follow-up to continue the worker with.' },
+        },
+        required: ['workerId', 'message'],
+      },
+      handler: async (raw) => {
+        const a = obj(raw)
+        const workerId = str(a.workerId, 'workerId')
+        const message = str(a.message, 'message')
+        const delivered = opts.scope.send(workerId, { resume: message })
+        await sendDown('resume', { toWorker: workerId, instruction: message, delivered })
+        return { delivered }
       },
     },
     {
@@ -422,17 +465,27 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         },
         required: ['questionId'],
       },
-      handler: (raw) => {
+      handler: async (raw) => {
         const a = obj(raw)
         const questionId = str(a.questionId, 'questionId')
         if (typeof a.answer === 'string' && a.answer.length > 0) {
-          return Promise.resolve({
-            question: decideQuestion(questionId, {
-              kind: 'answer',
-              answer: a.answer,
-              by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
-            }),
+          const answer = a.answer
+          const question = decideQuestion(questionId, {
+            kind: 'answer',
+            answer,
+            by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
           })
+          // Route the answer DOWN to the worker that asked, unparking it, and record the down-leg.
+          const delivered = opts.scope.send(question.from, { answer, questionId })
+          await bus.publish(
+            {
+              type: 'answer',
+              questionId,
+              down: { toWorker: question.from, instruction: answer, delivered },
+            },
+            { queue: false },
+          )
+          return { question }
         }
         if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {
           return Promise.resolve({

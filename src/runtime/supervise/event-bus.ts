@@ -40,6 +40,10 @@ export interface PublishOptions {
   /** Higher = pulled ahead of lower-priority queued events (default 0). A blocking question sets
    *  this so it bumps to the front of the driver's inbox. */
   readonly priority?: number
+  /** Whether the event enters the pull queue (default true). Set `false` for record-only events —
+   *  the parent→child down-leg (steer / answer / resume): they belong in `history()` and reach
+   *  `subscribe` observers, but the parent must never `pull` its own outbound message back. */
+  readonly queue?: boolean
 }
 
 export interface BusStats {
@@ -99,7 +103,8 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
   return {
     async publish(event, opts) {
       const record: BusRecord<E> = { seq: seq++, at: now(), priority: opts?.priority ?? 0, event }
-      queue.push(record)
+      // Record-only events (the down-leg) skip the pull queue but still hit the log + subscribers.
+      if (opts?.queue !== false) queue.push(record)
       log.push(record)
       byKind[event.type] = (byKind[event.type] ?? 0) + 1
       // Sequential, not Promise.all: a subscriber that steers off this event must observe a

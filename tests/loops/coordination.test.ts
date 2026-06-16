@@ -188,7 +188,15 @@ describe('coordination tools', () => {
       stopped: true,
     })
     expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
-    expect(emitted).toEqual([{ type: 'question', question: expect.objectContaining(r.question) }])
+    // The pass-through trail records BOTH legs: the question up, then the answer routed down.
+    expect(emitted).toEqual([
+      { type: 'question', question: expect.objectContaining(r.question) },
+      {
+        type: 'answer',
+        questionId: r.question.id,
+        down: { toWorker: 'driver-1', instruction: 'Target v2.', delivered: false },
+      },
+    ])
   })
 
   it('list_analysts surfaces the menu and run_analyst applies a lens to a settled worker', async () => {
@@ -262,6 +270,38 @@ describe('coordination tools', () => {
     // The history audit trail recorded both, in publish order, with the bumped priority stamped.
     expect(tb.history().map((r) => r.priority)).toEqual([0, 20])
     expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
+  })
+
+  it('steer_worker and resume_worker route down + record in history but are never pulled back', async () => {
+    const { scope, sent } = mockScope()
+    const emitted: Array<{ type: string }> = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (e) => emitted.push(e),
+    })
+    expect(await tool(tb, 'steer_worker').handler({ workerId: 'w0', instruction: 'do X' })).toEqual(
+      {
+        delivered: true,
+      },
+    )
+    expect(
+      await tool(tb, 'resume_worker').handler({ workerId: 'w0', message: 'continue' }),
+    ).toEqual({
+      delivered: true,
+    })
+    // Both reached the child inbox (down delivery)...
+    expect(sent).toEqual([
+      { id: 'w0', msg: { steer: 'do X' } },
+      { id: 'w0', msg: { resume: 'continue' } },
+    ])
+    // ...and were recorded for observability (pass-through + history)...
+    expect(emitted.map((e) => e.type)).toEqual(['steer', 'resume'])
+    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'resume'])
+    // ...but the parent never pulls its own outbound messages back.
+    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
   })
 
   it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
