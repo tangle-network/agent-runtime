@@ -134,7 +134,7 @@ export interface MultiHarnessCoderFanoutOptions {
  * @deprecated Prefer the generic recursive combinator `worktreeCoderFanout(...)`
  *   (`@tangle-network/agent-runtime/runtime`): a `fanout` of authored harness profiles on their
  *   own worktree-CLI leaves, each `gateOnDeliverable(coderDeliverable(...))`, winner via
- *   `defaultSelectWinner` (or a `selectWinner` strategy). This `runLoop`-driver form is retained as
+ *   a valid-only `selectWinner` strategy (not `defaultSelectWinner`, whose non-valid fallback surfaces an ungated patch). This `runLoop`-driver form is retained as
  *   the SANDBOX-session topology `createDefaultCoderDelegate` drives and is re-exported for
  *   published consumers; it is not the canonical path for new code.
  *

@@ -292,7 +292,7 @@ export {
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type CoderDeliverableOptions, coderDeliverable } from './supervise/coder-deliverable'
 // The generic coding combinator: a fanout of authored harness profiles, each on its own
-// worktree-CLI leaf, each gated by `coderDeliverable`, winner via `defaultSelectWinner`.
+// worktree-CLI leaf, each gated by `coderDeliverable`, winner via a valid-only selector (not `defaultSelectWinner`).
 export {
   type AuthoredCoderHarness,
   type CoderWinnerStrategy,

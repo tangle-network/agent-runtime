@@ -199,7 +199,7 @@ export interface WorktreeCoderLoopRunnerOptions {
  * `runPersonified` on the keystone Supervisor. This is the local-repo counterpart to
  * {@link coderLoopRunner} (which drives the in-box harness over a `SandboxClient`): no `runLoop`
  * driver, no role-coupled delegate — the harness list is the fanout, the gate is `coderDeliverable`,
- * the winner is `defaultSelectWinner`. Equal-k holds by the conserved budget pool. Returns the
+ * the winner is a valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the
  * winning patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
  */
 export function worktreeCoderLoopRunner(

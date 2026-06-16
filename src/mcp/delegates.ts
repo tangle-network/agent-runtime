@@ -187,7 +187,7 @@ export interface CreateDefaultCoderDelegateOptions {
  * @deprecated Prefer the generic recursive path for NEW local-repo coding work: author an
  *   `AgentProfile` per harness and run `worktreeCoderFanout(...)` (the `fanout` of
  *   `createWorktreeCliExecutor` leaves, each `gateOnDeliverable(coderDeliverable(...))`, winner
- *   via `defaultSelectWinner`) through `runPersonified`. This factory stays as the injection seam
+ *   via a valid-only `selectWinner`) through `runPersonified`. This factory stays as the injection seam
  *   `createMcpServer` consumes for SANDBOX-session delegation + detached resume; it will remain
  *   until the worktree-CLI leaf grows the detached-tick resume equivalent.
  *
