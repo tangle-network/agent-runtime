@@ -117,11 +117,19 @@ type PreSeqSettled =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
-      /** A driver child's OWN-inference subtree total (from `ExecutorResult.metered`) — journaled
-       *  as a `metered` event for this node, NOT reconciled (already debited live via `observe`). */
+      /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
+       *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
       metered?: Spend
     }
-  | { kind: 'down'; reason: string; infra: boolean; restartCount: number }
+  | {
+      kind: 'down'
+      reason: string
+      infra: boolean
+      restartCount: number
+      /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
+       *  too, so the journal matches the pool (which already debited it via `observe`). */
+      metered?: Spend
+    }
 
 /**
  * The recursion seam key. A `Scope` seeds a value of this on each child's
@@ -445,6 +453,17 @@ async function finalizeSettlement<Out>(
       seq,
       at: new Date(now()).toISOString(),
     })
+    // Re-home a crashed driver child's partial inference too (the pool already debited it via
+    // `observe`) — so spentTotal/trajectory never undercount a sub-driver that died mid-run.
+    if (settlement.metered) {
+      await args.journal.appendEvent(args.root, {
+        kind: 'metered',
+        id: child.id,
+        spend: settlement.metered,
+        seq,
+        at: new Date(now()).toISOString(),
+      })
+    }
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -579,9 +598,13 @@ async function runChild<C>(
       reconcileOnce(terminal.spent)
     }
 
+    // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
+    // (done, aborted, crash) so the journal always matches what the pool already debited.
+    const ownMetered = executor.metered?.()
+
     if (childAbort.signal.aborted) {
       await teardownSafe(executor, opts.shutdown ?? 'brutalKill')
-      return downRecord('aborted before settle', true)
+      return downRecord('aborted before settle', true, ownMetered)
     }
 
     // The durable record is keyed by the canonical content address of the output — the
@@ -599,14 +622,15 @@ async function runChild<C>(
       outRef,
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
-      ...(artifact.metered ? { metered: artifact.metered } : {}),
+      ...(ownMetered ? { metered: ownMetered } : {}),
     }
   } catch (err) {
     // Reconcile the (likely partial) spend so the reservation is refunded even on a throw.
     reconcileOnce(live.spent)
     await teardownSafe(executor, 'brutalKill')
     const aborted = childAbort.signal.aborted || isAbortError(err)
-    return downRecord(errMessage(err), aborted || isInfraError(err))
+    // A crashed driver child still re-homes the partial inference it durably metered.
+    return downRecord(errMessage(err), aborted || isInfraError(err), executor.metered?.())
   }
 }
 
@@ -725,8 +749,8 @@ async function teardownSafe<C>(
   }
 }
 
-function downRecord(reason: string, infra: boolean): PreSeqSettled {
-  return { kind: 'down', reason, infra, restartCount: 0 }
+function downRecord(reason: string, infra: boolean, metered?: Spend): PreSeqSettled {
+  return { kind: 'down', reason, infra, restartCount: 0, ...(metered ? { metered } : {}) }
 }
 
 function zeroSpend(): Spend {

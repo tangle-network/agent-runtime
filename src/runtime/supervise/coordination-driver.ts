@@ -90,10 +90,11 @@ export interface CoordinationDriverOptions {
   readonly now?: () => number
 }
 
-/** maxTurns=0 anti-runaway tripwire: a finite ceiling that only catches a DEGENERATE driver
- *  looping on a no-spawn tool (the driver's own inference tokens are not yet metered against
- *  the conserved pool, so they alone cannot drain it). The conserved pool + deadline + abort
- *  are the real bounds; no healthy run approaches this. */
+/** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
+ *  bound — a driver whose chat seam reports NO usage (so `scope.meter`/`pool.observe` is never
+ *  called and its turns don't drain the pool). With a usage-reporting seam, driver inference now
+ *  meters into the pool and `poolStarved` halts it; the pool + deadline + abort are the real bounds
+ *  and no healthy run approaches this. */
 const runawayTripwireTurns = 2000
 
 /** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to

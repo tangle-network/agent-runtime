@@ -1,6 +1,10 @@
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  materializeTreeView,
+} from '../../src/durable/spawn-journal'
 import { trajectoryReport } from '../../src/runtime/personify/trajectory'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import {
@@ -159,7 +163,7 @@ describe("driver inference metering — the driver's own tokens count against th
       return worker
     }
 
-    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65.
+    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65 tokens, $0.05 (re-homed up).
     const midProfile: P = {
       kind: 'driver',
       name: 'mid',
@@ -169,16 +173,18 @@ describe("driver inference metering — the driver's own tokens count against th
             { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
           ],
           usage: { input: 60, output: 40 },
+          costUsd: 0.05,
         },
         { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 30, output: 20 } },
         { content: 'mid done', usage: { input: 10, output: 5 } },
       ],
     }
-    // root driver inference = 100/50 + 50/30 + 20/10 = 170/90.
+    // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
         toolCalls: [{ name: 'spawn_worker', arguments: { profile: midProfile, task: 'go' } }],
         usage: { input: 100, output: 50 },
+        costUsd: 0.02,
       },
       { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 50, output: 30 } },
       { content: 'root done', usage: { input: 20, output: 10 } },
@@ -188,7 +194,7 @@ describe("driver inference metering — the driver's own tokens count against th
       coordinationDriverAgent(driverOf('root', rootChat)),
       'task',
       {
-        budget: { maxIterations: 100, maxTokens: 100_000 },
+        budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
         runId: 'nested',
         journal,
         blobs,
@@ -200,11 +206,95 @@ describe("driver inference metering — the driver's own tokens count against th
 
     expect(result.kind).toBe('winner')
     if (result.kind !== 'winner') return
-    // childWork = the worker (10/5). driverInference = root (170/90) + mid (100/65) = 270/155 —
-    // the mid sub-driver's inference re-homed up to the root tree. spentTotal = 280/160.
+    // childWork = the worker (10/5). driverInference = root (170/90, $0.02) + mid (100/65, $0.05) —
+    // the mid sub-driver's inference re-homed up to the root tree, BOTH tokens AND usd. spentTotal = 280/160.
+    expect(result.spentBreakdown?.driverInference.usd).toBeCloseTo(0.07, 6)
     expect(result.spentBreakdown?.childWork.tokens).toEqual({ input: 10, output: 5 })
     expect(result.spentBreakdown?.driverInference.tokens).toEqual({ input: 270, output: 155 })
     expect(result.spentTotal.tokens).toEqual({ input: 280, output: 160 })
+  })
+
+  it('re-homes a CRASHED sub-driver partial inference on the down path (pool and journal stay in agreement)', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+
+    // A sub-driver that meters turn 0 (40/20) then CRASHES (chat throws) on turn 1 — the crash
+    // settles it `down`, which must STILL re-home the partial inference it durably metered.
+    const makeAgent = (raw: unknown): Agent<unknown, unknown> => {
+      const p = raw as { kind?: string }
+      if (p?.kind === 'driver') {
+        let t = 0
+        const crashingChat: DriverChat = {
+          next: async () => {
+            t += 1
+            if (t === 1)
+              return {
+                toolCalls: [{ name: 'list_questions', arguments: {} }],
+                usage: { input: 40, output: 20 },
+              }
+            throw new Error('sub-driver network crash')
+          },
+        }
+        return driverChild(
+          'mid',
+          coordinationDriverAgent({
+            name: 'mid',
+            chat: crashingChat,
+            blobs,
+            makeWorkerAgent: makeAgent,
+            perWorker,
+            systemPrompt: 'drive',
+            maxTurns: 8,
+          }),
+          journal,
+        )
+      }
+      return workerLeaf('w', { input: 1, output: 1 })
+    }
+    const rootChat = meteredChat([
+      {
+        toolCalls: [
+          { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'go' } },
+        ],
+        usage: { input: 100, output: 50 },
+      },
+      { toolCalls: [{ name: 'await_next', arguments: {} }] }, // drains the sub-driver's down settlement
+      { content: 'root done' }, // no usage → root inference = 100/50
+    ])
+
+    await createSupervisor<unknown, unknown>().run(
+      coordinationDriverAgent({
+        name: 'root',
+        chat: rootChat,
+        blobs,
+        makeWorkerAgent: makeAgent,
+        perWorker,
+        systemPrompt: 'drive',
+        maxTurns: 8,
+      }),
+      'task',
+      {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'crash',
+        journal,
+        blobs,
+        executors: withDriverExecutor(createExecutorRegistry()),
+        maxDepth: 4,
+        now: () => 0,
+      },
+    )
+
+    // The crashed sub-driver (node `crash:s0`) settled `down`, yet its partial inference (40/20) was
+    // re-homed into the root tree as a `metered` event — so the journal matches what the pool debited.
+    const events = (await journal.loadTree('crash')) ?? []
+    const subMetered = events.filter(
+      (e): e is Extract<(typeof events)[number], { kind: 'metered' }> =>
+        e.kind === 'metered' && e.id === 'crash:s0',
+    )
+    expect(subMetered.length).toBe(1)
+    expect(subMetered[0]!.spend.tokens).toEqual({ input: 40, output: 20 })
+    // Before the down-path re-home, this event would be absent → the sub-driver's inference would
+    // live in the pool but not the journal (a silent undercount). Now it's present.
   })
 
   it('maxTurns=0 is bounded by inference: a never-stopping driver halts when its OWN tokens drain the pool', async () => {
@@ -426,6 +516,54 @@ describe('equal-k ledger — trajectoryReport sums driver inference from the jou
     // The root node's ownSpend carries the inference; the worker node carries the child work.
     const rootNode = report.nodes.find((n) => n.id === 'arm')
     expect(rootNode?.ownSpend.tokens).toEqual({ input: 210, output: 100 })
+  })
+
+  it('materializeTreeView folds metered driver inference onto node snapshots (resume fidelity)', () => {
+    const at = new Date(0).toISOString()
+    const view = materializeTreeView([
+      {
+        kind: 'spawned',
+        id: 'r',
+        label: 'root',
+        budget: { maxIterations: 1, maxTokens: 1 },
+        runtime: 'inline',
+        seq: 0,
+        at,
+      },
+      {
+        kind: 'spawned',
+        id: 'r:s0',
+        parent: 'r',
+        label: 'w',
+        budget: { maxIterations: 1, maxTokens: 1 },
+        runtime: 'router',
+        seq: 1,
+        at,
+      },
+      {
+        kind: 'settled',
+        id: 'r:s0',
+        status: 'done',
+        outRef: 'x',
+        spent: { iterations: 1, tokens: { input: 10, output: 5 }, usd: 0, ms: 0 },
+        seq: 0,
+        at,
+      },
+      // metered seq 0 deliberately collides with the settled seq 0 — the separate additive pass
+      // makes it order-independent, and a resumed tree must reflect the driver's inference.
+      {
+        kind: 'metered',
+        id: 'r',
+        spend: { iterations: 0, tokens: { input: 70, output: 30 }, usd: 0.01, ms: 0 },
+        seq: 0,
+        at,
+      },
+    ])
+    const root = view.nodes.find((n) => n.id === 'r')
+    expect(root?.spent.tokens).toEqual({ input: 70, output: 30 }) // metered folded onto the root node
+    expect(root?.spent.usd).toBeCloseTo(0.01, 6)
+    const worker = view.nodes.find((n) => n.id === 'r:s0')
+    expect(worker?.spent.tokens).toEqual({ input: 10, output: 5 }) // settled child work intact
   })
 })
 

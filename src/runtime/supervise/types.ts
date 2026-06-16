@@ -102,6 +102,15 @@ export interface Executor<Out> {
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */
   resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }
+  /**
+   * A driver-executor's OWN-inference subtree total (rolled up from its nested tree's `metered`
+   * events) — the parent scope journals it as a `metered` event for this node on settle, on BOTH
+   * the done AND the down/crash paths, so a crashed sub-driver's partial inference still re-homes
+   * (the pool already debited it via `observe`; the journal must match). NOT reconciled, so it never
+   * trips the reservation clamp. Read on settle, valid after `execute` resolves OR throws. Leaf
+   * executors omit it (returns `undefined`).
+   */
+  metered?(): Spend | undefined
 }
 
 /** Terminal artifact of a one-shot `Executor.execute`. */
@@ -110,11 +119,6 @@ export interface ExecutorResult<Out> {
   out: Out
   verdict?: DefaultVerdict
   spent: Spend
-  /** A driver-executor's OWN-inference subtree total, rolled up from its nested tree's `metered`
-   *  events. The parent scope journals it as a `metered` event for this node — NOT reconciled (it
-   *  was already debited live via the pool's `observe`), so it never trips the reservation clamp.
-   *  Leaf executors omit it. */
-  metered?: Spend
 }
 
 /**
