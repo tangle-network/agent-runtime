@@ -27,8 +27,8 @@ import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
 import type { Corpus } from './personify/wave-types'
-import { withDriverExecutor } from './supervise/driver-executor'
 import { routerToolLoop } from './router-client'
+import { withDriverExecutor } from './supervise/driver-executor'
 import { createSupervisor } from './supervise/supervisor'
 import type {
   Agent,

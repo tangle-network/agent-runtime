@@ -103,7 +103,11 @@ export function createWaterfallCollector(): WaterfallCollector {
       totalTokens.input += s.tokens.input
       totalTokens.output += s.tokens.output
       const kind = s.label.includes(':') ? (s.label.split(':')[0] as string) : s.label
-      const k = (byKind[kind] ??= { count: 0, ms: 0, usd: 0, tokens: { input: 0, output: 0 } })
+      let k = byKind[kind]
+      if (!k) {
+        k = { count: 0, ms: 0, usd: 0, tokens: { input: 0, output: 0 } }
+        byKind[kind] = k
+      }
       k.count += 1
       k.ms += (s.endMs ?? s.startMs) - s.startMs
       k.usd += s.usd
