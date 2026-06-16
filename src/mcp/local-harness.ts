@@ -128,6 +128,13 @@ export function runLocalHarness(options: RunLocalHarnessOptions): Promise<LocalH
       return
     }
 
+    // The harness takes its task as an argv arg, not on stdin. Leaving stdin
+    // OPEN makes a non-TTY `opencode run` (and likely the other harnesses)
+    // BLOCK forever waiting on input — zero output, SIGTERM at the wall cap,
+    // empty patch -> "no candidate passed validation". Close stdin so the
+    // subprocess sees EOF and proceeds (the `cliExecutor` leaf does the same).
+    child.stdin?.end()
+
     let stdout = ''
     let stderr = ''
     let timedOut = false
