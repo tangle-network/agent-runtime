@@ -1003,8 +1003,8 @@ export async function runAgentic(opts: RunAgenticOptions): Promise<AgenticRunRes
         : `no-winner: ${result.reason}`
     throw new Error(`runAgentic(${strategy.name}) produced no result — ${reason}`)
   }
-  // Drivers deliver the strategy outcome; the cost vector is stamped here from the
-  // conserved pool's aggregate (every shot reported real usage into it) + wall clock.
+  // Drivers deliver the strategy outcome; the cost vector is stamped here from `result.spentTotal`
+  // (the journal aggregate: settled child work + metered driver inference) + wall clock.
   const core = result.out.deliverable as Omit<AgenticRunResult, 'usd' | 'ms' | 'tokens'>
   return {
     ...core,

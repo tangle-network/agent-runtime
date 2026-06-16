@@ -10,6 +10,7 @@ import {
   type DriverMessage,
   type DriverTurn,
 } from '../../src/runtime/supervise/coordination-driver'
+import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -127,6 +128,83 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(result.spentTotal.tokens).toEqual({ input: 220, output: 105 })
     expect(result.spentTotal.usd).toBeCloseTo(0.02, 6)
     expect(result.spentTotal.iterations).toBe(1) // the worker's 1 iteration; driver turns aren't charged here
+  })
+
+  it('re-homes a NESTED sub-driver inference up the tree: spentTotal counts every level (no silent undercount at depth)', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const worker = workerLeaf('leaf', { input: 10, output: 5 })
+
+    // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
+    // a driverChild wrapping another coordinationDriverAgent; a 'worker' profile becomes the leaf.
+    type P = { kind: 'driver'; name: string; turns: DriverTurn[] } | { kind: 'worker' }
+    const driverOf = (name: string, chat: DriverChat): CoordinationDriverOptions => ({
+      name,
+      chat,
+      blobs,
+      makeWorkerAgent: makeAgent,
+      perWorker,
+      systemPrompt: 'drive',
+      maxTurns: 8,
+    })
+    function makeAgent(raw: unknown): Agent<unknown, unknown> {
+      const p = raw as P
+      if (p?.kind === 'driver') {
+        return driverChild(
+          p.name,
+          coordinationDriverAgent(driverOf(p.name, meteredChat(p.turns))),
+          journal,
+        )
+      }
+      return worker
+    }
+
+    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65.
+    const midProfile: P = {
+      kind: 'driver',
+      name: 'mid',
+      turns: [
+        {
+          toolCalls: [
+            { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
+          ],
+          usage: { input: 60, output: 40 },
+        },
+        { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 30, output: 20 } },
+        { content: 'mid done', usage: { input: 10, output: 5 } },
+      ],
+    }
+    // root driver inference = 100/50 + 50/30 + 20/10 = 170/90.
+    const rootChat = meteredChat([
+      {
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile: midProfile, task: 'go' } }],
+        usage: { input: 100, output: 50 },
+      },
+      { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 50, output: 30 } },
+      { content: 'root done', usage: { input: 20, output: 10 } },
+    ])
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      coordinationDriverAgent(driverOf('root', rootChat)),
+      'task',
+      {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'nested',
+        journal,
+        blobs,
+        executors: withDriverExecutor(createExecutorRegistry()),
+        maxDepth: 4,
+        now: () => 0,
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    // childWork = the worker (10/5). driverInference = root (170/90) + mid (100/65) = 270/155 —
+    // the mid sub-driver's inference re-homed up to the root tree. spentTotal = 280/160.
+    expect(result.spentBreakdown?.childWork.tokens).toEqual({ input: 10, output: 5 })
+    expect(result.spentBreakdown?.driverInference.tokens).toEqual({ input: 270, output: 155 })
+    expect(result.spentTotal.tokens).toEqual({ input: 280, output: 160 })
   })
 
   it('maxTurns=0 is bounded by inference: a never-stopping driver halts when its OWN tokens drain the pool', async () => {
@@ -294,8 +372,8 @@ describe("driver inference metering — the driver's own tokens count against th
   })
 })
 
-describe('equal-k ledger reconciliation — trajectoryReport.extraRootSpend folds in driver inference', () => {
-  it('without extraRootSpend the journal total is child-work only; with it, total matches spentTotal', async () => {
+describe('equal-k ledger — trajectoryReport sums driver inference from the journal automatically', () => {
+  it('trajectoryReport.total includes driver inference from the journal automatically, matching spentTotal', async () => {
     const journal = new InMemorySpawnJournal()
     const blobs = new InMemoryResultBlobStore()
     const at = new Date(0).toISOString()
@@ -330,45 +408,42 @@ describe('equal-k ledger reconciliation — trajectoryReport.extraRootSpend fold
       seq: 0,
       at,
     })
-
-    // Default: the journal sum is child-work only — the latent divergence vs SupervisedResult.spentTotal.
-    const childOnly = await trajectoryReport(journal, blobs, 'arm')
-    expect(childOnly.total.tokens).toEqual({ input: 10, output: 5 })
-
-    // Pass the run's driverInference (from result.spentBreakdown) → total now equals spentTotal,
-    // so equalKOnCost credits the driver arm for its OWN inference. The ledgers agree.
-    const driverInference = { iterations: 0, tokens: { input: 210, output: 100 }, usd: 0.02, ms: 0 }
-    const reconciled = await trajectoryReport(journal, blobs, 'arm', {
-      extraRootSpend: driverInference,
+    // The driver's OWN inference is a `metered` event on the root node — exactly what Scope.meter
+    // journals each turn. ONE ledger: trajectoryReport reads it automatically, no caller plumbing.
+    await journal.appendEvent('arm', {
+      kind: 'metered',
+      id: 'arm',
+      spend: { iterations: 0, tokens: { input: 210, output: 100 }, usd: 0.02, ms: 0 },
+      seq: 0,
+      at,
     })
-    expect(reconciled.total.tokens).toEqual({ input: 220, output: 105 })
-    expect(reconciled.total.usd).toBeCloseTo(0.02, 6)
+
+    // trajectoryReport.total (→ equalKOnCost) now includes the driver inference by construction —
+    // childWork (10/5) + driverInference (210/100) = 220/105 — matching SupervisedResult.spentTotal.
+    const report = await trajectoryReport(journal, blobs, 'arm')
+    expect(report.total.tokens).toEqual({ input: 220, output: 105 })
+    expect(report.total.usd).toBeCloseTo(0.02, 6)
+    // The root node's ownSpend carries the inference; the worker node carries the child work.
+    const rootNode = report.nodes.find((n) => n.id === 'arm')
+    expect(rootNode?.ownSpend.tokens).toEqual({ input: 210, output: 100 })
   })
 })
 
-describe('budget pool — observe() debits the conserved pool, observedTotal() tracks driver inference', () => {
-  it('moves free → committed (invariant preserved), accumulates observedTotal, and drives tokensLeft negative on overspend', () => {
+describe('budget pool — observe() debits the conserved pool for the live in-loop guard', () => {
+  it('moves free → committed (invariant preserved) and drives the readout negative on overspend', () => {
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 5 }, () => 0)
     expect(pool.readout().tokensLeft).toBe(1000)
+    expect(pool.readout().usdLeft).toBe(5)
 
     pool.observe({ iterations: 1, tokens: { input: 100, output: 50 }, usd: 0.5, ms: 0 })
     expect(pool.readout().tokensLeft).toBe(850) // 1000 - 150
-    expect(pool.observedTotal()).toEqual({
-      iterations: 1,
-      tokens: { input: 100, output: 50 },
-      usd: 0.5,
-      ms: 0,
-    })
+    expect(pool.readout().usdLeft).toBe(4.5)
 
-    // A second observe accumulates and can overshoot — free goes negative, an honest exhaustion signal.
+    // A second observe overshoots — free goes negative, the honest exhaustion signal poolStarved reads.
     pool.observe({ iterations: 1, tokens: { input: 800, output: 200 }, usd: 1, ms: 0 })
     expect(pool.readout().tokensLeft).toBe(-150) // 850 - 1000
-    expect(pool.observedTotal()).toEqual({
-      iterations: 2,
-      tokens: { input: 900, output: 250 },
-      usd: 1.5,
-      ms: 0,
-    })
+    expect(pool.readout().usdLeft).toBe(3.5)
+    expect(pool.readout().usdCapped).toBe(true)
     // observe never opens a ticket — the leak detector stays clean.
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
   })

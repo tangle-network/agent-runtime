@@ -110,6 +110,11 @@ export interface ExecutorResult<Out> {
   out: Out
   verdict?: DefaultVerdict
   spent: Spend
+  /** A driver-executor's OWN-inference subtree total, rolled up from its nested tree's `metered`
+   *  events. The parent scope journals it as a `metered` event for this node — NOT reconciled (it
+   *  was already debited live via the pool's `observe`), so it never trips the reservation clamp.
+   *  Leaf executors omit it. */
+  metered?: Spend
 }
 
 /**
@@ -303,10 +308,13 @@ export interface Scope<Out> {
    * real tokens/usd but not a spawned child (no reserve/reconcile). A direct `free → committed`
    * debit, so equal-k counts the driver's tokens AND the in-loop budget guard (`budget.tokensLeft`)
    * halts a driver that thinks the pool dry. `detail` rides an `agent.turn` trace event for live
-   * observability (turn index, tool calls, cumulative spend). The supervisor folds the run-wide
-   * observed total into `spentTotal`. A leaf never calls this; a driver meters each chat turn.
+   * observability (turn index, tool calls, cumulative spend). It also journals a `metered` event —
+   * the durable twin of the pool debit (as `settled` is the twin of `reconcile`) — so every
+   * journal-based cost reader (`spentFromJournal`, `trajectoryReport`) sums driver inference
+   * automatically. A leaf never calls this; a driver meters each chat turn and awaits it (the
+   * metered event is cost-critical, so it lands before the join-barrier roll-up).
    */
-  meter(spend: Spend, detail?: Record<string, unknown>): void
+  meter(spend: Spend, detail?: Record<string, unknown>): Promise<void>
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
@@ -370,6 +378,20 @@ export type SpawnEvent =
       at: string
     }
   | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
+  | {
+      /** A driver's OWN inference spend, journaled separately from spawned-child work — the journal
+       *  TWIN of `BudgetPool.observe`, exactly as `settled` is the twin of `reconcile`. So every
+       *  journal-based cost reader sums it automatically — the journal is the single cost ledger.
+       *  It carries spend only and is NOT a settlement: replay + `materializeTreeView` skip it for
+       *  structure, and its `seq` lives outside the cursor-uniqueness namespace. A
+       *  driver re-homes its nested subtree's metered total up to its parent (like settled spend),
+       *  so summing any sub-tree root yields that sub-tree's true driver-inference cost. */
+      kind: 'metered'
+      id: NodeId
+      spend: Spend
+      seq: number
+      at: string
+    }
 
 /**
  * The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape).

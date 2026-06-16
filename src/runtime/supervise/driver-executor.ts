@@ -148,10 +148,15 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
       // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
       const out = await driver.act(task, nestedScope)
 
-      // Read the nested tree's settled events ONCE — the same evidence the supervisor's
-      // `spentTotal` reads — and roll up both the conserved spend AND the delivery verdict.
-      const settled = await loadSettled(journal, nestedRoot)
+      // Read the nested tree's events ONCE. Two roll-ups, kept separate so the conserved invariant
+      // is not double-charged:
+      //  - `spent` = settled child WORK → reconciled against THIS driver's reservation (as before).
+      //  - `metered` = the nested subtree's driver INFERENCE → re-homed by the parent scope as a
+      //    `metered` event, NOT reconciled (already pool-debited live via `observe`).
+      const events = await loadTreeEvents(journal, nestedRoot)
+      const settled = events.filter(isSettled)
       const spent = sumSpend(settled)
+      const metered = sumMetered(events)
       // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
       // children settled `valid` (the child its keep-best finalize returns). Deriving the
       // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
@@ -163,6 +168,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
         out,
         spent,
         ...(verdict ? { verdict } : {}),
+        ...(isNonZeroSpend(metered) ? { metered } : {}),
       }
       return artifact
     },
@@ -222,25 +228,24 @@ function nextNestOrdinal(journal: SpawnJournal): number {
   return c.n++
 }
 
-/** The nested tree's `settled` events — the one evidence list the spend AND verdict roll-ups
- *  both read off the same journal the supervisor sums. */
-async function loadSettled(
-  journal: SpawnJournal,
-  nestedRoot: string,
-): Promise<Extract<SpawnEvent, { kind: 'settled' }>[]> {
+/** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
+ *  roll-ups read off the same journal the supervisor sums. */
+async function loadTreeEvents(journal: SpawnJournal, nestedRoot: string): Promise<SpawnEvent[]> {
   const events = await journal.loadTree(nestedRoot)
   if (events === undefined) {
     throw new ValidationError(
       `driverExecutor: nested tree '${nestedRoot}' missing from the journal after run (corrupted log)`,
     )
   }
-  return events.filter(
-    (ev): ev is Extract<SpawnEvent, { kind: 'settled' }> => ev.kind === 'settled',
-  )
+  return events
+}
+
+function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' }> {
+  return ev.kind === 'settled'
 }
 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel
- *  roll-up of the whole sub-tree. */
+ *  roll-up of the whole sub-tree's child WORK. */
 function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
   const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
   for (const ev of settled) {
@@ -251,6 +256,26 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
     total.ms += ev.spent.ms
   }
   return total
+}
+
+/** Sum the nested tree's `metered` events — the sub-tree's whole driver INFERENCE (this driver's
+ *  own turns + any sub-driver inference already re-homed into this tree). Re-homed up to the parent
+ *  as one `metered` event; never reconciled (already pool-debited live via `observe`). */
+function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
+  const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  for (const ev of events) {
+    if (ev.kind !== 'metered') continue
+    total.iterations += ev.spend.iterations
+    total.tokens.input += ev.spend.tokens.input
+    total.tokens.output += ev.spend.tokens.output
+    total.usd += ev.spend.usd
+    total.ms += ev.spend.ms
+  }
+  return total
+}
+
+function isNonZeroSpend(s: Spend): boolean {
+  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
 }
 
 /** Derive the driver child's delivery verdict from its DIRECT children's settlements:

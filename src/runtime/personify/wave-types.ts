@@ -541,14 +541,6 @@ export interface TrajectoryReport {
 export interface TrajectoryReportOptions {
   /** Rehydrate each `done` node's `output` from the blob store. Off by default (cost-only report). */
   readonly withOutputs?: boolean
-  /**
-   * Spend to add to the ROOT node before roll-up — the drivers' OWN inference that `Scope.meter`
-   * debited against the conserved pool but never journaled (it is not a spawned child). A
-   * coordination-driver equal-k arm passes `result.spentBreakdown?.driverInference` here so
-   * `report.total` (→ `equalKOnCost`) matches `SupervisedResult.spentTotal` — the two cost ledgers
-   * agree. Omit for a fanout/combinator arm (those never meter; the journal sum is the whole cost).
-   */
-  readonly extraRootSpend?: Spend
 }
 
 /** `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). */

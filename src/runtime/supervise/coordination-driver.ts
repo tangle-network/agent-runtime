@@ -180,7 +180,7 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
             usd: res.costUsd ?? 0,
             ms: 0,
           }
-          scope.meter(turnSpend, {
+          await scope.meter(turnSpend, {
             kind: 'driver-inference',
             driver: opts.name,
             turn,

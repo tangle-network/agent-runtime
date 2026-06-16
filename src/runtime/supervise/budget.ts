@@ -76,12 +76,10 @@ export interface BudgetPool {
    * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
    * when a run overspends — that is honest (the readout then signals exhaustion). It never throws:
    * the spend already happened, so accounting records reality; the in-loop guard prevents MORE.
+   * The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
+   * only makes the live `readout()` reflect driver inference for the in-loop guard.
    */
   observe(spend: Spend): void
-  /** Running total of all `observe`d spend (the drivers' own inference across the whole tree —
-   *  every nested scope shares this ONE pool). Added to `spentTotal` so the reported number
-   *  includes the driver's tokens, separable from spawned-child work. */
-  observedTotal(): Spend
   /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
@@ -150,10 +148,6 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   let committedIterations = 0
 
   const absoluteDeadlineMs = root.deadlineMs !== undefined ? now() + root.deadlineMs : 0
-
-  // Observed (non-reserved) spend — the drivers' own inference. Tracked separately so it can be
-  // reported as a distinct line (`observedTotal`) while also debiting the shared conserved pool.
-  const observed: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
 
   let nextTicketId = 0
   const open = new Set<number>()
@@ -243,27 +237,14 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
+    // The DURABLE record of this spend is the journal's `metered` event (the twin written by
+    // `Scope.meter`); this debit exists only to make the live `readout()` reflect driver inference.
     freeTokens -= tokens
     committedTokens += tokens
     freeIterations -= spend.iterations
     committedIterations += spend.iterations
     committedUsd += spend.usd
     if (usdCapped) freeUsd -= spend.usd
-    // Track it as its own line for the spend breakdown.
-    observed.iterations += spend.iterations
-    observed.tokens.input += spend.tokens.input
-    observed.tokens.output += spend.tokens.output
-    observed.usd += spend.usd
-    observed.ms += spend.ms
-  }
-
-  function observedTotal(): Spend {
-    return {
-      iterations: observed.iterations,
-      tokens: { input: observed.tokens.input, output: observed.tokens.output },
-      usd: observed.usd,
-      ms: observed.ms,
-    }
   }
 
   function readout(): BudgetReadout {
@@ -290,7 +271,6 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     spendFrom: foldUsage,
     readout,
     observe,
-    observedTotal,
     assertNoOpenTickets,
   }
 }

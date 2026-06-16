@@ -111,7 +111,16 @@ interface LiveChild {
 
 /** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
 type PreSeqSettled =
-  | { kind: 'done'; out: unknown; outRef: string; verdict?: DefaultVerdict; spent: Spend }
+  | {
+      kind: 'done'
+      out: unknown
+      outRef: string
+      verdict?: DefaultVerdict
+      spent: Spend
+      /** A driver child's OWN-inference subtree total (from `ExecutorResult.metered`) — journaled
+       *  as a `metered` event for this node, NOT reconciled (already debited live via `observe`). */
+      metered?: Spend
+    }
   | { kind: 'down'; reason: string; infra: boolean; restartCount: number }
 
 /**
@@ -360,16 +369,28 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     return true
   }
 
-  function meter(spend: Spend, detail?: Record<string, unknown>): void {
+  async function meter(spend: Spend, detail?: Record<string, unknown>): Promise<void> {
+    const seq = meterSeq++
     // Debit the driver's own inference against the shared conserved pool (free → committed), so
-    // equal-k counts it and `budget.tokensLeft` reflects it for the in-loop guard.
+    // equal-k counts it live and `budget.tokensLeft` reflects it for the in-loop guard.
     args.pool.observe(spend)
+    // Journal it as a `metered` event — the durable TWIN of the pool debit (as `settled` is the
+    // twin of `reconcile`), so every journal-based cost reader sums driver inference automatically.
+    // Awaited like the settled append (cost-critical), so it has landed before the supervisor's
+    // join-barrier cost roll-up.
+    await args.journal.appendEvent(args.root, {
+      kind: 'metered',
+      id: args.parentId,
+      spend,
+      seq,
+      at: new Date(now()).toISOString(),
+    })
     // Emit it as an `agent.turn` event so the trace/topology view sees per-turn driver inference
     // (the same stream `spawn`/`next` feed — one observable tree).
     notifyRuntimeHookEvent(
       args.hooks,
       {
-        id: `${args.parentId}:meter:${meterSeq++}`,
+        id: `${args.parentId}:meter:${seq}`,
         runId: args.root,
         target: 'agent.turn',
         phase: 'after',
@@ -467,6 +488,18 @@ async function finalizeSettlement<Out>(
     seq,
     at: new Date(now()).toISOString(),
   })
+  // Re-home a driver child's OWN-inference subtree total up to THIS (parent) tree as a `metered`
+  // event for the child node — mirroring how `settled.spent` rolls child WORK up. So summing any
+  // sub-tree root yields its true driver-inference cost, NOT reconciled (already pool-debited).
+  if (settlement.metered) {
+    await args.journal.appendEvent(args.root, {
+      kind: 'metered',
+      id: child.id,
+      spend: settlement.metered,
+      seq,
+      at: new Date(now()).toISOString(),
+    })
+  }
   notifyRuntimeHookEvent(
     args.hooks,
     {
@@ -566,6 +599,7 @@ async function runChild<C>(
       outRef,
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
+      ...(artifact.metered ? { metered: artifact.metered } : {}),
     }
   } catch (err) {
     // Reconcile the (likely partial) spend so the reservation is refunded even on a throw.
