@@ -255,3 +255,120 @@ function collectTreeKeys(journal: InMemorySpawnJournal): string[] {
   const trees = (journal as unknown as { trees: Map<string, unknown> }).trees
   return [...trees.keys()]
 }
+
+// `list_questions` is always present (no analysts needed), has no side effects, and reserves no
+// budget — the ideal benign tool for driving the loop a fixed number of turns.
+const benignTurn: DriverTurn = { toolCalls: [{ name: 'list_questions', arguments: {} }] }
+const dummyWorker = (_p: unknown): Agent<unknown, unknown> =>
+  workerLeaf('w', { out: {}, tokens: { input: 0, output: 0 }, iterations: 0, score: 0 })
+
+function bounds0Opts(name: string, chat: DriverChat): CoordinationDriverOptions {
+  return {
+    name,
+    chat,
+    blobs: SHARED_BLOBS,
+    makeWorkerAgent: dummyWorker,
+    perWorker,
+    systemPrompt: 'drive',
+    maxTurns: 0,
+  }
+}
+
+describe('coordinationDriverAgent — maxTurns=0 lifts the turn cap; the conserved pool + deadline + abort are the bounds', () => {
+  it('rejects a negative maxTurns (fail loud — no silent zero-turn run)', () => {
+    const opts = { ...bounds0Opts('root', scriptedChat([], [])), maxTurns: -1 }
+    expect(() => coordinationDriverAgent(opts)).toThrow(/maxTurns must be >= 0/)
+  })
+
+  it('stops when the conserved pool can no longer afford a worker (the in-loop budget bound)', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: DriverMessage[][] = []
+    // A driver that NEVER stops on its own — only the pool bound can halt this loop.
+    const chat = scriptedChat([benignTurn], seen)
+    const opts: CoordinationDriverOptions = {
+      name: 'root',
+      chat,
+      blobs: SHARED_BLOBS,
+      makeWorkerAgent: dummyWorker,
+      // A worker needs more tokens than the whole run pool holds → no worker is ever affordable.
+      perWorker: { maxIterations: 4, maxTokens: 5000 },
+      systemPrompt: 'drive',
+      maxTurns: 0,
+    }
+    const root = coordinationDriverAgent(opts)
+    const result = await createSupervisor<unknown, unknown>().run(root, 'x', {
+      budget: { maxIterations: 100, maxTokens: 1000 }, // < perWorker.maxTokens, nothing reserved
+      runId: 'mt0-starved',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+    // Pool starved at turn 0 → the loop breaks before burning a single driver turn (no spinning to
+    // the tripwire), and finalizes honestly: nothing delivered → no winner.
+    expect(seen.length).toBe(0)
+    expect(result.kind).toBe('no-winner')
+  })
+
+  it('runs the driver PAST the default 16-turn cap until it stops on its own', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: DriverMessage[][] = []
+    // 20 benign turns then a no-tool-call stop: a run the old default (16) would have force-finalized.
+    const turns: DriverTurn[] = Array.from({ length: 20 }, () => benignTurn)
+    turns.push({ content: 'nothing left to do' })
+    const chat = scriptedChat(turns, seen)
+
+    const root = coordinationDriverAgent(bounds0Opts('root', chat))
+    await createSupervisor<unknown, unknown>().run(root, 'long task', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'mt0',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+
+    // 20 benign turns + 1 stop = 21 driver turns — proof maxTurns=0 blew past the old 16 cap
+    // instead of force-finalizing at it.
+    expect(seen.length).toBe(21)
+  })
+
+  it('breaks the unlimited loop the moment the scope signal aborts (mid-loop)', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: DriverMessage[][] = []
+    const ac = new AbortController()
+    let n = 0
+    // A chat that NEVER stops on its own (always asks for another benign tool call) — without the
+    // abort break this would spin to the 100k backstop. It aborts the run on its 3rd turn.
+    const chat: DriverChat = {
+      next: async (input) => {
+        seen.push([...input.messages])
+        n += 1
+        if (n === 3) ac.abort()
+        return benignTurn
+      },
+    }
+
+    const root = coordinationDriverAgent(bounds0Opts('root', chat))
+    const result = await createSupervisor<unknown, unknown>().run(root, 'never-ending', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'mt0-abort',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      signal: ac.signal,
+      now: () => 0,
+    })
+
+    // Turns 0,1,2 ran; the abort fired on turn 2 and turn 3's top-of-loop check broke out — so the
+    // never-stopping driver halted at 3 turns, not 100k. The driver delivered nothing → no winner.
+    expect(seen.length).toBe(3)
+    expect(result.kind).toBe('no-winner')
+  })
+})

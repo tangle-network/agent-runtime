@@ -74,8 +74,34 @@ export interface CoordinationDriverOptions {
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
-  /** Max driver turns before the loop force-finalizes on the best settled child. Default 16. */
+  /** Max driver turns before the loop force-finalizes on the best settled child. Default 16.
+   *  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
+   *  an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
+   *  anti-runaway tripwire still guards a degenerate driver that loops on a no-spawn tool. */
   readonly maxTurns?: number
+  /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
+   *  deterministic in tests. Defaults to `Date.now`. */
+  readonly now?: () => number
+}
+
+/** maxTurns=0 anti-runaway tripwire: a finite ceiling that only catches a DEGENERATE driver
+ *  looping on a no-spawn tool (the driver's own inference tokens are not yet metered against
+ *  the conserved pool, so they alone cannot drain it). The conserved pool + deadline + abort
+ *  are the real bounds; no healthy run approaches this. */
+const runawayTripwireTurns = 2000
+
+/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight
+ *  to await. A long-horizon driver bounded by the conserved pool stops here instead of spinning
+ *  (the in-loop budget guard the turn cap alone never provided). */
+function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
+  const b = scope.budget
+  return b.tokensLeft < perWorker.maxTokens && b.reservedTokens <= 0
+}
+
+/** The absolute wall-clock deadline (when the root set one) has passed. */
+function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
+  const b = scope.budget
+  return b.deadlineMs > 0 && now() >= b.deadlineMs
 }
 
 /**
@@ -86,7 +112,19 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
   if (typeof opts.chat?.next !== 'function') {
     throw new ValidationError('coordinationDriverAgent: opts.chat.next must be a function')
   }
-  const maxTurns = opts.maxTurns ?? 16
+  // Fail loud on a nonsensical cap: a negative maxTurns would silently run zero turns and
+  // finalize an empty no-winner — a silent zero the house rules forbid.
+  if (opts.maxTurns !== undefined && opts.maxTurns < 0) {
+    throw new ValidationError(
+      'coordinationDriverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
+    )
+  }
+  // maxTurns=0 lifts the turn-COUNT cap: a long-horizon decomposition must not die on an
+  // arbitrary number of turns. It is bounded instead by the conserved budget pool, an absolute
+  // deadline, the driver's own stop, and abort — all checked in-loop below. The tripwire is a
+  // pure anti-runaway guard, NOT the intended limit.
+  const maxTurns = opts.maxTurns === 0 ? runawayTripwireTurns : (opts.maxTurns ?? 16)
+  const now = opts.now ?? Date.now
 
   return {
     name: opts.name,
@@ -108,7 +146,11 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
       const messages: DriverMessage[] = [{ role: 'user', content: stringifyTask(task) }]
 
       for (let turn = 0; turn < maxTurns; turn += 1) {
-        if (coord.isStopped()) break
+        if (coord.isStopped() || scope.signal.aborted) break
+        // The conserved-pool + deadline bound — what maxTurns=0 relies on. A driver that can no
+        // longer spawn a worker (pool starved) or has run past the deadline stops here instead of
+        // burning turns; the turn cap alone never made the budget the real bound.
+        if (poolStarved(scope, opts.perWorker) || deadlinePassed(scope, now)) break
         const res = await opts.chat.next({ system, messages, tools: toolSpecs })
         const calls = res.toolCalls ?? []
         if (calls.length === 0) {

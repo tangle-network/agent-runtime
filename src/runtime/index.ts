@@ -329,6 +329,10 @@ export {
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export { type BusEvent, createEventBus, type EventBus } from './supervise/event-bus'
+// The production `DriverChat`: adapt the router's tool-calling to the seam a
+// `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
+// brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
+export { routerDriverChat } from './supervise/router-driver-chat'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {

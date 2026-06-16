@@ -293,6 +293,11 @@ export interface Scope<Out> {
    * is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an MCP tool.
    */
   send(nodeId: NodeId, msg: unknown): boolean
+  /** This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
+   *  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
+   *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
+   *  scope carries its own signal, chained off its driver child's abort. */
+  readonly signal: AbortSignal
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
