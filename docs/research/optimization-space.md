@@ -9,7 +9,7 @@ evidence keeps coming back null-or-marginal, while the region the canon names as
 actual success criterion (the across-run flywheel, Gate B) has **n=0 measurements**.
 
 This doc holds the taxonomy and the canon-compatibility audit. One stress-test doc per
-layer lives beside it (`layer-*.md`).
+layer lives beside it (the per-layer notes were retired into `.evolve/current.json`, 2026-06-15).
 
 ## Why axes, not layers
 
@@ -99,7 +99,7 @@ Checked against `architecture.md`, `learning-flywheel.md`, `eval-substrate.md`,
   (grow the ISA) being gated on findings reaching the planner.
 - Platform-served intelligence is a **deployment-topology choice**, not an architecture
   violation — the kernel owns Scope/MCP/profiles; analysis attaches via hooks
-  (architecture §1b). See `layer-intelligence-serving.md` for the one hard constraint
+  (architecture §1b). See the layer note for the one hard constraint
   (the judge firewall).
 
 **Corrections the canon forces on the new framing:**
@@ -117,7 +117,7 @@ Checked against `architecture.md`, `learning-flywheel.md`, `eval-substrate.md`,
   now needs the domain boundary added (EOPS depth win, canonical loop, +16.4pp).
 - Every gate run to date is single-objective, while architecture §0.5.2–0.5.3 mandates a
   multi-objective vector with per-objective deployable checkers. This is the **largest
-  internal inconsistency between practice and canon** — see `layer-economics.md`.
+  internal inconsistency between practice and canon** — see the layer note.
 - `.evolve/current.json` predates the canonical-loop result and the GEPA verdict; needs a
   state refresh (tracked separately from this doc set).
 
@@ -125,15 +125,15 @@ Checked against `architecture.md`, `learning-flywheel.md`, `eval-substrate.md`,
 
 Ranked by (decision-relevance × cheapness × independence):
 
-1. **Across-run corpus A/B** (`layer-across-run.md`) — primed-vs-cold at equal budget.
+1. **Across-run corpus A/B**  — primed-vs-cold at equal budget.
    The thesis test; doubles as the Tangle-Intelligence-value proof.
-2. **Cross-domain replication** (`layer-domain-generality.md`) — depth-vs-breadth on a
+2. **Cross-domain replication**  — depth-vs-breadth on a
    second gym split (csm or hr). Validates or bounds the headline result.
-3. **Multi-objective wiring** (`layer-economics.md`) — report the (correct, cost, wall)
+3. **Multi-objective wiring**  — report the (correct, cost, wall)
    vector per strategy; lift-per-dollar. Mostly harvest, machinery exists.
-4. **Topology evolution** (`layer-within-run.md`) — adaptiveRefine/mix vs refine vs
+4. **Topology evolution**  — adaptiveRefine/mix vs refine vs
    sample, n≥24 + holdout, the fitness fn already built.
-5. **Strategy-author skill** (`layer-agent-authored.md`) — an agent reads the losses and
+5. **Strategy-author skill**  — an agent reads the losses and
    emits a `defineStrategy`; gate scores it. Small build; IS the skillification goal.
 
 Explicitly **not** in the portfolio: more analyst-prompt GEPA (holdout-tied, flat

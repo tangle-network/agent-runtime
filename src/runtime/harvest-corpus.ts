@@ -17,7 +17,7 @@
  *
  * NOTE on the read side: harvesting is safe and cheap; *injecting* facts back into runs
  * is the measured danger zone — naive unconditional priming tested NEGATIVE (−11.6pp,
- * context pollution; docs/research/layer-across-run.md). Gate any priming design on its
+ * context pollution; result now in .evolve/current.json + memory). Gate any priming design on its
  * own A/B; the corpus's first consumers are operators and optimizers, not prompts.
  */
 
