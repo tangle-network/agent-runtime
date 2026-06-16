@@ -96,12 +96,18 @@ export interface CoordinationDriverOptions {
  *  are the real bounds; no healthy run approaches this. */
 const runawayTripwireTurns = 2000
 
-/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight
- *  to await. A long-horizon driver bounded by the conserved pool stops here instead of spinning
- *  (the in-loop budget guard the turn cap alone never provided). */
+/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
+ *  await. A long-horizon driver bounded by the conserved pool stops here instead of spinning (the
+ *  in-loop budget guard the turn cap alone never provided). Checks BOTH conserved channels: tokens
+ *  (can't afford a worker) and usd (a usd-capped pool whose ceiling the driver's own metered
+ *  inference has drained — `meter` debits usd, so without this a huge-token/small-usd pool would
+ *  overspend usd up to the turn tripwire). */
 function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
   const b = scope.budget
-  return b.tokensLeft < perWorker.maxTokens && b.reservedTokens <= 0
+  if (b.reservedTokens > 0) return false // a child is in flight — await it, don't finalize early
+  const tokenStarved = b.tokensLeft < perWorker.maxTokens
+  const usdStarved = b.usdCapped && b.usdLeft <= 0
+  return tokenStarved || usdStarved
 }
 
 /** The absolute wall-clock deadline (when the root set one) has passed. */

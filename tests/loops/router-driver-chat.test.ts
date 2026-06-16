@@ -134,4 +134,16 @@ describe('routerDriverChat — the production DriverChat seam over the router to
     expect(turn.usage).toBeUndefined()
     expect(turn.costUsd).toBeUndefined()
   })
+
+  it('forwards a real costUsd of 0 (a priced model on a free/zero-cost turn — not dropped)', async () => {
+    routerMock.mockResolvedValue({
+      content: 'x',
+      toolCalls: [],
+      usage: { input: 10, output: 0 },
+      costUsd: 0,
+    })
+    const turn = await routerDriverChat(cfg).next({ system: 'S', messages: [], tools: [] })
+    expect(turn.usage).toEqual({ input: 10, output: 0 })
+    expect(turn.costUsd).toBe(0) // typeof === 'number' guard forwards 0, doesn't drop it as absent
+  })
 })

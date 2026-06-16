@@ -313,6 +313,7 @@ export interface Scope<Out> {
   readonly budget: Readonly<{
     tokensLeft: number
     usdLeft: number
+    usdCapped: boolean
     deadlineMs: number
     reservedTokens: number
   }>

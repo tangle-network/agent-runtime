@@ -59,7 +59,9 @@ function meteredChat(turns: DriverTurn[]): DriverChat {
   let i = 0
   return {
     next: async () => {
-      const t = turns[Math.min(i, turns.length - 1)] ?? {}
+      // Past the script → a no-tool STOP turn (never silently repeat the last turn, which would
+      // loop forever if that turn carried tool calls).
+      const t = turns[i] ?? { content: 'stop' }
       i += 1
       return t
     },
@@ -228,6 +230,67 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(first.turn).toBe(0)
     expect(first.toolCalls).toEqual(['spawn_worker'])
     expect(first.spend.tokens.input).toBe(100)
+
+    // ALL three events carry the right per-turn detail (turn index increments; the stop turn's
+    // toolCalls are empty) — a typo in the detail spread would otherwise slip past.
+    const at = (i: number) =>
+      turnEvents[i]!.payload as {
+        turn: number
+        toolCalls: string[]
+        spend: { tokens: { input: number } }
+      }
+    expect(at(1).turn).toBe(1)
+    expect(at(1).toolCalls).toEqual(['await_next'])
+    expect(at(1).spend.tokens.input).toBe(80)
+    expect(at(2).turn).toBe(2)
+    expect(at(2).toolCalls).toEqual([]) // the stop turn named no tool
+    expect(at(2).spend.tokens.input).toBe(30)
+  })
+
+  it('maxTurns=0 is bounded by usd too: a usd-capped pool halts the driver when its inference drains the usd ceiling', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let n = 0
+    // A never-stopping driver with a HUGE token ceiling but a small usd cap: only the usd channel
+    // can bound it. Each turn costs $0.04 (and few tokens), so tokensLeft never trips poolStarved.
+    const chat: DriverChat = {
+      next: async () => {
+        n += 1
+        return {
+          toolCalls: [{ name: 'list_questions', arguments: {} }],
+          usage: { input: 5, output: 5 },
+          costUsd: 0.04,
+        }
+      },
+    }
+    const opts: CoordinationDriverOptions = {
+      name: 'root',
+      chat,
+      blobs,
+      makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
+      perWorker: { maxIterations: 4, maxTokens: 100 },
+      systemPrompt: 'drive',
+      maxTurns: 0,
+    }
+    const result = await createSupervisor<unknown, unknown>().run(
+      coordinationDriverAgent(opts),
+      'usd-bound',
+      {
+        budget: { maxIterations: 1000, maxTokens: 10_000_000, maxUsd: 0.1 }, // ~2-3 turns of $0.04 fit
+        runId: 'meter-usd-bound',
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        maxDepth: 2,
+        now: () => 0,
+      },
+    )
+
+    // usdLeft: 0.1 → 0.06 → 0.02 → -0.02; poolStarved's usd arm breaks at the top of turn 3
+    // (usdLeft -0.02 <= 0). The driver halts on USD — NOT the 2000-turn tripwire, NOT the token
+    // ceiling (10M tokens untouched). This is the MEDIUM fix: maxTurns=0 is usd-bounded too.
+    expect(n).toBe(3)
+    expect(result.kind).toBe('no-winner')
   })
 })
 

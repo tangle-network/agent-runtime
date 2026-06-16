@@ -448,7 +448,9 @@ function addSpend(a: Spend, b: Spend): Spend {
   }
 }
 
-/** True when any driver metered inference this run (so the winner carries a `spentBreakdown`). */
+/** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).
+ *  Checks every channel `addSpend` sums — including `ms` — so the gate stays consistent with the
+ *  total even though the coordination driver currently stamps `ms: 0`. */
 function isNonEmptySpend(s: Spend): boolean {
-  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0
+  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
 }
