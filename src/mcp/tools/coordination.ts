@@ -14,6 +14,7 @@ import type {
   Settled,
   Agent as SuperviseAgent,
 } from '../../runtime'
+import { createEventBus } from '../../runtime/supervise/event-bus'
 import type { McpToolDescriptor } from '../server'
 
 /** A worker the driver has drained via `await_next`. */
@@ -63,7 +64,19 @@ export interface AnalystRegistry {
   readonly run: (kindId: string, trace: unknown) => Promise<unknown>
 }
 
-export type CoordinationEvent = { readonly type: 'question'; readonly question: QuestionRecord }
+/** A trace-analyst result re-entered as a message on the bus (the `finding` event kind). */
+export interface AnalystFindingEvent {
+  readonly fromWorker: string
+  readonly analyst: string
+  readonly findings: unknown
+}
+
+/** Every message a worker/sub-driver/analyst sends up to the driver — the one typed pipe. New kinds
+ *  are additive: a `{type:'question'}` consumer keeps matching. */
+export type CoordinationEvent =
+  | { readonly type: 'question'; readonly question: QuestionRecord }
+  | { readonly type: 'settled'; readonly worker: SettledWorker }
+  | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
 
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
@@ -75,6 +88,11 @@ export interface CoordinationToolsOptions {
   readonly analysts?: AnalystRegistry
   readonly onEvent?: (event: CoordinationEvent) => void | Promise<void>
   readonly questionPolicy?: QuestionPolicy
+  /** Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
+   *  hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
+   *  and queued for the driver to pull via `await_event`. Omit/empty = no auto-analysis (default;
+   *  the driver can still run lenses on demand via `run_analyst`). Requires `analysts`. */
+  readonly analyzeOnSettle?: ReadonlyArray<string>
 }
 
 export interface CoordinationTools {
@@ -95,6 +113,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = []
   const questionPolicy = opts.questionPolicy ?? 'auto'
+
+  // The one child→parent pipe. `onEvent` (back-compat) becomes a pass-through subscriber, so every
+  // event kind — question, settled, finding — reaches it, and the driver pulls queued findings /
+  // questions via `await_event`.
+  const bus = createEventBus<CoordinationEvent>()
+  if (opts.onEvent) bus.subscribe(opts.onEvent)
 
   const str = (v: unknown, field: string): string => {
     if (typeof v !== 'string' || v.length === 0)
@@ -130,6 +154,44 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         : { id: s.handle.id, status: 'down', reason: s.reason }
     ledger.push(w)
     return w
+  }
+
+  // Producer: drain exactly one settlement from the scope cursor onto the bus (a `settled` event),
+  // then fire the analyst-on-settle hook — auto-run each configured lens over the worker's trace and
+  // publish its result as a `finding`. Returns false when the cursor is idle (no live workers). The
+  // cursor is a once-per-child source, so a settlement is produced at most once.
+  const drainSettlement = async (): Promise<boolean> => {
+    const s = await opts.scope.next()
+    if (!s) return false
+    const w = recordSettled(s)
+    await bus.publish({ type: 'settled', worker: w })
+    if (w.status === 'done' && w.outRef && opts.analysts && opts.analyzeOnSettle?.length) {
+      const trace = await opts.blobs.get(w.outRef)
+      for (const analyst of opts.analyzeOnSettle) {
+        const findings = await opts.analysts.run(analyst, trace)
+        await bus.publish({ type: 'finding', finding: { fromWorker: w.id, analyst, findings } })
+      }
+    }
+    return true
+  }
+
+  // Consumer projection: the wire shape the driver sees for a pulled bus event.
+  const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
+    if (ev.type === 'settled') {
+      const w = ev.worker
+      return w.status === 'done'
+        ? {
+            type: 'settled',
+            settled: w.id,
+            status: 'done',
+            score: w.score,
+            valid: w.valid,
+            outRef: w.outRef,
+          }
+        : { type: 'settled', settled: w.id, status: 'down', reason: w.reason }
+    }
+    if (ev.type === 'question') return { type: 'question', question: ev.question }
+    return { type: 'finding', ...ev.finding }
   }
 
   const nextQuestionId = (from: string): string => `${from}:q${questionSeq++}`
@@ -183,7 +245,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     question: QuestionRecord
     added: boolean
   }): Promise<QuestionRecord> => {
-    if (record.added) await opts.onEvent?.({ type: 'question', question: record.question })
+    if (record.added) await bus.publish({ type: 'question', question: record.question })
     return record.question
   }
   const decideQuestion = (questionId: string, decision: QuestionDecision): QuestionRecord => {
@@ -270,21 +332,54 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     {
       name: 'await_next',
       description:
-        'Wait for the next spawned worker to settle. Returns { idle: true } when none are live.',
+        'Wait for the next spawned worker to settle. Returns { idle: true } when none are live. ' +
+        '(A settle also fires any analyze-on-settle lenses, whose findings queue for await_event.)',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => {
-        const s = await opts.scope.next()
-        if (!s) return { idle: true }
-        const w = recordSettled(s)
+        if (bus.pending(['settled']) === 0 && !(await drainSettlement())) return { idle: true }
+        const ev = bus.pull(['settled'])
+        if (!ev || ev.type !== 'settled') return { idle: true }
+        const w = ev.worker
         return w.status === 'done'
-          ? {
-              settled: w.id,
-              status: 'done',
-              score: w.score,
-              valid: w.valid,
-              outRef: w.outRef,
-            }
+          ? { settled: w.id, status: 'done', score: w.score, valid: w.valid, outRef: w.outRef }
           : { settled: w.id, status: 'down', reason: w.reason }
+      },
+    },
+    {
+      name: 'await_event',
+      description:
+        'Pull the next message a worker, sub-driver, or analyst sent up — the unified inbox. An ' +
+        "event is one of: a settled worker output ('settled'), a question needing your answer " +
+        "('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
+        "('finding', from analyze-on-settle). Optional `kinds` filters which to wait for. Returns " +
+        '{ idle: true } when nothing is queued and no workers are live. Prefer this over await_next ' +
+        'when you also want questions and findings, not just settlements.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: ['settled', 'question', 'finding'] },
+            description: 'Restrict to these event kinds (any if omitted).',
+          },
+        },
+      },
+      handler: async (raw) => {
+        const k = obj(raw).kinds
+        const kinds = Array.isArray(k)
+          ? (k.filter((x) => x === 'settled' || x === 'question' || x === 'finding') as Array<
+              CoordinationEvent['type']
+            >)
+          : undefined
+        // Already-queued async messages (findings, questions) first; else drive the cursor to
+        // produce the next settlement (and its findings), then re-pull.
+        let ev = bus.pull(kinds)
+        if (!ev) {
+          const drained = await drainSettlement()
+          ev = bus.pull(kinds)
+          if (!ev) return { idle: !drained }
+        }
+        return projectEvent(ev)
       },
     },
     {

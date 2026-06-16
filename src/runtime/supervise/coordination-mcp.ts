@@ -14,7 +14,13 @@
 
 import { createServer, type Server } from 'node:http'
 import { createMcpServer } from '../../mcp/server'
-import { createCoordinationTools, type MakeWorkerAgent } from '../../mcp/tools/coordination'
+import {
+  type AnalystRegistry,
+  type CoordinationEvent,
+  createCoordinationTools,
+  type MakeWorkerAgent,
+  type QuestionPolicy,
+} from '../../mcp/tools/coordination'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
 export interface CoordinationMcpHandle {
@@ -36,12 +42,23 @@ export async function serveCoordinationMcp(opts: {
   perWorker: Budget
   port?: number
   host?: string
+  /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
+  analysts?: AnalystRegistry
+  /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
+  analyzeOnSettle?: ReadonlyArray<string>
+  /** Pass-through subscriber for every bus event (settled / question / finding). */
+  onEvent?: (event: CoordinationEvent) => void | Promise<void>
+  questionPolicy?: QuestionPolicy
 }): Promise<CoordinationMcpHandle> {
   const coord = createCoordinationTools({
     scope: opts.scope,
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
     perWorker: opts.perWorker,
+    ...(opts.analysts ? { analysts: opts.analysts } : {}),
+    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
+    ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
+    ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
   })
   const mcp = createMcpServer({ extraTools: coord.tools, serverName: 'coordination' })
   const host = opts.host ?? '127.0.0.1'
