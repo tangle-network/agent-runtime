@@ -174,12 +174,20 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // driver already selected.
         const outRef = contentAddress(out)
         await opts.blobs.put(outRef, out)
+        // `spentTotal` = the spawned children's reconciled spend (the journal sum) PLUS the drivers'
+        // OWN inference (metered via `Scope.meter` → `pool.observe`, the run-wide observed total).
+        // The breakdown keeps the two separable — the A++ view of where the tokens went.
+        const childWork = await spentTotalFromJournal(journal, opts.runId)
+        const driverInference = pool.observedTotal()
         return {
           kind: 'winner',
           out,
           outRef,
           tree,
-          spentTotal: await spentTotalFromJournal(journal, opts.runId),
+          spentTotal: addSpend(childWork, driverInference),
+          ...(isNonEmptySpend(driverInference)
+            ? { spentBreakdown: { driverInference, childWork } }
+            : {}),
         }
       }
       return {
@@ -427,4 +435,20 @@ async function spentTotalFromJournal(journal: SpawnJournal, root: string): Promi
     total.ms += ev.spent.ms
   }
   return total
+}
+
+/** Sum two conserved-spend tallies per channel — the child-work journal sum + the drivers' own
+ *  metered inference, so `spentTotal` is the true cost of the run. */
+function addSpend(a: Spend, b: Spend): Spend {
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usd: a.usd + b.usd,
+    ms: a.ms + b.ms,
+  }
+}
+
+/** True when any driver metered inference this run (so the winner carries a `spentBreakdown`). */
+function isNonEmptySpend(s: Spend): boolean {
+  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0
 }

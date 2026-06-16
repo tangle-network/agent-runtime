@@ -298,6 +298,15 @@ export interface Scope<Out> {
    *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
    *  scope carries its own signal, chained off its driver child's abort. */
   readonly signal: AbortSignal
+  /**
+   * Meter the driver's OWN compute against the conserved pool — its inference turns, which are
+   * real tokens/usd but not a spawned child (no reserve/reconcile). A direct `free → committed`
+   * debit, so equal-k counts the driver's tokens AND the in-loop budget guard (`budget.tokensLeft`)
+   * halts a driver that thinks the pool dry. `detail` rides an `agent.turn` trace event for live
+   * observability (turn index, tool calls, cumulative spend). The supervisor folds the run-wide
+   * observed total into `spentTotal`. A leaf never calls this; a driver meters each chat turn.
+   */
+  meter(spend: Spend, detail?: Record<string, unknown>): void
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
@@ -427,6 +436,10 @@ export type SupervisedResult<Out> =
       verdict?: DefaultVerdict
       tree: TreeView
       spentTotal: Spend
+      /** Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
+       *  `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
+       *  `driverInference + childWork === spentTotal`. Present whenever any driver metered. */
+      spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
   | {
       kind: 'no-winner'

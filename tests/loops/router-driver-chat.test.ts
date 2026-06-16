@@ -115,4 +115,23 @@ describe('routerDriverChat — the production DriverChat seam over the router to
     const [, , , opts] = routerMock.mock.calls[0]!
     expect(opts).toEqual({ temperature: 0.1, toolChoice: 'auto' })
   })
+
+  it('forwards the router usage + costUsd so the driver can meter its inference', async () => {
+    routerMock.mockResolvedValue({
+      content: 'x',
+      toolCalls: [],
+      usage: { input: 120, output: 45 },
+      costUsd: 0.013,
+    })
+    const turn = await routerDriverChat(cfg).next({ system: 'S', messages: [], tools: [] })
+    expect(turn.usage).toEqual({ input: 120, output: 45 })
+    expect(turn.costUsd).toBe(0.013)
+  })
+
+  it('omits usage/costUsd when the router reports none (a scripted/offline turn meters nothing)', async () => {
+    routerMock.mockResolvedValue({ content: 'x', toolCalls: [] })
+    const turn = await routerDriverChat(cfg).next({ system: 'S', messages: [], tools: [] })
+    expect(turn.usage).toBeUndefined()
+    expect(turn.costUsd).toBeUndefined()
+  })
 })

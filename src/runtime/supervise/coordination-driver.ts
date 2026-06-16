@@ -27,7 +27,7 @@
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools, type MakeWorkerAgent } from '../../mcp/tools/coordination'
-import type { Agent, Budget, ResultBlobStore, Scope } from './types'
+import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
 /** One tool call the driver LLM asks for this turn. */
 export interface DriverToolCall {
@@ -50,6 +50,12 @@ export interface DriverTurn {
   readonly toolCalls?: ReadonlyArray<DriverToolCall>
   /** The driver's natural-language output — the answer when there are no tool calls. */
   readonly content?: string
+  /** The driver LLM's OWN token usage for THIS turn — metered against the conserved pool so the
+   *  driver's inference counts toward equal-k AND the in-loop budget guard. Omit for a scripted/
+   *  mock turn (no real inference); production `routerDriverChat` forwards it from the router. */
+  readonly usage?: { readonly input: number; readonly output: number }
+  /** The turn's inference cost (usd), when the provider priced it. */
+  readonly costUsd?: number
 }
 
 /** The injected driver-LLM seam: one turn over the conversation + the coordination tool specs. */
@@ -153,6 +159,28 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         if (poolStarved(scope, opts.perWorker) || deadlinePassed(scope, now)) break
         const res = await opts.chat.next({ system, messages, tools: toolSpecs })
         const calls = res.toolCalls ?? []
+        // Meter the driver's OWN inference for this turn — the largest single token consumer in an
+        // agentic loop, and the one the conserved pool never saw. Only when the turn carried real
+        // usage: a scripted/mock turn meters nothing, so offline equal-k stays exact. This debit is
+        // what makes maxTurns=0 genuinely bounded — a thinking driver drains the pool → poolStarved.
+        if (res.usage || res.costUsd !== undefined) {
+          const turnSpend: Spend = {
+            // iterations:0 — the conserved iteration channel (`maxIterations`) budgets CHILD rounds,
+            // not driver turns; counting turns there would conflate the two AND make a driver arm's
+            // iteration count diverge from a blind arm's. The driver is bounded by maxTurns + the
+            // token/usd pool; its turn COUNT stays observable via the per-turn `agent.turn` events.
+            iterations: 0,
+            tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
+            usd: res.costUsd ?? 0,
+            ms: 0,
+          }
+          scope.meter(turnSpend, {
+            kind: 'driver-inference',
+            driver: opts.name,
+            turn,
+            toolCalls: calls.map((c) => c.name),
+          })
+        }
         if (calls.length === 0) {
           // The driver named no tool call — it is finished. Its deliverable is the best DELIVERED
           // child (the completion-oracle), NOT its own prose: a driver cannot self-declare done

@@ -66,6 +66,19 @@ export interface BudgetPool {
   spendFrom(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend>
   /** The current readout, reflecting all outstanding reservations. */
   readout(): BudgetReadout
+  /**
+   * Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
+   * (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
+   * debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
+   * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
+   * when a run overspends — that is honest (the readout then signals exhaustion). It never throws:
+   * the spend already happened, so accounting records reality; the in-loop guard prevents MORE.
+   */
+  observe(spend: Spend): void
+  /** Running total of all `observe`d spend (the drivers' own inference across the whole tree —
+   *  every nested scope shares this ONE pool). Added to `spentTotal` so the reported number
+   *  includes the driver's tokens, separable from spawned-child work. */
+  observedTotal(): Spend
   /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
@@ -134,6 +147,10 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   let committedIterations = 0
 
   const absoluteDeadlineMs = root.deadlineMs !== undefined ? now() + root.deadlineMs : 0
+
+  // Observed (non-reserved) spend — the drivers' own inference. Tracked separately so it can be
+  // reported as a distinct line (`observedTotal`) while also debiting the shared conserved pool.
+  const observed: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
 
   let nextTicketId = 0
   const open = new Set<number>()
@@ -219,6 +236,33 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     }
   }
 
+  function observe(spend: Spend): void {
+    const tokens = totalTokens(spend.tokens)
+    // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
+    // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
+    freeTokens -= tokens
+    committedTokens += tokens
+    freeIterations -= spend.iterations
+    committedIterations += spend.iterations
+    committedUsd += spend.usd
+    if (usdCapped) freeUsd -= spend.usd
+    // Track it as its own line for the spend breakdown.
+    observed.iterations += spend.iterations
+    observed.tokens.input += spend.tokens.input
+    observed.tokens.output += spend.tokens.output
+    observed.usd += spend.usd
+    observed.ms += spend.ms
+  }
+
+  function observedTotal(): Spend {
+    return {
+      iterations: observed.iterations,
+      tokens: { input: observed.tokens.input, output: observed.tokens.output },
+      usd: observed.usd,
+      ms: observed.ms,
+    }
+  }
+
   function readout(): BudgetReadout {
     return {
       tokensLeft: freeTokens,
@@ -241,6 +285,8 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     reconcile,
     spendFrom: foldUsage,
     readout,
+    observe,
+    observedTotal,
     assertNoOpenTickets,
   }
 }

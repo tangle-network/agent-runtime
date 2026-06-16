@@ -101,6 +101,22 @@ export async function trajectoryReport(
     if (ev.parent === undefined) continue
     requireNode(nodes, ev.parent, root).children.push(ev.id)
   }
+  // Fold the drivers' own metered inference (un-journaled — not a spawned child) onto the root
+  // node BEFORE roll-up, so `total` matches `SupervisedResult.spentTotal` and the equal-k gate
+  // counts the driver's tokens. Omitted ⇒ pure journal cost (the fanout/combinator arm case).
+  if (options.extraRootSpend) {
+    const r = requireNode(nodes, root, root)
+    const e = options.extraRootSpend
+    r.ownSpend = {
+      iterations: r.ownSpend.iterations + e.iterations,
+      tokens: {
+        input: r.ownSpend.tokens.input + e.tokens.input,
+        output: r.ownSpend.tokens.output + e.tokens.output,
+      },
+      usd: r.ownSpend.usd + e.usd,
+      ms: r.ownSpend.ms + e.ms,
+    }
+  }
   const rolledUp = rollUpSpend(nodes, root)
 
   if (options.withOutputs) {

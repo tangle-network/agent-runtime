@@ -179,6 +179,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // journal's per-tree uniqueness guard (which is scoped to the cursor namespace).
   let spawnOrdinal = 0
   let cursorSeq = 0
+  let meterSeq = 0
   const now = args.now ?? Date.now
 
   function spawn<C extends Out>(
@@ -359,11 +360,33 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     return true
   }
 
+  function meter(spend: Spend, detail?: Record<string, unknown>): void {
+    // Debit the driver's own inference against the shared conserved pool (free → committed), so
+    // equal-k counts it and `budget.tokensLeft` reflects it for the in-loop guard.
+    args.pool.observe(spend)
+    // Emit it as an `agent.turn` event so the trace/topology view sees per-turn driver inference
+    // (the same stream `spawn`/`next` feed — one observable tree).
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${args.parentId}:meter:${meterSeq++}`,
+        runId: args.root,
+        target: 'agent.turn',
+        phase: 'after',
+        timestamp: now(),
+        parentId: args.parentId,
+        payload: { spend, ...(detail ?? {}) },
+      },
+      { signal: args.signal },
+    )
+  }
+
   return {
     spawn,
     next,
     send,
     signal: args.signal,
+    meter,
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },
