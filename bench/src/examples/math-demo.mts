@@ -93,7 +93,7 @@ async function main(): Promise<void> {
     worker: {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey,
-      model: process.env.WORKER_MODEL ?? 'gpt-4o-mini',
+      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
       innerTurns: 6,
       temperature: 0.6,
     },

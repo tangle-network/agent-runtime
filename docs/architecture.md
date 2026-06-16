@@ -392,7 +392,7 @@ yet run the machine we built."
 **Gate A — RETRACTED to a TIE at power (POWER-16, 2026-06-13).** The headline
 +16.4pp depth>breadth result did **not** replicate when powered. On the canonical
 loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst + `defineStrategy`
-(`src/runtime/strategy.ts`) — the
+(`src/runtime/strategy.ts`), **not** the `runLoop`/`PlannerContext` path — the
 original signal was depth-steered continuation beating breadth (blind best-of-K) at
 equal compute under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins
 / 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice). At n=48

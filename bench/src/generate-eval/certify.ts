@@ -119,7 +119,7 @@ export async function discriminationGate(
 ): Promise<{ passed: boolean; detail: string }> {
   const baseUrl = opts.gateBaseUrl ?? process.env.EVAL_GATE_BASE_URL ?? 'https://router.tangle.tools/v1'
   const apiKey = opts.gateApiKey ?? process.env.EVAL_GATE_API_KEY ?? process.env.TANGLE_API_KEY
-  const model = opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'gpt-4.1'
+  const model = opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek-v4-flash'
   if (!apiKey) throw new Error('discrimination gate needs EVAL_GATE_API_KEY (or TANGLE_API_KEY)')
   const res = await routerChatWithUsage({ routerBaseUrl: baseUrl, routerKey: apiKey, model }, [
     { role: 'user', content: taskToPrompt(candidate) },
@@ -142,7 +142,7 @@ export async function certifyEval(candidate: GeneratedEval, opts: CertifyOpts = 
       schemaVersion: generatedEvalSchemaVersion,
       groundingPassed: true,
       parametricFailed: true,
-      parametricModel: opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'gpt-4.1',
+      parametricModel: opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek-v4-flash',
       resolvedTarget: declaredTarget(candidate.setup),
       certifiedAt: new Date().toISOString(),
       certifier: certifierId,
