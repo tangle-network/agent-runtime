@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * Serve the coordination verbs (spawn_worker / await_next / observe_worker / steer_worker / stop)
+ * Serve the coordination verbs (spawn_worker / await_event / observe_worker / steer_worker / stop)
  * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
  * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
  * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on

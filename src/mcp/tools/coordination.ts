@@ -17,7 +17,7 @@ import type {
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { McpToolDescriptor } from '../server'
 
-/** A worker the driver has drained via `await_next`. */
+/** A worker the driver has drained via `await_event`. */
 export interface SettledWorker {
   readonly id: string
   readonly status: 'done' | 'down'
@@ -80,15 +80,14 @@ export interface DownMessageEvent {
 }
 
 /** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
- *  the driver to `pull`. DOWN (parent→child): steer / answer / resume — record-only (history +
- *  subscribers), routed to the child inbox. New kinds are additive. */
+ *  the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
+ *  routed to the child inbox. New kinds are additive. */
 export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
   | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
   | { readonly type: 'steer'; readonly down: DownMessageEvent }
   | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
-  | { readonly type: 'resume'; readonly down: DownMessageEvent }
 
 export type MakeWorkerAgent = (profile: unknown) => SuperviseAgent<unknown, unknown>
 
@@ -205,7 +204,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
   // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
   const sendDown = async (
-    type: 'steer' | 'resume' | 'answer',
+    type: 'steer' | 'answer',
     down: DownMessageEvent,
     questionId?: string,
   ): Promise<void> => {
@@ -359,7 +358,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     },
     {
       name: 'steer_worker',
-      description: 'Deliver an out-of-band instruction to a running worker inbox (parent→child).',
+      description:
+        'Send a message DOWN to a still-LIVE worker (parent→child): a new instruction, a course ' +
+        'correction, or a continuation. The worker drains it at its next step boundary — and before ' +
+        'it may settle, so it cannot finish while a message it never read is pending. A worker that ' +
+        'already settled is gone (returns delivered:false) — spawn a fresh one instead.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -385,53 +388,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       },
     },
     {
-      name: 'resume_worker',
-      description:
-        'Deliver a follow-up message to a still-LIVE worker, continuing its run (parent→child). ' +
-        'A worker that already settled (drained via await_next/await_event) is gone from the live ' +
-        'set and cannot be resumed — that returns delivered:false; spawn a fresh worker instead.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          workerId: idArg,
-          message: { type: 'string', description: 'The follow-up to continue the worker with.' },
-        },
-        required: ['workerId', 'message'],
-      },
-      handler: async (raw) => {
-        const a = obj(raw)
-        const workerId = str(a.workerId, 'workerId')
-        const message = str(a.message, 'message')
-        const delivered = opts.scope.send(workerId, { resume: message })
-        await sendDown('resume', { toWorker: workerId, instruction: message, delivered })
-        return { delivered }
-      },
-    },
-    {
-      name: 'await_next',
-      description:
-        'Wait for the next spawned worker to settle. Returns { idle: true } when none are live. ' +
-        '(A settle also fires any analyze-on-settle lenses, whose findings queue for await_event.)',
-      inputSchema: { type: 'object', properties: {} },
-      handler: async () => {
-        if (bus.pending(['settled']) === 0 && !(await drainSettlement())) return { idle: true }
-        const ev = bus.pull(['settled'])
-        if (!ev || ev.type !== 'settled') return { idle: true }
-        const w = ev.worker
-        return w.status === 'done'
-          ? { settled: w.id, status: 'done', score: w.score, valid: w.valid, outRef: w.outRef }
-          : { settled: w.id, status: 'down', reason: w.reason }
-      },
-    },
-    {
       name: 'await_event',
       description:
-        'Pull the next message a worker, sub-driver, or analyst sent up — the unified inbox. An ' +
-        "event is one of: a settled worker output ('settled'), a question needing your answer " +
-        "('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
-        "('finding', from analyze-on-settle). Optional `kinds` filters which to wait for. Returns " +
-        '{ idle: true } when nothing is queued and no workers are live. Prefer this over await_next ' +
-        'when you also want questions and findings, not just settlements.',
+        'Wait for and pull the next message a worker, sub-driver, or analyst sent up — the unified ' +
+        "inbox. An event is one of: a settled worker output ('settled'), a question needing your " +
+        "answer ('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
+        "('finding', from analyze-on-settle). Pass kinds:['settled'] for just the next finished " +
+        'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
+        'nothing is queued and no workers are live.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -499,8 +463,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             { toWorker: question.from, instruction: answer, delivered },
             questionId,
           )
-          // Surface `delivered` like steer_worker/resume_worker — the caller must see whether the
-          // answer actually reached a live worker (false when it parked/settled or has no inbox).
+          // Surface `delivered` like steer_worker — the caller must see whether the answer actually
+          // reached a live worker (false when it already settled or has no inbox).
           return { question, delivered }
         }
         if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {

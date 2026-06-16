@@ -6,14 +6,12 @@ describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
     const inbox = createInbox()
     inbox.deliver({ steer: 'do X' })
-    inbox.deliver({ resume: 'keep going' })
     inbox.deliver({ answer: 'use v2', questionId: 'q1' })
     inbox.deliver({ junk: true }) // ignored, never throws
     inbox.deliver(null)
     const drained = inbox.drain()
     expect(drained).toEqual([
       { kind: 'steer', text: 'do X', interrupt: false },
-      { kind: 'resume', text: 'keep going', interrupt: false },
       { kind: 'answer', text: 'use v2', interrupt: false, questionId: 'q1' },
     ])
     // drain is destructive

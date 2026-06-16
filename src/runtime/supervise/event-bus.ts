@@ -60,8 +60,6 @@ export interface EventBus<E extends BusEvent> {
   /** Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
   pull(kinds?: ReadonlyArray<E['type']>): E | undefined
-  /** Like `pull` but non-destructive — inspect the next event without consuming it. */
-  peek(kinds?: ReadonlyArray<E['type']>): E | undefined
   /** Register a pass-through handler; it receives the stamped record of every event published after
    *  registration. Returns an unsubscribe fn. */
   subscribe(handler: (record: BusRecord<E>) => void | Promise<void>): () => void
@@ -117,10 +115,6 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       if (i < 0) return undefined
       pulled++
       return queue.splice(i, 1)[0]?.event
-    },
-    peek(kinds) {
-      const i = bestIndex(kinds)
-      return i < 0 ? undefined : queue[i]?.event
     },
     subscribe(handler) {
       subscribers.push(handler)

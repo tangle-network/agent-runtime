@@ -53,7 +53,7 @@ export function supervisorSkill(opts?: { goal?: string }): string {
     '   • systemPrompt: rich, specific instructions for THIS sub-task — tell the worker exactly what to produce, how to use its tools fully, and what "done" means. Never a one-liner; write the prompt a power-user would write.',
     '   • model: the model best suited to this sub-task (omit to use the default).',
     '   NEVER spawn a worker with an empty profile. The quality of the worker IS the quality of the profile you write.',
-    '3. await_next to collect each worker. Its result says valid:true only if the deployable check passed.',
+    "3. await_event (kinds:['settled']) to collect each worker. Its result says valid:true only if the deployable check passed.",
     '4. If a worker did NOT deliver, AUTHOR A NEW worker whose systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same prompt.',
     '5. Stop (reply with no tool call) once the work is delivered. You cannot declare done yourself — only a delivered (valid:true) worker counts.',
     ...(opts?.goal ? ['', `The goal: ${opts.goal}`] : []),

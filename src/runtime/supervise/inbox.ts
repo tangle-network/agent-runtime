@@ -2,7 +2,7 @@
  * @experimental
  *
  * The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
- * `Executor.deliver`. The driver's `steer_worker` / `answer_question` / `resume_worker` land here,
+ * `Executor.deliver`. The driver's `steer_worker` / `answer_question` land here,
  * and the worker's agent loop drains them at two points (Drew's two delivery modes):
  *
  *   - QUEUED (default): the message accumulates and is FLUSHED at the next step boundary — folded
@@ -16,7 +16,7 @@
  */
 
 export interface InboxMessage {
-  readonly kind: 'steer' | 'answer' | 'resume'
+  readonly kind: 'steer' | 'answer'
   readonly text: string
   /** Forceful messages abort the in-flight turn; queued ones wait for the boundary flush. */
   readonly interrupt: boolean
@@ -42,7 +42,6 @@ function parseDown(msg: unknown): InboxMessage | undefined {
   const m = msg as Record<string, unknown>
   const interrupt = m.interrupt === true
   if (typeof m.steer === 'string') return { kind: 'steer', text: m.steer, interrupt }
-  if (typeof m.resume === 'string') return { kind: 'resume', text: m.resume, interrupt }
   if (typeof m.answer === 'string')
     return {
       kind: 'answer',
@@ -76,7 +75,6 @@ export function createInbox(): Inbox {
       const lines = messages.map((m) => {
         if (m.kind === 'answer')
           return `- Answer to your question${m.questionId ? ` (${m.questionId})` : ''}: ${m.text}`
-        if (m.kind === 'resume') return `- Continue: ${m.text}`
         return `- New instruction from your supervisor: ${m.text}`
       })
       return `[SUPERVISOR] Out-of-band message(s) — address these before continuing:\n${lines.join('\n')}`

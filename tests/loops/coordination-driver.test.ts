@@ -127,7 +127,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
             { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } },
           ],
         },
-        { toolCalls: [{ name: 'await_next', arguments: {} }] },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { content: 'done' },
       ],
       seen,
@@ -149,11 +149,11 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
     expect(result.kind).toBe('winner')
 
     // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains a
-    // `tool` message carrying the await_next settlement — i.e. the tool RESULT was folded back.
+    // `tool` message carrying the await_event settlement — i.e. the tool RESULT was folded back.
     const turn2Convo = seen[2]!
     const toolMsgs = turn2Convo.filter((m) => m.role === 'tool')
-    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_next result
-    expect(toolMsgs.some((m) => m.name === 'await_next' && m.content.includes('done'))).toBe(true)
+    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_event result
+    expect(toolMsgs.some((m) => m.name === 'await_event' && m.content.includes('done'))).toBe(true)
 
     // A real worker spawn is recorded in the journal (not a mock-bypassed result).
     const root_tree = (await journal.loadTree('cd')) as SpawnEvent[]
@@ -200,7 +200,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
             { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
           ],
         },
-        { toolCalls: [{ name: 'await_next', arguments: {} }] },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { content: 'mid done' },
       ],
     }
@@ -213,7 +213,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
             { name: 'spawn_worker', arguments: { profile: midProfile, task: 'delegate' } },
           ],
         },
-        { toolCalls: [{ name: 'await_next', arguments: {} }] },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { content: 'root done' },
       ],
       rootSeen,
@@ -237,7 +237,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
     // recorded the worker's settlement fed back — proof the inner agent reasoned, not scripted-bypassed.
     expect(midSeen.length).toBeGreaterThanOrEqual(2)
     const midToolMsgs = midSeen[midSeen.length - 1]!.filter((m) => m.role === 'tool')
-    expect(midToolMsgs.some((m) => m.name === 'await_next')).toBe(true)
+    expect(midToolMsgs.some((m) => m.name === 'await_event')).toBe(true)
 
     // A SEPARATE nested tree exists under the root — the mid driver's sub-tree, holding the
     // worker spawn. A non-recursive build (mid as a leaf) could not produce a nested tree.

@@ -120,7 +120,7 @@ describe('coordination tools', () => {
     })
   })
 
-  it('await_next drains settlements into the driver ledger', async () => {
+  it('await_event(settled) drains settlements into the driver ledger', async () => {
     const { scope } = mockScope()
     const settlements = [
       {
@@ -143,14 +143,15 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(tb, 'await_next').handler({})).toEqual({
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
+      type: 'settled',
       settled: 'w7',
       status: 'done',
       score: 0.83,
       valid: true,
       outRef: 'blob:w7',
     })
-    expect(await tool(tb, 'await_next').handler({})).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
     expect(tb.settled()).toEqual([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
@@ -272,7 +273,7 @@ describe('coordination tools', () => {
     expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
   })
 
-  it('steer_worker and resume_worker route down + record in history but are never pulled back', async () => {
+  it('steer_worker routes down + records in history but is never pulled back', async () => {
     const { scope, sent } = mockScope()
     const emitted: Array<{ type: string }> = []
     const tb = createCoordinationTools({
@@ -282,28 +283,22 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
       onEvent: (e) => emitted.push(e),
     })
-    expect(await tool(tb, 'steer_worker').handler({ workerId: 'w0', instruction: 'do X' })).toEqual(
-      {
-        delivered: true,
-      },
-    )
     expect(
-      await tool(tb, 'resume_worker').handler({ workerId: 'w0', message: 'continue' }),
-    ).toEqual({
-      delivered: true,
-    })
-    // A down-message to a worker with no live inbox reports delivered:false (mirrors steer_worker).
-    expect(await tool(tb, 'resume_worker').handler({ workerId: 'gone', message: 'x' })).toEqual({
+      await tool(tb, 'steer_worker').handler({
+        workerId: 'w0',
+        instruction: 'do X',
+        interrupt: true,
+      }),
+    ).toEqual({ delivered: true })
+    // A steer to a worker with no live inbox reports delivered:false.
+    expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
     })
-    // Both reached the child inbox (down delivery)...
-    expect(sent).toEqual([
-      { id: 'w0', msg: { steer: 'do X', interrupt: false } },
-      { id: 'w0', msg: { resume: 'continue' } },
-    ])
-    // ...and were recorded for observability (pass-through + history; the failed resume too)...
-    expect(emitted.map((e) => e.type)).toEqual(['steer', 'resume', 'resume'])
-    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'resume', 'resume'])
+    // The forceful steer reached the child inbox (down delivery)...
+    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X', interrupt: true } }])
+    // ...and both attempts were recorded for observability (pass-through + history)...
+    expect(emitted.map((e) => e.type)).toEqual(['steer', 'steer'])
+    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'steer'])
     // ...but the parent never pulls its own outbound messages back.
     expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
   })

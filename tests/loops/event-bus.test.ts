@@ -58,15 +58,6 @@ describe('event bus', () => {
     expect(bus.pull()).toEqual({ type: 'finding', claim: 'late finding' })
   })
 
-  it('peek is non-destructive and respects priority', async () => {
-    const bus = createEventBus<E>()
-    await bus.publish({ type: 'settled', id: 'w1' })
-    await bus.publish({ type: 'question', q: 'q' }, { priority: 10 })
-    expect(bus.peek()).toEqual({ type: 'question', q: 'q' })
-    expect(bus.pending()).toBe(2) // peek consumed nothing
-    expect(bus.pull()).toEqual({ type: 'question', q: 'q' })
-  })
-
   it('history is the full ordered audit trail; stats count throughput', async () => {
     const bus = createEventBus<E>(fakeClock())
     await bus.publish({ type: 'settled', id: 'w1' })
