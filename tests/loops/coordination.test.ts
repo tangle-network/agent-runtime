@@ -47,6 +47,7 @@ function mockScope() {
       return { root: 'root', nodes, inFlight: 1 }
     },
     budget: { tokensLeft: 10, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
+    signal: new AbortController().signal,
   } as unknown as Scope<unknown>
   return { scope, sent, setAdmit: (v: boolean) => (admit = v) }
 }

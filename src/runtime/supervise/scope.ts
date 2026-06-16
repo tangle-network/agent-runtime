@@ -363,6 +363,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     spawn,
     next,
     send,
+    signal: args.signal,
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },
