@@ -15,10 +15,10 @@
 > `scope.spawn`, settle, journal→replay/resume), the sandbox seam (`SandboxClient` +
 > the sandbox `Executor`, injectable/swappable), the trace observer (`observe()`,
 > `src/runtime/observe.ts`), the corpus + external judge, and the lifecycle hook stream
-> (`runtime-hooks`). The driver-as-code that reimplemented what the harness + the
-> `Scope` + data-checks already do (the in-process operator tool-loop, the
-> `create*Driver` factory zoo, the fixed analyst-kinds registry) is deleted;
-> `runLoop`/`createDriver` remain **one execution backend**, not the center. The
+> (`runtime-hooks`). The canonical "drive an agent" path is the **agent-driver**: an
+> `AgentProfile` driving another `AgentProfile` via `createCoordinationTools`
+> (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runLoop` KERNEL
+> (`src/runtime/run-loop.ts`) stays as **one execution backend**, not the center. The
 > **canonical optimization surface is the published loops suite** —
 > `@tangle-network/agent-runtime/loops` (a build alias; the source lives in
 > `src/runtime/`, there is no `src/loops/` directory): `Environment`/`Strategy`/
@@ -46,11 +46,13 @@ Two things forced this doc:
    ~6 documents at two different timescales with the term **"driver↔worker loop"
    overloaded**, so agents (and the lead) lost the thread.
 2. **The benchmark never ran the real thing.** The FinSearchComp experiment drove
-   the inner `runLoop` with a **dumb static `TopologyPlanner`** (inject the prior
+   the inner `runLoop` with a **dumb static planner** (inject the prior
    answer + a fixed "verify and revise" directive) and **never invoked ANALYZE →
    PROPOSE** — the trace-analysts and the recursively-agentic driver. All the
    intelligence lived in the *optimization* layer, pointed at surface-improvement
-   PRs, and was never wired to the *inference-time* loop on a benchmark.
+   PRs, and was never wired to the *inference-time* loop on a benchmark. The
+   agent-driver over the `Scope`/`Supervisor` is the path that wires that
+   intelligence to the inference-time loop.
 
 **Decisions locked this session** (the moment):
 - The atom is **one recursive `Agent` node** (not two types).
@@ -176,7 +178,7 @@ crippled version of the inference timescale.
 | Steer output | ephemeral next-shot context | a persisted candidate surface |
 | Anchored by | the judge scores the answer | `heldOutGate` on a holdout set → PR |
 | `act → Program` is | a steer over the worker's next shot | a candidate generator (worktree) |
-| Where it lives today | `runLoop` + `TopologyPlanner` (we ran this **dumb**) | `runOptimization`/`runImprovementLoop` + `propose()` (**this is built**) |
+| Where it lives today | the agent-driver over the `Scope`/`Supervisor` (`createCoordinationTools`) + `runAgentic`/`defineStrategy`; the `runLoop` kernel is one leaf backend | `runOptimization`/`runImprovementLoop` + `propose()` (**this is built**) |
 
 Both are *"a loop whose step contains a loop"* — `driver↔worker + analyze +
 propose`. The recursive `Agent` makes them the **same node** at different
@@ -212,7 +214,7 @@ cost dial, not two separate drivers"):
 |---|---|---|---|
 | **told / `llm-call`** | one call: `context(trace+findings) → directive` | no | `reflectiveGenerator` |
 | **leads / `sandbox-agent`** | a harness in a worktree that can use tools, **call or author trace-analysts**, **re-run analysis over the logs**, even **change code**, then emit the steer/surface ("auto-research") | **yes** | `agenticGenerator` |
-| text-only baseline | mutate the surface text into N variants | no | `evolutionaryDriver` |
+| text-only baseline | mutate the surface text into N variants | no | a `defineStrategy` variant (`src/runtime/strategy.ts`) |
 
 The sandbox-agent driver **runs in a sandbox/worktree** so the repo never accretes
 its scratch work. Its prompt can be prescriptive ("use this directive") or
@@ -287,7 +289,7 @@ surface an agent runs over, the worker-leaf, and the MCP all live in the library
 a profile" + score via the corpus/gate. A "blind control" is not a bench driver — it is
 the one agent with a `blind` decider; the equal-compute guard is experiment infra. If
 `bench/` grows a driver or a surface abstraction, that is the smell that the library is
-being squatted on (it was, in `bench/src/agentic.ts` — deleted 2026-06-05).
+being squatted on.
 
 ---
 
@@ -428,7 +430,7 @@ map + ranked portfolio: [docs/research/optimization-space.md](./research/optimiz
 
 ---
 
-## 12. Consolidation map + deep-clean (grounded by the cohesion audit, 2026-06-03)
+## 12. Consolidation map — doc roles + the shared atoms
 
 | Doc | Role going forward |
 |---|---|
@@ -442,20 +444,20 @@ map + ranked portfolio: [docs/research/optimization-space.md](./research/optimiz
 (inference vs optimization). A benchmark is an **adapter**. The thing that picks
 the answer is the **selector** (not the judge).
 
-### Deep-clean (the cohesion debt, ranked)
+### Shared atoms (the cohesion law)
 
-The audit found the atom is **forked, not shared**: `runLoop`+`createDriver` is used in
-**one** file (`finsearch-loop.ts`); `run.ts`, `terminal-compare.ts`, `improve-prompt.ts`, and **seven
-`solveRefine*` workers each hand-roll the identical `for(round 1..k){ shot → judge → decide →
-carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted pools.
+The atom is **shared, not forked**: the inner `for(round 1..k){ shot → judge → decide →
+carry-forward }` lives in **one** loop atom, the bounded-concurrency drain in **one** pool
+atom, and every steer directive in **one** surface — `runRefineLoop`, `runPool`,
+`directives.ts`, and the corpus are the shared atoms a benchmark plugs into.
 
 1. ✅ **`runRefineLoop<Artifact, Ctx>`** (the loop atom): one execution-agnostic loop —
    `{rounds, setup, prompt, runShot, judge?, decide?, teardown}`, the worker an opaque `runShot`.
    **All six refine workers** (research / sandbox-research / SWE-refine / cad / blender / build123d)
    run it — **zero hand-rolled `for(round)` loops**. Both carry-forward channels (execution `Ctx`
    + prompt) are first-class.
-2. ✅ **`runPool<T, R>`** (the pool atom): one generic bounded-concurrency pool. **All five batch
-   runners** (`batch-blind` / `batch-oracle` / `batch-compare` / `finsearch-loop` / `terminal-compare`)
+2. ✅ **`runPool<T, R>`** (the pool atom): one generic bounded-concurrency pool. **The surviving batch
+   runners** (`batch-blind` / `batch-oracle` / `batch-compare` / `terminal-compare`)
    use it — **zero hand-rolled `Promise.all` drains**.
 3. ✅ **`directives.ts`** (the steer surface): every refine directive + authoring system prompt lives
    here; **zero worker-owned prompt text**. Task framing lives in the benchmark adapters.
@@ -464,6 +466,7 @@ carry-forward }`** — ~700 LOC of copy-pasted loop + ~180 LOC of copy-pasted po
    **loop** (`runRefineLoop`), the **pool** (`runPool`), the **steer** (`directives.ts`), and the
    **corpus** are first-class and shared; **a new benchmark is just an adapter** (loader + worker
    profile + judge + SOTA). Do not fork a `*-loop.ts` or a `Promise.all` drain — extend the atom.
-6. ⏳ **Open follow-ups:** the analyst→driver channel exists (`PlannerContext.analyses` +
-   the `analyze` hook, `src/runtime/driver.ts:80`) — built and tested, **not yet fed live by
-   any bench**; a `/run-benchmark-loop` skill encoding the adapter recipe.
+6. ⏳ **Open follow-ups:** the analyst→driver channel lives on the agent-driver — the
+   parent `AgentProfile` reads `observe()` findings and steers its child via
+   `createCoordinationTools` over the `Scope`/`Supervisor`; a `/run-benchmark-loop`
+   skill encoding the adapter recipe.

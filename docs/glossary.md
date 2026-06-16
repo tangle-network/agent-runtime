@@ -11,7 +11,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | **Iteration** | ONE `driver.plan → dispatch → output.parse → validator.validate → driver.decide` cycle. The kernel's official accounting unit; trace events are `loop.iteration.*`. | `types.ts:119` (`Iteration`), `run-loop.ts` (the loop body) | not a "rollout" (that's what happens *inside* it); not a "turn" |
 | **Round** | Informal synonym for **iteration**. **Avoid — say "iteration".** | docstrings only | — |
 | **Rollout** | ONE agent execution in a box: one `streamPrompt` (or one executor `execute`) producing an answer/patch/artifact. The **worker's** unit, nested *inside* one iteration. | `sandbox-run.ts:30` ("a SINGLE rollout") | NOT the driver↔worker round (that's an iteration); a fanout iteration contains N rollouts |
-| **Attempt** | A rollout as the steer/arm sees it (its output + verdict + trace). Same event, steer-side view. | `experiment.ts:73` (`SteerHistory`) | — |
+| **Attempt** | A rollout as the steer/analyst sees it (its output + verdict + trace). Same event, steer-side view. | `bench/src/sandbox-run.ts:39` (`SteerHistory`) | — |
 | **Turn** | One prompt→response over a persistent session (multi-turn `resume`). Conversation/`openSandboxRun` term, not the kernel-loop unit. | `sandbox-run.ts` (`TurnResult`, `resume`) | not an iteration |
 
 **The nesting, stated once:** a **driver↔worker round is an _iteration_**; what the worker *does* in it is a **_rollout_**; a fanout iteration has many rollouts; the steer reading a past rollout calls it an **_attempt_**.
@@ -24,17 +24,17 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
 | **Validator** | Owns scoring: `validate(output) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
-| **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one call) / `loopAnalyst` (a sub-loop). | `experiment.ts` (`AnalystFn`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
+| **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
 ## Topology (how the shape grows — by LLM decision, not a fixed script)
 
+The shape grows by LLM decision through the **coordination toolbox** over a live `Scope`: the driver `AgentProfile` calls `spawn_worker` (branch), `await_next` (react), `steer_worker` (interrupt), `stop` — and `runAgentic`/`defineStrategy` package the common depth/breadth shapes on the Supervisor.
+
 | Term | Meaning | Anchor |
 |---|---|---|
-| **TopologyMove** | The driver's per-iteration decision, a union: `refine` (continue one) · `fanout` (branch N) · `select` (pick a winner) · `stop`. This union **is** "topology grown through LLM decisions". | `driver.ts:52` |
-| **TopologyPlanner** | `(ctx) → TopologyMove`. The injected function the driver calls each round; the LLM authors the move here. | `driver.ts:89` |
-| **createDriver** | Builds a `Driver` from a `TopologyPlanner` (+ optional analyst/completion). (was `createDynamicDriver`.) | `driver.ts` |
-| **Arm** | A labelled topology for an experiment = a `Steer` wrapped in the shared stop/topology shell. `randomArm` (no steer = compute control), `refineArm`, `analystArm`, `diverseArm`. | `experiment.ts:85` |
-| **Steer** | `(rootPrompt, history, round) → nextPrompt`. The one thing that varies between arms — "the optimizable core". | `experiment.ts:82` |
+| **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `strategy.ts` (`defineStrategy`, `sample`, `refine`) |
+| **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_worker` (branch N) · `await_next` (react) · `steer_worker` (interrupt) · `observe_worker` · `stop`. This **is** "topology grown through LLM decisions". | `mcp/tools/coordination.ts` (`createCoordinationTools`) |
+| **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `strategy.ts` (`ctx.critique`) |
 
 ## The executor port (the unified execution seam)
 
@@ -65,4 +65,4 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | **Scope.send / deliver** | The "steer a live worker" verb the toolbox's `steer_worker` binds to: `scope.send(nodeId, msg)` → child executor's `deliver()` inbox. **In-process binding is real**; the cross-box (A2A) binding is task #13. | `supervise/scope.ts:290` |
 | **Agent Bus / A2A** | The cross-process agent↔agent transport for the same verbs — **designed, not adopted**. The in-process toolbox works today; this is the unfinished edge. | task #13; `docs/agent-bus-protocol.md` |
 
-**One agent CALLING another** today = the coordination toolbox (`spawn_worker`/`steer_worker`/`await_next`) over a live `Scope`, in-process — real and tested. The cross-box transport (A2A) is the thin part. The dominant *control* model is still **topology-by-LLM-decision** (the driver's `TopologyMove`). `src/conversation/` is multi-*turn*, not agent-to-agent.
+**One agent CALLING another** today = the coordination toolbox (`spawn_worker`/`steer_worker`/`await_next`) over a live `Scope`, in-process — real and tested. The cross-box transport (A2A) is the thin part. The dominant *control* model is **topology-by-LLM-decision** (the driver's coordination-tool moves, packaged as `runAgentic`/`defineStrategy` shapes). `src/conversation/` is multi-*turn*, not agent-to-agent.

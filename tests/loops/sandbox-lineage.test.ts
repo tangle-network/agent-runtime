@@ -2,14 +2,12 @@ import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
-  createDriver,
   type Driver,
   type Iteration,
   type OutputAdapter,
   runLoop,
-  type TopologyMove,
-  type TopologyPlanner,
 } from '../../src/runtime'
+import { type ScriptedMove, type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 interface Task {
   goal: string
@@ -132,8 +130,8 @@ function createFakeClient(opts: FakeClientOpts) {
   return { client, streamCalls, created, forked, deleted, peakFork }
 }
 
-/** A driver that replays a fixed sequence of topology moves. */
-function scriptedPlanner(moves: TopologyMove<Task>[]): TopologyPlanner<Task, Out> {
+/** A planner that replays a fixed sequence of topology moves. */
+function scriptedPlanner(moves: ScriptedMove<Task>[]): ScriptedPlanner<Task, Out> {
   let i = 0
   return () => moves[i++]!
 }
@@ -148,7 +146,7 @@ describe('runLoop lineage — sessionContinuity OFF (the independence invariant)
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner }),
+      driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -201,12 +199,12 @@ describe('runLoop — streaming: poll (drop-resilient batch path)', () => {
       parse: (events) =>
         String((events.at(-1)?.data as { finalText?: string } | undefined)?.finalText ?? ''),
     }
-    const moves: TopologyMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
+    const moves: ScriptedMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let i = 0
-    const planner: TopologyPlanner<Task, string> = () => moves[i++]!
+    const planner: ScriptedPlanner<Task, string> = () => moves[i++]!
 
     await runLoop<Task, string, 'continue' | 'done'>({
-      driver: createDriver<Task, string>({ planner }),
+      driver: scriptedDriver<Task, string>({ planner }),
       agentRun: spec('w'),
       output: pollOutput,
       task: { goal: 'g' },
@@ -229,7 +227,7 @@ describe('runLoop lineage — sessionContinuity ON', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner }),
+      driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -256,7 +254,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'seed' },
@@ -282,7 +280,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('a'), spec('b'), spec('c')],
       output,
       task: { goal: 'seed' },
@@ -306,7 +304,7 @@ describe('runLoop lineage — forkFanout', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 2 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
       task: { goal: 'seed' },
@@ -325,7 +323,7 @@ describe('runLoop lineage — guardrails', () => {
     const planner = scriptedPlanner([{ kind: 'stop' }])
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },
@@ -344,7 +342,7 @@ describe('runLoop lineage — guardrails', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 2 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
       agentRuns: [spec('a'), spec('b')],
       output,
       task: { goal: 'seed' },
@@ -366,7 +364,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
     ])
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },
@@ -384,7 +382,7 @@ describe('runLoop lineage — continue asserts session liveness (fail-loud)', ()
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner }),
+      driver: scriptedDriver<Task, Out>({ planner }),
       agentRun: spec('w'),
       output,
       task: { goal: 'a' },
@@ -418,7 +416,7 @@ describe('runLoop lineage — fork creation respects the concurrency bound', () 
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 6 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 6 }),
       agentRuns: [spec('w')],
       output,
       task: { goal: 'seed' },
@@ -483,7 +481,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
 
   it('does NOT prune when the driver authors its own branch point', async () => {
     const { client, streamCalls } = createFakeClient({ criuAvailable: true })
-    // createDriver defines describePlan ⇒ canPrune false ⇒ every box is
+    // scriptedDriver defines describePlan ⇒ canPrune false ⇒ every box is
     // held until teardown, so no stream ever starts with a prior delete.
     const planner = scriptedPlanner([
       { kind: 'refine', task: { goal: 'seed' } },
@@ -492,7 +490,7 @@ describe('runLoop lineage — prune frees non-frontier boxes mid-loop', () => {
       { kind: 'stop' },
     ])
     await runLoop({
-      driver: createDriver<Task, Out>({ planner, maxFanout: 3 }),
+      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
       agentRuns: [spec('w')],
       output,
       task: { goal: 'seed' },
@@ -520,7 +518,7 @@ describe('runLoop lineage — abort during a lineage run', () => {
     ])
     await expect(
       runLoop({
-        driver: createDriver<Task, Out>({ planner }),
+        driver: scriptedDriver<Task, Out>({ planner }),
         agentRun: spec('w'),
         output,
         task: { goal: 'a' },

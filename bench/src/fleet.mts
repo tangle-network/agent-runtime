@@ -15,7 +15,7 @@
 import { createChatClient } from '@tangle-network/agent-eval'
 import { FileCorpus, observe, openSandboxRun, renderReport } from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
-import { answerOutput, sandboxAgentRun, type WorkerBackendType } from './experiment'
+import { answerOutput, sandboxAgentRun, type WorkerBackendType } from './sandbox-run'
 
 function env(name: string, fallback?: string): string {
   const v = process.env[name] ?? fallback

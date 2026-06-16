@@ -158,8 +158,8 @@ export interface Driver<Task, Output, Decision> {
    * the `loop.plan` event so a topology viewer can render the agent's chosen
    * move + rationale (not just the inferred fan-width). Drivers whose topology
    * is a pure function of count (refine/fanout-vote) omit it — the kernel
-   * infers `moveKind` from the planned-task count. Agent-authored drivers
-   * (`createDriver`) return their chosen move's kind + rationale.
+   * infers `moveKind` from the planned-task count. A driver that authors its
+   * own topology returns its chosen move's kind + rationale here.
    */
   describePlan?(): LoopPlanDescription | undefined
   /**
@@ -256,8 +256,8 @@ export interface SandboxClient {
  * loop end. When the driver's branch point is kernel-inferred (no
  * `describePlan` — refine, fanout-vote), the kernel prunes boxes no future
  * round can reach after each round, so the live set tracks the active frontier.
- * When the driver authors its own branch point (`describePlan().parentIndex` —
- * `createDriver`), it may descend from any prior
+ * When the driver authors its own branch point (`describePlan().parentIndex`),
+ * it may descend from any prior
  * iteration, so no box is pruned and the live-box count rises to the total
  * iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
  * are copy-on-write, but each is still a live box until loop end).

@@ -2,17 +2,17 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
+  type CompletionAnalyst,
   type CompletionVerdict,
   completionAuthorizes,
-  createDriver,
   deterministicCompletion,
   type OutputAdapter,
   runLoop,
   sentinelCompletion,
   stopSentinel,
-  type TopologyPlanner,
   type Validator,
 } from '../../src/runtime'
+import { type ScriptedPlanner, scriptedDriver } from './refine-driver'
 
 const output: OutputAdapter<string> = {
   parse(events) {
@@ -46,14 +46,14 @@ function echoClient() {
   }
 }
 // A planner that NEVER stops itself — only the completion analyst can end the loop.
-const alwaysRefine: TopologyPlanner<string, string> = () => ({ kind: 'refine', task: 'good' })
+const alwaysRefine: ScriptedPlanner<string, string> = () => ({ kind: 'refine', task: 'good' })
 
-const run = (complete?: Parameters<typeof createDriver<string, string>>[0]['complete']) =>
+const run = (complete?: CompletionAnalyst<string, string>) =>
   runLoop<string, string, 'continue' | 'done'>({
-    driver: createDriver<string, string>({
+    driver: scriptedDriver<string, string>({
       planner: alwaysRefine,
       maxIterations: 5,
-      complete,
+      ...(complete ? { complete } : {}),
     }),
     agentRuns,
     output,

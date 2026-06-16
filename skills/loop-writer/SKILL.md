@@ -37,9 +37,17 @@ If a fixed combinator solves it, do not use a dynamic driver.
 ## Minimal Sandbox Loop
 
 ```ts
+// runLoop takes a caller-supplied Driver directly (plan() → Task[]; decide() → terminal).
+// `[task]` → refine, N copies → fanout, `[]` → stop. Keep it this small or use a Strategy.
+const refineDriver: Driver<Task, Out, 'done' | 'fail'> = {
+  name: 'refine',
+  plan: async (task, history) => (history.at(-1)?.verdict?.valid ? [] : [task]),
+  decide: (history) => (history.at(-1)?.verdict?.valid ? 'done' : 'fail'),
+}
+
 const trace: unknown[] = []
 const result = await runLoop({
-  driver: createDriver({ planner, maxIterations: 4 }),
+  driver: refineDriver,
   agentRun: agentRunSpec,
   output,
   validator: executableGate,

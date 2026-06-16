@@ -555,27 +555,6 @@ export interface AgentTaskRunResult<
 }
 
 /** @stable */
-export interface AgentTaskRunSummary {
-  taskId: string
-  domain?: string
-  status: AgentTaskStatus
-  reason: string
-  readinessStatus: KnowledgeReadinessDecision['status']
-  readinessScore: number
-  recommendedAction: KnowledgeReadinessReport['recommendedAction']
-  blockingGapIds: string[]
-  nonBlockingGapIds: string[]
-  questionCount: number
-  acquisitionPlanCount: number
-  acquiredEvidenceCount: number
-  controlStepCount: number
-  pass: boolean
-  failureClass?: string
-  wallMs: number
-  costUsd: number
-}
-
-/** @stable */
 export interface KnowledgeReadinessDecision {
   passed: boolean
   status: 'ready' | 'blocked' | 'caveat'

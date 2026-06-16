@@ -337,8 +337,7 @@ export interface ScopeAnalyst<D> {
   analyze(input: ScopeAnalyzeInput<D>): Promise<ReadonlyArray<AnalystFinding>>
 }
 
-/** Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far. The
- *  reactive analogue of the old `AnalyzeInput { task, history }`. */
+/** Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far. */
 export interface ScopeAnalyzeInput<D> {
   /** Opaque root-task framing (whatever the combinator was invoked with). */
   readonly task: unknown

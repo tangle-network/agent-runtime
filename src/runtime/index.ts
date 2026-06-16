@@ -20,7 +20,8 @@ export type {
 // Two substrates for the same "recursive agent decision" atom, both exported here (per
 // docs/architecture.md): canonical = the reactive `Scope`/`Supervisor` + the personify
 // combinators (budget-conserving, equal-k by construction — prefer for new recursive work);
-// `runLoop` + `createDriver` = the round-synchronous path most benches still drive.
+// the round-synchronous `runLoop` kernel = the path most benches still drive, with a
+// caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the durable journal +
@@ -58,15 +59,6 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
-export type {
-  AnalyzeInput,
-  CreateDriverOptions,
-  DriverDecision,
-  PlannerContext,
-  TopologyMove,
-  TopologyPlanner,
-} from './driver'
-export { createDriver, renderAnalyses } from './driver'
 export {
   type HarvestCorpusOptions,
   type HarvestFailure,
@@ -280,6 +272,14 @@ export {
   type StrategyEvolutionConfig,
   selectChampion,
 } from './strategy-evolution'
+// The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
+// SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
+export {
+  type AuthoredProfile,
+  asAuthoredProfile,
+  authoredWorker,
+  supervisorSkill,
+} from './supervise/authoring'
 export {
   type BudgetPool,
   type BudgetReadout,
@@ -287,6 +287,30 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
+// settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
+export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
+// The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
+// verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
+// coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
+export {
+  type CoordinationDriverOptions,
+  coordinationDriverAgent,
+  type DriverChat,
+  type DriverMessage,
+  type DriverToolCall,
+  type DriverTurn,
+} from './supervise/coordination-driver'
+// The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
+// resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
+// the SAME conserved pool.
+export {
+  driverChild,
+  driverExecutorFactory,
+  driverRuntime,
+  isDriverSpec,
+  withDriverExecutor,
+} from './supervise/driver-executor'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
@@ -300,7 +324,12 @@ export {
   type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'
-export { createScope, settledToIteration } from './supervise/scope'
+export {
+  createScope,
+  type NestedScopeSeam,
+  nestedScopeSeamKey,
+  settledToIteration,
+} from './supervise/scope'
 export {
   createRootHandle,
   createSupervisor,

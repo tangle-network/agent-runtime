@@ -54,20 +54,12 @@ The remaining loop story is substrate-first:
 - durable workspace: `gitWorkspace` over a `Shell`
 - trace feedback: `observe`
 
-This branch now contains the smallest local proof of the missing join:
-
-```bash
-pnpm exec tsx bench/src/observe-steer-workspace-loop.mts
-```
-
-That script drives a real Supervisor/Scope through the coordination MCP verbs:
-first worker commits a failing artifact to a git workspace, `run_analyst` calls
-`observe()` on the settled trace/output, `steer_worker` delivers the finding via
-`Scope.send`, a correction worker commits the fix, and a fresh clone passes the
-integration test.
-
-It is not the cloud proof. The remaining external proof is the same shape with
-`openSandboxRun` workers and a remote branch that a sandbox can clone and push.
+The local demo that previously stood here (`bench/src/observe-steer-workspace-loop.mts`)
+was removed in the deep-clean: it walked a real Supervisor/Scope through the
+coordination MCP verbs (`run_analyst` → `observe()`, `steer_worker` → `Scope.send`,
+fix-worker, fresh-clone test) but with MOCK executors, so it was a shape demo, not a
+proof. The valid join proof is the live one over real endpoints (`openSandboxRun`
+workers + a remote branch a sandbox clones and pushes).
 
 ## Prevention Rule
 

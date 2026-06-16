@@ -58,7 +58,8 @@ That is the common case. Everything below is for when one chat turn is not enoug
 | Run a one-shot task with verification and eval | `runAgentTask` | root |
 | Compare optimization strategies on YOUR domain (5 hooks) | `runBenchmark` + `defineStrategy` | `/loops` |
 | Let the system author + evolve its own strategies, gated | `runStrategyEvolution` · `authorStrategy` · `promotionGate` | `/loops` |
-| Run a multi-attempt loop with a custom driver | `runLoop` + `createDriver` | `/loops` |
+| Run a multi-attempt loop with a custom driver | `runLoop` + an inline `Driver` | `/loops` |
+| Drive one agent profile from another (the canonical driver) | `createCoordinationTools` over `Supervisor` (`/runtime`) | `/mcp` |
 | Delegate a disciplined loop by mode (code, research, ...) | `runDelegatedLoop` or `agent-runtime-loop` | root |
 | Build code reliably (reviewed, gated) | `createDefaultCoderDelegate` | `/mcp` |
 | Grow a knowledge base with only grounded facts | `createKbGate` | `/mcp` |
@@ -108,10 +109,15 @@ evidence ledger live in [`bench/HARNESS.md`](./bench/HARNESS.md).
 `runLoop` is a topology-agnostic kernel. Each iteration spawns a sandbox on an `AgentRunSpec`, decodes the output, validates it, and asks a driver what to do next. The driver owns topology. The validator owns scoring. The kernel owns iteration accounting, concurrency, cost and token aggregation, and trace emission.
 
 ```ts
-import { runLoop, createDriver } from '@tangle-network/agent-runtime/loops'
+import { runLoop, type Driver } from '@tangle-network/agent-runtime/loops'
+
+const driver: Driver<Task, Output, 'pick-winner' | 'fail'> = {
+  plan: async (task, history) => (history.length === 0 ? [task, task] : []), // fan out, then stop
+  decide: (history) => (history.some((i) => i.verdict?.valid) ? 'pick-winner' : 'fail'),
+}
 
 const result = await runLoop({
-  driver: createDriver({ planner }),           // the planner emits one TopologyMove per round
+  driver,                                       // the driver owns topology; the kernel owns accounting
   agentRuns: [claudeSpec, codexSpec, glmSpec], // heterogeneous: one harness per branch
   output,                                       // events to typed Output
   validator,                                    // Output to { valid, score }
@@ -121,13 +127,13 @@ const result = await runLoop({
 result.winner // highest-scoring valid attempt
 ```
 
-`createDriver` lets a planner author the topology at runtime: one `TopologyMove` per round
-(`refine`, `fanout`, `select`, or `stop`); a malformed move throws `PlannerError`, so the loop never
-runs a topology nobody chose. Topology is orthogonal to harness: the planner never names a backend,
-and the kernel's `agentRuns` decide which harness runs each branch. For fixed shapes, write a small
-inline `Driver` (see `examples/coder-loop`) or use the `personify` combinators (`fanout`, `loopUntil`,
-`panel`, `pipeline`) over the recursive `Scope`/`Supervisor` core — the newer canonical path for
-recursive work.
+A `Driver` is `plan` (emit the round's `Task[]` — `[]` ends the loop) plus `decide` (the terminal
+`Decision` over the history). Topology is orthogonal to harness: the driver never names a backend,
+and the kernel's `agentRuns` decide which harness runs each branch. See `examples/coder-loop` for a
+fixed-shape inline `Driver`. For recursive work prefer the **agent-driver** — an `AgentProfile`
+driving another via `createCoordinationTools` (`/mcp`) over the budget-conserving `Scope`/`Supervisor`
+core (`/runtime`) — plus the `personify` combinators (`fanout`, `loopUntil`, `panel`, `pipeline`) and
+`runPersonified` on that same core.
 
 ## Self-improvement
 
@@ -209,12 +215,17 @@ Delegation state is in-memory by default — a server restart drops pending dele
 ## The experiment harness (bench/)
 
 `bench/` is the internal harness; [`bench/HARNESS.md`](./bench/HARNESS.md) is its map — read that
-first. The canonical path is the optimization suite (`runBenchmark`/`flywheel-evolve` over real
-domains: the EnterpriseOps gym, commit0, answer-shaped math); the older selection-gate paths
-(`runExperiment`, corpus-replay) remain for the legacy evidence. The live evidence ledger is
+first. The canonical path is the optimization suite (`runBenchmark`/`runStrategyEvolution` over real
+domains: the EnterpriseOps gym, commit0, answer-shaped math). The live evidence ledger is
 `.evolve/current.json` — results never live in this README.
 
-One entrypoint, `runExperiment(adapter, { sandboxClient, agentRun, arms, ... })`: N instances times a set of arms, each arm a topology driven through `runLoop`, judged by the adapter, written to a durable canonical corpus. An arm is one steer function `f(rootPrompt, history) => nextPrompt`: `random` ignores history (the compute control), `refine` carries the prior answer plus a directive, `diverse` rotates a strategy lens. The cost dial is the backend type (`hermes` for a direct router call, `opencode` or `claude-code` or `codex` for agent CLIs). The deep statistics (paired bootstrap with Benjamini-Hochberg correction, selector replay) come from `corpus-report.mts` and `corpus-replay.mts` over the written corpus, computed once. See `bench/HARNESS.md` and `docs/learning-flywheel.md`.
+The recursive diverse-vs-blind gate runs through the keystone: `gate-cli.mts` →
+`runGate` composes a `Persona` + the generic `fanout` combinator over the budget-conserving
+`Supervisor`, with each child solved via the router and graded by the benchmark's own deployable
+`adapter.judge` (selector ≠ oracle). Each rollout is written to a durable canonical corpus; the deep
+statistics (paired bootstrap with Benjamini-Hochberg correction, selector replay) come from
+`corpus-report.mts` and `corpus-replay.mts` over that corpus, computed once and offline. See
+`bench/HARNESS.md` and `docs/learning-flywheel.md`.
 
 ## Defaults
 
@@ -225,7 +236,7 @@ One entrypoint, `runExperiment(adapter, { sandboxClient, agentRun, arms, ... })`
 | Router base URL | `https://router.tangle.tools/v1` | `TANGLE_ROUTER_BASE_URL` env |
 | Sandbox base URL | `https://sandbox.tangle.tools` | `SANDBOX_API_URL` env |
 | Loop iteration cap | 10 (`runLoop`) | `runLoop({ maxIterations })` |
-| Driver | none, required by `runLoop` | `createDriver` or an inline `Driver` |
+| Driver | none, required by `runLoop` | an inline `Driver` (`plan`/`decide`) |
 | Strategy budget (suite) | 3 rollouts/shots per strategy per task | `runBenchmark({ budget })` |
 | Winner selection (coder delegate) | `highest-score` | `winnerSelection` option |
 | KB gate min passage | 12 chars | `createKbGate({ minPassageChars })` |
@@ -257,7 +268,7 @@ sandbox         AgentProfile, Sandbox.create, streamPrompt, exportTraceBundle. T
 |---|---|
 | `@tangle-network/agent-runtime` | chat turns, delegated loop-runner, OTEL export, errors, model resolution |
 | `.../agent` | `defineAgent` plus surface and outcome adapters |
-| `.../loops` | **the optimization suite** (`Environment`, `defineStrategy`, `runBenchmark`, `runStrategyEvolution`, `authorStrategy`, `promotionGate`) + the `runLoop` kernel, `createDriver`, `loopDispatch` |
+| `.../loops` | **the optimization suite** (`Environment`, `defineStrategy`, `runBenchmark`, `runStrategyEvolution`, `authorStrategy`, `promotionGate`) + the `runLoop` kernel, the `Driver` type, `loopDispatch` |
 | `.../profiles` | `coderProfile`, `researcherProfile` presets |
 | `.../mcp` | `createMcpServer`, `createDefaultCoderDelegate`, `createKbGate`, the `agent-runtime-mcp` bin |
 | `.../improvement` | `improvementDriver` (code/worktree `CandidateGenerator`), `agenticGenerator`, `reflectiveGenerator` — the code-surface driver you pass to agent-eval's `selfImprove` |

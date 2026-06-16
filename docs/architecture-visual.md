@@ -80,31 +80,34 @@ lifecycle stream (`scope.spawn`/settle → `agent.spawn`/`agent.child`), rendere
 
 ## 3. The within-run self-improvement loop
 
-The live RSI mechanism (`src/runtime/driver.ts` + `src/analyst-loop/`). Each round: **diagnose →
-decide → act → settle**, with one firewall that keeps it honest.
+The live RSI mechanism is the **agent-driver**: a parent `AgentProfile` driving its children via
+`createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
+(`src/runtime/supervise/`) — the kernel-side `driver.ts` planner that used to carry this was
+**deleted** (commit `2101f2d`). Each round: **diagnose → decide → act → settle**, with one firewall
+that keeps it honest.
 
 ```
         ┌──────────────────────────────────────────────────────────────────────────┐
-        │                            one driver round                               │
+        │                       one agent-driver round                              │
         │                                                                            │
-   plan(task, history):                                                              │
+   parent AgentProfile, holding the coordination MCP:                                │
         │                                                                            │
-        │   ① complete?(trace) → CompletionVerdict {done, determinism}               │  the DEPLOYABLE
+        │   ① stop?(trace) → deployable, non-oracle STOP                             │  the DEPLOYABLE
         │        deterministic = trust ground truth                                  │  non-oracle STOP
-        │        probabilistic = clears confidence policy → stop BEFORE planning     │  (driver.ts:118)
+        │        probabilistic = clears confidence policy → stop                     │  (coordination: stop)
         │                                                                            │
-        │   ② analyze(trace) → AnalystFinding[]            ◀── reads the TRACE       │
+        │   ② run_analyst(trace) → AnalystFinding[]        ◀── reads the TRACE       │
         │        assertTraceDerivedFindings(findings)          NOT the score         │  selector ≠ judge
-        │        (driver.ts:311,344)                     ════════════════════       │  FIREWALL
+        │        (coordination.ts:124 / personify/analyst.ts:46)                     │  FIREWALL
         │                                                                            │
-        │   ③ planner(ctx{task, history, analyses}) → move:                          │  move = f(trace, findings)
-        │        refine (1 task)   fanout (N tasks)   select (i)   stop               │  NOT f(score)
+        │   ③ next move from {trace, findings} via the MCP:                          │  move = f(trace, findings)
+        │        steer_worker (1 child)   spawn_worker (N)   select   stop            │  NOT f(score)
         │                                                                            │
         └───────────────┬─────────────────────────────────────────────────────────────┘
                         ▼
-        kernel: spawn batch → stream → output.parse → validator.validate → verdict
+        Scope: spawn child agent(s) → run → settle → verdict on the artifact
                         │
-                        └──▶ decide(history) → terminal? → winner = argmax(valid score)
+                        └──▶ await_next → terminal? → winner = argmax(valid score)
 ```
 
 The firewall is the load-bearing line: the **analyst reads the trace and may not cite the score**, so
@@ -203,18 +206,19 @@ gate experiment, not as a standing feature.
 
 ## 7. The minimal-core delta — the collapse, and what's load-bearing
 
-There were **three encodings of "pick the next move."** The redundant third is now deleted:
+There were **three encodings of "pick the next move."** Two are now deleted — the `Program` op-set (#168) and the `Driver`/`TopologyMove` planner (commit `2101f2d`):
 
 | Encoding | Where | Status |
 |---|---|---|
 | `Agent.act(task, scope)` | `supervise/` | **the keystone atom** — the tree's move language |
-| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | `run-loop.ts`, `driver.ts` | **kept** — `runLoop` is a *leaf backend* composed inside the tree (not redundant; layered), and it carries the analyst wire |
-| `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`keystone-gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
+| `Driver.plan/decide` + `TopologyPlanner`/`TopologyMove` | ~~`driver.ts`~~ | **DELETED** (`src/runtime/driver.ts` nuked, commit `2101f2d`) — the `runLoop` kernel (`run-loop.ts`) survives as a *leaf backend*; the analyst→steer wire moved onto the agent-driver (`createCoordinationTools` over the `Scope`/`Supervisor`) |
+| `Program` op-set + `runProgram`/`runAgent` | ~~`program.ts`~~ | **DELETED (#168)** — consumed only by its own tests; the diverse@k gate runs on `fanout` (`gate.ts`), never `runProgram`, so it was a redundant third encoding, not the gate mechanism |
 
 The op-set's *ideas* survive, mapped onto the atom: `fanout` = N × `scope.spawn`, `refine`/`steer` =
 `scope.send`, `parallel sub-loops` = spawn N driver-Agents, `select` = `defaultSelectWinner`, `stop` =
-`act` returns. The kernel is now **two layers** — the `Scope` atom (the tree) and the `runLoop` Driver
-(a leaf backend) — with no redundant third.
+`act` returns. The "pick the next move" decision now lives on **one keystone** — `Agent.act` in a
+`Scope` (`supervise/`), with the `runLoop` kernel (`run-loop.ts`) surviving as a leaf execution
+backend underneath it — with no redundant planner encoding.
 
 ---
 

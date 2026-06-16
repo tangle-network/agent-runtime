@@ -24,9 +24,6 @@ Forward-looking design research — surveys, multi-agent design passes, decision
 | Doc | Role | Purpose |
 |---|---|---|
 | [research/README.md](./research/README.md) | research index | The active design thread + decision log + source-artifact pointers. |
-| [research/recursive-execution-atom.md](./research/recursive-execution-atom.md) | design (in progress) | The next generation: one recursive `Agent` atom run as a durable, observable supervision tree (drivers-of-drivers, analyst-as-agent-with-runtime, async dynamic spawning). Plane B — contains the flat harness. |
-| [research/flat-harness-design.md](./research/flat-harness-design.md) | design synthesis | Plane A — the assumption-free experiment harness (profiles × steer × executionMode × allocation). Recovered as the simplest `act` body on Plane B. |
-| [research/long-horizon-benchmark-survey.md](./research/long-horizon-benchmark-survey.md) | survey | Adversarially-verified long-horizon + multi-turn benchmark survey. Top picks: Commit0, τ²-bench. |
 
 ## Reference track
 

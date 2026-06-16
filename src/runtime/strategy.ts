@@ -27,6 +27,7 @@ import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
 import type { Corpus } from './personify/wave-types'
+import { withDriverExecutor } from './supervise/driver-executor'
 import { routerToolLoop } from './router-client'
 import { createSupervisor } from './supervise/supervisor'
 import type {
@@ -455,9 +456,15 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
   }
 }
 
-/** Registry dispatching on the child's role tag — fresh executor per spawn (no shared-instance race). */
+/**
+ * Registry dispatching on the child's role tag — fresh executor per spawn (no
+ * shared-instance race). `withDriverExecutor` wraps it so a `role:'driver'` child resolves
+ * to the recursive driver-executor (a child that drives its OWN children — agents drive
+ * agents) before this leaf dispatch; `shot`/`analyst` children resolve to their leaf
+ * executors here unchanged.
+ */
 function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): ExecutorRegistry {
-  return {
+  const leaves: ExecutorRegistry = {
     register() {
       throw new Error('agenticRegistry: register unsupported')
     },
@@ -468,6 +475,7 @@ function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): Executo
       return { succeeded: true as const, value: factory }
     },
   }
+  return withDriverExecutor(leaves)
 }
 
 function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<unknown>> {
@@ -475,7 +483,11 @@ function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<un
     name,
     executorSpec: { profile: { name, metadata: { role } }, harness: null } as unknown as AgentSpec,
     act(): Promise<Outcome<unknown>> {
-      throw new Error(`agentic: spawned leaf "${name}" run as a driver`)
+      // SPAWNED, not run: its `executorSpec` (role shot/analyst) resolves a leaf executor
+      // the scope drives. `act` is never called for a spawned child; it fails loud if
+      // mis-used as a root. A `role:'driver'` child instead resolves to the recursive
+      // driver-executor (agents drive agents) — see `withDriverExecutor`.
+      throw new Error(`agentic: spawned child "${name}" was run directly (the executor drives it)`)
     },
   }
   return agent as Agent<unknown, Outcome<unknown>>

@@ -114,6 +114,60 @@ type PreSeqSettled =
   | { kind: 'done'; out: unknown; outRef: string; verdict?: DefaultVerdict; spent: Spend }
   | { kind: 'down'; reason: string; infra: boolean; restartCount: number }
 
+/**
+ * The recursion seam key. A `Scope` seeds a value of this on each child's
+ * `ExecutorContext.seams` so a child whose executor is a DRIVER can mount a NESTED `Scope`
+ * over the SAME conserved pool at `depth+1`. A leaf executor never reads it. Single-sourced
+ * here so the scope and the driver-executor agree on the seam without a circular import.
+ */
+export const nestedScopeSeamKey = 'nested-scope'
+
+/**
+ * The recursion seam value: mount a nested `Scope` for a driver child. `parentId` is the
+ * driver child's own node id (so its children get `${nodeId}:s${ordinal}` ids and its
+ * nested journal tree is namespaced under it); `root` is the journal tree key for the
+ * nested tree (distinct from the parent's so cursor seqs never collide in the per-tree
+ * guard). `depth` is `parent.depth + 1`. The nested scope shares the parent's `pool`
+ * (conserved budget across depth), `journal`/`blobs` (one record), and `executors` (a
+ * nested child resolves to leaf-or-driver through the same open registry).
+ */
+export interface NestedScopeSeam {
+  /** This scope's recursion depth — a nested scope runs at `depth + 1`. */
+  readonly depth: number
+  /** The runtime recursion-depth ceiling, paired with the conserved pool (R3). */
+  readonly maxDepth?: number
+  /** The journal tree key the parent scope writes to (used to namespace nested trees). */
+  readonly journalRoot: NodeId
+  /** Mount a nested scope rooted at `nestedRoot`, parented at this driver child's node id. */
+  mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown>
+}
+
+function makeNestedScopeSeam(args: ScopeArgs, childNodeId: NodeId): NestedScopeSeam {
+  return {
+    depth: args.depth,
+    ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
+    journalRoot: args.root,
+    mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown> {
+      return createScope<unknown>({
+        parentId: childNodeId,
+        root: nestedRoot,
+        pool: args.pool,
+        journal: args.journal,
+        blobs: args.blobs,
+        executors: args.executors,
+        // Re-seed the parent's NON-recursion seams (sandbox/router for leaf grandchildren);
+        // the nested scope adds its OWN nested-scope seam per child in `spawn`.
+        seams: args.seams,
+        depth: args.depth + 1,
+        ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
+        signal,
+        ...(args.now ? { now: args.now } : {}),
+        ...(args.hooks ? { hooks: args.hooks } : {}),
+      })
+    },
+  }
+}
+
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
   // Two distinct monotonic counters in two namespaces:
@@ -173,7 +227,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (args.signal.aborted) childAbort.abort()
       else args.signal.addEventListener('abort', cascadeAbort, { once: true })
 
-      const ctx: ExecutorContext = { signal: childAbort.signal, seams: args.seams }
+      // Seed THIS scope's own keystone deps into the child's `ExecutorContext.seams`, so a
+      // child whose executor is a DRIVER can mount a nested `Scope` at `depth+1` over the
+      // SAME conserved pool + shared journal/blobs/registry (the recursion seam). A leaf
+      // executor ignores it; the parent's sandbox/router seams still pass through for leaves.
+      // The mounted nested scope re-seeds the SAME bag for ITS children, so the recursion
+      // composes — a driver child of a driver child mounts one level deeper still.
+      const ctx: ExecutorContext = {
+        signal: childAbort.signal,
+        seams: { ...args.seams, [nestedScopeSeamKey]: makeNestedScopeSeam(args, id) },
+      }
       const executor = resolved.value(spec, ctx) as Executor<C>
 
       const handle: Handle<C> = {
