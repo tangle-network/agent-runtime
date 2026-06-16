@@ -1,30 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { type BusEvent, createEventBus } from '../../src/runtime'
+import { type BusEvent, type BusRecord, createEventBus } from '../../src/runtime'
 
 type E =
   | { type: 'settled'; id: string }
   | { type: 'finding'; claim: string }
   | { type: 'question'; q: string }
 
+// A monotonic clock so timestamp assertions are deterministic.
+const fakeClock = () => {
+  let t = 1000
+  return () => t++
+}
+
 describe('event bus', () => {
-  it('passes every event to subscribers and queues it for pull', async () => {
-    const bus = createEventBus<E>()
-    const seen: E[] = []
-    bus.subscribe((e) => {
-      seen.push(e)
+  it('passes the stamped record to subscribers and queues the event for pull', async () => {
+    const bus = createEventBus<E>(fakeClock())
+    const seen: BusRecord<E>[] = []
+    bus.subscribe((r) => {
+      seen.push(r)
     })
     await bus.publish({ type: 'settled', id: 'w1' })
     await bus.publish({ type: 'finding', claim: 'X missing' })
-    // pass-through lane: subscriber saw both immediately
+    // pass-through lane: subscriber saw both immediately, stamped with seq + timestamp + priority
     expect(seen).toEqual([
-      { type: 'settled', id: 'w1' },
-      { type: 'finding', claim: 'X missing' },
+      { seq: 0, at: 1000, priority: 0, event: { type: 'settled', id: 'w1' } },
+      { seq: 1, at: 1001, priority: 0, event: { type: 'finding', claim: 'X missing' } },
     ])
     // standby lane: still queued for the driver to pull
     expect(bus.pending()).toBe(2)
   })
 
-  it('pull is FIFO and kind-filtered, draining each event once', async () => {
+  it('pull is FIFO within a priority, and kind-filtered, draining each event once', async () => {
     const bus = createEventBus<E>()
     await bus.publish({ type: 'settled', id: 'w1' })
     await bus.publish({ type: 'finding', claim: 'a' })
@@ -38,14 +44,53 @@ describe('event bus', () => {
     expect(bus.pull()).toBeUndefined()
   })
 
-  it('subscribers registered after a publish do not receive the earlier event', async () => {
-    const bus = createEventBus<BusEvent>()
-    await bus.publish({ type: 'settled' })
-    const late: BusEvent[] = []
-    bus.subscribe((e) => {
-      late.push(e)
+  it('pull bumps higher-priority events ahead of the queue (the blocking-question lane)', async () => {
+    const bus = createEventBus<E>()
+    await bus.publish({ type: 'settled', id: 'w1' })
+    await bus.publish({ type: 'settled', id: 'w2' })
+    // a blocking question arrives last but jumps to the front
+    await bus.publish({ type: 'question', q: 'which API version?' }, { priority: 20 })
+    await bus.publish({ type: 'finding', claim: 'late finding' })
+    expect(bus.pull()).toEqual({ type: 'question', q: 'which API version?' })
+    // then the rest drain FIFO at priority 0
+    expect(bus.pull()).toEqual({ type: 'settled', id: 'w1' })
+    expect(bus.pull()).toEqual({ type: 'settled', id: 'w2' })
+    expect(bus.pull()).toEqual({ type: 'finding', claim: 'late finding' })
+  })
+
+  it('peek is non-destructive and respects priority', async () => {
+    const bus = createEventBus<E>()
+    await bus.publish({ type: 'settled', id: 'w1' })
+    await bus.publish({ type: 'question', q: 'q' }, { priority: 10 })
+    expect(bus.peek()).toEqual({ type: 'question', q: 'q' })
+    expect(bus.pending()).toBe(2) // peek consumed nothing
+    expect(bus.pull()).toEqual({ type: 'question', q: 'q' })
+  })
+
+  it('history is the full ordered audit trail; stats count throughput', async () => {
+    const bus = createEventBus<E>(fakeClock())
+    await bus.publish({ type: 'settled', id: 'w1' })
+    await bus.publish({ type: 'finding', claim: 'a' }, { priority: 0 })
+    await bus.publish({ type: 'question', q: 'q' }, { priority: 20 })
+    bus.pull() // pulls the priority-20 question
+    expect(bus.history().map((r) => r.event.type)).toEqual(['settled', 'finding', 'question'])
+    expect(bus.history()[2]).toMatchObject({ seq: 2, priority: 20, at: 1002 })
+    expect(bus.stats()).toEqual({
+      published: 3,
+      pulled: 1,
+      byKind: { settled: 1, finding: 1, question: 1 },
     })
+  })
+
+  it('unsubscribe stops delivery', async () => {
+    const bus = createEventBus<BusEvent>()
+    const seen: string[] = []
+    const off = bus.subscribe((r) => {
+      seen.push(r.event.type)
+    })
+    await bus.publish({ type: 'settled' })
+    off()
     await bus.publish({ type: 'finding' })
-    expect(late).toEqual([{ type: 'finding' }])
+    expect(seen).toEqual(['settled'])
   })
 })

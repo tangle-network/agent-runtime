@@ -17,6 +17,7 @@ import { createMcpServer } from '../../mcp/server'
 import {
   type AnalystRegistry,
   type CoordinationEvent,
+  type CoordinationTools,
   createCoordinationTools,
   type MakeWorkerAgent,
   type QuestionPolicy,
@@ -30,6 +31,10 @@ export interface CoordinationMcpHandle {
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
   isStopped(): boolean
+  /** The full ordered bus-event log — observability audit + replay trail. */
+  history: CoordinationTools['history']
+  /** Bus throughput counters for live dashboards. */
+  stats: CoordinationTools['stats']
   close(): Promise<void>
 }
 
@@ -112,6 +117,8 @@ export async function serveCoordinationMcp(opts: {
     port,
     settled: () => coord.settled(),
     isStopped: () => coord.isStopped(),
+    history: () => coord.history(),
+    stats: () => coord.stats(),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())

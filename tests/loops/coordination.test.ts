@@ -227,6 +227,43 @@ describe('coordination tools', () => {
     )
   })
 
+  it('await_event bumps a blocking question ahead of a non-blocking one (urgency→priority)', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    // A low-urgency question is raised first...
+    await tool(tb, 'ask_parent').handler({
+      from: 'w-a',
+      level: 'worker',
+      question: 'nice-to-know?',
+      reason: 'minor',
+      urgency: 'continue-without',
+    })
+    // ...then a blocking one. It arrives later but must be pulled FIRST.
+    await tool(tb, 'ask_parent').handler({
+      from: 'w-b',
+      level: 'driver',
+      question: 'which API version?',
+      reason: 'blocks the run',
+      urgency: 'blocks-run',
+    })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toMatchObject({
+      type: 'question',
+      question: { question: 'which API version?', urgency: 'blocks-run' },
+    })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toMatchObject({
+      type: 'question',
+      question: { question: 'nice-to-know?' },
+    })
+    // The history audit trail recorded both, in publish order, with the bumped priority stamped.
+    expect(tb.history().map((r) => r.priority)).toEqual([0, 20])
+    expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
+  })
+
   it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
     const { scope } = mockScope()
     const settlements = [
