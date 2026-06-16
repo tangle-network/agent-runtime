@@ -1,6 +1,6 @@
 # `@tangle-network/agent-runtime` — Canonical API Reference
 
-> **Version 0.50.0.** Every signature below was read from source and is cited `file:line`. `@experimental` is flagged per-entry. When a citation is to `node_modules/@tangle-network/agent-eval/...`, the symbol lives in the **substrate** and is consumed here — import it from `@tangle-network/agent-eval/contract` (or `/campaign`), not from this package. (The pinned substrate is agent-eval 0.89.0; floor `>=0.83`.)
+> **Version 0.50.0.** Every signature below was read from source and is cited `file:line`. `@experimental` is flagged per-entry. When a citation is to `node_modules/@tangle-network/agent-eval/...`, the symbol lives in the **substrate** and is consumed here — import it from `@tangle-network/agent-eval/contract` (or `/campaign`), not from this package. (The pinned substrate is agent-eval 0.92.0; floor `>=0.83`.)
 >
 > **`./loops` and `./runtime` are the SAME barrel** — `package.json` maps both subpaths to `src/runtime/index.ts` (`./loops` is the back-compat alias). Anything below shown as `/loops` is equally importable from `/runtime`, and vice-versa.
 >
