@@ -13,7 +13,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -26,9 +26,12 @@ import {
   createSupervisor,
   type Executor,
   type ExecutorResult,
+  gitWorkspace,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  runInWorkspace,
   type Scope,
+  type Workspace,
 } from '../../src/runtime/index'
 import { asAuthoredProfile } from '../../src/runtime/supervise/authoring'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
@@ -41,14 +44,28 @@ const SKILL_MD = readFileSync(join(REPO, 'skills', 'supervise', 'SKILL.md'), 'ut
 
 const TASK = 'In solution.py, implement add(a, b) so it returns the sum a + b and test_solution.py passes.'
 
-function makeTaskTemplate(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'e2e-task-'))
-  writeFileSync(join(dir, 'solution.py'), 'def add(a, b):\n    raise NotImplementedError\n')
+/** Seed a bare git repo with the failing task — the SHARED workspace ref every worker clones. */
+function seedWorkspaceRepo(): string {
+  const git = (args: string[], cwd?: string): void => {
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
+      cwd,
+      stdio: 'pipe',
+    })
+  }
+  const bare = `${mkdtempSync(join(tmpdir(), 'e2e-ws-'))}.git`
+  git(['init', '--bare', '-b', 'main', bare])
+  const seed = mkdtempSync(join(tmpdir(), 'e2e-seed-'))
+  git(['clone', bare, seed])
+  writeFileSync(join(seed, 'solution.py'), 'def add(a, b):\n    raise NotImplementedError\n')
   writeFileSync(
-    join(dir, 'test_solution.py'),
+    join(seed, 'test_solution.py'),
     'from solution import add\nassert add(2, 3) == 5\nassert add(-1, 1) == 0\nassert add(0, 0) == 0\nprint("PASS")\n',
   )
-  return dir
+  git(['add', '-A'], seed)
+  git(['commit', '-m', 'task'], seed)
+  git(['push', 'origin', 'main'], seed)
+  rmSync(seed, { recursive: true, force: true })
+  return bare
 }
 
 /** The deployable check: run the test in the worker's cwd. Exit 0 = delivered. No LLM judge. */
@@ -83,35 +100,41 @@ async function bridgeChat(opts: {
 
 const transcripts: Array<{ who: string; said: string; delivered?: boolean }> = []
 
-/** A WORKER = a real opencode coding session in its OWN cwd, graded by the real test. */
-function makeWorker(rawProfile: unknown, templateDir: string, n: number): Agent<unknown, unknown> {
+/** A WORKER = a real opencode coding session in a clone of the SHARED workspace, graded by the
+ *  real test; its delivery is committed back so the next worker builds on it (not isolated). */
+function makeWorker(rawProfile: unknown, ws: Workspace, n: number): Agent<unknown, unknown> {
   const p = asAuthoredProfile(rawProfile)
   const name = p?.name ?? `worker-${n}`
   let artifact: ExecutorResult<unknown> | undefined
   const inner: Executor<unknown> = {
     runtime: 'router',
     async execute() {
-      const cwd = mkdtempSync(join(tmpdir(), 'e2e-worker-'))
-      cpSync(templateDir, cwd, { recursive: true })
       const sys = p?.systemPrompt ?? TASK
-      const said = await bridgeChat({
-        messages: [
-          {
-            role: 'user',
-            content: `${sys}\n\nYou are working in the current directory. Edit the files so that running \`python3 test_solution.py\` prints PASS. Do it now.`,
-          },
-        ],
-        cwd,
-      })
-      const delivered = checkPasses(cwd)
-      transcripts.push({ who: name, said: said.slice(0, 300), delivered })
+      const run = await runInWorkspace(
+        ws,
+        async (cwd) => {
+          const said = await bridgeChat({
+            messages: [
+              {
+                role: 'user',
+                content: `${sys}\n\nYou are working in the current directory (it already holds prior workers' committed progress). Edit the files so that running \`python3 test_solution.py\` prints PASS. Do it now.`,
+              },
+            ],
+            cwd,
+          })
+          const valid = checkPasses(cwd)
+          transcripts.push({ who: name, said: said.slice(0, 300), delivered: valid })
+          return { valid, value: said.slice(0, 120), message: `${name}: ${valid ? 'delivered' : 'wip'}` }
+        },
+        { tmpPrefix: 'e2e-worker-', commitOnInvalid: true },
+      )
+      const delivered = run.valid
       artifact = {
         outRef: contentAddress(`${name}:${delivered}`),
-        out: { worker: name, delivered, profileSystemPrompt: sys.slice(0, 120) },
+        out: { worker: name, delivered, rev: run.commit?.ok ? run.commit.rev : undefined, profileSystemPrompt: sys.slice(0, 120) },
         verdict: { valid: delivered, score: delivered ? 1 : 0 },
         spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
       }
-      rmSync(cwd, { recursive: true, force: true })
       return artifact
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -125,8 +148,9 @@ function makeWorker(rawProfile: unknown, templateDir: string, n: number): Agent<
 }
 
 async function main(): Promise<void> {
-  console.log(`atom-mcp-e2e: model=${MODEL}  (real boxes, real MCP, real test)`)
-  const templateDir = makeTaskTemplate()
+  console.log(`atom-mcp-e2e: model=${MODEL}  (real boxes, real MCP, real test, shared workspace)`)
+  const bareRef = seedWorkspaceRepo()
+  const ws = gitWorkspace({ ref: bareRef })
   const blobs = new InMemoryResultBlobStore()
   let n = 0
 
@@ -136,7 +160,7 @@ async function main(): Promise<void> {
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
-        makeWorkerAgent: (raw) => makeWorker(raw, templateDir, n++),
+        makeWorkerAgent: (raw) => makeWorker(raw, ws, n++),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
       })
       // The supervisor's cwd carries the REAL skill file (opencode loads it from the cwd skill dirs).
@@ -178,7 +202,7 @@ async function main(): Promise<void> {
     maxDepth: 4,
     now: () => Date.now(),
   })
-  rmSync(templateDir, { recursive: true, force: true })
+  rmSync(bareRef, { recursive: true, force: true })
 
   console.log('\n── transcripts (real driver↔worker) ──')
   for (const t of transcripts) {

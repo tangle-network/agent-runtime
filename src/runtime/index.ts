@@ -311,6 +311,9 @@ export {
   isDriverSpec,
   withDriverExecutor,
 } from './supervise/driver-executor'
+// Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
+// harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
+export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
@@ -407,7 +410,9 @@ export {
   gitWorkspace,
   jjWorkspace,
   localShell,
+  runInWorkspace,
   type Shell,
   type Workspace,
   type WorkspaceCommit,
+  type WorkspaceRun,
 } from './workspace'

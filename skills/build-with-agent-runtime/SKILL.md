@@ -68,7 +68,7 @@ signature + the exact "do NOT build".
 | **Gate: ship/hold from a `BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/runtime` | canonical-api §3.4 |
 | **Run the full multi-generation flywheel + certify** | `runStrategyEvolution(config)` — `/runtime` | canonical-api §3.4 |
 | **Compose the prod sandbox profile** (eval/prod parity) | `composeProductionAgentProfile(base, opts)` — `/mcp` | canonical-api §3.2 |
-| **Observe a run** (cost/time waterfall, live tree, OTLP) | `createWaterfallCollector` / `createTopologyView` / `createOtelExporter` via `composeRuntimeHooks(...)` — root | canonical-api §3.5 |
+| **Observe a run** (cost/time waterfall, live tree, OTLP) | `createWaterfallCollector` / `createOtelExporter` via `composeRuntimeHooks(...)` — root; `createTopologyView` / `renderTopologyTree` — `/topology` | canonical-api §3.5 |
 | **State any A/B claim** | `pairedLift` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | canonical-api §3.5 |
 | **Observe/ship with billing-boundary** | `withTangleIntelligence(agent, { project, effort })` — `/intelligence` | canonical-api §7 (now live on main — verify) |
 
