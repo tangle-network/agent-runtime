@@ -132,6 +132,43 @@ export function jjWorkspace(opts: GitWorkspaceOptions): Workspace {
   }
 }
 
+export interface WorkspaceRun<T> {
+  readonly valid: boolean
+  readonly value: T
+  /** Present when a commit was attempted (valid, or `commitOnInvalid`). */
+  readonly commit?: WorkspaceCommit
+}
+
+/**
+ * Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back
+ * so the next worker (or the supervisor) builds on it. This is the seam that turns isolated
+ * per-worker cwds into one compounding artifact — `body` gets a real materialized dir, its
+ * delivery is committed to the shared ref iff it's valid (a conflict is returned, never thrown).
+ * The clone is removed after; durable state lives only in the ref.
+ */
+export async function runInWorkspace<T>(
+  ws: Workspace,
+  body: (cwd: string) => Promise<{ valid: boolean; value: T; message?: string }>,
+  opts: { tmpPrefix?: string; commitOnInvalid?: boolean } = {},
+): Promise<WorkspaceRun<T>> {
+  const { mkdtempSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), opts.tmpPrefix ?? 'ws-run-'))
+  try {
+    await ws.materialize(dir)
+    const r = await body(dir)
+    if (r.valid || opts.commitOnInvalid) {
+      const message = r.message ?? (r.valid ? 'worker: delivered' : 'worker: wip')
+      const commit = await ws.commit(dir, message)
+      return { valid: r.valid, value: r.value, commit }
+    }
+    return { valid: r.valid, value: r.value }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 function tail(s: string): string {
   return s.slice(-400)
 }

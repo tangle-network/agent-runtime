@@ -164,6 +164,17 @@ via the router, is graded by the runnable checker, and that `BenchScore` is the 
 Offline plumbing test (no creds): `tsx src/gate.test.mts`. The gate runs through the SAME recursive
 atom every personified loop uses.
 
+## "Supervisor" (iterate/decompose) vs blind — through the PUBLISHED suite
+The supervisor-vs-blind gate is NOT a bespoke harness: it is `runBenchmark([sample, refine, …])`
+over an Environment. blind = `sample` (best-of-k); "supervisor" = `refine`/`sampleThenRefine`
+(depth: attempt→firewalled-analyst-steer→retry — *"a multi-agent team is just a Strategy whose driver
+spawns several agents"*). Equal compute by the substrate's CONSERVED budget; the deployable check is
+the Environment's `score`; the can't-fake-the-check firewall is built in. Run it on the HARD real
+domain via `commit0-env-run.mts` (above) or the toy `strategy-demo.mts` (offline). The LLM
+agent-driver (an LLM that itself decides spawns via the coordination MCP) is the SEPARATE product
+path — `atom-mcp-e2e.mts` / `atom-commit0.mts` — not a strategy. Evolve any strategy on a frozen
+holdout with `runStrategyEvolution`.
+
 ## Generate a fresh corpus + gate it
 The rollout generators now live with their domains: the recursive gate
 (`gate-cli.mts`) and the optimization-suite env runs (`commit0-env-run.mts`,

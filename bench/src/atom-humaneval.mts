@@ -189,7 +189,7 @@ async function driveTask(
   })
   const tree = await journal.loadTree(runId)
   const tokens = (tree ?? [])
-    .filter((e): e is Extract<(typeof tree)[number], { kind: 'settled' }> => e.kind === 'settled')
+    .filter((e): e is Extract<NonNullable<typeof tree>[number], { kind: 'settled' }> => e.kind === 'settled')
     .reduce((s, e) => s + e.spent.tokens.input + e.spent.tokens.output, 0)
   const replay = renderReplayHtml(recorder.timeline(runId), {
     title: `${task.taskId} · driver=${driverCfg.model}`,
