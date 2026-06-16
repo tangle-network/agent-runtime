@@ -8,12 +8,19 @@
  */
 
 export type {
+  CoderCheckConstraints,
+  CoderCheckInput,
   CoderOutput,
   CoderProfileOptions,
   CoderTask,
   MultiHarnessCoderFanoutOptions,
 } from './coder'
-export { coderProfile, createCoderValidator, multiHarnessCoderFanout } from './coder'
+export {
+  coderProfile,
+  createCoderValidator,
+  multiHarnessCoderFanout,
+  runCoderChecks,
+} from './coder'
 export type {
   BrowserContextHandle,
   BrowserHandle,

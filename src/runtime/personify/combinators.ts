@@ -93,6 +93,9 @@ export function fanout<Task, Item, D>(
   items: ReadonlyArray<Item>,
   opts: FanoutOptions<Item, D>,
 ): CombinatorShape<Task, D> {
+  if (opts.synthesize && opts.selectWinner) {
+    throw new ValidationError('fanout: pass at most one of `synthesize` or `selectWinner`')
+  }
   return (ctx: ShapeContext<D>): Agent<Task, Outcome<D>> => ({
     name: `${ctx.persona.name}/fanout`,
     async act(_task, scope): Promise<Outcome<D>> {
@@ -100,7 +103,8 @@ export function fanout<Task, Item, D>(
       let opened = 0
       for (const [i, item] of items.entries()) {
         const label = opts.label ? opts.label(item, i) : `item:${i}`
-        const child = ctx.spawnChild(label, ctx.persona.root)
+        const spec = opts.itemSpec ? opts.itemSpec(item, i, ctx) : ctx.persona.root
+        const child = ctx.spawnChild(label, spec)
         const res = scope.spawn(child, opts.itemTask(item, i, ctx), {
           budget: ctx.budget.perChild,
           label,
@@ -128,7 +132,8 @@ export function fanout<Task, Item, D>(
       }
 
       if (!opts.synthesize) {
-        const winner = defaultSelectWinner(drained.iterations)
+        const select = opts.selectWinner ?? defaultSelectWinner
+        const winner = select(drained.iterations)
         if (!winner || winner.output === undefined) {
           return blocked(
             orderedBlockers(drained.blockers, rejected, 'fanout: no item survived selection'),

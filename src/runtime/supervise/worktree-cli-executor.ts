@@ -28,6 +28,7 @@
  * iterations are EXCLUDED from the equal-k arms by construction (mirrors `cliExecutor`).
  */
 
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/spawn-journal'
@@ -48,6 +49,18 @@ import {
 import { zeroTokenUsage } from '../util'
 import type { Executor, ExecutorResult, Spend } from './types'
 
+/** Outcome of one verification command run in the worktree (test or typecheck). */
+export interface WorktreeCommandResult {
+  /** The shell command line that was run. */
+  command: string
+  /** Did the command exit 0? The PASS signal the coder deliverable gates on. */
+  passed: boolean
+  /** OS exit code, or `null` when killed before exit. */
+  exitCode: number | null
+  /** Combined stdout+stderr (capped) — surfaced in traces for diagnosis. */
+  output: string
+}
+
 /** Terminal artifact of one worktree-CLI run: the captured diff + the harness's run record. */
 export interface WorktreePatchArtifact {
   /** The branch the worktree was cut on (`delegate/<runId>`). */
@@ -65,6 +78,16 @@ export interface WorktreePatchArtifact {
     durationMs: number
     stdout: string
     stderr: string
+  }
+  /**
+   * Verification signals DERIVED in the live worktree, after the harness ran and before
+   * teardown — the PASS signals the old sandbox `CoderOutput` carried, re-derived here by
+   * running the configured commands. Present only when `testCmd`/`typecheckCmd` were supplied.
+   * The coder deliverable (`coderDeliverable`) reads these to gate the patch.
+   */
+  checks?: {
+    tests?: WorktreeCommandResult
+    typecheck?: WorktreeCommandResult
   }
 }
 
@@ -84,11 +107,32 @@ export interface WorktreeCliExecutorOptions {
   baseRef?: string
   /** Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default). */
   harnessTimeoutMs?: number
+  /**
+   * Shell command run in the live worktree to derive the tests-PASS signal (e.g. `pnpm test`).
+   * Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal derived).
+   */
+  testCmd?: string
+  /** Shell command run in the live worktree to derive the typecheck-PASS signal (e.g. `pnpm typecheck`). */
+  typecheckCmd?: string
+  /** Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 min. */
+  checkTimeoutMs?: number
   /** Test seam — inject a git runner so unit tests drive the worktree helpers without git. */
   runGit?: GitRunner
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness
+  /**
+   * Test seam — inject the verification-command runner so unit tests script test/typecheck
+   * outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree.
+   */
+  runCommand?: (opts: {
+    command: string
+    cwd: string
+    timeoutMs: number
+    signal?: AbortSignal
+  }) => Promise<{ exitCode: number | null; output: string }>
 }
+
+const checkOutputCap = 16_000
 
 /**
  * Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each),
@@ -114,6 +158,8 @@ export function createWorktreeCliExecutor(
 
   const runId = options.runId ?? randomUUID()
   const runHarness = options.runHarness ?? runLocalHarness
+  const runCommand = options.runCommand ?? defaultRunCommand
+  const checkTimeoutMs = options.checkTimeoutMs ?? options.harnessTimeoutMs ?? 5 * 60 * 1000
   const controller = new AbortController()
 
   let worktree: WorktreeHandle | undefined
@@ -161,6 +207,17 @@ export function createWorktreeCliExecutor(
         ...(linked ? { signal: linked } : {}),
       })
 
+      // Derive the test/typecheck PASS signals IN the live worktree, before teardown — the
+      // signals the old sandbox CoderOutput carried, re-derived from the commands' exit codes.
+      const checks = await runWorktreeChecks({
+        worktreePath: worktree.path,
+        ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
+        ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
+        timeoutMs: checkTimeoutMs,
+        runCommand,
+        ...(linked ? { signal: linked } : {}),
+      })
+
       // Capture the diff regardless of exit code — a failed run can still leave a partial
       // patch worth inspecting. The diff becomes the patch artifact.
       const diff = await captureWorktreeDiff({
@@ -181,6 +238,7 @@ export function createWorktreeCliExecutor(
           stdout: harnessResult.stdout,
           stderr: harnessResult.stderr,
         },
+        ...(checks ? { checks } : {}),
       }
 
       const spent: Spend = {
@@ -207,6 +265,73 @@ export function createWorktreeCliExecutor(
       return artifact
     },
   }
+}
+
+/**
+ * Run the configured test + typecheck commands in the live worktree and project their exit
+ * codes into the artifact's `checks`. Returns `undefined` when neither command was configured
+ * (so the artifact omits `checks` entirely rather than carrying a fabricated pass).
+ */
+async function runWorktreeChecks(opts: {
+  worktreePath: string
+  testCmd?: string
+  typecheckCmd?: string
+  timeoutMs: number
+  runCommand: NonNullable<WorktreeCliExecutorOptions['runCommand']>
+  signal?: AbortSignal
+}): Promise<WorktreePatchArtifact['checks'] | undefined> {
+  if (opts.testCmd === undefined && opts.typecheckCmd === undefined) return undefined
+  const run = async (command: string): Promise<WorktreeCommandResult> => {
+    const res = await opts.runCommand({
+      command,
+      cwd: opts.worktreePath,
+      timeoutMs: opts.timeoutMs,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    })
+    return {
+      command,
+      passed: res.exitCode === 0,
+      exitCode: res.exitCode,
+      output: res.output.length > checkOutputCap ? res.output.slice(-checkOutputCap) : res.output,
+    }
+  }
+  const checks: NonNullable<WorktreePatchArtifact['checks']> = {}
+  if (opts.testCmd !== undefined) checks.tests = await run(opts.testCmd)
+  if (opts.typecheckCmd !== undefined) checks.typecheck = await run(opts.typecheckCmd)
+  return checks
+}
+
+/** Default verification-command runner — `/bin/sh -c <command>` in the worktree, capturing
+ *  combined stdout+stderr. Never throws on a non-zero exit (that IS the fail signal); only a
+ *  spawn failure (ENOENT shell) rejects. */
+function defaultRunCommand(opts: {
+  command: string
+  cwd: string
+  timeoutMs: number
+  signal?: AbortSignal
+}): Promise<{ exitCode: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/bin/sh', ['-c', opts.command], {
+      cwd: opts.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const chunks: string[] = []
+    let settled = false
+    const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs)
+    const onAbort = () => child.kill('SIGTERM')
+    opts.signal?.addEventListener('abort', onAbort, { once: true })
+    child.stdout?.on('data', (d) => chunks.push(String(d)))
+    child.stderr?.on('data', (d) => chunks.push(String(d)))
+    const finish = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      opts.signal?.removeEventListener('abort', onAbort)
+      fn()
+    }
+    child.on('error', (err) => finish(() => reject(err)))
+    child.on('close', (code) => finish(() => resolve({ exitCode: code, output: chunks.join('') })))
+  })
 }
 
 /** Link two abort signals into one that fires when either does. Returns `undefined` when

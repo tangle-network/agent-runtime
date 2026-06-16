@@ -36,6 +36,7 @@ import type { AnalystFinding } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import type {
   Agent,
+  AgentSpec,
   Budget,
   DefaultVerdict,
   NodeId,
@@ -45,6 +46,7 @@ import type {
   SpawnJournal,
   Spend,
 } from '../supervise/types'
+import type { Iteration } from '../types'
 import type { LoopShape, Outcome, ShapeContext } from './types'
 
 // ════════════════════════════════════════════════════════════════════════════════════
@@ -107,13 +109,35 @@ export interface FanoutOptions<Item, D> {
   /** Per-item child label (defaults to `item:<index>` in the impl). */
   label?(item: Item, index: number): string
   /**
+   * Optional per-item `AgentSpec` override. When set, each item's child is spawned against the
+   * returned spec instead of `persona.root` — the seam a heterogeneous fanout uses to give each
+   * item a DISTINCT executor (e.g. N authored harness profiles, each on its own worktree-CLI
+   * leaf). Absent ⇒ every item runs against the persona's root spec (the homogeneous default).
+   */
+  itemSpec?(item: Item, index: number, ctx: ShapeContext<D>): AgentSpec
+  /**
    * Optional synthesis over the gathered child results: when present, the combinator spawns ONE
    * synthesis child whose task is built from the drained settlements, and its `done` output is
    * the deliverable. When absent, the deliverable is the best-valid child via `defaultSelectWinner`.
    * The synthesis child is a SEPARATE keystone agent (not a re-rank behind the driver).
    */
   synthesize?: FanoutSynthesis<D>
+  /**
+   * Winner-selection strategy among the gathered `done` children when there is no `synthesize`.
+   * Receives the SAME `Iteration[]` the default selector reads (each child's output is its
+   * `Outcome<D>`), so a strategy is a thin re-sort (smallest-diff, highest-readiness, first-valid
+   * …) over the candidates — NEVER a re-rank behind a judge. Default = `defaultSelectWinner`
+   * semantics (best-valid-score, ties→earliest). Mutually exclusive with `synthesize` (a
+   * synthesis child IS the selection); supplying both is a config error.
+   */
+  selectWinner?: FanoutWinnerSelector<D>
 }
+
+/** A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the
+ *  child's `Outcome<D>`), returning the chosen iteration or `undefined` when none qualifies. */
+export type FanoutWinnerSelector<D> = (
+  iterations: Iteration<unknown, Outcome<D>>[],
+) => { readonly output?: Outcome<D> | undefined } | undefined
 
 /** How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child
  *  settlements into the synthesis child's task; `collect` reads its settled output into the
