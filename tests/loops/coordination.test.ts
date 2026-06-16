@@ -47,6 +47,7 @@ function mockScope() {
       return { root: 'root', nodes, inFlight: 1 }
     },
     budget: { tokensLeft: 10, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
+    signal: new AbortController().signal,
   } as unknown as Scope<unknown>
   return { scope, sent, setAdmit: (v: boolean) => (admit = v) }
 }
@@ -224,6 +225,90 @@ describe('coordination tools', () => {
         error: expect.stringContaining('has not settled'),
       },
     )
+  })
+
+  it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w7', label: 'w', status: 'done' as const, abort() {} },
+        out: { diff: '...' },
+        outRef: 'blob:w7',
+        verdict: { valid: false, score: 0.1 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const drainScope = {
+      ...scope,
+      next: () => Promise.resolve(settlements.shift() ?? null),
+    } as typeof scope
+    const emitted: string[] = []
+    const tb = createCoordinationTools({
+      scope: drainScope,
+      blobs: {
+        get: async (ref) => (ref === 'blob:w7' ? { messages: ['trace'] } : undefined),
+        put: async () => {},
+      },
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      analysts: {
+        kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
+        run: async () => [{ claim: 'stub left in place' }],
+      },
+      analyzeOnSettle: ['completeness'],
+      onEvent: (e) => emitted.push(e.type),
+    })
+
+    // First pull drains the cursor: returns the settled worker; its analyst fires as a side effect.
+    expect(await tool(tb, 'await_event').handler({})).toEqual({
+      type: 'settled',
+      settled: 'w7',
+      status: 'done',
+      score: 0.1,
+      valid: false,
+      outRef: 'blob:w7',
+    })
+    // The analyze-on-settle finding is now queued; the next pull surfaces it.
+    expect(await tool(tb, 'await_event').handler({})).toEqual({
+      type: 'finding',
+      fromWorker: 'w7',
+      analyst: 'completeness',
+      findings: [{ claim: 'stub left in place' }],
+    })
+    // Cursor dry and queue empty → idle.
+    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
+    // Pass-through lane saw both events, in order.
+    expect(emitted).toEqual(['settled', 'finding'])
+  })
+
+  it('await_event with kinds filter waits for a specific message type', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w8', label: 'w', status: 'done' as const, abort() {} },
+        out: {},
+        outRef: 'blob:w8',
+        verdict: { valid: true, score: 1 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const tb = createCoordinationTools({
+      scope: { ...scope, next: () => Promise.resolve(settlements.shift() ?? null) } as typeof scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    // Asking only for 'settled' drains and returns it.
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
+      type: 'settled',
+      settled: 'w8',
+      valid: true,
+    })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
   })
 
   it('createMcpServer serves coordination tools alongside built-ins; a shadow throws', () => {

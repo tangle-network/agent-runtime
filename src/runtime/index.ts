@@ -326,6 +326,9 @@ export {
   isDriverSpec,
   withDriverExecutor,
 } from './supervise/driver-executor'
+// The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
+// analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
+export { type BusEvent, createEventBus, type EventBus } from './supervise/event-bus'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
