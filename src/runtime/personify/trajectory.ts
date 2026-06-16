@@ -64,7 +64,10 @@ export async function trajectoryReport(
   // them. The two seq namespaces overlap, so create every node from its `spawned` event
   // first, then apply settlements/cancellations — mirrors `materializeTreeView`.
   const spawns = events.filter(isSpawned).sort(bySeq)
-  const closes = events.filter((ev) => ev.kind !== 'spawned').sort(bySeq)
+  // `metered` events (driver inference) are folded onto each node in a separate pass below, so
+  // they accumulate ONTO the settled child-work base regardless of seq order; closes are the
+  // settlements/cancellations that set node status.
+  const closes = events.filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'metered').sort(bySeq)
 
   const nodes = new Map<NodeId, MutableNode>()
   for (const ev of spawns) {
@@ -88,6 +91,15 @@ export async function trajectoryReport(
     node.ownSpend = ev.spent
     node.verdict = ev.verdict
     node.outRef = ev.outRef
+  }
+  // Driver inference: add each `metered` event onto its node's ownSpend. Because a driver re-homes
+  // its nested subtree's inference up the tree, this single tree's events already carry the whole
+  // sub-tree's driver cost — so `total` matches `SupervisedResult.spentTotal` directly, with no
+  // caller plumbing.
+  for (const ev of events) {
+    if (ev.kind !== 'metered') continue
+    const node = requireNode(nodes, ev.id, root)
+    node.ownSpend = addNodeSpend(node.ownSpend, ev.spend)
   }
 
   if (!nodes.has(root)) {
@@ -254,6 +266,16 @@ function countStatuses(
 
 function zeroSpend(): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+}
+
+/** Add a `metered` event's spend onto a node's accumulated ownSpend (per channel). */
+function addNodeSpend(a: Spend, b: Spend): Spend {
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usd: a.usd + b.usd,
+    ms: a.ms + b.ms,
+  }
 }
 
 function cloneSpend(spend: Spend): Spend {

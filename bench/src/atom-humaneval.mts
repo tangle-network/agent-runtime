@@ -25,16 +25,14 @@ import {
   coordinationDriverAgent,
   createExecutorRegistry,
   createSupervisor,
-  type DriverChat,
-  type DriverMessage,
   type Executor,
   type ExecutorResult,
   gateOnDeliverable,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type RouterConfig,
-  routerChatWithTools,
   routerChatWithUsage,
+  routerDriverChat,
 } from '../../src/runtime/index'
 import { createReplayRecorder, renderReplayHtml } from '../../src/topology/replay'
 import { basePrompt, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
@@ -58,56 +56,8 @@ const cfg: RouterConfig = {
 }
 const driverCfg: RouterConfig = { ...cfg, model: process.env.DRIVER_MODEL ?? cfg.model }
 
-// ── The real driver-LLM brain: routerChatWithTools adapted to the DriverChat seam ────────────
-function routerDriverChat(c: RouterConfig): DriverChat {
-  return {
-    next: async ({ system, messages, tools }) => {
-      const oa: Array<Record<string, unknown>> = [
-        { role: 'system', content: system },
-        ...messages.map(toOpenAI),
-      ]
-      const oaTools = tools.map((t) => ({
-        type: 'function' as const,
-        function: { name: t.name, description: t.description, parameters: t.parameters },
-      }))
-      const r = await routerChatWithTools(c, oa, oaTools, { temperature: 0.4, toolChoice: 'auto' })
-      return {
-        ...(r.content ? { content: r.content } : {}),
-        toolCalls: r.toolCalls.map((tc) => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: safeParse(tc.arguments),
-        })),
-      }
-    },
-  }
-}
-
-function toOpenAI(m: DriverMessage): Record<string, unknown> {
-  if (m.role === 'assistant' && m.toolCalls?.length) {
-    return {
-      role: 'assistant',
-      content: m.content ?? '',
-      tool_calls: m.toolCalls.map((tc) => ({
-        id: tc.id ?? tc.name,
-        type: 'function',
-        function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-      })),
-    }
-  }
-  if (m.role === 'tool') {
-    return { role: 'tool', tool_call_id: m.toolCallId ?? m.name ?? 'call', content: m.content }
-  }
-  return { role: m.role, content: m.content }
-}
-
-function safeParse(s: string): Record<string, unknown> {
-  try {
-    return JSON.parse(s) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
+// The driver-LLM brain uses the SHARED `routerDriverChat` (imported from the library) — its local
+// copy did not forward usage/costUsd, so this bench's driver arms never metered their inference.
 
 // ── A gated router worker: one router call → candidate code, settled valid ⟺ the tests pass ──
 function humanEvalWorker(task: HumanEvalTask, label: string): Agent<unknown, unknown> {

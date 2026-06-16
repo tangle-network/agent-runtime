@@ -133,6 +133,10 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readNestedScopeSeam(ctx)
 
   let artifact: ExecutorResult<unknown> | undefined
+  // The nested subtree's driver INFERENCE, cached so the parent re-homes it on settle. Computed
+  // on BOTH the success AND crash paths (metered events are durable in the nested tree regardless),
+  // so a sub-driver that crashes mid-run still re-homes its partial inference — pool + journal agree.
+  let meteredSpend: Spend | undefined
 
   return {
     runtime: driverRuntime,
@@ -144,27 +148,43 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
 
       const nestedScope: Scope<unknown> = seam.mount(nestedRoot, signal)
 
-      // Run the driver. Its `act` spawns children into the nested scope and reacts via
-      // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
-      const out = await driver.act(task, nestedScope)
+      try {
+        // Run the driver. Its `act` spawns children into the nested scope and reacts via
+        // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
+        const out = await driver.act(task, nestedScope)
 
-      // Read the nested tree's settled events ONCE — the same evidence the supervisor's
-      // `spentTotal` reads — and roll up both the conserved spend AND the delivery verdict.
-      const settled = await loadSettled(journal, nestedRoot)
-      const spent = sumSpend(settled)
-      // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
-      // children settled `valid` (the child its keep-best finalize returns). Deriving the
-      // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
-      // `valid` only when it itself selected a delivered child — so a node never settles
-      // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
-      const verdict = deriveDeliveryVerdict(settled)
-      artifact = {
-        outRef: `${driverRuntime}:${nestedRoot}`,
-        out,
-        spent,
-        ...(verdict ? { verdict } : {}),
+        // Read the nested tree's events ONCE. Two roll-ups, kept separate so the conserved invariant
+        // is not double-charged:
+        //  - `spent` = settled child WORK → reconciled against THIS driver's reservation (as before).
+        //  - `metered` = the nested subtree's driver INFERENCE → re-homed by the parent scope as a
+        //    `metered` event, NOT reconciled (already pool-debited live via `observe`).
+        const events = await loadTreeEvents(journal, nestedRoot)
+        const settled = events.filter(isSettled)
+        meteredSpend = nonZeroOrUndef(sumMetered(events))
+        // Completion-oracle propagation: a driver "delivered" iff at least one of its DIRECT
+        // children settled `valid` (the child its keep-best finalize returns). Deriving the
+        // driver child's verdict this way composes delivery UP the recursion — a sub-driver is
+        // `valid` only when it itself selected a delivered child — so a node never settles
+        // "done = delivered" on a sub-tree that delivered nothing (Foreman's 0/18 lesson).
+        const verdict = deriveDeliveryVerdict(settled)
+        artifact = {
+          outRef: `${driverRuntime}:${nestedRoot}`,
+          out,
+          spent: sumSpend(settled),
+          ...(verdict ? { verdict } : {}),
+        }
+        return artifact
+      } catch (err) {
+        // Crash mid-run: the nested tree still holds the durable `metered` events the sub-driver
+        // already wrote (pool already debited them). Cache them so the parent's down-path re-home
+        // lands the partial inference and the two ledgers stay in agreement. A missing tree must
+        // not mask the original error.
+        meteredSpend = await safeSumMetered(journal, nestedRoot)
+        throw err
       }
-      return artifact
+    },
+    metered(): Spend | undefined {
+      return meteredSpend
     },
     teardown(): Promise<{ destroyed: boolean }> {
       // The nested scope's live children are torn down by the driver's own `act` discipline
@@ -222,25 +242,24 @@ function nextNestOrdinal(journal: SpawnJournal): number {
   return c.n++
 }
 
-/** The nested tree's `settled` events — the one evidence list the spend AND verdict roll-ups
- *  both read off the same journal the supervisor sums. */
-async function loadSettled(
-  journal: SpawnJournal,
-  nestedRoot: string,
-): Promise<Extract<SpawnEvent, { kind: 'settled' }>[]> {
+/** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
+ *  roll-ups read off the same journal the supervisor sums. */
+async function loadTreeEvents(journal: SpawnJournal, nestedRoot: string): Promise<SpawnEvent[]> {
   const events = await journal.loadTree(nestedRoot)
   if (events === undefined) {
     throw new ValidationError(
       `driverExecutor: nested tree '${nestedRoot}' missing from the journal after run (corrupted log)`,
     )
   }
-  return events.filter(
-    (ev): ev is Extract<SpawnEvent, { kind: 'settled' }> => ev.kind === 'settled',
-  )
+  return events
+}
+
+function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' }> {
+  return ev.kind === 'settled'
 }
 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel
- *  roll-up of the whole sub-tree. */
+ *  roll-up of the whole sub-tree's child WORK. */
 function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
   const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
   for (const ev of settled) {
@@ -251,6 +270,45 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
     total.ms += ev.spent.ms
   }
   return total
+}
+
+/** Sum the nested tree's `metered` events — the sub-tree's whole driver INFERENCE (this driver's
+ *  own turns + any sub-driver inference already re-homed into this tree). Re-homed up to the parent
+ *  as one `metered` event; never reconciled (already pool-debited live via `observe`). */
+function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
+  const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  for (const ev of events) {
+    if (ev.kind !== 'metered') continue
+    total.iterations += ev.spend.iterations
+    total.tokens.input += ev.spend.tokens.input
+    total.tokens.output += ev.spend.tokens.output
+    total.usd += ev.spend.usd
+    total.ms += ev.spend.ms
+  }
+  return total
+}
+
+function isNonZeroSpend(s: Spend): boolean {
+  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
+}
+
+/** A spend, or `undefined` when it is all-zero — so `metered()` returns undefined for a driver
+ *  whose sub-tree did no inference (and the parent journals no empty `metered` event). */
+function nonZeroOrUndef(s: Spend): Spend | undefined {
+  return isNonZeroSpend(s) ? s : undefined
+}
+
+/** Sum the nested tree's metered events, tolerating a missing tree (a crash before `beginTree`
+ *  landed) — never throw here, or it would mask the original `act` error on the crash path. */
+async function safeSumMetered(
+  journal: SpawnJournal,
+  nestedRoot: string,
+): Promise<Spend | undefined> {
+  try {
+    return nonZeroOrUndef(sumMetered(await loadTreeEvents(journal, nestedRoot)))
+  } catch {
+    return undefined
+  }
 }
 
 /** Derive the driver child's delivery verdict from its DIRECT children's settlements:

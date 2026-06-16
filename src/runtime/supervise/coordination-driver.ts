@@ -27,7 +27,7 @@
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools, type MakeWorkerAgent } from '../../mcp/tools/coordination'
-import type { Agent, Budget, ResultBlobStore, Scope } from './types'
+import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
 /** One tool call the driver LLM asks for this turn. */
 export interface DriverToolCall {
@@ -50,6 +50,12 @@ export interface DriverTurn {
   readonly toolCalls?: ReadonlyArray<DriverToolCall>
   /** The driver's natural-language output — the answer when there are no tool calls. */
   readonly content?: string
+  /** The driver LLM's OWN token usage for THIS turn — metered against the conserved pool so the
+   *  driver's inference counts toward equal-k AND the in-loop budget guard. Omit for a scripted/
+   *  mock turn (no real inference); production `routerDriverChat` forwards it from the router. */
+  readonly usage?: { readonly input: number; readonly output: number }
+  /** The turn's inference cost (usd), when the provider priced it. */
+  readonly costUsd?: number
 }
 
 /** The injected driver-LLM seam: one turn over the conversation + the coordination tool specs. */
@@ -84,18 +90,25 @@ export interface CoordinationDriverOptions {
   readonly now?: () => number
 }
 
-/** maxTurns=0 anti-runaway tripwire: a finite ceiling that only catches a DEGENERATE driver
- *  looping on a no-spawn tool (the driver's own inference tokens are not yet metered against
- *  the conserved pool, so they alone cannot drain it). The conserved pool + deadline + abort
- *  are the real bounds; no healthy run approaches this. */
+/** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
+ *  bound — a driver whose chat seam reports NO usage (so `scope.meter`/`pool.observe` is never
+ *  called and its turns don't drain the pool). With a usage-reporting seam, driver inference now
+ *  meters into the pool and `poolStarved` halts it; the pool + deadline + abort are the real bounds
+ *  and no healthy run approaches this. */
 const runawayTripwireTurns = 2000
 
-/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight
- *  to await. A long-horizon driver bounded by the conserved pool stops here instead of spinning
- *  (the in-loop budget guard the turn cap alone never provided). */
+/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
+ *  await. A long-horizon driver bounded by the conserved pool stops here instead of spinning (the
+ *  in-loop budget guard the turn cap alone never provided). Checks BOTH conserved channels: tokens
+ *  (can't afford a worker) and usd (a usd-capped pool whose ceiling the driver's own metered
+ *  inference has drained — `meter` debits usd, so without this a huge-token/small-usd pool would
+ *  overspend usd up to the turn tripwire). */
 function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
   const b = scope.budget
-  return b.tokensLeft < perWorker.maxTokens && b.reservedTokens <= 0
+  if (b.reservedTokens > 0) return false // a child is in flight — await it, don't finalize early
+  const tokenStarved = b.tokensLeft < perWorker.maxTokens
+  const usdStarved = b.usdCapped && b.usdLeft <= 0
+  return tokenStarved || usdStarved
 }
 
 /** The absolute wall-clock deadline (when the root set one) has passed. */
@@ -153,6 +166,28 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         if (poolStarved(scope, opts.perWorker) || deadlinePassed(scope, now)) break
         const res = await opts.chat.next({ system, messages, tools: toolSpecs })
         const calls = res.toolCalls ?? []
+        // Meter the driver's OWN inference for this turn — the largest single token consumer in an
+        // agentic loop, and the one the conserved pool never saw. Only when the turn carried real
+        // usage: a scripted/mock turn meters nothing, so offline equal-k stays exact. This debit is
+        // what makes maxTurns=0 genuinely bounded — a thinking driver drains the pool → poolStarved.
+        if (res.usage || res.costUsd !== undefined) {
+          const turnSpend: Spend = {
+            // iterations:0 — the conserved iteration channel (`maxIterations`) budgets CHILD rounds,
+            // not driver turns; counting turns there would conflate the two AND make a driver arm's
+            // iteration count diverge from a blind arm's. The driver is bounded by maxTurns + the
+            // token/usd pool; its turn COUNT stays observable via the per-turn `agent.turn` events.
+            iterations: 0,
+            tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
+            usd: res.costUsd ?? 0,
+            ms: 0,
+          }
+          await scope.meter(turnSpend, {
+            kind: 'driver-inference',
+            driver: opts.name,
+            turn,
+            toolCalls: calls.map((c) => c.name),
+          })
+        }
         if (calls.length === 0) {
           // The driver named no tool call — it is finished. Its deliverable is the best DELIVERED
           // child (the completion-oracle), NOT its own prose: a driver cannot self-declare done

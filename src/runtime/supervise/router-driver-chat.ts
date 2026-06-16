@@ -24,6 +24,10 @@ export function routerDriverChat(c: RouterConfig, opts: { temperature?: number }
       const r = await routerChatWithTools(c, oa, oaTools, { temperature, toolChoice: 'auto' })
       return {
         ...(r.content ? { content: r.content } : {}),
+        // Forward the router's REAL usage + cost so the driver meters its own inference against the
+        // conserved pool (the integrity hole: these were dropped on the floor before).
+        ...(r.usage ? { usage: r.usage } : {}),
+        ...(typeof r.costUsd === 'number' ? { costUsd: r.costUsd } : {}),
         toolCalls: r.toolCalls.map((tc) => ({
           id: tc.id,
           name: tc.name,

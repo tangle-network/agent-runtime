@@ -274,8 +274,10 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
-  if (ev.kind === 'spawned') return
-  if (events.some((e) => e.kind !== 'spawned' && e.seq === ev.seq)) {
+  // `spawned` (ordinal namespace) and `metered` (informational spend, no settlement order) live
+  // outside the cursor-uniqueness namespace replay relies on.
+  if (ev.kind === 'spawned' || ev.kind === 'metered') return
+  if (events.some((e) => e.kind !== 'spawned' && e.kind !== 'metered' && e.seq === ev.seq)) {
     throw new Error(
       `spawn journal corrupted: duplicate cursor seq ${ev.seq} in tree '${root}'; ` +
         'the cursor order replay relies on is not unique',
@@ -313,6 +315,7 @@ export async function replaySpawnTree(
   const settled: Settled<unknown>[] = []
   for (const ev of ordered) {
     if (ev.kind === 'spawned') continue
+    if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
     if (ev.kind === 'cancelled') {
       settled.push({
         kind: 'down',
@@ -373,7 +376,8 @@ function replayHandle(id: NodeId, label: string, status: NodeStatus) {
 
 /**
  * Materialize the live tree (`TreeView`) from a journaled event list for resume. Folds
- * `spawned`/`settled`/`cancelled` into a per-node snapshot in `seq` order so the
+ * `spawned`/`settled`/`cancelled` into a per-node snapshot in `seq` order, then adds each
+ * `metered` event's driver-inference spend onto its node in a separate additive pass — so the
  * resumed view matches what `scope.view` showed at the recorded cursor position.
  */
 export function materializeTreeView(events: SpawnEvent[]): TreeView {
@@ -386,7 +390,9 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   const spawns = events
     .filter((ev): ev is Extract<SpawnEvent, { kind: 'spawned' }> => ev.kind === 'spawned')
     .sort((a, b) => a.seq - b.seq)
-  const settlements = events.filter((ev) => ev.kind !== 'spawned').sort((a, b) => a.seq - b.seq)
+  const settlements = events
+    .filter((ev) => ev.kind !== 'spawned' && ev.kind !== 'metered')
+    .sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {
     if (ev.parent === undefined && root === undefined) root = ev.id
     nodes.set(ev.id, {
@@ -410,6 +416,13 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       node.status = 'cancelled'
     }
   }
+  // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
+  // dependence on metered-vs-settled seq order) without touching node status.
+  for (const ev of events) {
+    if (ev.kind !== 'metered') continue
+    const node = requireNode(nodes, ev.id)
+    node.spent = addJournalSpend(node.spent, ev.spend)
+  }
   const snapshots = [...nodes.values()].map(freezeSnapshot)
   return {
     root: root ?? snapshots[0]?.id ?? '',
@@ -431,6 +444,16 @@ interface MutableSnapshot {
 
 function zeroSpend(): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+}
+
+/** Add a `metered` spend record onto a node's accumulated spend (per channel). */
+function addJournalSpend(a: Spend, b: Spend): Spend {
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usd: a.usd + b.usd,
+    ms: a.ms + b.ms,
+  }
 }
 
 function requireNode(nodes: Map<NodeId, MutableSnapshot>, id: NodeId): MutableSnapshot {

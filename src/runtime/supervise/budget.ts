@@ -37,10 +37,13 @@ export interface ReservationTicket {
 
 /** Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  *  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
- *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none). */
+ *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
+ *  `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
+ *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
 export type BudgetReadout = Readonly<{
   tokensLeft: number
   usdLeft: number
+  usdCapped: boolean
   deadlineMs: number
   reservedTokens: number
 }>
@@ -66,6 +69,17 @@ export interface BudgetPool {
   spendFrom(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend>
   /** The current readout, reflecting all outstanding reservations. */
   readout(): BudgetReadout
+  /**
+   * Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
+   * (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
+   * debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
+   * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
+   * when a run overspends — that is honest (the readout then signals exhaustion). It never throws:
+   * the spend already happened, so accounting records reality; the in-loop guard prevents MORE.
+   * The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
+   * only makes the live `readout()` reflect driver inference for the in-loop guard.
+   */
+  observe(spend: Spend): void
   /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
@@ -219,10 +233,25 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     }
   }
 
+  function observe(spend: Spend): void {
+    const tokens = totalTokens(spend.tokens)
+    // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
+    // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
+    // The DURABLE record of this spend is the journal's `metered` event (the twin written by
+    // `Scope.meter`); this debit exists only to make the live `readout()` reflect driver inference.
+    freeTokens -= tokens
+    committedTokens += tokens
+    freeIterations -= spend.iterations
+    committedIterations += spend.iterations
+    committedUsd += spend.usd
+    if (usdCapped) freeUsd -= spend.usd
+  }
+
   function readout(): BudgetReadout {
     return {
       tokensLeft: freeTokens,
       usdLeft: usdCapped ? freeUsd : 0,
+      usdCapped,
       deadlineMs: absoluteDeadlineMs,
       reservedTokens,
     }
@@ -241,6 +270,7 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     reconcile,
     spendFrom: foldUsage,
     readout,
+    observe,
     assertNoOpenTickets,
   }
 }

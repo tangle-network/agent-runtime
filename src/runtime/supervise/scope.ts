@@ -111,8 +111,25 @@ interface LiveChild {
 
 /** A child's terminal settlement before the cursor stamps the monotonic `seq`. */
 type PreSeqSettled =
-  | { kind: 'done'; out: unknown; outRef: string; verdict?: DefaultVerdict; spent: Spend }
-  | { kind: 'down'; reason: string; infra: boolean; restartCount: number }
+  | {
+      kind: 'done'
+      out: unknown
+      outRef: string
+      verdict?: DefaultVerdict
+      spent: Spend
+      /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
+       *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
+      metered?: Spend
+    }
+  | {
+      kind: 'down'
+      reason: string
+      infra: boolean
+      restartCount: number
+      /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
+       *  too, so the journal matches the pool (which already debited it via `observe`). */
+      metered?: Spend
+    }
 
 /**
  * The recursion seam key. A `Scope` seeds a value of this on each child's
@@ -179,6 +196,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // journal's per-tree uniqueness guard (which is scoped to the cursor namespace).
   let spawnOrdinal = 0
   let cursorSeq = 0
+  let meterSeq = 0
   const now = args.now ?? Date.now
 
   function spawn<C extends Out>(
@@ -359,11 +377,45 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     return true
   }
 
+  async function meter(spend: Spend, detail?: Record<string, unknown>): Promise<void> {
+    const seq = meterSeq++
+    // Debit the driver's own inference against the shared conserved pool (free → committed), so
+    // equal-k counts it live and `budget.tokensLeft` reflects it for the in-loop guard.
+    args.pool.observe(spend)
+    // Journal it as a `metered` event — the durable TWIN of the pool debit (as `settled` is the
+    // twin of `reconcile`), so every journal-based cost reader sums driver inference automatically.
+    // Awaited like the settled append (cost-critical), so it has landed before the supervisor's
+    // join-barrier cost roll-up.
+    await args.journal.appendEvent(args.root, {
+      kind: 'metered',
+      id: args.parentId,
+      spend,
+      seq,
+      at: new Date(now()).toISOString(),
+    })
+    // Emit it as an `agent.turn` event so the trace/topology view sees per-turn driver inference
+    // (the same stream `spawn`/`next` feed — one observable tree).
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${args.parentId}:meter:${seq}`,
+        runId: args.root,
+        target: 'agent.turn',
+        phase: 'after',
+        timestamp: now(),
+        parentId: args.parentId,
+        payload: { spend, ...(detail ?? {}) },
+      },
+      { signal: args.signal },
+    )
+  }
+
   return {
     spawn,
     next,
     send,
     signal: args.signal,
+    meter,
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
     },
@@ -401,6 +453,17 @@ async function finalizeSettlement<Out>(
       seq,
       at: new Date(now()).toISOString(),
     })
+    // Re-home a crashed driver child's partial inference too (the pool already debited it via
+    // `observe`) — so spentTotal/trajectory never undercount a sub-driver that died mid-run.
+    if (settlement.metered) {
+      await args.journal.appendEvent(args.root, {
+        kind: 'metered',
+        id: child.id,
+        spend: settlement.metered,
+        seq,
+        at: new Date(now()).toISOString(),
+      })
+    }
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -444,6 +507,18 @@ async function finalizeSettlement<Out>(
     seq,
     at: new Date(now()).toISOString(),
   })
+  // Re-home a driver child's OWN-inference subtree total up to THIS (parent) tree as a `metered`
+  // event for the child node — mirroring how `settled.spent` rolls child WORK up. So summing any
+  // sub-tree root yields its true driver-inference cost, NOT reconciled (already pool-debited).
+  if (settlement.metered) {
+    await args.journal.appendEvent(args.root, {
+      kind: 'metered',
+      id: child.id,
+      spend: settlement.metered,
+      seq,
+      at: new Date(now()).toISOString(),
+    })
+  }
   notifyRuntimeHookEvent(
     args.hooks,
     {
@@ -523,9 +598,13 @@ async function runChild<C>(
       reconcileOnce(terminal.spent)
     }
 
+    // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
+    // (done, aborted, crash) so the journal always matches what the pool already debited.
+    const ownMetered = executor.metered?.()
+
     if (childAbort.signal.aborted) {
       await teardownSafe(executor, opts.shutdown ?? 'brutalKill')
-      return downRecord('aborted before settle', true)
+      return downRecord('aborted before settle', true, ownMetered)
     }
 
     // The durable record is keyed by the canonical content address of the output — the
@@ -543,13 +622,15 @@ async function runChild<C>(
       outRef,
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
+      ...(ownMetered ? { metered: ownMetered } : {}),
     }
   } catch (err) {
     // Reconcile the (likely partial) spend so the reservation is refunded even on a throw.
     reconcileOnce(live.spent)
     await teardownSafe(executor, 'brutalKill')
     const aborted = childAbort.signal.aborted || isAbortError(err)
-    return downRecord(errMessage(err), aborted || isInfraError(err))
+    // A crashed driver child still re-homes the partial inference it durably metered.
+    return downRecord(errMessage(err), aborted || isInfraError(err), executor.metered?.())
   }
 }
 
@@ -668,8 +749,8 @@ async function teardownSafe<C>(
   }
 }
 
-function downRecord(reason: string, infra: boolean): PreSeqSettled {
-  return { kind: 'down', reason, infra, restartCount: 0 }
+function downRecord(reason: string, infra: boolean, metered?: Spend): PreSeqSettled {
+  return { kind: 'down', reason, infra, restartCount: 0, ...(metered ? { metered } : {}) }
 }
 
 function zeroSpend(): Spend {

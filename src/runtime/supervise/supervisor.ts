@@ -28,9 +28,9 @@
  *    no-winner; it does not restart anything.
  *
  * Selection lives in the driver, not here (selector≠judge): `act` returns the synthesized
- * winner `Out`. The supervisor content-addresses that `Out` for its replay `outRef`,
- * reads `spentTotal` off the conserved pool, and wraps it as a typed `winner` — it does
- * not re-rank children behind the driver's back.
+ * winner `Out`. The supervisor content-addresses that `Out` for its replay `outRef`, reads
+ * `spentTotal` off the journal (`settled` child work + `metered` driver inference), and wraps
+ * it as a typed `winner` — it does not re-rank children behind the driver's back.
  */
 
 import { contentAddress } from '../../durable/spawn-journal'
@@ -174,12 +174,19 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // driver already selected.
         const outRef = contentAddress(out)
         await opts.blobs.put(outRef, out)
+        // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
+        // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
+        // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
+        const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
         return {
           kind: 'winner',
           out,
           outRef,
           tree,
-          spentTotal: await spentTotalFromJournal(journal, opts.runId),
+          spentTotal: addSpend(childWork, driverInference),
+          ...(isNonEmptySpend(driverInference)
+            ? { spentBreakdown: { driverInference, childWork } }
+            : {}),
         }
       }
       return {
@@ -410,21 +417,50 @@ function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {
  * loud if the tree was never journaled (the supervisor always `beginTree`s, so a missing
  * tree is a corrupted journal, not a normal path).
  */
-async function spentTotalFromJournal(journal: SpawnJournal, root: string): Promise<Spend> {
+async function spentFromJournal(
+  journal: SpawnJournal,
+  root: string,
+): Promise<{ childWork: Spend; driverInference: Spend }> {
   const events = await journal.loadTree(root)
   if (events === undefined) {
     throw new RuntimeRunStateError(
       `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
     )
   }
-  const total: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const childWork: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const driverInference: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
   for (const ev of events) {
-    if (ev.kind !== 'settled') continue
-    total.iterations += ev.spent.iterations
-    total.tokens.input += ev.spent.tokens.input
-    total.tokens.output += ev.spent.tokens.output
-    total.usd += ev.spent.usd
-    total.ms += ev.spent.ms
+    // `settled` = spawned-child work (reconciled); `metered` = driver inference (re-homed up the
+    // tree, so this single root-tree pass already includes every nested driver's inference).
+    if (ev.kind === 'settled') accumulate(childWork, ev.spent)
+    else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
   }
-  return total
+  return { childWork, driverInference }
+}
+
+/** Add `b` into `a` in place, per channel. */
+function accumulate(a: Spend, b: Spend): void {
+  a.iterations += b.iterations
+  a.tokens.input += b.tokens.input
+  a.tokens.output += b.tokens.output
+  a.usd += b.usd
+  a.ms += b.ms
+}
+
+/** Sum two conserved-spend tallies per channel — the child-work journal sum + the drivers' own
+ *  metered inference, so `spentTotal` is the true cost of the run. */
+function addSpend(a: Spend, b: Spend): Spend {
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    usd: a.usd + b.usd,
+    ms: a.ms + b.ms,
+  }
+}
+
+/** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).
+ *  Checks every channel `addSpend` sums — including `ms` — so the gate stays consistent with the
+ *  total even though the coordination driver currently stamps `ms: 0`. */
+function isNonEmptySpend(s: Spend): boolean {
+  return s.iterations > 0 || s.tokens.input > 0 || s.tokens.output > 0 || s.usd > 0 || s.ms > 0
 }
