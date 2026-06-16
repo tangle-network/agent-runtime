@@ -1,9 +1,15 @@
 {
-  "name": "@tangle-network/agent-runtime-bench",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@tangle-network/agent-bench",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Private experiment workspace for the agent-runtime optimization suite: Environment + Strategy/defineStrategy + runBenchmark over deterministic checks (EnterpriseOps-Gym, SWE-bench, answer-shaped domains). Map: bench/HARNESS.md.",
+  "description": "The unified benchmark suite for agent-runtime agents: 18 adapters (commit0, enterpriseops-gym, trata-hedge, finsearchcomp, swe-bench, humaneval, …) behind one resolveAdapter registry, each with a real deterministic judge. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapters": "./src/adapters.ts",
+    "./benchmarks/*": "./src/benchmarks/*.ts"
+  },
   "scripts": {
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "gate-cli": "tsx src/gate-cli.mts",
