@@ -224,6 +224,63 @@ describe('createWorktreeCliExecutor', () => {
     expect(spawnedArgs).toContain('deepseek/deepseek-v4-flash')
   })
 
+  it('derives test/typecheck PASS signals in the live worktree (the re-homed coder signals)', async () => {
+    const state = freshGitState()
+    const ranIn: { command: string; cwd: string }[] = []
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'opencode',
+      taskPrompt: 'do it',
+      testCmd: 'pnpm test',
+      typecheckCmd: 'pnpm typecheck',
+      runGit: makeFakeGit(state),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
+      runCommand: async ({ command, cwd }) => {
+        ranIn.push({ command, cwd })
+        // tests pass (exit 0), typecheck fails (exit 1) — both signals captured.
+        return command === 'pnpm test'
+          ? { exitCode: 0, output: 'all green' }
+          : { exitCode: 1, output: 'type error' }
+      },
+    })
+
+    const result = await exec.execute(undefined, new AbortController().signal)
+    // Commands ran in the cut worktree, not the repo root.
+    expect(ranIn.map((r) => r.command)).toEqual(['pnpm test', 'pnpm typecheck'])
+    expect(ranIn.every((r) => r.cwd === state.worktreesCreated[0])).toBe(true)
+    expect(result.out.checks?.tests?.passed).toBe(true)
+    expect(result.out.checks?.typecheck?.passed).toBe(false)
+    expect(result.out.checks?.typecheck?.exitCode).toBe(1)
+  })
+
+  it('omits `checks` entirely when no verification command is configured', async () => {
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'claude',
+      taskPrompt: 'x',
+      runGit: makeFakeGit(freshGitState()),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
+    })
+    const result = await exec.execute(undefined, new AbortController().signal)
+    expect(result.out.checks).toBeUndefined()
+  })
+
   it('fails loud on a missing repoRoot / harness / taskPrompt', () => {
     expect(() =>
       createWorktreeCliExecutor({

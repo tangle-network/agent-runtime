@@ -38,7 +38,18 @@ import {
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
 import type { DelegateCodeArgs } from './mcp/types'
 import type { CoderOutput } from './profiles/coder'
-import type { SandboxClient } from './runtime'
+import {
+  type AuthoredCoderHarness,
+  type Budget,
+  type CoderWinnerStrategy,
+  createExecutorRegistry,
+  definePersona,
+  runPersonified,
+  type SandboxClient,
+  type WorktreeCoderFanoutOptions,
+  type WorktreePatchArtifact,
+  worktreeCoderFanout,
+} from './runtime'
 
 /** @experimental Every delegated-loop mode, for validation + CLI surfaces. */
 export const DELEGATED_LOOP_MODES = ['code', 'review', 'research', 'audit', 'self-improve'] as const
@@ -150,6 +161,90 @@ export function reviewLoopRunner(
   options: CoderLoopRunnerOptions & { reviewer: CoderReviewer },
 ): DelegatedLoopRunner<CoderOutput> {
   return coderLoopRunner(options)
+}
+
+/** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */
+export interface WorktreeCoderLoopRunnerOptions {
+  /** Absolute path to the local git checkout each worktree is cut from. */
+  repoRoot: string
+  /** The instruction handed to every authored harness (composed under each profile's systemPrompt). */
+  taskPrompt: string
+  /** The supervisor-authored harness profiles — one fanout item (one worktree-CLI leaf) each. */
+  harnesses: ReadonlyArray<AuthoredCoderHarness>
+  /** Conserved budget pool bounding the fanout (equal-k holds by construction). */
+  budget: Budget
+  /** Shell command run in each worktree to derive the tests-PASS signal. */
+  testCmd?: string
+  /** Shell command run in each worktree to derive the typecheck-PASS signal. */
+  typecheckCmd?: string
+  /** Which verification signals the deliverable REQUIRES present-and-passing (default none). */
+  require?: ReadonlyArray<'tests' | 'typecheck'>
+  /** Diff-size cap (lines). */
+  maxDiffLines?: number
+  /** Literal path prefixes the patch must not touch (the secret-floor is always on regardless). */
+  forbiddenPaths?: string[]
+  /** Winner-selection strategy among gated candidates. Default `highest-score`. */
+  winnerStrategy?: CoderWinnerStrategy
+  /** Test seams forwarded to the worktree-CLI leaves so the runner drives offline. */
+  runGit?: WorktreeCoderFanoutOptions['runGit']
+  runHarness?: WorktreeCoderFanoutOptions['runHarness']
+  runCommand?: WorktreeCoderFanoutOptions['runCommand']
+}
+
+/**
+ * @experimental
+ *
+ * `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
+ * `worktreeCoderFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
+ * `runPersonified` on the keystone Supervisor. This is the local-repo counterpart to
+ * {@link coderLoopRunner} (which drives the in-box harness over a `SandboxClient`): no `runLoop`
+ * driver, no role-coupled delegate — the harness list is the fanout, the gate is `coderDeliverable`,
+ * the winner is `defaultSelectWinner`. Equal-k holds by the conserved budget pool. Returns the
+ * winning patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
+ */
+export function worktreeCoderLoopRunner(
+  options: WorktreeCoderLoopRunnerOptions,
+): DelegatedLoopRunner<WorktreePatchArtifact> {
+  const shape = worktreeCoderFanout<string>({
+    repoRoot: options.repoRoot,
+    taskPrompt: options.taskPrompt,
+    harnesses: options.harnesses,
+    ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
+    ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
+    ...(options.require !== undefined ? { require: options.require } : {}),
+    ...(options.maxDiffLines !== undefined ? { maxDiffLines: options.maxDiffLines } : {}),
+    ...(options.forbiddenPaths !== undefined ? { forbiddenPaths: options.forbiddenPaths } : {}),
+    ...(options.winnerStrategy !== undefined ? { winnerStrategy: options.winnerStrategy } : {}),
+    ...(options.runGit ? { runGit: options.runGit } : {}),
+    ...(options.runHarness ? { runHarness: options.runHarness } : {}),
+    ...(options.runCommand ? { runCommand: options.runCommand } : {}),
+  })
+  // The persona's only role here is to carry the fanout shape onto the Supervisor; each item's
+  // executor is BYO (the gated worktree-CLI leaf), so the registry only needs to pass BYO through.
+  const persona = definePersona<WorktreePatchArtifact>({
+    name: 'worktree-coder',
+    root: { profile: { name: 'worktree-coder' }, harness: null },
+    directive: 'deliver a minimal validated patch on a fresh worktree',
+    context: { role: 'coder' },
+    executors: { registry: createExecutorRegistry() },
+  })
+  return async (signal) => {
+    const result = await runPersonified<string, WorktreePatchArtifact>({
+      persona,
+      shape,
+      task: options.taskPrompt,
+      budget: options.budget,
+      signal,
+    })
+    if (result.kind !== 'winner' || result.out.kind !== 'done') {
+      const blockers =
+        result.kind === 'winner' && result.out.kind === 'blocked'
+          ? result.out.blockers.join('; ')
+          : `supervisor settled ${result.kind}`
+      throw new Error(`worktreeCoderLoopRunner: no delivered patch (${blockers})`)
+    }
+    return result.out.deliverable
+  }
 }
 
 /** @experimental A fact rejected at the KB gate — surfaced, never dropped. */

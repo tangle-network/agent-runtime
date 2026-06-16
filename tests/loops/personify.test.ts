@@ -261,7 +261,91 @@ describe('combinator · fanout', () => {
       expect(researchOut.deliverable).not.toBe(coderOut.deliverable)
     }
   })
+
+  // GENERIC SEAMS the role-delegate migration depends on: a per-item `selectWinner` re-sort and
+  // a per-item `itemSpec` (distinct executor per item). Both are content-free fanout extensions.
+  it('selectWinner re-sorts the gathered candidates (here: pick the LOWEST score, inverting default)', async () => {
+    const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
+      const i = indexOf(task)
+      return {
+        out: `thesis-${i}`,
+        events: ev(20, 20),
+        verdict: { valid: true, score: 0.3 + i * 0.3 },
+      }
+    })
+    const shape = fanout<{ topic: string }, string, string>(['a', 'b', 'c'], {
+      itemTask: (item, index) => ({ angle: item, index }),
+      // Pick the SMALLEST score (the default selector would pick the largest, thesis-2).
+      selectWinner: (iterations) =>
+        [...iterations]
+          .filter((it) => it.output !== undefined && it.verdict?.valid === true)
+          .sort((a, b) => (a.verdict?.score ?? 0) - (b.verdict?.score ?? 0))[0],
+    })
+    const out = expectOutcome(await runShape(persona, shape, { topic: 'ACME' }))
+    expect(out.kind).toBe('done')
+    if (out.kind === 'done') expect(out.deliverable).toBe('thesis-0')
+  })
+
+  it('rejects passing BOTH synthesize and selectWinner (a synthesis child IS the selection)', () => {
+    expect(() =>
+      fanout<{ topic: string }, string, string>(['a'], {
+        itemTask: () => ({}),
+        selectWinner: () => undefined,
+        synthesize: {
+          synthesisTask: () => ({}),
+          collect: () => ({ kind: 'done', deliverable: 'x' }),
+        },
+      }),
+    ).toThrow(/at most one of `synthesize` or `selectWinner`/)
+  })
+
+  it('itemSpec gives each item a DISTINCT BYO executor (one authored profile per item)', async () => {
+    // Per-item BYO executors: each settles its own artifact, proving the fanout spawned the
+    // item-specific spec rather than the shared persona.root. The persona's mock registry only
+    // mints when harness===null && no executor — a BYO executor routes to the real resolver.
+    const built = ['x', 'y', 'z']
+    const persona = makePersona<string>('coder', 'engineer', () => ({
+      out: 'unused',
+      events: ev(1, 1),
+      verdict: { valid: true, score: 0 },
+    }))
+    const shape = fanout<{ goal: string }, string, string>(built, {
+      itemTask: (item) => ({ item }),
+      label: (item) => `leaf:${item}`,
+      itemSpec: (item, i): AgentSpec => ({
+        profile: { name: `authored-${item}` } as AgentProfile,
+        harness: null,
+        executor: byoExecutor(`out-${item}`, 0.2 + i * 0.3),
+      }),
+    })
+    const out = expectOutcome(await runShape(persona, shape, { goal: 'build' }))
+    expect(out.kind).toBe('done')
+    // Highest score wins by default → the last item's executor (score 0.8).
+    if (out.kind === 'done') expect(out.deliverable).toBe('out-z')
+  })
 })
+
+/** A trivial bring-your-own one-shot executor settling a fixed artifact + verdict. */
+function byoExecutor(out: string, score: number): Executor<unknown> {
+  let artifact: ExecutorResult<unknown> | undefined
+  return {
+    runtime: 'router',
+    async execute() {
+      artifact = {
+        outRef: `byo:${out}`,
+        out,
+        verdict: { valid: true, score },
+        spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+      }
+      return artifact
+    },
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact: () => {
+      if (!artifact) throw new ValidationError('byo: resultArtifact before execute')
+      return artifact
+    },
+  }
+}
 
 function indexOf(task: unknown): number {
   if (task && typeof task === 'object' && typeof (task as { index?: unknown }).index === 'number') {

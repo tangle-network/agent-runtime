@@ -179,6 +179,18 @@ export interface CreateDefaultCoderDelegateOptions {
  * sandbox client + coder profile. When `args.variants > 1` it switches
  * to the multi-harness fanout topology.
  *
+ * This is the SANDBOX-SESSION coder path: workers run the in-box harness via the
+ * `SandboxClient`'s `streamPrompt`, and single-variant turns can dispatch DETACHED
+ * (driveTurn ticks) so a durable queue resumes them across an MCP restart — a substrate
+ * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
+ *
+ * @deprecated Prefer the generic recursive path for NEW local-repo coding work: author an
+ *   `AgentProfile` per harness and run `worktreeCoderFanout(...)` (the `fanout` of
+ *   `createWorktreeCliExecutor` leaves, each `gateOnDeliverable(coderDeliverable(...))`, winner
+ *   via `defaultSelectWinner`) through `runPersonified`. This factory stays as the injection seam
+ *   `createMcpServer` consumes for SANDBOX-session delegation + detached resume; it will remain
+ *   until the worktree-CLI leaf grows the detached-tick resume equivalent.
+ *
  * @experimental
  */
 export function createDefaultCoderDelegate(
@@ -409,6 +421,12 @@ export interface SettleDetachedCoderTurnOptions {
  * run the mechanical validator (tests/typecheck/forbidden/diff/no-op/secrets),
  * then the optional reviewer. Throws when nothing survives — a resumed or
  * detached run must not return an unvalidated patch.
+ *
+ * SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
+ * bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
+ * journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
+ * advertised on the generic `worktreeCoderFanout` path. This helper (with `coderTaskFromArgs` and
+ * `createDriveTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
  *
  * @experimental
  */

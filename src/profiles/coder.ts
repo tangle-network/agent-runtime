@@ -130,7 +130,16 @@ export interface MultiHarnessCoderFanoutOptions {
   models?: (string | undefined)[]
 }
 
-/** @experimental */
+/**
+ * @deprecated Prefer the generic recursive combinator `worktreeCoderFanout(...)`
+ *   (`@tangle-network/agent-runtime/runtime`): a `fanout` of authored harness profiles on their
+ *   own worktree-CLI leaves, each `gateOnDeliverable(coderDeliverable(...))`, winner via
+ *   `defaultSelectWinner` (or a `selectWinner` strategy). This `runLoop`-driver form is retained as
+ *   the SANDBOX-session topology `createDefaultCoderDelegate` drives and is re-exported for
+ *   published consumers; it is not the canonical path for new code.
+ *
+ * @experimental
+ */
 export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions = {}): {
   agentRuns: AgentRunSpec<CoderTask>[]
   output: OutputAdapter<CoderOutput>
@@ -274,78 +283,139 @@ function parseCoderEvents(events: SandboxEvent[]): CoderOutput {
 const SECRET_PATH_RE =
   /(^|\/)(\.env(\.|$)|.*\.(pem|key|p12|pfx|keystore|wallet)|id_rsa|id_ed25519|secrets?\.json|credentials?\.json)$/i
 
+/** @experimental Inputs the mechanical coder gate decides on — a captured patch plus the
+ *  test/typecheck PASS signals derived for it. Shared by `createCoderValidator` (sandbox-event
+ *  shape) and the generic worktree-CLI deliverable (which derives `testsPassed`/`typecheckPassed`
+ *  by running the commands in the worktree). */
+export interface CoderCheckInput {
+  /** The unified diff produced by the run. */
+  patch: string
+  /** Did `testCmd` exit clean? */
+  testsPassed: boolean
+  /** Did `typecheckCmd` exit clean? */
+  typecheckPassed: boolean
+}
+
+/** @experimental The per-task constraints the mechanical gate enforces. */
+export interface CoderCheckConstraints {
+  /** Default 400. Hard cap; gate fails when exceeded. */
+  maxDiffLines?: number
+  /** Literal path prefixes the patch must not touch. */
+  forbiddenPaths?: string[]
+}
+
+/**
+ * @experimental
+ *
+ * The pure mechanical coder gate — the SINGLE source of the no-op / secret-path floor /
+ * diff-size / forbidden-path / test / typecheck checks. No I/O: it scores a patch + its
+ * already-derived pass signals. Both the `createCoderValidator` shim (sandbox `CoderOutput`)
+ * and the generic worktree-CLI `coderDeliverable` (which runs the commands itself) call this,
+ * so the gate logic never forks.
+ *
+ * Checks in order: (1) no-op rejection, (2) always-on secret-path floor (independent of
+ * `forbiddenPaths`), (3) forbidden-path, (4) diff-size cap, (5) tests, (6) typecheck.
+ * Aggregate score: `0.5*tests + 0.3*typecheck + 0.2*(1 - diffLines/maxDiff)`; `valid` is the
+ * conjunction of all six.
+ */
+export function runCoderChecks(
+  input: CoderCheckInput,
+  constraints: CoderCheckConstraints = {},
+): DefaultVerdict {
+  const maxDiff = constraints.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES
+  const forbidden = constraints.forbiddenPaths ?? []
+  const scores: Record<string, number> = {}
+  const notes: string[] = []
+  let pass = true
+
+  const touched = touchedPathsFromPatch(input.patch)
+
+  // No-op rejection: an empty patch can trivially "pass" tests/typecheck
+  // (nothing changed) yet does no work — never a valid coder result.
+  if (touched.length === 0 || input.patch.trim().length === 0) {
+    pass = false
+    scores.nonEmpty = 0
+    notes.push('empty patch — no files changed')
+  } else {
+    scores.nonEmpty = 1
+  }
+
+  // Secret-path floor: always-on, independent of `forbiddenPaths`.
+  const touchedSecrets = touched.filter((p) => SECRET_PATH_RE.test(p))
+  if (touchedSecrets.length > 0) {
+    pass = false
+    scores.noSecrets = 0
+    notes.push(`touched secret-shaped paths: ${touchedSecrets.join(', ')}`)
+  } else {
+    scores.noSecrets = 1
+  }
+
+  const touchedForbidden = forbidden.filter((path) => {
+    const prefix = path.endsWith('/') ? path : `${path}/`
+    const exact = prefix.slice(0, -1)
+    return touched.some((p) => p === exact || p.startsWith(prefix))
+  })
+  if (touchedForbidden.length > 0) {
+    pass = false
+    scores.forbiddenPath = 0
+    notes.push(`touched forbidden paths: ${touchedForbidden.join(', ')}`)
+  } else {
+    scores.forbiddenPath = 1
+  }
+
+  const diffLines = countDiffLines(input.patch)
+  if (diffLines > maxDiff) {
+    pass = false
+    scores.diffSize = 0
+    notes.push(`diff ${diffLines} lines exceeds cap ${maxDiff}`)
+  } else {
+    scores.diffSize = maxDiff === 0 ? 0 : Math.max(0, 1 - diffLines / maxDiff)
+  }
+
+  scores.tests = input.testsPassed ? 1 : 0
+  scores.typecheck = input.typecheckPassed ? 1 : 0
+  if (!input.testsPassed) {
+    pass = false
+    notes.push('tests failed')
+  }
+  if (!input.typecheckPassed) {
+    pass = false
+    notes.push('typecheck failed')
+  }
+
+  const score = 0.5 * scores.tests + 0.3 * scores.typecheck + 0.2 * scores.diffSize
+  const verdict: DefaultVerdict = {
+    valid: pass,
+    score: Number.isFinite(score) ? score : 0,
+    scores,
+  }
+  if (notes.length > 0) verdict.notes = notes.join('; ')
+  return verdict
+}
+
+/**
+ * The sandbox `CoderOutput` validator. A thin shim over the shared {@link runCoderChecks} gate
+ * (the single source of the no-op / secret-floor / forbidden / diff-size / test / typecheck logic),
+ * adapting the sandbox-parsed `CoderOutput` into the gate inputs. On the generic recursive path the
+ * same gate is reached via `coderDeliverable(...)` over the worktree-CLI artifact.
+ *
+ * @experimental
+ */
 export function createCoderValidator(task: CoderTask): Validator<CoderOutput> {
-  const maxDiff = task.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES
-  const forbidden = task.forbiddenPaths ?? []
+  const constraints: CoderCheckConstraints = {
+    maxDiffLines: task.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES,
+    forbiddenPaths: task.forbiddenPaths ?? [],
+  }
   return {
     async validate(output) {
-      const scores: Record<string, number> = {}
-      const notes: string[] = []
-      let pass = true
-
-      const touched = touchedPathsFromPatch(output.patch)
-
-      // No-op rejection: an empty patch can trivially "pass" tests/typecheck
-      // (nothing changed) yet does no work — never a valid coder result.
-      if (touched.length === 0 || output.patch.trim().length === 0) {
-        pass = false
-        scores.nonEmpty = 0
-        notes.push('empty patch — no files changed')
-      } else {
-        scores.nonEmpty = 1
-      }
-
-      // Secret-path floor: always-on, independent of `forbiddenPaths`.
-      const touchedSecrets = touched.filter((p) => SECRET_PATH_RE.test(p))
-      if (touchedSecrets.length > 0) {
-        pass = false
-        scores.noSecrets = 0
-        notes.push(`touched secret-shaped paths: ${touchedSecrets.join(', ')}`)
-      } else {
-        scores.noSecrets = 1
-      }
-
-      const touchedForbidden = forbidden.filter((path) => {
-        const prefix = path.endsWith('/') ? path : `${path}/`
-        const exact = prefix.slice(0, -1)
-        return touched.some((p) => p === exact || p.startsWith(prefix))
-      })
-      if (touchedForbidden.length > 0) {
-        pass = false
-        scores.forbiddenPath = 0
-        notes.push(`touched forbidden paths: ${touchedForbidden.join(', ')}`)
-      } else {
-        scores.forbiddenPath = 1
-      }
-
-      const diffLines = countDiffLines(output.patch)
-      if (diffLines > maxDiff) {
-        pass = false
-        scores.diffSize = 0
-        notes.push(`diff ${diffLines} lines exceeds cap ${maxDiff}`)
-      } else {
-        scores.diffSize = maxDiff === 0 ? 0 : Math.max(0, 1 - diffLines / maxDiff)
-      }
-
-      scores.tests = output.testResult.passed ? 1 : 0
-      scores.typecheck = output.typecheckResult.passed ? 1 : 0
-      if (!output.testResult.passed) {
-        pass = false
-        notes.push('tests failed')
-      }
-      if (!output.typecheckResult.passed) {
-        pass = false
-        notes.push('typecheck failed')
-      }
-
-      const score = 0.5 * scores.tests + 0.3 * scores.typecheck + 0.2 * scores.diffSize
-      const verdict: DefaultVerdict = {
-        valid: pass,
-        score: Number.isFinite(score) ? score : 0,
-        scores,
-      }
-      if (notes.length > 0) verdict.notes = notes.join('; ')
-      return verdict
+      return runCoderChecks(
+        {
+          patch: output.patch,
+          testsPassed: output.testResult.passed,
+          typecheckPassed: output.typecheckResult.passed,
+        },
+        constraints,
+      )
     },
   }
 }
