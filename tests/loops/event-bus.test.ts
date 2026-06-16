@@ -82,6 +82,24 @@ describe('event bus', () => {
     })
   })
 
+  it('queue:false records to history + subscribers but never enters the pull queue', async () => {
+    const bus = createEventBus<E>()
+    const seen: string[] = []
+    bus.subscribe((r) => {
+      seen.push(r.event.type)
+    })
+    await bus.publish({ type: 'settled', id: 'w1' })
+    await bus.publish({ type: 'question', q: 'down-leg' }, { queue: false })
+    // The record-only event reached subscribers + the audit log...
+    expect(seen).toEqual(['settled', 'question'])
+    expect(bus.history().map((r) => r.event.type)).toEqual(['settled', 'question'])
+    expect(bus.stats()).toMatchObject({ published: 2 })
+    // ...but is invisible to the pull queue: only the queued settled is pending/pullable.
+    expect(bus.pending()).toBe(1)
+    expect(bus.pull()).toEqual({ type: 'settled', id: 'w1' })
+    expect(bus.pull()).toBeUndefined()
+  })
+
   it('unsubscribe stops delivery', async () => {
     const bus = createEventBus<BusEvent>()
     const seen: string[] = []

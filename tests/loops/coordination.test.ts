@@ -292,16 +292,50 @@ describe('coordination tools', () => {
     ).toEqual({
       delivered: true,
     })
+    // A down-message to a worker with no live inbox reports delivered:false (mirrors steer_worker).
+    expect(await tool(tb, 'resume_worker').handler({ workerId: 'gone', message: 'x' })).toEqual({
+      delivered: false,
+    })
     // Both reached the child inbox (down delivery)...
     expect(sent).toEqual([
       { id: 'w0', msg: { steer: 'do X' } },
       { id: 'w0', msg: { resume: 'continue' } },
     ])
-    // ...and were recorded for observability (pass-through + history)...
-    expect(emitted.map((e) => e.type)).toEqual(['steer', 'resume'])
-    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'resume'])
+    // ...and were recorded for observability (pass-through + history; the failed resume too)...
+    expect(emitted.map((e) => e.type)).toEqual(['steer', 'resume', 'resume'])
+    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'resume', 'resume'])
     // ...but the parent never pulls its own outbound messages back.
     expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
+  })
+
+  it('answer_question routes the answer down to a LIVE worker and surfaces delivered:true', async () => {
+    const { scope, sent } = mockScope()
+    const emitted: Array<{ type: string }> = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (e) => emitted.push(e),
+    })
+    // The question originates from the live worker w0, so the answer routes back to its inbox.
+    const r = (await tool(tb, 'ask_parent').handler({
+      from: 'w0',
+      level: 'worker',
+      question: 'which path?',
+      reason: 'ambiguous',
+      urgency: 'blocks-step',
+    })) as { question: { id: string } }
+    expect(
+      await tool(tb, 'answer_question').handler({ questionId: r.question.id, answer: 'path B' }),
+    ).toEqual({
+      question: expect.objectContaining({ id: r.question.id, status: 'answered' }),
+      delivered: true,
+    })
+    // The answer reached w0's inbox shaped { answer, questionId }...
+    expect(sent).toEqual([{ id: 'w0', msg: { answer: 'path B', questionId: r.question.id } }])
+    // ...and both legs are on the trail: question up, answer down.
+    expect(emitted.map((e) => e.type)).toEqual(['question', 'answer'])
   })
 
   it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {

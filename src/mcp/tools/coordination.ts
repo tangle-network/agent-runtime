@@ -485,7 +485,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             },
             { queue: false },
           )
-          return { question }
+          // Surface `delivered` like steer_worker/resume_worker — the caller must see whether the
+          // answer actually reached a live worker (false when it parked/settled or has no inbox).
+          return { question, delivered }
         }
         if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {
           return Promise.resolve({

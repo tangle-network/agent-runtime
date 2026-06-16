@@ -21,7 +21,8 @@ export const OPERATOR_TOOLS = [
   'run_analyst', // run an analyst over a worker's trace → findings (selector≠judge: trace, not score)
   'observe_worker', // a worker's in-flight trace, or its last finished episode/shot
   'spawn_worker', // start a worker (or a sub-analyst) — drive many; parallelize when independent
-  'steer_worker', // send a running/parked worker its next instruction / an interrupt
+  'steer_worker', // send a running worker its next instruction / an interrupt (down-leg)
+  'resume_worker', // continue a parked/idle worker with a follow-up message (down-leg)
   'stop', // declare the task complete (verified) or abandon a line
 ] as const
 
@@ -95,7 +96,7 @@ export const driverProfile: RoleProfile = {
     '  analysts are cheap; make them when a worker’s failure mode needs a focused lens.',
     '- observe_worker(worker): the worker’s IN-FLIGHT trace if it is still running, else its last',
     '  finished episode/shot.',
-    '- spawn_worker(profile, task) / steer_worker(worker, instruction) / stop.',
+    '- spawn_worker(profile, task) / steer_worker(worker, instruction) / resume_worker(worker, message) / stop.',
     '- the artifact’s own tools (read/edit/run) — use them to inspect the workspace and to contribute',
     '  decisive work yourself.',
     '',
