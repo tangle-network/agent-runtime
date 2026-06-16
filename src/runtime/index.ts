@@ -319,6 +319,8 @@ export {
 export {
   type BridgeSeam,
   type CliSeam,
+  type CliWorktreeSeam,
+  cliWorktreeExecutor,
   createExecutor,
   createExecutorRegistry,
   type ExecutorConfig,
@@ -368,6 +370,13 @@ export type {
   UsageEvent,
   WidenGate,
 } from './supervise/types'
+// The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)
+// driving a local harness CLI on its own git worktree, surfaced as the open `Executor` port.
+export {
+  createWorktreeCliExecutor,
+  type WorktreeCliExecutorOptions,
+  type WorktreePatchArtifact,
+} from './supervise/worktree-cli-executor'
 export type {
   AgentRunSpec,
   DefaultVerdict,

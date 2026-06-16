@@ -1,7 +1,8 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
-import { runLocalHarness } from '../../src/mcp/local-harness'
+import { harnessInvocation, runLocalHarness } from '../../src/mcp/local-harness'
 
 function makeFakeChild(opts: {
   stdoutChunks?: string[]
@@ -131,6 +132,75 @@ describe('runLocalHarness', () => {
     expect(calls[1][1]).toEqual(['run', 'go'])
     expect(calls[2][0]).toBe('opencode')
     expect(calls[2][1]).toEqual(['run', 'go'])
+  })
+
+  it('honors a pre-built invocation override (profile-aware args) without rebuilding from the prompt', async () => {
+    const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
+      makeFakeChild({ exitCode: 0 }),
+    )
+    await runLocalHarness({
+      harness: 'claude',
+      cwd: '/tmp/wt',
+      // The prompt-only fallback path would emit ['--headless','-p','go'] — the override wins.
+      taskPrompt: 'go',
+      invocation: { command: 'claude', args: ['--headless', '-p', 'sys\n\ngo', '-m', 'deepseek'] },
+      spawn: spawnSpy,
+    })
+    expect(spawnSpy.mock.calls[0][0]).toBe('claude')
+    expect(spawnSpy.mock.calls[0][1]).toEqual(['--headless', '-p', 'sys\n\ngo', '-m', 'deepseek'])
+  })
+})
+
+describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
+  const profileWith = (systemPrompt?: string, model?: string): AgentProfile => ({
+    name: 'authored',
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+    ...(model ? { model: { default: model } } : {}),
+  })
+
+  it('threads the authored systemPrompt into the prompt channel for every harness', () => {
+    for (const harness of ['claude', 'codex', 'opencode'] as const) {
+      const inv = harnessInvocation(
+        harness,
+        profileWith('You are a careful refactorer.'),
+        'fix foo',
+      )
+      // The system prompt is prepended above the task prompt (portable harness-agnostic default).
+      const promptArg = inv.args.find((a) => a.includes('fix foo'))
+      expect(promptArg).toBe('You are a careful refactorer.\n\nfix foo')
+    }
+  })
+
+  it('maps the authored model to the harness -m selector', () => {
+    for (const harness of ['claude', 'codex', 'opencode'] as const) {
+      const inv = harnessInvocation(harness, profileWith(undefined, 'deepseek/deepseek-v4'), 'go')
+      const mIdx = inv.args.indexOf('-m')
+      expect(mIdx).toBeGreaterThanOrEqual(0)
+      expect(inv.args[mIdx + 1]).toBe('deepseek/deepseek-v4')
+    }
+  })
+
+  it('threads BOTH systemPrompt and model together', () => {
+    const inv = harnessInvocation('claude', profileWith('SYS', 'kimi-k2.7'), 'task')
+    expect(inv.command).toBe('claude')
+    expect(inv.args).toEqual(['--headless', '-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
+  })
+
+  it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
+    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual([
+      '--headless',
+      '-p',
+      'go',
+    ])
+    expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+    expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+  })
+
+  it('throws on an unknown harness', () => {
+    expect(() =>
+      // @ts-expect-error testing runtime validation
+      harnessInvocation('gemini-cli', { name: 'x' }, 'go'),
+    ).toThrow(/unknown harness/)
   })
 })
 

@@ -27,6 +27,7 @@ import { spawn } from 'node:child_process'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
+import type { LocalHarness } from '../../mcp/local-harness'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunLoopOptions } from '../run-loop'
 import { runLoop } from '../run-loop'
@@ -51,6 +52,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
+import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
 
@@ -94,6 +96,22 @@ export interface CliSeam {
 }
 
 /**
+ * cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
+ * (claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
+ * named as data. `harness` + `repoRoot` + `taskPrompt` are required; the authored
+ * `profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
+ * `harnessInvocation` mapper. Everything else mirrors `WorktreeCliExecutorOptions`.
+ */
+export interface CliWorktreeSeam {
+  repoRoot: string
+  harness: LocalHarness
+  taskPrompt: string
+  runId?: string
+  baseRef?: string
+  harnessTimeoutMs?: number
+}
+
+/**
  * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
  * (claude-code / opencode / kimi / pi) behind one HTTP surface; `model` doubles
  * as the harness selector (e.g. `claude-code/sonnet`, `opencode/<provider>/<model>`).
@@ -113,6 +131,7 @@ const routerSeamKey = 'router'
 const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
+const cliWorktreeSeamKey = 'cli-worktree'
 
 // ── Content-addressed result pointers (the B1 replay source) ───────────────────
 
@@ -756,6 +775,31 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }
 }
 
+// ── cli-worktree executor (authored profile → harness CLI on a git worktree) ────
+
+/**
+ * The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
+ * `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
+ * the other CLI leaves; the authored systemPrompt + model reach the harness via §1.5.
+ */
+export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
+  const seam = readSeam<CliWorktreeSeam>(ctx, cliWorktreeSeamKey, 'cli-worktree')
+  if (!seam.repoRoot || !seam.harness || !seam.taskPrompt) {
+    throw new ValidationError(
+      'cliWorktreeExecutor: CliWorktreeSeam.repoRoot + harness + taskPrompt required',
+    )
+  }
+  return createWorktreeCliExecutor({
+    repoRoot: seam.repoRoot,
+    profile: spec.profile,
+    harness: seam.harness,
+    taskPrompt: seam.taskPrompt,
+    ...(seam.runId ? { runId: seam.runId } : {}),
+    ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
+    ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
+  }) as Executor<unknown>
+}
+
 // ── createExecutor: the ONE built-in factory (backend as data) ──────────────────
 
 /**
@@ -770,6 +814,7 @@ export type ExecutorConfig =
   | ({ backend: 'router-tools' } & RouterToolsSeam)
   | ({ backend: 'bridge' } & BridgeSeam)
   | ({ backend: 'cli' } & CliSeam)
+  | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
 export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
@@ -785,6 +830,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return bridgeExecutor(spec, seamed)
       case 'cli':
         return cliExecutor(spec, seamed)
+      case 'cli-worktree':
+        return cliWorktreeExecutor(spec, seamed)
       case 'sandbox': {
         // The sandbox executor requires a concrete harness; a spec-level harness
         // wins, else the config names it (fail-loud inside if both are absent).
