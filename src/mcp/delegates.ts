@@ -141,6 +141,12 @@ export interface CreateDefaultCoderDelegateOptions {
   harness?: string
   /** Model override for the single-coder path. */
   model?: string
+  /**
+   * The worker's authored system prompt (§1.5). Flows onto `coderProfile`'s
+   * `profile.prompt.systemPrompt` → through `runLoop` → the executor's `harnessInvocation`, so the
+   * harness runs under this stance, not just the default coder prompt. Omit to keep the default.
+   */
+  systemPrompt?: string
   /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
   fanoutHarnesses?: string[]
   /** Optional per-harness model override for `variants > 1`. */
@@ -209,6 +215,7 @@ export function createDefaultCoderDelegate(
         task,
         ...(options.harness ? { harness: options.harness } : {}),
         ...(options.model ? { model: options.model } : {}),
+        ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
       })
       // Detached dispatch: one session on one box, driven by `driveTurn` ticks
       // instead of a held stream, so the run survives an MCP-process restart

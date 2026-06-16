@@ -270,4 +270,51 @@ describe('createInProcessExecutor', () => {
     expect(placement?.worktreePath).toMatch(/\.coder-variants/)
     expect(placement?.sandboxId).toMatch(/^in-process-/)
   })
+
+  it('§1.5: threads the authored profile systemPrompt + model into the harness invocation', async () => {
+    const state: FakeGitState = {
+      worktreesCreated: [],
+      worktreesRemoved: [],
+      diffPatch: '',
+      diffShortstat: '',
+      baseSha: 'sha',
+    }
+    const runHarness = vi.fn(async () => ({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      killedBySignal: null,
+      durationMs: 1,
+      timedOut: false,
+    }))
+    const exec = createInProcessExecutor({
+      repoRoot: '/w',
+      harnesses: ['claude'],
+      runGit: makeFakeGit(state),
+      runHarness,
+    })
+    // The authored worker profile rides in `backend.profile` (where `buildBackendOptions` puts it).
+    const box = await exec.client.create({
+      backend: {
+        type: 'claude',
+        profile: {
+          name: 'w',
+          prompt: { systemPrompt: 'BE RIGOROUS' },
+          model: { default: 'deepseek-v4-flash' },
+        },
+      },
+    } as unknown as Parameters<typeof exec.client.create>[0])
+    for await (const _ of (
+      box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
+    ).streamPrompt('add util(a,b)')) {
+      // drain
+    }
+    // The harness was invoked with a composed `invocation` (NOT the prompt-only path that dropped
+    // the profile): the authored systemPrompt + model reach the harness argv.
+    const call = runHarness.mock.calls[0]![0] as { invocation?: { args: string[] } }
+    const args = JSON.stringify(call.invocation?.args ?? [])
+    expect(args).toContain('BE RIGOROUS')
+    expect(args).toContain('add util(a,b)')
+    expect(args).toContain('deepseek-v4-flash')
+  })
 })

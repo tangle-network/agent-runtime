@@ -1,73 +1,42 @@
 /**
  * @experimental
  *
- * In-process delegation executor — when `agent-runtime-mcp` is running
- * inside a sandbox whose image carries the local coding-harness CLIs
- * (claude / codex / opencode), delegations spawn the harness AS A
- * SUBPROCESS against a git worktree on the SAME filesystem instead of
- * provisioning a sibling sandbox.
+ * In-process delegation executor — when `agent-runtime-mcp` runs inside a sandbox whose image
+ * carries the local coding-harness CLIs (claude / codex / opencode), delegations spawn the harness
+ * AS A SUBPROCESS against a git worktree on the SAME filesystem instead of provisioning a sibling
+ * sandbox. Zero provisioning latency; worker diffs land in-place; multi-harness fanout = N parallel
+ * subprocesses in N parallel worktrees (round-robin `harnesses`).
  *
- * Why: zero provisioning latency, worker diffs land in-place, multi-harness
- * fanout = N parallel subprocesses in N parallel worktrees.
- *
- * Selection:
- *   - env `AGENT_RUNTIME_IN_SANDBOX=1` (set by the parent harness at MCP
- *     server launch) → in-process executor
- *   - env `TANGLE_FLEET_ID=...` → fleet executor (Phase 2.5)
- *   - neither → sibling sandbox executor (default)
- *
- * Multi-harness rotation: pass `harnesses: ['claude', 'codex', 'opencode']`
- * to round-robin across calls. A `runLoop` + `FanoutVote(n: 3)` against this
- * executor produces three parallel iterations, each running a different
- * harness on its own worktree.
- *
- * Architecture:
- *
- *   client.create() → returns a fake SandboxInstance whose streamPrompt:
- *     1. createWorktree() — git worktree add /workspace/.coder-variants/<id>
- *     2. runLocalHarness() — spawn claude/codex/opencode subprocess
- *     3. captureWorktreeDiff() — git diff HEAD → patch + stats
- *     4. run testCmd + typecheckCmd if specified (the executor doesn't
- *        own these — caller wires via task-extractor callback)
- *     5. emit ONE SandboxEvent { type: 'result', data: { result: CoderOutput } }
- *     6. removeWorktree() in finally
+ * This is a THIN adapter over `runWorktreeHarness` (`./worktree-harness`) — the SAME core the
+ * `Scope` leaf `createWorktreeCliExecutor` uses. It only adapts the core to the `SandboxClient`
+ * port: `create()` reads the authored profile from `CreateSandboxOptions.backend.profile`, and
+ * `streamPrompt` runs the core then projects its result into the `CoderOutput`-shaped `result`
+ * event the `coderProfile` parser reads. The §1.5 payload (systemPrompt + model) reaches the
+ * harness inside the core — the prompt-only path that dropped it is gone.
  */
 
 import { randomUUID } from 'node:crypto'
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  AgentProfile,
+  CreateSandboxOptions,
+  SandboxEvent,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
 import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import type { DelegationExecutor } from './executor'
-import { type LocalHarness, runLocalHarness } from './local-harness'
-import {
-  captureWorktreeDiff,
-  createWorktree,
-  type GitRunner,
-  removeWorktree,
-  type WorktreeHandle,
-} from './worktree'
+import type { LocalHarness } from './local-harness'
+import type { GitRunner, WorktreeHandle } from './worktree'
+import { runWorktreeHarness, type WorktreeHarnessResult } from './worktree-harness'
 
 /** @experimental */
 export interface InProcessExecutorOptions {
-  /**
-   * Absolute path to the git repo (the workspace inside the sandbox). The
-   * executor creates worktrees under `<repoRoot>/.coder-variants/`.
-   */
+  /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.coder-variants/`. */
   repoRoot: string
-  /**
-   * Harnesses to round-robin across calls. With one entry every delegation
-   * uses that harness; with three you get fanout diversity for free.
-   * Default `['claude']`.
-   */
+  /** Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude']`. */
   harnesses?: ReadonlyArray<LocalHarness>
-  /**
-   * Optional per-delegation test command. Run with `cwd = worktree.path`
-   * after the harness exits. The exit code populates
-   * `CoderOutput.testResult.passed`.
-   */
+  /** Optional per-delegation test command run in the worktree after the harness exits. */
   testCmd?: string
-  /**
-   * Optional per-delegation typecheck command. Same shape as `testCmd`.
-   */
+  /** Optional per-delegation typecheck command. Same shape as `testCmd`. */
   typecheckCmd?: string
   /** Wall-clock cap per harness subprocess (ms). Default 5min. */
   harnessTimeoutMs?: number
@@ -75,16 +44,10 @@ export interface InProcessExecutorOptions {
   postCheckTimeoutMs?: number
   /** Test seam — override the git runner used by the worktree helpers. */
   runGit?: GitRunner
-  /**
-   * Test seam — override the harness runner. Defaults to spawning the real
-   * CLI via `runLocalHarness`. Tests inject a stub that returns a scripted
-   * `LocalHarnessResult`.
-   */
-  runHarness?: typeof runLocalHarness
-  /**
-   * Test seam — override the post-check runner. Defaults to spawning the
-   * configured `testCmd` / `typecheckCmd` via `child_process.spawn`.
-   */
+  /** Test seam — override the harness runner (defaults to the real CLI via `runLocalHarness`). */
+  runHarness?: typeof import('./local-harness').runLocalHarness
+  /** Test seam — override the post-check runner (defaults to a `sh -c` spawn). A throw is folded
+   *  into a non-fatal `{exitCode:-1}` so a broken check command fails the signal, not the run. */
   runPostCheck?: (
     cmd: string,
     cwd: string,
@@ -94,11 +57,7 @@ export interface InProcessExecutorOptions {
 
 /** @experimental */
 export interface InProcessExecutorDescribePlacement extends LoopSandboxPlacement {
-  /**
-   * Worktree path in the parent sandbox's filesystem. Set so trace
-   * consumers can correlate dispatch events with on-disk artifacts after
-   * the worker exits.
-   */
+  /** Worktree path in the parent sandbox's filesystem (set so traces correlate to on-disk artifacts). */
   worktreePath?: string
   /** Which harness handled this delegation. */
   harness?: LocalHarness
@@ -112,19 +71,25 @@ interface VirtualSandbox extends SandboxInstance {
   }
 }
 
+/** The `CoderOutput` shape the `coderProfile` event parser reads off `data.result`. */
+interface CoderOutput {
+  branch: string
+  patch: string
+  testResult: { passed: boolean; output: string }
+  typecheckResult: { passed: boolean; output: string }
+  diffStats: { filesChanged: number; insertions: number; deletions: number }
+  reviewerNotes?: string
+}
+
 const DEFAULT_HARNESS_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
 
 /**
- * Build an in-process executor.
- *
- * Returns a {@link DelegationExecutor} whose `client.create()` returns a
- * minimal "virtual" SandboxInstance — the kernel calls `streamPrompt(msg)`
- * on it, which runs the local harness on a worktree and emits one
- * `result` event whose `data.result` is a `CoderOutput`-shaped record.
- *
- * Pairs with `coderProfile`'s event parser (it walks the event list
- * back-to-front for the first `type === 'result'`).
+ * Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()`
+ * returns a minimal virtual `SandboxInstance`; the kernel calls `streamPrompt(msg)` on it, which
+ * runs the shared worktree-harness core and emits one `result` event whose `data.result` is a
+ * `CoderOutput`. The authored profile (`backend.profile`) threads its systemPrompt + model into
+ * the harness via the core.
  *
  * @experimental
  */
@@ -133,25 +98,46 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
     options.harnesses && options.harnesses.length > 0
       ? [...options.harnesses]
       : (['claude'] as const)
-  const runHarness = options.runHarness ?? runLocalHarness
   const runPostCheck = options.runPostCheck ?? defaultRunPostCheck
+  // The core speaks one `runCommand` seam ({exitCode, output}); adapt the post-check seam
+  // ({exitCode, stdout, stderr}) onto it, folding a throw into a non-fatal failure signal so a
+  // broken check command fails the signal rather than aborting the whole delegation.
+  const runCommand = async ({
+    command,
+    cwd,
+    signal,
+  }: {
+    command: string
+    cwd: string
+    timeoutMs: number
+    signal?: AbortSignal
+  }): Promise<{ exitCode: number | null; output: string }> => {
+    try {
+      const r = await runPostCheck(command, cwd, signal)
+      return { exitCode: r.exitCode, output: r.stderr || r.stdout }
+    } catch (err) {
+      return { exitCode: -1, output: err instanceof Error ? err.message : String(err) }
+    }
+  }
 
   let callIndex = 0
 
   const client: SandboxClient = {
-    async create(_opts?: CreateSandboxOptions): Promise<SandboxInstance> {
+    async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
       const runId = randomUUID()
       const harness = harnesses[callIndex % harnesses.length] as LocalHarness
       callIndex += 1
+      // §1.5: the authored profile rides in `backend.profile` (set by `buildBackendOptions`).
+      // Without one (a direct test `create()`), fall back to a name-only profile → the harness
+      // sees the task prompt with no system prepend, the pre-fix behavior.
+      const profile =
+        ((opts?.backend as { profile?: AgentProfile } | undefined)?.profile as
+          | AgentProfile
+          | undefined) ?? ({ name: `in-process-${harness}` } as AgentProfile)
 
       const virtual: VirtualSandbox = {
-        // Synthesize the minimum SandboxInstance surface the kernel touches.
-        // We CAST through unknown because SandboxInstance is a `declare class`
-        // with private fields; we're producing a structural subtype that
-        // satisfies the kernel's narrow usage (`box.id`, `box.streamPrompt`).
         id: `in-process-${runId}`,
         __inProcess: { runId, harness },
-        // eslint-disable-next-line require-yield
         async *streamPrompt(
           this: VirtualSandbox,
           message: string | unknown[],
@@ -168,108 +154,54 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
                   )
                   .join('\n')
 
-          let worktree: WorktreeHandle | undefined
-          try {
-            worktree = await createWorktree({
-              repoRoot: options.repoRoot,
-              runId,
-              runGit: options.runGit,
-            })
-            this.__inProcess.worktree = worktree
+          // The shared worktree-harness core: worktree → profile-aware harness → diff → checks.
+          // A throw cleans up inside the core; on success we own the teardown (the finally).
+          const run = await runWorktreeHarness({
+            repoRoot: options.repoRoot,
+            profile,
+            harness,
+            taskPrompt,
+            runId,
+            harnessTimeoutMs: options.harnessTimeoutMs ?? DEFAULT_HARNESS_TIMEOUT_MS,
+            checkTimeoutMs: options.postCheckTimeoutMs ?? DEFAULT_POSTCHECK_TIMEOUT_MS,
+            ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
+            ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
+            ...(options.runGit ? { runGit: options.runGit } : {}),
+            ...(options.runHarness ? { runHarness: options.runHarness } : {}),
+            runCommand,
+            ...(promptOpts?.signal ? { signal: promptOpts.signal } : {}),
+          })
+          this.__inProcess.worktree = run.worktree
 
-            // Yield a dispatch-equivalent event so traces see the placement.
+          try {
             yield {
               type: 'in_process.harness.started',
-              data: {
-                runId,
-                harness,
-                worktreePath: worktree.path,
-                command: harness,
-              },
+              data: { runId, harness, worktreePath: run.worktree.path, command: harness },
             }
-
-            const harnessResult = await runHarness({
-              harness,
-              cwd: worktree.path,
-              taskPrompt,
-              timeoutMs: options.harnessTimeoutMs ?? DEFAULT_HARNESS_TIMEOUT_MS,
-              signal: promptOpts?.signal,
-            })
-
+            const h = run.result.harness
             yield {
               type: 'in_process.harness.ended',
               data: {
                 runId,
-                exitCode: harnessResult.exitCode,
-                durationMs: harnessResult.durationMs,
-                killedBySignal: harnessResult.killedBySignal,
-                timedOut: harnessResult.timedOut,
-                stdoutBytes: harnessResult.stdout.length,
-                stderrBytes: harnessResult.stderr.length,
+                exitCode: h.exitCode,
+                durationMs: h.durationMs,
+                killedBySignal: h.killedBySignal,
+                timedOut: h.timedOut,
+                stdoutBytes: h.stdout.length,
+                stderrBytes: h.stderr.length,
               },
             }
-
-            // Capture diff regardless of exit code — a failed run can still
-            // leave a partial diff worth inspecting.
-            const diff = await captureWorktreeDiff({ worktree, runGit: options.runGit })
-
-            // Optional post-checks. Each runs in the WORKTREE so it sees the
-            // harness's edits.
-            const testCheck = options.testCmd
-              ? await runPostCheck(options.testCmd, worktree.path, promptOpts?.signal).catch(
-                  (err) => ({
-                    exitCode: -1,
-                    stdout: '',
-                    stderr: err instanceof Error ? err.message : String(err),
-                  }),
-                )
-              : { exitCode: 0, stdout: '', stderr: '' }
-            const typecheckCheck = options.typecheckCmd
-              ? await runPostCheck(options.typecheckCmd, worktree.path, promptOpts?.signal).catch(
-                  (err) => ({
-                    exitCode: -1,
-                    stdout: '',
-                    stderr: err instanceof Error ? err.message : String(err),
-                  }),
-                )
-              : { exitCode: 0, stdout: '', stderr: '' }
-
-            const coderOutput = {
-              branch: worktree.branch,
-              patch: diff.patch,
-              testResult: {
-                passed: !options.testCmd || testCheck.exitCode === 0,
-                output: tail(testCheck.stderr || testCheck.stdout, 4000),
-              },
-              typecheckResult: {
-                passed: !options.typecheckCmd || typecheckCheck.exitCode === 0,
-                output: tail(typecheckCheck.stderr || typecheckCheck.stdout, 4000),
-              },
-              diffStats: diff.stats,
-              reviewerNotes:
-                harnessResult.exitCode === 0
-                  ? undefined
-                  : `harness ${harness} exited ${harnessResult.exitCode}${harnessResult.timedOut ? ' (timed out)' : ''}`,
-            }
-
-            // The terminal event the coderProfile parser looks for.
             yield {
               type: 'result',
               data: {
-                result: coderOutput,
+                result: toCoderOutput(run.result, harness),
                 source: 'in-process-executor',
                 harness,
                 runId,
               },
             }
           } finally {
-            if (worktree) {
-              await removeWorktree({
-                worktree,
-                repoRoot: options.repoRoot,
-                runGit: options.runGit,
-              }).catch(() => undefined)
-            }
+            await run.cleanup()
           }
         },
       } as unknown as VirtualSandbox
@@ -299,6 +231,27 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
   }
 }
 
+/** Project the canonical worktree-harness result onto the `CoderOutput` the coder parser reads.
+ *  A check that did not run (no command configured) is treated as passing — the pre-refactor rule. */
+function toCoderOutput(result: WorktreeHarnessResult, harness: LocalHarness): CoderOutput {
+  const tests = result.checks?.tests
+  const typecheck = result.checks?.typecheck
+  return {
+    branch: result.branch,
+    patch: result.patch,
+    testResult: { passed: tests ? tests.passed : true, output: tail(tests?.output ?? '', 4000) },
+    typecheckResult: {
+      passed: typecheck ? typecheck.passed : true,
+      output: tail(typecheck?.output ?? '', 4000),
+    },
+    diffStats: result.stats,
+    reviewerNotes:
+      result.harness.exitCode === 0
+        ? undefined
+        : `harness ${harness} exited ${result.harness.exitCode}${result.harness.timedOut ? ' (timed out)' : ''}`,
+  }
+}
+
 async function defaultRunPostCheck(
   cmd: string,
   cwd: string,
@@ -306,7 +259,6 @@ async function defaultRunPostCheck(
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const { spawn } = await import('node:child_process')
   return new Promise((resolve, reject) => {
-    // Run via sh -c so multi-word commands ("pnpm test") and shell features work.
     const child = spawn('sh', ['-c', cmd], { cwd, stdio: 'pipe' })
     let stdout = ''
     let stderr = ''
