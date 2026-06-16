@@ -2,94 +2,42 @@
  * @experimental
  *
  * The worktree-CLI leaf executor — a supervisor-authored `AgentProfile` driving a local
- * coding-harness CLI (claude / codex / opencode) on its OWN git worktree, surfaced as the
- * open `Executor<Out>` port (`./types`). It is a LEAF executor, not a `DelegationExecutor`:
- * it plugs straight into the `Scope`/`Supervisor` recursion and `gateOnDeliverable`, so it
- * IS the canonical recursive path (no `runLoop`/virtual-SandboxInstance shim in between).
+ * coding-harness CLI (claude / codex / opencode) on its OWN git worktree, surfaced as the open
+ * `Executor<Out>` port (`./types`). It is a LEAF executor: it plugs straight into the
+ * `Scope`/`Supervisor` recursion and `gateOnDeliverable`, so it IS the canonical recursive path
+ * (no `runLoop`/virtual-SandboxInstance shim in between).
  *
- * The §1.5 payload reaches the harness: `harnessInvocation` (mcp/local-harness) maps the
- * authored `profile.prompt.systemPrompt` into the prompt channel and `profile.model.default`
- * into the harness's `-m` selector — the prompt-only `buildArgs(taskPrompt)` path dropped
- * both. The subprocess runs through `runLocalHarness` (the stdin-CLOSED spawn shape — the
- * #308 fix that keeps a non-TTY `opencode run` from blocking on input forever).
+ * This is a THIN adapter: the physical act (worktree → profile-aware harness invocation → diff →
+ * checks → cleanup) lives ONCE in `runWorktreeHarness` (`../../mcp/worktree-harness`), shared with
+ * the `runLoop`/coder-delegate `createInProcessExecutor`. This executor only projects that core's
+ * result onto the `Executor` port (artifact + spend) and owns the teardown point. The §1.5 payload
+ * (authored systemPrompt + model) reaches the harness inside the core, not here.
  *
- * Lifecycle per spawn (fresh executor — one box/abort/teardown each):
- *   1. `createWorktree` — `git worktree add` off `repoRoot` at `baseRef`.
- *   2. `runLocalHarness` — spawn the harness, fed the profile-aware invocation.
- *   3. `captureWorktreeDiff` — `git diff` the worktree → the patch artifact.
- *   4. `removeWorktree` — on `teardown` (always; the loser of a fanout is dirty).
- *
- * Reuse, not duplication: `createWorktree` / `captureWorktreeDiff` / `removeWorktree` come
- * straight from `mcp/worktree`; `runLocalHarness` + `LocalHarness` from `mcp/local-harness`.
- * Nothing here reimplements a worktree, a spawn, or a diff.
- *
- * Token accounting: a harness CLI does not surface usage, so this executor is
- * `budgetExempt: true` — its spend is NOT metered against the conserved pool and its
- * iterations are EXCLUDED from the equal-k arms by construction (mirrors `cliExecutor`).
+ * Token accounting: a harness CLI does not surface usage, so this executor is `budgetExempt: true`
+ * — its spend is NOT metered against the conserved pool and its iterations are EXCLUDED from the
+ * equal-k arms by construction (mirrors `cliExecutor`).
  */
 
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
+import type { LocalHarness, runLocalHarness } from '../../mcp/local-harness'
+import type { GitRunner } from '../../mcp/worktree'
 import {
-  harnessInvocation,
-  type LocalHarness,
-  type LocalHarnessResult,
-  runLocalHarness,
-} from '../../mcp/local-harness'
-import {
-  captureWorktreeDiff,
-  createWorktree,
-  type GitRunner,
-  removeWorktree,
-  type WorktreeHandle,
-} from '../../mcp/worktree'
+  runWorktreeHarness,
+  type WorktreeCheckRunner,
+  type WorktreeCommandResult,
+  type WorktreeHarnessResult,
+  type WorktreeHarnessRun,
+} from '../../mcp/worktree-harness'
 import { zeroTokenUsage } from '../util'
 import type { Executor, ExecutorResult, Spend } from './types'
 
-/** Outcome of one verification command run in the worktree (test or typecheck). */
-export interface WorktreeCommandResult {
-  /** The shell command line that was run. */
-  command: string
-  /** Did the command exit 0? The PASS signal the coder deliverable gates on. */
-  passed: boolean
-  /** OS exit code, or `null` when killed before exit. */
-  exitCode: number | null
-  /** Combined stdout+stderr (capped) — surfaced in traces for diagnosis. */
-  output: string
-}
-
-/** Terminal artifact of one worktree-CLI run: the captured diff + the harness's run record. */
-export interface WorktreePatchArtifact {
-  /** The branch the worktree was cut on (`delegate/<runId>`). */
-  branch: string
-  /** `git diff` of the worktree against its base — the unified patch the harness produced. */
-  patch: string
-  /** Shortstat-derived change counts. */
-  stats: { filesChanged: number; insertions: number; deletions: number }
-  /** The harness subprocess outcome (exit code, captured streams, timing). */
-  harness: {
-    name: LocalHarness
-    exitCode: number | null
-    timedOut: boolean
-    killedBySignal: NodeJS.Signals | null
-    durationMs: number
-    stdout: string
-    stderr: string
-  }
-  /**
-   * Verification signals DERIVED in the live worktree, after the harness ran and before
-   * teardown — the PASS signals the old sandbox `CoderOutput` carried, re-derived here by
-   * running the configured commands. Present only when `testCmd`/`typecheckCmd` were supplied.
-   * The coder deliverable (`coderDeliverable`) reads these to gate the patch.
-   */
-  checks?: {
-    tests?: WorktreeCommandResult
-    typecheck?: WorktreeCommandResult
-  }
-}
+export type { WorktreeCommandResult }
+/** Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
+ *  diff + the harness's run record + the derived checks). */
+export type WorktreePatchArtifact = WorktreeHarnessResult
 
 /** @experimental */
 export interface WorktreeCliExecutorOptions {
@@ -120,26 +68,17 @@ export interface WorktreeCliExecutorOptions {
   runGit?: GitRunner
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness
-  /**
-   * Test seam — inject the verification-command runner so unit tests script test/typecheck
-   * outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree.
-   */
-  runCommand?: (opts: {
-    command: string
-    cwd: string
-    timeoutMs: number
-    signal?: AbortSignal
-  }) => Promise<{ exitCode: number | null; output: string }>
+  /** Test seam — inject the verification-command runner so unit tests script test/typecheck
+   *  outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree. */
+  runCommand?: WorktreeCheckRunner
 }
 
-const checkOutputCap = 16_000
-
 /**
- * Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each),
- * so a fanout of N profiles = N parallel worktrees that never clobber each other.
+ * Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a
+ * fanout of N profiles = N parallel worktrees that never clobber each other.
  *
- * Fail-loud: an empty `repoRoot`/`harness`/`taskPrompt` throws at construction (no silent
- * default for a required boundary). `resultArtifact()` before `execute()` resolves throws.
+ * Fail-loud: an empty `repoRoot`/`harness`/`taskPrompt` throws at construction. `resultArtifact()`
+ * before `execute()` resolves throws.
  *
  * @experimental
  */
@@ -157,24 +96,10 @@ export function createWorktreeCliExecutor(
   }
 
   const runId = options.runId ?? randomUUID()
-  const runHarness = options.runHarness ?? runLocalHarness
-  const runCommand = options.runCommand ?? defaultRunCommand
-  const checkTimeoutMs = options.checkTimeoutMs ?? options.harnessTimeoutMs ?? 5 * 60 * 1000
   const controller = new AbortController()
 
-  let worktree: WorktreeHandle | undefined
+  let run: WorktreeHarnessRun | undefined
   let artifact: ExecutorResult<WorktreePatchArtifact> | undefined
-
-  const removeIfPresent = async (): Promise<void> => {
-    if (!worktree) return
-    const wt = worktree
-    worktree = undefined
-    await removeWorktree({
-      worktree: wt,
-      repoRoot: options.repoRoot,
-      ...(options.runGit ? { runGit: options.runGit } : {}),
-    }).catch(() => undefined)
-  }
 
   return {
     runtime: 'cli',
@@ -184,62 +109,24 @@ export function createWorktreeCliExecutor(
       const linked = linkSignals(signal, controller.signal)
       const started = Date.now()
 
-      worktree = await createWorktree({
+      run = await runWorktreeHarness({
         repoRoot: options.repoRoot,
+        profile: options.profile,
+        harness: options.harness,
+        taskPrompt: options.taskPrompt,
         runId,
         ...(options.baseRef ? { baseRef: options.baseRef } : {}),
-        ...(options.runGit ? { runGit: options.runGit } : {}),
-      })
-
-      // The §1.5 fix: the authored systemPrompt + model reach the spawned harness.
-      const { command, args } = harnessInvocation(
-        options.harness,
-        options.profile,
-        options.taskPrompt,
-      )
-
-      const harnessResult: LocalHarnessResult = await runHarness({
-        harness: options.harness,
-        cwd: worktree.path,
-        taskPrompt: options.taskPrompt,
-        invocation: { command, args },
-        ...(options.harnessTimeoutMs !== undefined ? { timeoutMs: options.harnessTimeoutMs } : {}),
-        ...(linked ? { signal: linked } : {}),
-      })
-
-      // Derive the test/typecheck PASS signals IN the live worktree, before teardown — the
-      // signals the old sandbox CoderOutput carried, re-derived from the commands' exit codes.
-      const checks = await runWorktreeChecks({
-        worktreePath: worktree.path,
         ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
         ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),
-        timeoutMs: checkTimeoutMs,
-        runCommand,
+        ...(options.harnessTimeoutMs !== undefined
+          ? { harnessTimeoutMs: options.harnessTimeoutMs }
+          : {}),
+        ...(options.checkTimeoutMs !== undefined ? { checkTimeoutMs: options.checkTimeoutMs } : {}),
         ...(linked ? { signal: linked } : {}),
-      })
-
-      // Capture the diff regardless of exit code — a failed run can still leave a partial
-      // patch worth inspecting. The diff becomes the patch artifact.
-      const diff = await captureWorktreeDiff({
-        worktree,
         ...(options.runGit ? { runGit: options.runGit } : {}),
+        ...(options.runHarness ? { runHarness: options.runHarness } : {}),
+        ...(options.runCommand ? { runCommand: options.runCommand } : {}),
       })
-
-      const out: WorktreePatchArtifact = {
-        branch: worktree.branch,
-        patch: diff.patch,
-        stats: diff.stats,
-        harness: {
-          name: options.harness,
-          exitCode: harnessResult.exitCode,
-          timedOut: harnessResult.timedOut,
-          killedBySignal: harnessResult.killedBySignal,
-          durationMs: harnessResult.durationMs,
-          stdout: harnessResult.stdout,
-          stderr: harnessResult.stderr,
-        },
-        ...(checks ? { checks } : {}),
-      }
 
       const spent: Spend = {
         iterations: 1,
@@ -248,12 +135,18 @@ export function createWorktreeCliExecutor(
         usd: 0,
         ms: Date.now() - started,
       }
-      artifact = { outRef: contentAddress(out), out, spent }
+      artifact = { outRef: contentAddress(run.result), out: run.result, spent }
       return artifact
     },
     async teardown(_grace): Promise<{ destroyed: boolean }> {
       controller.abort()
-      await removeIfPresent()
+      // The loser of a fanout (or any settled run) is dirty — remove its worktree. A run that
+      // THREW already cleaned itself up in the core, so `run` stays undefined and this is a no-op.
+      if (run) {
+        const r = run
+        run = undefined
+        await r.cleanup()
+      }
       return { destroyed: true }
     },
     resultArtifact() {
@@ -267,75 +160,8 @@ export function createWorktreeCliExecutor(
   }
 }
 
-/**
- * Run the configured test + typecheck commands in the live worktree and project their exit
- * codes into the artifact's `checks`. Returns `undefined` when neither command was configured
- * (so the artifact omits `checks` entirely rather than carrying a fabricated pass).
- */
-async function runWorktreeChecks(opts: {
-  worktreePath: string
-  testCmd?: string
-  typecheckCmd?: string
-  timeoutMs: number
-  runCommand: NonNullable<WorktreeCliExecutorOptions['runCommand']>
-  signal?: AbortSignal
-}): Promise<WorktreePatchArtifact['checks'] | undefined> {
-  if (opts.testCmd === undefined && opts.typecheckCmd === undefined) return undefined
-  const run = async (command: string): Promise<WorktreeCommandResult> => {
-    const res = await opts.runCommand({
-      command,
-      cwd: opts.worktreePath,
-      timeoutMs: opts.timeoutMs,
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    })
-    return {
-      command,
-      passed: res.exitCode === 0,
-      exitCode: res.exitCode,
-      output: res.output.length > checkOutputCap ? res.output.slice(-checkOutputCap) : res.output,
-    }
-  }
-  const checks: NonNullable<WorktreePatchArtifact['checks']> = {}
-  if (opts.testCmd !== undefined) checks.tests = await run(opts.testCmd)
-  if (opts.typecheckCmd !== undefined) checks.typecheck = await run(opts.typecheckCmd)
-  return checks
-}
-
-/** Default verification-command runner — `/bin/sh -c <command>` in the worktree, capturing
- *  combined stdout+stderr. Never throws on a non-zero exit (that IS the fail signal); only a
- *  spawn failure (ENOENT shell) rejects. */
-function defaultRunCommand(opts: {
-  command: string
-  cwd: string
-  timeoutMs: number
-  signal?: AbortSignal
-}): Promise<{ exitCode: number | null; output: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', ['-c', opts.command], {
-      cwd: opts.cwd,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    const chunks: string[] = []
-    let settled = false
-    const timer = setTimeout(() => child.kill('SIGTERM'), opts.timeoutMs)
-    const onAbort = () => child.kill('SIGTERM')
-    opts.signal?.addEventListener('abort', onAbort, { once: true })
-    child.stdout?.on('data', (d) => chunks.push(String(d)))
-    child.stderr?.on('data', (d) => chunks.push(String(d)))
-    const finish = (fn: () => void) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      opts.signal?.removeEventListener('abort', onAbort)
-      fn()
-    }
-    child.on('error', (err) => finish(() => reject(err)))
-    child.on('close', (code) => finish(() => resolve({ exitCode: code, output: chunks.join('') })))
-  })
-}
-
-/** Link two abort signals into one that fires when either does. Returns `undefined` when
- *  neither is present so the harness runner gets no signal at all. */
+/** Link two abort signals into one that fires when either does. Returns `undefined` when neither
+ *  is present so the harness runner gets no signal at all. */
 function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
   if (a.aborted || b.aborted) {
     const c = new AbortController()
