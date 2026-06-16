@@ -113,8 +113,9 @@ export interface CoordinationTools {
   stopReason(): string | undefined
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
-  /** The full ordered log of every bus event (settled / question / finding) — the observability
-   *  audit + replay trail. Each record carries seq, timestamp, and priority. */
+  /** The full ordered log of every bus event — UP (settled / question / finding) and DOWN
+   *  (steer / answer / resume) — the observability audit + replay trail. Each record carries seq,
+   *  timestamp, and priority. */
   history(): ReadonlyArray<BusRecord<CoordinationEvent>>
   /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
   stats(): BusStats
@@ -203,8 +204,15 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
   // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
-  const sendDown = async (type: 'steer' | 'resume', down: DownMessageEvent): Promise<void> => {
-    await bus.publish({ type, down }, { queue: false })
+  const sendDown = async (
+    type: 'steer' | 'resume' | 'answer',
+    down: DownMessageEvent,
+    questionId?: string,
+  ): Promise<void> => {
+    await bus.publish(
+      type === 'answer' ? { type, down, questionId: questionId ?? '' } : { type, down },
+      { queue: false },
+    )
   }
 
   // Consumer projection: the wire shape the driver sees for a pulled bus event.
@@ -379,7 +387,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     {
       name: 'resume_worker',
       description:
-        'Resume a parked/idle worker with a follow-up message, continuing its session (parent→child).',
+        'Deliver a follow-up message to a still-LIVE worker, continuing its run (parent→child). ' +
+        'A worker that already settled (drained via await_next/await_event) is gone from the live ' +
+        'set and cannot be resumed — that returns delivered:false; spawn a fresh worker instead.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -484,13 +494,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           })
           // Route the answer DOWN to the worker that asked, unparking it, and record the down-leg.
           const delivered = opts.scope.send(question.from, { answer, questionId })
-          await bus.publish(
-            {
-              type: 'answer',
-              questionId,
-              down: { toWorker: question.from, instruction: answer, delivered },
-            },
-            { queue: false },
+          await sendDown(
+            'answer',
+            { toWorker: question.from, instruction: answer, delivered },
+            questionId,
           )
           // Surface `delivered` like steer_worker/resume_worker — the caller must see whether the
           // answer actually reached a live worker (false when it parked/settled or has no inbox).
