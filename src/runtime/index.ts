@@ -336,6 +336,9 @@ export {
   type EventBus,
   type PublishOptions,
 } from './supervise/event-bus'
+// The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
+// drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
+export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The production `DriverChat`: adapt the router's tool-calling to the seam a
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.

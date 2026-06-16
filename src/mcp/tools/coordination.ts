@@ -357,6 +357,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         properties: {
           workerId: idArg,
           instruction: { type: 'string', description: 'What the worker should do next.' },
+          interrupt: {
+            type: 'boolean',
+            description:
+              'true = forceful: break the worker out of its current step NOW to handle this. ' +
+              'false/omitted = queued: it flushes at the next step boundary (and before it may settle).',
+          },
         },
         required: ['workerId', 'instruction'],
       },
@@ -364,7 +370,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const a = obj(raw)
         const workerId = str(a.workerId, 'workerId')
         const instruction = str(a.instruction, 'instruction')
-        const delivered = opts.scope.send(workerId, { steer: instruction })
+        const interrupt = a.interrupt === true
+        const delivered = opts.scope.send(workerId, { steer: instruction, interrupt })
         await sendDown('steer', { toWorker: workerId, instruction, delivered })
         return { delivered }
       },

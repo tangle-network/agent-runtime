@@ -114,7 +114,7 @@ describe('coordination tools', () => {
     expect(
       await tool(tb, 'steer_worker').handler({ workerId: 'w0', instruction: 'do X next' }),
     ).toEqual({ delivered: true })
-    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next' } }])
+    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next', interrupt: false } }])
     expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
     })
@@ -298,7 +298,7 @@ describe('coordination tools', () => {
     })
     // Both reached the child inbox (down delivery)...
     expect(sent).toEqual([
-      { id: 'w0', msg: { steer: 'do X' } },
+      { id: 'w0', msg: { steer: 'do X', interrupt: false } },
       { id: 'w0', msg: { resume: 'continue' } },
     ])
     // ...and were recorded for observability (pass-through + history; the failed resume too)...

@@ -40,6 +40,7 @@ import type {
   SandboxClient,
 } from '../types'
 import { zeroTokenUsage } from '../util'
+import { createInbox } from './inbox'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -286,37 +287,59 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
+  // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
+  const inbox = createInbox()
+
   let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'router' as Runtime,
+    deliver: (m) => inbox.deliver(m),
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       const started = Date.now()
-      const linked = linkSignals(signal, controller.signal)
       const messages: Array<Record<string, unknown>> = [
         ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
       ]
       const tokens = zeroTokenUsage()
       let turns = 0
       let lastText = ''
+      // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
+      const flush = () => {
+        const pending = inbox.drain()
+        if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
+        return pending.length > 0
+      }
 
       for (let t = 0; t < maxTurns; t += 1) {
         turns += 1
-        const res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${seam.routerKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            tools: seam.tools,
-            tool_choice: 'auto',
-            temperature: 0.2,
-          }),
-          ...(linked ? { signal: linked } : {}),
-        })
+        // QUEUED messages flush at the step boundary, before this turn's inference.
+        flush()
+        // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately.
+        const interruptSig = inbox.freshInterrupt()
+        const turnSignal = AbortSignal.any([signal, controller.signal, interruptSig])
+        let res: Response
+        try {
+          res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${seam.routerKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages,
+              tools: seam.tools,
+              tool_choice: 'auto',
+              temperature: 0.2,
+            }),
+            signal: turnSignal,
+          })
+        } catch (e) {
+          // A forceful inbox message aborted this turn — discard it and re-plan (the next iteration's
+          // flush folds the message in). An EXTERNAL abort (teardown/budget) is fatal — rethrow.
+          if (interruptSig.aborted && !signal.aborted && !controller.signal.aborted) continue
+          throw e
+        }
         if (!res.ok) {
           throw new ValidationError(
             `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
@@ -331,7 +354,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         const msg = data.choices?.[0]?.message
         if (msg?.content) lastText = msg.content
         const toolCalls = msg?.tool_calls ?? []
-        if (toolCalls.length === 0) break // the model answered — loop done
+        if (toolCalls.length === 0) {
+          // Before settling, flush once more — a worker may not finish while a steer/answer it never
+          // read is still pending. If anything flushed, keep going; otherwise it is truly done.
+          if (flush()) continue
+          break
+        }
 
         // Record the assistant turn verbatim, then run each call on the host and
         // fold the result back as a `tool` message for the next turn.
