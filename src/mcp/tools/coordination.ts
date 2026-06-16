@@ -14,7 +14,7 @@ import type {
   Settled,
   Agent as SuperviseAgent,
 } from '../../runtime'
-import { createEventBus } from '../../runtime/supervise/event-bus'
+import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
 import type { McpToolDescriptor } from '../server'
 
 /** A worker the driver has drained via `await_next`. */
@@ -101,6 +101,11 @@ export interface CoordinationTools {
   stopReason(): string | undefined
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
+  /** The full ordered log of every bus event (settled / question / finding) — the observability
+   *  audit + replay trail. Each record carries seq, timestamp, and priority. */
+  history(): ReadonlyArray<BusRecord<CoordinationEvent>>
+  /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
+  stats(): BusStats
 }
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
@@ -114,11 +119,20 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const questions: QuestionRecord[] = []
   const questionPolicy = opts.questionPolicy ?? 'auto'
 
-  // The one child→parent pipe. `onEvent` (back-compat) becomes a pass-through subscriber, so every
-  // event kind — question, settled, finding — reaches it, and the driver pulls queued findings /
-  // questions via `await_event`.
+  // The one child→parent pipe. `onEvent` (back-compat) becomes a pass-through subscriber receiving
+  // the bare event, so every kind — question, settled, finding — reaches it immediately, and the
+  // driver pulls queued findings / questions via `await_event`.
   const bus = createEventBus<CoordinationEvent>()
-  if (opts.onEvent) bus.subscribe(opts.onEvent)
+  if (opts.onEvent) {
+    const cb = opts.onEvent
+    bus.subscribe((rec) => cb(rec.event))
+  }
+
+  // Urgency → bus priority: a blocking question is bumped ahead of queued settles/findings so the
+  // driver sees it FIRST when it drains the inbox (and pass-through already delivered it the instant
+  // it was raised). Non-blocking messages share priority 0 and resolve FIFO.
+  const urgencyPriority = (u: QuestionUrgency): number =>
+    u === 'blocks-run' ? 20 : u === 'blocks-step' ? 10 : 0
 
   const str = (v: unknown, field: string): string => {
     if (typeof v !== 'string' || v.length === 0)
@@ -245,7 +259,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     question: QuestionRecord
     added: boolean
   }): Promise<QuestionRecord> => {
-    if (record.added) await bus.publish({ type: 'question', question: record.question })
+    if (record.added)
+      await bus.publish(
+        { type: 'question', question: record.question },
+        { priority: urgencyPriority(record.question.urgency) },
+      )
     return record.question
   }
   const decideQuestion = (questionId: string, decision: QuestionDecision): QuestionRecord => {
@@ -530,6 +548,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   return {
     tools,
+    history: () => bus.history(),
+    stats: () => bus.stats(),
     isStopped: () => stopped,
     stopReason: () => reason,
     settled: () => ledger,

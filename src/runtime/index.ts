@@ -328,7 +328,14 @@ export {
 } from './supervise/driver-executor'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
-export { type BusEvent, createEventBus, type EventBus } from './supervise/event-bus'
+export {
+  type BusEvent,
+  type BusRecord,
+  type BusStats,
+  createEventBus,
+  type EventBus,
+  type PublishOptions,
+} from './supervise/event-bus'
 // The production `DriverChat`: adapt the router's tool-calling to the seam a
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
