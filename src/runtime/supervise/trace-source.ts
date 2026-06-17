@@ -18,6 +18,7 @@
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'
+import type { ToolPart, ToolState } from '@tangle-network/agent-interface'
 
 export interface ToolStepInput {
   readonly toolName: string
@@ -62,22 +63,24 @@ const obj = (v: unknown): Record<string, unknown> | undefined =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : undefined
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
-/** opencode (VALIDATED LIVE): `{ type:'tool', tool:'<name>', callID, state:{ status, input } }`.
- *  The same call streams pending→running→completed/error — only the terminal state decodes. */
-export const decodeOpencodePart: ToolPartDecoder = (p) => {
-  if (str(p.type)?.toLowerCase() !== 'tool' || !str(p.tool)) return undefined
-  const state = obj(p.state)
-  const status = str(state?.status) ?? ''
-  if (status === 'pending' || status === 'running') return undefined
+/** opencode parts ARE agent-interface's canonical `ToolPart` (`{ type:'tool', tool, callID?,
+ *  state: ToolState }`) — the shape every adc sdk-provider normalizes its harness output into. We
+ *  decode against that published type (single source of truth) rather than a re-derived shape; the
+ *  `ToolState` union drives the status mapping, so a status that adc adds/renames is a compile error
+ *  here, not a silent miss. The same call streams pending→running→terminal; only a terminal state
+ *  (`completed` / `error` / `failed`) is a finished call. */
+export const decodeOpencodePart: ToolPartDecoder = (raw) => {
+  if (str(raw.type)?.toLowerCase() !== 'tool' || !str(raw.tool)) return undefined
+  const part = raw as Partial<ToolPart>
+  const state = obj(part.state) as ToolState | undefined
+  const status = state?.status
+  if (!status || status === 'pending' || status === 'running') return undefined
   return {
-    toolName: p.tool as string,
+    toolName: part.tool as string,
     args: state?.input ?? {},
-    ...(status === 'error'
-      ? { status: 'error' as const }
-      : status
-        ? { status: 'ok' as const }
-        : {}),
-    ...(str(p.callID) ? { callId: p.callID as string } : {}),
+    // ToolStateError carries 'error' OR 'failed' — the reverse-engineered decoder missed 'failed'.
+    status: status === 'error' || status === 'failed' ? 'error' : 'ok',
+    ...(str(part.callID) ? { callId: part.callID as string } : {}),
   }
 }
 

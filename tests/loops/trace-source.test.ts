@@ -75,6 +75,18 @@ describe('decodeToolPart — validated against the LIVE opencode shape', () => {
     ).toMatchObject({ toolName: 'build', status: 'error' })
   })
 
+  it("flags a 'failed' tool part (ToolStateError.status is 'error' | 'failed')", () => {
+    // The agent-interface ToolState union allows both; decoding against the real type covers 'failed'.
+    expect(
+      decodeToolPart({
+        type: 'tool',
+        tool: 'build',
+        callID: 'c3',
+        state: { status: 'failed', input: {} },
+      }),
+    ).toMatchObject({ toolName: 'build', status: 'error' })
+  })
+
   it('returns undefined for non-tool parts (text, reasoning)', () => {
     expect(decodeToolPart({ type: 'text', text: 'hi' })).toBeUndefined()
     expect(decodeToolPart({ type: 'reasoning', text: '...' })).toBeUndefined()
