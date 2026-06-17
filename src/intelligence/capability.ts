@@ -25,7 +25,7 @@
  * own `ToolSpec`. It never imports agent-eval and never reaches upward.
  */
 
-import type { AgentProfileMcpServer } from '@tangle-network/sandbox'
+import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import type { ToolSpec } from '../runtime/router-client'
 import type { CertifiedArtifact, CertifiedProfile, CertifiedPromptSurface } from './delivery'
 

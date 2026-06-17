@@ -20,7 +20,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   harnessInvocation,
   type LocalHarness,

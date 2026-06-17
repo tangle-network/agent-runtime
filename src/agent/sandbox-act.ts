@@ -16,7 +16,8 @@
  * agents agent-builder generates.
  */
 
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { ComposeProductionAgentProfileOptions } from '../mcp/delegation-profile'
 import { composeProductionAgentProfile } from '../mcp/delegation-profile'
 import type { AgentRunSpec, OutputAdapter, SandboxClient } from '../runtime'

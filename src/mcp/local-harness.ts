@@ -17,7 +17,7 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 
 /** Local coding harness available inside the sandbox. */
 export type LocalHarness = 'claude' | 'codex' | 'opencode'

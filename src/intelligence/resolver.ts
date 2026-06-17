@@ -25,7 +25,7 @@
  * whose live names diverge from the certified interface.
  */
 
-import type { AgentProfileMcpServer } from '@tangle-network/sandbox'
+import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import type { ToolSpec } from '../runtime/router-client'
 import {
   type CapabilityAuth,

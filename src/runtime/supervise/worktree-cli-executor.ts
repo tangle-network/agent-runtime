@@ -19,7 +19,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import type { LocalHarness, runLocalHarness } from '../../mcp/local-harness'

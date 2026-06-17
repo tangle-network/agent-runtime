@@ -16,7 +16,7 @@
  * every downstream run that reads it back.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   Corpus,
   CorpusFilter,

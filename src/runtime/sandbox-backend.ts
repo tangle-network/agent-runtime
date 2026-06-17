@@ -7,7 +7,8 @@
  * recovery) lives in the kernel, the planner calls `client.create` directly.
  */
 
-import type { AgentProfile, CreateSandboxOptions } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateSandboxOptions } from '@tangle-network/sandbox'
 
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>

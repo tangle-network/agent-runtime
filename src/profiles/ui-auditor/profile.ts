@@ -10,7 +10,7 @@
  * `createInProcessUiAuditClient` (in `./in-process-client.ts`) or a consumer-supplied `SandboxClient`.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AgentRunSpec, OutputAdapter, Validator } from '../../runtime/types'
 import { buildAuditorSystemPrompt } from './lens-prompts'
 import { parseAuditorEvents } from './output-adapter'
