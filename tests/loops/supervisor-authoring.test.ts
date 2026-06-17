@@ -97,8 +97,8 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       },
       {
         toolCalls: [
-          { name: 'await_next', arguments: {} },
-          { name: 'await_next', arguments: {} },
+          { name: 'await_event', arguments: {} },
+          { name: 'await_event', arguments: {} },
         ],
       },
       { content: 'done' },

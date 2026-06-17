@@ -316,6 +316,15 @@ export {
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
 export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
+// The online analyst on the worker pipe: folds each live tool step through agent-eval's streaming
+// detectors and fires `onSignal` (→ a `finding` on the bus) the moment a worker loops or error-storms.
+export {
+  createDetectorMonitor,
+  type DetectorMonitor,
+  type DetectorMonitorOptions,
+  defaultToolDetectors,
+  type ToolStep,
+} from './supervise/detector-monitor'
 // The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
 // resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
 // the SAME conserved pool.
@@ -336,6 +345,9 @@ export {
   type EventBus,
   type PublishOptions,
 } from './supervise/event-bus'
+// The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
+// drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
+export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // The production `DriverChat`: adapt the router's tool-calling to the seam a
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
@@ -365,6 +377,14 @@ export {
   createRootHandle,
   createSupervisor,
 } from './supervise/supervisor'
+// The settle-time analyzer: replays a worker's tool steps as agent-eval spans and runs its published
+// batch trajectory analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
+export {
+  createTrajectoryRecorder,
+  type RecordedToolStep,
+  type TrajectoryAnalysis,
+  type TrajectoryRecorder,
+} from './supervise/trajectory-recorder'
 export type {
   Agent,
   AgentSpec,

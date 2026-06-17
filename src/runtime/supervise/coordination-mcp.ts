@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * Serve the coordination verbs (spawn_worker / await_next / observe_worker / steer_worker / stop)
+ * Serve the coordination verbs (spawn_worker / await_event / observe_worker / steer_worker / stop)
  * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
  * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
  * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on
@@ -35,6 +35,8 @@ export interface CoordinationMcpHandle {
   history: CoordinationTools['history']
   /** Bus throughput counters for live dashboards. */
   stats: CoordinationTools['stats']
+  /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
+  raiseFinding: CoordinationTools['raiseFinding']
   close(): Promise<void>
 }
 
@@ -119,6 +121,7 @@ export async function serveCoordinationMcp(opts: {
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
+    raiseFinding: (finding) => coord.raiseFinding(finding),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())

@@ -107,7 +107,7 @@ that keeps it honest.
                         ▼
         Scope: spawn child agent(s) → run → settle → verdict on the artifact
                         │
-                        └──▶ await_next → terminal? → winner = argmax(valid score)
+                        └──▶ await_event → terminal? → winner = argmax(valid score)
 ```
 
 The firewall is the load-bearing line: the **analyst reads the trace and may not cite the score**, so

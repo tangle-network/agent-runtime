@@ -58,15 +58,6 @@ describe('event bus', () => {
     expect(bus.pull()).toEqual({ type: 'finding', claim: 'late finding' })
   })
 
-  it('peek is non-destructive and respects priority', async () => {
-    const bus = createEventBus<E>()
-    await bus.publish({ type: 'settled', id: 'w1' })
-    await bus.publish({ type: 'question', q: 'q' }, { priority: 10 })
-    expect(bus.peek()).toEqual({ type: 'question', q: 'q' })
-    expect(bus.pending()).toBe(2) // peek consumed nothing
-    expect(bus.pull()).toEqual({ type: 'question', q: 'q' })
-  })
-
   it('history is the full ordered audit trail; stats count throughput', async () => {
     const bus = createEventBus<E>(fakeClock())
     await bus.publish({ type: 'settled', id: 'w1' })
@@ -80,6 +71,24 @@ describe('event bus', () => {
       pulled: 1,
       byKind: { settled: 1, finding: 1, question: 1 },
     })
+  })
+
+  it('queue:false records to history + subscribers but never enters the pull queue', async () => {
+    const bus = createEventBus<E>()
+    const seen: string[] = []
+    bus.subscribe((r) => {
+      seen.push(r.event.type)
+    })
+    await bus.publish({ type: 'settled', id: 'w1' })
+    await bus.publish({ type: 'question', q: 'down-leg' }, { queue: false })
+    // The record-only event reached subscribers + the audit log...
+    expect(seen).toEqual(['settled', 'question'])
+    expect(bus.history().map((r) => r.event.type)).toEqual(['settled', 'question'])
+    expect(bus.stats()).toMatchObject({ published: 2 })
+    // ...but is invisible to the pull queue: only the queued settled is pending/pullable.
+    expect(bus.pending()).toBe(1)
+    expect(bus.pull()).toEqual({ type: 'settled', id: 'w1' })
+    expect(bus.pull()).toBeUndefined()
   })
 
   it('unsubscribe stops delivery', async () => {

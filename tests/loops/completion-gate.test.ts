@@ -163,7 +163,7 @@ function gatedWorkerLeaf(
 
 const spawnAwaitStop: DriverTurn[] = [
   { toolCalls: [{ name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } }] },
-  { toolCalls: [{ name: 'await_next', arguments: {} }] },
+  { toolCalls: [{ name: 'await_event', arguments: {} }] },
   { content: 'stop' },
 ]
 
@@ -236,8 +236,8 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       },
       {
         toolCalls: [
-          { name: 'await_next', arguments: {} },
-          { name: 'await_next', arguments: {} },
+          { name: 'await_event', arguments: {} },
+          { name: 'await_event', arguments: {} },
         ],
       },
       { content: 'stop' },
@@ -282,7 +282,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
           { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
         ],
       },
-      { toolCalls: [{ name: 'await_next', arguments: {} }] },
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'stop' },
     ]
     const root = coordinationDriverAgent(driverOpts('root', scriptedChat(rootTurns), makeAgent))

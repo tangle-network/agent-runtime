@@ -175,7 +175,7 @@ async function main(): Promise<void> {
           messages: [
             {
               role: 'user',
-              content: `${TASK}\n\nYou are a SUPERVISOR. You have the "supervise" skill and a "coordination" MCP with tools spawn_worker, await_next, stop. Do NOT write code yourself. Author a worker profile (a JSON object with name + a rich systemPrompt telling the worker exactly what to implement) and call spawn_worker with it, then await_next, and stop once a worker delivered (valid:true).`,
+              content: `${TASK}\n\nYou are a SUPERVISOR. You have the "supervise" skill and a "coordination" MCP with tools spawn_worker, await_event, stop. Do NOT write code yourself. Author a worker profile (a JSON object with name + a rich systemPrompt telling the worker exactly what to implement) and call spawn_worker with it, then await_event, and stop once a worker delivered (valid:true).`,
             },
           ],
           cwd: supCwd,

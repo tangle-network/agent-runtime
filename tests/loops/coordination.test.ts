@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
+import { createDetectorMonitor } from '../../src/runtime'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -114,13 +115,13 @@ describe('coordination tools', () => {
     expect(
       await tool(tb, 'steer_worker').handler({ workerId: 'w0', instruction: 'do X next' }),
     ).toEqual({ delivered: true })
-    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next' } }])
+    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next', interrupt: false } }])
     expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
     })
   })
 
-  it('await_next drains settlements into the driver ledger', async () => {
+  it('await_event(settled) drains settlements into the driver ledger', async () => {
     const { scope } = mockScope()
     const settlements = [
       {
@@ -143,14 +144,15 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(tb, 'await_next').handler({})).toEqual({
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({
+      type: 'settled',
       settled: 'w7',
       status: 'done',
       score: 0.83,
       valid: true,
       outRef: 'blob:w7',
     })
-    expect(await tool(tb, 'await_next').handler({})).toEqual({ idle: true })
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
     expect(tb.settled()).toEqual([
       { id: 'w7', status: 'done', score: 0.83, valid: true, outRef: 'blob:w7' },
     ])
@@ -179,16 +181,27 @@ describe('coordination tools', () => {
       stopped: false,
       error: 'unresolved-blocking-questions',
     })
-    await tool(tb, 'answer_question').handler({
-      questionId: r.question.id,
-      answer: 'Target v2.',
-      by: 'user',
-    })
+    // The driver-1 asker is not a live worker in the mock scope → the answer reports delivered:false.
+    expect(
+      await tool(tb, 'answer_question').handler({
+        questionId: r.question.id,
+        answer: 'Target v2.',
+        by: 'user',
+      }),
+    ).toMatchObject({ question: { status: 'answered' }, delivered: false })
     expect(await tool(tb, 'stop').handler({ reason: 'answered and verified' })).toEqual({
       stopped: true,
     })
     expect(tb.questions()[0]).toMatchObject({ status: 'answered' })
-    expect(emitted).toEqual([{ type: 'question', question: expect.objectContaining(r.question) }])
+    // The pass-through trail records BOTH legs: the question up, then the answer routed down.
+    expect(emitted).toEqual([
+      { type: 'question', question: expect.objectContaining(r.question) },
+      {
+        type: 'answer',
+        questionId: r.question.id,
+        down: { toWorker: 'driver-1', instruction: 'Target v2.', delivered: false },
+      },
+    ])
   })
 
   it('list_analysts surfaces the menu and run_analyst applies a lens to a settled worker', async () => {
@@ -262,6 +275,69 @@ describe('coordination tools', () => {
     // The history audit trail recorded both, in publish order, with the bumped priority stamped.
     expect(tb.history().map((r) => r.priority)).toEqual([0, 20])
     expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
+  })
+
+  it('steer_worker routes down + records in history but is never pulled back', async () => {
+    const { scope, sent } = mockScope()
+    const emitted: Array<{ type: string }> = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (e) => emitted.push(e),
+    })
+    expect(
+      await tool(tb, 'steer_worker').handler({
+        workerId: 'w0',
+        instruction: 'do X',
+        interrupt: true,
+      }),
+    ).toEqual({ delivered: true })
+    // A steer to a worker with no live inbox reports delivered:false.
+    expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
+      delivered: false,
+    })
+    // The forceful steer reached the child inbox (down delivery)...
+    expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X', interrupt: true } }])
+    // ...and both attempts were recorded for observability (pass-through + history)...
+    expect(emitted.map((e) => e.type)).toEqual(['steer', 'steer'])
+    expect(tb.history().map((r) => r.event.type)).toEqual(['steer', 'steer'])
+    // ...but the parent never pulls its own outbound messages back.
+    expect(await tool(tb, 'await_event').handler({})).toEqual({ idle: true })
+  })
+
+  it('answer_question routes the answer down to a LIVE worker and surfaces delivered:true', async () => {
+    const { scope, sent } = mockScope()
+    const emitted: Array<{ type: string }> = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: (e) => emitted.push(e),
+    })
+    // The question originates from the live worker w0, so the answer routes back to its inbox.
+    const r = (await tool(tb, 'ask_parent').handler({
+      from: 'w0',
+      level: 'worker',
+      question: 'which path?',
+      reason: 'ambiguous',
+      urgency: 'blocks-step',
+    })) as { question: { id: string } }
+    expect(
+      await tool(tb, 'answer_question').handler({ questionId: r.question.id, answer: 'path B' }),
+    ).toEqual({
+      question: expect.objectContaining({ id: r.question.id, status: 'answered' }),
+      delivered: true,
+    })
+    // The answer reached w0's inbox shaped { answer, questionId }...
+    // The question was blocks-step, so the answer is delivered FORCEFULLY to unpark the worker now.
+    expect(sent).toEqual([
+      { id: 'w0', msg: { answer: 'path B', questionId: r.question.id, interrupt: true } },
+    ])
+    // ...and both legs are on the trail: question up, answer down.
+    expect(emitted.map((e) => e.type)).toEqual(['question', 'answer'])
   })
 
   it('analyze-on-settle auto-runs lenses and await_event surfaces settled + finding', async () => {
@@ -346,6 +422,65 @@ describe('coordination tools', () => {
       valid: true,
     })
     expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toEqual({ idle: true })
+  })
+
+  it('await_event returns idle when the only live event mismatches the kinds filter', async () => {
+    const { scope } = mockScope()
+    const settlements = [
+      {
+        kind: 'done' as const,
+        handle: { id: 'w9', label: 'w', status: 'done' as const, abort() {} },
+        out: {},
+        outRef: 'blob:w9',
+        verdict: { valid: true, score: 1 },
+        spent: zeroSpend(),
+        seq: 0,
+      },
+    ]
+    const tb = createCoordinationTools({
+      scope: { ...scope, next: () => Promise.resolve(settlements.shift() ?? null) } as typeof scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    // A worker is settle-able, but the driver only wants questions: await_event drains the cursor
+    // (progress was made → not idle) WITHOUT leaking the settled event to a question-only pull.
+    expect(await tool(tb, 'await_event').handler({ kinds: ['question'] })).toEqual({ idle: false })
+    // The drained settled event was queued, not lost — a caller that asks for it still gets it.
+    expect(await tool(tb, 'await_event').handler({ kinds: ['settled'] })).toMatchObject({
+      settled: 'w9',
+    })
+  })
+
+  it('an ONLINE detector raises a finding on the bus that the driver pulls (the live pipe → bus chain)', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    // The monitor (what the worker executor's onToolStep feeds) raises a finding via raiseFinding.
+    const monitor = createDetectorMonitor({
+      onSignal: (s) => {
+        void tb.raiseFinding({ fromWorker: 'w0', analyst: `online:${s.detector}`, findings: s })
+      },
+    })
+    // The worker loops on the same tool call → the stuck-loop detector trips mid-run.
+    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
+    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
+    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
+    // The driver pulls the finding off the bus mid-run — no need to wait for settle.
+    const ev = (await tool(tb, 'await_event').handler({ kinds: ['finding'] })) as {
+      type: string
+      fromWorker: string
+      analyst: string
+    }
+    expect(ev).toMatchObject({
+      type: 'finding',
+      fromWorker: 'w0',
+      analyst: 'online:repeated-action',
+    })
   })
 
   it('createMcpServer serves coordination tools alongside built-ins; a shadow throws', () => {

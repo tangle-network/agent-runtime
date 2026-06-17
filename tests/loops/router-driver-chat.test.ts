@@ -102,11 +102,11 @@ describe('routerDriverChat — the production DriverChat seam over the router to
   it('omits empty-string content (truthy check), not just null', async () => {
     routerMock.mockResolvedValue({
       content: '',
-      toolCalls: [{ id: 'c1', name: 'await_next', arguments: '{}' }],
+      toolCalls: [{ id: 'c1', name: 'await_event', arguments: '{}' }],
     })
     const turn = await routerDriverChat(cfg).next({ system: 'S', messages: [], tools: [] })
     expect(turn.content).toBeUndefined()
-    expect(turn.toolCalls).toEqual([{ id: 'c1', name: 'await_next', arguments: {} }])
+    expect(turn.toolCalls).toEqual([{ id: 'c1', name: 'await_event', arguments: {} }])
   })
 
   it('honors a custom temperature', async () => {

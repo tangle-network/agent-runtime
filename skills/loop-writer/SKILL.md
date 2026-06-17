@@ -110,7 +110,7 @@ const result = await createSupervisor<Task, Output>().run(driver, task, supervis
 ```
 
 When the driver lives in a sandbox, expose the same verbs through
-`createCoordinationTools`: `spawn_worker`, `await_next`, `observe_worker`,
+`createCoordinationTools`: `spawn_worker`, `await_event`, `observe_worker`,
 `steer_worker`, `list_questions`, `answer_question`, `ask_parent`, `stop`, and
 optional analyst tools.
 

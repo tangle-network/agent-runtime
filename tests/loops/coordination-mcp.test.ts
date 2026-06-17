@@ -73,7 +73,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
             name: 'spawn_worker',
             arguments: { profile: {}, task: 'go' },
           })
-          await jsonRpc(mcp.url, 'tools/call', { name: 'await_next', arguments: {} })
+          await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
           observed = { toolsList: toolsList.result, settled: mcp.settled() }
           const done = mcp.settled().filter((w) => w.status === 'done' && w.valid === true)
           return done[0]?.outRef ? await blobs.get(done[0].outRef) : undefined
@@ -102,6 +102,6 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       (t) => t.name,
     )
     expect(names).toContain('spawn_worker')
-    expect(names).toContain('await_next')
+    expect(names).toContain('await_event')
   })
 })

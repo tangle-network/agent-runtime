@@ -40,6 +40,7 @@ import type {
   SandboxClient,
 } from '../types'
 import { zeroTokenUsage } from '../util'
+import { createInbox } from './inbox'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -243,6 +244,13 @@ export interface RouterToolsSeam {
   model?: string
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
+   *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves. */
+  onToolStep?: (step: {
+    toolName: string
+    args: Record<string, unknown>
+    status: 'ok' | 'error'
+  }) => void
   /** Max inference turns. Default 200 (runaway backstop — set far above any
    *  legitimate workflow). For tighter per-workflow limits use a cost budget
    *  or wall-clock deadline at the call site. */
@@ -286,37 +294,81 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
+  // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
+  const inbox = createInbox()
+
   let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'router' as Runtime,
+    deliver: (m) => inbox.deliver(m),
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       const started = Date.now()
-      const linked = linkSignals(signal, controller.signal)
       const messages: Array<Record<string, unknown>> = [
         ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
       ]
       const tokens = zeroTokenUsage()
       let turns = 0
       let lastText = ''
+      // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
+      const flush = () => {
+        const pending = inbox.drain()
+        if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
+        return pending.length > 0
+      }
+
+      // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
+      // re-register listeners on these long-lived signals every turn.
+      const external = mergeAbortSignals(signal, controller.signal)
 
       for (let t = 0; t < maxTurns; t += 1) {
+        // QUEUED messages flush at the step boundary, before this turn's inference.
+        flush()
+        // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
+        // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
+        // removed after the turn (`cleanup`) so nothing accumulates across turns.
+        const interruptSig = inbox.freshInterrupt()
+        const turnController = new AbortController()
+        const abortTurn = () => turnController.abort()
+        if (external.aborted) turnController.abort()
+        else external.addEventListener('abort', abortTurn)
+        interruptSig.addEventListener('abort', abortTurn, { once: true })
+        const cleanup = () => external.removeEventListener('abort', abortTurn)
+        let res: Response
+        try {
+          res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${seam.routerKey}`,
+            },
+            body: JSON.stringify({
+              model,
+              messages,
+              tools: seam.tools,
+              tool_choice: 'auto',
+              temperature: 0.2,
+            }),
+            signal: turnController.signal,
+          })
+        } catch (e) {
+          cleanup()
+          // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
+          // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
+          // loop slot (so interrupt spam is bounded by maxTurns, not a hang) but does not bill a turn.
+          // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
+          const interruptAbort =
+            e instanceof DOMException &&
+            e.name === 'AbortError' &&
+            interruptSig.aborted &&
+            !signal.aborted &&
+            !controller.signal.aborted
+          if (interruptAbort) continue
+          throw e
+        }
+        cleanup()
+        // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
         turns += 1
-        const res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${seam.routerKey}`,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            tools: seam.tools,
-            tool_choice: 'auto',
-            temperature: 0.2,
-          }),
-          ...(linked ? { signal: linked } : {}),
-        })
         if (!res.ok) {
           throw new ValidationError(
             `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
@@ -331,7 +383,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         const msg = data.choices?.[0]?.message
         if (msg?.content) lastText = msg.content
         const toolCalls = msg?.tool_calls ?? []
-        if (toolCalls.length === 0) break // the model answered — loop done
+        if (toolCalls.length === 0) {
+          // Before settling, flush once more — a worker may not finish while a steer/answer it never
+          // read is still pending. If anything flushed, keep going; otherwise it is truly done.
+          if (flush()) continue
+          break
+        }
 
         // Record the assistant turn verbatim, then run each call on the host and
         // fold the result back as a `tool` message for the next turn.
@@ -360,8 +417,24 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             })
             continue
           }
-          const result = await seam.executeToolCall(tc?.function?.name ?? '', args, task)
+          const toolName = tc?.function?.name ?? ''
+          let result: string
+          let status: 'ok' | 'error' = 'ok'
+          try {
+            result = await seam.executeToolCall(toolName, args, task)
+          } catch (e) {
+            status = 'error'
+            result = `error: ${e instanceof Error ? e.message : String(e)}`
+          }
           messages.push({ role: 'tool', tool_call_id: id, content: result })
+          // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
+          // call or hammering errors is caught mid-run, not only at settle. This is an observability
+          // side-channel: a throwing monitor must never crash the production inference loop.
+          try {
+            seam.onToolStep?.({ toolName, args, status })
+          } catch {
+            // ignore — monitoring must not break the worker
+          }
         }
       }
 
@@ -959,6 +1032,21 @@ function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
   const onAbort = () => c.abort()
   a.addEventListener('abort', onAbort, { once: true })
   b.addEventListener('abort', onAbort, { once: true })
+  return c.signal
+}
+
+/** Combine N abort signals into one that fires when ANY does. Node-portable (no `AbortSignal.any`,
+ *  which needs >=20.3 — the package floor is >=20). */
+function mergeAbortSignals(...signals: AbortSignal[]): AbortSignal {
+  const c = new AbortController()
+  const onAbort = () => c.abort()
+  for (const s of signals) {
+    if (s.aborted) {
+      c.abort()
+      break
+    }
+    s.addEventListener('abort', onAbort, { once: true })
+  }
   return c.signal
 }
 

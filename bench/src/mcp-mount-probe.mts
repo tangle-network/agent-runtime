@@ -3,7 +3,7 @@
  * actually MOUNT my coordination MCP and CALL spawn_worker — landing on a real Scope.spawn?
  *
  * Serves the coordination MCP over a live Scope, then asks the bridge's opencode (with that MCP in
- * its config) to call spawn_worker + await_next. If the Scope spawned+settled, the in-box driving
+ * its config) to call spawn_worker + await_event. If the Scope spawned+settled, the in-box driving
  * path is real. No mock.
  *
  *   ROUTER_BASE=http://127.0.0.1:3355/v1 TANGLE_API_KEY=<bridge-bearer> \
@@ -86,9 +86,9 @@ async function main(): Promise<void> {
             {
               role: 'user',
               content:
-                'You have an MCP server named "coordination" with tools: spawn_worker, await_next, stop. ' +
-                'Call spawn_worker with arguments {"profile":{},"task":"hello"}. Then call await_next. ' +
-                'Then reply with exactly what await_next returned.',
+                'You have an MCP server named "coordination" with tools: spawn_worker, await_event, stop. ' +
+                'Call spawn_worker with arguments {"profile":{},"task":"hello"}. Then call await_event. ' +
+                'Then reply with exactly what await_event returned.',
             },
           ],
           mcp.url,
