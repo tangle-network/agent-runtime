@@ -37,7 +37,11 @@ async function main(): Promise<void> {
     forbiddenPaths: ['secrets/', 'node_modules/'],
     runGit: (args: readonly string[]) => {
       if (args[0] === 'diff' && args.includes('--shortstat')) {
-        return { stdout: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n', stderr: '', exitCode: 0 }
+        return {
+          stdout: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n',
+          stderr: '',
+          exitCode: 0,
+        }
       }
       if (args[0] === 'diff') return { stdout: patch, stderr: '', exitCode: 0 }
       if (args[0] === 'rev-parse') return { stdout: 'base\n', stderr: '', exitCode: 0 }
