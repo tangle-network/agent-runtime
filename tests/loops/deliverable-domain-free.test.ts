@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import type { Executor, ExecutorResult, Iteration, UsageEvent } from '../../src/runtime'
 import { selectValidWinner } from '../../src/runtime/personify/combinators'
 import type { Outcome } from '../../src/runtime/personify/types'
 import {
   type DeliverableSpec,
   gateOnDeliverable,
 } from '../../src/runtime/supervise/completion-gate'
-import type { Executor, ExecutorResult, Iteration, UsageEvent } from '../../src/runtime'
 
 // The point: the completion-gate seam is DOMAIN-FREE. A domain customizes "is it delivered" by
 // constructing a plain `DeliverableSpec` whose `check` verifies a field on ITS OWN artifact —
@@ -70,7 +70,9 @@ describe('completion-gate seam is domain-free — a non-patch DeliverableSpec ga
   })
 
   it('the shared selectValidWinner ranks non-patch artifacts by a domain sizeOf (shortest report)', () => {
-    // Build Outcome-wrapped iterations the way a fanout would, two valid reports of different size.
+    // The worktree/scope fanout settles the RAW deliverable as iter.output (settledToIteration sets
+    // `output = settled.out`) — NOT an Outcome wrapper. Mirror that shape so the selector is driven
+    // exactly as production drives it; the smallest-artifact branch must read the raw deliverable.
     const iter = (
       index: number,
       report: string,
@@ -80,7 +82,7 @@ describe('completion-gate seam is domain-free — a non-patch DeliverableSpec ga
       index,
       task: undefined,
       agentRunName: `report:${index}`,
-      output: { kind: 'done', deliverable: { report, words } },
+      output: { report, words } as unknown as Outcome<ReportArtifact>,
       verdict: { valid, score: 1 },
       events: [],
       startedAt: 0,
@@ -96,7 +98,7 @@ describe('completion-gate seam is domain-free — a non-patch DeliverableSpec ga
       iter(1, '## Summary short', 2, true),
       iter(2, 'invalid', 1, false), // smallest but NOT valid → must never win
     ])
-    const out = winner?.output
-    expect(out && out.kind === 'done' ? out.deliverable.words : -1).toBe(2)
+    const out = winner?.output as unknown as ReportArtifact | undefined
+    expect(out ? out.words : -1).toBe(2)
   })
 })

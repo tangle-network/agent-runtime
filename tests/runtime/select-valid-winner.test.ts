@@ -34,14 +34,34 @@ describe('selectValidWinner', () => {
   })
 
   it('returns undefined when no candidate is valid (an ungated output never wins)', () => {
-    expect(selectValidWinner()([iter(0, false, 1, { x: 0 }), iter(1, undefined, 0, { x: 1 })])).toBeUndefined()
+    expect(
+      selectValidWinner()([iter(0, false, 1, { x: 0 }), iter(1, undefined, 0, { x: 1 })]),
+    ).toBeUndefined()
   })
 
   it('smallest-artifact uses the sizeOf extractor over the unwrapped deliverable', () => {
-    const w = selectValidWinner<{ x: number }>({ strategy: 'smallest-artifact', sizeOf: (d) => d.x })(
-      [iter(0, true, 1, { x: 10 }), iter(1, true, 1, { x: 3 }), iter(2, true, 1, { x: 7 })],
-    )
+    const w = selectValidWinner<{ x: number }>({
+      strategy: 'smallest-artifact',
+      sizeOf: (d) => d.x,
+    })([iter(0, true, 1, { x: 10 }), iter(1, true, 1, { x: 3 }), iter(2, true, 1, { x: 7 })])
     expect(dx(w)).toBe(3)
+  })
+
+  it('smallest-artifact reads the RAW settled deliverable (the shape settledToIteration produces)', () => {
+    // The worktree/scope fanout sets iter.output to the raw deliverable (no Outcome wrapper). sizeOf
+    // must still fire over that shape — else smallest-artifact silently collapses to earliest-index.
+    const rawIter = (index: number, x: number): Iteration<unknown, Outcome<{ x: number }>> =>
+      ({
+        index,
+        output: { x } as unknown as Outcome<{ x: number }>,
+        verdict: { valid: true, score: 1 },
+      }) as unknown as Iteration<unknown, Outcome<{ x: number }>>
+    const w = selectValidWinner<{ x: number }>({
+      strategy: 'smallest-artifact',
+      sizeOf: (d) => d.x,
+    })([rawIter(0, 10), rawIter(1, 3), rawIter(2, 7)])
+    const raw = w?.output as unknown as { x: number } | undefined
+    expect(raw?.x).toBe(3)
   })
 
   it('first-valid picks the earliest valid regardless of score', () => {

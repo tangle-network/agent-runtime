@@ -51,8 +51,9 @@ import type {
  * (`verdict.valid === true`), pick by `strategy` — best score / smallest delivered artifact /
  * earliest — ties broken by earliest index; returns `undefined` when NONE is valid (an ungated
  * output can never win — the deliverable gate is the point). `sizeOf` (for `'smallest-artifact'`)
- * unwraps the child's `Outcome<D>` to its deliverable; a domain passes e.g. patch diff-lines. This
- * is the de-duplicated home of the selection logic previously copied per role.
+ * reads the child's settled deliverable — the raw value a leaf settles, or the unwrapped `Outcome<D>`
+ * a delegate path produces; a domain passes e.g. patch diff-lines. This is the de-duplicated home of
+ * the selection logic previously copied per role.
  */
 export function selectValidWinner<D>(opts?: {
   strategy?: WinnerStrategy
@@ -61,8 +62,13 @@ export function selectValidWinner<D>(opts?: {
   const strategy = opts?.strategy ?? 'highest-score'
   const sizeOfIter = (iter: Iteration<unknown, Outcome<D>>): number => {
     const out = iter.output
-    const deliverable = out !== undefined && out.kind === 'done' ? out.deliverable : undefined
-    return deliverable !== undefined && opts?.sizeOf ? opts.sizeOf(deliverable) : Number.POSITIVE_INFINITY
+    if (out === undefined || opts?.sizeOf === undefined) return Number.POSITIVE_INFINITY
+    // The worktree-CLI leaf settles the RAW deliverable as iter.output (settledToIteration sets
+    // `output = settled.out`); the MCP delegate path wraps it in an Outcome<D>. Accept both: unwrap
+    // a `done` Outcome, else the settled value IS the deliverable. A raw artifact carries no `kind`
+    // discriminant, so the branch is unambiguous.
+    const deliverable = out.kind === 'done' ? out.deliverable : (out as unknown as D)
+    return opts.sizeOf(deliverable)
   }
   return (iterations) => {
     const valid = iterations.filter(

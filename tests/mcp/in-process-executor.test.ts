@@ -271,7 +271,7 @@ describe('createInProcessExecutor', () => {
       sandboxId?: string
     }
     expect(placement?.harness).toBe('codex')
-    expect(placement?.worktreePath).toMatch(/\.coder-variants/)
+    expect(placement?.worktreePath).toMatch(/\.agent-worktrees/)
     expect(placement?.sandboxId).toMatch(/^in-process-/)
   })
 

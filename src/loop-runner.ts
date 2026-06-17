@@ -35,9 +35,9 @@ import {
   type DetachedWinnerSelection,
   detachedSessionDelegate,
 } from './mcp/delegates'
+import type { CoderOutput } from './mcp/detached-coder'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
 import type { DelegateCodeArgs } from './mcp/types'
-import type { CoderOutput } from './mcp/detached-coder'
 import {
   type AuthoredHarness,
   type Budget,
@@ -138,8 +138,8 @@ export interface CoderLoopRunnerOptions {
 }
 
 /**
- * @experimental Build a `code`/`review`-mode runner over the (quarantined) sandbox-session coder
- * delegate. Pass a `reviewer` to run `review` mode — an approval gate over the validated candidate.
+ * @experimental Build a `code`/`review`-mode runner over the sandbox-session coder delegate. Pass a
+ * `reviewer` to run `review` mode — an approval gate over the validated candidate.
  */
 export function coderLoopRunner(options: CoderLoopRunnerOptions): DelegatedLoopRunner<CoderOutput> {
   const delegate = detachedSessionDelegate({

@@ -1,13 +1,15 @@
 /**
  * @experimental
  *
- * QUARANTINED sandbox-session coder decode layer. The detached-session delegate (`./delegates`) and
- * the cross-restart resume driver (`./bin`) run the in-box harness over a `SandboxClient` and need
- * to (a) build an `AgentRunSpec` from the authored coder profile, (b) decode the harness event
- * stream into a structured `CoderOutput`, and (c) gate it with the shared mechanical checks. None of
- * this is part of the generic recursive path — `worktreeFanout` settles the raw `WorktreePatchArtifact`
- * and gates via `patchDelivered`. This module is KEPT only because the detached-resume capability has
- * no `Scope`/worktree-CLI equivalent yet (quarantined behind `MCP_ENABLE_DETACHED_RESUME`).
+ * Sandbox-session coder decode layer. The sandbox-session delegate (`./delegates`) and the
+ * cross-restart resume driver (`./bin`) run the in-box harness over a `SandboxClient` and need to
+ * (a) build an `AgentRunSpec` from the authored coder profile, (b) decode the harness event stream
+ * into a structured `CoderOutput`, and (c) gate it with the shared mechanical checks. This is the
+ * MCP server's built-in `delegate_code` path — it is the live default delegate, NOT dormant — and is
+ * kept separate from the generic recursive path: `worktreeFanout` instead settles the raw
+ * `WorktreePatchArtifact` and gates via `patchDelivered`. Only the OPTIONAL cross-restart resume
+ * (the `driveTurn` tick) is opt-in (`MCP_ENABLE_DETACHED_RESUME`); the held-stream delegate is
+ * always live. Prefer `worktreeFanout` / `worktreeLoopRunner` for NEW local-repo coding.
  *
  * The decode tolerates two `result`-event shapes:
  *   1. the in-process executor's raw worktree-harness result (`{ branch, patch, stats, checks }`),
@@ -17,17 +19,9 @@
  */
 
 import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
-import {
-  type CoderCheckConstraints,
-  runCoderChecks,
-} from '../runtime/supervise/patch-checks'
-import type {
-  AgentRunSpec,
-  Driver,
-  OutputAdapter,
-  Validator,
-} from '../runtime/types'
 import { type CoderTask, coderProfile, coderTaskToPrompt } from '../profiles/coder'
+import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
+import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'
 
 const DEFAULT_MAX_DIFF_LINES = 400
 
@@ -70,7 +64,7 @@ function coderRunProfile(options: CoderRunSpecOptions): AgentProfile {
   }
 }
 
-/** @experimental Build the `AgentRunSpec<CoderTask>` the quarantined `runLoop` path drives. */
+/** @experimental Build the `AgentRunSpec<CoderTask>` the sandbox-session `runLoop` path drives. */
 export function coderRunSpec(options: CoderRunSpecOptions = {}): AgentRunSpec<CoderTask> {
   return {
     name: options.name ?? `coder-${options.harness ?? 'claude-code'}`,
@@ -79,7 +73,7 @@ export function coderRunSpec(options: CoderRunSpecOptions = {}): AgentRunSpec<Co
   }
 }
 
-/** @experimental The output adapter the quarantined path decodes the harness stream with. */
+/** @experimental The output adapter the sandbox-session path decodes the harness stream with. */
 export const coderOutputAdapter: OutputAdapter<CoderOutput> = { parse: parseCoderEvents }
 
 /** @experimental */
@@ -94,8 +88,8 @@ export interface MultiHarnessCoderFanoutOptions {
 }
 
 /**
- * The multi-harness coder fanout driving the quarantined delegate's `variants>1` sandbox-session
- * path. (`worktreeFanout` is the local-repo generic counterpart for new code.)
+ * The multi-harness coder fanout driving the sandbox-session delegate's `variants>1` path.
+ * (`worktreeFanout` is the local-repo generic counterpart for new code.)
  *
  * @experimental
  */
@@ -145,7 +139,12 @@ export function createCoderValidator(task: CoderTask): Validator<CoderOutput> {
 }
 
 function defaultCoderValidator(): Validator<CoderOutput> {
-  return createCoderValidator({ goal: '', repoRoot: '', forbiddenPaths: [], maxDiffLines: DEFAULT_MAX_DIFF_LINES })
+  return createCoderValidator({
+    goal: '',
+    repoRoot: '',
+    forbiddenPaths: [],
+    maxDiffLines: DEFAULT_MAX_DIFF_LINES,
+  })
 }
 
 /**
@@ -207,11 +206,11 @@ function projectWorktreeArtifact(value: unknown): CoderOutput | undefined {
     patch,
     testResult: {
       passed: tests ? tests.passed === true : true,
-      output: pickString(tests?.output) ?? '',
+      output: tail(pickString(tests?.output) ?? '', 4000),
     },
     typecheckResult: {
       passed: typecheck ? typecheck.passed === true : true,
-      output: pickString(typecheck?.output) ?? '',
+      output: tail(pickString(typecheck?.output) ?? '', 4000),
     },
     diffStats: {
       filesChanged: toFiniteInt(stats.filesChanged),
@@ -219,13 +218,21 @@ function projectWorktreeArtifact(value: unknown): CoderOutput | undefined {
       deletions: toFiniteInt(stats.deletions),
     },
     ...(exitCode !== 0
-      ? { reviewerNotes: `harness ${harnessName} exited ${exitCode}${timedOut ? ' (timed out)' : ''}` }
+      ? {
+          reviewerNotes: `harness ${harnessName} exited ${exitCode}${timedOut ? ' (timed out)' : ''}`,
+        }
       : {}),
   }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Keep the last `max` chars of a diagnostic string — harness stdout can be large; the gate reads
+ *  `passed`, not this text, so only the tail is retained for traces/logs. */
+function tail(text: string, max: number): string {
+  return text.length <= max ? text : text.slice(text.length - max)
 }
 
 function pickString(value: unknown): string | undefined {

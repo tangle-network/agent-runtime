@@ -14,8 +14,8 @@
 
 import type { CoderTask } from '../profiles/coder'
 import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
-import type { CoderOutput } from './detached-coder'
 import type { DelegationTraceSpan } from './delegation-trace'
+import type { CoderOutput } from './detached-coder'
 
 /** @experimental */
 export type DelegationProfile = 'coder' | 'researcher' | 'ui-auditor'

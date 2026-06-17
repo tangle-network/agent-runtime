@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isNonEmptyPatch, touchesSecretPath } from '../../src/runtime/supervise/patch-checks'
 import { patchDelivered } from '../../src/runtime/supervise/patch-deliverable'
 import type { WorktreePatchArtifact } from '../../src/runtime/supervise/worktree-cli-executor'
 
@@ -21,6 +22,24 @@ function artifact(patch: string, checks?: WorktreePatchArtifact['checks']): Work
 }
 
 const goodPatch = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+const a = 1'
+
+describe('isNonEmptyPatch / touchesSecretPath — the standalone safety floors (public API)', () => {
+  it('isNonEmptyPatch: true for a real touched path + body, false for empty/whitespace-only', () => {
+    expect(isNonEmptyPatch(goodPatch)).toBe(true)
+    expect(isNonEmptyPatch('')).toBe(false)
+    expect(isNonEmptyPatch('   \n  \t')).toBe(false)
+    // headers with no content body still counts a touched path, but a blank trim is rejected:
+    expect(isNonEmptyPatch('--- a/src/x.ts\n+++ b/src/x.ts\n')).toBe(true)
+  })
+
+  it('touchesSecretPath: returns the matched credential paths, empty array for a clean patch', () => {
+    const env = 'diff --git a/.env b/.env\n--- a/.env\n+++ b/.env\n+SECRET=1'
+    const key = '--- a/deploy/id_rsa\n+++ b/deploy/id_rsa\n+x'
+    expect(touchesSecretPath(env)).toEqual(['.env'])
+    expect(touchesSecretPath(key)).toEqual(['deploy/id_rsa'])
+    expect(touchesSecretPath(goodPatch)).toEqual([])
+  })
+})
 
 describe('patchDelivered — the mechanical patch gate as a DeliverableSpec', () => {
   it('rejects an empty patch (no-op floor)', async () => {

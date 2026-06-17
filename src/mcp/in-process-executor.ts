@@ -11,7 +11,7 @@
  * `Scope` leaf `createWorktreeCliExecutor` uses. It only adapts the core to the `SandboxClient`
  * port: `create()` reads the authored profile from `CreateSandboxOptions.backend.profile`, and
  * `streamPrompt` runs the core then emits its raw `WorktreeHarnessResult` (the content-addressed
- * patch artifact) on the `result` event. The quarantined sandbox-session decode layer
+ * patch artifact) on the `result` event. The sandbox-session decode layer
  * (`./detached-coder`) projects that artifact onto `CoderOutput`; the generic `Scope` path settles
  * the artifact directly. The §1.5 payload (systemPrompt + model) reaches the harness inside the core.
  */
@@ -31,7 +31,7 @@ import { runWorktreeHarness } from './worktree-harness'
 
 /** @experimental */
 export interface InProcessExecutorOptions {
-  /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.coder-variants/`. */
+  /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`. */
   repoRoot: string
   /** Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude']`. */
   harnesses?: ReadonlyArray<LocalHarness>

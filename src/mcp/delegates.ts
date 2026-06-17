@@ -9,14 +9,15 @@
  * invokes when a task runs. Consumers can override either delegate to
  * inject custom drivers, mocks, fleet-aware dispatchers, etc.
  *
- * QUARANTINED PATH. The `detachedSessionDelegate` here drives the SANDBOX-SESSION coder path —
- * workers run the in-box harness over a `SandboxClient`, and single-variant turns can dispatch
- * DETACHED (`driveTurn` ticks) so a durable queue resumes them across an MCP restart. This is a
- * capability the recursive `Scope`/worktree-CLI leaf has no durable equivalent for yet, so it is
- * KEPT (not deleted) but gated behind `MCP_ENABLE_DETACHED_RESUME` (default off) in `bin.ts`. For
- * NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`. The default researcher
- * delegate is **not** wired in this file — `agent-knowledge` cannot be imported from
- * `agent-runtime` without inducing a cycle. Consumers pass `researcherDelegate` explicitly.
+ * The `detachedSessionDelegate` here is the built-in SANDBOX-SESSION coder path — the live default
+ * `delegate_code` delegate: workers run the in-box harness over a `SandboxClient`. By default it
+ * holds the stream; single-variant turns can OPTIONALLY dispatch DETACHED (`driveTurn` ticks) so a
+ * durable queue resumes them across an MCP restart — that resume tick is the only part gated behind
+ * `MCP_ENABLE_DETACHED_RESUME` (default off) in `bin.ts`, a capability the recursive
+ * `Scope`/worktree-CLI leaf has no durable equivalent for yet. For NEW local-repo coding use
+ * `worktreeFanout` / `worktreeLoopRunner`. The default researcher delegate is **not** wired in this
+ * file — `agent-knowledge` cannot be imported from `agent-runtime` without inducing a cycle.
+ * Consumers pass `researcherDelegate` explicitly.
  */
 
 import type { CoderTask } from '../profiles/coder'
@@ -29,6 +30,7 @@ import type {
   WinnerStrategy,
 } from '../runtime'
 import { runLoop, selectValidWinner } from '../runtime'
+import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type CoderOutput,
   coderOutputAdapter,
@@ -36,7 +38,6 @@ import {
   createCoderValidator,
   multiHarnessCoderFanout,
 } from './detached-coder'
-import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type DetachedTurn,
   detachedTurnEvents,
@@ -77,11 +78,8 @@ export interface DelegateRunCtx {
 }
 
 /** @experimental The server's coder-profile delegate slot — the closure the queue invokes for a
- *  `delegate_code` task. `detachedSessionDelegate` is the built-in (quarantined) implementation. */
-export type CoderDelegate = (
-  args: DelegateCodeArgs,
-  ctx: DelegateRunCtx,
-) => Promise<CoderOutput>
+ *  `delegate_code` task. `detachedSessionDelegate` is the built-in implementation. */
+export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Promise<CoderOutput>
 
 /** @experimental */
 export type ResearcherDelegate = (
@@ -131,7 +129,7 @@ export type CoderReviewer = (
 
 /**
  * @experimental Winner-selection strategy among validated (+ reviewed) candidates on the
- * quarantined detached-session path. The base strategies (`highest-score` / `smallest-diff` /
+ * sandbox-session path. The base strategies (`highest-score` / `smallest-diff` /
  * `first-approved`) delegate to the shared `selectValidWinner`; `highest-readiness` is the
  * reviewer-only strategy this path keeps that the generic selector does not express. Default
  * `highest-score`.
@@ -200,7 +198,7 @@ export interface DetachedSessionDelegateOptions {
 }
 
 /**
- * Build the QUARANTINED sandbox-session coder delegate. It drives `runLoop` against the project's
+ * Build the sandbox-session coder delegate. It drives `runLoop` against the project's
  * sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
  * topology.
  *
@@ -210,15 +208,13 @@ export interface DetachedSessionDelegateOptions {
  * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
  *
  * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
- * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate is kept
- * ONLY for the detached-resume capability the worktree-CLI leaf does not yet replicate, gated
- * behind `MCP_ENABLE_DETACHED_RESUME`.
+ * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate stays as the
+ * MCP server's built-in `delegate_code` path; it runs held-stream by default and only its OPTIONAL
+ * cross-restart resume (the `driveTurn` tick) is opt-in behind `MCP_ENABLE_DETACHED_RESUME`.
  *
  * @experimental
  */
-export function detachedSessionDelegate(
-  options: DetachedSessionDelegateOptions,
-): CoderDelegate {
+export function detachedSessionDelegate(options: DetachedSessionDelegateOptions): CoderDelegate {
   const executor = resolveExecutor(options)
   const sandboxClient = executor.client
   const fanoutHarnesses = options.fanoutHarnesses
@@ -354,7 +350,7 @@ interface EligibleCandidate {
  *   2. if a `reviewer` is wired, keep only those it APPROVES,
  *   3. select among survivors via the shared `selectValidWinner` (base strategies) or, for the
  *      reviewer-only `highest-readiness`, a readiness sort (the one strategy the generic selector
- *      does not express — a documented capability of this quarantined path).
+ *      does not express — a documented capability of this sandbox-session path).
  * Returns `undefined` when nothing survives — the delegate fails loud.
  */
 async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput | undefined> {
@@ -398,7 +394,9 @@ async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput |
 
 /** Map the detached-session selection enum onto the shared `WinnerStrategy`. `first-approved`
  *  reduces to `first-valid` over the already-approved set; `smallest-diff` to `smallest-artifact`. */
-function baseStrategy(selection: Exclude<DetachedWinnerSelection, 'highest-readiness'>): WinnerStrategy {
+function baseStrategy(
+  selection: Exclude<DetachedWinnerSelection, 'highest-readiness'>,
+): WinnerStrategy {
   switch (selection) {
     case 'smallest-diff':
       return 'smallest-artifact'
