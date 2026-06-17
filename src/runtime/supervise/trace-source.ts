@@ -81,7 +81,9 @@ export const decodeOpencodePart: ToolPartDecoder = (p) => {
   }
 }
 
-/** Anthropic / claude-code: a `{ type:'tool_use', id, name, input }` content block. */
+/** Anthropic / claude-code: a `{ type:'tool_use', id, name, input }` content block. From the public
+ *  Anthropic format — NOT yet live-validated (the claude-code harness crashed `exit 1` with the test
+ *  model, so a real box produced no tool calls to confirm against; owed the same proof opencode got). */
 export const decodeAnthropicPart: ToolPartDecoder = (p) => {
   if (str(p.type)?.toLowerCase() !== 'tool_use' || !str(p.name)) return undefined
   return {
@@ -92,11 +94,15 @@ export const decodeAnthropicPart: ToolPartDecoder = (p) => {
 }
 
 /** OpenAI-compatible (codex / router / kimi / glm): `{ type:'function'|'tool_call', id,
- *  function:{ name, arguments:<JSON string> } }`. */
+ *  function:{ name, arguments:<JSON string> } }`. From the public OpenAI format — NOT yet live-
+ *  validated on a box (the codex harness crashed `exit 1` with the test model); router/owned-loop
+ *  tool dispatch produces this shape directly, so the owned-loop path IS exercised. */
 export const decodeOpenAiPart: ToolPartDecoder = (p) => {
   const type = str(p.type)?.toLowerCase()
   const fn = obj(p.function)
-  if (type !== 'function' && type !== 'tool_call' && !fn) return undefined
+  // Match on the type OpenAI always sets — not the mere presence of a `.function` field (a
+  // `{type:'text', function:{…}}` part must not decode). Name is required below.
+  if (type !== 'function' && type !== 'tool_call') return undefined
   const name = str(fn?.name) ?? str(p.name)
   if (!name) return undefined
   const rawArgs = fn?.arguments ?? p.arguments
@@ -157,7 +163,13 @@ export function createPushTraceSource(opts: { runId?: string; now?: () => number
     record(input) {
       const span = toToolSpan(input, runId, spans.length, now())
       spans.push(span)
-      for (const fn of subs) fn(span)
+      for (const fn of subs) {
+        try {
+          fn(span)
+        } catch {
+          // a throwing subscriber (e.g. a detector onSignal) must never break the producer loop
+        }
+      }
       return span
     },
     source: {
@@ -200,7 +212,13 @@ export function createPartsTraceSource(opts: {
         seenLive.add(step.callId)
       }
       const span = toToolSpan(step, runId, liveSeq++, now())
-      for (const fn of subs) fn(span)
+      for (const fn of subs) {
+        try {
+          fn(span)
+        } catch {
+          // a throwing subscriber (e.g. a detector onSignal) must never break the producer loop
+        }
+      }
     })
   }
   return {

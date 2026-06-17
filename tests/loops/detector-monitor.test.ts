@@ -15,6 +15,7 @@ describe('watchTrace (online analyst over a TraceSource)', () => {
       detector: 'repeated-action',
       streak: 3,
       failureClass: 'tool_recovery_failure',
+      evidence: { action: 'run_tests' },
     })
   })
 
