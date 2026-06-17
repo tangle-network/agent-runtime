@@ -13,7 +13,7 @@
  * That is the self-improvement lever (the prompt/skill lever), not the execution plumbing.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { type RouterConfig, routerChatWithUsage } from '../router-client'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'

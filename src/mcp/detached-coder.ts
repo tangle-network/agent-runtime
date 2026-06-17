@@ -18,7 +18,8 @@
  *      lifted onto `data.result` or scanned out of the assistant transcript (any harness shape).
  */
 
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import { type CoderTask, coderProfile, coderTaskToPrompt } from '../profiles/coder'
 import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
 import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'

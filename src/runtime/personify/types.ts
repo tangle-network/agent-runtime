@@ -25,7 +25,8 @@
  * world-model / memory field is additive (a new optional key), never a breaking change.
  */
 
-import type { AgentProfile, BackendType } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type {
   Agent,

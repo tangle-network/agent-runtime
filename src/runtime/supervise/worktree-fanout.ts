@@ -13,7 +13,7 @@
  * fanout — it composes the existing primitives.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { fanout, selectValidWinner } from '../personify/combinators'
 import type { CombinatorShape, WinnerStrategy } from '../personify/wave-types'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'

@@ -12,7 +12,7 @@
  * avoid forbidden paths, and run the test + typecheck commands before declaring done.
  */
 
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 
 const DEFAULT_MAX_DIFF_LINES = 400
 

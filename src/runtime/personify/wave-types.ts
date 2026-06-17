@@ -33,7 +33,7 @@
  */
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/sandbox'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   Agent,
   AgentSpec,
