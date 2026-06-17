@@ -30,6 +30,7 @@ import type { Outcome, ShapeContext } from './types'
 import type {
   CombinatorShape,
   FanoutOptions,
+  FanoutWinnerSelector,
   LoopUntilSpec,
   LoopUntilState,
   PanelJudge,
@@ -40,7 +41,46 @@ import type {
   VerifySpec,
   WidenDecision,
   WidenSpec,
+  WinnerStrategy,
 } from './wave-types'
+
+// ── selectValidWinner — the one shared valid-only fanout selector ─────────────────
+
+/**
+ * The single content-free valid-only winner selector. Among the gated-VALID children only
+ * (`verdict.valid === true`), pick by `strategy` — best score / smallest delivered artifact /
+ * earliest — ties broken by earliest index; returns `undefined` when NONE is valid (an ungated
+ * output can never win — the deliverable gate is the point). `sizeOf` (for `'smallest-artifact'`)
+ * unwraps the child's `Outcome<D>` to its deliverable; a domain passes e.g. patch diff-lines. This
+ * is the de-duplicated home of the selection logic previously copied per role.
+ */
+export function selectValidWinner<D>(opts?: {
+  strategy?: WinnerStrategy
+  sizeOf?: (deliverable: D) => number
+}): FanoutWinnerSelector<D> {
+  const strategy = opts?.strategy ?? 'highest-score'
+  const sizeOfIter = (iter: Iteration<unknown, Outcome<D>>): number => {
+    const out = iter.output
+    const deliverable = out !== undefined && out.kind === 'done' ? out.deliverable : undefined
+    return deliverable !== undefined && opts?.sizeOf ? opts.sizeOf(deliverable) : Number.POSITIVE_INFINITY
+  }
+  return (iterations) => {
+    const valid = iterations.filter(
+      (iter) => iter.output !== undefined && !iter.error && iter.verdict?.valid === true,
+    )
+    if (valid.length === 0) return undefined
+    switch (strategy) {
+      case 'first-valid':
+        return [...valid].sort((a, b) => a.index - b.index)[0]
+      case 'smallest-artifact':
+        return [...valid].sort((a, b) => sizeOfIter(a) - sizeOfIter(b) || a.index - b.index)[0]
+      default:
+        return [...valid].sort(
+          (a, b) => (b.verdict?.score ?? 0) - (a.verdict?.score ?? 0) || a.index - b.index,
+        )[0]
+    }
+  }
+}
 
 // ── pipeline — sequential composition, first blocked stage short-circuits ─────────
 
