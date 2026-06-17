@@ -7,30 +7,66 @@ import {
   sandboxSessionTraceSource,
 } from '../../src/runtime'
 
-describe('decodeToolPart — defensive across harness + OpenAI shapes', () => {
-  it('decodes an OpenAI tool_call (function shape, string args)', () => {
-    expect(
-      decodeToolPart({ type: 'function', function: { name: 'run', arguments: '{"path":"src/"}' } }),
-    ).toEqual({ toolName: 'run', args: { path: 'src/' } })
-  })
-
-  it('decodes a harness tool part (type=tool, input/state)', () => {
+describe('decodeToolPart — validated against the LIVE opencode shape', () => {
+  it('decodes a real opencode tool part (tool=name string, state.input, state.status, callID)', () => {
     expect(
       decodeToolPart({
         type: 'tool',
-        toolName: 'edit',
-        input: { file: 'a.ts' },
-        state: 'completed',
+        tool: 'read',
+        callID: 'call_1',
+        state: { status: 'completed', input: { filePath: 'a.ts' } },
       }),
-    ).toEqual({ toolName: 'edit', args: { file: 'a.ts' }, status: 'ok' })
+    ).toEqual({ toolName: 'read', args: { filePath: 'a.ts' }, status: 'ok', callId: 'call_1' })
+  })
+
+  it('skips an in-progress opencode part (pending/running — no populated args yet)', () => {
+    expect(
+      decodeToolPart({
+        type: 'tool',
+        tool: 'read',
+        callID: 'call_1',
+        state: { status: 'pending', input: {} },
+      }),
+    ).toBeUndefined()
+  })
+
+  it('decodes an OpenAI tool_call (codex/router/kimi: function shape, string args)', () => {
+    expect(
+      decodeToolPart({
+        type: 'function',
+        id: 'call_x',
+        function: { name: 'run', arguments: '{"path":"src/"}' },
+      }),
+    ).toEqual({ toolName: 'run', args: { path: 'src/' }, callId: 'call_x' })
+  })
+
+  it('decodes an Anthropic / claude-code tool_use block', () => {
+    expect(
+      decodeToolPart({ type: 'tool_use', id: 'toolu_1', name: 'edit', input: { file: 'a.ts' } }),
+    ).toEqual({ toolName: 'edit', args: { file: 'a.ts' }, callId: 'toolu_1' })
+  })
+
+  it('a known harness selects its adapter (opencode shape only decodes under opencode)', () => {
+    const part = {
+      type: 'tool',
+      tool: 'read',
+      callID: 'c',
+      state: { status: 'completed', input: {} },
+    }
+    expect(decodeToolPart(part, 'opencode')).toMatchObject({ toolName: 'read' })
+    // Under the anthropic adapter the opencode shape is not a tool_use → no false decode.
+    expect(decodeToolPart(part, 'claude-code')).toBeUndefined()
   })
 
   it('flags an errored tool part', () => {
-    expect(decodeToolPart({ type: 'tool-call', name: 'build', args: {}, state: 'error' })).toEqual({
-      toolName: 'build',
-      args: {},
-      status: 'error',
-    })
+    expect(
+      decodeToolPart({
+        type: 'tool',
+        tool: 'build',
+        callID: 'c2',
+        state: { status: 'error', input: {} },
+      }),
+    ).toMatchObject({ toolName: 'build', status: 'error' })
   })
 
   it('returns undefined for non-tool parts (text, reasoning)', () => {
@@ -40,25 +76,31 @@ describe('decodeToolPart — defensive across harness + OpenAI shapes', () => {
   })
 })
 
-describe('sandboxSessionTraceSource — the production (box) path', () => {
-  // A mock box matching the real `box.messages({sessionId})` surface; messages carry harness parts.
+describe('sandboxSessionTraceSource — the production (box) path, real opencode parts', () => {
+  // Mirrors the LIVE stream: each call appears as pending→completed AND a `raw`-wrapped copy. The
+  // source must de-dup by callID to one span per call. Three DISTINCT grep calls = a real loop.
+  const toolPart = (callID: string, status: string) => ({
+    type: 'tool',
+    tool: 'grep',
+    callID,
+    state: { status, input: { q: 'x' } },
+  })
   const box: SessionTraceBox = {
     messages: async () => [
-      {
-        parts: [
-          { type: 'text', text: 'working' },
-          { type: 'tool', toolName: 'grep', input: { q: 'x' } },
-        ],
-      },
-      { parts: [{ type: 'tool', toolName: 'grep', input: { q: 'x' } }] },
-      { parts: [{ type: 'tool', toolName: 'grep', input: { q: 'x' } }] },
+      { parts: [{ type: 'reasoning', text: 'let me search' }] },
+      { parts: [toolPart('c1', 'pending'), toolPart('c1', 'completed')] },
+      { parts: [{ type: 'raw', state: { status: 'completed' }, tool: 'grep', callID: 'c1' }] }, // raw dup
+      { parts: [toolPart('c2', 'completed')] },
+      { parts: [toolPart('c3', 'completed')] },
     ],
   }
 
-  it('collects the harness tool calls from session parts and the batch analyzer sees the loop', async () => {
+  it('collects ONE span per callID (de-duped) and the batch analyzer sees the 3-call loop', async () => {
     const source = sandboxSessionTraceSource(box, 'sess-1')
     const spans = await source.collect()
+    // c1's pending + completed + raw-dup collapse to one; c2, c3 each one → 3 total.
     expect(spans.map((s) => s.toolName)).toEqual(['grep', 'grep', 'grep'])
+    expect(spans.every((s) => s.toolName === 'grep')).toBe(true)
     const analysis = await analyzeTrace(source)
     expect(analysis.trajectory.toolCalls).toBe(3)
     expect(analysis.stuckLoop.findings.find((f) => f.toolName === 'grep')?.occurrences).toBe(3)

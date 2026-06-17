@@ -379,12 +379,17 @@ export {
 export {
   createPartsTraceSource,
   createPushTraceSource,
+  decodeAnthropicPart,
+  decodeOpenAiPart,
+  decodeOpencodePart,
   decodeToolPart,
   type SessionMessageLike,
   type SessionTraceBox,
   sandboxSessionTraceSource,
+  type ToolPartDecoder,
   type ToolStepInput,
   type TraceSource,
+  toolPartDecoders,
   toToolSpan,
 } from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch

@@ -24,6 +24,9 @@ export interface ToolStepInput {
   readonly args: unknown
   readonly status?: 'ok' | 'error'
   readonly result?: unknown
+  /** Stable id of the tool call — used to de-duplicate the repeated state transitions a harness
+   *  streams for one call (opencode emits pending→running→completed, plus a `raw`-wrapped copy). */
+  readonly callId?: string
 }
 
 export interface TraceSource {
@@ -50,43 +53,83 @@ export function toToolSpan(input: ToolStepInput, runId: string, seq: number, at:
   }
 }
 
-/** Decode a single harness message part / OpenAI tool-call into a tool step, or `undefined` if it is
- *  not a tool call. Defensive across the shapes a harness or the OpenAI API emit:
- *    - OpenAI: `{ type:'function'|'tool_call', function:{ name, arguments } }` or `{ name, arguments }`
- *    - harness part: `{ type:'tool'|'tool-call'|'tool_use'|'tool-invocation', tool/name/toolName,
- *                      args/input/arguments, state/status }`
- *  Unknown args strings are left as-is (the detector hashes them); never throws. */
-export function decodeToolPart(part: unknown): ToolStepInput | undefined {
-  if (!part || typeof part !== 'object') return undefined
-  const p = part as Record<string, unknown>
-  const type = typeof p.type === 'string' ? p.type.toLowerCase() : ''
-  const fn = (p.function ?? p.tool ?? p.toolInvocation) as Record<string, unknown> | undefined
+/** Decode one harness message part into a tool step, or `undefined` if it is not a (completed) tool
+ *  call. ONE adapter per harness family — each owns its real wire shape; the flow downstream is
+ *  identical. Add a harness = add a decoder + register it; no other code changes. */
+export type ToolPartDecoder = (part: Record<string, unknown>) => ToolStepInput | undefined
 
-  const isOpenAiToolCall = type === 'function' || type === 'tool_call' || !!p.function
-  const isHarnessTool =
-    type.includes('tool') || (typeof p.toolName === 'string' && p.toolName.length > 0)
-  if (!isOpenAiToolCall && !isHarnessTool) return undefined
+const obj = (v: unknown): Record<string, unknown> | undefined =>
+  v && typeof v === 'object' ? (v as Record<string, unknown>) : undefined
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
 
-  const name =
-    (typeof fn?.name === 'string' && fn.name) ||
-    (typeof p.toolName === 'string' && p.toolName) ||
-    (typeof p.name === 'string' && p.name) ||
-    ''
+/** opencode (VALIDATED LIVE): `{ type:'tool', tool:'<name>', callID, state:{ status, input } }`.
+ *  The same call streams pending→running→completed/error — only the terminal state decodes. */
+export const decodeOpencodePart: ToolPartDecoder = (p) => {
+  if (str(p.type)?.toLowerCase() !== 'tool' || !str(p.tool)) return undefined
+  const state = obj(p.state)
+  const status = str(state?.status) ?? ''
+  if (status === 'pending' || status === 'running') return undefined
+  return {
+    toolName: p.tool as string,
+    args: state?.input ?? {},
+    ...(status === 'error'
+      ? { status: 'error' as const }
+      : status
+        ? { status: 'ok' as const }
+        : {}),
+    ...(str(p.callID) ? { callId: p.callID as string } : {}),
+  }
+}
+
+/** Anthropic / claude-code: a `{ type:'tool_use', id, name, input }` content block. */
+export const decodeAnthropicPart: ToolPartDecoder = (p) => {
+  if (str(p.type)?.toLowerCase() !== 'tool_use' || !str(p.name)) return undefined
+  return {
+    toolName: p.name as string,
+    args: p.input ?? {},
+    ...(str(p.id) ? { callId: p.id as string } : {}),
+  }
+}
+
+/** OpenAI-compatible (codex / router / kimi / glm): `{ type:'function'|'tool_call', id,
+ *  function:{ name, arguments:<JSON string> } }`. */
+export const decodeOpenAiPart: ToolPartDecoder = (p) => {
+  const type = str(p.type)?.toLowerCase()
+  const fn = obj(p.function)
+  if (type !== 'function' && type !== 'tool_call' && !fn) return undefined
+  const name = str(fn?.name) ?? str(p.name)
   if (!name) return undefined
+  const rawArgs = fn?.arguments ?? p.arguments
+  return {
+    toolName: name,
+    args: typeof rawArgs === 'string' ? safeParse(rawArgs) : (rawArgs ?? {}),
+    ...(str(p.id) ? { callId: p.id as string } : str(fn?.id) ? { callId: fn?.id as string } : {}),
+  }
+}
 
-  const rawArgs = fn?.arguments ?? p.args ?? p.input ?? p.arguments ?? fn?.input
-  const args = typeof rawArgs === 'string' ? safeParse(rawArgs) : (rawArgs ?? {})
+/** The harness → decoder registry. Add a harness by adding one entry. */
+export const toolPartDecoders: Record<string, ToolPartDecoder> = {
+  opencode: decodeOpencodePart,
+  'claude-code': decodeAnthropicPart,
+  anthropic: decodeAnthropicPart,
+  codex: decodeOpenAiPart,
+  openai: decodeOpenAiPart,
+  router: decodeOpenAiPart,
+  kimi: decodeOpenAiPart,
+}
 
-  const state =
-    (typeof p.state === 'string' && p.state) || (typeof p.status === 'string' && p.status)
-  const status: 'ok' | 'error' | undefined =
-    state === 'error' || p.error
-      ? 'error'
-      : state === 'completed' || state === 'result'
-        ? 'ok'
-        : undefined
-
-  return { toolName: name, args, ...(status ? { status } : {}) }
+/** Decode a part with a specific harness's adapter when known, else try every registered adapter
+ *  (the composite — robust to mixed/unknown streams). Never throws. */
+export function decodeToolPart(part: unknown, harness?: string): ToolStepInput | undefined {
+  const p = obj(part)
+  if (!p) return undefined
+  const specific = harness ? toolPartDecoders[harness] : undefined
+  if (specific) return specific(p)
+  for (const decode of new Set(Object.values(toolPartDecoders))) {
+    const step = decode(p)
+    if (step) return step
+  }
+  return undefined
 }
 
 function safeParse(s: string): unknown {
@@ -134,19 +177,28 @@ export function createPushTraceSource(opts: { runId?: string; now?: () => number
 export function createPartsTraceSource(opts: {
   collectParts: () => Promise<ReadonlyArray<unknown>>
   subscribeParts?: (onPart: (part: unknown) => void) => () => void
+  /** The harness whose decoder to use (e.g. 'opencode'); omit to try every registered adapter. */
+  harness?: string
   runId?: string
   now?: () => number
 }): TraceSource {
   const runId = opts.runId ?? `parts-${runSeq++}`
   const now = opts.now ?? Date.now
   const subs = new Set<(span: ToolSpan) => void>()
+  // De-dup the repeated transitions a harness streams for one call (pending/running/completed + a
+  // `raw`-wrapped copy all decode to the same terminal step) — one span per callId.
+  const seenLive = new Set<string>()
   let liveSeq = 0
   let unsub: (() => void) | undefined
   const startLive = () => {
     if (unsub || !opts.subscribeParts) return
     unsub = opts.subscribeParts((part) => {
-      const step = decodeToolPart(part)
+      const step = decodeToolPart(part, opts.harness)
       if (!step) return
+      if (step.callId) {
+        if (seenLive.has(step.callId)) return
+        seenLive.add(step.callId)
+      }
       const span = toToolSpan(step, runId, liveSeq++, now())
       for (const fn of subs) fn(span)
     })
@@ -166,9 +218,15 @@ export function createPartsTraceSource(opts: {
     async collect() {
       const parts = await opts.collectParts()
       const spans: ToolSpan[] = []
+      const seen = new Set<string>()
       for (const part of parts) {
-        const step = decodeToolPart(part)
-        if (step) spans.push(toToolSpan(step, runId, spans.length, now()))
+        const step = decodeToolPart(part, opts.harness)
+        if (!step) continue
+        if (step.callId) {
+          if (seen.has(step.callId)) continue
+          seen.add(step.callId)
+        }
+        spans.push(toToolSpan(step, runId, spans.length, now()))
       }
       return spans
     },
@@ -194,6 +252,8 @@ export function sandboxSessionTraceSource(
   box: SessionTraceBox,
   sessionId: string,
   opts: {
+    /** The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapter. */
+    harness?: string
     subscribeParts?: (onPart: (part: unknown) => void) => () => void
     runId?: string
     now?: () => number
@@ -204,6 +264,7 @@ export function sandboxSessionTraceSource(
       const msgs = await box.messages({ sessionId })
       return msgs.flatMap((m) => (m.parts ? [...m.parts] : []))
     },
+    ...(opts.harness ? { harness: opts.harness } : {}),
     ...(opts.subscribeParts ? { subscribeParts: opts.subscribeParts } : {}),
     runId: opts.runId ?? `box-${sessionId}`,
     ...(opts.now ? { now: opts.now } : {}),
