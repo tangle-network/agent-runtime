@@ -18,12 +18,12 @@
  * ran tests fails closed (the honest outcome) rather than passing on a missing signal.
  */
 
+import type { DeliverableSpec } from './completion-gate'
 import {
   type CoderCheckConstraints,
   type CoderCheckInput,
   runCoderChecks,
-} from '../../profiles/coder'
-import type { DeliverableSpec } from './completion-gate'
+} from './patch-checks'
 import type { WorktreePatchArtifact } from './worktree-cli-executor'
 
 /** @experimental */
