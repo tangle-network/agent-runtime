@@ -316,14 +316,11 @@ export {
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
 export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
-// The online analyst on the worker pipe: folds each live tool step through agent-eval's streaming
-// detectors and fires `onSignal` (→ a `finding` on the bus) the moment a worker loops or error-storms.
+// The ONLINE analyst: watch a TraceSource and raise a `finding` the moment a worker loops/error-storms.
 export {
-  createDetectorMonitor,
-  type DetectorMonitor,
-  type DetectorMonitorOptions,
   defaultToolDetectors,
-  type ToolStep,
+  type WatchTraceOptions,
+  watchTrace,
 } from './supervise/detector-monitor'
 // The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
 // resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
@@ -377,14 +374,27 @@ export {
   createRootHandle,
   createSupervisor,
 } from './supervise/supervisor'
-// The settle-time analyzer: replays a worker's tool steps as agent-eval spans and runs its published
-// batch trajectory analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
+// The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
+// OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
-  createTrajectoryRecorder,
-  type RecordedToolStep,
-  type TrajectoryAnalysis,
-  type TrajectoryRecorder,
-} from './supervise/trajectory-recorder'
+  createPartsTraceSource,
+  createPushTraceSource,
+  decodeAnthropicPart,
+  decodeOpenAiPart,
+  decodeOpencodePart,
+  decodeToolPart,
+  type SessionMessageLike,
+  type SessionTraceBox,
+  sandboxSessionTraceSource,
+  type ToolPartDecoder,
+  type ToolStepInput,
+  type TraceSource,
+  toolPartDecoders,
+  toToolSpan,
+} from './supervise/trace-source'
+// The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
+// analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
+export { analyzeTrace, type TrajectoryAnalysis } from './supervise/trajectory-recorder'
 export type {
   Agent,
   AgentSpec,

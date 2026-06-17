@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMcpServer } from '../../src/mcp/server'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
 import type { Agent, ResultBlobStore, Scope, Spend } from '../../src/runtime'
-import { createDetectorMonitor } from '../../src/runtime'
+import { createPushTraceSource, watchTrace } from '../../src/runtime'
 
 const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 })
 
@@ -460,16 +460,17 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    // The monitor (what the worker executor's onToolStep feeds) raises a finding via raiseFinding.
-    const monitor = createDetectorMonitor({
+    // watchTrace over the worker's TraceSource raises a finding via raiseFinding when it loops.
+    const { source, record } = createPushTraceSource({ runId: 'w0' })
+    watchTrace(source, {
       onSignal: (s) => {
         void tb.raiseFinding({ fromWorker: 'w0', analyst: `online:${s.detector}`, findings: s })
       },
     })
     // The worker loops on the same tool call → the stuck-loop detector trips mid-run.
-    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
-    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
-    monitor.observeToolStep({ toolName: 'grep', args: { q: 'x' } })
+    record({ toolName: 'grep', args: { q: 'x' } })
+    record({ toolName: 'grep', args: { q: 'x' } })
+    record({ toolName: 'grep', args: { q: 'x' } })
     // The driver pulls the finding off the bus mid-run — no need to wait for settle.
     const ev = (await tool(tb, 'await_event').handler({ kinds: ['finding'] })) as {
       type: string
