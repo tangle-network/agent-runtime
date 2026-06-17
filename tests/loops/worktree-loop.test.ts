@@ -1,6 +1,6 @@
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
-import { worktreeCoderLoopRunner } from '../../src/loop-runner'
+import { worktreeLoopRunner } from '../../src/loop-runner'
 import type { GitRunner } from '../../src/mcp/worktree'
 import type { Budget } from '../../src/runtime'
 
@@ -43,10 +43,10 @@ const okHarness = vi.fn(async () => ({
   timedOut: false,
 }))
 
-describe('worktreeCoderLoopRunner — the migrated generic coder path', () => {
+describe('worktreeLoopRunner — the migrated generic coder path', () => {
   it('runs N authored harnesses as a fanout and returns the winning patch artifact', async () => {
     const patch = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+const a = 1'
-    const runner = worktreeCoderLoopRunner({
+    const runner = worktreeLoopRunner({
       repoRoot: '/repo',
       taskPrompt: 'fix the off-by-one',
       budget,
@@ -72,7 +72,7 @@ describe('worktreeCoderLoopRunner — the migrated generic coder path', () => {
 
   it('throws (fails loud) when no candidate is delivered (every patch fails its tests)', async () => {
     const patch = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+const a = 1'
-    const runner = worktreeCoderLoopRunner({
+    const runner = worktreeLoopRunner({
       repoRoot: '/repo',
       taskPrompt: 'fix it',
       budget,
@@ -91,7 +91,7 @@ describe('worktreeCoderLoopRunner — the migrated generic coder path', () => {
   })
 
   it('rejects an empty patch via the always-on no-op floor (no winner)', async () => {
-    const runner = worktreeCoderLoopRunner({
+    const runner = worktreeLoopRunner({
       repoRoot: '/repo',
       taskPrompt: 'do nothing',
       budget,

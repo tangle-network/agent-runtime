@@ -105,6 +105,7 @@ export {
   loopUntil,
   panel,
   pipeline,
+  selectValidWinner,
   verify,
   widen,
 } from './personify/combinators'
@@ -170,6 +171,7 @@ export type {
   WidenDecision,
   WidenLineage,
   WidenSpec,
+  WinnerStrategy,
 } from './personify/wave-types'
 export {
   type PromotionGateOptions,
@@ -288,17 +290,17 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
-// The coder gate, re-homed as a generic DeliverableSpec over the worktree-CLI patch artifact:
+// The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
-export { type CoderDeliverableOptions, coderDeliverable } from './supervise/coder-deliverable'
+export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
 // The generic coding combinator: a fanout of authored harness profiles, each on its own
-// worktree-CLI leaf, each gated by `coderDeliverable`, winner via a valid-only selector (not `defaultSelectWinner`).
+// worktree-CLI leaf, each gated by the injected deliverable, winner via the shared valid-only
+// `selectValidWinner`.
 export {
-  type AuthoredCoderHarness,
-  type CoderWinnerStrategy,
-  type WorktreeCoderFanoutOptions,
-  worktreeCoderFanout,
-} from './supervise/coder-fanout'
+  type AuthoredHarness,
+  type WorktreeFanoutOptions,
+  worktreeFanout,
+} from './supervise/worktree-fanout'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'

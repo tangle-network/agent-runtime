@@ -39,16 +39,16 @@ import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mc
 import type { DelegateCodeArgs } from './mcp/types'
 import type { CoderOutput } from './profiles/coder'
 import {
-  type AuthoredCoderHarness,
+  type AuthoredHarness,
   type Budget,
-  type CoderWinnerStrategy,
   createExecutorRegistry,
   definePersona,
   runPersonified,
   type SandboxClient,
-  type WorktreeCoderFanoutOptions,
+  type WinnerStrategy,
+  type WorktreeFanoutOptions,
   type WorktreePatchArtifact,
-  worktreeCoderFanout,
+  worktreeFanout,
 } from './runtime'
 
 /** @experimental Every delegated-loop mode, for validation + CLI surfaces. */
@@ -164,13 +164,13 @@ export function reviewLoopRunner(
 }
 
 /** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */
-export interface WorktreeCoderLoopRunnerOptions {
+export interface WorktreeLoopRunnerOptions {
   /** Absolute path to the local git checkout each worktree is cut from. */
   repoRoot: string
   /** The instruction handed to every authored harness (composed under each profile's systemPrompt). */
   taskPrompt: string
   /** The supervisor-authored harness profiles — one fanout item (one worktree-CLI leaf) each. */
-  harnesses: ReadonlyArray<AuthoredCoderHarness>
+  harnesses: ReadonlyArray<AuthoredHarness>
   /** Conserved budget pool bounding the fanout (equal-k holds by construction). */
   budget: Budget
   /** Shell command run in each worktree to derive the tests-PASS signal. */
@@ -184,28 +184,29 @@ export interface WorktreeCoderLoopRunnerOptions {
   /** Literal path prefixes the patch must not touch (the secret-floor is always on regardless). */
   forbiddenPaths?: string[]
   /** Winner-selection strategy among gated candidates. Default `highest-score`. */
-  winnerStrategy?: CoderWinnerStrategy
+  winnerStrategy?: WinnerStrategy
   /** Test seams forwarded to the worktree-CLI leaves so the runner drives offline. */
-  runGit?: WorktreeCoderFanoutOptions['runGit']
-  runHarness?: WorktreeCoderFanoutOptions['runHarness']
-  runCommand?: WorktreeCoderFanoutOptions['runCommand']
+  runGit?: WorktreeFanoutOptions['runGit']
+  runHarness?: WorktreeFanoutOptions['runHarness']
+  runCommand?: WorktreeFanoutOptions['runCommand']
 }
 
 /**
  * @experimental
  *
  * `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
- * `worktreeCoderFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
+ * `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
  * `runPersonified` on the keystone Supervisor. This is the local-repo counterpart to
  * {@link coderLoopRunner} (which drives the in-box harness over a `SandboxClient`): no `runLoop`
- * driver, no role-coupled delegate — the harness list is the fanout, the gate is `coderDeliverable`,
- * the winner is a valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the
- * winning patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
+ * driver, no role-coupled delegate — the harness list is the fanout, the gate is `patchDelivered`,
+ * the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
+ * would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
+ * patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
  */
-export function worktreeCoderLoopRunner(
-  options: WorktreeCoderLoopRunnerOptions,
+export function worktreeLoopRunner(
+  options: WorktreeLoopRunnerOptions,
 ): DelegatedLoopRunner<WorktreePatchArtifact> {
-  const shape = worktreeCoderFanout<string>({
+  const shape = worktreeFanout<string>({
     repoRoot: options.repoRoot,
     taskPrompt: options.taskPrompt,
     harnesses: options.harnesses,
@@ -241,7 +242,7 @@ export function worktreeCoderLoopRunner(
         result.kind === 'winner' && result.out.kind === 'blocked'
           ? result.out.blockers.join('; ')
           : `supervisor settled ${result.kind}`
-      throw new Error(`worktreeCoderLoopRunner: no delivered patch (${blockers})`)
+      throw new Error(`worktreeLoopRunner: no delivered patch (${blockers})`)
     }
     return result.out.deliverable
   }
