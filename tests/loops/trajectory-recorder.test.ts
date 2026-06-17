@@ -1,47 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { createTrajectoryRecorder } from '../../src/runtime'
+import { analyzeTrace, createPushTraceSource } from '../../src/runtime'
 
-// A deterministic clock so windowMs assertions are stable.
 const fakeClock = () => {
   let t = 0
   return () => (t += 10)
 }
 
-describe('trajectory recorder (settle-time agent-eval analyzers)', () => {
-  it('replays tool steps as spans and the batch stuck-loop view detects a repeated call', async () => {
-    const rec = createTrajectoryRecorder('run-1', fakeClock())
-    // A loop interleaved with another call — the FULL-run view (total occurrences) still catches it,
-    // where a purely-consecutive online detector might not.
-    rec.observeToolStep({ toolName: 'run_tests', args: { path: 'src/' } })
-    rec.observeToolStep({ toolName: 'read', args: { f: 'log.txt' } })
-    rec.observeToolStep({ toolName: 'run_tests', args: { path: 'src/' } })
-    rec.observeToolStep({ toolName: 'run_tests', args: { path: 'src/' } })
+describe('analyzeTrace (settle-time agent-eval analyzers over a TraceSource)', () => {
+  it('collects spans and the batch stuck-loop view detects a repeated call', async () => {
+    const { source, record } = createPushTraceSource({ runId: 'r1', now: fakeClock() })
+    // A loop interleaved with another call — the FULL-run view still catches it.
+    record({ toolName: 'run_tests', args: { path: 'src/' } })
+    record({ toolName: 'read', args: { f: 'log.txt' } })
+    record({ toolName: 'run_tests', args: { path: 'src/' } })
+    record({ toolName: 'run_tests', args: { path: 'src/' } })
 
-    const analysis = await rec.analyze()
+    const analysis = await analyzeTrace(source)
 
-    // buildTrajectory gave a structured summary over the real spans.
     expect(analysis.trajectory.toolCalls).toBe(4)
-    // stuckLoopView (agent-eval) flagged the repeated run_tests call.
     const loop = analysis.stuckLoop.findings.find((f) => f.toolName === 'run_tests')
     expect(loop?.occurrences).toBe(3)
     expect(loop?.windowMs).toBeGreaterThan(0)
   })
 
   it('does not flag distinct calls as a loop', async () => {
-    const rec = createTrajectoryRecorder('run-2', fakeClock())
-    rec.observeToolStep({ toolName: 'edit', args: { f: 'a.ts' } })
-    rec.observeToolStep({ toolName: 'edit', args: { f: 'b.ts' } })
-    rec.observeToolStep({ toolName: 'edit', args: { f: 'c.ts' } })
-    const analysis = await rec.analyze()
+    const { source, record } = createPushTraceSource({ now: fakeClock() })
+    record({ toolName: 'edit', args: { f: 'a.ts' } })
+    record({ toolName: 'edit', args: { f: 'b.ts' } })
+    record({ toolName: 'edit', args: { f: 'c.ts' } })
+    const analysis = await analyzeTrace(source)
     expect(analysis.trajectory.toolCalls).toBe(3)
     expect(analysis.stuckLoop.findings).toHaveLength(0)
-  })
-
-  it('reset clears captured steps', async () => {
-    const rec = createTrajectoryRecorder('run-3', fakeClock())
-    rec.observeToolStep({ toolName: 't', args: {} })
-    rec.reset()
-    const analysis = await rec.analyze()
-    expect(analysis.trajectory.toolCalls).toBe(0)
   })
 })
