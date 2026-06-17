@@ -377,6 +377,14 @@ export {
   createRootHandle,
   createSupervisor,
 } from './supervise/supervisor'
+// The settle-time analyzer: replays a worker's tool steps as agent-eval spans and runs its published
+// batch trajectory analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
+export {
+  createTrajectoryRecorder,
+  type RecordedToolStep,
+  type TrajectoryAnalysis,
+  type TrajectoryRecorder,
+} from './supervise/trajectory-recorder'
 export type {
   Agent,
   AgentSpec,
