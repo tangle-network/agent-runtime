@@ -1,32 +1,22 @@
 /**
  * @experimental
  *
- * `coderProfile` — opinionated preset for code-modification tasks.
+ * `coderProfile` — the §1.5 author-the-profile DATA for code-modification tasks: an `AgentProfile`
+ * constant (the agent IS its profile) plus a pure `coderTaskToPrompt` formatter that renders a
+ * `CoderTask` into the per-task instruction. There is no factory, output adapter, or validator
+ * here — a domain customizes the worker by authoring a profile + handing it to a leaf executor
+ * (`createWorktreeCliExecutor`) or a fanout (`worktreeFanout`), and "is it delivered" is a
+ * `DeliverableSpec` (`patchDelivered`), not a bundled validator.
  *
- * The agent is told to:
- *   - work on a fresh branch inside the sandbox workspace
- *   - keep the patch minimal (under `maxDiffLines`)
- *   - avoid `forbiddenPaths`
- *   - run `testCmd` and `typecheckCmd`
- *   - emit a final JSON result the output adapter parses
- *
- * The profile is stateless and agent-agnostic — `harness` selects the
- * sandbox-SDK backend (`claude-code`, `codex`, `opencode/*`). For
- * heterogeneous fanout, use `multiHarnessCoderFanout`.
+ * The standing instruction tells the agent to work on a fresh branch, keep the patch minimal,
+ * avoid forbidden paths, and run the test + typecheck commands before declaring done.
  */
 
-import type { AgentProfile, SandboxEvent } from '@tangle-network/sandbox'
-import type {
-  AgentRunSpec,
-  DefaultVerdict,
-  Driver,
-  OutputAdapter,
-  Validator,
-} from '../runtime/types'
+import type { AgentProfile } from '@tangle-network/sandbox'
 
 const DEFAULT_MAX_DIFF_LINES = 400
 
-/** @experimental */
+/** @experimental The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces. */
 export interface CoderTask {
   /** What the agent must accomplish. Free-form prose. */
   goal: string
@@ -41,127 +31,16 @@ export interface CoderTask {
   /** Files the agent may inspect for context. Surfaced verbatim in the prompt. */
   contextFiles?: string[]
   /**
-   * Paths the agent must not touch. Validator hard-fails on any match.
+   * Paths the agent must not touch. The mechanical gate hard-fails on any match.
    * Use glob-free literal path prefixes for unambiguous enforcement.
    */
   forbiddenPaths?: string[]
-  /** Default 400. Hard cap; validator hard-fails when exceeded. */
+  /** Default 400. Hard cap; the gate hard-fails when exceeded. */
   maxDiffLines?: number
 }
 
-/** @experimental */
-export interface CoderOutput {
-  /** Branch the agent wrote the patch on. */
-  branch: string
-  /** Unified diff (`git diff <base>..HEAD`). */
-  patch: string
-  testResult: { passed: boolean; output: string }
-  typecheckResult: { passed: boolean; output: string }
-  diffStats: { filesChanged: number; insertions: number; deletions: number }
-  /** Optional reviewer commentary surfaced by the agent. */
-  reviewerNotes?: string
-}
-
-/** @experimental */
-export interface CoderProfileOptions {
-  /** Sandbox-SDK backend.type. Default `'claude-code'`. */
-  harness?: string
-  /** Default model id passed in `AgentProfile.model.default`. */
-  model?: string
-  /** Custom system prompt replacement. Default = built-in coder preset. */
-  systemPrompt?: string
-  /** Stable name for `AgentRunSpec.name`. Default = `coder-${harness}`. */
-  name?: string
-}
-
-/**
- * Build a coder preset.
- *
- * `validator` enforces test + typecheck + a 400-line default diff cap. For
- * per-task `forbiddenPaths` / `maxDiffLines` enforcement, pass `task` here
- * — the returned validator closes over its constraints. Without a task
- * the validator falls back to the default cap and skips path enforcement.
- *
- * @experimental
- */
-export function coderProfile(options: CoderProfileOptions & { task?: CoderTask } = {}): {
-  profile: AgentProfile
-  taskToPrompt: (task: CoderTask) => string
-  output: OutputAdapter<CoderOutput>
-  validator: Validator<CoderOutput>
-  agentRunSpec: AgentRunSpec<CoderTask>
-} {
-  const harness = options.harness ?? 'claude-code'
-  const name = options.name ?? `coder-${harness}`
-  const systemPrompt = options.systemPrompt ?? DEFAULT_CODER_SYSTEM_PROMPT
-  const profile: AgentProfile = {
-    name,
-    description: 'Code-modification agent. Minimal-diff worktree-based coder.',
-    prompt: { systemPrompt },
-    model: options.model ? { default: options.model } : undefined,
-    tools: { git: true, fs: true, shell: true, test_runner: true },
-    metadata: { backendType: harness, role: 'coder' },
-  }
-  const output: OutputAdapter<CoderOutput> = { parse: parseCoderEvents }
-  const validator: Validator<CoderOutput> = options.task
-    ? createCoderValidator(options.task)
-    : createCoderValidator({
-        goal: '',
-        repoRoot: '',
-        forbiddenPaths: [],
-        maxDiffLines: DEFAULT_MAX_DIFF_LINES,
-      })
-  const agentRunSpec: AgentRunSpec<CoderTask> = {
-    name,
-    profile,
-    taskToPrompt: formatCoderPrompt,
-  }
-  return { profile, taskToPrompt: formatCoderPrompt, output, validator, agentRunSpec }
-}
-
-/** @experimental */
-export interface MultiHarnessCoderFanoutOptions {
-  /**
-   * Sandbox-SDK backend.type identifiers, one per parallel agent. Default:
-   * `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']`.
-   */
-  harnesses?: string[]
-  /** Optional per-harness model override. Indexed parallel to `harnesses`. */
-  models?: (string | undefined)[]
-}
-
-/**
- * The multi-harness coder fanout driving `createDefaultCoderDelegate`'s `variants>1`
- * sandbox-session path. (`worktreeCoderFanout` is the local-repo generic counterpart for
- * new code; both are first-class.)
- *
- * @experimental
- */
-export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions = {}): {
-  agentRuns: AgentRunSpec<CoderTask>[]
-  output: OutputAdapter<CoderOutput>
-  validator: Validator<CoderOutput>
-  driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'>
-} {
-  const harnesses =
-    options.harnesses && options.harnesses.length > 0
-      ? options.harnesses
-      : ['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']
-  const models = options.models ?? []
-  const agentRuns = harnesses.map((harness, i) => {
-    const { agentRunSpec } = coderProfile({ harness, model: models[i] })
-    return agentRunSpec
-  })
-  const { output, validator } = coderProfile()
-  const driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'> = {
-    name: 'fanout',
-    plan: async (task, history) => (history.length === 0 ? agentRuns.map(() => task) : []),
-    decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
-  }
-  return { agentRuns, output, validator, driver }
-}
-
-const DEFAULT_CODER_SYSTEM_PROMPT = [
+/** @experimental The coder agent's standing instruction (its body lives in `coderProfile.prompt`). */
+export const DEFAULT_CODER_SYSTEM_PROMPT = [
   'You are a coder agent operating inside an isolated sandbox workspace.',
   'Your job is to deliver a minimal, correct patch for the user-supplied goal.',
   '',
@@ -183,7 +62,23 @@ const DEFAULT_CODER_SYSTEM_PROMPT = [
   '  ```',
 ].join('\n')
 
-function formatCoderPrompt(task: CoderTask): string {
+/**
+ * @experimental
+ *
+ * The coder `AgentProfile` — the §1.5 DATA the substrate materializes into a harness invocation.
+ * Stateless and harness-agnostic: a consumer overrides `model`/`metadata.backendType` by spreading
+ * a copy, never by a factory. `worktreeFanout` authors one such profile per harness leaf.
+ */
+export const coderProfile: AgentProfile = {
+  name: 'coder',
+  description: 'Code-modification agent. Minimal-diff worktree-based coder.',
+  prompt: { systemPrompt: DEFAULT_CODER_SYSTEM_PROMPT },
+  tools: { git: true, fs: true, shell: true, test_runner: true },
+  metadata: { role: 'coder' },
+}
+
+/** @experimental Render a `CoderTask` into the per-task instruction handed to the coder profile. */
+export function coderTaskToPrompt(task: CoderTask): string {
   const base = task.baseBranch ?? 'main'
   const testCmd = task.testCmd ?? 'pnpm test --run'
   const typecheckCmd = task.typecheckCmd ?? 'pnpm typecheck'
@@ -206,339 +101,4 @@ function formatCoderPrompt(task: CoderTask): string {
     'Produce a minimal patch on a fresh branch. Run tests and typecheck before',
     'returning. Emit the final JSON result block exactly as instructed.',
   ].join('\n')
-}
-
-/**
- * Walk the event stream and return the structured coder payload.
- *
- * The agent is instructed to emit a JSON block; in practice the sandbox SDK
- * lifts the structured payload onto `data.result` of a `result` / `final`
- * event. When the event stream does not contain a structured result, the
- * adapter scans the assistant's text output for a fenced JSON block matching
- * the expected keys.
- *
- * The text-scan is shape-tolerant and order-preserving: harnesses differ in
- * how they stream assistant text. claude-code lifts whole text onto
- * `data.text` / `data.delta`; opencode streams it as fragments inside
- * `message.part.updated` events (`data.part.text`, with incremental
- * `data.delta`). The final JSON result block is therefore split across many
- * fragments and never present in any single event — so the scan accumulates
- * ALL assistant text in stream order first, then scans the concatenation for
- * fenced blocks (last valid one wins). Scanning per-event (as before) found
- * nothing for opencode and yielded an empty `CoderOutput` for a run that
- * actually produced a patch.
- */
-function parseCoderEvents(events: SandboxEvent[]): CoderOutput {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]
-    if (!event) continue
-    const type = String(event.type ?? '')
-    const data = isRecord(event.data) ? event.data : {}
-    if (type === 'result' || type === 'final' || type === 'coder.result') {
-      const direct = coerceCoderOutput(data.result ?? data.output ?? data)
-      if (direct) return direct
-    }
-  }
-  // Fallback: accumulate assistant text across the whole stream (any harness
-  // shape), then take the last fenced JSON block that coerces.
-  const transcript = collectAssistantText(events)
-  for (const candidate of fencedJsonBlocks(transcript)) {
-    const coerced = coerceCoderOutput(candidate)
-    if (coerced) return coerced
-  }
-  return {
-    branch: '',
-    patch: '',
-    testResult: { passed: false, output: '' },
-    typecheckResult: { passed: false, output: '' },
-    diffStats: { filesChanged: 0, insertions: 0, deletions: 0 },
-  }
-}
-
-/**
- * Build a validator that closes over a specific `CoderTask`'s constraints.
- *
- * Checks in order:
- *   1. Forbidden-path: any `+++` / `---` header in the patch matching a
- *      path prefix in `task.forbiddenPaths` fails hard.
- *   2. Diff size: line count above `task.maxDiffLines` (default 400) fails
- *      hard; below cap, the score shrinks linearly.
- *   3. Tests: `output.testResult.passed` must be `true`.
- *   4. Typecheck: `output.typecheckResult.passed` must be `true`.
- *
- * Aggregate score: `0.5 * tests + 0.3 * typecheck + 0.2 * (1 - diffLines/maxDiff)`.
- * `valid` is the conjunction of all four.
- *
- * @experimental
- */
-/**
- * Default-on safety floor (folded from the ai-trading-blueprint delegation
- * MCP): a coder patch that touches a credential-shaped path is rejected
- * regardless of `forbiddenPaths` config. Catches `.env`, private keys,
- * keystores, wallets, and the common secret/credential JSON files.
- */
-const SECRET_PATH_RE =
-  /(^|\/)(\.env(\.|$)|.*\.(pem|key|p12|pfx|keystore|wallet)|id_rsa|id_ed25519|secrets?\.json|credentials?\.json)$/i
-
-/** @experimental Inputs the mechanical coder gate decides on — a captured patch plus the
- *  test/typecheck PASS signals derived for it. Shared by `createCoderValidator` (sandbox-event
- *  shape) and the generic worktree-CLI deliverable (which derives `testsPassed`/`typecheckPassed`
- *  by running the commands in the worktree). */
-export interface CoderCheckInput {
-  /** The unified diff produced by the run. */
-  patch: string
-  /** Did `testCmd` exit clean? */
-  testsPassed: boolean
-  /** Did `typecheckCmd` exit clean? */
-  typecheckPassed: boolean
-}
-
-/** @experimental The per-task constraints the mechanical gate enforces. */
-export interface CoderCheckConstraints {
-  /** Default 400. Hard cap; gate fails when exceeded. */
-  maxDiffLines?: number
-  /** Literal path prefixes the patch must not touch. */
-  forbiddenPaths?: string[]
-}
-
-/**
- * @experimental
- *
- * The pure mechanical coder gate — the SINGLE source of the no-op / secret-path floor /
- * diff-size / forbidden-path / test / typecheck checks. No I/O: it scores a patch + its
- * already-derived pass signals. Both the `createCoderValidator` shim (sandbox `CoderOutput`)
- * and the generic worktree-CLI `coderDeliverable` (which runs the commands itself) call this,
- * so the gate logic never forks.
- *
- * Checks in order: (1) no-op rejection, (2) always-on secret-path floor (independent of
- * `forbiddenPaths`), (3) forbidden-path, (4) diff-size cap, (5) tests, (6) typecheck.
- * Aggregate score: `0.5*tests + 0.3*typecheck + 0.2*(1 - diffLines/maxDiff)`; `valid` is the
- * conjunction of all six.
- */
-export function runCoderChecks(
-  input: CoderCheckInput,
-  constraints: CoderCheckConstraints = {},
-): DefaultVerdict {
-  const maxDiff = constraints.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES
-  const forbidden = constraints.forbiddenPaths ?? []
-  const scores: Record<string, number> = {}
-  const notes: string[] = []
-  let pass = true
-
-  const touched = touchedPathsFromPatch(input.patch)
-
-  // No-op rejection: an empty patch can trivially "pass" tests/typecheck
-  // (nothing changed) yet does no work — never a valid coder result.
-  if (touched.length === 0 || input.patch.trim().length === 0) {
-    pass = false
-    scores.nonEmpty = 0
-    notes.push('empty patch — no files changed')
-  } else {
-    scores.nonEmpty = 1
-  }
-
-  // Secret-path floor: always-on, independent of `forbiddenPaths`.
-  const touchedSecrets = touched.filter((p) => SECRET_PATH_RE.test(p))
-  if (touchedSecrets.length > 0) {
-    pass = false
-    scores.noSecrets = 0
-    notes.push(`touched secret-shaped paths: ${touchedSecrets.join(', ')}`)
-  } else {
-    scores.noSecrets = 1
-  }
-
-  const touchedForbidden = forbidden.filter((path) => {
-    const prefix = path.endsWith('/') ? path : `${path}/`
-    const exact = prefix.slice(0, -1)
-    return touched.some((p) => p === exact || p.startsWith(prefix))
-  })
-  if (touchedForbidden.length > 0) {
-    pass = false
-    scores.forbiddenPath = 0
-    notes.push(`touched forbidden paths: ${touchedForbidden.join(', ')}`)
-  } else {
-    scores.forbiddenPath = 1
-  }
-
-  const diffLines = countDiffLines(input.patch)
-  if (diffLines > maxDiff) {
-    pass = false
-    scores.diffSize = 0
-    notes.push(`diff ${diffLines} lines exceeds cap ${maxDiff}`)
-  } else {
-    scores.diffSize = maxDiff === 0 ? 0 : Math.max(0, 1 - diffLines / maxDiff)
-  }
-
-  scores.tests = input.testsPassed ? 1 : 0
-  scores.typecheck = input.typecheckPassed ? 1 : 0
-  if (!input.testsPassed) {
-    pass = false
-    notes.push('tests failed')
-  }
-  if (!input.typecheckPassed) {
-    pass = false
-    notes.push('typecheck failed')
-  }
-
-  const score = 0.5 * scores.tests + 0.3 * scores.typecheck + 0.2 * scores.diffSize
-  const verdict: DefaultVerdict = {
-    valid: pass,
-    score: Number.isFinite(score) ? score : 0,
-    scores,
-  }
-  if (notes.length > 0) verdict.notes = notes.join('; ')
-  return verdict
-}
-
-/**
- * The sandbox `CoderOutput` validator. A thin shim over the shared {@link runCoderChecks} gate
- * (the single source of the no-op / secret-floor / forbidden / diff-size / test / typecheck logic),
- * adapting the sandbox-parsed `CoderOutput` into the gate inputs. On the generic recursive path the
- * same gate is reached via `coderDeliverable(...)` over the worktree-CLI artifact.
- *
- * @experimental
- */
-export function createCoderValidator(task: CoderTask): Validator<CoderOutput> {
-  const constraints: CoderCheckConstraints = {
-    maxDiffLines: task.maxDiffLines ?? DEFAULT_MAX_DIFF_LINES,
-    forbiddenPaths: task.forbiddenPaths ?? [],
-  }
-  return {
-    async validate(output) {
-      return runCoderChecks(
-        {
-          patch: output.patch,
-          testsPassed: output.testResult.passed,
-          typecheckPassed: output.typecheckResult.passed,
-        },
-        constraints,
-      )
-    },
-  }
-}
-
-function touchedPathsFromPatch(patch: string): string[] {
-  const out = new Set<string>()
-  for (const line of patch.split(/\r?\n/)) {
-    if (line.startsWith('+++ ') || line.startsWith('--- ')) {
-      const rest = line.slice(4).trim()
-      if (rest === '/dev/null') continue
-      const stripped = rest.startsWith('a/') || rest.startsWith('b/') ? rest.slice(2) : rest
-      out.add(stripped)
-    }
-  }
-  return [...out]
-}
-
-function countDiffLines(patch: string): number {
-  let count = 0
-  for (const line of patch.split(/\r?\n/)) {
-    if (
-      (line.startsWith('+') || line.startsWith('-')) &&
-      !line.startsWith('+++') &&
-      !line.startsWith('---')
-    ) {
-      count += 1
-    }
-  }
-  return count
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function pickString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-/**
- * Concatenate assistant text across the event stream in arrival order,
- * tolerating every harness shape:
- *   - claude-code: `data.text` / `data.delta` on text events.
- *   - opencode: `message.part.updated` with `data.part.type === 'text'`
- *     carrying `data.delta` (incremental) or `data.part.text` (snapshot).
- * Reasoning/thinking parts are excluded — only the final answer text can
- * carry the result JSON. Snapshot text replaces accumulated deltas for the
- * same part so a snapshot+delta mix doesn't double-count.
- */
-function collectAssistantText(events: SandboxEvent[]): string {
-  const chunks: string[] = []
-  for (const event of events) {
-    if (!event) continue
-    const data = isRecord(event.data) ? event.data : {}
-    if (String(event.type ?? '') === 'message.part.updated') {
-      const part = isRecord(data.part) ? data.part : {}
-      const partType = String(part.type ?? '')
-      if (partType !== 'text' && partType !== '') continue
-      const text = pickString(data.delta) ?? pickString(part.text)
-      if (text) chunks.push(text)
-      continue
-    }
-    const text = pickString(data.text) ?? pickString(data.delta)
-    if (text) chunks.push(text)
-  }
-  return chunks.join('')
-}
-
-/** All parseable fenced JSON blocks in `text`, last-first (the final result
- *  block the agent emits is the one we want). */
-function fencedJsonBlocks(text: string): unknown[] {
-  const out: unknown[] = []
-  const matches = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
-  for (let i = matches.length - 1; i >= 0; i -= 1) {
-    const body = (matches[i]?.[1] ?? '').trim()
-    if (!body) continue
-    try {
-      out.push(JSON.parse(body))
-    } catch {
-      // not JSON — keep scanning earlier blocks
-    }
-  }
-  return out
-}
-
-function coerceCoderOutput(value: unknown): CoderOutput | undefined {
-  if (!isRecord(value)) return undefined
-  const branch = pickString(value.branch)
-  const patch = pickString(value.patch) ?? ''
-  if (branch === undefined) return undefined
-  const testResult = coerceCmdResult(value.testResult)
-  const typecheckResult = coerceCmdResult(value.typecheckResult)
-  const diffStats = coerceDiffStats(value.diffStats)
-  return {
-    branch,
-    patch,
-    testResult,
-    typecheckResult,
-    diffStats,
-    reviewerNotes: pickString(value.reviewerNotes),
-  }
-}
-
-function coerceCmdResult(value: unknown): { passed: boolean; output: string } {
-  if (!isRecord(value)) return { passed: false, output: '' }
-  return {
-    passed: value.passed === true,
-    output: pickString(value.output) ?? '',
-  }
-}
-
-function coerceDiffStats(value: unknown): {
-  filesChanged: number
-  insertions: number
-  deletions: number
-} {
-  if (!isRecord(value)) return { filesChanged: 0, insertions: 0, deletions: 0 }
-  return {
-    filesChanged: toFiniteInt(value.filesChanged),
-    insertions: toFiniteInt(value.insertions),
-    deletions: toFiniteInt(value.deletions),
-  }
-}
-
-function toFiniteInt(value: unknown): number {
-  if (typeof value !== 'number') return 0
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.trunc(value))
 }

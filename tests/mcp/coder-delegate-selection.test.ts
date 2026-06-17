@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   type CoderReview,
   type CoderReviewer,
-  type CoderWinnerSelection,
-  createDefaultCoderDelegate,
+  type DetachedWinnerSelection,
+  detachedSessionDelegate,
 } from '../../src/mcp/delegates'
-import type { CoderOutput } from '../../src/profiles/coder'
+import type { CoderOutput } from '../../src/mcp/detached-coder'
 
 function diff(path: string, plus: number, minus: number): string {
   const out = [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`]
@@ -62,19 +62,19 @@ const readinessReviewer: CoderReviewer = (output) => ({
   readiness: output.branch === 'big' ? 0.9 : 0.4,
 })
 
-describe('createDefaultCoderDelegate — reviewer gate + winner selection', () => {
+describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('smallest-diff selects the smaller valid patch', async () => {
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
-      winnerSelection: 'smallest-diff' satisfies CoderWinnerSelection,
+      winnerSelection: 'smallest-diff' satisfies DetachedWinnerSelection,
     })
     const out = await delegate(args, ctx)
     expect(out.branch).toBe('small')
   })
 
   it('highest-readiness selects by the reviewer score, diverging from diff size', async () => {
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
       reviewer: readinessReviewer,
@@ -90,7 +90,7 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
       recommendation: 'changes-requested',
       readiness: 0,
     })
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
       reviewer: rejectAll,
@@ -99,7 +99,7 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
   })
 
   it('default highest-score (no reviewer) still returns a valid winner', async () => {
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
     })
@@ -110,7 +110,7 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
 
   it('applies harness and model overrides on the single-coder path', async () => {
     let createOptions: CreateSandboxOptions | undefined
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: {
         async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
           createOptions = opts
@@ -137,11 +137,11 @@ describe('createDefaultCoderDelegate — reviewer gate + winner selection', () =
 
 import type { LoopTraceEmitter, LoopTraceEvent } from '../../src/runtime'
 
-describe('createDefaultCoderDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
+describe('detachedSessionDelegate — trace emitter wiring (MCP → OTEL sink)', () => {
   it('forwards the trace emitter into the delegated runLoop (loop.* spans emitted)', async () => {
     const events: LoopTraceEvent[] = []
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
-    const delegate = createDefaultCoderDelegate({
+    const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
       traceEmitter,

@@ -6,7 +6,7 @@
  * subprocesses (claude / codex / opencode in a 3-way fanout) don't clobber
  * each other's edits on the shared workspace.
  *
- * Worktrees live under `<repoRoot>/.coder-variants/<runId>/`. After the
+ * Worktrees live under `<repoRoot>/.agent-worktrees/<runId>/`. After the
  * harness exits + the diff is captured, the worktree is removed.
  *
  * All operations spawn `git` via `child_process.spawn` synchronously
@@ -33,7 +33,7 @@ export interface CreateWorktreeOptions {
   repoRoot: string
   /** Unique id for the worktree path + branch. Use the delegation run id. */
   runId: string
-  /** Parent directory the worktree lives under. Defaults to `.coder-variants`. */
+  /** Parent directory the worktree lives under. Defaults to `.agent-worktrees`. */
   variantsDir?: string
   /** Override the base ref (default `HEAD`). */
   baseRef?: string
@@ -111,7 +111,7 @@ function ensureGitOk(
 
 /** @experimental */
 export async function createWorktree(options: CreateWorktreeOptions): Promise<WorktreeHandle> {
-  const variants = options.variantsDir ?? '.coder-variants'
+  const variants = options.variantsDir ?? '.agent-worktrees'
   const baseRef = options.baseRef ?? 'HEAD'
   const branch = `delegate/${options.runId}`
   const path = `${options.repoRoot.replace(/\/+$/, '')}/${variants}/${options.runId}`

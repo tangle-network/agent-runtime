@@ -9,17 +9,35 @@
  * invokes when a task runs. Consumers can override either delegate to
  * inject custom drivers, mocks, fleet-aware dispatchers, etc.
  *
- * The default coder delegate is wired here because we own
- * `coderProfile` / `multiHarnessCoderFanout`. The default researcher
- * delegate is **not** wired in this file — `agent-knowledge` cannot be
- * imported from `agent-runtime` without inducing a cycle. Consumers
- * pass `researcherDelegate` explicitly when constructing the server.
+ * The `detachedSessionDelegate` here is the built-in SANDBOX-SESSION coder path — the live default
+ * `delegate_code` delegate: workers run the in-box harness over a `SandboxClient`. By default it
+ * holds the stream; single-variant turns can OPTIONALLY dispatch DETACHED (`driveTurn` ticks) so a
+ * durable queue resumes them across an MCP restart — that resume tick is the only part gated behind
+ * `MCP_ENABLE_DETACHED_RESUME` (default off) in `bin.ts`, a capability the recursive
+ * `Scope`/worktree-CLI leaf has no durable equivalent for yet. For NEW local-repo coding use
+ * `worktreeFanout` / `worktreeLoopRunner`. The default researcher delegate is **not** wired in this
+ * file — `agent-knowledge` cannot be imported from `agent-runtime` without inducing a cycle.
+ * Consumers pass `researcherDelegate` explicitly.
  */
 
-import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
-import type { AgentRunSpec, Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
-import { runLoop } from '../runtime'
+import type { CoderTask } from '../profiles/coder'
+import type {
+  AgentRunSpec,
+  Iteration,
+  LoopTraceEmitter,
+  Outcome,
+  SandboxClient,
+  WinnerStrategy,
+} from '../runtime'
+import { runLoop, selectValidWinner } from '../runtime'
 import { composeLoopTraceEmitters } from './delegation-trace'
+import {
+  type CoderOutput,
+  coderOutputAdapter,
+  coderRunSpec,
+  createCoderValidator,
+  multiHarnessCoderFanout,
+} from './detached-coder'
 import {
   type DetachedTurn,
   detachedTurnEvents,
@@ -29,7 +47,6 @@ import {
 } from './detached-turn'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
-  CoderTask,
   DelegateCodeArgs,
   DelegateResearchArgs,
   DelegateUiAuditArgs,
@@ -60,11 +77,9 @@ export interface DelegateRunCtx {
   traceEmitter?: LoopTraceEmitter
 }
 
-/** @experimental */
-export type CoderDelegate = (
-  args: DelegateCodeArgs,
-  ctx: DelegateRunCtx,
-) => Promise<import('../profiles/coder').CoderOutput>
+/** @experimental The server's coder-profile delegate slot — the closure the queue invokes for a
+ *  `delegate_code` task. `detachedSessionDelegate` is the built-in implementation. */
+export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Promise<CoderOutput>
 
 /** @experimental */
 export type ResearcherDelegate = (
@@ -107,24 +122,26 @@ export interface CoderReview {
  * judge, a `pnpm review` command, anything returning a `CoderReview`.
  */
 export type CoderReviewer = (
-  output: import('../profiles/coder').CoderOutput,
+  output: CoderOutput,
   task: CoderTask,
   ctx: { signal: AbortSignal },
 ) => Promise<CoderReview> | CoderReview
 
 /**
- * @experimental Winner-selection strategy among validated (+ reviewed)
- * candidates. `highest-readiness` requires a `reviewer`. Default `highest-score`
- * (the kernel's behavior — preserves backward compatibility).
+ * @experimental Winner-selection strategy among validated (+ reviewed) candidates on the
+ * sandbox-session path. The base strategies (`highest-score` / `smallest-diff` /
+ * `first-approved`) delegate to the shared `selectValidWinner`; `highest-readiness` is the
+ * reviewer-only strategy this path keeps that the generic selector does not express. Default
+ * `highest-score`.
  */
-export type CoderWinnerSelection =
+export type DetachedWinnerSelection =
   | 'highest-score'
   | 'smallest-diff'
   | 'highest-readiness'
   | 'first-approved'
 
 /** @experimental */
-export interface CreateDefaultCoderDelegateOptions {
+export interface DetachedSessionDelegateOptions {
   /**
    * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
    * to control where worker iterations land. `sandboxClient` is a
@@ -161,7 +178,7 @@ export interface CreateDefaultCoderDelegateOptions {
    */
   reviewer?: CoderReviewer
   /** Winner-selection strategy among eligible candidates. Default `highest-score`. */
-  winnerSelection?: CoderWinnerSelection
+  winnerSelection?: DetachedWinnerSelection
   /**
    * Loop trace emitter forwarded into every delegated `runLoop`. Wire
    * `createPropagatingTraceEmitter(readTraceContextFromEnv())` here (the bin
@@ -181,25 +198,23 @@ export interface CreateDefaultCoderDelegateOptions {
 }
 
 /**
- * Build a coder delegate that drives `runLoop` against the project's
- * sandbox client + coder profile. When `args.variants > 1` it switches
- * to the multi-harness fanout topology.
+ * Build the sandbox-session coder delegate. It drives `runLoop` against the project's
+ * sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
+ * topology.
  *
  * This is the SANDBOX-SESSION coder path: workers run the in-box harness via the
  * `SandboxClient`'s `streamPrompt`, and single-variant turns can dispatch DETACHED
  * (driveTurn ticks) so a durable queue resumes them across an MCP restart — a substrate
  * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
  *
- * For NEW local-repo coding, `worktreeCoderFanout` is a generic alternative (author an
- * `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This
- * factory remains first-class: it owns the sandbox-session + detached-resume substrate that the
- * worktree-CLI leaf does not yet replicate.
+ * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
+ * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate stays as the
+ * MCP server's built-in `delegate_code` path; it runs held-stream by default and only its OPTIONAL
+ * cross-restart resume (the `driveTurn` tick) is opt-in behind `MCP_ENABLE_DETACHED_RESUME`.
  *
  * @experimental
  */
-export function createDefaultCoderDelegate(
-  options: CreateDefaultCoderDelegateOptions,
-): CoderDelegate {
+export function detachedSessionDelegate(options: DetachedSessionDelegateOptions): CoderDelegate {
   const executor = resolveExecutor(options)
   const sandboxClient = executor.client
   const fanoutHarnesses = options.fanoutHarnesses
@@ -211,12 +226,13 @@ export function createDefaultCoderDelegate(
     const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const { agentRunSpec, output, validator } = coderProfile({
-        task,
+      const agentRunSpec = coderRunSpec({
         ...(options.harness ? { harness: options.harness } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
       })
+      const output = coderOutputAdapter
+      const validator = createCoderValidator(task)
       // Detached dispatch: one session on one box, driven by `driveTurn` ticks
       // instead of a held stream, so the run survives an MCP-process restart
       // (the resume driver re-attaches via the persisted ref). Only the
@@ -315,15 +331,15 @@ export function createDefaultCoderDelegate(
 interface PickCoderWinnerArgs {
   iterations: ReadonlyArray<Iteration<CoderTask, CoderOutput>>
   reviewer: CoderReviewer | undefined
-  selection: CoderWinnerSelection
+  selection: DetachedWinnerSelection
   task: CoderTask
   signal: AbortSignal
 }
 
-interface CoderCandidate {
-  index: number
-  output: CoderOutput
-  score: number
+/** A valid (and, when a reviewer is wired, approved) candidate kept for selection. */
+interface EligibleCandidate {
+  iter: Iteration<CoderTask, CoderOutput>
+  /** Reviewer readiness (defaults to the verdict score when no reviewer ran). */
   readiness: number
 }
 
@@ -332,55 +348,63 @@ interface CoderCandidate {
  *   1. keep only mechanically-VALID candidates (the validator already gated
  *      tests/typecheck/forbidden/diff/no-op/secrets),
  *   2. if a `reviewer` is wired, keep only those it APPROVES,
- *   3. select among survivors by the chosen strategy.
+ *   3. select among survivors via the shared `selectValidWinner` (base strategies) or, for the
+ *      reviewer-only `highest-readiness`, a readiness sort (the one strategy the generic selector
+ *      does not express — a documented capability of this sandbox-session path).
  * Returns `undefined` when nothing survives — the delegate fails loud.
  */
 async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput | undefined> {
-  const valid: CoderCandidate[] = []
+  const eligible: EligibleCandidate[] = []
   for (const iter of args.iterations) {
     if (iter.output === undefined || iter.error || iter.verdict?.valid !== true) continue
-    valid.push({
-      index: iter.index,
-      output: iter.output,
-      score: iter.verdict.score ?? 0,
-      readiness: iter.verdict.score ?? 0,
-    })
-  }
-  if (valid.length === 0) return undefined
-
-  let eligible = valid
-  if (args.reviewer) {
-    eligible = []
-    for (const c of valid) {
-      const review = await args.reviewer(c.output, args.task, { signal: args.signal })
-      if (review.approved) eligible.push({ ...c, readiness: review.readiness })
+    const readiness = iter.verdict.score ?? 0
+    if (args.reviewer) {
+      const review = await args.reviewer(iter.output, args.task, { signal: args.signal })
+      if (!review.approved) continue
+      eligible.push({ iter, readiness: review.readiness })
+    } else {
+      eligible.push({ iter, readiness })
     }
-    if (eligible.length === 0) return undefined
+  }
+  if (eligible.length === 0) return undefined
+
+  // `highest-readiness` ranks on the reviewer's readiness — a reviewer-only metric the generic
+  // valid-only selector does not carry. Ties → earliest iteration.
+  if (args.selection === 'highest-readiness') {
+    const sorted = [...eligible].sort(
+      (a, b) => b.readiness - a.readiness || a.iter.index - b.iter.index,
+    )
+    return sorted[0]!.iter.output
   }
 
-  return selectCoderCandidate(eligible, args.selection).output
+  // Base strategies route through the SHARED valid-only selector. Wrap each survivor's raw
+  // `CoderOutput` in the `Outcome<D>` shape `selectValidWinner` reads, preserving verdict/index.
+  const wrapped: Iteration<unknown, Outcome<CoderOutput>>[] = eligible.map(({ iter }) => ({
+    ...iter,
+    output: { kind: 'done', deliverable: iter.output as CoderOutput },
+  }))
+  const winner = selectValidWinner<CoderOutput>({
+    strategy: baseStrategy(args.selection),
+    sizeOf: (o) => o.diffStats.insertions + o.diffStats.deletions,
+  })(wrapped)
+  const out = winner?.output
+  if (!out || out.kind !== 'done') return undefined
+  return out.deliverable
 }
 
-/** Apply the winner-selection strategy; ties broken by earliest iteration. */
-function selectCoderCandidate(
-  candidates: CoderCandidate[],
-  selection: CoderWinnerSelection,
-): CoderCandidate {
-  const diffLines = (c: CoderCandidate) =>
-    c.output.diffStats.insertions + c.output.diffStats.deletions
-  const sorted = [...candidates].sort((a, b) => {
-    switch (selection) {
-      case 'smallest-diff':
-        return diffLines(a) - diffLines(b) || a.index - b.index
-      case 'highest-readiness':
-        return b.readiness - a.readiness || a.index - b.index
-      case 'first-approved':
-        return a.index - b.index
-      default:
-        return b.score - a.score || a.index - b.index
-    }
-  })
-  return sorted[0]!
+/** Map the detached-session selection enum onto the shared `WinnerStrategy`. `first-approved`
+ *  reduces to `first-valid` over the already-approved set; `smallest-diff` to `smallest-artifact`. */
+function baseStrategy(
+  selection: Exclude<DetachedWinnerSelection, 'highest-readiness'>,
+): WinnerStrategy {
+  switch (selection) {
+    case 'smallest-diff':
+      return 'smallest-artifact'
+    case 'first-approved':
+      return 'first-valid'
+    default:
+      return 'highest-score'
+  }
 }
 
 function noWinnerMessage(reviewer: CoderReviewer | undefined): string {
@@ -430,7 +454,7 @@ export interface SettleDetachedCoderTurnOptions {
  * SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resume path is
  * bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
  * journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
- * advertised on the generic `worktreeCoderFanout` path. This helper (with `coderTaskFromArgs` and
+ * advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
  * `createDriveTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
  *
  * @experimental
@@ -439,12 +463,8 @@ export async function settleDetachedCoderTurn(
   turn: DetachedTurn,
   options: SettleDetachedCoderTurnOptions,
 ): Promise<CoderOutput> {
-  const { output, validator } = coderProfile({
-    task: options.task,
-    ...(options.harness ? { harness: options.harness } : {}),
-    ...(options.model ? { model: options.model } : {}),
-  })
-  const parsed = output.parse(detachedTurnEvents(options.sessionId, turn))
+  const parsed = coderOutputAdapter.parse(detachedTurnEvents(options.sessionId, turn))
+  const validator = createCoderValidator(options.task)
   const verdict = await validator.validate(parsed, { iteration: 0, signal: options.signal })
   if (verdict.valid !== true) throw new Error(noWinnerMessage(options.reviewer))
   if (options.reviewer) {
@@ -459,15 +479,15 @@ function buildCoderGoal(args: DelegateCodeArgs): string {
   return [args.goal, '', '## Context', args.contextHint].join('\n')
 }
 
-function resolveExecutor(options: CreateDefaultCoderDelegateOptions): DelegationExecutor {
+function resolveExecutor(options: DetachedSessionDelegateOptions): DelegationExecutor {
   if (options.executor && options.sandboxClient) {
-    throw new Error('createDefaultCoderDelegate: pass exactly one of `executor` or `sandboxClient`')
+    throw new Error('detachedSessionDelegate: pass exactly one of `executor` or `sandboxClient`')
   }
   if (options.executor) return options.executor
   if (options.sandboxClient) {
     return createSiblingSandboxExecutor({ client: options.sandboxClient })
   }
-  throw new Error('createDefaultCoderDelegate: `executor` or `sandboxClient` is required')
+  throw new Error('detachedSessionDelegate: `executor` or `sandboxClient` is required')
 }
 
 /**

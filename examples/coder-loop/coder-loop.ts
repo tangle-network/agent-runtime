@@ -1,118 +1,69 @@
-// coderProfile + runLoop + FanoutVote — smallest end-to-end coder loop. See README.md for context.
+// worktreeLoopRunner — the smallest end-to-end coder loop on the generic recursive path:
+// author one AgentProfile per harness, fan them out over worktree-CLI leaves, gate each on
+// patchDelivered, and pick the winning patch with the shared valid-only selector. See README.md.
 
-import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
-import { type CoderTask, coderProfile } from '@tangle-network/agent-runtime/profiles'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { worktreeLoopRunner } from '@tangle-network/agent-runtime'
+import type { AgentProfile } from '@tangle-network/sandbox'
 
-const task: CoderTask = {
-  goal: 'add util.ts that exports add(a,b)',
-  repoRoot: '/tmp/coder-loop-example',
-  testCmd: 'node -e \'require("./util").add(1,2)===3 || process.exit(1)\'',
-  typecheckCmd: 'pnpm typecheck',
-  maxDiffLines: 50,
-  forbiddenPaths: ['secrets/', 'node_modules/'],
-}
+const profile = (name: string): AgentProfile => ({
+  name,
+  prompt: { systemPrompt: `You are ${name}. Deliver a minimal, correct patch.` },
+})
 
-// ── Synthetic sandbox client ─────────────────────────────────────────────
-// Two iterations: the first emits a valid CoderOutput (tests + typecheck
-// pass, small diff); the second emits a near-miss (tests pass, typecheck
-// fails). The FanoutVote driver picks #1 as the winner.
-const candidateOutputs = [
-  {
-    branch: 'coder/util-add-A',
-    patch: [
-      'diff --git a/util.ts b/util.ts',
-      'new file mode 100644',
-      '--- /dev/null',
-      '+++ b/util.ts',
-      '@@ -0,0 +1,1 @@',
-      '+export const add = (a: number, b: number): number => a + b',
-    ].join('\n'),
-    testResult: { passed: true, output: '1 test passed' },
-    typecheckResult: { passed: true, output: 'no errors' },
-    diffStats: { filesChanged: 1, insertions: 1, deletions: 0 },
-    reviewerNotes: 'Minimal arrow-function impl. No external deps.',
-  },
-  {
-    branch: 'coder/util-add-B',
-    patch: [
-      'diff --git a/util.ts b/util.ts',
-      'new file mode 100644',
-      '--- /dev/null',
-      '+++ b/util.ts',
-      '@@ -0,0 +1,3 @@',
-      '+export function add(a, b) {',
-      '+  return a + b',
-      '+}',
-    ].join('\n'),
-    testResult: { passed: true, output: '1 test passed' },
-    typecheckResult: { passed: false, output: 'TS7006: Parameter implicitly has any type' },
-    diffStats: { filesChanged: 1, insertions: 3, deletions: 0 },
-    reviewerNotes: 'Untyped params — typecheck fails.',
-  },
-]
-
-let dispatchIndex = 0
-const sandboxClient = {
-  async create(): Promise<SandboxInstance> {
-    const index = dispatchIndex++
-    const output = candidateOutputs[index % candidateOutputs.length]
-    const id = `sandbox-coder-${index + 1}`
-    const box = {
-      id,
-      async *streamPrompt(): AsyncIterable<SandboxEvent> {
-        // Mirror cost-bearing events so the kernel's per-iteration costUsd
-        // aggregator picks them up.
-        yield {
-          type: 'llm_call',
-          data: { model: 'claude-code/sonnet', tokensIn: 800, tokensOut: 120, costUsd: 0.0036 },
-        }
-        yield { type: 'result', data: { result: output } }
-      },
-    } as unknown as SandboxInstance
-    return box
-  },
-}
+// ── Offline test seams ───────────────────────────────────────────────────
+// A fake git that hands every worktree the same one-line patch, a no-op harness
+// runner, and a passing check runner. Production callers leave these unset (the
+// runner drives the real claude/codex/opencode CLIs on real worktrees).
+const patch = [
+  'diff --git a/util.ts b/util.ts',
+  '--- a/util.ts',
+  '+++ b/util.ts',
+  '+export const add = (a: number, b: number): number => a + b',
+].join('\n')
 
 async function main(): Promise<void> {
-  const { output, validator, agentRunSpec } = coderProfile({ task, harness: 'claude-code' })
-  const driver: Driver<CoderTask, ReturnType<typeof output.parse>, 'pick-winner' | 'fail'> = {
-    name: 'fanout',
-    plan: async (task, history) => (history.length === 0 ? [task, task] : []),
-    decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
-  }
-
-  const result = await runLoop({
-    driver,
-    agentRun: agentRunSpec,
-    output,
-    validator,
-    task,
-    ctx: { sandboxClient },
+  const runner = worktreeLoopRunner({
+    repoRoot: '/tmp/coder-loop-example',
+    taskPrompt: 'add util.ts that exports add(a, b)',
+    budget: { maxIterations: 50, maxTokens: 500_000 },
+    harnesses: [
+      { name: 'claude', profile: profile('claude'), harness: 'claude' },
+      { name: 'opencode', profile: profile('opencode'), harness: 'opencode' },
+    ],
+    testCmd: 'node -e \'require("./util").add(1,2)===3 || process.exit(1)\'',
+    typecheckCmd: 'pnpm typecheck',
+    require: ['tests', 'typecheck'],
+    maxDiffLines: 50,
+    forbiddenPaths: ['secrets/', 'node_modules/'],
+    runGit: (args: readonly string[]) => {
+      if (args[0] === 'diff' && args.includes('--shortstat')) {
+        return {
+          stdout: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n',
+          stderr: '',
+          exitCode: 0,
+        }
+      }
+      if (args[0] === 'diff') return { stdout: patch, stderr: '', exitCode: 0 }
+      if (args[0] === 'rev-parse') return { stdout: 'base\n', stderr: '', exitCode: 0 }
+      return { stdout: '', stderr: '', exitCode: 0 }
+    },
+    runHarness: async () => ({
+      exitCode: 0,
+      stdout: 'done',
+      stderr: '',
+      killedBySignal: null,
+      durationMs: 1,
+      timedOut: false,
+    }),
+    runCommand: async () => ({ exitCode: 0, output: 'green' }),
   })
 
-  console.log(`decision: ${result.decision}`)
-  console.log(`iterations: ${result.iterations.length}`)
-  console.log(`durationMs: ${result.durationMs}`)
-  console.log(`totalCostUsd: ${result.costUsd.toFixed(6)}`)
-  if (!result.winner) {
-    console.log('no winner — every iteration failed validation')
-    return
-  }
-  console.log(`winner: iteration #${result.winner.iterationIndex} (${result.winner.agentRunName})`)
-  console.log(
-    `  score: ${result.winner.verdict?.score?.toFixed(3)}  valid: ${result.winner.verdict?.valid}`,
-  )
-  console.log(`  branch: ${result.winner.output.branch}`)
-  console.log(`  diff (${result.winner.output.diffStats.insertions} insertions):`)
-  for (const line of result.winner.output.patch.split('\n')) {
-    console.log(`    ${line}`)
-  }
-  console.log(`  tests passed: ${result.winner.output.testResult.passed}`)
-  console.log(`  typecheck passed: ${result.winner.output.typecheckResult.passed}`)
-  if (result.winner.output.reviewerNotes) {
-    console.log(`  notes: ${result.winner.output.reviewerNotes}`)
-  }
+  const winner = await runner(new AbortController().signal)
+  console.log(`winning branch: ${winner.branch}`)
+  console.log(`  diff (${winner.stats.insertions} insertions):`)
+  for (const line of winner.patch.split('\n')) console.log(`    ${line}`)
+  console.log(`  tests passed: ${winner.checks?.tests?.passed ?? '(not run)'}`)
+  console.log(`  typecheck passed: ${winner.checks?.typecheck?.passed ?? '(not run)'}`)
 }
 
 main().catch((err) => {

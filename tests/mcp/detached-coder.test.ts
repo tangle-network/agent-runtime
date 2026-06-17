@@ -2,11 +2,11 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type CoderOutput,
-  type CoderTask,
-  coderProfile,
+  coderOutputAdapter,
   createCoderValidator,
   multiHarnessCoderFanout,
-} from '../../src/profiles'
+} from '../../src/mcp/detached-coder'
+import type { CoderTask } from '../../src/profiles/coder'
 
 const ctx = { iteration: 0, signal: new AbortController().signal }
 
@@ -123,8 +123,8 @@ describe('createCoderValidator — task-bound validator', () => {
   })
 })
 
-describe('coderProfile output adapter', () => {
-  const preset = coderProfile({ task: baseTask })
+describe('coderOutputAdapter — sandbox-session stream decode', () => {
+  const preset = { output: coderOutputAdapter }
 
   it('parses a final result event with embedded coder output', () => {
     const events: SandboxEvent[] = [
@@ -233,6 +233,66 @@ describe('coderProfile output adapter', () => {
     expect(out.branch).toBe('')
     expect(out.testResult.passed).toBe(false)
     expect(out.diffStats.filesChanged).toBe(0)
+  })
+})
+
+describe('coderOutputAdapter — in-process executor raw artifact projection', () => {
+  // The in-process executor settles a raw worktree-harness result ({ branch, patch, stats, checks,
+  // harness }) on a `result` event; when that executor backs a session (loops' local path), its
+  // events flow through coderOutputAdapter.parse, which must project the raw shape onto CoderOutput.
+  const rawArtifactEvent = (over: Record<string, unknown> = {}): SandboxEvent[] => [
+    {
+      type: 'result',
+      data: {
+        result: {
+          branch: 'feat/local',
+          patch: diff(['src/foo.ts'], 2, 0),
+          stats: { filesChanged: 1, insertions: 2, deletions: 0 },
+          checks: {
+            tests: { passed: true, output: 'tests ok' },
+            typecheck: { passed: true, output: 'tc ok' },
+          },
+          harness: { name: 'opencode', exitCode: 0, timedOut: false },
+          ...over,
+        },
+      },
+    },
+  ]
+
+  it('projects the raw artifact onto CoderOutput (branch/patch/stats/check pass-through)', () => {
+    const out = coderOutputAdapter.parse(rawArtifactEvent())
+    expect(out.branch).toBe('feat/local')
+    expect(out.testResult.passed).toBe(true)
+    expect(out.testResult.output).toBe('tests ok')
+    expect(out.typecheckResult.passed).toBe(true)
+    expect(out.diffStats).toEqual({ filesChanged: 1, insertions: 2, deletions: 0 })
+    expect(out.reviewerNotes).toBeUndefined()
+  })
+
+  it('treats an absent check as passing (the executor simply did not run that command)', () => {
+    const out = coderOutputAdapter.parse(rawArtifactEvent({ checks: { tests: { passed: false } } }))
+    expect(out.testResult.passed).toBe(false) // tests ran and failed
+    expect(out.typecheckResult.passed).toBe(true) // typecheck absent → passing
+  })
+
+  it('records reviewerNotes (with name + code) on a nonzero harness exit, and a timed-out suffix', () => {
+    const failed = coderOutputAdapter.parse(
+      rawArtifactEvent({ harness: { name: 'claude-code', exitCode: 137, timedOut: true } }),
+    )
+    expect(failed.reviewerNotes).toBe('harness claude-code exited 137 (timed out)')
+    const nonTimeout = coderOutputAdapter.parse(
+      rawArtifactEvent({ harness: { name: 'opencode', exitCode: 1, timedOut: false } }),
+    )
+    expect(nonTimeout.reviewerNotes).toBe('harness opencode exited 1')
+  })
+
+  it('caps a large diagnostic output to its last 4000 chars', () => {
+    const huge = 'x'.repeat(9000)
+    const out = coderOutputAdapter.parse(
+      rawArtifactEvent({ checks: { tests: { passed: true, output: huge } } }),
+    )
+    expect(out.testResult.output).toHaveLength(4000)
+    expect(out.testResult.output).toBe(huge.slice(-4000))
   })
 })
 

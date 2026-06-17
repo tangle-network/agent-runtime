@@ -126,10 +126,11 @@ export {
   type ResearchLoopRunnerOptions,
   type RunDelegatedLoopOptions,
   researchLoopRunner,
-  reviewLoopRunner,
   runDelegatedLoop,
   selfImproveLoopRunner,
   type VetoedFact,
+  type WorktreeLoopRunnerOptions,
+  worktreeLoopRunner,
 } from './loop-runner'
 export {
   type LoopRunnerCliArgs,

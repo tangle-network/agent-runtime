@@ -33,7 +33,7 @@ function makeFakeGit(state: FakeGitState): GitRunner {
 }
 
 describe('createInProcessExecutor', () => {
-  it('streamPrompt emits started → ended → result events with CoderOutput', async () => {
+  it('streamPrompt emits started → ended → result events with the raw patch artifact', async () => {
     const state: FakeGitState = {
       worktreesCreated: [],
       worktreesRemoved: [],
@@ -74,14 +74,15 @@ describe('createInProcessExecutor', () => {
     const result = events[2]!.data.result as {
       branch: string
       patch: string
-      testResult: { passed: boolean }
-      typecheckResult: { passed: boolean }
-      diffStats: { filesChanged: number; insertions: number; deletions: number }
+      stats: { filesChanged: number; insertions: number; deletions: number }
+      checks?: { tests?: { passed: boolean }; typecheck?: { passed: boolean } }
     }
     expect(result.patch).toContain('util.ts')
-    expect(result.diffStats).toEqual({ filesChanged: 1, insertions: 1, deletions: 0 })
-    expect(result.testResult.passed).toBe(true)
-    expect(result.typecheckResult.passed).toBe(true)
+    expect(result.stats).toEqual({ filesChanged: 1, insertions: 1, deletions: 0 })
+    // No test/typecheck command was configured → no derived checks (the gate treats absent as
+    // passing; the executor reports the raw artifact without fabricating a signal).
+    expect(result.checks?.tests).toBeUndefined()
+    expect(result.checks?.typecheck).toBeUndefined()
     expect(state.worktreesCreated.length).toBe(1)
     expect(state.worktreesRemoved.length).toBe(1)
   })
@@ -121,7 +122,7 @@ describe('createInProcessExecutor', () => {
     expect(harnesses).toEqual(['claude', 'codex', 'opencode', 'claude', 'codex', 'opencode'])
   })
 
-  it('runs testCmd + typecheckCmd against the worktree and folds results into CoderOutput', async () => {
+  it('runs testCmd + typecheckCmd against the worktree and folds results into the artifact checks', async () => {
     const state: FakeGitState = {
       worktreesCreated: [],
       worktreesRemoved: [],
@@ -161,16 +162,18 @@ describe('createInProcessExecutor', () => {
       events.push(event)
     }
     const result = events.find((e) => e.type === 'result')!.data.result as {
-      testResult: { passed: boolean }
-      typecheckResult: { passed: boolean; output: string }
+      checks?: {
+        tests?: { passed: boolean }
+        typecheck?: { passed: boolean; output: string }
+      }
     }
-    expect(result.testResult.passed).toBe(true)
-    expect(result.typecheckResult.passed).toBe(false)
-    expect(result.typecheckResult.output).toContain('type error')
+    expect(result.checks?.tests?.passed).toBe(true)
+    expect(result.checks?.typecheck?.passed).toBe(false)
+    expect(result.checks?.typecheck?.output).toContain('type error')
     expect(runPostCheck).toHaveBeenCalledTimes(2)
   })
 
-  it('marks result with reviewerNotes when harness exits non-zero', async () => {
+  it('surfaces the harness exit code on the artifact when the harness exits non-zero', async () => {
     const state: FakeGitState = {
       worktreesCreated: [],
       worktreesRemoved: [],
@@ -200,9 +203,10 @@ describe('createInProcessExecutor', () => {
       events.push(event)
     }
     const result = events.find((e) => e.type === 'result')!.data.result as {
-      reviewerNotes?: string
+      harness: { name: string; exitCode: number | null }
     }
-    expect(result.reviewerNotes).toContain('claude exited 2')
+    expect(result.harness.name).toBe('claude')
+    expect(result.harness.exitCode).toBe(2)
   })
 
   it('cleans up worktree even when streamPrompt is aborted mid-flight', async () => {
@@ -267,7 +271,7 @@ describe('createInProcessExecutor', () => {
       sandboxId?: string
     }
     expect(placement?.harness).toBe('codex')
-    expect(placement?.worktreePath).toMatch(/\.coder-variants/)
+    expect(placement?.worktreePath).toMatch(/\.agent-worktrees/)
     expect(placement?.sandboxId).toMatch(/^in-process-/)
   })
 

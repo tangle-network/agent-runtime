@@ -19,16 +19,16 @@ export type {
   CoderDelegate,
   CoderReview,
   CoderReviewer,
-  CoderWinnerSelection,
-  CreateDefaultCoderDelegateOptions,
   DelegateRunCtx,
+  DetachedSessionDelegateOptions,
+  DetachedWinnerSelection,
   ResearcherDelegate,
   SettleDetachedCoderTurnOptions,
   UiAuditorDelegate,
 } from './delegates'
 export {
   coderTaskFromArgs,
-  createDefaultCoderDelegate,
+  detachedSessionDelegate,
   settleDetachedCoderTurn,
 } from './delegates'
 export type {

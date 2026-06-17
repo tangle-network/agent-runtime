@@ -3,13 +3,11 @@
  *
  * `uiAuditorProfile` — preset for vision-driven UI audit iterations.
  *
- * Mirrors the shape of `coderProfile`: returns the `AgentRunSpec`, output
- * adapter, validator, and prompt formatter the loop kernel needs. Unlike
- * `coderProfile`, the agent's "harness" is not a sandbox-SDK code-runner
- * — it's a vision-capable judge driving a browser. The loop kernel still
- * iterates `client.create() → box.streamPrompt() → box.delete()`; the
- * client/box pair are provided by `createInProcessUiAuditClient` (in
- * `./in-process-client.ts`) or by a consumer-supplied `SandboxClient`.
+ * A `runLoop` bundle: it returns the `AgentRunSpec`, output adapter, validator, and prompt
+ * formatter the loop kernel needs. The agent's "harness" is not a sandbox-SDK code-runner — it's a
+ * vision-capable judge driving a browser. The loop kernel still iterates
+ * `client.create() → box.streamPrompt() → box.delete()`; the client/box pair are provided by
+ * `createInProcessUiAuditClient` (in `./in-process-client.ts`) or a consumer-supplied `SandboxClient`.
  */
 
 import type { AgentProfile } from '@tangle-network/sandbox'

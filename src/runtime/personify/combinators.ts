@@ -30,6 +30,7 @@ import type { Outcome, ShapeContext } from './types'
 import type {
   CombinatorShape,
   FanoutOptions,
+  FanoutWinnerSelector,
   LoopUntilSpec,
   LoopUntilState,
   PanelJudge,
@@ -40,7 +41,52 @@ import type {
   VerifySpec,
   WidenDecision,
   WidenSpec,
+  WinnerStrategy,
 } from './wave-types'
+
+// ── selectValidWinner — the one shared valid-only fanout selector ─────────────────
+
+/**
+ * The single content-free valid-only winner selector. Among the gated-VALID children only
+ * (`verdict.valid === true`), pick by `strategy` — best score / smallest delivered artifact /
+ * earliest — ties broken by earliest index; returns `undefined` when NONE is valid (an ungated
+ * output can never win — the deliverable gate is the point). `sizeOf` (for `'smallest-artifact'`)
+ * reads the child's settled deliverable — the raw value a leaf settles, or the unwrapped `Outcome<D>`
+ * a delegate path produces; a domain passes e.g. patch diff-lines. This is the de-duplicated home of
+ * the selection logic previously copied per role.
+ */
+export function selectValidWinner<D>(opts?: {
+  strategy?: WinnerStrategy
+  sizeOf?: (deliverable: D) => number
+}): FanoutWinnerSelector<D> {
+  const strategy = opts?.strategy ?? 'highest-score'
+  const sizeOfIter = (iter: Iteration<unknown, Outcome<D>>): number => {
+    const out = iter.output
+    if (out === undefined || opts?.sizeOf === undefined) return Number.POSITIVE_INFINITY
+    // The worktree-CLI leaf settles the RAW deliverable as iter.output (settledToIteration sets
+    // `output = settled.out`); the MCP delegate path wraps it in an Outcome<D>. Accept both: unwrap
+    // a `done` Outcome, else the settled value IS the deliverable. A raw artifact carries no `kind`
+    // discriminant, so the branch is unambiguous.
+    const deliverable = out.kind === 'done' ? out.deliverable : (out as unknown as D)
+    return opts.sizeOf(deliverable)
+  }
+  return (iterations) => {
+    const valid = iterations.filter(
+      (iter) => iter.output !== undefined && !iter.error && iter.verdict?.valid === true,
+    )
+    if (valid.length === 0) return undefined
+    switch (strategy) {
+      case 'first-valid':
+        return [...valid].sort((a, b) => a.index - b.index)[0]
+      case 'smallest-artifact':
+        return [...valid].sort((a, b) => sizeOfIter(a) - sizeOfIter(b) || a.index - b.index)[0]
+      default:
+        return [...valid].sort(
+          (a, b) => (b.verdict?.score ?? 0) - (a.verdict?.score ?? 0) || a.index - b.index,
+        )[0]
+    }
+  }
+}
 
 // ── pipeline — sequential composition, first blocked stage short-circuits ─────────
 

@@ -105,6 +105,7 @@ export {
   loopUntil,
   panel,
   pipeline,
+  selectValidWinner,
   verify,
   widen,
 } from './personify/combinators'
@@ -170,6 +171,7 @@ export type {
   WidenDecision,
   WidenLineage,
   WidenSpec,
+  WinnerStrategy,
 } from './personify/wave-types'
 export {
   type PromotionGateOptions,
@@ -288,17 +290,6 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
-// The coder gate, re-homed as a generic DeliverableSpec over the worktree-CLI patch artifact:
-// no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
-export { type CoderDeliverableOptions, coderDeliverable } from './supervise/coder-deliverable'
-// The generic coding combinator: a fanout of authored harness profiles, each on its own
-// worktree-CLI leaf, each gated by `coderDeliverable`, winner via a valid-only selector (not `defaultSelectWinner`).
-export {
-  type AuthoredCoderHarness,
-  type CoderWinnerStrategy,
-  type WorktreeCoderFanoutOptions,
-  worktreeCoderFanout,
-} from './supervise/coder-fanout'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
@@ -345,6 +336,21 @@ export {
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
+// The pure mechanical patch gate (no-op / always-on secret-path floor / forbidden-path / diff-size
+// + test/typecheck) over a captured diff + its derived pass signals — the single source the
+// worktree deliverable scores with. The always-on floors are also exported standalone.
+export {
+  type CoderCheckConstraints,
+  type CoderCheckInput,
+  countDiffLines,
+  isNonEmptyPatch,
+  runCoderChecks,
+  touchedPathsFromPatch,
+  touchesSecretPath,
+} from './supervise/patch-checks'
+// The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
+// no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
+export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
 // The production `DriverChat`: adapt the router's tool-calling to the seam a
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
@@ -434,6 +440,14 @@ export {
   type WorktreeCommandResult,
   type WorktreePatchArtifact,
 } from './supervise/worktree-cli-executor'
+// The generic coding combinator: a fanout of authored harness profiles, each on its own
+// worktree-CLI leaf, each gated by the injected deliverable, winner via the shared valid-only
+// `selectValidWinner`.
+export {
+  type AuthoredHarness,
+  type WorktreeFanoutOptions,
+  worktreeFanout,
+} from './supervise/worktree-fanout'
 export type {
   AgentRunSpec,
   DefaultVerdict,

@@ -139,6 +139,10 @@ export type FanoutWinnerSelector<D> = (
   iterations: Iteration<unknown, Outcome<D>>[],
 ) => { readonly output?: Outcome<D> | undefined } | undefined
 
+/** Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid
+ *  score, the smallest delivered artifact (via a `sizeOf` extractor), or the earliest valid. */
+export type WinnerStrategy = 'highest-score' | 'smallest-artifact' | 'first-valid'
+
 /** How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child
  *  settlements into the synthesis child's task; `collect` reads its settled output into the
  *  deliverable `Outcome<D>`. */
