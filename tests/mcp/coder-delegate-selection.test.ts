@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type CoderReview,
   type CoderReviewer,
-  type CoderWinnerSelection,
+  type DetachedWinnerSelection,
   detachedSessionDelegate,
 } from '../../src/mcp/delegates'
 import type { CoderOutput } from '../../src/profiles/coder'
@@ -67,7 +67,7 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
       fanoutHarnesses: ['claude-code', 'codex'],
-      winnerSelection: 'smallest-diff' satisfies CoderWinnerSelection,
+      winnerSelection: 'smallest-diff' satisfies DetachedWinnerSelection,
     })
     const out = await delegate(args, ctx)
     expect(out.branch).toBe('small')

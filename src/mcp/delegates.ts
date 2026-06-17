@@ -20,8 +20,15 @@
  */
 
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
-import type { AgentRunSpec, Iteration, LoopTraceEmitter, SandboxClient } from '../runtime'
-import { runLoop } from '../runtime'
+import type {
+  AgentRunSpec,
+  Iteration,
+  LoopTraceEmitter,
+  Outcome,
+  SandboxClient,
+  WinnerStrategy,
+} from '../runtime'
+import { runLoop, selectValidWinner } from '../runtime'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type DetachedTurn,
@@ -117,11 +124,13 @@ export type CoderReviewer = (
 ) => Promise<CoderReview> | CoderReview
 
 /**
- * @experimental Winner-selection strategy among validated (+ reviewed)
- * candidates. `highest-readiness` requires a `reviewer`. Default `highest-score`
- * (the kernel's behavior — preserves backward compatibility).
+ * @experimental Winner-selection strategy among validated (+ reviewed) candidates on the
+ * quarantined detached-session path. The base strategies (`highest-score` / `smallest-diff` /
+ * `first-approved`) delegate to the shared `selectValidWinner`; `highest-readiness` is the
+ * reviewer-only strategy this path keeps that the generic selector does not express. Default
+ * `highest-score`.
  */
-export type CoderWinnerSelection =
+export type DetachedWinnerSelection =
   | 'highest-score'
   | 'smallest-diff'
   | 'highest-readiness'
@@ -165,7 +174,7 @@ export interface DetachedSessionDelegateOptions {
    */
   reviewer?: CoderReviewer
   /** Winner-selection strategy among eligible candidates. Default `highest-score`. */
-  winnerSelection?: CoderWinnerSelection
+  winnerSelection?: DetachedWinnerSelection
   /**
    * Loop trace emitter forwarded into every delegated `runLoop`. Wire
    * `createPropagatingTraceEmitter(readTraceContextFromEnv())` here (the bin
@@ -319,15 +328,15 @@ export function detachedSessionDelegate(
 interface PickCoderWinnerArgs {
   iterations: ReadonlyArray<Iteration<CoderTask, CoderOutput>>
   reviewer: CoderReviewer | undefined
-  selection: CoderWinnerSelection
+  selection: DetachedWinnerSelection
   task: CoderTask
   signal: AbortSignal
 }
 
-interface CoderCandidate {
-  index: number
-  output: CoderOutput
-  score: number
+/** A valid (and, when a reviewer is wired, approved) candidate kept for selection. */
+interface EligibleCandidate {
+  iter: Iteration<CoderTask, CoderOutput>
+  /** Reviewer readiness (defaults to the verdict score when no reviewer ran). */
   readiness: number
 }
 
@@ -336,55 +345,61 @@ interface CoderCandidate {
  *   1. keep only mechanically-VALID candidates (the validator already gated
  *      tests/typecheck/forbidden/diff/no-op/secrets),
  *   2. if a `reviewer` is wired, keep only those it APPROVES,
- *   3. select among survivors by the chosen strategy.
+ *   3. select among survivors via the shared `selectValidWinner` (base strategies) or, for the
+ *      reviewer-only `highest-readiness`, a readiness sort (the one strategy the generic selector
+ *      does not express — a documented capability of this quarantined path).
  * Returns `undefined` when nothing survives — the delegate fails loud.
  */
 async function pickCoderWinner(args: PickCoderWinnerArgs): Promise<CoderOutput | undefined> {
-  const valid: CoderCandidate[] = []
+  const eligible: EligibleCandidate[] = []
   for (const iter of args.iterations) {
     if (iter.output === undefined || iter.error || iter.verdict?.valid !== true) continue
-    valid.push({
-      index: iter.index,
-      output: iter.output,
-      score: iter.verdict.score ?? 0,
-      readiness: iter.verdict.score ?? 0,
-    })
-  }
-  if (valid.length === 0) return undefined
-
-  let eligible = valid
-  if (args.reviewer) {
-    eligible = []
-    for (const c of valid) {
-      const review = await args.reviewer(c.output, args.task, { signal: args.signal })
-      if (review.approved) eligible.push({ ...c, readiness: review.readiness })
+    const readiness = iter.verdict.score ?? 0
+    if (args.reviewer) {
+      const review = await args.reviewer(iter.output, args.task, { signal: args.signal })
+      if (!review.approved) continue
+      eligible.push({ iter, readiness: review.readiness })
+    } else {
+      eligible.push({ iter, readiness })
     }
-    if (eligible.length === 0) return undefined
+  }
+  if (eligible.length === 0) return undefined
+
+  // `highest-readiness` ranks on the reviewer's readiness — a reviewer-only metric the generic
+  // valid-only selector does not carry. Ties → earliest iteration.
+  if (args.selection === 'highest-readiness') {
+    const sorted = [...eligible].sort(
+      (a, b) => b.readiness - a.readiness || a.iter.index - b.iter.index,
+    )
+    return sorted[0]!.iter.output
   }
 
-  return selectCoderCandidate(eligible, args.selection).output
+  // Base strategies route through the SHARED valid-only selector. Wrap each survivor's raw
+  // `CoderOutput` in the `Outcome<D>` shape `selectValidWinner` reads, preserving verdict/index.
+  const wrapped: Iteration<unknown, Outcome<CoderOutput>>[] = eligible.map(({ iter }) => ({
+    ...iter,
+    output: { kind: 'done', deliverable: iter.output as CoderOutput },
+  }))
+  const winner = selectValidWinner<CoderOutput>({
+    strategy: baseStrategy(args.selection),
+    sizeOf: (o) => o.diffStats.insertions + o.diffStats.deletions,
+  })(wrapped)
+  const out = winner?.output
+  if (!out || out.kind !== 'done') return undefined
+  return out.deliverable
 }
 
-/** Apply the winner-selection strategy; ties broken by earliest iteration. */
-function selectCoderCandidate(
-  candidates: CoderCandidate[],
-  selection: CoderWinnerSelection,
-): CoderCandidate {
-  const diffLines = (c: CoderCandidate) =>
-    c.output.diffStats.insertions + c.output.diffStats.deletions
-  const sorted = [...candidates].sort((a, b) => {
-    switch (selection) {
-      case 'smallest-diff':
-        return diffLines(a) - diffLines(b) || a.index - b.index
-      case 'highest-readiness':
-        return b.readiness - a.readiness || a.index - b.index
-      case 'first-approved':
-        return a.index - b.index
-      default:
-        return b.score - a.score || a.index - b.index
-    }
-  })
-  return sorted[0]!
+/** Map the detached-session selection enum onto the shared `WinnerStrategy`. `first-approved`
+ *  reduces to `first-valid` over the already-approved set; `smallest-diff` to `smallest-artifact`. */
+function baseStrategy(selection: Exclude<DetachedWinnerSelection, 'highest-readiness'>): WinnerStrategy {
+  switch (selection) {
+    case 'smallest-diff':
+      return 'smallest-artifact'
+    case 'first-approved':
+      return 'first-valid'
+    default:
+      return 'highest-score'
+  }
 }
 
 function noWinnerMessage(reviewer: CoderReviewer | undefined): string {

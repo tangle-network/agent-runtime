@@ -31,8 +31,8 @@ import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/ty
 import { ConfigError } from './errors'
 import {
   type CoderReviewer,
-  type CoderWinnerSelection,
   type DelegateRunCtx,
+  type DetachedWinnerSelection,
   detachedSessionDelegate,
 } from './mcp/delegates'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
@@ -132,7 +132,7 @@ export interface CoderLoopRunnerOptions {
   /** Adversarial reviewer. REQUIRED for `review` mode (see `reviewLoopRunner`). */
   reviewer?: CoderReviewer
   /** Winner-selection strategy. Default `highest-score`. */
-  winnerSelection?: CoderWinnerSelection
+  winnerSelection?: DetachedWinnerSelection
   /** Harnesses for `variants > 1` fanout. */
   fanoutHarnesses?: string[]
 }
