@@ -49,11 +49,11 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
                     │  each round it decides the TOPOLOGY MOVE ─────┐ this IS
                     │   refine │ fanout │ select │ stop          │ │ "topology grown
                     │  then drives workers via the toolbox:      │ │  by LLM decision"
-                    │   spawn_worker · await_next · steer_worker │ │ (driver.ts:52)
+                    │   spawn_worker · await_event · steer_worker │ │ (driver.ts:52)
                     └───────────────┬────────────────────────────┘ │
        spawn_worker(profile,task) ──┤  reserves budget (fails       │
        steer_worker(id,msg) ────────┤  CLOSED if the pool is dry)   │
-       await_next ──────────────────┘                               │
+       await_event ──────────────────┘                               │
                     ┌───────────────┼───────────────┐               │
                     ▼               ▼                ▼               │
              ┌───────────┐   ┌───────────┐   ┌───────────┐          │
@@ -113,7 +113,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
         └─ 4. settle  ──►  pool.reconcile(ticket, actualSpend)
                                             │
                                             ▼
-                              await_next wakes the driver with this child's result
+                              await_event wakes the driver with this child's result
 ```
 
 **Net:** the "unified thing" is the `Executor` port. Everything that runs work — a router call, a cli-bridge turn, a `claude -p` subprocess, a full sandbox rollout, or a BYO agent — is an `Executor`, chosen by data via `createExecutor`, metered by one budget pool. Drivers and workers are both `act`s over that port; the only structural difference is the driver carries the operator toolbox (so it can spawn/steer) and the worker does not.

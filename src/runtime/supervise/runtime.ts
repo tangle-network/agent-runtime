@@ -318,12 +318,11 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       }
 
       for (let t = 0; t < maxTurns; t += 1) {
-        turns += 1
         // QUEUED messages flush at the step boundary, before this turn's inference.
         flush()
         // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately.
         const interruptSig = inbox.freshInterrupt()
-        const turnSignal = AbortSignal.any([signal, controller.signal, interruptSig])
+        const turnSignal = mergeAbortSignals(signal, controller.signal, interruptSig)
         let res: Response
         try {
           res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -343,10 +342,13 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           })
         } catch (e) {
           // A forceful inbox message aborted this turn — discard it and re-plan (the next iteration's
-          // flush folds the message in). An EXTERNAL abort (teardown/budget) is fatal — rethrow.
+          // flush folds the message in). The aborted turn did no inference, so it does NOT count
+          // toward maxTurns. An EXTERNAL abort (teardown/budget) is fatal — rethrow.
           if (interruptSig.aborted && !signal.aborted && !controller.signal.aborted) continue
           throw e
         }
+        // The inference completed — count the turn now (so an interrupted, re-planned turn is free).
+        turns += 1
         if (!res.ok) {
           throw new ValidationError(
             `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
@@ -1005,6 +1007,21 @@ function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
   const onAbort = () => c.abort()
   a.addEventListener('abort', onAbort, { once: true })
   b.addEventListener('abort', onAbort, { once: true })
+  return c.signal
+}
+
+/** Combine N abort signals into one that fires when ANY does. Node-portable (no `AbortSignal.any`,
+ *  which needs >=20.3 — the package floor is >=20). */
+function mergeAbortSignals(...signals: AbortSignal[]): AbortSignal {
+  const c = new AbortController()
+  const onAbort = () => c.abort()
+  for (const s of signals) {
+    if (s.aborted) {
+      c.abort()
+      break
+    }
+    s.addEventListener('abort', onAbort, { once: true })
+  }
   return c.signal
 }
 

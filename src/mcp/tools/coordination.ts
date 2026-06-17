@@ -113,11 +113,15 @@ export interface CoordinationTools {
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
   /** The full ordered log of every bus event — UP (settled / question / finding) and DOWN
-   *  (steer / answer / resume) — the observability audit + replay trail. Each record carries seq,
+   *  (steer / answer) — the observability audit + replay trail. Each record carries seq,
    *  timestamp, and priority. */
   history(): ReadonlyArray<BusRecord<CoordinationEvent>>
   /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
   stats(): BusStats
+  /** Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
+   *  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
+   *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
+  raiseFinding(finding: AnalystFindingEvent): Promise<void>
 }
 
 const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
@@ -203,13 +207,18 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
   // subscribers) WITHOUT enqueuing it — the parent must never pull its own outbound message back.
-  const sendDown = async (
+  // Overloaded so the `answer` kind REQUIRES a questionId (no silent `?? ''` fallback to mask a bug).
+  function sendDown(type: 'steer', down: DownMessageEvent): Promise<void>
+  function sendDown(type: 'answer', down: DownMessageEvent, questionId: string): Promise<void>
+  async function sendDown(
     type: 'steer' | 'answer',
     down: DownMessageEvent,
     questionId?: string,
-  ): Promise<void> => {
+  ): Promise<void> {
     await bus.publish(
-      type === 'answer' ? { type, down, questionId: questionId ?? '' } : { type, down },
+      type === 'answer'
+        ? { type, down, questionId: str(questionId, 'questionId') }
+        : { type, down },
       { queue: false },
     )
   }
@@ -371,7 +380,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           interrupt: {
             type: 'boolean',
             description:
-              'true = forceful: break the worker out of its current step NOW to handle this. ' +
+              'true = forceful: abort the worker’s in-flight inference so it re-plans on the NEXT ' +
+              'turn (a tool already mid-execution finishes first; only the owned tool-loop honors this). ' +
               'false/omitted = queued: it flushes at the next step boundary (and before it may settle).',
           },
         },
@@ -457,7 +467,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             by: typeof a.by === 'string' && a.by.length > 0 ? a.by : 'user',
           })
           // Route the answer DOWN to the worker that asked, unparking it, and record the down-leg.
-          const delivered = opts.scope.send(question.from, { answer, questionId })
+          // A blocking question parked the worker, so deliver forcefully — it should resume on the
+          // answer immediately, not wait for its next step boundary.
+          const interrupt = question.urgency === 'blocks-run' || question.urgency === 'blocks-step'
+          const delivered = opts.scope.send(question.from, { answer, questionId, interrupt })
           await sendDown(
             'answer',
             { toWorker: question.from, instruction: answer, delivered },
@@ -582,6 +595,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   return {
     tools,
     history: () => bus.history(),
+    raiseFinding: (finding) => bus.publish({ type: 'finding', finding }).then(() => undefined),
     stats: () => bus.stats(),
     isStopped: () => stopped,
     stopReason: () => reason,

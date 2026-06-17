@@ -143,7 +143,7 @@ function humanEvalWorker(task: HumanEvalTask, label: string): Agent<unknown, unk
   }
 }
 
-const driverSystem = `You are an orchestrator driving worker agents to solve a Python coding task. You do NOT write code yourself. Each worker independently attempts the task and is graded by a deterministic, hidden test suite. Tools: spawn_worker (dispatch one attempt; the "profile" argument may be {} and "task" a short note), await_next (collect the next settled worker — its result tells you valid:true if its tests PASSED, valid:false if they failed), and stopping (reply with NO tool call) once a worker has DELIVERED. Spawn one worker, await it; if it delivered, stop; if not, spawn another, up to ${K} workers total. You cannot declare success yourself — only a delivered (valid:true) worker counts.`
+const driverSystem = `You are an orchestrator driving worker agents to solve a Python coding task. You do NOT write code yourself. Each worker independently attempts the task and is graded by a deterministic, hidden test suite. Tools: spawn_worker (dispatch one attempt; the "profile" argument may be {} and "task" a short note), await_event (collect the next settled worker — its result tells you valid:true if its tests PASSED, valid:false if they failed), and stopping (reply with NO tool call) once a worker has DELIVERED. Spawn one worker, await it; if it delivered, stop; if not, spawn another, up to ${K} workers total. You cannot declare success yourself — only a delivered (valid:true) worker counts.`
 
 interface TaskOutcome {
   taskId: string

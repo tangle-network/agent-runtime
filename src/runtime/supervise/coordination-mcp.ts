@@ -35,6 +35,8 @@ export interface CoordinationMcpHandle {
   history: CoordinationTools['history']
   /** Bus throughput counters for live dashboards. */
   stats: CoordinationTools['stats']
+  /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
+  raiseFinding: CoordinationTools['raiseFinding']
   close(): Promise<void>
 }
 
@@ -119,6 +121,7 @@ export async function serveCoordinationMcp(opts: {
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
+    raiseFinding: (finding) => coord.raiseFinding(finding),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())

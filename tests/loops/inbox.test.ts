@@ -99,4 +99,48 @@ describe('router-tools executor drains the inbox', () => {
     const turn2 = bodies[1]?.messages ?? []
     expect(turn2.some((m) => m.content?.includes('also handle the wide-char edge case'))).toBe(true)
   })
+
+  it('a FORCEFUL steer aborts the in-flight turn; the worker re-plans and the aborted turn is free', async () => {
+    const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = []
+    let calls = 0
+    let deliver: (m: unknown) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string; signal?: AbortSignal }) => {
+        calls += 1
+        if (calls === 1) {
+          // The driver forcefully interrupts mid-inference — the turn signal aborts and fetch rejects.
+          deliver({ steer: 'STOP — wrong file, edit src/core.ts', interrupt: true })
+          throw new DOMException('aborted', 'AbortError')
+        }
+        bodies.push(JSON.parse(init?.body ?? '{}'))
+        return noToolReply()
+      }),
+    )
+
+    const factory = createExecutor({
+      backend: 'router-tools',
+      model: 'test-model',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'k',
+      tools: [],
+      executeToolCall: async () => '',
+    })
+    const spec: AgentSpec = {
+      profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
+      harness: null,
+    } as AgentSpec
+    const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+    deliver = (m) => exec.deliver?.(m)
+
+    const result = await exec.execute('edit the file', new AbortController().signal)
+
+    // The aborted turn was discarded and the worker re-planned on turn 2...
+    expect(calls).toBe(2)
+    // ...which carries the forceful steer, and the aborted turn did NOT count toward iterations.
+    expect(
+      bodies[0]?.messages.some((m) => m.content?.includes('wrong file, edit src/core.ts')),
+    ).toBe(true)
+    expect(result.spent.iterations).toBe(1)
+  })
 })
