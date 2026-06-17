@@ -51,9 +51,17 @@ export function createDetectorMonitor(opts: DetectorMonitorOptions = {}): Detect
   const detectors = opts.detectors ?? defaultToolDetectors()
   return {
     observeToolStep(step) {
+      // Defensive: a hash/serialization quirk in the step args must never throw out of an
+      // observability side-channel. Fall back to the tool name alone.
+      let fingerprint: string
+      try {
+        fingerprint = `${step.toolName}|${argHash(step.args)}`
+      } catch {
+        fingerprint = `${step.toolName}|<unhashable>`
+      }
       const signals = observeAll(detectors, {
         // Same fingerprint scheme as agent-eval's batch stuck-loop view: tool name + hashed args.
-        actionFingerprint: `${step.toolName}|${argHash(step.args)}`,
+        actionFingerprint: fingerprint,
         ...(step.status ? { status: step.status } : {}),
         label: step.toolName,
       })

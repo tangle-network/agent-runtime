@@ -240,7 +240,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     }
     if (ev.type === 'question') return { type: 'question', question: ev.question }
     if (ev.type === 'finding') return { type: 'finding', ...ev.finding }
-    // Down-leg kinds are record-only (never queued), so the driver never pulls them; project
+    if (ev.type === 'answer') return { type: 'answer', ...ev.down, questionId: ev.questionId }
+    // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
   }

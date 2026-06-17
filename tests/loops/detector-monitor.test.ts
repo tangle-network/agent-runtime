@@ -37,6 +37,13 @@ describe('detector monitor (online analyst on the worker pipe)', () => {
     expect(fired.some((s) => s.detector === 'error-streak' && s.streak === 3)).toBe(true)
   })
 
+  it('never throws on unhashable (circular) args — observability must not crash the worker', () => {
+    const monitor = createDetectorMonitor()
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    expect(() => monitor.observeToolStep({ toolName: 'x', args: circular })).not.toThrow()
+  })
+
   it('reset clears the streak so a fresh run starts clean', () => {
     const monitor = createDetectorMonitor()
     monitor.observeToolStep({ toolName: 't', args: {} })

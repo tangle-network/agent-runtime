@@ -317,12 +317,23 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         return pending.length > 0
       }
 
+      // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
+      // re-register listeners on these long-lived signals every turn.
+      const external = mergeAbortSignals(signal, controller.signal)
+
       for (let t = 0; t < maxTurns; t += 1) {
         // QUEUED messages flush at the step boundary, before this turn's inference.
         flush()
-        // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately.
+        // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
+        // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
+        // removed after the turn (`cleanup`) so nothing accumulates across turns.
         const interruptSig = inbox.freshInterrupt()
-        const turnSignal = mergeAbortSignals(signal, controller.signal, interruptSig)
+        const turnController = new AbortController()
+        const abortTurn = () => turnController.abort()
+        if (external.aborted) turnController.abort()
+        else external.addEventListener('abort', abortTurn)
+        interruptSig.addEventListener('abort', abortTurn, { once: true })
+        const cleanup = () => external.removeEventListener('abort', abortTurn)
         let res: Response
         try {
           res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -338,16 +349,25 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               tool_choice: 'auto',
               temperature: 0.2,
             }),
-            signal: turnSignal,
+            signal: turnController.signal,
           })
         } catch (e) {
-          // A forceful inbox message aborted this turn — discard it and re-plan (the next iteration's
-          // flush folds the message in). The aborted turn did no inference, so it does NOT count
-          // toward maxTurns. An EXTERNAL abort (teardown/budget) is fatal — rethrow.
-          if (interruptSig.aborted && !signal.aborted && !controller.signal.aborted) continue
+          cleanup()
+          // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
+          // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
+          // loop slot (so interrupt spam is bounded by maxTurns, not a hang) but does not bill a turn.
+          // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
+          const interruptAbort =
+            e instanceof DOMException &&
+            e.name === 'AbortError' &&
+            interruptSig.aborted &&
+            !signal.aborted &&
+            !controller.signal.aborted
+          if (interruptAbort) continue
           throw e
         }
-        // The inference completed — count the turn now (so an interrupted, re-planned turn is free).
+        cleanup()
+        // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
         turns += 1
         if (!res.ok) {
           throw new ValidationError(
@@ -408,8 +428,13 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           }
           messages.push({ role: 'tool', tool_call_id: id, content: result })
           // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
-          // call or hammering errors is caught mid-run, not only at settle.
-          seam.onToolStep?.({ toolName, args, status })
+          // call or hammering errors is caught mid-run, not only at settle. This is an observability
+          // side-channel: a throwing monitor must never crash the production inference loop.
+          try {
+            seam.onToolStep?.({ toolName, args, status })
+          } catch {
+            // ignore — monitoring must not break the worker
+          }
         }
       }
 

@@ -24,7 +24,9 @@ export interface RecordedToolStep {
 }
 
 export interface TrajectoryAnalysis {
-  /** Structured run summary: tool-call count, llm turns, total duration. */
+  /** Structured run summary (tool-call count, step order). Steps are recorded at a single timestamp
+   *  — the moment the tool call resolved — so per-span duration is 0; loop/waste detection keys on
+   *  call PATTERNS + cross-span windows, not individual durations. */
   readonly trajectory: Awaited<ReturnType<typeof buildTrajectory>>
   /** Full-run repeated-call view (total occurrences + window), distinct from the online consecutive
    *  detector — catches a loop that is interleaved with other calls. */
