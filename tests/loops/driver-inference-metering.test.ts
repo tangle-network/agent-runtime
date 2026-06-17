@@ -89,7 +89,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.01,
       },
       {
-        toolCalls: [{ name: 'await_next', arguments: {} }],
+        toolCalls: [{ name: 'await_event', arguments: {} }],
         usage: { input: 80, output: 40 },
         costUsd: 0.008,
       },
@@ -175,7 +175,7 @@ describe("driver inference metering — the driver's own tokens count against th
           usage: { input: 60, output: 40 },
           costUsd: 0.05,
         },
-        { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 30, output: 20 } },
+        { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 30, output: 20 } },
         { content: 'mid done', usage: { input: 10, output: 5 } },
       ],
     }
@@ -186,7 +186,7 @@ describe("driver inference metering — the driver's own tokens count against th
         usage: { input: 100, output: 50 },
         costUsd: 0.02,
       },
-      { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 50, output: 30 } },
+      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 50, output: 30 } },
       { content: 'root done', usage: { input: 20, output: 10 } },
     ])
 
@@ -258,7 +258,7 @@ describe("driver inference metering — the driver's own tokens count against th
         ],
         usage: { input: 100, output: 50 },
       },
-      { toolCalls: [{ name: 'await_next', arguments: {} }] }, // drains the sub-driver's down settlement
+      { toolCalls: [{ name: 'await_event', arguments: {} }] }, // drains the sub-driver's down settlement
       { content: 'root done' }, // no usage → root inference = 100/50
     ])
 
@@ -356,7 +356,7 @@ describe("driver inference metering — the driver's own tokens count against th
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
-      { toolCalls: [{ name: 'await_next', arguments: {} }], usage: { input: 80, output: 40 } },
+      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 80, output: 40 } },
       { content: 'done', usage: { input: 30, output: 10 } },
     ])
     const opts: CoordinationDriverOptions = {
@@ -408,7 +408,7 @@ describe("driver inference metering — the driver's own tokens count against th
         spend: { tokens: { input: number } }
       }
     expect(at(1).turn).toBe(1)
-    expect(at(1).toolCalls).toEqual(['await_next'])
+    expect(at(1).toolCalls).toEqual(['await_event'])
     expect(at(1).spend.tokens.input).toBe(80)
     expect(at(2).turn).toBe(2)
     expect(at(2).toolCalls).toEqual([]) // the stop turn named no tool
