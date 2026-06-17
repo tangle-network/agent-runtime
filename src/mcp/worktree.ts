@@ -10,8 +10,9 @@
  * harness exits + the diff is captured, the worktree is removed.
  *
  * All operations spawn `git` via `child_process.spawn` synchronously
- * (via a `runGit` helper). Stays narrow on purpose: no working-tree
- * staging, no commits, no rebases.
+ * (via a `runGit` helper). Stays narrow on purpose: no commits, no rebases.
+ * Diff capture stages all changes (`git add -A`) into the ephemeral worktree's
+ * index so created (untracked) files appear in the `--cached` diff.
  */
 
 import { spawn } from 'node:child_process'
@@ -131,12 +132,22 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Wo
 /** @experimental */
 export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffResult> {
   const baseRef = options.baseRef ?? options.worktree.baseSha
-  const patch = await runGitAsync(['diff', baseRef], options.worktree.path, options.runGit)
+  // Stage everything (incl. NEW/untracked files) before diffing: a plain `git diff <ref>`
+  // omits untracked files, so a worker that delivers by CREATING a file (a fresh dossier,
+  // a new module) would produce an empty diff and silently fail to compound. Staging into
+  // the index and diffing `--cached` captures created files. The worktree is ephemeral, so
+  // mutating its index has no observable side effect.
+  await runGitAsync(['add', '-A'], options.worktree.path, options.runGit)
+  const patch = await runGitAsync(
+    ['diff', '--cached', baseRef],
+    options.worktree.path,
+    options.runGit,
+  )
   // No `ensureGitOk` here — diff returns 0 even when there are no changes.
 
   // Stats: `git diff --shortstat` produces e.g. " 3 files changed, 42 insertions(+), 10 deletions(-)".
   const shortstat = await runGitAsync(
-    ['diff', '--shortstat', baseRef],
+    ['diff', '--cached', '--shortstat', baseRef],
     options.worktree.path,
     options.runGit,
   )
