@@ -81,22 +81,28 @@ export const decodeOpencodePart: ToolPartDecoder = (p) => {
   }
 }
 
-/** Anthropic / claude-code: a `{ type:'tool_use', id, name, input }` content block. From the public
- *  Anthropic format — NOT yet live-validated (the claude-code harness crashed `exit 1` with the test
- *  model, so a real box produced no tool calls to confirm against; owed the same proof opencode got). */
+/** Anthropic / claude-code (also kimi's tool_use variant): a `{ type:'tool_use', id|tool_use_id,
+ *  name|tool, input }` content block. CONFIRMED against the cli-bridge's authoritative parsers
+ *  (claude.ts reads `block.type==='tool_use', block.id, block.name, block.input`; kimi.ts adds the
+ *  `tool_use_id`/`tool` fallbacks) — the canonical readers of these harnesses' real native output. */
 export const decodeAnthropicPart: ToolPartDecoder = (p) => {
-  if (str(p.type)?.toLowerCase() !== 'tool_use' || !str(p.name)) return undefined
+  if (str(p.type)?.toLowerCase() !== 'tool_use') return undefined
+  const name = str(p.name) ?? str(p.tool)
+  if (!name) return undefined
+  const id = str(p.id) ?? str(p.tool_use_id)
   return {
-    toolName: p.name as string,
+    toolName: name,
     args: p.input ?? {},
-    ...(str(p.id) ? { callId: p.id as string } : {}),
+    ...(id ? { callId: id } : {}),
   }
 }
 
-/** OpenAI-compatible (codex / router / kimi / glm): `{ type:'function'|'tool_call', id,
- *  function:{ name, arguments:<JSON string> } }`. From the public OpenAI format — NOT yet live-
- *  validated on a box (the codex harness crashed `exit 1` with the test model); router/owned-loop
- *  tool dispatch produces this shape directly, so the owned-loop path IS exercised. */
+/** OpenAI-compatible (router / kimi's top-level form / glm): `{ type:'function'|'tool_call', id,
+ *  function:{ name, arguments:<JSON string> } }`. CONFIRMED against the cli-bridge (kimi.ts surfaces
+ *  kimi's top-level `tool_calls:[{type:'function', id, function:{name,arguments}}]` exactly this way).
+ *  NOTE: codex does NOT emit structured tool calls (the bridge's codex.ts never yields `tool_calls` —
+ *  it runs shell internally and surfaces only text), so per-tool detection is unavailable for codex
+ *  from any path — a harness property, not a decoder gap. */
 export const decodeOpenAiPart: ToolPartDecoder = (p) => {
   const type = str(p.type)?.toLowerCase()
   const fn = obj(p.function)

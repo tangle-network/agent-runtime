@@ -40,10 +40,16 @@ describe('decodeToolPart — validated against the LIVE opencode shape', () => {
     ).toEqual({ toolName: 'run', args: { path: 'src/' }, callId: 'call_x' })
   })
 
-  it('decodes an Anthropic / claude-code tool_use block', () => {
+  it('decodes an Anthropic / claude-code tool_use block (cli-bridge claude.ts shape)', () => {
     expect(
       decodeToolPart({ type: 'tool_use', id: 'toolu_1', name: 'edit', input: { file: 'a.ts' } }),
     ).toEqual({ toolName: 'edit', args: { file: 'a.ts' }, callId: 'toolu_1' })
+  })
+
+  it("decodes kimi's tool_use variant (tool_use_id / tool fallbacks, per cli-bridge kimi.ts)", () => {
+    expect(
+      decodeToolPart({ type: 'tool_use', tool_use_id: 'k1', tool: 'read', input: { f: 'x' } }),
+    ).toEqual({ toolName: 'read', args: { f: 'x' }, callId: 'k1' })
   })
 
   it('a known harness selects its adapter (opencode shape only decodes under opencode)', () => {
