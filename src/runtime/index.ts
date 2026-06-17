@@ -316,6 +316,15 @@ export {
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
 export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
+// The online analyst on the worker pipe: folds each live tool step through agent-eval's streaming
+// detectors and fires `onSignal` (→ a `finding` on the bus) the moment a worker loops or error-storms.
+export {
+  createDetectorMonitor,
+  type DetectorMonitor,
+  type DetectorMonitorOptions,
+  defaultToolDetectors,
+  type ToolStep,
+} from './supervise/detector-monitor'
 // The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
 // resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
 // the SAME conserved pool.

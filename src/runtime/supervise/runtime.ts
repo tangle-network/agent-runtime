@@ -244,6 +244,13 @@ export interface RouterToolsSeam {
   model?: string
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
+   *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves. */
+  onToolStep?: (step: {
+    toolName: string
+    args: Record<string, unknown>
+    status: 'ok' | 'error'
+  }) => void
   /** Max inference turns. Default 200 (runaway backstop — set far above any
    *  legitimate workflow). For tighter per-workflow limits use a cost budget
    *  or wall-clock deadline at the call site. */
@@ -388,8 +395,19 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             })
             continue
           }
-          const result = await seam.executeToolCall(tc?.function?.name ?? '', args, task)
+          const toolName = tc?.function?.name ?? ''
+          let result: string
+          let status: 'ok' | 'error' = 'ok'
+          try {
+            result = await seam.executeToolCall(toolName, args, task)
+          } catch (e) {
+            status = 'error'
+            result = `error: ${e instanceof Error ? e.message : String(e)}`
+          }
           messages.push({ role: 'tool', tool_call_id: id, content: result })
+          // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
+          // call or hammering errors is caught mid-run, not only at settle.
+          seam.onToolStep?.({ toolName, args, status })
         }
       }
 
