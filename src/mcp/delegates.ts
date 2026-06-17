@@ -9,11 +9,14 @@
  * invokes when a task runs. Consumers can override either delegate to
  * inject custom drivers, mocks, fleet-aware dispatchers, etc.
  *
- * The default coder delegate is wired here because we own
- * `coderProfile` / `multiHarnessCoderFanout`. The default researcher
- * delegate is **not** wired in this file — `agent-knowledge` cannot be
- * imported from `agent-runtime` without inducing a cycle. Consumers
- * pass `researcherDelegate` explicitly when constructing the server.
+ * QUARANTINED PATH. The `detachedSessionDelegate` here drives the SANDBOX-SESSION coder path —
+ * workers run the in-box harness over a `SandboxClient`, and single-variant turns can dispatch
+ * DETACHED (`driveTurn` ticks) so a durable queue resumes them across an MCP restart. This is a
+ * capability the recursive `Scope`/worktree-CLI leaf has no durable equivalent for yet, so it is
+ * KEPT (not deleted) but gated behind `MCP_ENABLE_DETACHED_RESUME` (default off) in `bin.ts`. For
+ * NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`. The default researcher
+ * delegate is **not** wired in this file — `agent-knowledge` cannot be imported from
+ * `agent-runtime` without inducing a cycle. Consumers pass `researcherDelegate` explicitly.
  */
 
 import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
@@ -60,7 +63,8 @@ export interface DelegateRunCtx {
   traceEmitter?: LoopTraceEmitter
 }
 
-/** @experimental */
+/** @experimental The server's coder-profile delegate slot — the closure the queue invokes for a
+ *  `delegate_code` task. `detachedSessionDelegate` is the built-in (quarantined) implementation. */
 export type CoderDelegate = (
   args: DelegateCodeArgs,
   ctx: DelegateRunCtx,
@@ -124,7 +128,7 @@ export type CoderWinnerSelection =
   | 'first-approved'
 
 /** @experimental */
-export interface CreateDefaultCoderDelegateOptions {
+export interface DetachedSessionDelegateOptions {
   /**
    * Execution placement. Pass a {@link DelegationExecutor} (sibling or fleet)
    * to control where worker iterations land. `sandboxClient` is a
@@ -181,24 +185,24 @@ export interface CreateDefaultCoderDelegateOptions {
 }
 
 /**
- * Build a coder delegate that drives `runLoop` against the project's
- * sandbox client + coder profile. When `args.variants > 1` it switches
- * to the multi-harness fanout topology.
+ * Build the QUARANTINED sandbox-session coder delegate. It drives `runLoop` against the project's
+ * sandbox client + coder profile; when `args.variants > 1` it switches to the multi-harness fanout
+ * topology.
  *
  * This is the SANDBOX-SESSION coder path: workers run the in-box harness via the
  * `SandboxClient`'s `streamPrompt`, and single-variant turns can dispatch DETACHED
  * (driveTurn ticks) so a durable queue resumes them across an MCP restart — a substrate
  * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
  *
- * For NEW local-repo coding, `worktreeCoderFanout` is a generic alternative (author an
- * `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This
- * factory remains first-class: it owns the sandbox-session + detached-resume substrate that the
- * worktree-CLI leaf does not yet replicate.
+ * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
+ * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate is kept
+ * ONLY for the detached-resume capability the worktree-CLI leaf does not yet replicate, gated
+ * behind `MCP_ENABLE_DETACHED_RESUME`.
  *
  * @experimental
  */
-export function createDefaultCoderDelegate(
-  options: CreateDefaultCoderDelegateOptions,
+export function detachedSessionDelegate(
+  options: DetachedSessionDelegateOptions,
 ): CoderDelegate {
   const executor = resolveExecutor(options)
   const sandboxClient = executor.client
@@ -459,15 +463,15 @@ function buildCoderGoal(args: DelegateCodeArgs): string {
   return [args.goal, '', '## Context', args.contextHint].join('\n')
 }
 
-function resolveExecutor(options: CreateDefaultCoderDelegateOptions): DelegationExecutor {
+function resolveExecutor(options: DetachedSessionDelegateOptions): DelegationExecutor {
   if (options.executor && options.sandboxClient) {
-    throw new Error('createDefaultCoderDelegate: pass exactly one of `executor` or `sandboxClient`')
+    throw new Error('detachedSessionDelegate: pass exactly one of `executor` or `sandboxClient`')
   }
   if (options.executor) return options.executor
   if (options.sandboxClient) {
     return createSiblingSandboxExecutor({ client: options.sandboxClient })
   }
-  throw new Error('createDefaultCoderDelegate: `executor` or `sandboxClient` is required')
+  throw new Error('detachedSessionDelegate: `executor` or `sandboxClient` is required')
 }
 
 /**

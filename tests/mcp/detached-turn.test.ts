@@ -6,7 +6,7 @@ import { ValidationError } from '../../src/errors'
 import {
   type CoderDelegate,
   coderTaskFromArgs,
-  createDefaultCoderDelegate,
+  detachedSessionDelegate,
   settleDetachedCoderTurn,
 } from '../../src/mcp/delegates'
 import { FileDelegationStore } from '../../src/mcp/delegation-store'
@@ -536,14 +536,14 @@ describe('detachedSessionRef population on submit', () => {
   })
 })
 
-describe('createDefaultCoderDelegate detached path', () => {
+describe('detachedSessionDelegate detached path', () => {
   it('dispatches via driveTurn, rebinds the ref with the sandbox id, and settles the output', async () => {
     const fake = fakeDriveTurnBox({
       ticks: [{ state: 'running' }, { state: 'completed', text: completedText, result: {} }],
       id: 'sandbox_77',
     })
     const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = createDefaultCoderDelegate({ executor, detachedTickIntervalMs: 1 })
+    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
     const rebinds: string[] = []
     const sessionId = 'dlg-turn-coder-deadbeef'
     const output = await delegate(codeArgs, {
@@ -564,7 +564,7 @@ describe('createDefaultCoderDelegate detached path', () => {
       id: 'sandbox_88',
     })
     const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = createDefaultCoderDelegate({ executor, detachedTickIntervalMs: 1 })
+    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
     const queue = new DelegationTaskQueue()
     const handler = createDelegateCodeHandler({ queue, delegate, detachedDispatch: true })
     const { taskId } = await handler({ goal: 'fix', repoRoot: '/r' })
@@ -597,7 +597,7 @@ describe('createDefaultCoderDelegate detached path', () => {
     })
     const box = { ...fake.box, streamPrompt }
     const executor = createSiblingSandboxExecutor({ client: fakeClient(box) })
-    const delegate = createDefaultCoderDelegate({ executor })
+    const delegate = detachedSessionDelegate({ executor })
     const output = await delegate(codeArgs, {
       signal: new AbortController().signal,
       report: () => {},

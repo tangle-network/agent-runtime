@@ -71,7 +71,7 @@ import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
 import {
   coderTaskFromArgs,
-  createDefaultCoderDelegate,
+  detachedSessionDelegate,
   type ResearcherDelegate,
   settleDetachedCoderTurn,
 } from './delegates'
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
 
   const coderDelegate =
     wantCoder && executor
-      ? createDefaultCoderDelegate({
+      ? detachedSessionDelegate({
           executor,
           fanoutHarnesses,
           maxConcurrency,
@@ -171,12 +171,14 @@ async function main(): Promise<void> {
       ? await loadResearcherSupport(executor, maxConcurrency, traceEmitter)
       : undefined
 
-  // Detached dispatch + resume turn on together with the durable store, and
-  // only for session-backed placements with real credentials: in-process
-  // placement has no sandbox session to detach, and the diagnostic no-key stub
-  // cannot resolve boxes. AGENT_RUNTIME_DELEGATION_DETACHED=0 keeps everything
-  // on the streaming path.
+  // Detached dispatch + resume is QUARANTINED behind MCP_ENABLE_DETACHED_RESUME (default off): the
+  // recursive Scope/worktree-CLI leaf has no durable detached-resume equivalent yet, so the
+  // sandbox-session resume path is kept but opt-in. It additionally requires the durable store and
+  // a session-backed placement with real credentials: in-process placement has no sandbox session
+  // to detach, and the diagnostic no-key stub cannot resolve boxes.
+  // AGENT_RUNTIME_DELEGATION_DETACHED=0 keeps everything on the streaming path even when enabled.
   const detachedDispatch =
+    process.env.MCP_ENABLE_DETACHED_RESUME === '1' &&
     Boolean(process.env.AGENT_RUNTIME_DELEGATION_STATE_FILE?.trim()) &&
     process.env.AGENT_RUNTIME_DELEGATION_DETACHED !== '0' &&
     Boolean(process.env.TANGLE_API_KEY) &&

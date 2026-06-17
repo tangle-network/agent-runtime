@@ -5,7 +5,7 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { createDefaultCoderDelegate } from '../../src/mcp/delegates'
+import { detachedSessionDelegate } from '../../src/mcp/delegates'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,
@@ -238,7 +238,7 @@ describe('createFleetWorkspaceExecutor', () => {
   })
 })
 
-describe('createDefaultCoderDelegate with executor', () => {
+describe('detachedSessionDelegate with executor', () => {
   it('rejects when both executor and sandboxClient are passed', () => {
     const fakeClient = {
       async create(): Promise<SandboxInstance> {
@@ -246,13 +246,13 @@ describe('createDefaultCoderDelegate with executor', () => {
       },
     }
     const executor = createSiblingSandboxExecutor({ client: fakeClient })
-    expect(() => createDefaultCoderDelegate({ executor, sandboxClient: fakeClient })).toThrow(
+    expect(() => detachedSessionDelegate({ executor, sandboxClient: fakeClient })).toThrow(
       /exactly one/,
     )
   })
 
   it('rejects when neither is passed', () => {
-    expect(() => createDefaultCoderDelegate({})).toThrow(/required/)
+    expect(() => detachedSessionDelegate({})).toThrow(/required/)
   })
 
   it('accepts the legacy sandboxClient shorthand (defaults to sibling)', () => {
@@ -261,7 +261,7 @@ describe('createDefaultCoderDelegate with executor', () => {
         return null as unknown as SandboxInstance
       },
     }
-    const delegate = createDefaultCoderDelegate({ sandboxClient: fakeClient })
+    const delegate = detachedSessionDelegate({ sandboxClient: fakeClient })
     expect(typeof delegate).toBe('function')
   })
 })

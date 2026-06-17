@@ -32,8 +32,8 @@ import { ConfigError } from './errors'
 import {
   type CoderReviewer,
   type CoderWinnerSelection,
-  createDefaultCoderDelegate,
   type DelegateRunCtx,
+  detachedSessionDelegate,
 } from './mcp/delegates'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
 import type { DelegateCodeArgs } from './mcp/types'
@@ -139,7 +139,7 @@ export interface CoderLoopRunnerOptions {
 
 /** @experimental Build a `code`-mode runner over the hardened coder delegate. */
 export function coderLoopRunner(options: CoderLoopRunnerOptions): DelegatedLoopRunner<CoderOutput> {
-  const delegate = createDefaultCoderDelegate({
+  const delegate = detachedSessionDelegate({
     sandboxClient: options.sandboxClient,
     ...(options.reviewer ? { reviewer: options.reviewer } : {}),
     ...(options.winnerSelection ? { winnerSelection: options.winnerSelection } : {}),
