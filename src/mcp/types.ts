@@ -12,8 +12,9 @@
  * task queue + feedback store.
  */
 
-import type { CoderOutput, CoderTask } from '../profiles/coder'
+import type { CoderTask } from '../profiles/coder'
 import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
+import type { CoderOutput } from './detached-coder'
 import type { DelegationTraceSpan } from './delegation-trace'
 
 /** @experimental */

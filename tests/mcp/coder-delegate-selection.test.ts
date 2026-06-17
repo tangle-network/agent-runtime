@@ -6,7 +6,7 @@ import {
   type DetachedWinnerSelection,
   detachedSessionDelegate,
 } from '../../src/mcp/delegates'
-import type { CoderOutput } from '../../src/profiles/coder'
+import type { CoderOutput } from '../../src/mcp/detached-coder'
 
 function diff(path: string, plus: number, minus: number): string {
   const out = [`diff --git a/${path} b/${path}`, `--- a/${path}`, `+++ b/${path}`]

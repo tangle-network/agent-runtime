@@ -19,7 +19,7 @@
  * `agent-runtime` without inducing a cycle. Consumers pass `researcherDelegate` explicitly.
  */
 
-import { type CoderOutput, coderProfile, multiHarnessCoderFanout } from '../profiles/coder'
+import type { CoderTask } from '../profiles/coder'
 import type {
   AgentRunSpec,
   Iteration,
@@ -29,6 +29,13 @@ import type {
   WinnerStrategy,
 } from '../runtime'
 import { runLoop, selectValidWinner } from '../runtime'
+import {
+  type CoderOutput,
+  coderOutputAdapter,
+  coderRunSpec,
+  createCoderValidator,
+  multiHarnessCoderFanout,
+} from './detached-coder'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
   type DetachedTurn,
@@ -39,7 +46,6 @@ import {
 } from './detached-turn'
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
-  CoderTask,
   DelegateCodeArgs,
   DelegateResearchArgs,
   DelegateUiAuditArgs,
@@ -75,7 +81,7 @@ export interface DelegateRunCtx {
 export type CoderDelegate = (
   args: DelegateCodeArgs,
   ctx: DelegateRunCtx,
-) => Promise<import('../profiles/coder').CoderOutput>
+) => Promise<CoderOutput>
 
 /** @experimental */
 export type ResearcherDelegate = (
@@ -118,7 +124,7 @@ export interface CoderReview {
  * judge, a `pnpm review` command, anything returning a `CoderReview`.
  */
 export type CoderReviewer = (
-  output: import('../profiles/coder').CoderOutput,
+  output: CoderOutput,
   task: CoderTask,
   ctx: { signal: AbortSignal },
 ) => Promise<CoderReview> | CoderReview
@@ -224,12 +230,13 @@ export function detachedSessionDelegate(
     const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const { agentRunSpec, output, validator } = coderProfile({
-        task,
+      const agentRunSpec = coderRunSpec({
         ...(options.harness ? { harness: options.harness } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
       })
+      const output = coderOutputAdapter
+      const validator = createCoderValidator(task)
       // Detached dispatch: one session on one box, driven by `driveTurn` ticks
       // instead of a held stream, so the run survives an MCP-process restart
       // (the resume driver re-attaches via the persisted ref). Only the
@@ -458,12 +465,8 @@ export async function settleDetachedCoderTurn(
   turn: DetachedTurn,
   options: SettleDetachedCoderTurnOptions,
 ): Promise<CoderOutput> {
-  const { output, validator } = coderProfile({
-    task: options.task,
-    ...(options.harness ? { harness: options.harness } : {}),
-    ...(options.model ? { model: options.model } : {}),
-  })
-  const parsed = output.parse(detachedTurnEvents(options.sessionId, turn))
+  const parsed = coderOutputAdapter.parse(detachedTurnEvents(options.sessionId, turn))
+  const validator = createCoderValidator(options.task)
   const verdict = await validator.validate(parsed, { iteration: 0, signal: options.signal })
   if (verdict.valid !== true) throw new Error(noWinnerMessage(options.reviewer))
   if (options.reviewer) {

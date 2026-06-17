@@ -65,7 +65,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
-import { coderProfile } from '../profiles/coder'
+import { coderTaskToPrompt } from '../profiles/coder'
 import type { AgentRunSpec, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
@@ -295,7 +295,7 @@ function buildResumeDriver(args: {
     buildMessage(record) {
       if (record.profile === 'coder') {
         const task = coderTaskFromArgs(record.args as DelegateCodeArgs)
-        return coderProfile({ task }).taskToPrompt(task)
+        return coderTaskToPrompt(task)
       }
       if (record.profile === 'researcher' && args.researcherResume) {
         return args.researcherResume.message(record.args as DelegateResearchArgs)

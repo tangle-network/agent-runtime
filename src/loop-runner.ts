@@ -37,7 +37,7 @@ import {
 } from './mcp/delegates'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
 import type { DelegateCodeArgs } from './mcp/types'
-import type { CoderOutput } from './profiles/coder'
+import type { CoderOutput } from './mcp/detached-coder'
 import {
   type AuthoredHarness,
   type Budget,

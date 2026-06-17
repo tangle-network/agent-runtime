@@ -2,11 +2,11 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   type CoderOutput,
-  type CoderTask,
-  coderProfile,
+  coderOutputAdapter,
   createCoderValidator,
   multiHarnessCoderFanout,
-} from '../../src/profiles'
+} from '../../src/mcp/detached-coder'
+import type { CoderTask } from '../../src/profiles/coder'
 
 const ctx = { iteration: 0, signal: new AbortController().signal }
 
@@ -123,8 +123,8 @@ describe('createCoderValidator — task-bound validator', () => {
   })
 })
 
-describe('coderProfile output adapter', () => {
-  const preset = coderProfile({ task: baseTask })
+describe('coderOutputAdapter — sandbox-session stream decode', () => {
+  const preset = { output: coderOutputAdapter }
 
   it('parses a final result event with embedded coder output', () => {
     const events: SandboxEvent[] = [

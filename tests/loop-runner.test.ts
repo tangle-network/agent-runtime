@@ -2,7 +2,7 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../src/errors'
 import { coderLoopRunner, type DelegatedLoopRegistry, runDelegatedLoop } from '../src/loop-runner'
-import type { CoderOutput } from '../src/profiles/coder'
+import type { CoderOutput } from '../src/mcp/detached-coder'
 
 const clock = () => {
   let t = 0

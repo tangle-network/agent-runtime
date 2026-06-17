@@ -10,9 +10,10 @@
  * This is a THIN adapter over `runWorktreeHarness` (`./worktree-harness`) — the SAME core the
  * `Scope` leaf `createWorktreeCliExecutor` uses. It only adapts the core to the `SandboxClient`
  * port: `create()` reads the authored profile from `CreateSandboxOptions.backend.profile`, and
- * `streamPrompt` runs the core then projects its result into the `CoderOutput`-shaped `result`
- * event the `coderProfile` parser reads. The §1.5 payload (systemPrompt + model) reaches the
- * harness inside the core — the prompt-only path that dropped it is gone.
+ * `streamPrompt` runs the core then emits its raw `WorktreeHarnessResult` (the content-addressed
+ * patch artifact) on the `result` event. The quarantined sandbox-session decode layer
+ * (`./detached-coder`) projects that artifact onto `CoderOutput`; the generic `Scope` path settles
+ * the artifact directly. The §1.5 payload (systemPrompt + model) reaches the harness inside the core.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -26,7 +27,7 @@ import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
 import type { DelegationExecutor } from './executor'
 import type { LocalHarness } from './local-harness'
 import type { GitRunner, WorktreeHandle } from './worktree'
-import { runWorktreeHarness, type WorktreeHarnessResult } from './worktree-harness'
+import { runWorktreeHarness } from './worktree-harness'
 
 /** @experimental */
 export interface InProcessExecutorOptions {
@@ -71,25 +72,15 @@ interface VirtualSandbox extends SandboxInstance {
   }
 }
 
-/** The `CoderOutput` shape the `coderProfile` event parser reads off `data.result`. */
-interface CoderOutput {
-  branch: string
-  patch: string
-  testResult: { passed: boolean; output: string }
-  typecheckResult: { passed: boolean; output: string }
-  diffStats: { filesChanged: number; insertions: number; deletions: number }
-  reviewerNotes?: string
-}
-
 const DEFAULT_HARNESS_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
 
 /**
  * Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()`
  * returns a minimal virtual `SandboxInstance`; the kernel calls `streamPrompt(msg)` on it, which
- * runs the shared worktree-harness core and emits one `result` event whose `data.result` is a
- * `CoderOutput`. The authored profile (`backend.profile`) threads its systemPrompt + model into
- * the harness via the core.
+ * runs the shared worktree-harness core and emits one `result` event whose `data.result` is the
+ * raw `WorktreeHarnessResult` (the content-addressed patch artifact). The authored profile
+ * (`backend.profile`) threads its systemPrompt + model into the harness via the core.
  *
  * @experimental
  */
@@ -194,7 +185,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
             yield {
               type: 'result',
               data: {
-                result: toCoderOutput(run.result, harness),
+                result: run.result,
                 source: 'in-process-executor',
                 harness,
                 runId,
@@ -228,27 +219,6 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
         options.testCmd ? `, testCmd="${options.testCmd}"` : ''
       }${options.typecheckCmd ? `, typecheckCmd="${options.typecheckCmd}"` : ''})`
     },
-  }
-}
-
-/** Project the canonical worktree-harness result onto the `CoderOutput` the coder parser reads.
- *  A check that did not run (no command configured) is treated as passing — the pre-refactor rule. */
-function toCoderOutput(result: WorktreeHarnessResult, harness: LocalHarness): CoderOutput {
-  const tests = result.checks?.tests
-  const typecheck = result.checks?.typecheck
-  return {
-    branch: result.branch,
-    patch: result.patch,
-    testResult: { passed: tests ? tests.passed : true, output: tail(tests?.output ?? '', 4000) },
-    typecheckResult: {
-      passed: typecheck ? typecheck.passed : true,
-      output: tail(typecheck?.output ?? '', 4000),
-    },
-    diffStats: result.stats,
-    reviewerNotes:
-      result.harness.exitCode === 0
-        ? undefined
-        : `harness ${harness} exited ${result.harness.exitCode}${result.harness.timedOut ? ' (timed out)' : ''}`,
   }
 }
 
@@ -290,9 +260,4 @@ async function defaultRunPostCheck(
       resolve({ exitCode: code ?? -1, stdout, stderr })
     })
   })
-}
-
-function tail(text: string, max: number): string {
-  if (text.length <= max) return text
-  return text.slice(text.length - max)
 }

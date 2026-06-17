@@ -7,18 +7,11 @@
  * constructor — all of the pieces `runLoop` needs to drive a topology.
  */
 
-export type {
-  CoderCheckConstraints,
-  CoderCheckInput,
-  CoderOutput,
-  CoderProfileOptions,
-  CoderTask,
-  MultiHarnessCoderFanoutOptions,
-} from './coder'
+export type { CoderCheckConstraints, CoderCheckInput, CoderTask } from './coder'
 export {
   coderProfile,
-  createCoderValidator,
-  multiHarnessCoderFanout,
+  coderTaskToPrompt,
+  DEFAULT_CODER_SYSTEM_PROMPT,
   runCoderChecks,
 } from './coder'
 export type {
