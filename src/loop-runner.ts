@@ -129,7 +129,7 @@ export interface CoderLoopRunnerOptions {
   sandboxClient: SandboxClient
   /** What to build — the delegate args (goal, repoRoot, variants, config, …). */
   args: DelegateCodeArgs
-  /** Adversarial reviewer. REQUIRED for `review` mode (see `reviewLoopRunner`). */
+  /** Adversarial reviewer. Pass one to run `review` mode (an approval gate over the candidate). */
   reviewer?: CoderReviewer
   /** Winner-selection strategy. Default `highest-score`. */
   winnerSelection?: DetachedWinnerSelection
@@ -137,7 +137,10 @@ export interface CoderLoopRunnerOptions {
   fanoutHarnesses?: string[]
 }
 
-/** @experimental Build a `code`-mode runner over the hardened coder delegate. */
+/**
+ * @experimental Build a `code`/`review`-mode runner over the (quarantined) sandbox-session coder
+ * delegate. Pass a `reviewer` to run `review` mode — an approval gate over the validated candidate.
+ */
 export function coderLoopRunner(options: CoderLoopRunnerOptions): DelegatedLoopRunner<CoderOutput> {
   const delegate = detachedSessionDelegate({
     sandboxClient: options.sandboxClient,
@@ -149,18 +152,6 @@ export function coderLoopRunner(options: CoderLoopRunnerOptions): DelegatedLoopR
     const ctx: DelegateRunCtx = { signal, report: () => {} }
     return delegate(options.args, ctx)
   }
-}
-
-/**
- * @experimental
- *
- * `review` mode = `code` with a REQUIRED reviewer. The gate is the whole point,
- * so the type forces a reviewer (a "review loop" with no reviewer is a code loop).
- */
-export function reviewLoopRunner(
-  options: CoderLoopRunnerOptions & { reviewer: CoderReviewer },
-): DelegatedLoopRunner<CoderOutput> {
-  return coderLoopRunner(options)
 }
 
 /** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */

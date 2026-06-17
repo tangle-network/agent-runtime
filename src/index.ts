@@ -126,7 +126,6 @@ export {
   type ResearchLoopRunnerOptions,
   type RunDelegatedLoopOptions,
   researchLoopRunner,
-  reviewLoopRunner,
   runDelegatedLoop,
   selfImproveLoopRunner,
   type VetoedFact,

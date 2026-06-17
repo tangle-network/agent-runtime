@@ -165,7 +165,7 @@ export interface DelegateCodeHandlerOptions {
    * Record a deterministic detached-session resume key on single-variant
    * submissions (derived from the idempotency key, so retried identical
    * inputs name the same logical turn). Enable only when the wired delegate
-   * dispatches via sandbox sessions — `createDefaultCoderDelegate` routes
+   * dispatches via sandbox sessions — `detachedSessionDelegate` routes
    * onto its `driveTurn` tick path when the ref is present. Fanout
    * (`variants > 1`) never records a ref: one resume key cannot express N
    * sessions + winner selection.

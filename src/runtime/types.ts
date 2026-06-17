@@ -42,7 +42,7 @@ export interface ValidationCtx {
   signal: AbortSignal
   /**
    * Optional trace emitter. When set, validator implementations that make
-   * LLM calls (e.g. LLM reviewer in coderProfile) emit spans into it.
+   * LLM calls (e.g. an LLM-judge reviewer) emit spans into it.
    * The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
    */
   traceEmitter?: LoopTraceEmitter

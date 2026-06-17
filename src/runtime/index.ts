@@ -290,6 +290,18 @@ export {
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'
+// The pure mechanical patch gate (no-op / always-on secret-path floor / forbidden-path / diff-size
+// + test/typecheck) over a captured diff + its derived pass signals — the single source the
+// worktree deliverable scores with. The always-on floors are also exported standalone.
+export {
+  type CoderCheckConstraints,
+  type CoderCheckInput,
+  countDiffLines,
+  isNonEmptyPatch,
+  runCoderChecks,
+  touchedPathsFromPatch,
+  touchesSecretPath,
+} from './supervise/patch-checks'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'

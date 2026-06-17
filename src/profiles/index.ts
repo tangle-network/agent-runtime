@@ -1,19 +1,13 @@
 /**
  * @experimental
  *
- * Pre-built `AgentRunSpec` + output adapter + validator bundles for common
- * agent roles. Each preset bundles a sandbox-SDK `AgentProfile`, a
- * task-to-prompt formatter, an output adapter, and a per-task validator
- * constructor — all of the pieces `runLoop` needs to drive a topology.
+ * Authored `AgentProfile` presets (the §1.5 author-the-profile DATA) for common agent roles, each
+ * with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
+ * invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
  */
 
-export type { CoderCheckConstraints, CoderCheckInput, CoderTask } from './coder'
-export {
-  coderProfile,
-  coderTaskToPrompt,
-  DEFAULT_CODER_SYSTEM_PROMPT,
-  runCoderChecks,
-} from './coder'
+export type { CoderTask } from './coder'
+export { coderProfile, coderTaskToPrompt, DEFAULT_CODER_SYSTEM_PROMPT } from './coder'
 export type {
   BrowserContextHandle,
   BrowserHandle,

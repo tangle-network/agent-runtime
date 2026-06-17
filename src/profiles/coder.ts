@@ -14,19 +14,6 @@
 
 import type { AgentProfile } from '@tangle-network/sandbox'
 
-// Temporary re-export: the mechanical gate + its helpers moved to
-// `../runtime/supervise/patch-checks`. Re-exported here so existing importers keep working
-// mid-refactor; the barrel + importer migration removes this in a later step.
-export {
-  type CoderCheckConstraints,
-  type CoderCheckInput,
-  countDiffLines,
-  isNonEmptyPatch,
-  runCoderChecks,
-  touchedPathsFromPatch,
-  touchesSecretPath,
-} from '../runtime/supervise/patch-checks'
-
 const DEFAULT_MAX_DIFF_LINES = 400
 
 /** @experimental The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces. */
