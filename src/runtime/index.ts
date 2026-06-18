@@ -355,6 +355,14 @@ export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
 export { routerDriverChat } from './supervise/router-driver-chat'
+// The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
+// executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
+// wraps the registry with `withDriverExecutor` for the recursive agents-drive-agents path.
+export {
+  createInMemoryRunContext,
+  type InMemoryRunContext,
+  type InMemoryRunContextOptions,
+} from './supervise/run-context'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {

@@ -30,6 +30,12 @@ Era tags: **production runtime** (`runAgentTask` / `handleChatTurn` — what eve
 | 8 | [`mcp-delegation/`](./mcp-delegation/) | infra | Mount `agent-runtime-mcp` in an `AgentProfile` — exposes `delegate_code`, `delegate_research`, `delegate_feedback`, `delegation_status`, `delegation_history` (plus `delegate_ui_audit` when a UI-audit runner is wired) |
 | 9 | [`fleet-delegation/`](./fleet-delegation/) | infra | `TANGLE_FLEET_ID` flips delegation from sibling-sandbox to fleet-workspace topology |
 
+## The supervisor core, deeper — an agent drives N agents
+
+| # | Example | Era | One sentence |
+|---|---|---|---|
+| 9b | [`supervisor-loop/`](./supervisor-loop/) | supervisor core | One LLM SUPERVISOR (`coordinationDriverAgent`) spawns + drives N worker agents to a checked completion on one conserved pool — the SAME code over `cli` (local, $0) / `router-tools` / `sandbox` / `bridge` via `LOOP_BACKEND` |
+
 ## The runLoop kernel (driver-planned fanout)
 
 The round-synchronous kernel: `driver.plan()` → N tasks → one sandbox per iteration → parse → validate → `driver.decide`. The drivers below are hand-written inline (`plan` + `decide` — two functions); for new recursive work prefer the supervisor core (#3).
@@ -73,6 +79,10 @@ pnpm tsx examples/stream-backends/stream-backends.ts
 pnpm build  # mcp-delegation needs dist/mcp/bin.js
 pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
+
+# Supervisor core, deeper — one agent drives N workers (local path is $0, no creds)
+pnpm tsx examples/supervisor-loop/run-local.ts                 # backend cli, scripted driver
+TANGLE_API_KEY=... pnpm tsx examples/supervisor-loop/run-router.ts   # router-tools + real driver
 
 # runLoop kernel
 pnpm tsx examples/coder-loop/coder-loop.ts
