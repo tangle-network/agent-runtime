@@ -48,6 +48,18 @@ disagrees with source, the **source is right** — fix the map in the *same turn
 Read the cited `docs/canonical-api.md` row before writing; it carries the live
 signature + the exact "do NOT build".
 
+**The §1.5 law, inline:** an agent IS its full authored `AgentProfile`
+(prompt+skills+tools+mcp+subagents+hooks); you change behavior by AUTHORING the
+profile and letting the substrate materialize it into harness shapes —
+self-verification, iteration, and audit are profile levers (hooks/skills/
+subagents), never glue code.
+
+`AgentProfile` is now owned by `@tangle-network/agent-interface` (the `/runtime`
+barrel still re-exports the sandbox alias for back-compat), which also owns
+`HarnessType` + `ReasoningEffort` and a capability layer
+(`harnessSupportsModel` / `reasoningEffortsFor`) — so harness/model/reasoning
+compatibility is a queryable contract, not an assumption.
+
 | Altitude — I want to… | Use | Source |
 |---|---|---|
 | **Define a genome** (who the agent is + what it can do, ONE surface) | `AgentProfile` (runnable) / `AgentSurfaces` (the editable-coordinate map) — `/runtime`, `/agent` | canonical-api §3.2 |
@@ -61,6 +73,7 @@ signature + the exact "do NOT build".
 | **Add a stateful tool-using domain** | implement `AgenticSurface` (5 hooks) — `/loops` | canonical-api §3.3 |
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
 | **Benchmark: add/run an external benchmark from the harness** | `ADAPTERS`/`resolveAdapter(key)` + a bench gate (`*-gate.mts`) over `openSandboxRun` + `sandboxAgentRun` (`bench/src/sandbox-run.ts`) | canonical-api §3.3 |
+| **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/runtime` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
 | **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/runtime` | canonical-api §3.1 |
 | **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — `/improvement` | canonical-api §3.4 |
 | **Optimize a PROMPT/config surface** (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | canonical-api §3.4 |
@@ -87,6 +100,10 @@ holds the load-bearing invariant the parallel breaks:
   `AgentProfile` (it IS that bundle) + `definePersona` (the run record);
   `sandboxAgentRun({ profile })` is the box seam — never pass a router key into
   the box.
+- "drive N coding agents in worktrees + pick the passing patch" / a "coder" role
+  **≈** `worktreeFanout` + `gateOnDeliverable` (each on its own worktree-CLI leaf,
+  settled ⟺ delivered, winner via `selectValidWinner` — a hand-rolled spawn-loop
+  skips the deliverable gate and the valid-only selection).
 - `new Sandbox()` + acquire + stream + `box.fs.read` + delete **≈**
   `openSandboxRun` (persistent + resume) or `runLoop` (fresh box/round).
 - `Promise.all` over N calls + manual argmax/merge **≈** `fanout` (bypassing the
