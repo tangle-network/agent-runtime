@@ -9,20 +9,20 @@ importers:
   .:
     dependencies:
       '@tangle-network/agent-knowledge':
-        specifier: ^1.7.0
+        specifier: '>=1.7.0 <2.0.0'
         version: 1.7.0(@tangle-network/sandbox@0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.15
         version: 2.4.15
       '@tangle-network/agent-eval':
-        specifier: ^0.93.0
+        specifier: '>=0.93.0 <1.0.0'
         version: 0.93.0(@tangle-network/sandbox@0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
       '@tangle-network/agent-interface':
-        specifier: ^0.9.0
-        version: 0.9.0
+        specifier: '>=0.10.0 <1.0.0'
+        version: 0.10.0
       '@tangle-network/sandbox':
-        specifier: ^0.8.0
+        specifier: '>=0.8.0 <1.0.0'
         version: 0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3))
       '@types/node':
         specifier: ^25.9.3
@@ -479,11 +479,11 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  '@tangle-network/agent-interface@0.10.0':
+    resolution: {integrity: sha512-oiREgihkeX/xcGEtFfi9AkAfU2VzuF7SSla2s0iliXPUXyHCIIx6jwzHiYdwb1ZGCfvC+T+0SWOIa6fN5u195g==}
+
   '@tangle-network/agent-interface@0.8.0':
     resolution: {integrity: sha512-okz9LGKwPNKODNyT9Y7+T+sQsJ4g6oTy/hpWpxR6r2BI7pS6WqIdgCOQcx98+WtlPoibkY3ewRRAb8YJMrPHog==}
-
-  '@tangle-network/agent-interface@0.9.0':
-    resolution: {integrity: sha512-iwq8QsJh+EiunLQj5iyEmVFa+v/o3LarOx8qrpqIGt8H4Ga1ecU1sHTExxrgvWDCjq+j6rtOVvEm8uh6RSFcRg==}
 
   '@tangle-network/agent-knowledge@1.7.0':
     resolution: {integrity: sha512-F+a21T2UMW7HVj1Dt6Sv5GqjEQXWUshsVftRpStW1t0bVG0/1aT6DeHYKok1lLmi+D8WZnC0CNXPdb+LyxC/iA==}
@@ -1339,11 +1339,11 @@ snapshots:
 
   '@tangle-network/agent-integrations@0.29.0': {}
 
-  '@tangle-network/agent-interface@0.8.0':
+  '@tangle-network/agent-interface@0.10.0':
     dependencies:
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.9.0':
+  '@tangle-network/agent-interface@0.8.0':
     dependencies:
       zod: 4.4.3
 
