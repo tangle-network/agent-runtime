@@ -7,14 +7,14 @@
  * (`https://router.tangle.tools/v1`); override with `ROUTER_BASE_URL`. Model defaults to a
  * cheap one; override with `LOOP_MODEL`.
  *
- * What is real here vs the local path:
+ * What is real here:
  *   - the driver-LLM seam is `routerDriverChat(cfg)` — the supervisor's spawn/await/stop
  *     turns are REAL router tool-calls (the brain decides the loop itself, not a script).
  *   - the worker leaf comes from `createExecutor({ backend: 'router-tools', ... })` — an
  *     off-box tool-using agentic loop over the router (chat → tool_calls → run → repeat).
  *
- * The supervisor + the shared `runSupervisorLoop` are byte-for-byte the same as run-local;
- * only the two seams (`chat`, `backend`) differ. THAT is the swap.
+ * The supervisor + the shared `runSupervisorLoop` are the same across every runner; only the
+ * two seams (`chat`, `backend`) differ. THAT is the swap.
  */
 
 import {
@@ -22,20 +22,7 @@ import {
   routerDriverChat,
   type ToolSpec,
 } from '@tangle-network/agent-runtime/loops'
-import { reportResult, runSupervisorLoop, type SupervisorTask } from './loop'
-
-const EXPECTED = 'ANSWER=42'
-
-const task: SupervisorTask = {
-  goal: `Produce the exact line "${EXPECTED}".`,
-  check: (out) => {
-    const content =
-      out && typeof out === 'object' && 'content' in out
-        ? String((out as { content: unknown }).content)
-        : String(out)
-    return content.includes(EXPECTED)
-  },
-}
+import { demoTask, reportResult, runSupervisorLoop } from './loop'
 
 async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY
@@ -65,7 +52,7 @@ async function main(): Promise<void> {
     },
   ]
 
-  const routerToolsBackend: ExecutorConfig = {
+  const backend: ExecutorConfig = {
     backend: 'router-tools',
     routerBaseUrl,
     routerKey,
@@ -84,8 +71,8 @@ async function main(): Promise<void> {
   )
 
   const result = await runSupervisorLoop({
-    task,
-    backend: routerToolsBackend,
+    task: demoTask,
+    backend,
     // Real driver-LLM turns — the brain decides spawn/await/stop itself.
     chat: routerDriverChat({ routerBaseUrl, routerKey, model }),
     systemPrompt:

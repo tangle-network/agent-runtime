@@ -7,9 +7,10 @@ The "an LLM agent spawns and drives N workers" path, made runnable. A SUPERVISOR
 `createExecutor({ backend })`; the supervisor settles on the best **delivered** worker (a
 real check passed, never the model's say-so).
 
-The same supervisor code runs over four worker backends. The only thing that changes between
+The same supervisor code runs over three worker backends. The only thing that changes between
 runners is **two seams**: the worker-leaf `backend` and the driver-LLM `chat`. That is the
-whole point — prove the topology locally at $0, then point it at real infra with zero edits.
+whole point — `sandbox` (a box) and `bridge` (local cli-bridge) run the **identical**
+supervisor with zero code change; only the worker-leaf seam differs.
 
 ## Files
 
@@ -17,11 +18,11 @@ whole point — prove the topology locally at $0, then point it at real infra wi
   builds the `coordinationDriverAgent`, resolves each spawned worker to
   `createExecutor({ backend })` gated on the deployable check, and runs it under
   `createSupervisor()`. The `backend` field is the swap seam; the `chat` field is the
-  driver-LLM seam (scripted offline, `routerDriverChat` in production).
-- **`run-local.ts`** — backend `cli`, scripted driver. **$0, no creds, no infra.** The headline.
+  driver-LLM seam (`routerDriverChat` for a real brain, `scriptedSupervisorChat` offline).
+  Also exports the shared `demoTask` + `scriptedSupervisorChat` the runners reuse.
 - **`run-router.ts`** — backend `router-tools` + `routerDriverChat`. Real inference both ends, off-box.
 - **`run-sandbox.ts`** — backend `sandbox`. Each worker is a coding harness in a real box.
-- **`run-bridge.ts`** — backend `bridge`. Each worker is a real harness CLI (claude-code / codex / opencode / kimi / gemini) fronted by the OpenAI-compatible bridge in `~/code/cli-bridge`.
+- **`run-bridge.ts`** — backend `bridge`. Each worker is a real harness CLI (claude-code / codex / opencode / kimi / gemini) fronted by the OpenAI-compatible bridge in `~/code/cli-bridge`. **The local path.**
 
 ## Run matrix
 
@@ -30,33 +31,40 @@ resolves from `dist/`.
 
 | Backend | Command | Needs |
 |---|---|---|
-| **`cli`** (local) | `pnpm tsx examples/supervisor-loop/run-local.ts` | nothing — $0, no creds, no infra |
 | **`router-tools`** | `TANGLE_API_KEY=sk-... pnpm tsx examples/supervisor-loop/run-router.ts` | `TANGLE_API_KEY`; optional `ROUTER_BASE_URL` (default `https://router.tangle.tools/v1`), `LOOP_MODEL` |
-| **`sandbox`** | `TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run-sandbox.ts` | a real `SandboxClient` (key + base URL); optional `LOOP_HARNESS` (default `opencode`) |
-| **`bridge`** | `WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts` | a running `~/code/cli-bridge` (defaults to `http://127.0.0.1:3344`, no bearer); `WORKER_MODEL` = `<harness>/<model>`. Override `BRIDGE_URL` (base, no `/v1`) / `BRIDGE_BEARER` if you started it with auth |
+| **`sandbox`** | `TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run-sandbox.ts` | a real `SandboxClient` (key + base URL); optional `LOOP_HARNESS` (default `opencode`); driver defaults to router-brain, `DRIVER=scripted` for no driver inference |
+| **`bridge`** (local) | `WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts` | a running `~/code/cli-bridge` (base `http://127.0.0.1:3344`, no `/v1`, bearer optional/default `local`); `WORKER_MODEL` = `<harness>/<model>`. Override `BRIDGE_URL` / `BRIDGE_BEARER` if you started it with auth. Set `TANGLE_API_KEY` for a real driver brain (else scripted) |
 
-## Test locally with zero code changes
+## Test locally — the cli-bridge backend
 
-`run-local.ts` is the no-creds path on purpose. It drives the **identical**
-`coordinationDriverAgent` + `runSupervisorLoop` as the other three runners — only the worker
-backend (`createExecutor`'s `backend` field) and the driver-LLM seam differ.
+`~/code/cli-bridge` is the local path: it fronts real harness CLIs behind one
+OpenAI-compatible HTTP surface, so the `bridge` backend runs real local agents with no cloud
+box. Start it, then point a worker at it:
 
 ```bash
-pnpm tsx examples/supervisor-loop/run-local.ts
+cd ~/code/cli-bridge && pnpm install && pnpm install:harness -- opencode && pnpm start
+# → http://127.0.0.1:3344
+
+WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts
 ```
 
-So the workflow is: **prove the supervisor topology locally at $0, then point it at a real
-backend.** `run-sandbox.ts` and `run-bridge.ts` both print this reminder if their creds are
-absent — when you don't have a box or a bridge handy, run `run-local.ts` and you are
-exercising the same spawn → await → checked-settle loop, just with a local subprocess worker.
+The workflow is: **prove the supervisor topology against local harness CLIs (`bridge`), then
+point it at a real box (`sandbox`) with zero code change** — only the worker-leaf seam
+differs. For a fully offline, no-creds **wiring** check (no harness needed), the
+coordination-driver unit tests cover the spawn → await → checked-settle loop:
+
+```bash
+pnpm test tests/loops/coordination-driver.test.ts
+```
 
 ## Offline driver vs real driver
 
-`coordinationDriverAgent` drives through an injected `DriverChat` (one driver-LLM turn). The
-local/sandbox/bridge runners inject a **scripted** `DriverChat` (a fixed `spawn → await →
-stop` plan) so the brain runs with no inference — the same offline seam the driver's own unit
-tests use. `run-router.ts` injects **`routerDriverChat(cfg)`** so the supervisor's turns are
-real router tool-calls and the brain decides the loop itself. Same brain, different seam.
+`coordinationDriverAgent` drives through an injected `DriverChat` (one driver-LLM turn).
+`run-router.ts` injects **`routerDriverChat(cfg)`** so the supervisor's turns are real router
+tool-calls and the brain decides the loop itself. `run-sandbox.ts`/`run-bridge.ts` default to
+a **scripted** `DriverChat` (`scriptedSupervisorChat`, a fixed `spawn → await → stop` plan) so
+the box/bridge wiring is the only moving part — the same offline seam the driver's own unit
+tests use — and opt into `routerDriverChat` when a key is present. Same brain, different seam.
 
 ## One-call boilerplate: `createInMemoryRunContext`
 

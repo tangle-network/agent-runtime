@@ -11,19 +11,21 @@
  * bounds it. The supervisor settles on the best DELIVERED worker (the completion oracle:
  * `settled ⟺ a real check passed`), never on the driver's own say-so.
  *
- * THE SWAP SEAM — `LOOP_BACKEND`:
- * The worker leaf comes from `createExecutor({ backend, ...seam })` where `backend` is
- * chosen from `process.env.LOOP_BACKEND`. The SAME code drives the SAME supervisor over
- * `cli` (local subprocess, no creds), `router-tools` (the off-box tool-using router loop),
- * `sandbox` (a coding harness in a box), or `bridge` (harness CLIs behind the cli-bridge) —
- * zero edits, just a different env var + the matching seam. Each per-backend runner
- * (`run-*.ts`) builds the seam and calls `runSupervisorLoop` with it.
+ * THE SWAP SEAM — the worker-leaf `backend`:
+ * The worker leaf comes from `createExecutor({ backend, ...seam })`. The SAME code drives
+ * the SAME supervisor over `router-tools` (the off-box tool-using router loop), `sandbox`
+ * (a coding harness in a box), or `bridge` (harness CLIs behind ~/code/cli-bridge) — zero
+ * edits, just a different seam. sandbox ↔ local (cli-bridge) needs NO code change at all.
+ * Each per-backend runner (`run-*.ts`) builds the seam and calls `runSupervisorLoop`.
  *
  * THE DRIVER-LLM SEAM — `DriverChat`:
  * `coordinationDriverAgent` drives through an injected `DriverChat` (one driver-LLM turn).
- * `run-local.ts` injects a SCRIPTED `DriverChat` so the real brain runs offline at $0 (the
- * same seam the driver's own unit tests use). `run-router.ts` injects `routerDriverChat`
- * so the driver's turns are real router tool-calls. Same brain, different inference seam.
+ * `run-router.ts` injects `routerDriverChat` so the driver's turns are real router
+ * tool-calls. `run-sandbox.ts`/`run-bridge.ts` default to a SCRIPTED `DriverChat`
+ * (`scriptedSupervisorChat`, exported below) so the box/bridge wiring is the only moving
+ * part to debug — or opt into `routerDriverChat` with a router key. Same brain, different
+ * inference seam. The fully offline, no-creds wiring is covered by the coordination-driver
+ * unit tests (`tests/loops/coordination-driver.test.ts`).
  */
 
 import {
@@ -35,6 +37,8 @@ import {
   createInMemoryRunContext,
   createSupervisor,
   type DriverChat,
+  type DriverMessage,
+  type DriverTurn,
   type ExecutorConfig,
   type ExecutorContext,
   gateOnDeliverable,
@@ -54,19 +58,84 @@ export interface SupervisorTask {
   readonly check: (workerOutput: unknown) => boolean | Promise<boolean>
 }
 
+/** The marker every runner asks its workers to emit; the check confirms it landed. */
+export const expectedAnswer = 'ANSWER=42'
+
+/**
+ * The shared demo task: each worker must produce the line `ANSWER=42`. The deployable check
+ * (the completion oracle) scans the worker's output for it — text content for the off-box
+ * backends, the serialized harness event stream for a box. A worker settles `valid:true`
+ * ONLY when this returns true, so the driver's keep-best finalize counts it as delivered.
+ */
+export const demoTask: SupervisorTask = {
+  goal: `Produce the exact line "${expectedAnswer}".`,
+  check: (out) => {
+    if (out && typeof out === 'object' && 'content' in out) {
+      return String((out as { content: unknown }).content).includes(expectedAnswer)
+    }
+    // A sandbox worker returns its harness event stream as an object; scan the serialized form.
+    return JSON.stringify(out ?? '').includes(expectedAnswer)
+  },
+}
+
+/**
+ * A SCRIPTED `DriverChat`: spawn `workerCount` workers (the "drive N workers" shape), await
+ * each settlement, then stop. This is the exact contract `routerDriverChat` fills in
+ * production — here it returns a fixed turn sequence so the brain runs with no inference (the
+ * same offline seam the driver's own unit tests use). The brain still REASONS the loop
+ * (spawn → await → stop) against a live `Scope`; only the driver-LLM call is mocked.
+ */
+export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solver'): DriverChat {
+  const turns: DriverTurn[] = []
+  for (let i = 0; i < workerCount; i += 1) {
+    turns.push({
+      content: `delegating slice ${i}`,
+      toolCalls: [
+        {
+          name: 'spawn_worker',
+          arguments: {
+            profile: { name: `${labelPrefix}-${i}`, systemPrompt: `Emit ${expectedAnswer}.` },
+            task: `Emit the exact line ${expectedAnswer} and nothing else.`,
+            label: `${labelPrefix}-${i}`,
+          },
+        },
+      ],
+    })
+  }
+  for (let i = 0; i < workerCount; i += 1) {
+    turns.push({
+      content: 'awaiting a worker',
+      toolCalls: [{ name: 'await_event', arguments: {} }],
+    })
+  }
+  turns.push({ content: 'all workers delivered — stopping' })
+
+  let i = 0
+  return {
+    next: (input: { messages: ReadonlyArray<DriverMessage> }) => {
+      // A real DriverChat reads `input.messages` (the folded tool results) to decide; the
+      // scripted one advances its fixed plan. Touch `input` so the shape is exercised.
+      void input.messages.length
+      const turn = turns[Math.min(i, turns.length - 1)] ?? {}
+      i += 1
+      return Promise.resolve(turn)
+    },
+  }
+}
+
 /** Everything a per-backend runner supplies to drive the shared loop. */
 export interface RunSupervisorLoopArgs {
   /** The goal + completion check. */
   readonly task: SupervisorTask
   /**
-   * The worker-leaf backend config, MINUS its `backend` tag — the runner picks the tag
-   * from `LOOP_BACKEND` (the swap seam) and the seam fields are the rest. Concretely this
-   * is one of the `createExecutor` seam shapes (router/router-tools/sandbox/cli/bridge).
+   * The worker-leaf backend config — the swap seam. One of the `createExecutor` seam shapes
+   * (router-tools/sandbox/bridge); swapping it is the only change a runner makes.
    */
   readonly backend: ExecutorConfig
   /**
-   * The driver-LLM seam — one driver turn over the coordination tools. `run-local.ts`
-   * passes a scripted mock ($0, offline); `run-router.ts` passes `routerDriverChat(cfg)`.
+   * The driver-LLM seam — one driver turn over the coordination tools. `run-router.ts`
+   * passes `routerDriverChat(cfg)` (real turns); `run-sandbox.ts`/`run-bridge.ts` default to
+   * `scriptedSupervisorChat(...)` so only the box/bridge wiring moves.
    */
   readonly chat: DriverChat
   /** The supervisor's standing instructions (its stance). */
