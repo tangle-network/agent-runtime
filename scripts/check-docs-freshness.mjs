@@ -102,23 +102,26 @@ function sourceFilesUnder(dir, acc = []) {
   return acc
 }
 
-// Every symbol that has a generated page under docs/api/<module>/<kind>/<Name>.md.
-// This is the authoritative set of what TypeDoc actually resolved as a public export.
+// Every symbol TypeDoc resolved as a public export, read from the generated API pages.
+// Output is one markdown file per MODULE (typedoc.json outputFileStrategy: modules); each
+// export/member is a heading (### Name / #### method). Walking headings (not filenames) makes
+// this robust to either output strategy (per-module flat files OR per-symbol nested files).
 function exportsFromApiIndex(root) {
   const names = new Set()
   if (!existsSync(root)) return names
-  const kinds = ['functions', 'classes', 'interfaces', 'type-aliases', 'variables', 'enumerations']
-  for (const moduleDir of readdirSync(root)) {
-    const modPath = join(root, moduleDir)
-    if (!statSync(modPath).isDirectory()) continue
-    for (const kind of kinds) {
-      const kindPath = join(modPath, kind)
-      if (!existsSync(kindPath)) continue
-      for (const f of readdirSync(kindPath)) {
-        if (f.endsWith('.md')) names.add(f.slice(0, -3))
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) {
+        walk(p)
+      } else if (e.name.endsWith('.md')) {
+        const md = readFileSync(p, 'utf8')
+        // h3..h6 headings are symbols/members; h2 are category sections (Functions/Classes/…).
+        for (const m of md.matchAll(/^#{3,6}\s+`?([A-Za-z_$][\w$]*)/gm)) names.add(m[1])
       }
     }
   }
+  walk(root)
   return names
 }
 
