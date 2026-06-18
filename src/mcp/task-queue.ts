@@ -423,13 +423,11 @@ export class DelegationTaskQueue {
     // miss those follow-on writes, letting a `store.upsert` land after the
     // caller has torn the backing dir down. Re-await until the tail stops
     // advancing.
-    let tail = this.persistTail
-    do {
+    let tail: typeof this.persistTail | undefined
+    while (this.persistTail !== tail) {
+      tail = this.persistTail
       await tail
-      const next = this.persistTail
-      if (next === tail) break
-      tail = next
-    } while (true)
+    }
     if (this.persistFailure) throw this.persistFailure
   }
 
