@@ -417,7 +417,19 @@ export class DelegationTaskQueue {
    * handing the store's backing file to another process.
    */
   async flush(): Promise<void> {
-    await this.persistTail
+    // Drain to quiescence: a write that completes while we await the tail can
+    // chain another (the resume loop persisting a settle, a late `report`,
+    // retention removals). Awaiting a single snapshot of `persistTail` would
+    // miss those follow-on writes, letting a `store.upsert` land after the
+    // caller has torn the backing dir down. Re-await until the tail stops
+    // advancing.
+    let tail = this.persistTail
+    do {
+      await tail
+      const next = this.persistTail
+      if (next === tail) break
+      tail = next
+    } while (true)
     if (this.persistFailure) throw this.persistFailure
   }
 
