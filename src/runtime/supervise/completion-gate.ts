@@ -22,6 +22,12 @@
 
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'
 
+/**
+ * The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that
+ * decides DELIVERED (settles `valid` ⟺ it resolves true) plus an optional `describe` of
+ * what the spawn was supposed to produce. The check reads the child's output — never the
+ * model judging itself.
+ */
 export interface DeliverableSpec<Out = unknown> {
   /** The deployable check that decides DELIVERED. `settled.valid ⟺ this resolves true`. */
   check: (out: Out) => boolean | Promise<boolean>

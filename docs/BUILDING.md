@@ -57,6 +57,8 @@ remaining boilerplate is irreducible.
 
 - `CLAUDE.md` / `AGENTS.md`: bootloader and repo-local deltas only.
 - `docs/BUILDING.md`: stable build rules.
+- `docs/MAINTAINING.md`: the generated-vs-judgment docs split + the freshness gate.
+- `docs/canonical-api.md`: the hand-curated JUDGMENT layer (decision table, when-to-use, "Do NOT"); per-symbol signatures are GENERATED into `docs/api/` — never hand-edit those.
 - `docs/ANTI_PATTERNS.md`: named failure modes and stop signs.
 - `docs/research/*`: evidence, postmortems, open designs, and dated decisions.
 - `.evolve/current.json` and `memory/`: live state and measured results.

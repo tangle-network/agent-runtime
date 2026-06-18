@@ -102,7 +102,10 @@
     "lint:fix": "biome check --write src tests examples",
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
-    "verify:package": "node scripts/verify-package-exports.mjs"
+    "verify:package": "node scripts/verify-package-exports.mjs",
+    "docs:api": "typedoc",
+    "docs:freshness": "node scripts/check-docs-freshness.mjs",
+    "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
@@ -112,6 +115,8 @@
     "@types/node": "^25.9.3",
     "playwright": "^1.61.0",
     "tsup": "^8.0.0",
+    "typedoc": "0.28.19",
+    "typedoc-plugin-markdown": "4.12.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },

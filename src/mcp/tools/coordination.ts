@@ -106,6 +106,13 @@ export interface CoordinationToolsOptions {
   readonly analyzeOnSettle?: ReadonlyArray<string>
 }
 
+/**
+ * The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool
+ * descriptors a driver `AgentProfile` calls to spawn, steer, observe, and settle workers
+ * over a live `Scope`, plus the typed accessors (`settled`/`questions`/`history`/`stats`/
+ * `raiseFinding`) for the bidirectional coordination bus. This is the live, backend-of-your-
+ * choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
+ */
 export interface CoordinationTools {
   readonly tools: McpToolDescriptor[]
   isStopped(): boolean

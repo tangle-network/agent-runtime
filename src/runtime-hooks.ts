@@ -77,6 +77,13 @@ export interface RuntimeHookErrorContext {
   decisionKind?: RuntimeDecisionKind
 }
 
+/**
+ * The observation seam attached to a running loop (never to the portable genome).
+ * Implement the optional hooks to receive lifecycle events, semantic decision points,
+ * and hook errors. Author with {@link defineRuntimeHooks} for inference, and attach N
+ * observers at once with {@link composeRuntimeHooks} — there is ONE event stream, not a
+ * callback-prop zoo.
+ */
 export interface RuntimeHooks {
   /**
    * General before/after/event hook. Use this for telemetry, memory capture,
@@ -95,10 +102,16 @@ export interface RuntimeHooks {
   onHookError?: (error: Error, context: RuntimeHookErrorContext) => void | Promise<void>
 }
 
+/** Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. */
 export function defineRuntimeHooks(hooks: RuntimeHooks): RuntimeHooks {
   return hooks
 }
 
+/**
+ * Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can
+ * pass `flag && hooks`), and every observer's `onEvent`/`onDecisionPoint` fires for each
+ * event. Use this to attach N observers to a loop instead of a second event bus.
+ */
 export function composeRuntimeHooks(
   ...entries: Array<RuntimeHooks | undefined | null | false>
 ): RuntimeHooks {
