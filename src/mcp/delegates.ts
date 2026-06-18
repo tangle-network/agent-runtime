@@ -4,6 +4,12 @@
  * Delegate factories — the layer between MCP tool handlers and the
  * underlying `runLoop` runners.
  *
+ * Delegation vs COORDINATION (`../runtime/supervise/coordination-mcp.ts`): delegation runs a coding
+ * task INSIDE the agent's OWN sandbox environment — a sibling box on its own `SandboxClient`, fresh
+ * branch on its repo — as a durable, fire-and-poll job that survives an MCP restart. It is NOT
+ * backend-pluggable. To instead SPAWN + live-drive workers in a CHOSEN backend (sandbox OR cli-bridge,
+ * via `createExecutor({ backend })`) with observe/steer/resume + recursion, use the coordination MCP.
+ *
  * The MCP server is profile-agnostic: it owns the task queue + feedback
  * store + transport. Each `*Delegate` is the closure that the queue
  * invokes when a task runs. Consumers can override either delegate to
