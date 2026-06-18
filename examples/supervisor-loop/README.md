@@ -24,6 +24,43 @@ supervisor with zero code change; only the worker-leaf seam differs.
 - **`run-sandbox.ts`** — backend `sandbox`. Each worker is a coding harness in a real box.
 - **`run-bridge.ts`** — backend `bridge`. Each worker is a real harness CLI (claude-code / codex / opencode / kimi / gemini) fronted by the OpenAI-compatible bridge in `~/code/cli-bridge`. **The local path.**
 
+## Supervisor + coordinator MCP, workers on sandbox OR cli-bridge — swap `WORKER_BACKEND`, same code
+
+`run-supervisor-mcp.ts` is the **real MCP path**: a coding-harness agent (opencode via the
+cli-bridge) *is* the supervisor. Inside its `act(task, scope)` it stands up the coordination MCP
+(`serveCoordinationMcp`) over the **live `Scope`** and hands the harness the URL; the harness then
+calls the **real `spawn_worker` tool natively** through its own tool-loop — a box driving boxes, not
+a scripted driver. Each spawned worker is a leaf whose executor is `createExecutor({ backend })`,
+gated on a **deployable check** (a worker writes `ANSWER=42` to a file; the check reads the file —
+no LLM judge).
+
+**The worker backend is the ONLY knob.** The worker executor is literally
+
+```ts
+createExecutor({ backend: process.env.WORKER_BACKEND ?? 'bridge', ...seam })
+```
+
+so flipping `WORKER_BACKEND=sandbox` routes the **same** supervisor + **same** coordination MCP +
+**same** `spawn_worker` flow + **same** deployable check through a cloud box instead of the local
+cli-bridge — with **zero other changes**. One example, one code path.
+
+```bash
+cd ~/code/cli-bridge && pnpm start          # → http://127.0.0.1:3344
+pnpm build                                   # examples resolve the package from dist/
+
+# cli-bridge workers (the proven local path):
+WORKER_BACKEND=bridge WORKER_MODEL=opencode/zai-coding-plan/glm-5.1 \
+  pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts
+
+# the SAME code, sandbox workers (needs a real SandboxClient — key + base URL):
+WORKER_BACKEND=sandbox SANDBOX_BASE_URL=https://... TANGLE_API_KEY=sk-... \
+  pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts
+```
+
+This is distinct from the `run-bridge.ts` / `run-sandbox.ts` / `run-router.ts` runners below, which
+drive a **scripted/router `DriverChat` brain** (`coordinationDriverAgent`). `run-supervisor-mcp.ts`
+has no driver brain at all — the harness itself reasons the spawn → await → stop loop via the MCP.
+
 ## Run matrix
 
 From the agent-runtime repo root. `pnpm build` once first so `@tangle-network/agent-runtime`
