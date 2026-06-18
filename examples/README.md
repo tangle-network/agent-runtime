@@ -34,7 +34,7 @@ Era tags: **production runtime** (`runAgentTask` / `handleChatTurn` — what eve
 
 | # | Example | Era | One sentence |
 |---|---|---|---|
-| 9b | [`supervisor-loop/`](./supervisor-loop/) | supervisor core | One LLM SUPERVISOR (`coordinationDriverAgent`) spawns + drives N worker agents to a checked completion on one conserved pool — the SAME code over `cli` (local, $0) / `router-tools` / `sandbox` / `bridge` via `LOOP_BACKEND` |
+| 9b | [`supervisor-loop/`](./supervisor-loop/) | supervisor core | One LLM SUPERVISOR (`coordinationDriverAgent`) spawns + drives N worker agents to a checked completion on one conserved pool — the SAME code over `router-tools` / `sandbox` (a box) / `bridge` (local cli-bridge), swapping only the worker-leaf seam |
 
 ## The runLoop kernel (driver-planned fanout)
 
@@ -80,9 +80,9 @@ pnpm build  # mcp-delegation needs dist/mcp/bin.js
 pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
 
-# Supervisor core, deeper — one agent drives N workers (local path is $0, no creds)
-pnpm tsx examples/supervisor-loop/run-local.ts                 # backend cli, scripted driver
+# Supervisor core, deeper — one agent drives N workers (bridge = local cli-bridge path)
 TANGLE_API_KEY=... pnpm tsx examples/supervisor-loop/run-router.ts   # router-tools + real driver
+WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts  # local harness CLIs via ~/code/cli-bridge
 
 # runLoop kernel
 pnpm tsx examples/coder-loop/coder-loop.ts
