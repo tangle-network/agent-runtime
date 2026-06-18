@@ -24,6 +24,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
@@ -40,7 +41,7 @@ import type {
   SandboxClient,
 } from '../types'
 import { zeroTokenUsage } from '../util'
-import { createInbox } from './inbox'
+import { createInbox, type Inbox } from './inbox'
 import type {
   AgentSpec,
   DefaultVerdict,
@@ -119,6 +120,12 @@ export interface CliWorktreeSeam {
  * `agentProfile` is the bridge-dialect profile (metadata.disallowedTools, mcp)
  * forwarded verbatim per request — how an arm disables native tools or injects
  * a provider search MCP.
+ *
+ * The executor opens a RESUMABLE cli-bridge session — structurally identical to the
+ * sandbox executor's persistent box, just local. `sessionId` is the stable
+ * caller-owned id cli-bridge maps to the harness's internal conversation id; a
+ * follow-up steer/resume on the SAME id continues the SAME harness session (opencode
+ * `-s`, claude `--resume`, …). Omit it and the executor mints a stable one per spawn.
  */
 export interface BridgeSeam {
   bridgeUrl: string
@@ -126,6 +133,12 @@ export interface BridgeSeam {
   model: string
   agentProfile?: Record<string, unknown>
   timeoutMs?: number
+  /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
+   *  to a freshly minted per-spawn id so each worker is its own resumable session. */
+  sessionId?: string
+  /** Per-resume-turn inference cap before the worker settles on its last output.
+   *  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop). */
+  maxTurns?: number
 }
 
 const routerSeamKey = 'router'
@@ -758,10 +771,26 @@ function killWithGrace(
 // ── bridge executor (harness CLIs behind the local cli-bridge) ──────────────────
 
 /**
- * One harness turn through the cli-bridge: a single OpenAI-compatible chat call
- * whose `model` selects the harness and whose `agent_profile` carries the arm
- * (native-tool disables, provider MCPs). One-shot like router/inline; reports
- * REAL usage when the bridge surfaces it, never a fabricated cost.
+ * A worker as a RESUMABLE cli-bridge harness session — the local twin of the
+ * sandbox executor. Both are a persistent, streamed agent session the driver
+ * spawns, watches stream `UsageEvent`s, then STEERS/RESUMES out-of-band; the only
+ * difference is where the harness runs (local cli-bridge vs a cloud box).
+ *
+ * Structure mirrors `streamSandboxLeaf` + `routerToolsInlineExecutor`:
+ *  - STREAMED: `execute` returns an `AsyncIterable<UsageEvent>`; the SSE chunks
+ *    cli-bridge emits (`stream:true`) are parsed into incremental usage + a tail
+ *    artifact read via `resultArtifact()` after the stream drains.
+ *  - RESUMABLE: every turn carries a stable `session_id`. cli-bridge maps it to the
+ *    harness's internal conversation id (SQLite `SessionStore`), so a steer delivered
+ *    via `deliver` re-calls the SAME session id — opencode `-s <id>`, claude
+ *    `--resume`, … — continuing the SAME harness session, not a fresh one.
+ *  - STEERABLE: the down-leg `inbox` is drained at each turn boundary; a queued
+ *    steer becomes the next turn's prompt on the same session, and the worker can't
+ *    settle while a steer it never read is pending (the sandbox/router contract).
+ *  - ABORT: the caller signal + teardown fold into the per-turn fetch signal; a
+ *    forceful (`interrupt`) steer aborts the in-flight turn so the worker re-plans.
+ *
+ * Reports REAL usage when the bridge surfaces it, never a fabricated cost.
  */
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
@@ -770,6 +799,11 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
     )
   }
+  const maxTurns = seam.maxTurns ?? 200
+  // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
+  // resume off this exactly as a box id keys a sandbox session.
+  const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
+
   const controller = new AbortController()
   const abortIfSignalled = () => {
     if (ctx.signal.aborted) controller.abort()
@@ -777,63 +811,27 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   abortIfSignalled()
   if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
 
+  // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
+  const inbox = createInbox()
   let artifact: ExecutorResult<unknown> | undefined
 
   return {
     runtime: 'cli' as Runtime,
-    async execute(task, signal): Promise<ExecutorResult<unknown>> {
-      const messages = taskToMessages(task, spec)
-      const started = Date.now()
-      const linked = linkSignals(signal, controller.signal)
-      const timer = seam.timeoutMs
-        ? setTimeout(() => controller.abort(), seam.timeoutMs)
-        : undefined
-      try {
-        const res = await fetch(`${seam.bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${seam.bridgeBearer}`,
-          },
-          body: JSON.stringify({
-            model: seam.model,
-            stream: false,
-            ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
-            messages,
-          }),
-          ...(linked ? { signal: linked } : {}),
-        })
-        if (!res.ok) {
-          throw new ValidationError(
-            `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
-          )
-        }
-        const data = (await res.json()) as {
-          choices?: Array<{
-            message?: { content?: string; tool_calls?: Array<{ function?: { name?: string } }> }
-          }>
-          usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
-        }
-        const u = data.usage
-        const usage =
-          u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
-            ? { input: u.prompt_tokens, output: u.completion_tokens }
-            : undefined
-        const msg = data.choices?.[0]?.message
-        const content = msg?.content ?? ''
-        const toolCalls = (msg?.tool_calls ?? []).map((t) => t.function?.name ?? 'unknown')
-        const spent: Spend = {
-          iterations: 1,
-          tokens: usage ? { input: usage.input, output: usage.output } : zeroTokenUsage(),
-          usd: typeof u?.cost === 'number' ? u.cost : 0,
-          ms: Date.now() - started,
-        }
-        const out = { content, toolCalls } as unknown
-        artifact = { outRef: contentRef('bridge', { model: seam.model, content }), out, spent }
-        return artifact
-      } finally {
-        if (timer) clearTimeout(timer)
-      }
+    deliver: (m) => inbox.deliver(m),
+    execute(task, signal): AsyncIterable<UsageEvent> {
+      return streamBridgeSession({
+        task,
+        signal,
+        spec,
+        seam,
+        sessionId,
+        maxTurns,
+        inbox,
+        controller,
+        onArtifact: (a) => {
+          artifact = a
+        },
+      })
     },
     teardown(_grace): Promise<{ destroyed: boolean }> {
       controller.abort()
@@ -841,11 +839,251 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     },
     resultArtifact() {
       if (!artifact) {
-        throw new ValidationError('bridgeExecutor: resultArtifact() read before execute()')
+        throw new ValidationError('bridgeExecutor: resultArtifact() read before stream drained')
       }
       return { ...artifact, spent: artifact.spent }
     },
   }
+}
+
+interface StreamBridgeArgs {
+  task: unknown
+  signal: AbortSignal
+  spec: AgentSpec
+  seam: BridgeSeam
+  sessionId: string
+  maxTurns: number
+  inbox: Inbox
+  controller: AbortController
+  onArtifact: (a: ExecutorResult<unknown>) => void
+}
+
+/**
+ * One resumable cli-bridge session, run as a streamed turn loop. Turn 0 sends the
+ * task; each subsequent turn fires ONLY when the inbox has a steer/answer to fold —
+ * re-calling the SAME `session_id` so cli-bridge resumes the harness conversation.
+ * Mirrors `routerToolsInlineExecutor`'s drain→turn→settle loop, but each turn is a
+ * full streamed harness session call rather than a single chat round.
+ */
+async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
+  const { seam, inbox } = args
+  const started = Date.now()
+  const url = `${seam.bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`
+  const external = mergeAbortSignals(args.signal, args.controller.signal)
+  const tokens = zeroTokenUsage()
+  let usd = 0
+  let turns = 0
+  let lastText = ''
+  const toolCalls: string[] = []
+
+  // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
+  // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
+  let nextPrompt: string | undefined = taskToPrompt(args.task)
+  const system = args.spec.profile.prompt?.systemPrompt
+
+  for (let t = 0; t < args.maxTurns; t += 1) {
+    // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
+    const pending = inbox.drain()
+    if (pending.length) {
+      const folded = inbox.fold(pending)
+      nextPrompt = t === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
+    }
+    if (nextPrompt === undefined) break
+
+    // Each turn sends ONLY the new prompt — cli-bridge's session resume replays the
+    // harness's own history server-side (opencode `-s`), so re-sending it would
+    // double the conversation. Turn 0 may include the system preamble.
+    const messages: Array<{ role: string; content: string }> = []
+    if (t === 0 && typeof system === 'string' && system.length > 0) {
+      messages.push({ role: 'system', content: system })
+    }
+    messages.push({ role: 'user', content: nextPrompt })
+    nextPrompt = undefined
+
+    // Per-turn signal: external teardown/abort OR a forceful interrupt steer.
+    const interruptSig = inbox.freshInterrupt()
+    const turnController = new AbortController()
+    const abortTurn = () => turnController.abort()
+    if (external.aborted) turnController.abort()
+    else external.addEventListener('abort', abortTurn)
+    interruptSig.addEventListener('abort', abortTurn, { once: true })
+    const timer = seam.timeoutMs ? setTimeout(abortTurn, seam.timeoutMs) : undefined
+    const cleanup = () => {
+      external.removeEventListener('abort', abortTurn)
+      if (timer) clearTimeout(timer)
+    }
+
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${seam.bridgeBearer}`,
+          'x-session-id': args.sessionId,
+        },
+        body: JSON.stringify({
+          model: seam.model,
+          stream: true,
+          session_id: args.sessionId,
+          ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
+          messages,
+        }),
+        signal: turnController.signal,
+      })
+    } catch (e) {
+      cleanup()
+      // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn —
+      // the steer is already queued, so loop back and fold it. Anything else is fatal.
+      const interruptAbort =
+        e instanceof DOMException &&
+        e.name === 'AbortError' &&
+        interruptSig.aborted &&
+        !args.signal.aborted &&
+        !args.controller.signal.aborted
+      if (interruptAbort) continue
+      throw e
+    }
+    if (!res.ok) {
+      cleanup()
+      throw new ValidationError(
+        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
+      )
+    }
+    if (!res.body) {
+      cleanup()
+      throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
+    }
+
+    let turnText = ''
+    try {
+      for await (const chunk of parseSseChatStream(res.body)) {
+        if (chunk.content) {
+          turnText += chunk.content
+          yield { kind: 'iteration' }
+        }
+        if (chunk.toolCall) toolCalls.push(chunk.toolCall)
+        if (chunk.usage) {
+          tokens.input += chunk.usage.input
+          tokens.output += chunk.usage.output
+          yield { kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output }
+        }
+        if (typeof chunk.cost === 'number' && chunk.cost > 0) {
+          usd += chunk.cost
+          yield { kind: 'cost', usd: chunk.cost }
+        }
+      }
+    } finally {
+      cleanup()
+    }
+    turns += 1
+    if (turnText) lastText = turnText
+
+    // Before settling, drain once more — the worker can't finish while a steer it
+    // never read is pending (the sandbox/router settle contract). A pending steer
+    // becomes the next resume turn; otherwise the session is truly done.
+    if (inbox.pending() === 0) break
+  }
+
+  const spent: Spend = {
+    iterations: turns,
+    tokens,
+    usd,
+    ms: Date.now() - started,
+  }
+  const out = { content: lastText, toolCalls } as unknown
+  args.onArtifact({
+    outRef: contentRef('bridge', { model: seam.model, session: args.sessionId, content: lastText }),
+    out,
+    spent,
+  })
+}
+
+interface BridgeStreamChunk {
+  content?: string
+  toolCall?: string
+  usage?: { input: number; output: number }
+  cost?: number
+}
+
+/**
+ * Parse cli-bridge's OpenAI-compatible SSE stream into normalized chunks. Each
+ * `data:` line is an OpenAI chat-completion chunk (`choices[].delta`); `[DONE]`
+ * and SSE comments (`:` keepalives) terminate/skip. Mirrors how `streamSandboxLeaf`
+ * folds a box's event stream — same `UsageEvent` currency, different wire shape.
+ */
+async function* parseSseChatStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncIterable<BridgeStreamChunk> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      // SSE frames are separated by a blank line; split on it and keep the tail.
+      let sep = buf.indexOf('\n\n')
+      while (sep !== -1) {
+        const frame = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+        const chunk = parseSseFrame(frame)
+        if (chunk === 'done') return
+        if (chunk) yield chunk
+        sep = buf.indexOf('\n\n')
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+/** Parse one SSE frame (possibly multi-line `data:`/comment) into a chunk, `'done'`,
+ *  or undefined (comment/keepalive/empty). */
+function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
+  const dataLines: string[] = []
+  for (const rawLine of frame.split('\n')) {
+    const line = rawLine.replace(/\r$/, '')
+    if (!line || line.startsWith(':')) continue // comment / keepalive
+    if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
+  }
+  if (dataLines.length === 0) return undefined
+  const data = dataLines.join('\n')
+  if (data === '[DONE]') return 'done'
+  let parsed: {
+    choices?: Array<{
+      delta?: {
+        content?: string | null
+        tool_calls?: Array<{ function?: { name?: string } }>
+      }
+      message?: { content?: string | null }
+    }>
+    error?: { message?: string }
+    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+  }
+  try {
+    parsed = JSON.parse(data)
+  } catch {
+    return undefined
+  }
+  if (parsed.error) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge stream error: ${parsed.error.message ?? 'unknown'}`,
+    )
+  }
+  const out: BridgeStreamChunk = {}
+  const choice = parsed.choices?.[0]
+  const content = choice?.delta?.content ?? choice?.message?.content
+  if (typeof content === 'string' && content.length > 0) out.content = content
+  const toolName = choice?.delta?.tool_calls?.[0]?.function?.name
+  if (typeof toolName === 'string' && toolName.length > 0) out.toolCall = toolName
+  const u = parsed.usage
+  if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
+    out.usage = { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 }
+  }
+  if (typeof u?.cost === 'number') out.cost = u.cost
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 // ── cli-worktree executor (authored profile → harness CLI on a git worktree) ────
