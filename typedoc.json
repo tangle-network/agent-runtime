@@ -16,7 +16,9 @@
   ],
   "entryPointStrategy": "resolve",
   "tsconfig": "./tsconfig.json",
-  "plugin": ["typedoc-plugin-markdown"],
+  "plugin": [
+    "typedoc-plugin-markdown"
+  ],
   "out": "docs/api",
   "readme": "none",
   "excludePrivate": true,
@@ -35,6 +37,9 @@
   "disableSources": false,
   "hideGenerator": true,
   "skipErrorChecking": true,
-  "sort": ["source-order"],
-  "githubPages": false
+  "sort": [
+    "source-order"
+  ],
+  "githubPages": false,
+  "outputFileStrategy": "modules"
 }
