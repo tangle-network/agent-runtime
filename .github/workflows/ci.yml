@@ -36,3 +36,6 @@ jobs:
 
       - name: Verify packed package exports
         run: pnpm run verify:package
+
+      - name: Docs (regenerate API reference + freshness gate)
+        run: pnpm run docs:check

@@ -39,7 +39,7 @@ This repo's bottleneck is agents paying a **re-discovery tax**: re-reading 15 fi
 3. **`.evolve/current.json`** — the single source of truth for the active goal + generation + the live science state. Then `.evolve/progress.md` and the newest `.evolve/pursuits/*.md`.
 4. **Persistent memory** (`MEMORY.md` + the `memory/` notes) — the code-map and the evidence ledger. Start with the map; verify it, don't rebuild it.
 
-**The anti-staleness law:** these maps are kept short and code-adjacent. If a map disagrees with the code, the **code wins** — fix the map in the *same* turn. Discovery is paid once, by whoever records it. When you learn something undocumented, write it to the map/memory before moving on.
+**The anti-staleness law:** these maps are kept short and code-adjacent. If a map disagrees with the code, the **code wins** — fix the map in the *same* turn. Discovery is paid once, by whoever records it. When you learn something undocumented, write it to the map/memory before moving on. **For `docs/canonical-api.md` this is now ENFORCED, not aspirational:** the mechanical leaves (per-symbol signatures + `file:line`) are GENERATED into `docs/api/` by TypeDoc — never hand-edit them — and a CI freshness gate (`pnpm docs:check` → `scripts/check-docs-freshness.mjs`) turns a stale version pin, a broken `file:line` citation, or a decision-table symbol that no longer exists into a RED BUILD. The judgment layer (§2 decision table, when-to-use, every "Do NOT") stays hand-curated and the gate never touches it. Local fix path on a red docs gate: `pnpm run docs:api` then commit, or fix the cited line — see `docs/MAINTAINING.md`.
 
 ## Repo layering — this package depends on agent-eval, never the reverse
 

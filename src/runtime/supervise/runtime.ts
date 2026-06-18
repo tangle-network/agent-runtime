@@ -1114,11 +1114,9 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 // ── createExecutor: the ONE built-in factory (backend as data) ──────────────────
 
 /**
- * The single built-in executor entrypoint. The backend is DATA — the cost dial a
- * profile, an experiment config, or a replay journal can name — not an import
- * choice. Injects the matching seam and delegates to the built-in implementation;
- * the port stays OPEN: bring-your-own agents implement `Executor` directly and
- * never pass through here.
+ * Config for {@link createExecutor}: the backend is DATA — the cost dial a profile,
+ * an experiment config, or a replay journal can name — not an import choice. Each
+ * variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/sandbox).
  */
 export type ExecutorConfig =
   | ({ backend: 'router' } & RouterSeam)
@@ -1128,6 +1126,14 @@ export type ExecutorConfig =
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
+/**
+ * The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
+ * injects the matching seam, and delegates to that backend's built-in implementation.
+ * The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly
+ * and never pass through here. Use this (or `createExecutorRegistry`) instead of a
+ * per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
+ * `UsageEvent` reporting channel.
+ */
 export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
   return (spec, ctx) => {
     const { backend, ...seam } = config as ExecutorConfig & Record<string, unknown>

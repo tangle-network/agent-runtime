@@ -1,0 +1,40 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/index.ts",
+    "src/platform/index.ts",
+    "src/analyst-loop/index.ts",
+    "src/improvement/index.ts",
+    "src/agent/index.ts",
+    "src/intelligence/index.ts",
+    "src/runtime/index.ts",
+    "src/topology/index.ts",
+    "src/workflow/index.ts",
+    "src/profiles/index.ts",
+    "src/audit/index.ts",
+    "src/mcp/index.ts"
+  ],
+  "entryPointStrategy": "resolve",
+  "tsconfig": "./tsconfig.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "out": "docs/api",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/tests/**",
+    "**/examples/**",
+    "src/mcp/bin.ts",
+    "src/loop-runner-bin.ts"
+  ],
+  "gitRevision": "main",
+  "sourceLinkTemplate": "https://github.com/tangle-network/agent-runtime/blob/{gitRevision}/{path}#L{line}",
+  "disableSources": false,
+  "hideGenerator": true,
+  "skipErrorChecking": true,
+  "sort": ["source-order"],
+  "githubPages": false
+}
