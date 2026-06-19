@@ -67,6 +67,14 @@ export {
 } from './harvest-corpus'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
+// Durable iteration history for the kernel loop (the ConversationJournal pattern applied to
+// runLoop): journal each committed iteration, resume from the last on reload.
+export {
+  FileLoopJournal,
+  InMemoryLoopJournal,
+  type LoopJournal,
+  type LoopJournalEntry,
+} from './loop-journal'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
@@ -355,10 +363,12 @@ export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-
 // `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
 // brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
 export { routerDriverChat } from './supervise/router-driver-chat'
-// The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
-// executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
-// wraps the registry with `withDriverExecutor` for the recursive agents-drive-agents path.
+// The one-call store bundle for a supervised run: a journal + blob store + executor registry,
+// shaped to spread straight into `SupervisorOpts`. In-memory by default; pass `{ dir }` (or use
+// `createFileRunContext(dir)`) for the file-backed durable stores that let a crashed run resume.
+// `{ withDriver: true }` wraps the registry for the recursive agents-drive-agents path.
 export {
+  createFileRunContext,
   createInMemoryRunContext,
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
