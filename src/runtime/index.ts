@@ -205,8 +205,7 @@ export {
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
-export type { RunLoopOptions } from './run-loop'
-export { createSandboxForSpec, defaultSelectWinner, runLoop } from './run-loop'
+export { defaultSelectWinner, runLoop } from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,
@@ -312,16 +311,6 @@ export {
   type WatchTraceOptions,
   watchTrace,
 } from './supervise/detector-monitor'
-// The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
-// resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
-// the SAME conserved pool.
-export {
-  driverChild,
-  driverExecutorFactory,
-  driverRuntime,
-  isDriverSpec,
-  withDriverExecutor,
-} from './supervise/driver-executor'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -335,24 +324,12 @@ export {
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
-// The pure mechanical patch gate (no-op / always-on secret-path floor / forbidden-path / diff-size
-// + test/typecheck) over a captured diff + its derived pass signals — the single source the
-// worktree deliverable scores with. The always-on floors are also exported standalone.
-export {
-  type CoderCheckConstraints,
-  type CoderCheckInput,
-  countDiffLines,
-  isNonEmptyPatch,
-  runCoderChecks,
-  touchedPathsFromPatch,
-  touchesSecretPath,
-} from './supervise/patch-checks'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
 // The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
 // executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
-// wraps the registry with `withDriverExecutor` for the recursive agents-drive-agents path.
+// wraps the registry for the recursive agents-drive-agents path.
 export {
   createInMemoryRunContext,
   type InMemoryRunContext,
@@ -361,24 +338,13 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
-  type BridgeSeam,
-  type CliSeam,
-  type CliWorktreeSeam,
   cliWorktreeExecutor,
   createExecutor,
   createExecutorRegistry,
   type ExecutorConfig,
-  type RouterSeam,
-  type RouterToolsSeam,
-  type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'
-export {
-  createScope,
-  type NestedScopeSeam,
-  nestedScopeSeamKey,
-  settledToIteration,
-} from './supervise/scope'
+export { createScope, settledToIteration } from './supervise/scope'
 export {
   createRootHandle,
   createSupervisor,
@@ -386,20 +352,11 @@ export {
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
-  createPartsTraceSource,
   createPushTraceSource,
-  decodeAnthropicPart,
-  decodeOpenAiPart,
-  decodeOpencodePart,
   decodeToolPart,
-  type SessionMessageLike,
   type SessionTraceBox,
   sandboxSessionTraceSource,
-  type ToolPartDecoder,
-  type ToolStepInput,
   type TraceSource,
-  toolPartDecoders,
-  toToolSpan,
 } from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
 // analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
@@ -410,8 +367,6 @@ export type {
   Budget,
   Executor,
   ExecutorContext,
-  ExecutorFactory,
-  ExecutorRegistry,
   ExecutorResult,
   Handle,
   NodeId,
