@@ -19,21 +19,6 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./platform": {
-      "types": "./dist/platform.d.ts",
-      "import": "./dist/platform.js",
-      "default": "./dist/platform.js"
-    },
-    "./analyst-loop": {
-      "types": "./dist/analyst-loop.d.ts",
-      "import": "./dist/analyst-loop.js",
-      "default": "./dist/analyst-loop.js"
-    },
-    "./improvement": {
-      "types": "./dist/improvement.d.ts",
-      "import": "./dist/improvement.js",
-      "default": "./dist/improvement.js"
-    },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
@@ -44,35 +29,15 @@
       "import": "./dist/intelligence.js",
       "default": "./dist/intelligence.js"
     },
-    "./runtime": {
-      "types": "./dist/runtime.d.ts",
-      "import": "./dist/runtime.js",
-      "default": "./dist/runtime.js"
-    },
     "./loops": {
       "types": "./dist/loops.d.ts",
       "import": "./dist/loops.js",
       "default": "./dist/loops.js"
     },
-    "./topology": {
-      "types": "./dist/topology.d.ts",
-      "import": "./dist/topology.js",
-      "default": "./dist/topology.js"
-    },
-    "./workflow": {
-      "types": "./dist/workflow.d.ts",
-      "import": "./dist/workflow.js",
-      "default": "./dist/workflow.js"
-    },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
       "import": "./dist/profiles.js",
       "default": "./dist/profiles.js"
-    },
-    "./audit": {
-      "types": "./dist/audit.d.ts",
-      "import": "./dist/audit.js",
-      "default": "./dist/audit.js"
     },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",

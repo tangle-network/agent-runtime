@@ -52,7 +52,6 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 | Run a sandbox coding rollout, round-synchronous (fresh box per round) | `runLoop(options)` — `/runtime` | a `new Sandbox()`+acquire+stream+parse+delete loop, or a 2nd winner-selector |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)` — `/runtime` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor` — `/runtime` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |
-| Evolve a **code** surface in a gated loop | `improvementDriver({ worktree, generator })` — `/improvement` | a "skill optimizer" / "topology mutator" that opens its own branches & applies patches |
 | Evolve a **prompt/string** surface | `gepaDriver({ llm, model, target })` (default inside `selfImprove`) — `agent-eval/contract` | a hand-rolled prompt-mutation reflection loop with its own Pareto bookkeeping |
 | Run a closed self-improvement loop (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | a bespoke optimize loop or a parallel skill-optimizer |
 | Run the gated loop with full control (custom code-surface driver / gate) | `runImprovementLoop({ baselineSurface, dispatchWithSurface, driver, holdoutScenarios, gate })` — `agent-eval/contract` | your own propose→campaign→rank→re-score-on-holdout→gate→PR loop |
@@ -64,7 +63,6 @@ A **genome** (an `AgentProfile` / `AgentSurfaces`: `systemPrompt + skills + tool
 | Measure a topology on a benchmark at equal compute | `runGate(cfg)` (or `runAgentic`/`runBenchmark`) — equal-k holds by construction via the conserved budget pool — `bench`/`/runtime` | a batch-blind/batch-oracle/compare zoo, your own usage capture, or equal-k bookkeeping |
 | Observe a run's full cost/time | `createWaterfallCollector()` → `anytimeReport()` — `/runtime` | a per-step cost/token tally by inspecting events yourself (drifts from billed totals) |
 | Attach N observers to a running loop | `composeRuntimeHooks(...)` — root export | a second event-bus or callback-prop zoo (there is ONE stream) |
-| See the live recursive agent tree | `createTopologyView()` / `renderTopologyTree()` — `/topology` | a parent-id `Map` you track yourself or a manual `SpawnJournal` walk |
 | Ship traces to an OTLP collector | `createOtelExporter()` + `buildLoopOtelSpans()` — root export | your own OTLP serializer or pulling the OTEL SDK |
 | State any benchmark/A-B claim | `pairedLift(...)` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | your own bootstrap loop/PRNG per gate; a point lift without `low/high/pairs` |
 | Compose the prod sandbox profile (eval/prod parity) | `composeProductionAgentProfile(base, opts)` — `/mcp` | hand-merging a delegation/retrieval MCP per call site or maintaining two profiles |

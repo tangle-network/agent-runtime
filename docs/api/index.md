@@ -2479,7 +2479,7 @@ Options for the default `code`/`review` runner.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [loop-runner.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L129)
 
@@ -7242,7 +7242,7 @@ Defined in: [loop-runner.ts:309](https://github.com/tangle-network/agent-runtime
 
 ### auditLoopRunner()
 
-> **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
+> **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>\>
 
 Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L316)
 
@@ -7264,11 +7264,11 @@ Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime
 
 ##### options
 
-[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts)
+`RunAnalystLoopOpts`
 
 #### Returns
 
-[`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
+[`DelegatedLoopRunner`](#delegatedlooprunner)\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>\>
 
 ***
 

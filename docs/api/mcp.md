@@ -677,7 +677,7 @@ Defined in: [mcp/bin-helpers.ts:20](https://github.com/tangle-network/agent-runt
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [mcp/bin-helpers.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L21)
 
@@ -709,7 +709,7 @@ shape against the structural `FleetHandle` contract.
 
 ###### client
 
-[`SandboxClient`](runtime.md#sandboxclient-2)
+[`SandboxClient`](runtime.md#sandboxclient-1)
 
 ###### fleetId
 
@@ -878,7 +878,7 @@ one or the other, not both.
 
 ##### sandboxClient?
 
-> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [mcp/delegates.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L162)
 
@@ -1647,7 +1647,7 @@ Defined in: [mcp/detached-turn.ts:166](https://github.com/tangle-network/agent-r
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [mcp/detached-turn.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L168)
 
@@ -1902,7 +1902,7 @@ Defined in: [mcp/executor.ts:25](https://github.com/tangle-network/agent-runtime
 
 ##### client
 
-> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [mcp/executor.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L27)
 
@@ -1952,7 +1952,7 @@ Defined in: [mcp/executor.ts:41](https://github.com/tangle-network/agent-runtime
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
 Defined in: [mcp/executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L42)
 
@@ -2107,7 +2107,7 @@ Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-r
 
 ##### by
 
-> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
+> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
 Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L24)
 
@@ -4702,7 +4702,7 @@ Defined in: [mcp/types.ts:112](https://github.com/tangle-network/agent-runtime/b
 
 ##### by
 
-> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
+> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
 Defined in: [mcp/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L113)
 
@@ -5323,7 +5323,7 @@ Defined in: [mcp/types.ts:278](https://github.com/tangle-network/agent-runtime/b
 
 ##### by
 
-> **by**: `"user"` \| `"agent"` \| `"downstream-judge"`
+> **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
 Defined in: [mcp/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L279)
 

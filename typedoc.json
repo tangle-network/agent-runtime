@@ -2,16 +2,10 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPoints": [
     "src/index.ts",
-    "src/platform/index.ts",
-    "src/analyst-loop/index.ts",
-    "src/improvement/index.ts",
     "src/agent/index.ts",
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
-    "src/topology/index.ts",
-    "src/workflow/index.ts",
     "src/profiles/index.ts",
-    "src/audit/index.ts",
     "src/mcp/index.ts"
   ],
   "entryPointStrategy": "resolve",
