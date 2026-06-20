@@ -1,0 +1,105 @@
+/**
+ * `improve()` — the one pluggable RSI verb, offline.
+ *
+ * `improve(profile, findings, opts)` optimizes ONE surface of an agent's profile (here the system
+ * prompt) and ships the winner only if it clears the held-out gate. It is a facade over agent-eval's
+ * `selfImprove`: you name a `surface` and it picks the matching default mutator, extracts the baseline
+ * from the profile, runs the loop, and — on a ship verdict — writes the promoted surface back into the
+ * profile field.
+ *
+ * The REQUIRED positional `findings` (an `AnalystFinding[]`) is what the loop reflects on: the trace
+ * analysts' read of what went wrong. Here it is a single hand-written finding.
+ *
+ * This example runs OFFLINE with no credentials: a scripted `ImprovementDriver` proposes a fixed
+ * winning candidate, a deterministic judge scores it, and the "agent" returns the surface verbatim
+ * while reporting token usage (so agent-eval's backend-integrity guard sees a real backend). Mirrors
+ * `tests/improve.test.ts`.
+ *
+ * Run:  pnpm tsx examples/improve/improve.ts
+ */
+
+import { makeFinding } from '@tangle-network/agent-eval'
+import type {
+  DispatchContext,
+  ImprovementDriver,
+  JudgeConfig,
+  MutableSurface,
+  Scenario,
+} from '@tangle-network/agent-eval/contract'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { improve } from '@tangle-network/agent-runtime'
+
+interface DemoScenario extends Scenario {
+  kind: 'demo'
+}
+
+// 12 trivial scenarios — enough for the held-out gate's minimum-evidence floor.
+const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, i) => ({
+  id: `s${i}`,
+  kind: 'demo' as const,
+}))
+
+// The agent returns the surface verbatim as the artifact AND reports usage, so the backend-integrity
+// guard sees a real backend rather than a stub-zero cell. No LLM.
+const agent = async (
+  surface: MutableSurface,
+  _scenario: DemoScenario,
+  ctx: DispatchContext,
+): Promise<string> => {
+  ctx.cost.observe(0.0001, 'example')
+  ctx.cost.observeTokens({ input: 1, output: 1 })
+  return String(surface)
+}
+
+// Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else 0.0 — no LLM.
+const judge: JudgeConfig<string, DemoScenario> = {
+  name: 'literal',
+  dimensions: [{ key: 'q', description: 'q' }],
+  score: ({ artifact }) => {
+    const composite = artifact.includes('PROMOTED') ? 1 : 0
+    return { dimensions: { q: composite }, composite, notes: '' }
+  },
+}
+
+// A scripted ImprovementDriver that always proposes the winning surface — the offline stand-in for
+// `gepaDriver`, no router call.
+const scriptedWinner: ImprovementDriver = {
+  kind: 'scripted-winner',
+  async propose() {
+    return [{ surface: 'PROMOTED', label: 'win', rationale: 'scripted' }]
+  },
+}
+
+// What the loop reflects on: the trace analysts' read of what went wrong. `makeFinding` stamps the
+// schema-version / finding-id / timestamp the full `AnalystFinding` shape requires.
+const findings = [
+  makeFinding({
+    analyst_id: 'demo-analyst',
+    severity: 'medium',
+    area: 'agent-reasoning',
+    claim: 'the agent under-specifies its answer format',
+    confidence: 0.8,
+    evidence_refs: [],
+  }),
+]
+
+const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
+
+async function main(): Promise<void> {
+  const out = await improve(profile, findings, {
+    surface: 'prompt',
+    generator: scriptedWinner,
+    scenarios,
+    judge,
+    agent,
+    // A perfect +1.0 lift at this n/reps clears the default held-out gate.
+    budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+  })
+  console.log(`shipped: ${out.shipped}  lift: ${out.lift.toFixed(3)}  gate: ${out.gateDecision}`)
+  console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})
