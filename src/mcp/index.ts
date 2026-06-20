@@ -65,12 +65,12 @@ export type {
   DetachedSessionRefParts,
   DetachedTurn,
   DriveTurnCapableBox,
-  DriveTurnResumeDriverOptions,
+  DetachedTurnResumeDriverOptions,
   DriveTurnTick,
   RunDetachedTurnOptions,
 } from './detached-turn'
 export {
-  createDriveTurnResumeDriver,
+  createDetachedTurnResumeDriver,
   detachedTurnEvents,
   formatDetachedSessionRef,
   parseDetachedSessionRef,

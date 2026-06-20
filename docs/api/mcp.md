@@ -1783,7 +1783,7 @@ Defined in: [mcp/detached-turn.ts:182](https://github.com/tangle-network/agent-r
 
 ***
 
-### DriveTurnResumeDriverOptions
+### DetachedTurnResumeDriverOptions
 
 Defined in: [mcp/detached-turn.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L365)
 
@@ -7137,7 +7137,7 @@ SCOPE NOTE (detached/resume): the detached `driveTurn`-tick + cross-restart resu
 bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
 journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
 advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
-`createDriveTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
+`createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
 
 #### Parameters
 
@@ -7419,9 +7419,9 @@ teardown, which is exactly the case the resume driver re-attaches to.
 
 ***
 
-### createDriveTurnResumeDriver()
+### createDetachedTurnResumeDriver()
 
-> **createDriveTurnResumeDriver**(`options`): [`DelegationResumeDriver`](#delegationresumedriver)
+> **createDetachedTurnResumeDriver**(`options`): [`DelegationResumeDriver`](#delegationresumedriver)
 
 Defined in: [mcp/detached-turn.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L415)
 
@@ -7448,7 +7448,7 @@ fleet machine, and destroying a fleet machine would be unrecoverable.
 
 ##### options
 
-[`DriveTurnResumeDriverOptions`](#driveturnresumedriveroptions)
+[`DetachedTurnResumeDriverOptions`](#detachedturnresumedriveroptions)
 
 #### Returns
 
