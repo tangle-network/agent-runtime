@@ -185,3 +185,31 @@
 - [ ] Every symbol in every doc resolves (gate-enforced) — the docs **cannot** lie.
 - [ ] Public surface skimmable in one sitting (~450, not 998). `grep "Driver"` = one concept.
 - [ ] `improve()` ships a win only when it **proves** it on a frozen holdout (never `improved:true` without evidence).
+
+---
+
+## §9 — Internal refactor backlog (leverage-ordered)
+
+Structural-debt items that are not surface changes. Reference the relevant `Rn` from a refactor PR; close an item by deleting its row when the work ships.
+
+**Preserve through any refactor:** `handleChatTurn` (the production centerpiece — six consumer products lean on it; keep it stable); `runLoop` + `Driver` + `Validator` (the multi-shot kernel, cleanly separated from substrate concerns); the `/mcp` server + executor + worktrees (genuine in-sandbox delegation); opt-in OTEL export; `sanitize.ts` + redaction (well-isolated); `/agent` (`defineAgent`, declarative domain agents).
+
+### Tier 1 — structural debt that compounds
+
+**R2. `runtime-run.ts` is doing four jobs** (persistence + cost ledger + handle lifecycle + cross-process resume). Split into `runtime-run/{handle,persistence,cost-ledger,resume}.ts`, keep `runtime-run.ts` as the barrel re-export. No surface change; internal navigation improves. Est 3–4h, low risk.
+
+### Tier 2 — surface cleanup
+
+**R6. `examples/` has more directories than the README references**; the unreferenced ones bit-rot. Keep one per consumer pattern (chat-handler, knowledge-readiness, sanitized-telemetry, coder-loop, researcher-loop, mcp-fleet, distributed-driver) and archive the rest under `examples/archive/`. Est 2h.
+
+### Tier 3 — hygiene
+
+**R7.** Test files mix locations: `src/model-resolution.test.ts` lives in `src/`; move to `tests/` for consistency.
+**R9.** `src/durable/` keeps its tests under `src/durable/tests/`; move to `tests/durable/` for parity with the rest of the suite.
+
+### Non-goals (do NOT do these)
+
+- **Do NOT rename anything in the public surface** without an explicit major bump + consumer migration PRs. Surface stability matters more than perfect naming.
+- **Do NOT add new entry points** without first asking whether the feature belongs in agent-eval (the substrate). The test is "does this make sense WITHOUT a running agent loop?" → yes = substrate.
+- **Do NOT add direct dependencies on consumer packages** (`agent-builder`, `gtm`, …) into agent-runtime — that creates a new inversion class.
+- **agent-eval is a REQUIRED peer dependency** — moving it to a hard dep would break workspace installs.
