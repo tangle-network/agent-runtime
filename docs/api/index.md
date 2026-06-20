@@ -959,6 +959,116 @@ Circuit breaker that opens after N consecutive failures per participant.
 
 ***
 
+### EvalPersonaOptions
+
+Defined in: [conversation/eval-persona.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L31)
+
+#### Properties
+
+##### apiKey?
+
+> `optional` **apiKey?**: `string`
+
+Defined in: [conversation/eval-persona.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L34)
+
+Router (or OpenAI-compatible) endpoint for the DEFAULT backend. Required unless `backendFor`
+ is supplied (tests/advanced override the backend entirely and may omit these).
+
+##### baseUrl?
+
+> `optional` **baseUrl?**: `string`
+
+Defined in: [conversation/eval-persona.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L35)
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Defined in: [conversation/eval-persona.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L36)
+
+##### backendFor?
+
+> `optional` **backendFor?**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
+
+Defined in: [conversation/eval-persona.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L39)
+
+Override the backend seam directly instead of deriving it from `apiKey`/`baseUrl`/`model`
+ (the offline-test path: pass a fake here and the credentials are not needed).
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### role
+
+`"worker"` \| `"persona"`
+
+###### Returns
+
+[`AgentExecutionBackend`](#agentexecutionbackend)
+
+##### systemPromptOf?
+
+> `optional` **systemPromptOf?**: (`profile`) => `string`
+
+Defined in: [conversation/eval-persona.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L41)
+
+Override system-prompt rendering. Default: `p.prompt?.systemPrompt ?? ''`.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`string`
+
+##### maxTurns?
+
+> `optional` **maxTurns?**: `number`
+
+Defined in: [conversation/eval-persona.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L45)
+
+Hard speaker-turn ceiling. REQUIRED for a profile-driven persona; for a scripted persona it
+ defaults to `2 * turns.length`. `maxTurns` is a CEILING, NOT a target — `maxTurns: 0` is zero
+ turns, not run-until-done; `haltOn` is the "until satisfied" knob.
+
+##### haltOn?
+
+> `optional` **haltOn?**: [`HaltPredicate`](#haltpredicate)
+
+Defined in: [conversation/eval-persona.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L47)
+
+Content-based early stop (the persona declares the goal met / unreachable).
+
+##### seed?
+
+> `optional` **seed?**: `string`
+
+Defined in: [conversation/eval-persona.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L49)
+
+Kickoff message to the persona. Default 'Begin.'
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Defined in: [conversation/eval-persona.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L50)
+
+##### workerName?
+
+> `optional` **workerName?**: `string`
+
+Defined in: [conversation/eval-persona.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L52)
+
+Worker transcript speaker label. Default 'agent'.
+
+***
+
 ### SqlAdapter
 
 Defined in: [conversation/journal-sql.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L48)
@@ -1325,17 +1435,26 @@ Defined in: [conversation/run-persona.ts:50](https://github.com/tangle-network/a
 
 Kickoff message routed to the first speaker (the persona). Default 'Begin.'
 
+##### haltOn?
+
+> `optional` **haltOn?**: [`HaltPredicate`](#haltpredicate)
+
+Defined in: [conversation/run-persona.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L53)
+
+Content-based "until satisfied" halt, called after every turn. `maxTurns` is the
+ hard ceiling; this is the early stop (the persona declares the goal met / unreachable).
+
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [conversation/run-persona.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L51)
+Defined in: [conversation/run-persona.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L54)
 
 ##### workerName?
 
 > `optional` **workerName?**: `string`
 
-Defined in: [conversation/run-persona.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L53)
+Defined in: [conversation/run-persona.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L56)
 
 Worker participant / transcript speaker label. Default 'agent'.
 
@@ -1343,7 +1462,7 @@ Worker participant / transcript speaker label. Default 'agent'.
 
 ### PersonaConversationResult
 
-Defined in: [conversation/run-persona.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L56)
+Defined in: [conversation/run-persona.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L59)
 
 #### Properties
 
@@ -1351,25 +1470,25 @@ Defined in: [conversation/run-persona.ts:56](https://github.com/tangle-network/a
 
 > **transcript**: [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/run-persona.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L57)
+Defined in: [conversation/run-persona.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L60)
 
 ##### turns
 
 > **turns**: `number`
 
-Defined in: [conversation/run-persona.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L58)
+Defined in: [conversation/run-persona.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L61)
 
 ##### halted
 
 > **halted**: [`HaltReason`](#haltreason)
 
-Defined in: [conversation/run-persona.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L59)
+Defined in: [conversation/run-persona.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L62)
 
 ##### costUsd
 
 > **costUsd**: `number`
 
-Defined in: [conversation/run-persona.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L61)
+Defined in: [conversation/run-persona.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L64)
 
 Worker-only spend (the side under test).
 
@@ -1377,19 +1496,19 @@ Worker-only spend (the side under test).
 
 > **tokensIn**: `number`
 
-Defined in: [conversation/run-persona.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L62)
+Defined in: [conversation/run-persona.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L65)
 
 ##### tokensOut
 
 > **tokensOut**: `number`
 
-Defined in: [conversation/run-persona.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L63)
+Defined in: [conversation/run-persona.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L66)
 
 ***
 
 ### RunPersonaConfig
 
-Defined in: [conversation/run-persona.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L195)
+Defined in: [conversation/run-persona.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L198)
 
 #### Type Parameters
 
@@ -1407,7 +1526,7 @@ Defined in: [conversation/run-persona.ts:195](https://github.com/tangle-network/
 
 > **backendFor**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
 
-Defined in: [conversation/run-persona.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L197)
+Defined in: [conversation/run-persona.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L200)
 
 Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
@@ -1429,7 +1548,7 @@ Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
 > **systemPromptOf**: (`profile`) => `string`
 
-Defined in: [conversation/run-persona.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L199)
+Defined in: [conversation/run-persona.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L202)
 
 Render a profile's system prompt.
 
@@ -1447,7 +1566,7 @@ Render a profile's system prompt.
 
 > **personaOf**: (`scenario`) => [`PersonaDriver`](#personadriver)
 
-Defined in: [conversation/run-persona.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L201)
+Defined in: [conversation/run-persona.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L204)
 
 The persona driving each scenario — a driver profile or scripted turns.
 
@@ -1465,7 +1584,7 @@ The persona driving each scenario — a driver profile or scripted turns.
 
 > **artifactOf**: (`transcript`, `scenario`) => `TArtifact`
 
-Defined in: [conversation/run-persona.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L203)
+Defined in: [conversation/run-persona.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L206)
 
 Build the scored artifact from the finished transcript.
 
@@ -1487,7 +1606,7 @@ Build the scored artifact from the finished transcript.
 
 > `optional` **maxTurns?**: (`scenario`) => `number`
 
-Defined in: [conversation/run-persona.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L205)
+Defined in: [conversation/run-persona.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L208)
 
 Speaker-turn cap (required when a persona is profile-driven).
 
@@ -1505,7 +1624,7 @@ Speaker-turn cap (required when a persona is profile-driven).
 
 > `optional` **seed?**: (`scenario`) => `string`
 
-Defined in: [conversation/run-persona.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L206)
+Defined in: [conversation/run-persona.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L209)
 
 ###### Parameters
 
@@ -1521,7 +1640,7 @@ Defined in: [conversation/run-persona.ts:206](https://github.com/tangle-network/
 
 > `optional` **workerName?**: `string`
 
-Defined in: [conversation/run-persona.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L207)
+Defined in: [conversation/run-persona.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L210)
 
 ***
 
@@ -2529,7 +2648,7 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ### ImproveOptions
 
-Defined in: [improvement/improve.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L47)
+Defined in: [improvement/improve.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L48)
 
 #### Type Parameters
 
@@ -2547,7 +2666,7 @@ Defined in: [improvement/improve.ts:47](https://github.com/tangle-network/agent-
 
 > `optional` **surface?**: [`ImproveSurface`](#improvesurface)
 
-Defined in: [improvement/improve.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L50)
+Defined in: [improvement/improve.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L51)
 
 Which profile lever to optimize. Default `'prompt'`. Selects the default
  generator + the baseline-surface extraction shape.
@@ -2556,7 +2675,7 @@ Which profile lever to optimize. Default `'prompt'`. Selects the default
 
 > `optional` **generator?**: `ImprovementDriver`\<`unknown`\>
 
-Defined in: [improvement/improve.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L54)
+Defined in: [improvement/improve.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L55)
 
 The `ImprovementDriver` that mutates the surface. When unset, the facade
  picks the default for `surface` (`gepaDriver` for prompt, `skillOptDriver`
@@ -2566,7 +2685,7 @@ The `ImprovementDriver` that mutates the surface. When unset, the facade
 
 > `optional` **gate?**: `"none"` \| `"holdout"`
 
-Defined in: [improvement/improve.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L57)
+Defined in: [improvement/improve.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L58)
 
 Gate mode. `'holdout'` (default) runs the held-out promotion gate;
  `'none'` is a baseline-only run (`budget.generations = 0`).
@@ -2575,7 +2694,7 @@ Gate mode. `'holdout'` (default) runs the held-out promotion gate;
 
 > **scenarios**: `TScenario`[]
 
-Defined in: [improvement/improve.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L59)
+Defined in: [improvement/improve.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L60)
 
 Scenarios to evaluate against. Passthrough to `selfImprove`.
 
@@ -2583,7 +2702,7 @@ Scenarios to evaluate against. Passthrough to `selfImprove`.
 
 > **judge**: `JudgeConfig`\<`TArtifact`, `TScenario`\>
 
-Defined in: [improvement/improve.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L61)
+Defined in: [improvement/improve.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L62)
 
 Judge that scores artifacts. Passthrough to `selfImprove`.
 
@@ -2591,7 +2710,7 @@ Judge that scores artifacts. Passthrough to `selfImprove`.
 
 > **agent**: (`surface`, `scenario`, `ctx`) => `Promise`\<`TArtifact`\>
 
-Defined in: [improvement/improve.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L64)
+Defined in: [improvement/improve.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L65)
 
 The agent under improvement — same shape as `selfImprove.agent`: it takes
  the current surface + scenario + ctx and returns the artifact to judge.
@@ -2618,7 +2737,7 @@ The agent under improvement — same shape as `selfImprove.agent`: it takes
 
 > `optional` **budget?**: `SelfImproveBudget`
 
-Defined in: [improvement/improve.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L66)
+Defined in: [improvement/improve.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L67)
 
 Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
@@ -2626,16 +2745,26 @@ Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
 > `optional` **llm?**: `SelfImproveLlm`
 
-Defined in: [improvement/improve.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L69)
+Defined in: [improvement/improve.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L70)
 
 LLM config. Passthrough to `selfImprove` AND used to construct the default
  reflective driver (`gepaDriver`/`skillOptDriver`) when `generator` is unset.
+
+##### allowedModels?
+
+> `optional` **allowedModels?**: readonly `string`[]
+
+Defined in: [improvement/improve.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L74)
+
+Restrict the run to this subset of models. When set, the reflection model
+ (`llm.model`, or the default when unset) must be a member, or `improve()` throws
+ a `ConfigError` before the generator is built. Unset = unrestricted.
 
 ***
 
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L72)
+Defined in: [improvement/improve.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L77)
 
 #### Type Parameters
 
@@ -2653,7 +2782,7 @@ Defined in: [improvement/improve.ts:72](https://github.com/tangle-network/agent-
 
 > **profile**: `AgentProfile`
 
-Defined in: [improvement/improve.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L75)
+Defined in: [improvement/improve.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L80)
 
 The profile after improvement: the winner surface applied back into the
  matching field when the gate shipped, else the input profile unchanged.
@@ -2662,7 +2791,7 @@ The profile after improvement: the winner surface applied back into the
 
 > **shipped**: `boolean`
 
-Defined in: [improvement/improve.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L77)
+Defined in: [improvement/improve.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L82)
 
 True when `gateDecision === 'ship'`.
 
@@ -2670,7 +2799,7 @@ True when `gateDecision === 'ship'`.
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L79)
+Defined in: [improvement/improve.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L84)
 
 Held-out lift (`winner − baseline` composite).
 
@@ -2678,7 +2807,7 @@ Held-out lift (`winner − baseline` composite).
 
 > **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L81)
+Defined in: [improvement/improve.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L86)
 
 The five-valued gate verdict from `selfImprove`.
 
@@ -2686,7 +2815,7 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L83)
+Defined in: [improvement/improve.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L88)
 
 Full `selfImprove` result for advanced inspection.
 
@@ -6311,7 +6440,7 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 > **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"code"`
 
-Defined in: [improvement/improve.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L45)
+Defined in: [improvement/improve.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L46)
 
 The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  profile levers; `code` is the implementation-tier surface.
@@ -7236,6 +7365,32 @@ Defined in: [conversation/define-conversation.ts:13](https://github.com/tangle-n
 
 ***
 
+### evalPersona()
+
+> **evalPersona**(`worker`, `persona`, `opts?`): `Promise`\<[`PersonaConversationResult`](#personaconversationresult)\>
+
+Defined in: [conversation/eval-persona.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/eval-persona.ts#L60)
+
+#### Parameters
+
+##### worker
+
+`AgentProfile`
+
+##### persona
+
+`EvalPersona`
+
+##### opts?
+
+[`EvalPersonaOptions`](#evalpersonaoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`PersonaConversationResult`](#personaconversationresult)\>
+
+***
+
 ### readDepth()
 
 > **readDepth**(`headers`): `number`
@@ -7399,7 +7554,7 @@ Defined in: [conversation/run-conversation.ts:82](https://github.com/tangle-netw
 
 > **runPersonaConversation**(`opts`): `Promise`\<[`PersonaConversationResult`](#personaconversationresult)\>
 
-Defined in: [conversation/run-persona.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L130)
+Defined in: [conversation/run-persona.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L133)
 
 Run one worker profile against one persona as a multi-round conversation.
 The persona leads (participant 0): it speaks, the worker answers, repeat,
@@ -7421,7 +7576,7 @@ until `maxTurns`. Returns the persistent transcript + worker-only usage.
 
 > **runPersonaDispatch**\<`TScenario`, `TArtifact`\>(`config`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
-Defined in: [conversation/run-persona.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L216)
+Defined in: [conversation/run-persona.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L219)
 
 Wrap [runPersonaConversation](#runpersonaconversation) as a `ProfileDispatchFn` for
 `runProfileMatrix`: the profile axis is the worker-under-test, the scenario
@@ -7679,7 +7834,7 @@ Defined in: [improvement/build-prompts.ts:43](https://github.com/tangle-network/
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L177)
+Defined in: [improvement/improve.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L182)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 
