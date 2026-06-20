@@ -232,9 +232,9 @@ export {
   type AgenticTool,
   type ArtifactHandle,
   adaptiveRefine,
-  breadthDriver,
+  breadthStrategy,
   defineStrategy,
-  depthDriver,
+  depthStrategy,
   type RunAgenticOptions,
   refine,
   runAgentic,
@@ -275,7 +275,7 @@ export {
   type AuthoredProfile,
   asAuthoredProfile,
   authoredWorker,
-  supervisorSkill,
+  supervisorInstructions,
 } from './supervise/authoring'
 export {
   type BudgetPool,

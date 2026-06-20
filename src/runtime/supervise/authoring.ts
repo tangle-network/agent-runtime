@@ -5,7 +5,7 @@
  *
  * Every agent here is three things: instructions (system prompt), tools, and a model — its
  * `AgentProfile`. The supervisor's job is to WRITE those profiles: read the task, decompose it,
- * and for each sub-task author a tailored worker recipe. `supervisorSkill` is the how-to the
+ * and for each sub-task author a tailored worker recipe. `supervisorInstructions` is the how-to the
  * supervisor reads (its system prompt); `authoredWorker` builds a worker AGENT from a profile the
  * supervisor authored — the authored systemPrompt + model shape the worker's call.
  *
@@ -42,7 +42,7 @@ export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
 
 /** The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
  *  surface: editing this changes how the supervisor designs every agent it spawns. */
-export function supervisorSkill(opts?: { goal?: string }): string {
+export function supervisorInstructions(opts?: { goal?: string }): string {
   return [
     'You are a SUPERVISOR. You do NOT do the work yourself — your job is to DESIGN and DRIVE specialist worker agents.',
     '',

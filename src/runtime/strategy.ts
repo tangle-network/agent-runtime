@@ -524,7 +524,7 @@ const perChild = (innerTurns: number): Budget => ({
 })
 
 /** DEPTH: one persistent artifact, carried across analyst-steered shots. */
-export function depthDriver(
+export function depthStrategy(
   surface: AgenticSurface,
   task: AgenticTask,
   opts: AgenticOptions,
@@ -592,7 +592,7 @@ export function depthDriver(
 }
 
 /** BREADTH: K independent rollouts (each own artifact), verifier picks the best. */
-export function breadthDriver(
+export function breadthStrategy(
   _surface: AgenticSurface,
   task: AgenticTask,
   opts: AgenticOptions,
@@ -661,11 +661,11 @@ export interface Strategy {
 
 export const sample: Strategy = {
   name: 'sample',
-  driver: (surface, task, opts, budget) => breadthDriver(surface, task, opts, { width: budget }),
+  driver: (surface, task, opts, budget) => breadthStrategy(surface, task, opts, { width: budget }),
 }
 export const refine: Strategy = {
   name: 'refine',
-  driver: (surface, task, opts, budget) => depthDriver(surface, task, opts, { maxShots: budget }),
+  driver: (surface, task, opts, budget) => depthStrategy(surface, task, opts, { maxShots: budget }),
 }
 
 // ── The composable LEGO: author a strategy in ~15 lines from two steps ───────────
@@ -674,7 +674,7 @@ export const refine: Strategy = {
 // `critique()` (the firewalled analyst reads the trace → a steer). Compose them — no
 // Supervisor/Scope ceremony. This is the skillifiable unit: an agent can emit a
 // `defineStrategy(name, body)` of a few step-calls; it can't reliably emit a 70-line
-// driver. (depthDriver/breadthDriver are the hand-written reference impls; refine/sample
+// driver. (depthStrategy/breadthStrategy are the hand-written reference impls; refine/sample
 // stay on them — proven — while NEW strategies are authored compactly here.)
 
 /** A role for one shot — multi-agent loops (researcher + engineer, a panel of k

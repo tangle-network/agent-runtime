@@ -4,7 +4,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import {
   type AuthoredProfile,
   asAuthoredProfile,
-  supervisorSkill,
+  supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
 import { coordinationDriverAgent } from '../../src/runtime/supervise/coordination-driver'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -104,7 +104,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       blobs,
       makeWorkerAgent: makeWorker,
       perWorker,
-      systemPrompt: supervisorSkill({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
+      systemPrompt: supervisorInstructions({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
       maxTurns: 8,
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'evaluate "1 + 2 * 3"', {
@@ -135,7 +135,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
   })
 
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {
-    const skill = supervisorSkill()
+    const skill = supervisorInstructions()
     expect(skill).toContain('SUPERVISOR')
     expect(skill).toContain('spawn_agent')
     expect(skill.toLowerCase()).toContain('never spawn a worker with an empty profile')

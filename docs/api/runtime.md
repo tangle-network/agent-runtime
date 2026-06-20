@@ -13561,9 +13561,9 @@ Defined in: [runtime/strategy-evolution.ts:364](https://github.com/tangle-networ
 
 ***
 
-### depthDriver()
+### depthStrategy()
 
-> **depthDriver**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+> **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [runtime/strategy.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L527)
 
@@ -13595,9 +13595,9 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 ***
 
-### breadthDriver()
+### breadthStrategy()
 
-> **breadthDriver**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
+> **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [runtime/strategy.ts:595](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L595)
 
@@ -13694,9 +13694,9 @@ Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or nul
 
 ***
 
-### supervisorSkill()
+### supervisorInstructions()
 
-> **supervisorSkill**(`opts?`): `string`
+> **supervisorInstructions**(`opts?`): `string`
 
 Defined in: [runtime/supervise/authoring.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L45)
 
