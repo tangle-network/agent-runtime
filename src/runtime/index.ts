@@ -26,7 +26,11 @@ export type {
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
 // journal. Substrate types come from `./supervise/types`; the in-memory journal +
 // blob store live in `../durable/spawn-journal`.
-export { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
+export {
+  contentAddress,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../durable/spawn-journal'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,

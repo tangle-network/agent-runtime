@@ -138,6 +138,21 @@ function baselineSurfaceFor(profile: AgentProfile, surface: ImproveSurface): Mut
   }
 }
 
+/** Parse a JSON winner surface (`skills`/`tools`/`mcp`/`hooks`) with a typed,
+ *  contextual error. A malformed generator output must fail loud here, not throw
+ *  a raw `SyntaxError` to the caller after a ship verdict. */
+function parseWinnerJson<T>(winner: string, surface: ImproveSurface): T {
+  try {
+    return JSON.parse(winner) as T
+  } catch (cause) {
+    throw new ConfigError(
+      `improve(): the shipped '${surface}' winner is not valid JSON, so it cannot be applied back to the profile: ${
+        (cause as Error).message
+      }`,
+    )
+  }
+}
+
 /** Apply a promoted winner surface back into the profile field for `surface`.
  *  Returns a shallow copy; never mutates the input profile. */
 function applyWinnerToProfile(
@@ -154,13 +169,16 @@ function applyWinnerToProfile(
     case 'prompt':
       return { ...profile, prompt: { ...profile.prompt, systemPrompt: winner } }
     case 'skills':
-      return { ...profile, resources: { ...profile.resources, skills: JSON.parse(winner) } }
+      return {
+        ...profile,
+        resources: { ...profile.resources, skills: parseWinnerJson(winner, surface) },
+      }
     case 'tools':
-      return { ...profile, tools: JSON.parse(winner) }
+      return { ...profile, tools: parseWinnerJson(winner, surface) }
     case 'mcp':
-      return { ...profile, mcp: JSON.parse(winner) }
+      return { ...profile, mcp: parseWinnerJson(winner, surface) }
     case 'hooks':
-      return { ...profile, hooks: JSON.parse(winner) }
+      return { ...profile, hooks: parseWinnerJson(winner, surface) }
     case 'code':
       return profile
   }

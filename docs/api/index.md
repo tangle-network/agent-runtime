@@ -7834,7 +7834,7 @@ Defined in: [improvement/build-prompts.ts:43](https://github.com/tangle-network/
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L182)
+Defined in: [improvement/improve.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L200)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 

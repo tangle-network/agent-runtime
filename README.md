@@ -27,7 +27,7 @@ Three entry points, by what you're doing:
 | You want to… | Call |
 |---|---|
 | Run one **product chat turn** (gtm/legal/tax/creative run this in prod) | `handleChatTurn(...)` |
-| Have a **supervisor drive a team of agents** to a goal — any harness, any number of sandboxes | `supervise(profile, task, { backend, budget })` |
+| Have a **supervisor drive a team of agents** to a goal — any harness, any number of sandboxes | `supervise(profile, task, { budget, backend? })` |
 | **Self-improve** an agent, certified on a held-out gate | `improve(profile, findings, { surface, gate, … })` |
 
 ### Run a chat turn

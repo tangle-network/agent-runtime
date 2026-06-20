@@ -134,4 +134,27 @@ describe('improve() — facade over selfImprove', () => {
     })
     expect(out.gateDecision).not.toBe('ship')
   })
+
+  it('throws ConfigError when a shipped JSON-surface winner is not valid JSON', async () => {
+    const profile: AgentProfile = { name: 'demo', resources: { skills: [] } }
+    // Scores 1.0 (includes PROMOTED, so the held-out gate ships it) but is NOT
+    // valid JSON for the `skills` surface — `applyWinnerToProfile` must fail loud
+    // with a typed error, not throw a raw SyntaxError after the ship verdict.
+    const malformedWinner: ImprovementDriver = {
+      kind: 'malformed-json',
+      async propose() {
+        return [{ surface: 'PROMOTED not json {{{', label: 'win', rationale: 'x' }]
+      },
+    }
+    await expect(
+      improve(profile, [], {
+        surface: 'skills',
+        generator: malformedWinner,
+        scenarios,
+        judge,
+        agent,
+        budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+      }),
+    ).rejects.toBeInstanceOf(ConfigError)
+  })
 })
