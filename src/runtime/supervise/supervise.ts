@@ -13,6 +13,7 @@ import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
+import { assertModelAllowed } from './model-policy'
 import { createInMemoryRunContext } from './run-context'
 import { createExecutor, type ExecutorConfig } from './runtime'
 import { createSupervisor } from './supervisor'
@@ -67,6 +68,10 @@ export interface SuperviseOptions {
   readonly maxTurns?: number
   readonly runId?: string
   readonly now?: () => number
+  /** Restrict the run to this subset of models. When set, every configured model — the
+   *  supervisor router model, the profile's model, and the backend's model — must be a member,
+   *  or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted. */
+  readonly allowedModels?: readonly string[]
 }
 
 /** A quarter of the token pool per worker → ~4 workers fit before `poolStarved` halts spawning. */
@@ -78,6 +83,16 @@ function defaultPerWorker(budget: Budget): Budget {
 }
 
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
+  // Fail loud before any compute: every configured model must be in the allowed subset (no-op
+  // when allowedModels is unset). The backend seam carries its own model on most backends.
+  const backendModel = (opts.backend as { model?: unknown } | undefined)?.model
+  assertModelAllowed(opts.router?.model, opts.allowedModels)
+  assertModelAllowed(profile.model, opts.allowedModels)
+  assertModelAllowed(
+    typeof backendModel === 'string' ? backendModel : undefined,
+    opts.allowedModels,
+  )
+
   const ctx = createInMemoryRunContext({ withDriver: true })
   const blobs = opts.blobs ?? ctx.blobs
   const perWorker = opts.perWorker ?? defaultPerWorker(opts.budget)

@@ -73,4 +73,65 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       /backend|makeWorkerAgent/,
     )
   })
+
+  it('allowedModels rejects a profile model outside the allowed set', () => {
+    expect(() =>
+      supervise({ name: 'r', harness: null, model: 'gpt-4.1' }, 't', {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        allowedModels: ['deepseek-v4-flash'],
+      }),
+    ).toThrow(/gpt-4\.1.*not in the allowed set/)
+  })
+
+  it('allowedModels rejects a router model outside the allowed set', () => {
+    expect(() =>
+      supervise({ name: 'r', harness: null }, 't', {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        router: { routerBaseUrl: 'http://localhost', routerKey: 'k', model: 'gpt-4.1' },
+        allowedModels: ['deepseek-v4-flash'],
+      }),
+    ).toThrow(/gpt-4\.1.*not in the allowed set/)
+  })
+
+  it('allowedModels rejects a backend model outside the allowed set', () => {
+    expect(() =>
+      supervise({ name: 'r', harness: null }, 't', {
+        budget,
+        backend: {
+          backend: 'router-tools',
+          routerBaseUrl: 'http://localhost',
+          routerKey: 'k',
+          model: 'gpt-4.1',
+        } as ExecutorConfig,
+        allowedModels: ['deepseek-v4-flash'],
+      }),
+    ).toThrow(/gpt-4\.1.*not in the allowed set/)
+  })
+
+  it('allowedModels passes when every configured model is in the set', async () => {
+    const brain = scriptedBrain([{ content: 'done' }])
+    const result = await supervise(
+      { name: 'root', harness: null, model: 'deepseek-v4-flash' },
+      't',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 1 }),
+        brain,
+        allowedModels: ['deepseek-v4-flash'],
+      },
+    )
+    expect(result.kind).toBeDefined()
+  })
+
+  it('allowedModels unset is unrestricted (any model passes)', async () => {
+    const brain = scriptedBrain([{ content: 'done' }])
+    const result = await supervise({ name: 'root', harness: null, model: 'anything' }, 't', {
+      budget,
+      makeWorkerAgent: () => deliveringLeaf('w', { answer: 1 }),
+      brain,
+    })
+    expect(result.kind).toBeDefined()
+  })
 })

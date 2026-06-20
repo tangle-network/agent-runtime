@@ -39,6 +39,7 @@ import {
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
+import { assertModelAllowed } from '../runtime/supervise/model-policy'
 
 /** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  *  profile levers; `code` is the implementation-tier surface. */
@@ -67,6 +68,10 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
   /** LLM config. Passthrough to `selfImprove` AND used to construct the default
    *  reflective driver (`gepaDriver`/`skillOptDriver`) when `generator` is unset. */
   llm?: SelfImproveLlm
+  /** Restrict the run to this subset of models. When set, the reflection model
+   *  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
+   *  a `ConfigError` before the generator is built. Unset = unrestricted. */
+  allowedModels?: readonly string[]
 }
 
 export interface ImproveResult<TScenario extends Scenario, TArtifact> {
@@ -181,6 +186,10 @@ export async function improve<TScenario extends Scenario, TArtifact>(
 ): Promise<ImproveResult<TScenario, TArtifact>> {
   const surface = opts.surface ?? 'prompt'
   const gate = opts.gate ?? 'holdout'
+
+  // Fail loud before the generator is built: the reflection model must be in the allowed subset
+  // (no-op when allowedModels is unset).
+  assertModelAllowed(opts.llm?.model ?? defaultReflectionModel, opts.allowedModels)
 
   const driver = opts.generator ?? defaultGeneratorFor(surface, opts.llm)
   if (!driver) {

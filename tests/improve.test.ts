@@ -104,4 +104,34 @@ describe('improve() — facade over selfImprove', () => {
       improve(profile, [], { surface: 'tools', scenarios, judge, agent }),
     ).rejects.toBeInstanceOf(ConfigError)
   })
+
+  it('allowedModels throws ConfigError when the reflection model is outside the set', async () => {
+    const profile = profileWith('BASELINE')
+    await expect(
+      improve(profile, [], {
+        surface: 'prompt',
+        generator: scriptedWinner,
+        scenarios,
+        judge,
+        agent,
+        llm: { model: 'gpt-4.1' },
+        allowedModels: ['deepseek-v4-flash'],
+      }),
+    ).rejects.toBeInstanceOf(ConfigError)
+  })
+
+  it('allowedModels passes when the reflection model is in the set', async () => {
+    const profile = profileWith('BASELINE')
+    const out = await improve(profile, [], {
+      surface: 'prompt',
+      gate: 'none',
+      generator: scriptedWinner,
+      scenarios,
+      judge,
+      agent,
+      llm: { model: 'deepseek-v4-flash' },
+      allowedModels: ['deepseek-v4-flash'],
+    })
+    expect(out.gateDecision).not.toBe('ship')
+  })
 })
