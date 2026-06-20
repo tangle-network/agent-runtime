@@ -167,6 +167,33 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       throw new Error('coordination tools: arguments must be an object')
     return raw as Record<string, unknown>
   }
+  // Parse a per-spawn `budget` override and merge it over the per-worker default (per field).
+  // Fails loud on a non-object or a non-finite numeric field — a malformed budget must never
+  // silently fall back to the default and run a sub-task on a ceiling nobody chose.
+  const mergeBudget = (base: Budget, raw: unknown): Budget => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+      throw new Error('coordination tools: "budget" must be an object')
+    const o = raw as Record<string, unknown>
+    const field = (name: keyof Budget): number | undefined => {
+      const v = o[name]
+      if (v === undefined) return undefined
+      if (typeof v !== 'number' || !Number.isFinite(v))
+        throw new Error(`coordination tools: "budget.${name}" must be a finite number`)
+      return v
+    }
+    const maxIterations = field('maxIterations')
+    const maxTokens = field('maxTokens')
+    const maxUsd = field('maxUsd')
+    const deadlineMs = field('deadlineMs')
+    return {
+      maxIterations: maxIterations ?? base.maxIterations,
+      maxTokens: maxTokens ?? base.maxTokens,
+      ...((maxUsd ?? base.maxUsd) === undefined ? {} : { maxUsd: maxUsd ?? base.maxUsd }),
+      ...((deadlineMs ?? base.deadlineMs) === undefined
+        ? {}
+        : { deadlineMs: deadlineMs ?? base.deadlineMs }),
+    }
+  }
   const level = (v: unknown): Question['level'] => {
     if (v === 'worker' || v === 'driver' || v === 'loop') return v
     throw new Error('coordination tools: "level" must be worker, driver, or loop')
@@ -336,21 +363,37 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       name: 'spawn_agent',
       description:
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
-        '`task` is what it should do. Reserves budget from the conserved pool and fails closed.',
+        '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
+        'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
+        'merges over the per-worker default; the conserved pool is still the hard fence.',
       inputSchema: {
         type: 'object',
         properties: {
           profile: { description: 'The worker/driver profile to run.' },
           task: { description: 'The task the worker should perform.' },
           label: { type: 'string', description: 'Optional trace label.' },
+          budget: {
+            type: 'object',
+            description:
+              'Optional per-spawn budget that merges over the per-worker default (per field). ' +
+              'Only set the ceilings this sub-task needs raised; the conserved pool still fences.',
+            properties: {
+              maxIterations: { type: 'number' },
+              maxTokens: { type: 'number' },
+              maxUsd: { type: 'number' },
+              deadlineMs: { type: 'number' },
+            },
+          },
         },
         required: ['profile', 'task'],
       },
       handler: (raw) => {
         const a = obj(raw)
         const agent = opts.makeWorkerAgent(a.profile)
+        const budget =
+          a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
         const res = opts.scope.spawn(agent, a.task, {
-          budget: opts.perWorker,
+          budget,
           label: typeof a.label === 'string' ? a.label : 'worker',
         })
         return Promise.resolve(res.ok ? { workerId: res.handle.id } : { error: res.reason })

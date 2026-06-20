@@ -8,6 +8,7 @@ const zeroSpend = (): Spend => ({ iterations: 0, tokens: { input: 0, output: 0 }
 
 function mockScope() {
   const sent: Array<{ id: string; msg: unknown }> = []
+  const spawns: Array<{ task: unknown; opts: { budget: unknown; label: string } }> = []
   const nodes = [
     {
       id: 'w0',
@@ -29,13 +30,15 @@ function mockScope() {
   ]
   let admit = true
   const scope = {
-    spawn: (_agent: unknown, _task: unknown, opts: { label: string }) =>
-      admit
+    spawn: (_agent: unknown, task: unknown, opts: { budget: unknown; label: string }) => {
+      spawns.push({ task, opts })
+      return admit
         ? {
             ok: true as const,
             handle: { id: 'w0', label: opts.label, status: 'running' as const, abort() {} },
           }
-        : { ok: false as const, reason: 'budget-exhausted' as const },
+        : { ok: false as const, reason: 'budget-exhausted' as const }
+    },
     next: async () => null,
     send: (id: string, msg: unknown) => {
       if (id === 'w0') {
@@ -50,7 +53,7 @@ function mockScope() {
     budget: { tokensLeft: 10, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
     signal: new AbortController().signal,
   } as unknown as Scope<unknown>
-  return { scope, sent, setAdmit: (v: boolean) => (admit = v) }
+  return { scope, sent, spawns, setAdmit: (v: boolean) => (admit = v) }
 }
 
 const blobs: ResultBlobStore = { get: async () => undefined, put: async () => {} }
@@ -77,6 +80,58 @@ describe('coordination tools', () => {
     expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
     })
+  })
+
+  it('spawn_agent reserves the per-worker default when no budget is given', async () => {
+    const { scope, spawns } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 2, maxTokens: 100 },
+    })
+    await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 100 })
+  })
+
+  it('spawn_agent honors a per-spawn budget, merged per-field over the default', async () => {
+    const { scope, spawns } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 2, maxTokens: 100 },
+    })
+    // Only raise maxTokens + add a usd ceiling; maxIterations falls through from the default.
+    expect(
+      await tool(tb, 'spawn_agent').handler({
+        profile: {},
+        task: 'hard',
+        budget: { maxTokens: 5000, maxUsd: 0.5 },
+      }),
+    ).toEqual({ workerId: 'w0' })
+    expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })
+  })
+
+  it('spawn_agent fails loud on a malformed per-spawn budget (never silently uses the default)', async () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 2, maxTokens: 100 },
+    })
+    expect(() =>
+      tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', budget: 'lots' }),
+    ).toThrow(/"budget" must be an object/)
+    expect(() =>
+      tool(tb, 'spawn_agent').handler({
+        profile: {},
+        task: 'go',
+        budget: { maxTokens: Number.POSITIVE_INFINITY },
+      }),
+    ).toThrow(/"budget.maxTokens" must be a finite number/)
   })
 
   it('observe_agent returns live status and settled output', async () => {
