@@ -35,7 +35,7 @@
 - **REAL** — one recursive `Agent` node, not two types: `architecture.md:3,58`; `Agent.act(task, scope)` in `supervise/types.ts`. The roles (worker/driver/supervisor) are the *same* atom; a node is a "driver" only because its tools spawn children.
 - **REAL** — every node materializes in its backend (sandbox / cli-bridge / router / worktree-cli) via the one backend-as-data factory `createExecutor({ backend })` (`supervise/runtime.ts:1137`). The profile says what it is; the executor says where it runs.
 - **REAL** — the supervisor **authoring** child profiles is the §1.5 law: a supervisor's intelligence is *writing full AgentProfiles for its children* (`canonical-api.md` §1.5). The coordination toolbox `spawn_worker` carries the child profile (`mcp/tools/coordination.ts`).
-- **SIMPLIFY (WS1)** — today a "driver brain" is a separate `DriverChat` seam, not a profile. Target: a driver/supervisor is just an AgentProfile whose tools are the coordination verbs; how its brain runs is inferred from the profile. Then this picture is literally true with zero special cases.
+- **SIMPLIFY (WS1)** — the in-process driver brain is `coordinationDriverAgent` running the owned tool-loop executor `routerToolsInlineExecutor`. WS1a unified that brain onto the canonical one-inference-turn seam `ToolLoopChat` (a consumer scripts a mock or passes `routerBrain`). WS1b is the remaining step: infer how a driver/supervisor's brain runs from its AgentProfile (tools = the coordination verbs) instead of wiring it by hand — then a driver is *just* a profile, with zero special cases.
 
 ## 2. The up-flow — trace analysis after every rollout, flowing up like a tree
 

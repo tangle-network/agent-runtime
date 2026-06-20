@@ -378,6 +378,10 @@ judge, 0 infra-excluded):
 - steering (refineX − random) **negative** on every slice; refineGepa −15pp
   [−27.5,−2.5] p=0.032 but **does not survive BH** across the 2 arms (q≈0.064).
 
+> `random@k` / `refineHand@k` / `refineGepa@k` are **condition labels for strategy runs**
+> recorded in the corpus (the controller column), not importable symbols. `refineGepa@k`
+> names "the refine strategy steered by a GEPA-authored prompt, k attempts."
+
 **Caveats that change the meaning:**
 - This tested the **dumb static planner** (§0.2), NOT the trace-fed intelligent
   driver. The honest statement is *"answer-anchored intrinsic refine loses, as
