@@ -81,7 +81,7 @@ pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
 
 # Supervisor core, deeper — one agent drives N workers (bridge = local cli-bridge path)
-TANGLE_API_KEY=... pnpm tsx examples/supervisor-loop/run-router.ts   # router-tools + real driver
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # router brain + router-tools workers (the one-call entry)
 WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts  # local harness CLIs via ~/code/cli-bridge
 
 # runLoop kernel
