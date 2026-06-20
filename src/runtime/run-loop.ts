@@ -26,7 +26,6 @@
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
-import type { LoopJournal } from './loop-journal'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
@@ -130,17 +129,6 @@ export interface RunLoopOptions<Task, Output, Decision> {
    * @experimental
    */
   lineage?: LoopLineageOptions
-  /**
-   * Durable iteration history. Default OFF — the loop's `iterations` array is in-memory and
-   * lost on a process crash. With a journal set, the kernel journals every COMMITTED
-   * iteration (a round whose workers fully drained) before planning the next round, and on
-   * start `loadRun`s any prior state for this `runId`: an already-ended run short-circuits to
-   * its recorded result, and an in-progress run seeds `iterations` with the committed ones and
-   * RESUMES from the next round — it never redoes committed work. Pair with a stable `runId`
-   * (the resume key) and the `FileLoopJournal` for crash durability.
-   * @experimental
-   */
-  journal?: LoopJournal
 }
 
 /** @experimental */
@@ -168,22 +156,6 @@ export async function runLoop<Task, Output, Decision>(
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
   let round = 0
-
-  // RESUME-FIRST: when a journal is wired, read any prior state for this `runId` BEFORE running.
-  // An already-ended run replays its recorded result (no re-run). An in-progress run seeds the
-  // committed iterations so plan()/decide() see the real history and the kernel pushes new slots
-  // PAST them — committed work is never redone. Begin a fresh entry otherwise.
-  if (options.journal) {
-    const prior = await options.journal.loadRun<Task, Output>(runId)
-    if (prior?.endedAt) {
-      return await replayEndedLoop(options, prior.iterations, loopStart, now, runId)
-    }
-    if (prior && prior.iterations.length > 0) {
-      iterations.push(...prior.iterations)
-    } else {
-      await options.journal.beginRun(runId, new Date(loopStart).toISOString())
-    }
-  }
   // Same-sandbox mode: worker boxes are kept alive (not torn down per-iteration)
   // so the planner can stream into the latest; the kernel destroys them at loop end.
   const ownedBoxes: SandboxInstance[] = []
@@ -335,16 +307,6 @@ export async function runLoop<Task, Output, Decision>(
       })
 
       if (controller.signal.aborted) throwAbort()
-
-      // COMMIT BOUNDARY: every slot this round dispatched has now fully drained (output/verdict
-      // folded; an abort would have thrown above, never reaching here). Journal them — the durable
-      // record a resume reads to skip redoing this round. Awaited before `decide` so a crash
-      // immediately after the round still finds the round committed on reload.
-      if (options.journal) {
-        for (let i = 0; i < slice.length; i += 1) {
-          await options.journal.appendIteration(runId, iterations[baseIndex + i]!)
-        }
-      }
 
       emitRunLoopHook(options, {
         target: 'agent.decision',
@@ -1008,26 +970,7 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
       iterations: iterations.length,
     },
   })
-  // Mark the run observed-final so a reload short-circuits to the result instead of resuming.
-  if (options.journal) await options.journal.recordEnd(runId, new Date(now()).toISOString())
   return result
-}
-
-/**
- * A run whose journal already recorded an end replays its committed iterations into the SAME
- * finalize path (driver `decide` + winner select) as a live run, without acquiring a single
- * sandbox. Idempotent re-run: calling `runLoop` again with an ended `runId` returns the recorded
- * result, never re-executes work.
- */
-async function replayEndedLoop<Task, Output, Decision>(
-  options: RunLoopOptions<Task, Output, Decision>,
-  iterations: Iteration<Task, Output>[],
-  startMs: number,
-  now: () => number,
-  runId: string,
-): Promise<LoopResult<Task, Output, Decision>> {
-  const decision = await options.driver.decide(iterations)
-  return finalize({ options, decision, iterations, startMs, now, runId })
 }
 
 /**
