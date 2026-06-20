@@ -1,6 +1,6 @@
 # agent-runtime simplification — MASTER TRACKER
 
-> **Living doc. State: end of design, start of build — the design is converged, nothing of the refactor is built yet.** The bar is what a world-class staff-eng org ships: **SIMPLE**. A competent engineer derives the call path in *seconds*. Every line is `file:line`-grounded; no vibes. **THINK BIG (§0) · THINK SIMPLE (§1).**
+> **Living doc. State: SHIPPING on `feat/usability-overhaul` (clean-merges origin/main, all gates green).** Done: **WS1a** (brain unified on `ToolLoopChat`, `DriverChat` deleted), **WS3** (runtime barrel 355→277, subpaths 13→6), **WS5** (canonical-api 984→76, 26→17 docs +5 archived, CLASS 6 prose-symbol gate so docs can't lie). Next: **WS1b** (brain-from-profile / sandbox supervisor), WS2, WS4, WS6, WS7-9. The bar is what a world-class staff-eng org ships: **SIMPLE**. A competent engineer derives the call path in *seconds*. **THINK BIG (§0) · THINK SIMPLE (§1).**
 
 ---
 
