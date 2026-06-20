@@ -3253,7 +3253,7 @@ The profile to project the facts into. The result is a fresh profile — the inp
 
 ##### target?
 
-> `readonly` `optional` **target?**: `"resources"` \| `"prompt"`
+> `readonly` `optional` **target?**: `"prompt"` \| `"resources"`
 
 Defined in: [runtime/personify/wave-types.ts:485](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/wave-types.ts#L485)
 
@@ -8808,7 +8808,7 @@ The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness v
 
 ##### harness
 
-> **harness**: `"opencode"` \| `"codex"` \| `"claude"`
+> **harness**: `"claude"` \| `"codex"` \| `"opencode"`
 
 Defined in: [runtime/supervise/worktree-fanout.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L36)
 
