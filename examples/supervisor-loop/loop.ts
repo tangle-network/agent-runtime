@@ -4,7 +4,7 @@
  *
  * This is the "an agent drives N agents" path — the real `coordinationDriverAgent` brain,
  * not a hand-rolled loop. The brain runs an LLM tool-loop over the coordination verbs
- * (`spawn_agent` / `await_event` / `observe_worker` / `steer_worker` / `stop`) against a
+ * (`spawn_agent` / `await_event` / `observe_agent` / `steer_agent` / `stop`) against a
  * live `Scope`. Each turn it asks its driver-LLM for tool calls, runs them against the
  * scope (which reserves budget, resolves an `Executor`, runs it, settles), folds the
  * results back, and repeats until it stops — OR the conserved pool / deadline / abort
@@ -218,7 +218,7 @@ export async function runSupervisorLoop(
   const run = createInMemoryRunContext()
 
   // The driver BRAIN: an LLM tool-loop over the coordination verbs. We pass it the run's
-  // `blobs` so `observe_worker`/`finalize` read the same store the scope writes to.
+  // `blobs` so `observe_agent`/`finalize` read the same store the scope writes to.
   const root = coordinationDriverAgent({
     name: 'supervisor',
     brain: args.brain,

@@ -2,7 +2,7 @@
 
 The "an LLM agent spawns and drives N workers" path, made runnable. A SUPERVISOR agent
 (the real `coordinationDriverAgent` brain) reasons a loop over the coordination verbs —
-`spawn_agent` → `await_event` → `observe_worker` / `steer_worker` → `stop` — against a live
+`spawn_agent` → `await_event` → `observe_agent` / `steer_agent` → `stop` — against a live
 `Scope`, on **one conserved budget pool**. Each worker is a leaf from
 `createExecutor({ backend })`; the supervisor settles on the best **delivered** worker (a
 real check passed, never the model's say-so).

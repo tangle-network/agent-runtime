@@ -86,7 +86,7 @@ export interface Executor<Out> {
     signal: AbortSignal,
   ): Promise<ExecutorResult<Out>> | AsyncIterable<UsageEvent>
   /**
-   * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_worker`
+   * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
    * verb). A streaming executor drains pending messages between turns and folds them into the next
    * step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
    * this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the

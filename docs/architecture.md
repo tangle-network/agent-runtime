@@ -575,7 +575,7 @@ settle**, with one firewall that keeps it honest.
         │        (coordination.ts / personify/analyst.ts:46)                         │  FIREWALL
         │                                                                            │
         │   ③ next move from {trace, findings} via the MCP:                          │  move = f(trace, findings)
-        │        steer_worker (1 child)   spawn_agent (N)   select   stop            │  NOT f(score)
+        │        steer_agent (1 child)   spawn_agent (N)   select   stop            │  NOT f(score)
         │                                                                            │
         └───────────────┬─────────────────────────────────────────────────────────────┘
                         ▼
@@ -841,7 +841,7 @@ within-run column splits into in-flight and across-round).
   ① IN-FLIGHT (within one node's loop, between shots)
      analyst finding ──▶ STEER the next shot's prompt
      → changes the NEXT message, not the stored profile
-     REAL: grounded steer in the depth loop (strategy.ts), steer_worker down-leg
+     REAL: grounded steer in the depth loop (strategy.ts), steer_agent down-leg
 
   ② ACROSS-ROUND (between rounds of a loop)
      harvest this run's traces ──▶ corpus ──▶ render as SKILLS ──▶ inject into next round's profile.systemPrompt

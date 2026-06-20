@@ -49,10 +49,10 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
                     │  each round it decides the TOPOLOGY MOVE ─────┐ this IS
                     │   refine │ fanout │ select │ stop          │ │ "topology grown
                     │  then drives workers via the toolbox:      │ │  by LLM decision"
-                    │   spawn_agent · await_event · steer_worker │ │ (driver.ts:52)
+                    │   spawn_agent · await_event · steer_agent │ │ (driver.ts:52)
                     └───────────────┬────────────────────────────┘ │
        spawn_agent(profile,task) ──┤  reserves budget (fails       │
-       steer_worker(id,msg) ────────┤  CLOSED if the pool is dry)   │
+       steer_agent(id,msg) ────────┤  CLOSED if the pool is dry)   │
        await_event ──────────────────┘                               │
                     ┌───────────────┼───────────────┐               │
                     ▼               ▼                ▼               │

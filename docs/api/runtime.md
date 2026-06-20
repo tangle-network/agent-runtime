@@ -6788,7 +6788,7 @@ The driver-LLM seam — ONE inference turn over the conversation + the coordinat
 
 Defined in: [runtime/supervise/coordination-driver.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L42)
 
-Shared blob store — `observe_worker` reads settled outputs through it.
+Shared blob store — `observe_agent` reads settled outputs through it.
 
 ##### makeWorkerAgent
 
@@ -7223,7 +7223,7 @@ Defined in: [runtime/supervise/inbox.ts:18](https://github.com/tangle-network/ag
 **`Experimental`**
 
 The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
-`Executor.deliver`. The driver's `steer_worker` / `answer_question` land here,
+`Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
 and the worker's agent loop drains them at two points (Drew's two delivery modes):
 
   - QUEUED (default): the message accumulates and is FLUSHED at the next step boundary — folded
@@ -7905,7 +7905,7 @@ the terminal artifact is read from `resultArtifact()` after the stream drains.
 
 Defined in: [runtime/supervise/types.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L95)
 
-Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_worker`
+Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
 verb). A streaming executor drains pending messages between turns and folds them into the next
 step (a steer / interrupt / resume). A one-shot executor that can't be steered mid-flight omits
 this; `Scope.send` then returns `false` for it. Never throws — a malformed message is the

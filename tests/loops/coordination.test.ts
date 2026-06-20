@@ -79,7 +79,7 @@ describe('coordination tools', () => {
     })
   })
 
-  it('observe_worker returns live status and settled output', async () => {
+  it('observe_agent returns live status and settled output', async () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -90,21 +90,21 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(tb, 'observe_worker').handler({ workerId: 'w0' })).toMatchObject({
+    expect(await tool(tb, 'observe_agent').handler({ workerId: 'w0' })).toMatchObject({
       status: 'running',
       output: null,
     })
-    expect(await tool(tb, 'observe_worker').handler({ workerId: 'w1' })).toMatchObject({
+    expect(await tool(tb, 'observe_agent').handler({ workerId: 'w1' })).toMatchObject({
       status: 'done',
       outRef: 'blob:w1',
       output: { answer: 42 },
     })
-    expect(await tool(tb, 'observe_worker').handler({ workerId: 'nope' })).toEqual({
+    expect(await tool(tb, 'observe_agent').handler({ workerId: 'nope' })).toEqual({
       error: 'unknown workerId "nope"',
     })
   })
 
-  it('steer_worker delivers through Scope.send', async () => {
+  it('steer_agent delivers through Scope.send', async () => {
     const { scope, sent } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -113,10 +113,10 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
     expect(
-      await tool(tb, 'steer_worker').handler({ workerId: 'w0', instruction: 'do X next' }),
+      await tool(tb, 'steer_agent').handler({ workerId: 'w0', instruction: 'do X next' }),
     ).toEqual({ delivered: true })
     expect(sent).toEqual([{ id: 'w0', msg: { steer: 'do X next', interrupt: false } }])
-    expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
+    expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
     })
   })
@@ -277,7 +277,7 @@ describe('coordination tools', () => {
     expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
   })
 
-  it('steer_worker routes down + records in history but is never pulled back', async () => {
+  it('steer_agent routes down + records in history but is never pulled back', async () => {
     const { scope, sent } = mockScope()
     const emitted: Array<{ type: string }> = []
     const tb = createCoordinationTools({
@@ -288,14 +288,14 @@ describe('coordination tools', () => {
       onEvent: (e) => emitted.push(e),
     })
     expect(
-      await tool(tb, 'steer_worker').handler({
+      await tool(tb, 'steer_agent').handler({
         workerId: 'w0',
         instruction: 'do X',
         interrupt: true,
       }),
     ).toEqual({ delivered: true })
     // A steer to a worker with no live inbox reports delivered:false.
-    expect(await tool(tb, 'steer_worker').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
+    expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
     })
     // The forceful steer reached the child inbox (down delivery)...
@@ -494,7 +494,7 @@ describe('coordination tools', () => {
     })
     const server = createMcpServer({ extraTools: tb.tools })
     expect(server.tools.has('spawn_agent')).toBe(true)
-    expect(server.tools.has('steer_worker')).toBe(true)
+    expect(server.tools.has('steer_agent')).toBe(true)
     expect(server.tools.has('delegate_feedback')).toBe(true)
     expect(() =>
       createMcpServer({

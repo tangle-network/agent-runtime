@@ -357,7 +357,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       },
     },
     {
-      name: 'observe_worker',
+      name: 'observe_agent',
       description: 'Inspect a worker status, spend, and settled output artifact when available.',
       inputSchema: { type: 'object', properties: { workerId: idArg }, required: ['workerId'] },
       handler: async (raw) => {
@@ -374,7 +374,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       },
     },
     {
-      name: 'steer_worker',
+      name: 'steer_agent',
       description:
         'Send a message DOWN to a still-LIVE worker (parent→child): a new instruction, a course ' +
         'correction, or a continuation. The worker drains it at its next step boundary — and before ' +
@@ -484,7 +484,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             { toWorker: question.from, instruction: answer, delivered },
             questionId,
           )
-          // Surface `delivered` like steer_worker — the caller must see whether the answer actually
+          // Surface `delivered` like steer_agent — the caller must see whether the answer actually
           // reached a live worker (false when it already settled or has no inbox).
           return { question, delivered }
         }

@@ -38,7 +38,7 @@ export interface CoordinationDriverOptions {
    *  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
    *  production, or a sandboxed harness. The same seam every tool-loop uses; no bespoke shape. */
   readonly brain: ToolLoopChat
-  /** Shared blob store — `observe_worker` reads settled outputs through it. */
+  /** Shared blob store — `observe_agent` reads settled outputs through it. */
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
   readonly makeWorkerAgent: MakeWorkerAgent
