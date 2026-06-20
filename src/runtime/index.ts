@@ -293,6 +293,7 @@ export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-
 export {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
+  finalizeBestDelivered,
 } from './supervise/coordination-driver'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
@@ -338,6 +339,15 @@ export {
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
 export { createSupervisor } from './supervise/supervisor'
+// Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
+// `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
+// a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
+export {
+  type DriveHarness,
+  type SupervisorAgentDeps,
+  type SupervisorProfile,
+  supervisorAgent,
+} from './supervise/supervisor-agent'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {

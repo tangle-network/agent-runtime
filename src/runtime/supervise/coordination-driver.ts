@@ -195,17 +195,24 @@ async function runTool(tool: McpToolDescriptor, args: Record<string, unknown>): 
  *  ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
  *  matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
  *  unchecked best-effort. */
+export async function finalizeBestDelivered(
+  settled: ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>,
+  blobs: ResultBlobStore,
+): Promise<unknown> {
+  const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
+  if (delivered.length === 0) return undefined
+  let best = delivered[0]!
+  for (const w of delivered) if ((w.score ?? 0) > (best.score ?? 0)) best = w
+  return best.outRef ? await blobs.get(best.outRef) : undefined
+}
+
 async function finalize(
   coord: {
     settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
   },
   blobs: ResultBlobStore,
 ): Promise<unknown> {
-  const delivered = coord.settled().filter((w) => w.status === 'done' && w.valid === true)
-  if (delivered.length === 0) return undefined
-  let best = delivered[0]!
-  for (const w of delivered) if ((w.score ?? 0) > (best.score ?? 0)) best = w
-  return best.outRef ? await blobs.get(best.outRef) : undefined
+  return finalizeBestDelivered(coord.settled(), blobs)
 }
 
 function stringifyTask(task: unknown): string {

@@ -7463,6 +7463,107 @@ Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-netw
 
 ***
 
+### SupervisorProfile
+
+Defined in: [runtime/supervise/supervisor-agent.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L26)
+
+The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
+ `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
+
+#### Properties
+
+##### name?
+
+> `readonly` `optional` **name?**: `string`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L27)
+
+##### harness?
+
+> `readonly` `optional` **harness?**: `string` \| `null`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L29)
+
+null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain.
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L31)
+
+The router model when the brain is router-driven (falls back to the deps router config).
+
+##### systemPrompt?
+
+> `readonly` `optional` **systemPrompt?**: `string`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L33)
+
+The standing instructions ("you delegate, you do not solve").
+
+***
+
+### SupervisorAgentDeps
+
+Defined in: [runtime/supervise/supervisor-agent.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L47)
+
+#### Properties
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L48)
+
+##### makeWorkerAgent
+
+> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L50)
+
+Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms).
+
+##### perWorker
+
+> `readonly` **perWorker**: [`Budget`](#budget-8)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L52)
+
+Per-child budget reserved from the conserved pool on each spawn.
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L54)
+
+Router substrate for a router-brained supervisor (`harness` null). The profile's model wins.
+
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L56)
+
+Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
+
+##### driveHarness?
+
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
+
+Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver.
+
+##### maxTurns?
+
+> `readonly` `optional` **maxTurns?**: `number`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L59)
+
+***
+
 ### TraceSource
 
 Defined in: [runtime/supervise/trace-source.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/trace-source.ts#L33)
@@ -11323,6 +11424,43 @@ variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/
 
 ***
 
+### DriveHarness
+
+> **DriveHarness** = (`args`) => `Promise`\<`void`\>
+
+Defined in: [runtime/supervise/supervisor-agent.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L40)
+
+How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
+ seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
+ `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
+ so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
+
+#### Parameters
+
+##### args
+
+###### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+###### task
+
+`unknown`
+
+###### scope
+
+[`Scope`](#scope-1)\<`unknown`\>
+
+###### coordinationMcpUrl
+
+`string`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### UsageEvent
 
 > **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
@@ -13611,6 +13749,35 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 ***
 
+### finalizeBestDelivered()
+
+> **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
+
+Defined in: [runtime/supervise/coordination-driver.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L198)
+
+Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
+ output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
+ child delivered — an honest "the driver produced nothing", never a high-scoring result that
+ ran without passing its check (Foreman's 0/18 lesson). `valid` is the single delivery signal,
+ matching `defaultSelectWinner`'s valid-first rule; the oracle just doesn't fall back to an
+ unchecked best-effort.
+
+#### Parameters
+
+##### settled
+
+readonly `object`[]
+
+##### blobs
+
+[`ResultBlobStore`](#resultblobstore)
+
+#### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### serveCoordinationMcp()
 
 > **serveCoordinationMcp**(`opts`): `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
@@ -13905,6 +14072,28 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 #### Returns
 
 [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
+
+***
+
+### supervisorAgent()
+
+> **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
+
+Defined in: [runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
+
+#### Parameters
+
+##### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+##### deps
+
+[`SupervisorAgentDeps`](#supervisoragentdeps)
+
+#### Returns
+
+[`Agent`](#agent)\<`unknown`, `unknown`\>
 
 ***
 
