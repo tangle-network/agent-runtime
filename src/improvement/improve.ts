@@ -24,8 +24,10 @@
  * straight through to `selfImprove`.
  */
 
+import { skillOptDriver } from '@tangle-network/agent-eval/campaign'
 import {
   type DispatchContext,
+  gepaDriver,
   type ImprovementDriver,
   type JudgeConfig,
   type MutableSurface,
@@ -33,10 +35,8 @@ import {
   type SelfImproveBudget,
   type SelfImproveLlm,
   type SelfImproveResult,
-  gepaDriver,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
-import { skillOptDriver } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
 

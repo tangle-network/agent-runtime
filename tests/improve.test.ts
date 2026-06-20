@@ -1,9 +1,9 @@
-import {
-  type DispatchContext,
-  type ImprovementDriver,
-  type JudgeConfig,
-  type MutableSurface,
-  type Scenario,
+import type {
+  DispatchContext,
+  ImprovementDriver,
+  JudgeConfig,
+  MutableSurface,
+  Scenario,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'

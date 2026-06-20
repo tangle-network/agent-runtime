@@ -22,10 +22,10 @@ export {
 } from './agentic-generator'
 export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
-  improve,
   type ImproveOptions,
   type ImproveResult,
   type ImproveSurface,
+  improve,
 } from './improve'
 export {
   type CandidateGenerator,

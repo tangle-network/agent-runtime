@@ -111,6 +111,10 @@ export {
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
+// ── Improvement (self-improvement surfaces) ──────────────────────────
+// `improve` is the one pluggable RSI verb (facade over agent-eval's
+// `selfImprove`); the rest are the code-surface driver + its generators.
+export * from './improvement'
 // ── Delegated loop-runner (configured code/research/review/audit/self-improve) ──
 export {
   auditLoopRunner,
@@ -138,10 +142,6 @@ export {
   parseLoopRunnerArgv,
   runLoopRunnerCli,
 } from './loop-runner-bin'
-// ── Improvement (self-improvement surfaces) ──────────────────────────
-// `improve` is the one pluggable RSI verb (facade over agent-eval's
-// `selfImprove`); the rest are the code-surface driver + its generators.
-export * from './improvement'
 // ── MCP → OpenAI tools projection ────────────────────────────────────
 // Helper for eval / orchestrator code that routes through the
 // OpenAI-compat backend and needs the 5 delegation tools surfaced to
