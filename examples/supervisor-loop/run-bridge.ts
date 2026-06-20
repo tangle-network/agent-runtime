@@ -26,11 +26,7 @@
  *   WORKER_MODEL=opencode/zai-coding-plan/glm-5.1 pnpm tsx examples/supervisor-loop/run-bridge.ts
  */
 
-import {
-  type ExecutorConfig,
-  routerBrain,
-  supervise,
-} from '@tangle-network/agent-runtime/loops'
+import { type ExecutorConfig, routerBrain, supervise } from '@tangle-network/agent-runtime/loops'
 import { demoCheck, demoGoal, scriptedSupervisorChat } from './shared'
 
 async function main(): Promise<void> {
@@ -72,7 +68,9 @@ async function main(): Promise<void> {
       : scriptedSupervisorChat(1, 'bridge-solver')
   const driverLabel = routerKey && driverModel ? `router(${driverModel})` : 'scripted'
 
-  console.log(`supervisor-loop · BRIDGE · worker=${workerModel} (cli-bridge) · driver=${driverLabel}`)
+  console.log(
+    `supervisor-loop · BRIDGE · worker=${workerModel} (cli-bridge) · driver=${driverLabel}`,
+  )
 
   const result = await supervise(
     {
