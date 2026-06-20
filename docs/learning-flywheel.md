@@ -204,12 +204,13 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
   pile of noise with false confidence. **Clean data > more data.** Rigor is what makes the
   corpus *learnable*, not bureaucracy.
 - **Confounds before causal claims.** A delta where treatment gets more compute than control
-  is not a causal result. The **`random@k` compute control** is no longer a thing to *remember*:
-  `runSteeringExperiment` (bench) makes it a **required field** — a steering experiment cannot be
-  constructed or run without its compute-matched control, so isolating steering as
-  `refine@k − random@k` is structural, and omitting the control is a type error. Verify the judge
-  is deterministic (re-judge test). Exclude infra-errored cells; retry transient drops. (See the
-  false "+20pp = steering proven" — it was compute + infra + an untested judge.)
+  is not a causal result. Steering must always be measured against its **`random@k` compute
+  control** as a sibling benchmark arm, so the isolated effect is `refine@k − random@k` at equal
+  k. The steer itself is concrete: an analyst-derived per-shot string carried shot-to-shot
+  (`buildSteerContext` builds it; the strategy loop threads it as `pendingSteer`), never a
+  free-floating prompt edit. Verify the judge is deterministic (re-judge test). Exclude
+  infra-errored cells; retry transient drops. (See the false "+20pp = steering proven" — it was
+  compute + infra + an untested judge.)
 - **Pre-register the primary metric; correct the family; spend the holdout once.** The ablation
   grid (steering arms × directives × benchmarks, plus compute controls) tests *many* contrasts —
   each independent "CI excludes 0" inflates the family-wise false-positive rate (garden of forking
@@ -275,6 +276,10 @@ steer-detector and `J` measure a correlated property, optimizing the observable 
     own rollout; an external refine directive adds a chance to BREAK a correct answer, while
     `random@k` (independent retries, any-pass) captures the more-attempts benefit without that
     downside. The earlier "+7.1pp held-out" was n=8 noise; this supersedes it.
+
+    > `random@k` / `refineHand@k` / `refineGepa@k` are **condition labels for strategy runs**
+    > recorded in the corpus (the controller column), not importable symbols — `refineGepa@k`
+    > names "the refine strategy steered by a GEPA-authored prompt, k attempts."
   - Subtype splits (n=20 each) are underpowered — even more-compute is not significant on T3
     alone (CI [−5, +35]). T2 mirrors the aggregate (more-compute +30pp sig; steering ≤0).
 - **Terminal-Bench:** adapter+judge + blind-vs-refine wired (reuses tb's open-source opencode

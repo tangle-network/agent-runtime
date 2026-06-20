@@ -4,13 +4,9 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import {
   type AuthoredProfile,
   asAuthoredProfile,
-  supervisorSkill,
+  supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
-import {
-  coordinationDriverAgent,
-  type DriverChat,
-  type DriverTurn,
-} from '../../src/runtime/supervise/coordination-driver'
+import { coordinationDriverAgent } from '../../src/runtime/supervise/coordination-driver'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -21,6 +17,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 
 // A delivering leaf worker (settles valid) — stands in for a real model call in this offline proof.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -46,28 +43,17 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
   }
 }
 
-function scriptedChat(turns: DriverTurn[]): DriverChat {
-  let i = 0
-  return {
-    next: async () => {
-      const t = turns[Math.min(i, turns.length - 1)] ?? {}
-      i += 1
-      return t
-    },
-  }
-}
-
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
 describe('supervisor authoring — the supervisor DESIGNS each worker (profile), guided by a skill', () => {
   it('authors a DISTINCT, tailored profile per sub-task, and they flow to the workers', async () => {
     const authored: AuthoredProfile[] = []
     // The scripted supervisor (what a skill-guided LLM would emit): two sub-tasks, two tailored recipes.
-    const turns: DriverTurn[] = [
+    const turns: ScriptedTurn[] = [
       {
         toolCalls: [
           {
-            name: 'spawn_worker',
+            name: 'spawn_agent',
             arguments: {
               profile: {
                 name: 'parser',
@@ -82,7 +68,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       {
         toolCalls: [
           {
-            name: 'spawn_worker',
+            name: 'spawn_agent',
             arguments: {
               profile: {
                 name: 'evaluator',
@@ -114,11 +100,11 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
     const blobs = new InMemoryResultBlobStore() // ONE shared store: workers settle into it, finalize reads it
     const root = coordinationDriverAgent({
       name: 'supervisor',
-      chat: scriptedChat(turns),
+      brain: scriptedBrain(turns),
       blobs,
       makeWorkerAgent: makeWorker,
       perWorker,
-      systemPrompt: supervisorSkill({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
+      systemPrompt: supervisorInstructions({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
       maxTurns: 8,
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'evaluate "1 + 2 * 3"', {
@@ -149,9 +135,9 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
   })
 
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {
-    const skill = supervisorSkill()
+    const skill = supervisorInstructions()
     expect(skill).toContain('SUPERVISOR')
-    expect(skill).toContain('spawn_worker')
+    expect(skill).toContain('spawn_agent')
     expect(skill.toLowerCase()).toContain('never spawn a worker with an empty profile')
   })
 })

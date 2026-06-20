@@ -123,7 +123,7 @@ No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
 | `architecture.md` | canonical | ADD a "Built vs Designed" callout + cross-refs | **this PR** |
 | `agent-spine.md` | dropped | DELETE — the recursive-atom framing supersedes the `ExecutionEnvironment` seam (confirmed absent from `src/`); not a build target | **this PR** |
 | `agent-bus-protocol.md` | needs-update | Fix the 429-vs-413 contradiction (`:51,:56`), correct the subpath list vs `package.json` exports, bump the 0.26.0 pin | follow-up |
-| `refactor-roadmap.md` | needs-update | Prune closed R-items (R5 verifiably stale) per its own close-by-deletion rule | follow-up |
+| `refactor-roadmap.md` | merged | folded into `simplification-plan.md` (the live tracker) | done |
 | `/workflow`, `/audit` subpaths | undocumented | Document in README's subpath table or mark intentionally private | follow-up |
 
 ---

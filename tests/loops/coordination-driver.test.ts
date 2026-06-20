@@ -4,9 +4,6 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
-  type DriverChat,
-  type DriverMessage,
-  type DriverTurn,
 } from '../../src/runtime/supervise/coordination-driver'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -20,6 +17,10 @@ import type {
   SpawnEvent,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+
+type SeenMessages = Array<ReadonlyArray<Record<string, unknown>>>
 
 // ── Offline scripted leaf worker (no network/sandbox/LLM) ────────────────────────
 interface WorkerScript {
@@ -63,36 +64,16 @@ function workerLeaf(name: string, s: WorkerScript): Agent<unknown, unknown> {
   }
 }
 
-// ── A scripted driver-LLM: returns a fixed sequence of turns, records the conversation it
-//    saw so the test can prove tool RESULTS were fed back into later turns. ──────────────
-function scriptedChat(turns: DriverTurn[], seen: DriverMessage[][]): DriverChat {
-  let i = 0
-  return {
-    next: async (input) => {
-      seen.push([...input.messages])
-      const t = turns[Math.min(i, turns.length - 1)] ?? {}
-      i += 1
-      return t
-    },
-  }
-}
-
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
-
-/** A spawn profile the recursive makeAgent dispatches on: a worker carries a script; a driver
- *  carries its own scripted chat (so a driver agent can spawn a driver agent). */
-type Profile =
-  | { kind: 'worker'; name: string; script: WorkerScript }
-  | { kind: 'driver'; name: string; turns: DriverTurn[]; seen: DriverMessage[][] }
 
 function driverOpts(
   name: string,
-  chat: DriverChat,
+  brain: ToolLoopChat,
   makeWorkerAgent: (p: unknown) => Agent<unknown, unknown>,
 ): CoordinationDriverOptions {
   return {
     name,
-    chat,
+    brain,
     blobs: SHARED_BLOBS,
     makeWorkerAgent,
     perWorker,
@@ -108,7 +89,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
   it('the tool-loop spawns a worker, awaits it, and folds the settled result back', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const seen: DriverMessage[][] = []
+    const seen: SeenMessages = []
 
     const worker = workerLeaf('w', {
       out: { answer: 42 },
@@ -116,15 +97,15 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
       iterations: 1,
       score: 0.9,
     })
-    // The makeWorkerAgent the spawn_worker tool dispatches: this test only spawns the worker leaf.
+    // The makeWorkerAgent the spawn_agent tool dispatches: this test only spawns the worker leaf.
     const makeAgent = (_p: unknown): Agent<unknown, unknown> => worker
 
     // Scripted driver LLM: turn 0 spawns a worker, turn 1 awaits it, turn 2 stops (no calls).
-    const chat = scriptedChat(
+    const chat = scriptedBrain(
       [
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -145,15 +126,17 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
     })
 
     // The driver's act IS the loop — the run produced the worker's output, which only exists if
-    // spawn_worker → Scope.spawn → settle actually ran inside the tool-loop.
+    // spawn_agent → Scope.spawn → settle actually ran inside the tool-loop.
     expect(result.kind).toBe('winner')
 
-    // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains a
-    // `tool` message carrying the await_event settlement — i.e. the tool RESULT was folded back.
+    // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains
+    // `tool` messages carrying the spawn_agent + await_event settlements — i.e. the tool RESULTS
+    // were folded back. The OpenAI tool message is `{ role:'tool', tool_call_id, content }`; the
+    // await_event settlement serializes the done worker, so its content carries 'done'.
     const turn2Convo = seen[2]!
     const toolMsgs = turn2Convo.filter((m) => m.role === 'tool')
-    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_event result
-    expect(toolMsgs.some((m) => m.name === 'await_event' && m.content.includes('done'))).toBe(true)
+    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_agent result + await_event result
+    expect(toolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
 
     // A real worker spawn is recorded in the journal (not a mock-bypassed result).
     const root_tree = (await journal.loadTree('cd')) as SpawnEvent[]
@@ -164,8 +147,8 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
   it('a driver AGENT spawns a driver AGENT spawns a worker (the brain composes with 2a recursion)', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const rootSeen: DriverMessage[][] = []
-    const midSeen: DriverMessage[][] = []
+    const rootSeen: SeenMessages = []
+    const midSeen: SeenMessages = []
 
     const worker = workerLeaf('leaf', {
       out: { deepest: 'reached-the-bottom' },
@@ -174,43 +157,40 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
       score: 1,
     })
 
+    // The mid driver's script: spawn the worker leaf, await it, stop. Held in this closure (not on
+    // the spawned profile) because tool arguments are JSON-serialized through the loop, so a live
+    // `seen` reference can't ride along — `makeAgent` looks it up by the profile's `kind`.
+    const midTurns: ScriptedTurn[] = [
+      {
+        toolCalls: [
+          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
+        ],
+      },
+      { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      { content: 'mid done' },
+    ]
+
     // The recursive resolver: a 'driver' profile → a driverChild wrapping ANOTHER
     // coordinationDriverAgent (over the same recursive makeAgent); a 'worker' profile → leaf.
     const makeAgent = (raw: unknown): Agent<unknown, unknown> => {
-      const p = raw as Profile
+      const p = raw as { kind?: string }
       if (p?.kind === 'driver') {
-        const childChat = scriptedChat(p.turns, p.seen)
+        const childBrain = scriptedBrain(midTurns, midSeen)
         return driverChild(
-          p.name,
-          coordinationDriverAgent(driverOpts(p.name, childChat, makeAgent)),
+          'mid',
+          coordinationDriverAgent(driverOpts('mid', childBrain, makeAgent)),
           journal,
         )
       }
       return worker
     }
 
-    // The mid driver's script: spawn the worker leaf, await it, stop.
-    const midProfile: Profile = {
-      kind: 'driver',
-      name: 'mid',
-      seen: midSeen,
-      turns: [
-        {
-          toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
-          ],
-        },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-        { content: 'mid done' },
-      ],
-    }
-
     // The root driver's script: spawn the MID DRIVER, await it, stop.
-    const rootChat = scriptedChat(
+    const rootChat = scriptedBrain(
       [
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: midProfile, task: 'delegate' } },
+            { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -235,9 +215,10 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
 
     // The mid driver actually ran its OWN tool-loop inside its nested scope: its conversation
     // recorded the worker's settlement fed back — proof the inner agent reasoned, not scripted-bypassed.
+    // The await_event tool result serializes the done worker, so its OpenAI `tool` message carries 'done'.
     expect(midSeen.length).toBeGreaterThanOrEqual(2)
     const midToolMsgs = midSeen[midSeen.length - 1]!.filter((m) => m.role === 'tool')
-    expect(midToolMsgs.some((m) => m.name === 'await_event')).toBe(true)
+    expect(midToolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
 
     // A SEPARATE nested tree exists under the root — the mid driver's sub-tree, holding the
     // worker spawn. A non-recursive build (mid as a leaf) could not produce a nested tree.
@@ -258,14 +239,14 @@ function collectTreeKeys(journal: InMemorySpawnJournal): string[] {
 
 // `list_questions` is always present (no analysts needed), has no side effects, and reserves no
 // budget — the ideal benign tool for driving the loop a fixed number of turns.
-const benignTurn: DriverTurn = { toolCalls: [{ name: 'list_questions', arguments: {} }] }
+const benignTurn: ScriptedTurn = { toolCalls: [{ name: 'list_questions', arguments: {} }] }
 const dummyWorker = (_p: unknown): Agent<unknown, unknown> =>
   workerLeaf('w', { out: {}, tokens: { input: 0, output: 0 }, iterations: 0, score: 0 })
 
-function bounds0Opts(name: string, chat: DriverChat): CoordinationDriverOptions {
+function bounds0Opts(name: string, brain: ToolLoopChat): CoordinationDriverOptions {
   return {
     name,
-    chat,
+    brain,
     blobs: SHARED_BLOBS,
     makeWorkerAgent: dummyWorker,
     perWorker,
@@ -276,19 +257,19 @@ function bounds0Opts(name: string, chat: DriverChat): CoordinationDriverOptions 
 
 describe('coordinationDriverAgent — maxTurns=0 lifts the turn cap; the conserved pool + deadline + abort are the bounds', () => {
   it('rejects a negative maxTurns (fail loud — no silent zero-turn run)', () => {
-    const opts = { ...bounds0Opts('root', scriptedChat([], [])), maxTurns: -1 }
+    const opts = { ...bounds0Opts('root', scriptedBrain([], [])), maxTurns: -1 }
     expect(() => coordinationDriverAgent(opts)).toThrow(/maxTurns must be >= 0/)
   })
 
   it('stops when the conserved pool can no longer afford a worker (the in-loop budget bound)', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const seen: DriverMessage[][] = []
+    const seen: SeenMessages = []
     // A driver that NEVER stops on its own — only the pool bound can halt this loop.
-    const chat = scriptedChat([benignTurn], seen)
+    const chat = scriptedBrain([benignTurn], seen)
     const opts: CoordinationDriverOptions = {
       name: 'root',
-      chat,
+      brain: chat,
       blobs: SHARED_BLOBS,
       makeWorkerAgent: dummyWorker,
       // A worker needs more tokens than the whole run pool holds → no worker is ever affordable.
@@ -315,11 +296,11 @@ describe('coordinationDriverAgent — maxTurns=0 lifts the turn cap; the conserv
   it('runs the driver PAST the default 16-turn cap until it stops on its own', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const seen: DriverMessage[][] = []
+    const seen: SeenMessages = []
     // 20 benign turns then a no-tool-call stop: a run the old default (16) would have force-finalized.
-    const turns: DriverTurn[] = Array.from({ length: 20 }, () => benignTurn)
+    const turns: ScriptedTurn[] = Array.from({ length: 20 }, () => benignTurn)
     turns.push({ content: 'nothing left to do' })
-    const chat = scriptedChat(turns, seen)
+    const chat = scriptedBrain(turns, seen)
 
     const root = coordinationDriverAgent(bounds0Opts('root', chat))
     await createSupervisor<unknown, unknown>().run(root, 'long task', {
@@ -340,18 +321,16 @@ describe('coordinationDriverAgent — maxTurns=0 lifts the turn cap; the conserv
   it('breaks the unlimited loop the moment the scope signal aborts (mid-loop)', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const seen: DriverMessage[][] = []
+    const seen: SeenMessages = []
     const ac = new AbortController()
     let n = 0
     // A chat that NEVER stops on its own (always asks for another benign tool call) — without the
     // abort break this would spin to the 100k backstop. It aborts the run on its 3rd turn.
-    const chat: DriverChat = {
-      next: async (input) => {
-        seen.push([...input.messages])
-        n += 1
-        if (n === 3) ac.abort()
-        return benignTurn
-      },
+    const chat: ToolLoopChat = async (messages) => {
+      seen.push(messages)
+      n += 1
+      if (n === 3) ac.abort()
+      return { toolCalls: [{ id: `call-${n}`, name: 'list_questions', arguments: '{}' }] }
     }
 
     const root = coordinationDriverAgent(bounds0Opts('root', chat))

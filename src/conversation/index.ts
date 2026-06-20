@@ -29,6 +29,7 @@ export {
 } from './call-policy'
 export { createConversationBackend } from './conversation-backend'
 export { defineConversation } from './define-conversation'
+export { type EvalPersonaOptions, evalPersona } from './eval-persona'
 export {
   buildForwardHeaders,
   DEFAULT_MAX_DEPTH,

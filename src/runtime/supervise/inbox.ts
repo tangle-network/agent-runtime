@@ -2,7 +2,7 @@
  * @experimental
  *
  * The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
- * `Executor.deliver`. The driver's `steer_worker` / `answer_question` land here,
+ * `Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
  * and the worker's agent loop drains them at two points (Drew's two delivery modes):
  *
  *   - QUEUED (default): the message accumulates and is FLUSHED at the next step boundary — folded

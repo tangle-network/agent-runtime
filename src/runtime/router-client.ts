@@ -11,6 +11,7 @@
  */
 
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
 export interface RouterConfig {
   routerBaseUrl: string
@@ -220,62 +221,34 @@ export async function routerToolLoop(
     initialMessages?: ReadonlyArray<Record<string, unknown>>
   },
 ): Promise<RouterToolLoopResult> {
-  const maxTurns = opts?.maxTurns ?? 4
-  const messages: Array<Record<string, unknown>> = opts?.initialMessages
-    ? [...opts.initialMessages]
-    : [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ]
-  let toolCalls = 0
-  let lastText = ''
-  const usage = { input: 0, output: 0 }
-  const toolTrace: Array<{ name: string; args: string; result: string }> = []
+  // The router adapter over the canonical `runBrainLoop`: bind the inference to the router
+  // (`routerChatWithTools`), seed the conversation, and let the one shared skeleton drive.
+  const initialMessages = opts?.initialMessages ?? [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ]
+  return runBrainLoop({
+    chat: (messages, toolSpecs) =>
+      routerChatWithTools(cfg, messages, toolSpecs, {
+        ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+        ...(opts?.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+      }),
+    tools,
+    execute,
+    initialMessages,
+    maxTurns: opts?.maxTurns ?? 4,
+  })
+}
 
-  for (let turn = 1; turn <= maxTurns; turn += 1) {
-    const r = await routerChatWithTools(cfg, messages, tools, {
-      ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
-      ...(opts?.maxTokens ? { maxTokens: opts.maxTokens } : {}),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    })
-    if (r.usage) {
-      usage.input += r.usage.input
-      usage.output += r.usage.output
-    }
-    if (r.content) lastText = r.content
-    if (r.toolCalls.length === 0)
-      return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
-
-    // Record the assistant turn verbatim (content + the tool_calls it requested), then
-    // run each call on the host and fold the result back as a `tool` message.
-    messages.push({
-      role: 'assistant',
-      content: r.content ?? '',
-      tool_calls: r.toolCalls.map((tc) => ({
-        id: tc.id,
-        type: 'function',
-        function: { name: tc.name, arguments: tc.arguments },
-      })),
-    })
-    for (const tc of r.toolCalls) {
-      toolCalls += 1
-      let args: Record<string, unknown> = {}
-      try {
-        args = JSON.parse(tc.arguments) as Record<string, unknown>
-      } catch {
-        // Malformed tool args from the model are a real outcome, not an infra fault — feed
-        // the error back so the model can correct, rather than throwing the whole loop.
-        messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}`,
-        })
-        continue
-      }
-      const out = await execute(tc.name, args)
-      messages.push({ role: 'tool', tool_call_id: tc.id, content: out })
-      toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
-    }
-  }
-  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage, messages }
+/**
+ * The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's
+ * tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
+ * The turnkey production brain — tests script a mock `ToolLoopChat`; production passes
+ * `routerBrain(cfg)`. No message translation: the loop already speaks the router's OpenAI shape.
+ */
+export function routerBrain(cfg: RouterConfig, opts: { temperature?: number } = {}): ToolLoopChat {
+  const temperature = opts.temperature ?? 0.4
+  return (messages, tools) =>
+    routerChatWithTools(cfg, messages, tools, { temperature, toolChoice: 'auto' })
 }

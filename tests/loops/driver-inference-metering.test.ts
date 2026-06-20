@@ -10,9 +10,6 @@ import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
-  type DriverChat,
-  type DriverMessage,
-  type DriverTurn,
 } from '../../src/runtime/supervise/coordination-driver'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -25,7 +22,9 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
+import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 
 // ── A worker leaf with a known, fixed spend (no network/LLM) ─────────────────────
 function workerLeaf(
@@ -60,17 +59,11 @@ function workerLeaf(
 }
 
 // ── A scripted driver-LLM that reports per-turn usage (the production shape) ──────
-function meteredChat(turns: DriverTurn[]): DriverChat {
-  let i = 0
-  return {
-    next: async () => {
-      // Past the script → a no-tool STOP turn (never silently repeat the last turn, which would
-      // loop forever if that turn carried tool calls).
-      const t = turns[i] ?? { content: 'stop' }
-      i += 1
-      return t
-    },
-  }
+// Past the script the brain emits a no-tool STOP turn (never silently repeat the last turn, which
+// would loop forever if that turn carried tool calls): scriptedBrain repeats its last entry, so we
+// append an explicit content-only stop as that terminal entry.
+function meteredChat(turns: ScriptedTurn[]): ToolLoopChat {
+  return scriptedBrain([...turns, { content: 'stop' }])
 }
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
@@ -84,7 +77,7 @@ describe("driver inference metering — the driver's own tokens count against th
     // 3 driver turns, each with REAL usage: spawn → await → stop.
     const chat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
@@ -97,7 +90,7 @@ describe("driver inference metering — the driver's own tokens count against th
     ])
     const opts: CoordinationDriverOptions = {
       name: 'root',
-      chat,
+      brain: chat,
       blobs,
       makeWorkerAgent: () => worker,
       perWorker,
@@ -141,10 +134,10 @@ describe("driver inference metering — the driver's own tokens count against th
 
     // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
     // a driverChild wrapping another coordinationDriverAgent; a 'worker' profile becomes the leaf.
-    type P = { kind: 'driver'; name: string; turns: DriverTurn[] } | { kind: 'worker' }
-    const driverOf = (name: string, chat: DriverChat): CoordinationDriverOptions => ({
+    type P = { kind: 'driver'; name: string; turns: ScriptedTurn[] } | { kind: 'worker' }
+    const driverOf = (name: string, brain: ToolLoopChat): CoordinationDriverOptions => ({
       name,
-      chat,
+      brain,
       blobs,
       makeWorkerAgent: makeAgent,
       perWorker,
@@ -170,7 +163,7 @@ describe("driver inference metering — the driver's own tokens count against th
       turns: [
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
+            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
           ],
           usage: { input: 60, output: 40 },
           costUsd: 0.05,
@@ -182,7 +175,7 @@ describe("driver inference metering — the driver's own tokens count against th
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_worker', arguments: { profile: midProfile, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: midProfile, task: 'go' } }],
         usage: { input: 100, output: 50 },
         costUsd: 0.02,
       },
@@ -224,22 +217,20 @@ describe("driver inference metering — the driver's own tokens count against th
       const p = raw as { kind?: string }
       if (p?.kind === 'driver') {
         let t = 0
-        const crashingChat: DriverChat = {
-          next: async () => {
-            t += 1
-            if (t === 1)
-              return {
-                toolCalls: [{ name: 'list_questions', arguments: {} }],
-                usage: { input: 40, output: 20 },
-              }
-            throw new Error('sub-driver network crash')
-          },
+        const crashingChat: ToolLoopChat = async () => {
+          t += 1
+          if (t === 1)
+            return {
+              toolCalls: [{ id: 'call-q', name: 'list_questions', arguments: '{}' }],
+              usage: { input: 40, output: 20 },
+            }
+          throw new Error('sub-driver network crash')
         }
         return driverChild(
           'mid',
           coordinationDriverAgent({
             name: 'mid',
-            chat: crashingChat,
+            brain: crashingChat,
             blobs,
             makeWorkerAgent: makeAgent,
             perWorker,
@@ -254,7 +245,7 @@ describe("driver inference metering — the driver's own tokens count against th
     const rootChat = meteredChat([
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'go' } },
         ],
         usage: { input: 100, output: 50 },
       },
@@ -265,7 +256,7 @@ describe("driver inference metering — the driver's own tokens count against th
     await createSupervisor<unknown, unknown>().run(
       coordinationDriverAgent({
         name: 'root',
-        chat: rootChat,
+        brain: rootChat,
         blobs,
         makeWorkerAgent: makeAgent,
         perWorker,
@@ -300,24 +291,22 @@ describe("driver inference metering — the driver's own tokens count against th
   it('maxTurns=0 is bounded by inference: a never-stopping driver halts when its OWN tokens drain the pool', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const seen: DriverMessage[][] = []
+    const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     // A driver that NEVER stops — only the pool bound can halt it. Each turn spends 200 tokens of
     // its OWN inference on a no-spawn tool (list_questions reserves nothing), so only the metered
     // inference drains the pool.
     let n = 0
-    const chat: DriverChat = {
-      next: async (input) => {
-        seen.push([...input.messages])
-        n += 1
-        return {
-          toolCalls: [{ name: 'list_questions', arguments: {} }],
-          usage: { input: 150, output: 50 },
-        }
-      },
+    const chat: ToolLoopChat = async (messages) => {
+      seen.push(messages)
+      n += 1
+      return {
+        toolCalls: [{ id: `call-${n}`, name: 'list_questions', arguments: '{}' }],
+        usage: { input: 150, output: 50 },
+      }
     }
     const opts: CoordinationDriverOptions = {
       name: 'root',
-      chat,
+      brain: chat,
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
       perWorker: { maxIterations: 4, maxTokens: 500 },
@@ -352,7 +341,7 @@ describe("driver inference metering — the driver's own tokens count against th
     const turnEvents: RuntimeHookEvent[] = []
     const chat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
@@ -361,7 +350,7 @@ describe("driver inference metering — the driver's own tokens count against th
     ])
     const opts: CoordinationDriverOptions = {
       name: 'root',
-      chat,
+      brain: chat,
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
       perWorker,
@@ -396,7 +385,7 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(first.kind).toBe('driver-inference')
     expect(first.driver).toBe('root')
     expect(first.turn).toBe(0)
-    expect(first.toolCalls).toEqual(['spawn_worker'])
+    expect(first.toolCalls).toEqual(['spawn_agent'])
     expect(first.spend.tokens.input).toBe(100)
 
     // ALL three events carry the right per-turn detail (turn index increments; the stop turn's
@@ -421,19 +410,17 @@ describe("driver inference metering — the driver's own tokens count against th
     let n = 0
     // A never-stopping driver with a HUGE token ceiling but a small usd cap: only the usd channel
     // can bound it. Each turn costs $0.04 (and few tokens), so tokensLeft never trips poolStarved.
-    const chat: DriverChat = {
-      next: async () => {
-        n += 1
-        return {
-          toolCalls: [{ name: 'list_questions', arguments: {} }],
-          usage: { input: 5, output: 5 },
-          costUsd: 0.04,
-        }
-      },
+    const chat: ToolLoopChat = async () => {
+      n += 1
+      return {
+        toolCalls: [{ id: `call-${n}`, name: 'list_questions', arguments: '{}' }],
+        usage: { input: 5, output: 5 },
+        costUsd: 0.04,
+      }
     }
     const opts: CoordinationDriverOptions = {
       name: 'root',
-      chat,
+      brain: chat,
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
       perWorker: { maxIterations: 4, maxTokens: 100 },

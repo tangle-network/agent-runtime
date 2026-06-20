@@ -56,7 +56,7 @@ The remaining loop story is substrate-first:
 
 The local demo that previously stood here (`bench/src/observe-steer-workspace-loop.mts`)
 was removed in the deep-clean: it walked a real Supervisor/Scope through the
-coordination MCP verbs (`run_analyst` → `observe()`, `steer_worker` → `Scope.send`,
+coordination MCP verbs (`run_analyst` → `observe()`, `steer_agent` → `Scope.send`,
 fix-worker, fresh-clone test) but with MOCK executors, so it was a shape demo, not a
 proof. The valid join proof is the live one over real endpoints (`openSandboxRun`
 workers + a remote branch a sandbox clones and pushes).

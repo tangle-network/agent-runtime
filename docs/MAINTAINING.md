@@ -36,7 +36,7 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
 
 Run by `pnpm run docs:freshness`. Pure node, no deps, fail-loud (non-zero exit on any
 drift — matching the repo's `verify:package` / biome / tsc convention; no soft gates).
-It checks `docs/canonical-api.md` against ground truth in three classes:
+It checks the hand-authored judgment docs against ground truth in six classes:
 
 1. **Version + substrate pins** — the `**Version X.Y.Z**` header and every prose
    `version X.Y.Z` claim must equal `package.json` `version`; the `agent-eval` /
@@ -67,11 +67,22 @@ It checks `docs/canonical-api.md` against ground truth in three classes:
 5. **Exports-subpath coverage** — every `package.json` `exports` subpath (except the
    `./loops`→`./runtime` alias) must have a matching `typedoc.json` entryPoint, so a new
    public subpath can't ship undocumented (no api page, clean diff, symbols unguarded).
+6. **Prose-symbol resolution** — every backticked symbol in the **curated docs**
+   (`canonical-api.md`, `concepts.md`, `architecture.md`), outside fenced code, must resolve
+   to an export in `src/**` ∪ `bench/src/**` ∪ any `@tangle-network/*` substrate package
+   (every `dist/**/*.d.ts`, not just the index barrels) ∪ a small explicit concept-whitelist
+   (profile fields / conceptual terms like `AgentProfile`, `systemPrompt`). Only call-shaped
+   (`fanout(...)`) or PascalCase Type spans are flagged; lowercase non-call words, snake_case
+   MCP tools, member access, and JS keywords are prose, not symbols. This closes the gap that
+   let `gepaDriver`/`refineGepa` live in the docs unchecked — a removed/renamed/fabricated
+   symbol anywhere in a curated doc, not just the §2/§3 tables, is now a red build.
 
 The gate does **not** read line numbers exactly (they drift on every edit) and does
-**not** touch the judgment prose. It only catches a renamed/removed symbol, a missing
-cited file, a banned bundle citation, a stale/absent version, an unasserted peer pin, or
-an undocumented exports subpath.
+**not** touch the judgment prose. It only catches a renamed/removed/fabricated symbol, a
+missing cited file, a banned bundle citation, a stale/absent version, an unasserted peer
+pin, or an undocumented exports subpath. Conceptual or design-target terms in a curated doc
+must read as prose (lowercase, or named not called) or join the concept-whitelist — never be
+backticked as a current callable export they are not.
 
 ## `pnpm run docs:check` — the one command CI runs
 

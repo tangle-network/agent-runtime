@@ -1,4 +1,4 @@
-> **Track:** Reference · **Role:** product SDK contract · **Status:** target interface — current primitives exist, wrapper not fully shipped. **Post-2026-06-13 evidence reset** (see `docs/go-live-plan.md`): the quality-improvement framing is retracted; this SDK sells **cost + verification + transfer**, not "makes your agent smarter."
+> **Track:** Reference · **Role:** product SDK contract · **Status:** target interface — current primitives exist, wrapper not fully shipped. **Post-2026-06-13 evidence reset** (see `docs/archive/go-live-plan.md`): the quality-improvement framing is retracted; this SDK sells **cost + verification + transfer**, not "makes your agent smarter."
 
 # Tangle Intelligence SDK
 

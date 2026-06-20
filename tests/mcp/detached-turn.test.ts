@@ -11,7 +11,7 @@ import {
 } from '../../src/mcp/delegates'
 import { FileDelegationStore } from '../../src/mcp/delegation-store'
 import {
-  createDriveTurnResumeDriver,
+  createDetachedTurnResumeDriver,
   type DriveTurnCapableBox,
   type DriveTurnTick,
   formatDetachedSessionRef,
@@ -337,7 +337,7 @@ describe('settleDetachedCoderTurn', () => {
   })
 })
 
-describe('createDriveTurnResumeDriver', () => {
+describe('createDetachedTurnResumeDriver', () => {
   function makeRecord(ref: string) {
     return {
       record: {
@@ -371,7 +371,7 @@ describe('createDriveTurnResumeDriver', () => {
       ticks: [{ state: 'completed', text: completedText, result: { usage: 1 } }],
     })
     const settle = vi.fn(async () => ({ done: true }) as never)
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: async () => fake.box as DriveTurnCapableBox,
       buildMessage: () => 'rebuilt prompt',
       settleOutput: settle,
@@ -392,7 +392,7 @@ describe('createDriveTurnResumeDriver', () => {
 
   it('maps running → running tick and reports elapsed progress', async () => {
     const fake = fakeDriveTurnBox({ ticks: [{ state: 'running', elapsedMs: 64_000 }] })
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: async () => fake.box as DriveTurnCapableBox,
       buildMessage: () => 'p',
       settleOutput: () => {
@@ -407,7 +407,7 @@ describe('createDriveTurnResumeDriver', () => {
 
   it('maps failed → terminal failed tick', async () => {
     const fake = fakeDriveTurnBox({ ticks: [{ state: 'failed', error: 'session evaporated' }] })
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: async () => fake.box as DriveTurnCapableBox,
       buildMessage: () => 'p',
       settleOutput: () => {
@@ -424,7 +424,7 @@ describe('createDriveTurnResumeDriver', () => {
 
   it('fails an unbound ref without touching the sandbox', async () => {
     const resolve = vi.fn()
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: resolve as never,
       buildMessage: () => 'p',
       settleOutput: () => {
@@ -442,7 +442,7 @@ describe('createDriveTurnResumeDriver', () => {
 
   it('hooks remote cancellation onto the abort signal', async () => {
     const fake = fakeDriveTurnBox({ ticks: [{ state: 'running' }] })
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: async () => fake.box as DriveTurnCapableBox,
       buildMessage: () => 'p',
       settleOutput: () => {
@@ -460,7 +460,7 @@ describe('createDriveTurnResumeDriver', () => {
     const fake = fakeDriveTurnBox({
       ticks: [{ state: 'completed', text: 'no fenced result here', result: {} }],
     })
-    const driver = createDriveTurnResumeDriver({
+    const driver = createDetachedTurnResumeDriver({
       resolveSandbox: async () => fake.box as DriveTurnCapableBox,
       buildMessage: () => 'p',
       settleOutput: () => {
@@ -651,7 +651,7 @@ describe('restored-record resume end-to-end', () => {
     const resolved: string[] = []
     const second = await DelegationTaskQueue.restore({
       store: new FileDelegationStore({ filePath }),
-      resumeDelegate: createDriveTurnResumeDriver({
+      resumeDelegate: createDetachedTurnResumeDriver({
         intervalMs: 1,
         resolveSandbox: async (sandboxId) => {
           resolved.push(sandboxId)

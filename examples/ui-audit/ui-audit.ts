@@ -19,20 +19,18 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import {
-  appendFindings,
-  initAuditWorkspace,
-  writeAuditIndex,
-} from '@tangle-network/agent-runtime/audit'
 import type { Driver } from '@tangle-network/agent-runtime/loops'
 import { runLoop } from '@tangle-network/agent-runtime/loops'
 import {
+  appendFindings,
   createInProcessUiAuditClient,
+  initAuditWorkspace,
   type UiAuditOutput,
   type UiAuditTask,
   type UiFinding,
   type UiJudge,
   uiAuditorProfile,
+  writeAuditIndex,
 } from '@tangle-network/agent-runtime/profiles'
 
 const LENSES_TO_RUN = ['consistency', 'hierarchy', 'layout', 'ux-flow'] as const

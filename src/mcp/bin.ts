@@ -79,7 +79,7 @@ import { DEFAULT_SANDBOX_BASE_URL } from './delegation-profile'
 import { FileDelegationStore } from './delegation-store'
 import { composeLoopTraceEmitters } from './delegation-trace'
 import {
-  createDriveTurnResumeDriver,
+  createDetachedTurnResumeDriver,
   type DetachedTurn,
   type DriveTurnCapableBox,
   detachedTurnEvents,
@@ -277,7 +277,7 @@ function buildResumeDriver(args: {
   const client = args.sandboxClient as SandboxClient & {
     get?: (id: string) => Promise<SandboxInstance | null>
   }
-  return createDriveTurnResumeDriver({
+  return createDetachedTurnResumeDriver({
     async resolveSandbox(sandboxId) {
       if (typeof client.get !== 'function') {
         throw new Error(

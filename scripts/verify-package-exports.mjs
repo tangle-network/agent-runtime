@@ -28,9 +28,10 @@ try {
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   const requiredExports = {
     '.': ['import', 'types'],
-    './workflow': ['import', 'types'],
-    './loops': ['import', 'types'],
+    './agent': ['import', 'types'],
     './intelligence': ['import', 'types'],
+    './loops': ['import', 'types'],
+    './profiles': ['import', 'types'],
     './mcp': ['import', 'types'],
   }
 
@@ -53,19 +54,6 @@ try {
       '--input-type=module',
       '--eval',
       `
-        const workflow = await import('@tangle-network/agent-runtime/workflow')
-        const expected = [
-          'WorkflowBudget',
-          'createNestedWorkflowAgentDelegate',
-          'createRunLoopWorkflowDelegate',
-          'createSandboxWorkflowAgentDelegate',
-          'runWorkflow',
-          'validateJsonSchema',
-        ]
-        for (const name of expected) {
-          if (!(name in workflow)) throw new Error('missing workflow export ' + name)
-        }
-
         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
         const expectedIntelligence = [
           'createIntelligenceClient',

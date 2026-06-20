@@ -461,7 +461,7 @@ export interface SettleDetachedCoderTurnOptions {
  * bound to the `runLoop` + sandbox-session substrate. The recursive `Scope`/worktree-CLI leaf has
  * journal→replay but no driveTurn-over-a-detached-sandbox-session equivalent yet, so resume is NOT
  * advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFromArgs` and
- * `createDriveTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
+ * `createDetachedTurnResumeDriver`) stays as the resume seam `bin.ts` wires for in-flight records.
  *
  * @experimental
  */

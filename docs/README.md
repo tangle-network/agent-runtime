@@ -1,52 +1,44 @@
 # agent-runtime — documentation index
 
-The map of every doc in this repo and the order to read them. Two tracks: **Architecture** (what the system is and where it's going) and **Reference** (how to use the package). On any *architecture* conflict, [`architecture.md`](./architecture.md) wins — the other architecture docs are either its deep-dives or are being consolidated into it.
+The map of every doc and the order to read them. Two tracks: **Architecture** (what the system is and where it's going) and **Reference** (how to use the package). On any *architecture* conflict, [`architecture.md`](./architecture.md) wins.
 
 ## Architecture track
 
-Read top-to-bottom for the full picture.
-
 | # | Doc | Role | Purpose |
 |---|---|---|---|
-| 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks. The single source of truth; wins on conflict. |
-| 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses (test-time-compute, active learning, program synthesis, two-timescale RSI, skeptic) + diagrams. Answers "does it cohere?" — and where it doesn't. |
-| 2b | [architecture-visual.md](./architecture-visual.md) | the picture book | `act`/`Scope`/recursion, the within-run RSI loop, the evolution of a prompt, the two timescales — all drawn, grounded with `file:line`. Includes "analysts are just Agents → ensembles for free" and the three-move-encoding collapse map. |
-| 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build + cleanup plan | The file-grounded, dependency-ordered sequence to go from *scaffold built, intelligence designed* to a measured surface. Phases, exit gates, cruft track, doc track, open decisions. |
-| 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. Points to `architecture.md` as the canonical entry. |
-| 4b | [eval-substrate.md](./eval-substrate.md) | north star + discipline | The neutral measurement substrate (harness × model × provider × task-class), the `generate-eval` data engine (grounding + discrimination gates), the measurement non-negotiables, and the building/contributing discipline. |
-| 5 | [../bench/HARNESS.md](../bench/HARNESS.md) | empirical harness map | Commands, the data flow, the wired/needs-creds matrix, and the canonical-suite runbook — what's been run, what wins, what's untested. |
-| 6 | [results.md](./results.md) | the charts (selection-scoped) | The measured SELECTION results, drawn simply: verifier-grounded selection +10.0pp CI[+2,+18] on HumanEval (reproduced +10/+12), flat where there's no within-task variance (aec). Everything since lives in `.evolve/current.json`. |
-
-## Research track
-
-Forward-looking design research — surveys, multi-agent design passes, decision logs. Not the canonical spine; promotions into `architecture.md` happen explicitly once a design ships.
-
-| Doc | Role | Purpose |
-|---|---|---|
-| [research/README.md](./research/README.md) | research index | The active design thread + decision log + source-artifact pointers. |
+| 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks — the visual mental model (`act`/`Scope`/recursion, the up-flow, the three improvement timescales) folded in. The single source of truth; wins on conflict. |
+| 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses + the decision gate. Answers "does it cohere?" — and where it doesn't. |
+| 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build plan | The dependency-ordered sequence from scaffold to a measured surface. Phases, exit gates, open decisions. |
+| 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. |
+| 5 | [eval-substrate.md](./eval-substrate.md) | north star + discipline | The neutral measurement substrate, the data engine, and the measurement non-negotiables. |
+| 6 | [../bench/HARNESS.md](../bench/HARNESS.md) | empirical harness map | Commands, the data flow, the wired/needs-creds matrix, the canonical-suite runbook. |
 
 ## Reference track
 
-The package API and subsystems.
+| Doc | Role | Purpose |
+|---|---|---|
+| [../README.md](../README.md) | API entry point | Install, the loop API, the plain-language framing, the exported subpaths. Start HERE. |
+| [canonical-api.md](./canonical-api.md) | API spine + decision table | The conceptual spine + the "I want to ___ → use ___" anti-reinvention matrix of LOCAL symbols. Per-symbol signatures are generated into [api/](./api/). |
+| [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
+| [glossary.md](./glossary.md) | canonical vocabulary | One definition per term, grounded to `file:line`; drifted synonyms flagged. |
+| [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
+| [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
+| [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability for resumable conversations + supervisor trees. |
+| [intelligence-sdk.md](./intelligence-sdk.md) | subsystem | The product intelligence drop-in (`withTangleIntelligence`). |
+| [BUILDING.md](./BUILDING.md) | process | Building discipline: goal first, cheapest decisive proof, verification rules. |
+| [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes. |
+| [MAINTAINING.md](./MAINTAINING.md) | process | How the generated API reference + the docs-freshness gate stay honest. |
+
+## Active work + research
 
 | Doc | Role | Purpose |
 |---|---|---|
-| [../README.md](../README.md) | API entry point | Install, the loop API, self-improvement framing, exported subpaths. |
-| [PLAIN.md](./PLAIN.md) | the translation layer | The whole system in plain language — five sentences, the six-piece core, the project-term → plain-English table, the one-paragraph version for outside collaborators. Start HERE when introducing the project to anyone. |
-| [glossary.md](./glossary.md) | canonical vocabulary | One definition per term (iteration/round/rollout/attempt, driver/worker/executor, TopologyMove, budget/spend, Scope.act + the coordination MCP), grounded to `file:line`; drifted synonyms flagged. Read when a term is ambiguous. |
-| [execution-model.md](./execution-model.md) | the picture | The four diagrams: the unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, who gets which tools/MCPs, and the spawn mechanics. |
-| [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
-| [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract (429 on depth exhaustion). |
-| [conversation-economics.md](./conversation-economics.md) | subsystem | Conversation cost accounting and auth-source model (`src/conversation/`). |
-| [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability adapters for resumable conversations. |
-| [BUILDING.md](./BUILDING.md) | process | Canonical building discipline: goal first, cheapest decisive proof, substrate-first loop API, verification rules. |
-| [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes: mechanism ahead of gate, facade before substrate proof, relocated protocol, confounded claims, overclaim. |
-| [refactor-roadmap.md](./refactor-roadmap.md) | package hygiene *(needs prune)* | Package-structure cleanup items (R1–R10); closed items deleted per its own rule. |
+| [simplification-plan.md](./simplification-plan.md) | **live tracker** | The in-flight simplification/rearchitecture: the converged design, the scratch list, the doc/module inventory, the workstreams + completion criteria. |
+| [research/README.md](./research/README.md) | research index | Forward-looking design threads + decision log. Not the canonical spine. |
+| [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results). |
 
 ## Conventions
 
-- Each doc declares its **track** and **role** (canonical / deep-dive / reference / needs-update) in a one-line header banner.
-- Architecture docs cross-link the spine; the spine links its deep-dives and the empirical harness.
-- "Built vs Designed" is stated explicitly in `architecture.md` and `architecture-interpretations.md` — never assume a documented design is shipped without the `file:line` anchor.
-
-- Repo bootloader + authorship/comment/layering deltas live in [../CLAUDE.md](../CLAUDE.md); durable process rules live in [BUILDING.md](./BUILDING.md) and [ANTI_PATTERNS.md](./ANTI_PATTERNS.md).
+- On any architecture conflict, `architecture.md` wins; "Built vs Designed" is stated explicitly with a `file:line` anchor — never assume a documented design is shipped without one.
+- The generated [api/](./api/) reference + the docs-freshness gate (`scripts/check-docs-freshness.mjs`) keep the curated docs honest: every backticked symbol must resolve. See [MAINTAINING.md](./MAINTAINING.md).
+- Repo bootloader + authorship/comment/layering deltas live in [../CLAUDE.md](../CLAUDE.md).

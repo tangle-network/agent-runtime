@@ -5,7 +5,7 @@
  *
  * Every agent here is three things: instructions (system prompt), tools, and a model — its
  * `AgentProfile`. The supervisor's job is to WRITE those profiles: read the task, decompose it,
- * and for each sub-task author a tailored worker recipe. `supervisorSkill` is the how-to the
+ * and for each sub-task author a tailored worker recipe. `supervisorInstructions` is the how-to the
  * supervisor reads (its system prompt); `authoredWorker` builds a worker AGENT from a profile the
  * supervisor authored — the authored systemPrompt + model shape the worker's call.
  *
@@ -28,7 +28,7 @@ export interface AuthoredProfile {
   model?: string
 }
 
-/** Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
+/** Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
  *  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching). */
 export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
   const p = raw as Partial<AuthoredProfile> | undefined
@@ -42,13 +42,13 @@ export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
 
 /** The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
  *  surface: editing this changes how the supervisor designs every agent it spawns. */
-export function supervisorSkill(opts?: { goal?: string }): string {
+export function supervisorInstructions(opts?: { goal?: string }): string {
   return [
     'You are a SUPERVISOR. You do NOT do the work yourself — your job is to DESIGN and DRIVE specialist worker agents.',
     '',
     'For the task you are given:',
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
-    '2. For EACH sub-task, AUTHOR a worker by calling spawn_worker with a COMPLETE `profile`:',
+    '2. For EACH sub-task, AUTHOR a worker by calling spawn_agent with a COMPLETE `profile`:',
     '   • name: a short id for the worker.',
     '   • systemPrompt: rich, specific instructions for THIS sub-task — tell the worker exactly what to produce, how to use its tools fully, and what "done" means. Never a one-liner; write the prompt a power-user would write.',
     '   • model: the model best suited to this sub-task (omit to use the default).',

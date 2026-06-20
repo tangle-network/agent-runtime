@@ -1103,7 +1103,7 @@ readonly `string`[]
 
 ### CreateSandboxActOptions
 
-Defined in: [agent/sandbox-act.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L28)
+Defined in: [agent/sandbox-act.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L29)
 
 #### Type Parameters
 
@@ -1121,15 +1121,15 @@ Defined in: [agent/sandbox-act.ts:28](https://github.com/tangle-network/agent-ru
 
 > **baseProfile**: `AgentProfile`
 
-Defined in: [agent/sandbox-act.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L30)
+Defined in: [agent/sandbox-act.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L31)
 
 Canonical agent profile — the same one the prod chat turn composes from.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
-Defined in: [agent/sandbox-act.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L32)
+Defined in: [agent/sandbox-act.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L33)
 
 Sandbox client used to boot the per-run sandbox.
 
@@ -1137,7 +1137,7 @@ Sandbox client used to boot the per-run sandbox.
 
 > **buildPrompt**: (`persona`) => `string`
 
-Defined in: [agent/sandbox-act.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L34)
+Defined in: [agent/sandbox-act.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L35)
 
 Persona → prompt. Pure; the eval cell's input.
 
@@ -1155,7 +1155,7 @@ Persona → prompt. Pure; the eval cell's input.
 
 > **output**: [`OutputAdapter`](runtime.md#outputadapter)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L36)
+Defined in: [agent/sandbox-act.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L37)
 
 Sandbox event stream → typed output the rubric scores.
 
@@ -1163,7 +1163,7 @@ Sandbox event stream → typed output the rubric scores.
 
 > `optional` **compose?**: (`persona`) => [`ComposeProductionAgentProfileOptions`](mcp.md#composeproductionagentprofileoptions)
 
-Defined in: [agent/sandbox-act.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L43)
+Defined in: [agent/sandbox-act.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L44)
 
 Per-persona composition overrides (workspace-augmented system prompt,
 extra file mounts, sandbox key). Merged into
@@ -1184,7 +1184,7 @@ top-level `env` option when both are set.
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: [agent/sandbox-act.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L45)
+Defined in: [agent/sandbox-act.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L46)
 
 Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
@@ -1198,7 +1198,7 @@ Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
 > `optional` **name?**: `string`
 
-Defined in: [agent/sandbox-act.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L47)
+Defined in: [agent/sandbox-act.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L48)
 
 Stable run name surfaced in mapped `llm_call` events.
 
@@ -1206,7 +1206,7 @@ Stable run name surfaced in mapped `llm_call` events.
 
 > `optional` **mapEvent?**: (`event`, `opts`) => [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [agent/sandbox-act.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L49)
+Defined in: [agent/sandbox-act.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L50)
 
 Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
@@ -1230,7 +1230,7 @@ Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
 > `optional` **env?**: `Record`\<`string`, `string` \| `undefined`\>
 
-Defined in: [agent/sandbox-act.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L54)
+Defined in: [agent/sandbox-act.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L55)
 
 Environment source for delegation-MCP composition. Defaults to `process.env`.
 
@@ -1512,7 +1512,7 @@ the call site.
 
 ### createSurfaceImprovementAdapter()
 
-> **createSurfaceImprovementAdapter**(`opts`): [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
+> **createSurfaceImprovementAdapter**(`opts`): `ImprovementAdapter`\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
 Defined in: [agent/improvement-adapter.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L129)
 
@@ -1524,13 +1524,13 @@ Defined in: [agent/improvement-adapter.ts:129](https://github.com/tangle-network
 
 #### Returns
 
-[`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
+`ImprovementAdapter`\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
 ***
 
 ### createSurfaceKnowledgeAdapter()
 
-> **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): [`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
+> **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): `KnowledgeAdapter`\<`TProposal`\>
 
 Defined in: [agent/knowledge-adapter.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L58)
 
@@ -1552,13 +1552,13 @@ Defined in: [agent/knowledge-adapter.ts:58](https://github.com/tangle-network/ag
 
 #### Returns
 
-[`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
+`KnowledgeAdapter`\<`TProposal`\>
 
 ***
 
 ### measureOutcome()
 
-> **measureOutcome**\<`TProposal`, `TEdit`\>(`result`, `opts`): `Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
+> **measureOutcome**\<`TProposal`, `TEdit`\>(`result`, `opts`): `Promise`\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\> & `object`\>
 
 Defined in: [agent/outcome.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L65)
 
@@ -1584,7 +1584,7 @@ optional on the type; missing means no measurement was wired).
 
 ##### result
 
-[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>
+`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>
 
 ##### opts
 
@@ -1592,7 +1592,7 @@ optional on the type; missing means no measurement was wired).
 
 #### Returns
 
-`Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
+`Promise`\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\> & `object`\>
 
 ***
 
@@ -1600,7 +1600,7 @@ optional on the type; missing means no measurement was wired).
 
 > **createSandboxAct**\<`TPersona`, `TRunOutput`\>(`options`): (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L63)
+Defined in: [agent/sandbox-act.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L64)
 
 Build an `AgentRuntime.act` implementation backed by a single prod-profile
 sandbox run. The returned function honours the `act` contract: it returns

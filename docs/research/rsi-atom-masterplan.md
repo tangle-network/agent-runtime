@@ -49,7 +49,7 @@ agent-eval's `AgentProfile` (today: prompt-genome `{role,environment,toolConvent
 
 ## 4. The quality bar (non-negotiable)
 
-The driver must **never** send one-word/two-sentence steers. It writes amazing, in-depth, high-signal-to-noise prompts that drive the worker to use its harness's full capabilities — the way a power user drives Claude, but better. This intelligence lives in #1's prompt and is *learned further* by the steering optimizers. The old `depthDriver` steer ("A reviewer flagged unfinished items: {findings}") is the anti-pattern being replaced.
+The driver must **never** send one-word/two-sentence steers. It writes amazing, in-depth, high-signal-to-noise prompts that drive the worker to use its harness's full capabilities — the way a power user drives Claude, but better. This intelligence lives in #1's prompt and is *learned further* by the steering optimizers. The old `depthStrategy` steer ("A reviewer flagged unfinished items: {findings}") is the anti-pattern being replaced.
 
 ## 5. Done this session (✅) + cleanup tracking
 

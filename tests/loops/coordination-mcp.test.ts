@@ -52,7 +52,7 @@ async function jsonRpc(
 }
 
 describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP → Scope.spawn)', () => {
-  it('a real HTTP tools/call spawn_worker lands on Scope.spawn and the worker settles', async () => {
+  it('a real HTTP tools/call spawn_agent lands on Scope.spawn and the worker settles', async () => {
     const blobs = new InMemoryResultBlobStore()
     let observed: { toolsList: unknown; settled: ReadonlyArray<{ valid?: boolean }> } | undefined
 
@@ -70,7 +70,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         try {
           const toolsList = await jsonRpc(mcp.url, 'tools/list', {})
           await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_worker',
+            name: 'spawn_agent',
             arguments: { profile: {}, task: 'go' },
           })
           await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
@@ -101,7 +101,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const names = ((observed?.toolsList as { tools?: Array<{ name: string }> })?.tools ?? []).map(
       (t) => t.name,
     )
-    expect(names).toContain('spawn_worker')
+    expect(names).toContain('spawn_agent')
     expect(names).toContain('await_event')
   })
 })

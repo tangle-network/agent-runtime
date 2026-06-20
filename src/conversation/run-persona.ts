@@ -25,7 +25,7 @@ import { createIterableBackend } from '../backends'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { defineConversation } from './define-conversation'
 import { runConversation } from './run-conversation'
-import type { ConversationTurn, HaltReason } from './types'
+import type { ConversationTurn, HaltPredicate, HaltReason } from './types'
 
 /** A persona that drives the conversation: either a full driver `AgentProfile`
  *  (an LLM user-sim) or a deterministic script of user turns (the fast-path). */
@@ -48,6 +48,9 @@ export interface RunPersonaConversationOptions {
   maxTurns?: number
   /** Kickoff message routed to the first speaker (the persona). Default 'Begin.' */
   seed?: string
+  /** Content-based "until satisfied" halt, called after every turn. `maxTurns` is the
+   *  hard ceiling; this is the early stop (the persona declares the goal met / unreachable). */
+  haltOn?: HaltPredicate
   signal?: AbortSignal
   /** Worker participant / transcript speaker label. Default 'agent'. */
   workerName?: string
@@ -164,7 +167,7 @@ export async function runPersonaConversation(
       { name: 'user', backend: persona },
       { name: workerName, backend: worker },
     ],
-    policy: { maxTurns, turnOrder: 'alternate' },
+    policy: { maxTurns, turnOrder: 'alternate', ...(opts.haltOn ? { haltOn: opts.haltOn } : {}) },
   })
   const result = await runConversation(conversation, {
     seed: opts.seed ?? 'Begin.',

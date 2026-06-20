@@ -12,7 +12,7 @@
  *     session id is deterministic and supplied at submit time, so a process
  *     crash between ticks loses nothing — the turn keeps running in the box.
  *
- *   - {@link createDriveTurnResumeDriver} — the resume side. A
+ *   - {@link createDetachedTurnResumeDriver} — the resume side. A
  *     `DelegationResumeDriver` that re-attaches restored in-flight records to
  *     their detached runs: parse the record's ref, resolve the box, advance the
  *     turn one `driveTurn` pass per `tick()`, and map the SDK's three states
@@ -36,7 +36,7 @@
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { AgentRunSpec, LoopTraceEmitter, LoopTraceEvent, SandboxClient } from '../runtime'
-import { createSandboxForSpec } from '../runtime'
+import { createSandboxForSpec } from '../runtime/run-loop'
 import { deleteBoxSafe, sleep, throwAbort, throwIfAborted } from '../runtime/util'
 import type { DelegationRecord, DelegationResumeDriver, DelegationResumeTick } from './task-queue'
 import type { DelegationProgress, DelegationResultPayload } from './types'
@@ -362,7 +362,7 @@ function detachedRunningPhase(elapsedMs: number | undefined): string {
 }
 
 /** @experimental */
-export interface DriveTurnResumeDriverOptions {
+export interface DetachedTurnResumeDriverOptions {
   /**
    * Resolve the live box owning a detached session. The bin wires this to the
    * sandbox client's `get(sandboxId)`; throw when the box no longer exists —
@@ -412,8 +412,8 @@ export interface DriveTurnResumeDriverOptions {
  *
  * @experimental
  */
-export function createDriveTurnResumeDriver(
-  options: DriveTurnResumeDriverOptions,
+export function createDetachedTurnResumeDriver(
+  options: DetachedTurnResumeDriverOptions,
 ): DelegationResumeDriver {
   const cancelHooked = new Set<string>()
   return {

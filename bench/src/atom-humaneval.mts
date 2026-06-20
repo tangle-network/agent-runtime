@@ -31,8 +31,8 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type RouterConfig,
+  routerBrain,
   routerChatWithUsage,
-  routerDriverChat,
 } from '../../src/runtime/index'
 import { createReplayRecorder, renderReplayHtml } from '../../src/topology/replay'
 import { basePrompt, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
@@ -56,8 +56,8 @@ const cfg: RouterConfig = {
 }
 const driverCfg: RouterConfig = { ...cfg, model: process.env.DRIVER_MODEL ?? cfg.model }
 
-// The driver-LLM brain uses the SHARED `routerDriverChat` (imported from the library) — its local
-// copy did not forward usage/costUsd, so this bench's driver arms never metered their inference.
+// The driver-LLM brain is the SHARED `routerBrain` (the canonical ToolLoopChat seam) — it forwards
+// usage/costUsd, so this bench's driver arms meter their own inference into the conserved pool.
 
 // ── A gated router worker: one router call → candidate code, settled valid ⟺ the tests pass ──
 function humanEvalWorker(task: HumanEvalTask, label: string): Agent<unknown, unknown> {
@@ -118,7 +118,7 @@ async function driveTask(
   }
   const opts: CoordinationDriverOptions = {
     name: `drv-${task.taskId}`,
-    chat: routerDriverChat(driverCfg),
+    brain: routerBrain(driverCfg),
     blobs,
     makeWorkerAgent: makeWorker,
     perWorker: { maxIterations: 2, maxTokens: 4000 },

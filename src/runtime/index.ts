@@ -24,16 +24,12 @@ export type {
 // caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
-// journal. Substrate types come from `./supervise/types`; the durable journal +
-// replay live in `../durable/spawn-journal`.
+// journal. Substrate types come from `./supervise/types`; the in-memory journal +
+// blob store live in `../durable/spawn-journal`.
 export {
   contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
 } from '../durable/spawn-journal'
 export {
   type AnytimeReport,
@@ -67,14 +63,6 @@ export {
 } from './harvest-corpus'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
-// Durable iteration history for the kernel loop (the ConversationJournal pattern applied to
-// runLoop): journal each committed iteration, resume from the last on reload.
-export {
-  FileLoopJournal,
-  InMemoryLoopJournal,
-  type LoopJournal,
-  type LoopJournalEntry,
-} from './loop-journal'
 export {
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
@@ -187,14 +175,17 @@ export {
   promotionGate,
 } from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
-// The one router chat client (chat / chat-with-tools / off-box tool loop).
-// `ToolSpec` is exported with the executor seam block below.
+// The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
+// with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
+// router's tool-calling as the canonical `ToolLoopChat` seam a `coordinationDriverAgent` drives
+// (tests script a mock `ToolLoopChat`, production passes `routerBrain(cfg)`).
 export {
   type RouterChatResult,
   type RouterChatToolsResult,
   type RouterConfig,
   type RouterToolCall,
   type RouterToolLoopResult,
+  routerBrain,
   routerChatWithTools,
   routerChatWithUsage,
   routerToolLoop,
@@ -210,8 +201,7 @@ export {
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
-export type { RunLoopOptions } from './run-loop'
-export { createSandboxForSpec, defaultSelectWinner, runLoop } from './run-loop'
+export { defaultSelectWinner, runLoop } from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,
@@ -246,9 +236,9 @@ export {
   type AgenticTool,
   type ArtifactHandle,
   adaptiveRefine,
-  breadthDriver,
+  breadthStrategy,
   defineStrategy,
-  depthDriver,
+  depthStrategy,
   type RunAgenticOptions,
   refine,
   runAgentic,
@@ -289,7 +279,7 @@ export {
   type AuthoredProfile,
   asAuthoredProfile,
   authoredWorker,
-  supervisorSkill,
+  supervisorInstructions,
 } from './supervise/authoring'
 export {
   type BudgetPool,
@@ -307,10 +297,7 @@ export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-
 export {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
-  type DriverChat,
-  type DriverMessage,
-  type DriverToolCall,
-  type DriverTurn,
+  finalizeBestDelivered,
 } from './supervise/coordination-driver'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
@@ -321,16 +308,6 @@ export {
   type WatchTraceOptions,
   watchTrace,
 } from './supervise/detector-monitor'
-// The recursive driver-executor: a spawned child can BE a driver (agents drive agents),
-// resolved through `withDriverExecutor` and run over a nested `Scope` one depth deeper on
-// the SAME conserved pool.
-export {
-  driverChild,
-  driverExecutorFactory,
-  driverRuntime,
-  isDriverSpec,
-  withDriverExecutor,
-} from './supervise/driver-executor'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -344,31 +321,15 @@ export {
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
-// The pure mechanical patch gate (no-op / always-on secret-path floor / forbidden-path / diff-size
-// + test/typecheck) over a captured diff + its derived pass signals — the single source the
-// worktree deliverable scores with. The always-on floors are also exported standalone.
-export {
-  type CoderCheckConstraints,
-  type CoderCheckInput,
-  countDiffLines,
-  isNonEmptyPatch,
-  runCoderChecks,
-  touchedPathsFromPatch,
-  touchesSecretPath,
-} from './supervise/patch-checks'
+// The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
+export { assertModelAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
-// The production `DriverChat`: adapt the router's tool-calling to the seam a
-// `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
-// brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
-export { routerDriverChat } from './supervise/router-driver-chat'
-// The one-call store bundle for a supervised run: a journal + blob store + executor registry,
-// shaped to spread straight into `SupervisorOpts`. In-memory by default; pass `{ dir }` (or use
-// `createFileRunContext(dir)`) for the file-backed durable stores that let a crashed run resume.
-// `{ withDriver: true }` wraps the registry for the recursive agents-drive-agents path.
+// The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
+// executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
+// wraps the registry for the recursive agents-drive-agents path.
 export {
-  createFileRunContext,
   createInMemoryRunContext,
   type InMemoryRunContext,
   type InMemoryRunContextOptions,
@@ -376,45 +337,39 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
-  type BridgeSeam,
-  type CliSeam,
-  type CliWorktreeSeam,
   cliWorktreeExecutor,
   createExecutor,
   createExecutorRegistry,
   type ExecutorConfig,
-  type RouterSeam,
-  type RouterToolsSeam,
-  type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'
+export { createScope, settledToIteration } from './supervise/scope'
+// The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
+// sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
+// from a backend config + an optional completion oracle (settled⟺delivered).
 export {
-  createScope,
-  type NestedScopeSeam,
-  nestedScopeSeamKey,
-  settledToIteration,
-} from './supervise/scope'
+  type SuperviseOptions,
+  supervise,
+  workerFromBackend,
+} from './supervise/supervise'
+export { createSupervisor } from './supervise/supervisor'
+// Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
+// `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,
+// a coding-CLI harness → a sandboxed harness driving the coordination verbs. No hand-built brain.
 export {
-  createRootHandle,
-  createSupervisor,
-} from './supervise/supervisor'
+  type DriveHarness,
+  type SupervisorAgentDeps,
+  type SupervisorProfile,
+  supervisorAgent,
+} from './supervise/supervisor-agent'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
-  createPartsTraceSource,
   createPushTraceSource,
-  decodeAnthropicPart,
-  decodeOpenAiPart,
-  decodeOpencodePart,
   decodeToolPart,
-  type SessionMessageLike,
   type SessionTraceBox,
   sandboxSessionTraceSource,
-  type ToolPartDecoder,
-  type ToolStepInput,
   type TraceSource,
-  toolPartDecoders,
-  toToolSpan,
 } from './supervise/trace-source'
 // The SETTLE-time analyzer: collect a TraceSource's spans and run agent-eval's published batch
 // analyzers (buildTrajectory / stuckLoopView / toolWasteView) — the post-hoc half.
@@ -425,23 +380,10 @@ export type {
   Budget,
   Executor,
   ExecutorContext,
-  ExecutorFactory,
-  ExecutorRegistry,
   ExecutorResult,
-  Handle,
-  NodeId,
-  NodeSnapshot,
-  NodeStatus,
-  Restart,
   ResultBlobStore,
-  RootHandle,
-  RootSignal,
-  Runtime,
   Scope,
   Settled,
-  SpawnEvent,
-  SpawnJournal,
-  SpawnOpts,
   Spend,
   SupervisedResult,
   Supervisor,
@@ -466,6 +408,9 @@ export {
   type WorktreeFanoutOptions,
   worktreeFanout,
 } from './supervise/worktree-fanout'
+// The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
+// `CoordinationDriverOptions.brain` — the canonical one-inference-turn tool-loop chat.
+export type { ToolLoopChat } from './tool-loop'
 export type {
   AgentRunSpec,
   DefaultVerdict,

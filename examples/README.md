@@ -30,6 +30,13 @@ Era tags: **production runtime** (`runAgentTask` / `handleChatTurn` — what eve
 | 8 | [`mcp-delegation/`](./mcp-delegation/) | infra | Mount `agent-runtime-mcp` in an `AgentProfile` — exposes `delegate_code`, `delegate_research`, `delegate_feedback`, `delegation_status`, `delegation_history` (plus `delegate_ui_audit` when a UI-audit runner is wired) |
 | 9 | [`fleet-delegation/`](./fleet-delegation/) | infra | `TANGLE_FLEET_ID` flips delegation from sibling-sandbox to fleet-workspace topology |
 
+## The loops suite, deeper — search, evals, and the RSI verb
+
+| # | Example | Era | One sentence |
+|---|---|---|---|
+| 9c | [`strategy-evolution/`](./strategy-evolution/) | loops suite | `runStrategyEvolution` + `promotionGate` — the policy-search journey: author candidate strategies from losses, advance a champion, promote on a fresh holdout slice (needs `TANGLE_API_KEY`) |
+| 9d | [`product-eval/`](./product-eval/) | loops suite | `evalPersona` — user-sim product evals in one call: scripted + LLM-adversarial personas, plus the `runPersonaDispatch` → `runProfileMatrix` scored path (needs `TANGLE_API_KEY`; offline-testable via a `backendFor` override) |
+
 ## The supervisor core, deeper — an agent drives N agents
 
 | # | Example | Era | One sentence |
@@ -51,11 +58,13 @@ The round-synchronous kernel: `driver.plan()` → N tasks → one sandbox per it
 | # | Example | Era | One sentence |
 |---|---|---|---|
 | 13 | [`self-improving-loop/`](./self-improving-loop/) | loops suite (pedagogical) | The v0 → judge → analyst → mutation → v1 → gate cycle, offline; production paths are `selfImprove` (agent-eval) and `runStrategyEvolution` (#2's subpath) |
+| 13b | [`improve/`](./improve/) | loops suite | `improve(profile, findings, opts)` — the one pluggable RSI verb (held-out-gated surface optimization), offline with a scripted generator |
+| 13c | [`intelligence-recommend/`](./intelligence-recommend/) | loops suite | The intelligence loop end to end, offline: `recordTrace` → derived `AnalystFinding`s → `improve()` → a gated candidate (the first example connecting the two halves) |
 | 14 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | infra | Any framework's traces → one OTel GenAI contract → in-process `InsightReport` (the only example with a CI test) |
 
 ## Conventions
 
-- Examples are synthetic unless noted. `strategy-suite` needs `TANGLE_API_KEY`; `stream-backends`' OpenAI section needs `OPENAI_API_KEY` (the rest of it runs offline); `mcp-delegation` needs `pnpm build` first so the local MCP bin exists; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
+- Examples are synthetic unless noted. `strategy-suite`, `strategy-evolution`, and `product-eval` need `TANGLE_API_KEY` (`improve` and `intelligence-recommend` run fully offline); `stream-backends`' OpenAI section needs `OPENAI_API_KEY` (the rest of it runs offline); `mcp-delegation` needs `pnpm build` first so the local MCP bin exists; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
 - Where domain types are needed (`SandboxBox`, evidence stores), the example defines them inline — comments call out which parts are *yours* to provide vs *the runtime's* contract.
 - No example creates its own throwaway `package.json` — they run from this repo's tsx so changes to the runtime are picked up immediately.
 
@@ -81,7 +90,7 @@ pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
 
 # Supervisor core, deeper — one agent drives N workers (bridge = local cli-bridge path)
-TANGLE_API_KEY=... pnpm tsx examples/supervisor-loop/run-router.ts   # router-tools + real driver
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # router brain + router-tools workers (the one-call entry)
 WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts  # local harness CLIs via ~/code/cli-bridge
 
 # runLoop kernel
@@ -89,8 +98,14 @@ pnpm tsx examples/coder-loop/coder-loop.ts
 pnpm tsx examples/researcher-loop/researcher-loop.ts
 pnpm dlx tsx examples/ui-audit/ui-audit.ts /tmp/ui-audit-demo https://example.com
 
+# The loops suite, deeper — search + evals
+TANGLE_API_KEY=... pnpm tsx examples/strategy-evolution/strategy-evolution.ts  # policy search → holdout gate
+TANGLE_API_KEY=... pnpm tsx examples/product-eval/product-eval.ts              # user-sim product evals (evalPersona)
+
 # Self-improvement + observability
 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
+pnpm tsx examples/improve/improve.ts                                   # improve() — the RSI verb (offline)
+pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts    # traces → findings → improve() (offline)
 pnpm tsx examples/agents-of-all-shapes/run.ts
 ```
 

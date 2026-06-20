@@ -22,7 +22,17 @@ One recursive `Agent` atom, run at two timescales, over many tasks. `docs/archit
 
 ## Getting started
 
-Every product agent is a `handleChatTurn` call inside a route. This is what the gtm, creative, legal, and tax products run in production:
+Three entry points, by what you're doing:
+
+| You want to… | Call |
+|---|---|
+| Run one **product chat turn** (gtm/legal/tax/creative run this in prod) | `handleChatTurn(...)` |
+| Have a **supervisor drive a team of agents** to a goal — any harness, any number of sandboxes | `supervise(profile, task, { budget, backend? })` |
+| **Self-improve** an agent, certified on a held-out gate | `improve(profile, findings, { surface, gate, … })` |
+
+### Run a chat turn
+
+Every product agent is a `handleChatTurn` call inside a route — what the gtm, creative, legal, and tax products run in production:
 
 ```ts
 import { handleChatTurn } from '@tangle-network/agent-runtime'
@@ -47,7 +57,69 @@ export async function POST({ request, env, ctx }: { request: Request; env: Env; 
 }
 ```
 
-That is the common case. Everything below is for when one chat turn is not enough: multi-attempt loops, delegation, optimization, and the telemetry that makes them auditable.
+That is the common case for a single product agent. The other two entry points are below.
+
+### Run a supervisor (one call)
+
+A supervisor authors and drives a team of workers to a goal. The brain is resolved from the profile's `harness`: `null` → an in-process router tool-loop; `'claude-code'`/`'opencode'`/`'codex'` → a sandboxed coding harness driving the coordination verbs. The scaffolding (blobs / per-worker budget / journal / executors / depth) is defaulted.
+
+```ts
+import { supervise } from '@tangle-network/agent-runtime/loops'
+
+const result = await supervise(
+  { name: 'supervisor', harness: null, systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
+  'Implement the feature and make CI green.',
+  { budget, router, backend }, // `backend` = where the workers run (one data value: router-tools | sandbox+harness | bridge)
+)
+```
+
+See `examples/supervise/` for the full one-call entry; `examples/supervisor-loop/` for the per-backend seams.
+
+### Self-improve an agent
+
+`improve` is the one pluggable RSI verb: it optimizes a `surface` of the profile (prompt / skills / code) with the generator defaulted from the surface (GEPA for prompts, skillOpt for skills, or bring your own), certified on a frozen holdout.
+
+```ts
+import { improve } from '@tangle-network/agent-runtime'
+
+const { profile, shipped, lift } = await improve(baseProfile, findings, {
+  surface: 'prompt',
+  gate: 'holdout',         // certified on a held-out split, never the training set
+  scenarios, judge, agent, // how to MEASURE the profile under a candidate surface
+})
+```
+
+Everything below is the substrate these three sit on: multi-attempt loops, delegation, optimization, and the telemetry that makes them auditable.
+
+### The system in plain language
+
+The internal docs use the project's own vocabulary; this is the same thing without it, for a colleague meeting the project cold. Five sentences:
+
+1. We have tasks with **automatic pass/fail checks** — tests you can run, answer keys you can verify mechanically.
+2. An AI attempts each task a fixed number of times under different **retry policies**: "try 3 times, keep the best", "try, get feedback, try again", and so on.
+3. We compare policies **fairly**: identical tasks, identical attempt budgets, paired statistics, judged on fresh tasks no tuning step ever saw.
+4. The distinctive part: the AI also **writes new retry policies itself**, as short programs, and they enter the same tournament under the same rules as human-written ones.
+5. Every dollar and second is metered, so "better" can also mean "**equally good but cheaper**" — and that claim is statistically testable, not vibes.
+
+The load-bearing core is six pieces: task-with-check · retry policy · the tournament runner · the AI policy-writer · the statistical promotion gate · crash-resume. Everything else is a **fairness rule** or an **experiment on the menu** (a configuration, not a machine part).
+
+| Project term | Plain English | Standard concept |
+|---|---|---|
+| `Environment` | a task domain: open it, act with tools, check the result | RL environment / gym |
+| shot | one attempt | — |
+| steering / `refine` | feedback injected between attempts | self-refinement |
+| `authorStrategy` | the AI writes a new retry policy as a program | program synthesis |
+| evolution / generations | write candidates → tournament → keep the champion | evolutionary search |
+| harness-verified scoring | never trust a policy's self-reported score; recompute it from the attempts actually run | measurement hygiene |
+| selector ≠ judge (the firewall) | the feedback-giver never sees the answer key or the score | no reward leakage |
+| conserved budget pool | every policy gets exactly the same attempt budget; overspending is structurally impossible | compute-matched comparison |
+| holdout / fresh slice | final judging happens on tasks no tuning step ever touched | train/test split |
+| `promotionGate` | a seeded paired bootstrap must show the win is real before anything is "better" | inferential statistics |
+| non-inferiority mode | prove "not worse on quality AND significantly cheaper" | clinical-trials statistics |
+| reproducer certificate | a fresh AI re-builds the winner from a short description; a failed rebuild means the win was memorization, not method | description-length test |
+| waterfall | a per-step timeline of the run: seconds, dollars, tokens per step | distributed tracing |
+
+**Honest weaknesses:** mostly one domain family per claim so far (cross-domain replication is configuration, not new code); small holdouts (12–16 tasks) mean only effects ≳6pp are detectable; and the homegrown vocabulary is heavier than the machine it names — hence this section.
 
 ## Which entry point do I reach for?
 
@@ -59,14 +131,13 @@ That is the common case. Everything below is for when one chat turn is not enoug
 | Compare optimization strategies on YOUR domain (5 hooks) | `runBenchmark` + `defineStrategy` | `/loops` |
 | Let the system author + evolve its own strategies, gated | `runStrategyEvolution` · `authorStrategy` · `promotionGate` | `/loops` |
 | Run a multi-attempt loop with a custom driver | `runLoop` + an inline `Driver` | `/loops` |
-| Drive one agent profile from another (the canonical driver) | `createCoordinationTools` over `Supervisor` (`/runtime`) | `/mcp` |
+| Drive one agent profile from another (the canonical driver) | `createCoordinationTools` over `Supervisor` (`/loops`) | `/mcp` |
 | Delegate a disciplined loop by mode (code, research, ...) | `runDelegatedLoop` or `agent-runtime-loop` | root |
 | Build code reliably (reviewed, gated) | `createDefaultCoderDelegate` | `/mcp` |
 | Grow a knowledge base with only grounded facts | `createKbGate` | `/mcp` |
 | Improve a prompt safely (identity-gated) | `selfImprove` | `@tangle-network/agent-eval/contract` |
 | Ship loop traces to a GenAI viewer | `buildLoopOtelSpans` plus `createOtelExporter` | root |
 | Expose delegation as MCP tools to a sandbox agent | `createMcpServer` or `agent-runtime-mcp` | `/mcp` |
-| Mutate surfaces from trace findings | `runAnalystLoop` | `/analyst-loop` |
 | Persist a run plus its cost ledger | `startRuntimeRun` | root |
 
 ## The optimization suite
@@ -264,19 +335,16 @@ sandbox         AgentProfile, Sandbox.create, streamPrompt, exportTraceBundle. T
 
 ## Subpath exports
 
+Six subpaths — the public surface:
+
 | Import | Owns |
 |---|---|
 | `@tangle-network/agent-runtime` | chat turns, delegated loop-runner, OTEL export, errors, model resolution |
 | `.../agent` | `defineAgent` plus surface and outcome adapters |
-| `.../loops` | **the optimization suite** (`Environment`, `defineStrategy`, `runBenchmark`, `runStrategyEvolution`, `authorStrategy`, `promotionGate`) + the `runLoop` kernel, the `Driver` type, `loopDispatch` |
-| `.../profiles` | `coderProfile`, `researcherProfile` presets |
+| `.../loops` | **the optimization suite** (`Environment`, `defineStrategy`, `runBenchmark`, `runStrategyEvolution`, `authorStrategy`, `promotionGate`) + the recursive atom (`Supervisor`/`Scope`, `createExecutor`), the `runLoop` kernel, the `Driver` type, `loopDispatch` |
+| `.../profiles` | `coderProfile`, `researcherProfile`, the `uiAuditorProfile` presets + the UI-audit workspace I/O helpers |
+| `.../intelligence` | `withTangleIntelligence`, `createIntelligenceClient` — Observe + the provable-OFF billing boundary |
 | `.../mcp` | `createMcpServer`, `createDefaultCoderDelegate`, `createKbGate`, the `agent-runtime-mcp` bin |
-| `.../improvement` | `improvementDriver` (code/worktree `CandidateGenerator`), `agenticGenerator`, `reflectiveGenerator` — the code-surface driver you pass to agent-eval's `selfImprove` |
-| `.../analyst-loop` | `runAnalystLoop`, the analyst registry driver |
-| `.../platform` | cross-site SSO and the integrations hub |
-| `.../runtime` | the recursive core by its own name (same module as `/loops`) |
-| `.../topology` | the live agent-tree viewer (folds spawn/settle events into a renderable tree) |
-| `.../workflow` · `.../audit` | workflow orchestration helpers · audit utilities |
 
 Bins: `agent-runtime-mcp` (delegation MCP server), `agent-runtime-loop` (schedulable delegated loop-runner).
 
@@ -300,4 +368,4 @@ pnpm typecheck
 pnpm build
 ```
 
-Deeper docs: [`docs/architecture.md`](./docs/architecture.md) (the canonical spine), [`docs/learning-flywheel.md`](./docs/learning-flywheel.md) (the self-improvement thesis and the open gate), [`docs/concepts.md`](./docs/concepts.md) (mental model), [`docs/agent-bus-protocol.md`](./docs/agent-bus-protocol.md) (cross-gateway header contract), [`docs/conversation-economics.md`](./docs/conversation-economics.md) (who pays), [`docs/durability-adapters.md`](./docs/durability-adapters.md) (SQL-backed `ConversationJournal`).
+Deeper docs: [`docs/architecture.md`](./docs/architecture.md) (the canonical spine), [`docs/canonical-api.md`](./docs/canonical-api.md) (the anti-reinvention decision table), [`docs/learning-flywheel.md`](./docs/learning-flywheel.md) (the self-improvement thesis and the open gate), [`docs/concepts.md`](./docs/concepts.md) (mental model), [`docs/agent-bus-protocol.md`](./docs/agent-bus-protocol.md) (cross-gateway header contract), [`docs/durability-adapters.md`](./docs/durability-adapters.md) (SQL-backed `ConversationJournal`).
