@@ -28,12 +28,12 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 
 ## Topology (how the shape grows — by LLM decision, not a fixed script)
 
-The shape grows by LLM decision through the **coordination toolbox** over a live `Scope`: the driver `AgentProfile` calls `spawn_worker` (branch), `await_event` (react), `steer_worker` (interrupt), `stop` — and `runAgentic`/`defineStrategy` package the common depth/breadth shapes on the Supervisor.
+The shape grows by LLM decision through the **coordination toolbox** over a live `Scope`: the driver `AgentProfile` calls `spawn_agent` (branch), `await_event` (react), `steer_worker` (interrupt), `stop` — and `runAgentic`/`defineStrategy` package the common depth/breadth shapes on the Supervisor.
 
 | Term | Meaning | Anchor |
 |---|---|---|
 | **Strategy** (`sample`/`refine`) | A `defineStrategy(name, body)` value run through the Supervisor as one recursive `Agent.act`: `sample` = breadth/best-of-N, `refine` = depth/iterate-with-feedback. The harness-verified topology, NOT a fixed script. | `strategy.ts` (`defineStrategy`, `sample`, `refine`) |
-| **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_worker` (branch N) · `await_event` (react) · `steer_worker` (interrupt) · `observe_worker` · `stop`. This **is** "topology grown through LLM decisions". | `mcp/tools/coordination.ts` (`createCoordinationTools`) |
+| **Coordination toolbox** | The driver's per-step move set as MCP tools over a live `Scope`: `spawn_agent` (branch N) · `await_event` (react) · `steer_worker` (interrupt) · `observe_worker` · `stop`. This **is** "topology grown through LLM decisions". | `mcp/tools/coordination.ts` (`createCoordinationTools`) |
 | **AnalystFn / `critique`** | `(history, task?) → correction`. The firewalled steer — trajectory in, never the score. `llmAnalyst` (one router call); the strategy author calls it via `ctx.critique`. | `bench/src/sandbox-run.ts:50,58` (`llmAnalyst`); `strategy.ts` (`ctx.critique`) |
 
 ## The executor port (the unified execution seam)
@@ -61,8 +61,8 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 | Term | Meaning | Anchor |
 |---|---|---|
 | **Agent.act** | The recursive atom: `act(task, scope) → Out`. A driver IS an `act` that spawns into its `scope`; replay-safe. The Supervisor calls `root.act(task, scope)`. | `supervise/types.ts:50`; `supervisor.ts:145` |
-| **Coordination toolbox ("Scope-as-MCP")** | The operator/driver verbs exposed as MCP tools over a live `Scope`: `spawn_worker`→`scope.spawn`, `await_event`→`scope.next` (the wake event), `steer_worker`→`scope.send` (chat/interrupt a running child), `observe_worker`→`scope.view`, `stop`, `list_analysts`/`run_analyst`. **Built + tested**, public on the `./mcp` subpath. This is how an LLM driver spawns and talks to its sub-agents. | `mcp/tools/coordination.ts`; tests `tests/loops/coordination.test.ts` |
+| **Coordination toolbox ("Scope-as-MCP")** | The operator/driver verbs exposed as MCP tools over a live `Scope`: `spawn_agent`→`scope.spawn`, `await_event`→`scope.next` (the wake event), `steer_worker`→`scope.send` (chat/interrupt a running child), `observe_worker`→`scope.view`, `stop`, `list_analysts`/`run_analyst`. **Built + tested**, public on the `./mcp` subpath. This is how an LLM driver spawns and talks to its sub-agents. | `mcp/tools/coordination.ts`; tests `tests/loops/coordination.test.ts` |
 | **Scope.send / deliver** | The "steer a live worker" verb the toolbox's `steer_worker` binds to: `scope.send(nodeId, msg)` → child executor's `deliver()` inbox. **In-process binding is real**; the cross-box (A2A) binding is task #13. | `supervise/scope.ts:290` |
 | **Agent Bus / A2A** | The cross-process agent↔agent transport for the same verbs — **designed, not adopted**. The in-process toolbox works today; this is the unfinished edge. | task #13; `docs/agent-bus-protocol.md` |
 
-**One agent CALLING another** today = the coordination toolbox (`spawn_worker`/`steer_worker`/`await_event`) over a live `Scope`, in-process — real and tested. The cross-box transport (A2A) is the thin part. The dominant *control* model is **topology-by-LLM-decision** (the driver's coordination-tool moves, packaged as `runAgentic`/`defineStrategy` shapes). `src/conversation/` is multi-*turn*, not agent-to-agent.
+**One agent CALLING another** today = the coordination toolbox (`spawn_agent`/`steer_worker`/`await_event`) over a live `Scope`, in-process — real and tested. The cross-box transport (A2A) is the thin part. The dominant *control* model is **topology-by-LLM-decision** (the driver's coordination-tool moves, packaged as `runAgentic`/`defineStrategy` shapes). `src/conversation/` is multi-*turn*, not agent-to-agent.

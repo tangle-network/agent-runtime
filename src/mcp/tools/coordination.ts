@@ -131,7 +131,7 @@ export interface CoordinationTools {
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
 }
 
-const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
+const idArg = { type: 'string', description: 'The workerId returned by spawn_agent.' } as const
 
 /** Build the driver's MCP tools over a live scope. */
 export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
@@ -333,7 +333,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   const tools: McpToolDescriptor[] = [
     {
-      name: 'spawn_worker',
+      name: 'spawn_agent',
       description:
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed.',

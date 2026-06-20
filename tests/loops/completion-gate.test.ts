@@ -149,7 +149,7 @@ function gatedWorkerLeaf(
 }
 
 const spawnAwaitStop: ScriptedTurn[] = [
-  { toolCalls: [{ name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } }] },
+  { toolCalls: [{ name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } }] },
   { toolCalls: [{ name: 'await_event', arguments: {} }] },
   { content: 'stop' },
 ]
@@ -217,8 +217,8 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const turns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { which: 'a' }, task: 'a' } },
-          { name: 'spawn_worker', arguments: { profile: { which: 'b' }, task: 'b' } },
+          { name: 'spawn_agent', arguments: { profile: { which: 'a' }, task: 'a' } },
+          { name: 'spawn_agent', arguments: { profile: { which: 'b' }, task: 'b' } },
         ],
       },
       {
@@ -266,7 +266,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const rootTurns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
+          { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },

@@ -2,7 +2,7 @@
 
 The "an LLM agent spawns and drives N workers" path, made runnable. A SUPERVISOR agent
 (the real `coordinationDriverAgent` brain) reasons a loop over the coordination verbs —
-`spawn_worker` → `await_event` → `observe_worker` / `steer_worker` → `stop` — against a live
+`spawn_agent` → `await_event` → `observe_worker` / `steer_worker` → `stop` — against a live
 `Scope`, on **one conserved budget pool**. Each worker is a leaf from
 `createExecutor({ backend })`; the supervisor settles on the best **delivered** worker (a
 real check passed, never the model's say-so).
@@ -29,7 +29,7 @@ supervisor with zero code change; only the worker-leaf seam differs.
 `run-supervisor-mcp.ts` is the **real MCP path**: a coding-harness agent (opencode via the
 cli-bridge) *is* the supervisor. Inside its `act(task, scope)` it stands up the coordination MCP
 (`serveCoordinationMcp`) over the **live `Scope`** and hands the harness the URL; the harness then
-calls the **real `spawn_worker` tool natively** through its own tool-loop — a box driving boxes, not
+calls the **real `spawn_agent` tool natively** through its own tool-loop — a box driving boxes, not
 a scripted driver. Each spawned worker is a leaf whose executor is `createExecutor({ backend })`,
 gated on a **deployable check** (a worker writes `ANSWER=42` to a file; the check reads the file —
 no LLM judge).
@@ -41,7 +41,7 @@ createExecutor({ backend: process.env.WORKER_BACKEND ?? 'bridge', ...seam })
 ```
 
 so flipping `WORKER_BACKEND=sandbox` routes the **same** supervisor + **same** coordination MCP +
-**same** `spawn_worker` flow + **same** deployable check through a cloud box instead of the local
+**same** `spawn_agent` flow + **same** deployable check through a cloud box instead of the local
 cli-bridge — with **zero other changes**. One example, one code path.
 
 ```bash

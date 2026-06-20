@@ -49,9 +49,9 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
                     │  each round it decides the TOPOLOGY MOVE ─────┐ this IS
                     │   refine │ fanout │ select │ stop          │ │ "topology grown
                     │  then drives workers via the toolbox:      │ │  by LLM decision"
-                    │   spawn_worker · await_event · steer_worker │ │ (driver.ts:52)
+                    │   spawn_agent · await_event · steer_worker │ │ (driver.ts:52)
                     └───────────────┬────────────────────────────┘ │
-       spawn_worker(profile,task) ──┤  reserves budget (fails       │
+       spawn_agent(profile,task) ──┤  reserves budget (fails       │
        steer_worker(id,msg) ────────┤  CLOSED if the pool is dry)   │
        await_event ──────────────────┘                               │
                     ┌───────────────┼───────────────┐               │
@@ -92,7 +92,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 ## 4. How a worker is spawned (the mechanics)
 
 ```
-  driver calls  spawn_worker(profile, task, budget)        (mcp/tools/coordination.ts)
+  driver calls  spawn_agent(profile, task, budget)        (mcp/tools/coordination.ts)
         │
         ▼
   scope.spawn(spec, budget)                                (supervise/scope.ts:130)

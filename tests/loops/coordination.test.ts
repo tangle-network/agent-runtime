@@ -62,7 +62,7 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
 }
 
 describe('coordination tools', () => {
-  it('spawn_worker returns workerId and fails closed when admission fails', async () => {
+  it('spawn_agent returns workerId and fails closed when admission fails', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -70,11 +70,11 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
+    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
     })
     setAdmit(false)
-    expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
+    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
     })
   })
@@ -493,7 +493,7 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
     const server = createMcpServer({ extraTools: tb.tools })
-    expect(server.tools.has('spawn_worker')).toBe(true)
+    expect(server.tools.has('spawn_agent')).toBe(true)
     expect(server.tools.has('steer_worker')).toBe(true)
     expect(server.tools.has('delegate_feedback')).toBe(true)
     expect(() =>

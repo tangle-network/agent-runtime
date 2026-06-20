@@ -9,7 +9,7 @@
  * backend differs (local cli-bridge instead of a cloud box).
  *
  * ── The supervisor BRAIN is a separate dial ──────────────────────────────────────────
- * The brain must emit `spawn_worker` via OpenAI tool-calling. cli-bridge fronts FULL
+ * The brain must emit `spawn_agent` via OpenAI tool-calling. cli-bridge fronts FULL
  * agents (opencode etc.) that do their own internal tool-use and do NOT return raw
  * `tool_calls`, so the brain CANNOT run through cli-bridge here. Two real options:
  *   • router  — set TANGLE_API_KEY (+ DRIVER_MODEL, a tool-calling model). The boss is
@@ -17,7 +17,7 @@
  *   • scripted — the default: a deterministic spawn→await→stop brain (no inference, $0),
  *               which still drives a live Scope. Proves the worker wiring end-to-end.
  * For a 100%-local boss, run opencode AS the supervisor with the coordination MCP
- * (`serveCoordinationMcp`) so it calls `spawn_worker` via its own tool-use — see
+ * (`serveCoordinationMcp`) so it calls `spawn_agent` via its own tool-use — see
  * examples/mcp-delegation. That is a different harness shape, not this driver path.
  *
  * Start the bridge (defaults to port 3344; no auth unless started with BRIDGE_BEARER):

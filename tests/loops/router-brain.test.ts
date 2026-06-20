@@ -34,7 +34,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
           message: {
             content: 'reasoning',
             tool_calls: [
-              { id: 'c1', function: { name: 'spawn_worker', arguments: '{"task":"go","n":3}' } },
+              { id: 'c1', function: { name: 'spawn_agent', arguments: '{"task":"go","n":3}' } },
             ],
           },
         },
@@ -49,7 +49,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
       {
         type: 'function' as const,
         function: {
-          name: 'spawn_worker',
+          name: 'spawn_agent',
           description: 'spawn a worker',
           parameters: { type: 'object' },
         },
@@ -71,7 +71,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
     // tool_calls carry RAW JSON argument strings (the loop JSON.parses them itself).
     expect(result.content).toBe('reasoning')
     expect(result.toolCalls).toEqual([
-      { id: 'c1', name: 'spawn_worker', arguments: '{"task":"go","n":3}' },
+      { id: 'c1', name: 'spawn_agent', arguments: '{"task":"go","n":3}' },
     ])
   })
 

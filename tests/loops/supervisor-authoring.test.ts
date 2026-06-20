@@ -53,7 +53,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       {
         toolCalls: [
           {
-            name: 'spawn_worker',
+            name: 'spawn_agent',
             arguments: {
               profile: {
                 name: 'parser',
@@ -68,7 +68,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       {
         toolCalls: [
           {
-            name: 'spawn_worker',
+            name: 'spawn_agent',
             arguments: {
               profile: {
                 name: 'evaluator',
@@ -137,7 +137,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {
     const skill = supervisorSkill()
     expect(skill).toContain('SUPERVISOR')
-    expect(skill).toContain('spawn_worker')
+    expect(skill).toContain('spawn_agent')
     expect(skill.toLowerCase()).toContain('never spawn a worker with an empty profile')
   })
 })

@@ -28,7 +28,7 @@ export interface AuthoredProfile {
   model?: string
 }
 
-/** Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
+/** Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
  *  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching). */
 export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
   const p = raw as Partial<AuthoredProfile> | undefined
@@ -48,7 +48,7 @@ export function supervisorSkill(opts?: { goal?: string }): string {
     '',
     'For the task you are given:',
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
-    '2. For EACH sub-task, AUTHOR a worker by calling spawn_worker with a COMPLETE `profile`:',
+    '2. For EACH sub-task, AUTHOR a worker by calling spawn_agent with a COMPLETE `profile`:',
     '   • name: a short id for the worker.',
     '   • systemPrompt: rich, specific instructions for THIS sub-task — tell the worker exactly what to produce, how to use its tools fully, and what "done" means. Never a one-liner; write the prompt a power-user would write.',
     '   • model: the model best suited to this sub-task (omit to use the default).',

@@ -42,7 +42,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },

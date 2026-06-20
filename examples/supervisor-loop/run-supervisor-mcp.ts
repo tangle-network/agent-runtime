@@ -2,14 +2,14 @@
  * Supervisor + coordinator MCP — workers on sandbox OR cli-bridge, ONE code path.
  *
  * A real coding-harness agent (opencode via the cli-bridge) IS the supervisor: it mounts the
- * coordination MCP (`serveCoordinationMcp`) over a LIVE `Scope` and calls the REAL `spawn_worker`
+ * coordination MCP (`serveCoordinationMcp`) over a LIVE `Scope` and calls the REAL `spawn_agent`
  * tool natively — a box driving boxes, not an emulated function-tool. Each spawned worker is a
  * leaf whose executor is `createExecutor({ backend })`, gated on a DEPLOYABLE check (a worker
  * writes `ANSWER=42` to a file; the check reads the file — no LLM judge).
  *
  * THE ONE KNOB — `WORKER_BACKEND`:
  * The worker executor is `createExecutor({ backend: process.env.WORKER_BACKEND ?? 'bridge', ...seam })`.
- * Flip `WORKER_BACKEND=sandbox` and the SAME supervisor + SAME coordination MCP + SAME `spawn_worker`
+ * Flip `WORKER_BACKEND=sandbox` and the SAME supervisor + SAME coordination MCP + SAME `spawn_agent`
  * flow + SAME deployable check spawn workers in a cloud box instead of behind the local cli-bridge —
  * with zero other changes. The worker backend is the ONLY variable; everything else is identical.
  *
@@ -25,7 +25,7 @@
  *
  * The supervisor BRAIN is fixed (not a variable): a real cli-bridge harness agent with the
  * coordination MCP mounted, exactly like bench/src/atom-mcp-e2e.mts. The bridge fronts full
- * agents that do their own native tool-use, so the supervisor calls `spawn_worker` through its
+ * agents that do their own native tool-use, so the supervisor calls `spawn_agent` through its
  * OWN harness tool-loop — that is what makes this the real MCP path, not a scripted driver.
  */
 
@@ -85,11 +85,11 @@ function workerBackend(): ExecutorConfig {
   if (backend === 'sandbox') {
     // The sandbox seam is wired but only RUN when a real SandboxClient is supplied. The
     // example proves the bridge path; flipping WORKER_BACKEND=sandbox routes the SAME
-    // spawn_worker through createExecutor({backend:'sandbox'}) with zero other changes.
+    // spawn_agent through createExecutor({backend:'sandbox'}) with zero other changes.
     throw new Error(
       'WORKER_BACKEND=sandbox needs a real SandboxClient (key + base URL). Construct it from\n' +
         '  @tangle-network/sandbox and return { backend: "sandbox", sandboxClient } here — the\n' +
-        '  supervisor, MCP, spawn_worker, and the deployable check are identical to the bridge path.\n' +
+        '  supervisor, MCP, spawn_agent, and the deployable check are identical to the bridge path.\n' +
         'Run the proven path: WORKER_BACKEND=bridge WORKER_MODEL=opencode/zai-coding-plan/glm-5.1',
     )
   }
@@ -114,7 +114,7 @@ function workerBackend(): ExecutorConfig {
 }
 
 /**
- * Resolve whatever the supervisor authored in `spawn_worker` to a worker `Agent`. The leaf's
+ * Resolve whatever the supervisor authored in `spawn_agent` to a worker `Agent`. The leaf's
  * executor is `createExecutor({ backend })` (the single code path), gated on the deployable
  * file check. The authored `profile.systemPrompt` rides onto the leaf's `AgentProfile` so the
  * backend folds it into its prompt the same way it would in production.
@@ -159,18 +159,18 @@ function makeWorker(
   } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
 }
 
-// ── The supervisor: a real cli-bridge harness agent calling spawn_worker via the MCP ──
+// ── The supervisor: a real cli-bridge harness agent calling spawn_agent via the MCP ──
 
 /** The supervisor's standing instructions — it delegates, it does not solve. */
 const supervisorTask =
   `A worker must produce the exact line "${expectedAnswer}".\n\n` +
-  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_worker, await_event, and stop. ' +
+  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_agent, await_event, and stop. ' +
   'Do NOT write the answer yourself. Author a worker profile (a JSON object with a "name" and a ' +
-  'rich "systemPrompt") and call spawn_worker with { profile, task }. Then call await_event to ' +
+  'rich "systemPrompt") and call spawn_agent with { profile, task }. Then call await_event to ' +
   'wait for it to settle, and call stop once a worker has delivered (valid:true).'
 
 /** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
- *  spawn_worker as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
+ *  spawn_agent as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
 async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
   const bridgeUrl = process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344'
   const bridgeBearer = process.env.BRIDGE_BEARER ?? 'local'
@@ -182,7 +182,7 @@ async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
     body: JSON.stringify({
       model,
       messages: [{ role: 'user', content: supervisorTask }],
-      // Mount the coordination MCP — the supervisor harness calls spawn_worker through it.
+      // Mount the coordination MCP — the supervisor harness calls spawn_agent through it.
       mcp: { mcpServers: { coordination: { type: 'http', url: opts.mcpUrl } } },
     }),
   })
@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
-        // Every spawn_worker call lands here and builds a createExecutor({ backend }) leaf.
+        // Every spawn_agent call lands here and builds a createExecutor({ backend }) leaf.
         makeWorkerAgent: (raw) => makeWorker(raw, backend, counter),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
       })
@@ -222,7 +222,7 @@ async function main(): Promise<void> {
         const settled = mcp.settled()
         const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
         console.log(
-          `\n[mcp] spawn_worker calls observed: ${settled.length}; delivered (check passed): ${delivered.length}`,
+          `\n[mcp] spawn_agent calls observed: ${settled.length}; delivered (check passed): ${delivered.length}`,
         )
         console.log(
           `[mcp] bus events: ${mcp.history().length}; stats: ${JSON.stringify(mcp.stats())}`,

@@ -74,7 +74,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -95,7 +95,7 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     // opencode/claude-code supervisor does via mcp.mcpServers. No router brain, no hand-built loop.
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
+        name: 'spawn_agent',
         arguments: { profile: {}, task: 'go' },
       })
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })

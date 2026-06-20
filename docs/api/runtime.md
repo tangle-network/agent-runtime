@@ -11543,7 +11543,7 @@ Defined in: [runtime/supervise/supervisor-agent.ts:40](https://github.com/tangle
 How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
+ so the harness calls spawn_agent / await_event / stop as native tools over the live scope.
 
 #### Parameters
 
@@ -13679,7 +13679,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 Defined in: [runtime/supervise/authoring.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L33)
 
-Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
+Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching).
 
 #### Parameters

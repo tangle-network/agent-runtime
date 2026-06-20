@@ -36,7 +36,7 @@ export interface SupervisorProfile {
 /** How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  *  `task` in its backend (sandbox / cli-bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_worker / await_event / stop as native tools over the live scope. */
+ *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
 export type DriveHarness = (args: {
   readonly profile: SupervisorProfile
   readonly task: unknown

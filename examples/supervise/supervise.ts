@@ -33,7 +33,7 @@ const result = await supervise(
     name: 'supervisor',
     harness: null, // router brain (the supervisor reasons spawn/await/stop over the router's tool-calling)
     systemPrompt:
-      'You are a supervisor. Spawn a worker with spawn_worker to produce the required output, ' +
+      'You are a supervisor. Spawn a worker with spawn_agent to produce the required output, ' +
       'await it with await_event, and stop once a worker delivered. Do not answer the task yourself.',
   },
   'Produce the exact line: READY',

@@ -97,7 +97,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
       iterations: 1,
       score: 0.9,
     })
-    // The makeWorkerAgent the spawn_worker tool dispatches: this test only spawns the worker leaf.
+    // The makeWorkerAgent the spawn_agent tool dispatches: this test only spawns the worker leaf.
     const makeAgent = (_p: unknown): Agent<unknown, unknown> => worker
 
     // Scripted driver LLM: turn 0 spawns a worker, turn 1 awaits it, turn 2 stops (no calls).
@@ -105,7 +105,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
       [
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+            { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -126,16 +126,16 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
     })
 
     // The driver's act IS the loop — the run produced the worker's output, which only exists if
-    // spawn_worker → Scope.spawn → settle actually ran inside the tool-loop.
+    // spawn_agent → Scope.spawn → settle actually ran inside the tool-loop.
     expect(result.kind).toBe('winner')
 
     // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains
-    // `tool` messages carrying the spawn_worker + await_event settlements — i.e. the tool RESULTS
+    // `tool` messages carrying the spawn_agent + await_event settlements — i.e. the tool RESULTS
     // were folded back. The OpenAI tool message is `{ role:'tool', tool_call_id, content }`; the
     // await_event settlement serializes the done worker, so its content carries 'done'.
     const turn2Convo = seen[2]!
     const toolMsgs = turn2Convo.filter((m) => m.role === 'tool')
-    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_event result
+    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_agent result + await_event result
     expect(toolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
 
     // A real worker spawn is recorded in the journal (not a mock-bypassed result).
@@ -163,7 +163,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
     const midTurns: ScriptedTurn[] = [
       {
         toolCalls: [
-          { name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
+          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'sub' } },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -190,7 +190,7 @@ describe('coordinationDriverAgent — the driver BRAIN (LLM tool-loop drives rea
       [
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
+            { name: 'spawn_agent', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },

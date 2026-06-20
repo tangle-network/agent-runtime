@@ -11,7 +11,7 @@
  * against the live scope, fold the results back, repeat until the driver stops (no tool
  * calls) or the turn cap forces a keep-best finalize.
  *
- * Recursion composes through `makeWorkerAgent`: `spawn_worker` resolves a `profile` to a
+ * Recursion composes through `makeWorkerAgent`: `spawn_agent` resolves a `profile` to a
  * worker LEAF or — when the profile is a driver — a `driverChild` wrapping ANOTHER
  * `coordinationDriverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
  * drives an agent that drives an agent, each an LLM tool-loop, all on one conserved-budget

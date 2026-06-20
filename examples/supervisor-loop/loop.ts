@@ -4,7 +4,7 @@
  *
  * This is the "an agent drives N agents" path — the real `coordinationDriverAgent` brain,
  * not a hand-rolled loop. The brain runs an LLM tool-loop over the coordination verbs
- * (`spawn_worker` / `await_event` / `observe_worker` / `steer_worker` / `stop`) against a
+ * (`spawn_agent` / `await_event` / `observe_worker` / `steer_worker` / `stop`) against a
  * live `Scope`. Each turn it asks its driver-LLM for tool calls, runs them against the
  * scope (which reserves budget, resolves an `Executor`, runs it, settles), folds the
  * results back, and repeats until it stops — OR the conserved pool / deadline / abort
@@ -97,7 +97,7 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
       content: `delegating slice ${i}`,
       toolCalls: [
         {
-          name: 'spawn_worker',
+          name: 'spawn_agent',
           arguments: {
             profile: { name: `${labelPrefix}-${i}`, systemPrompt: `Emit ${expectedAnswer}.` },
             task: `Emit the exact line ${expectedAnswer} and nothing else.`,
@@ -161,7 +161,7 @@ export interface RunSupervisorLoopArgs {
 }
 
 /**
- * Resolve a worker `profile` (whatever the supervisor authored in `spawn_worker`) to a
+ * Resolve a worker `profile` (whatever the supervisor authored in `spawn_agent`) to a
  * leaf `Agent` whose executor is `createExecutor({ backend, ...seam })`, gated on the
  * deployable check. The profile may carry `{ name, systemPrompt }`; we surface them onto
  * the leaf's `AgentProfile` so the backend (router/cli/bridge) folds the systemPrompt into

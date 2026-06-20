@@ -575,7 +575,7 @@ settle**, with one firewall that keeps it honest.
         │        (coordination.ts / personify/analyst.ts:46)                         │  FIREWALL
         │                                                                            │
         │   ③ next move from {trace, findings} via the MCP:                          │  move = f(trace, findings)
-        │        steer_worker (1 child)   spawn_worker (N)   select   stop            │  NOT f(score)
+        │        steer_worker (1 child)   spawn_agent (N)   select   stop            │  NOT f(score)
         │                                                                            │
         └───────────────┬─────────────────────────────────────────────────────────────┘
                         ▼
@@ -791,7 +791,7 @@ kernel.**
   (`supervise/runtime.ts:1137`). The profile says what it is; the executor says where it runs.
 - **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1, and
   `canonical-api.md` §1.5): a supervisor's intelligence is *writing full AgentProfiles for
-  its children*. The coordination toolbox `spawn_worker` carries the child profile
+  its children*. The coordination toolbox `spawn_agent` carries the child profile
   (`mcp/tools/coordination.ts`).
 - The in-process driver brain is `coordinationDriverAgent`
   (`supervise/coordination-driver.ts`) running the owned tool-loop executor
