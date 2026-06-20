@@ -6,6 +6,23 @@
  * invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
  */
 
+// The judge-agnostic UI-audit workspace I/O helpers (persist a `UiFinding[]` to a
+// workspace, regardless of how the findings were produced).
+export type {
+  AppendFindingsResult,
+  AuditIndex,
+  AuditRegistry,
+  AuditRegistryCapture,
+  RegisterCapturesOptions,
+} from '../audit'
+export {
+  appendFindings,
+  initAuditWorkspace,
+  readAuditRegistry,
+  registerCaptures,
+  summarizeRegistry,
+  writeAuditIndex,
+} from '../audit'
 export type { CoderTask } from './coder'
 export { coderProfile, coderTaskToPrompt, DEFAULT_CODER_SYSTEM_PROMPT } from './coder'
 export type {
@@ -42,20 +59,3 @@ export {
   UI_LENSES,
   uiAuditorProfile,
 } from './ui-auditor'
-// The judge-agnostic UI-audit workspace I/O helpers (persist a `UiFinding[]` to a
-// workspace, regardless of how the findings were produced).
-export type {
-  AppendFindingsResult,
-  AuditIndex,
-  AuditRegistry,
-  AuditRegistryCapture,
-  RegisterCapturesOptions,
-} from '../audit'
-export {
-  appendFindings,
-  initAuditWorkspace,
-  readAuditRegistry,
-  registerCaptures,
-  summarizeRegistry,
-  writeAuditIndex,
-} from '../audit'
