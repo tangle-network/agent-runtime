@@ -24,17 +24,9 @@ export type {
 // caller-supplied `Driver` (fixed-shape or scripted) authoring the per-round topology.
 // Recursive execution atom (the keystone): the open `Executor` runtime, the
 // budget-conserving reactive `Scope`, the event-sourced `Supervisor`, and the spawn
-// journal. Substrate types come from `./supervise/types`; the durable journal +
-// replay live in `../durable/spawn-journal`.
-export {
-  contentAddress,
-  FileResultBlobStore,
-  FileSpawnJournal,
-  InMemoryResultBlobStore,
-  InMemorySpawnJournal,
-  materializeTreeView,
-  replaySpawnTree,
-} from '../durable/spawn-journal'
+// journal. Substrate types come from `./supervise/types`; the in-memory journal +
+// blob store live in `../durable/spawn-journal`.
+export { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
@@ -345,10 +337,7 @@ export {
   type ToolSpec,
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
-export {
-  createRootHandle,
-  createSupervisor,
-} from './supervise/supervisor'
+export { createSupervisor } from './supervise/supervisor'
 // The substrate-agnostic trace source: a worker's tool calls as agent-eval `ToolSpan`s, from an
 // OWNED loop (push) OR a sandbox box session (message parts). The common currency for both analysts.
 export {
@@ -368,20 +357,9 @@ export type {
   Executor,
   ExecutorContext,
   ExecutorResult,
-  Handle,
-  NodeId,
-  NodeSnapshot,
-  NodeStatus,
-  Restart,
   ResultBlobStore,
-  RootHandle,
-  RootSignal,
-  Runtime,
   Scope,
   Settled,
-  SpawnEvent,
-  SpawnJournal,
-  SpawnOpts,
   Spend,
   SupervisedResult,
   Supervisor,
