@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// Docs freshness gate for docs/canonical-api.md (the hand-authored judgment layer).
+// Docs freshness gate for the hand-authored judgment docs.
 //
-// Fails loud (non-zero exit) when the judgment doc drifts from ground truth:
-//   CLASS 1  version / substrate-peer pins  != package.json
-//   CLASS 2  `path:line` citations          -> cited file does not exist on disk
-//   CLASS 3  decision-table "Use ___" code-spans -> symbol is not a real export anywhere
+// Fails loud (non-zero exit) when a judgment doc drifts from ground truth:
+//   CLASS 1  version / substrate-peer pins        != package.json
+//   CLASS 2  `path:line` citations                -> cited file does not exist on disk
+//   CLASS 3  §2 decision-table "Use ___" code-spans -> symbol is not a real export
+//   CLASS 4  §3 signature prose PascalCase Types   -> symbol resolves to no source export
+//   CLASS 5  package.json exports subpath          -> has no typedoc entryPoint
+//   CLASS 6  any backticked symbol in the CURATED docs (canonical-api / concepts /
+//            architecture) -> resolves to no src/substrate export and isn't a whitelisted
+//            concept. Closes the gap that let prose symbols (gepaDriver/refineGepa) lie.
 //
 // Ground-truth sources (no third-party deps; pure node):
 //   - package.json (version + peerDependencies)
@@ -24,7 +29,7 @@ const docPath = join(repoRoot, 'docs', 'canonical-api.md')
 const apiDir = join(repoRoot, 'docs', 'api')
 
 const drift = []
-const report = (cls, line, message) => drift.push({ cls, line, message })
+const report = (cls, line, message, file = 'canonical-api.md') => drift.push({ cls, line, message, file })
 
 const doc = readFileSync(docPath, 'utf8')
 const docLines = doc.split('\n')
@@ -478,6 +483,86 @@ if (existsSync(typedocPath)) {
 }
 
 // =========================================================================
+// CLASS 6 — PROSE-SYMBOL: every backticked symbol in the CURATED docs must
+// resolve to a real export. CLASS 3/4 only scanned canonical-api's §2/§3, so a
+// removed/renamed symbol in general prose (the `gepaDriver`/`refineGepa` class)
+// lived unchecked. This scans ALL backticks outside fenced code in the curated
+// set; it never inspects prose meaning — pure symbol existence.
+// =========================================================================
+
+// Substrate universe: walk EVERY dist/**/*.d.ts of each @tangle-network peer (not just the
+// index barrels CLASS 3 reads) so sub-module exports (HarnessType, ReasoningEffort, …) resolve.
+function dtsFilesUnder(dir, acc = []) {
+  if (!existsSync(dir)) return acc
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) dtsFilesUnder(p, acc)
+    else if (e.name.endsWith('.d.ts')) acc.push(p)
+  }
+  return acc
+}
+const substrateUniverse = new Set()
+for (const peer of Object.keys(pkg.peerDependencies || {})) {
+  for (const f of dtsFilesUnder(join(repoRoot, 'node_modules', ...peer.split('/'), 'dist')))
+    for (const n of exportsFromDts(f)) substrateUniverse.add(n)
+}
+
+// Words a curated doc legitimately backticks that are NOT exports: JS keywords, and a small
+// concept whitelist (profile FIELDS / conceptual terms used as code spans, not imports).
+const jsReservedWords = new Set([
+  'while', 'switch', 'for', 'if', 'else', 'return', 'catch', 'try', 'throw', 'await', 'async',
+  'const', 'let', 'var', 'function', 'class', 'new', 'typeof', 'this', 'case', 'default', 'break',
+  'continue', 'do', 'in', 'of', 'void', 'yield', 'delete', 'instanceof', 'extends', 'implements',
+  'interface', 'type', 'enum', 'export', 'import', 'from', 'as', 'true', 'false', 'null', 'undefined',
+])
+const conceptWhitelist = new Set([
+  'AgentProfile', 'systemPrompt', 'AgentAdapter', 'RuntimeStreamEvent', 'PromptOptions', 'propose', 'OR',
+])
+const proseResolvable = new Set([...sourceUniverse, ...substrateUniverse, ...conceptWhitelist])
+
+const curatedDocs = ['canonical-api.md', 'concepts.md', 'architecture.md']
+for (const docName of curatedDocs) {
+  const p = join(repoRoot, 'docs', docName)
+  if (!existsSync(p)) continue
+  const lines = readFileSync(p, 'utf8').split('\n')
+  let inFence = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      continue
+    }
+    if (inFence) continue
+    for (const span of line.matchAll(/`([^`]+)`/g)) {
+      const raw = span[1].trim()
+      if (/^[./@]/.test(raw)) continue // paths / subpaths
+      if (raw.includes('/')) continue // subpath labels
+      if (raw.includes('.')) continue // member access: `ctx.shot()`
+      // Multi-word backtick spans are prose (`the up-flow`), not a symbol — but a call
+      // (`fanout(a, b)`) has spaces only inside its args, so strip the args first.
+      if (/\s/.test(raw.replace(/\([^)]*\)/, ''))) continue
+      const id = (raw.match(/^([A-Za-z_$][\w$]*)/) || [])[1]
+      if (!id) continue
+      if (id.includes('_')) continue // snake_case = MCP tool / config key, not a JS export
+      if (jsReservedWords.has(id)) continue
+      // Only flag a call (`refineGepa()`) or a PascalCase Type (`DriverChat`) — lowercase
+      // non-call words are prose/fields/labels, ALL-CAPS are constants, both false-positive.
+      const isCall = raw.includes('(')
+      const isPascal = /^[A-Z][a-z]/.test(id)
+      if (!isCall && !isPascal) continue
+      if (!proseResolvable.has(id)) {
+        report(
+          'PROSE-SYMBOL',
+          i + 1,
+          `backticked symbol \`${raw}\` ("${id}") resolves to no export (src/** ∪ bench/src/** ∪ substrate ∪ concept-whitelist) — renamed, removed, or fabricated`,
+          docName,
+        )
+      }
+    }
+  }
+}
+
+// =========================================================================
 // Report + exit
 // =========================================================================
 
@@ -485,22 +570,25 @@ const byClass = {}
 for (const d of drift) (byClass[d.cls] ||= []).push(d)
 
 if (drift.length === 0) {
-  console.log('docs freshness: OK — no drift detected in docs/canonical-api.md')
+  console.log('docs freshness: OK — no drift detected in the curated docs')
   console.log(`  checked: version pin (present + accurate), ${peerChecks.length} substrate peers (present + accurate),`)
   console.log(
     `  ${seenCitations.size} local citations, §2 table symbols against ${universe.size} public exports,`,
   )
   console.log(
-    `  §3 signature types against ${sourceUniverse.size} source exports, exports↔typedoc entryPoint coverage`,
+    `  §3 signature types against ${sourceUniverse.size} source exports, exports↔typedoc entryPoint coverage,`,
+  )
+  console.log(
+    `  prose symbols in ${curatedDocs.length} curated docs against ${proseResolvable.size} resolvable (src ∪ substrate ∪ concepts)`,
   )
   process.exit(0)
 }
 
-console.error(`docs freshness: DRIFT — ${drift.length} issue(s) in docs/canonical-api.md\n`)
+console.error(`docs freshness: DRIFT — ${drift.length} issue(s) in the curated docs\n`)
 for (const cls of Object.keys(byClass)) {
   console.error(`[${cls}]`)
   for (const d of byClass[cls]) {
-    console.error(`  canonical-api.md:${d.line}  ${d.message}`)
+    console.error(`  docs/${d.file}:${d.line}  ${d.message}`)
   }
   console.error('')
 }

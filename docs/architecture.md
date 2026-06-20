@@ -242,7 +242,7 @@ judge and a steer only behind this firewall.
 
 ## 5. GEPA at every level
 
-The optimizer `O` improves any `Agent`'s `context`+prompt and the `Program` shape,
+The optimizer `O` improves any `Agent`'s `context`+prompt and the program shape,
 from the shared corpus, **held-out gated** (train ∩ holdout = ∅, enforced in
 `runImprovementLoop`). This is the **outer flywheel**: the controller is learned,
 not hand-written. Optimize against the **multi-objective vector** (§0.5.2) — *correct,
@@ -396,7 +396,7 @@ yet run the machine we built."
 **Gate A — RETRACTED to a TIE at power (POWER-16, 2026-06-13).** The headline
 +16.4pp depth>breadth result did **not** replicate when powered. On the canonical
 loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst + `defineStrategy`
-(`src/runtime/strategy.ts`), **not** the `runLoop`/`PlannerContext` path — the
+(`src/runtime/strategy.ts`), **not** the `runLoop` path — the
 original signal was depth-steered continuation beating breadth (blind best-of-K) at
 equal compute under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins
 / 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice). At n=48
@@ -458,7 +458,7 @@ atom, and every steer directive in **one** surface — `runRefineLoop`, `runPool
 1. ✅ **`runRefineLoop<Artifact, Ctx>`** (the loop atom): one execution-agnostic loop —
    `{rounds, setup, prompt, runShot, judge?, decide?, teardown}`, the worker an opaque `runShot`.
    **All six refine workers** (research / sandbox-research / SWE-refine / cad / blender / build123d)
-   run it — **zero hand-rolled `for(round)` loops**. Both carry-forward channels (execution `Ctx`
+   run it — **zero hand-rolled `for(round)` loops**. Both carry-forward channels (execution context
    + prompt) are first-class.
 2. ✅ **`runPool<T, R>`** (the pool atom): one generic bounded-concurrency pool. **The surviving batch
    runners** (`batch-blind` / `batch-oracle` / `batch-compare` / `terminal-compare`)
@@ -692,8 +692,8 @@ Three edges complete the atom — two already exist:
 
 | Edge | Direction | Blocking? | Notes |
 |---|---|---|---|
-| `ask(question)` | **up** | yes | child can't proceed without the answer; **terminates** at the first handler who answers. The one genuinely-new edge (or a 3rd `Settled` kind `{question}` — see below). |
-| `notify(decision)` | **up** | **no** | every steering decision is teed upward, **salience-filtered**, so an ancestor with higher-order knowledge can countermand it. **This is the lifecycle hook stream** (`agent.decision`/`agent.answer`) — already shipped. |
+| `ask` | **up** | yes | child can't proceed without the answer; **terminates** at the first handler who answers. The one genuinely-new edge (or a 3rd `Settled` kind `{question}` — see below). |
+| `notify` | **up** | **no** | every steering decision is teed upward, **salience-filtered**, so an ancestor with higher-order knowledge can countermand it. **This is the lifecycle hook stream** (`agent.decision`/`agent.answer`) — already shipped. |
 | `override` | **down** | — | the ancestor's countermand. **This is `scope.send`** — already shipped; the same edge carries the answer *and* the override. |
 
 ```
@@ -862,7 +862,7 @@ within-run column splits into in-flight and across-round).
 - **REAL** — the firewall holds at every layer: the analyst is the *steerer*, never the
   *judge* — `assertTraceDerivedFindings` (`personify/analyst.ts:46`). Improvement reacts to
   behavior, not to the score it's optimizing.
-- The three timescales are separate code paths today. A single `improve(profile, …)` verb
+- The three timescales are separate code paths today. A single `improve` verb
   with the three timescales as internal composition — so "are we improving skills in the
   loop?" has one place to look — is not yet wired.
 
