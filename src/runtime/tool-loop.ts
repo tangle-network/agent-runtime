@@ -22,7 +22,7 @@ export type ToolLoopChat = (
   toolCalls: RouterToolCall[]
   usage?: { input: number; output: number }
   /** The turn's inference cost (usd) when the provider priced it — for callers that meter usd
-   *  into a conserved pool (the supervisor brain). `runToolLoop` itself ignores it. */
+   *  into a conserved pool (the supervisor brain). `runBrainLoop` itself ignores it. */
   costUsd?: number
 }>
 
@@ -50,7 +50,7 @@ export interface ToolLoopResult {
   messages: Msg[]
 }
 
-export async function runToolLoop(opts: {
+export async function runBrainLoop(opts: {
   chat: ToolLoopChat
   tools: ReadonlyArray<ToolSpec>
   execute: (name: string, args: Record<string, unknown>) => Promise<string>

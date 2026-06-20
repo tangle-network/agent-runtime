@@ -83,9 +83,9 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
   raw: SelfImproveResult<TScenario, TArtifact>
 }
 
-/** Default model id for the reflective drivers when `llm.model` is unset.
- *  Mirrors `selfImprove`'s documented `gepaDriver` default. */
-const defaultReflectionModel = 'anthropic/claude-sonnet-4.6'
+/** Default model id for the reflective drivers when `llm.model` is unset — a model the Tangle
+ *  router actually serves (callers should pass their own `llm.model`). */
+const defaultReflectionModel = 'deepseek-v4-flash'
 
 /** The reflective drivers (`gepaDriver`/`skillOptDriver`) take a full
  *  `LlmClientOptions`; `SelfImproveLlm` is the thin user-facing subset. */

@@ -11,7 +11,7 @@
  */
 
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
-import { runToolLoop, type ToolLoopChat } from './tool-loop'
+import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
 export interface RouterConfig {
   routerBaseUrl: string
@@ -221,13 +221,13 @@ export async function routerToolLoop(
     initialMessages?: ReadonlyArray<Record<string, unknown>>
   },
 ): Promise<RouterToolLoopResult> {
-  // The router adapter over the canonical `runToolLoop`: bind the inference to the router
+  // The router adapter over the canonical `runBrainLoop`: bind the inference to the router
   // (`routerChatWithTools`), seed the conversation, and let the one shared skeleton drive.
   const initialMessages = opts?.initialMessages ?? [
     { role: 'system', content: system },
     { role: 'user', content: user },
   ]
-  return runToolLoop({
+  return runBrainLoop({
     chat: (messages, toolSpecs) =>
       routerChatWithTools(cfg, messages, toolSpecs, {
         ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),

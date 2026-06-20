@@ -29,7 +29,7 @@ import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createCoordinationTools, type MakeWorkerAgent } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
-import { runToolLoop, type ToolLoopChat } from '../tool-loop'
+import { runBrainLoop, type ToolLoopChat } from '../tool-loop'
 import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
 export interface CoordinationDriverOptions {
@@ -149,7 +149,7 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         return res
       }
 
-      await runToolLoop({
+      await runBrainLoop({
         chat,
         tools: toolSpecs,
         execute: async (name, args) => {
