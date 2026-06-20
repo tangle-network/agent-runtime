@@ -23,12 +23,17 @@
  *   await createSupervisor().run(root, task, { budget, runId, ...run })
  */
 
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../durable/spawn-journal'
 import { withDriverExecutor } from './driver-executor'
 import { createExecutorRegistry } from './runtime'
 import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
 
-/** Options for the in-memory run context. */
+/** Options for a supervised run context. */
 export interface InMemoryRunContextOptions {
   /**
    * Wrap the executor registry with `withDriverExecutor` so a spawned child marked
@@ -37,6 +42,14 @@ export interface InMemoryRunContextOptions {
    * leaf workers. Default `false`.
    */
   readonly withDriver?: boolean
+  /**
+   * Persist the spawn journal + result blobs under this directory instead of in memory. When
+   * set, the run survives a process crash: a later `run` with the SAME `runId` against the SAME
+   * `dir` resumes from the last committed settlement (the supervisor `loadTree`s it first). The
+   * journal is `${dir}/spawn-journal.jsonl` (fsynced per append) and the blobs live under
+   * `${dir}/blobs/` (one fsynced file per `outRef`). Unset ⇒ in-memory (tests / scratch).
+   */
+  readonly dir?: string
 }
 
 /**
@@ -50,14 +63,31 @@ export interface InMemoryRunContext {
 }
 
 /**
- * Build a fresh in-memory run context. Every call returns NEW stores (no shared global
- * state between runs), so two runs never cross-contaminate their journals/blobs.
+ * Build a fresh run context. With no `dir` it is in-memory (every call returns NEW stores, so
+ * two runs never cross-contaminate). With `dir` set it is durable: the spawn journal + result
+ * blobs are file-backed (fsynced), so a run that dies mid-flight resumes from the last
+ * committed settlement when re-run with the same `runId` and `dir`.
  */
 export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): InMemoryRunContext {
   const base = createExecutorRegistry()
+  const durable = opts.dir !== undefined
   return {
-    journal: new InMemorySpawnJournal(),
-    blobs: new InMemoryResultBlobStore(),
+    journal: durable
+      ? new FileSpawnJournal(`${opts.dir}/spawn-journal.jsonl`)
+      : new InMemorySpawnJournal(),
+    blobs: durable ? new FileResultBlobStore(`${opts.dir}/blobs`) : new InMemoryResultBlobStore(),
     executors: opts.withDriver ? withDriverExecutor(base) : base,
   }
+}
+
+/**
+ * Durable run context — the file-backed default for a real (non-test) supervised run. Equivalent
+ * to `createInMemoryRunContext({ dir, ...opts })`; named so a caller's intent ("this run must
+ * survive a crash") reads at the call site. Re-running with the same `runId` + `dir` resumes.
+ */
+export function createFileRunContext(
+  dir: string,
+  opts: Omit<InMemoryRunContextOptions, 'dir'> = {},
+): InMemoryRunContext {
+  return createInMemoryRunContext({ ...opts, dir })
 }
