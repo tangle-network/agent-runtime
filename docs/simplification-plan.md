@@ -132,7 +132,9 @@
 
 ## §6 — Workstreams (completion criteria per WS)
 
-- **WS1 — Unify the brain + one tool-loop.** Delete `DriverChat`; collapse the 3 tool-loops to 1 (keep metering); brain inferred from the profile. **Done:** `routerDriverChat` gone; one `runToolLoop`; 1055 tests green.
+- **WS1 — Unify the brain (TWO phases).**
+  - **1a ✓ DONE** (`0f505e2`): delete `DriverChat`; the brain is the canonical `ToolLoopChat`; the coordination-driver loop runs through the one `runToolLoop`; metering preserved exactly; `routerDriverChat` (60 lines) → `routerBrain` (4); 1051 tests green. *One seam — but the caller still hand-builds the brain.*
+  - **1b — brain-FROM-profile (harness-as-data), the real "create a supervisor on any harness".** `createSupervisor(profile)` resolves the brain from `profile.harness`/`backend` EXACTLY like `createExecutor({backend})` resolves a worker: `router-tools` → the in-process `ToolLoopChat` loop (**`routerBrain` becomes internal**, not caller-facing); `sandbox` + `harness: claude-code|opencode|codex` → the harness drives the coordination verbs in its sandbox via `serveCoordinationMcp` (already exists, `coordination-mcp.ts:51`). Closes critique **A2** ("driver brain is router-ONLY"); the supervisor stops being special — just an `AgentProfile` materialized by the one backend-as-data resolver. **Done:** a supervisor runs on EITHER the router OR a sandboxed CLI harness from its profile alone, no hand-built brain; an example proves both.
 - **WS2 — One public substrate.** Scope/Supervisor public; `runLoop` internal; merge `runAgentic`/`runPersonified`. **Done:** one documented "run an agent" path.
 - **WS3 — Shrink surface 998→~450.** Internalize the WS4-listed modules. **Done:** export count ≤ ~450; gate-counted.
 - **WS4 — Naming taxonomy.** depth/breadth→Strategy; improvementDriver→improve; supervisorSkill→supervisorInstructions; DriverChat deleted; `AgentRunSpec`→`SandboxIterationSpec`. Ship deprecation aliases one release + fleet sweep. **Done:** grep "Driver" = one concept.
