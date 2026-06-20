@@ -5,36 +5,33 @@
  * zero cloud sandbox. The worker leaf is a RESUMABLE cli-bridge session — structurally
  * identical to the sandbox executor's persistent box, just local.
  *
- * It is the SAME `coordinationDriverAgent` flow as run-sandbox.ts; only the worker
- * backend differs (local cli-bridge instead of a cloud box).
+ * The supervisor is the canonical one-call `supervise()`; this runner supplies only the
+ * load-bearing cli-bridge seam (`backend: 'bridge'`) and the scripted-brain $0/offline story.
  *
  * ── The supervisor BRAIN is a separate dial ──────────────────────────────────────────
- * The brain must emit `spawn_agent` via OpenAI tool-calling. cli-bridge fronts FULL
- * agents (opencode etc.) that do their own internal tool-use and do NOT return raw
- * `tool_calls`, so the brain CANNOT run through cli-bridge here. Two real options:
- *   • router  — set TANGLE_API_KEY (+ DRIVER_MODEL, a tool-calling model). The boss is
- *               only a handful of decisions, so this stays cheap; workers stay free.
- *   • scripted — the default: a deterministic spawn→await→stop brain (no inference, $0),
- *               which still drives a live Scope. Proves the worker wiring end-to-end.
+ * The brain must emit `spawn_agent` via OpenAI tool-calling. cli-bridge fronts FULL agents
+ * (opencode etc.) that do their own internal tool-use and do NOT return raw `tool_calls`, so
+ * the brain CANNOT run through cli-bridge here. Two real options:
+ *   • router  — set TANGLE_API_KEY (+ DRIVER_MODEL, a tool-calling model). The boss is only a
+ *               handful of decisions, so this stays cheap; workers stay free.
+ *   • scripted — the default: a deterministic spawn→await→stop brain (no inference, $0), which
+ *               still drives a live Scope. Proves the worker wiring end-to-end.
  * For a 100%-local boss, run opencode AS the supervisor with the coordination MCP
- * (`serveCoordinationMcp`) so it calls `spawn_agent` via its own tool-use — see
- * examples/mcp-delegation. That is a different harness shape, not this driver path.
+ * (`serveCoordinationMcp`) so it calls `spawn_agent` via its own tool-use — see run-supervisor-mcp.ts.
  *
  * Start the bridge (defaults to port 3344; no auth unless started with BRIDGE_BEARER):
  *   cd ~/code/cli-bridge && pnpm install && pnpm start          # → http://127.0.0.1:3344
- *   curl -s http://127.0.0.1:3344/v1/models                     # confirm opencode models
  *
  * Run it (scripted boss, free workers — the headline):
  *   WORKER_MODEL=opencode/zai-coding-plan/glm-5.1 pnpm tsx examples/supervisor-loop/run-bridge.ts
- * Real router boss + free cli-bridge workers:
- *   TANGLE_API_KEY=sk-... DRIVER_MODEL=<tool-calling-model> WORKER_MODEL=opencode/... pnpm tsx ...
- *
- * BRIDGE_URL defaults to http://127.0.0.1:3344 (the BASE — no `/v1`; the worker executor
- * appends `/v1/chat/completions`). Bearer defaults to "local".
  */
 
-import { type ExecutorConfig, routerBrain } from '@tangle-network/agent-runtime/loops'
-import { demoTask, reportResult, runSupervisorLoop, scriptedSupervisorChat } from './loop'
+import {
+  type ExecutorConfig,
+  routerBrain,
+  supervise,
+} from '@tangle-network/agent-runtime/loops'
+import { demoCheck, demoGoal, scriptedSupervisorChat } from './shared'
 
 async function main(): Promise<void> {
   const bridgeUrl = process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344'
@@ -46,9 +43,8 @@ async function main(): Promise<void> {
         '  e.g. WORKER_MODEL=opencode/zai-coding-plan/glm-5.1\n' +
         'Start the bridge first:\n' +
         '  cd ~/code/cli-bridge && pnpm install && pnpm start   (→ http://127.0.0.1:3344)\n' +
-        '  curl -s http://127.0.0.1:3344/v1/models              (confirm models)\n' +
-        'No bridge handy? The coordination-driver unit tests cover the offline wiring:\n' +
-        '  pnpm test tests/loops/coordination-driver.test.ts',
+        'No bridge handy? The offline wiring is covered by:\n' +
+        '  pnpm test tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.test.ts',
     )
     process.exit(1)
   }
@@ -76,24 +72,33 @@ async function main(): Promise<void> {
       : scriptedSupervisorChat(1, 'bridge-solver')
   const driverLabel = routerKey && driverModel ? `router(${driverModel})` : 'scripted'
 
-  console.log(
-    `supervisor-loop · BRIDGE · worker=${workerModel} (cli-bridge) · driver=${driverLabel}`,
+  console.log(`supervisor-loop · BRIDGE · worker=${workerModel} (cli-bridge) · driver=${driverLabel}`)
+
+  const result = await supervise(
+    {
+      name: 'supervisor',
+      harness: null,
+      systemPrompt:
+        'You are a supervisor. Spawn one worker harness session to produce the required line, ' +
+        'await it with await_event, and stop once a worker delivered (valid). Do not answer yourself.',
+    },
+    demoGoal,
+    {
+      backend,
+      deliverable: { check: demoCheck, describe: 'worker delivers the goal' },
+      brain,
+      budget: { maxIterations: 100, maxTokens: 1_000_000, maxUsd: 1 },
+      perWorker: { maxIterations: 1, maxTokens: 100_000 },
+      maxTurns: 12,
+      runId: 'supervisor-loop-bridge',
+    },
   )
 
-  const result = await runSupervisorLoop({
-    task: demoTask,
-    backend,
-    brain,
-    systemPrompt:
-      'You are a supervisor. Spawn one worker harness session to produce the required line, ' +
-      'await it with await_event, and stop once a worker delivered (valid). Do not answer yourself.',
-    perWorker: { maxIterations: 1, maxTokens: 100_000 },
-    budget: { maxIterations: 100, maxTokens: 1_000_000, maxUsd: 1 },
-    maxTurns: 12,
-    runId: 'supervisor-loop-bridge',
-  })
-
-  reportResult(result, `bridge/${workerModel}`)
+  console.log(
+    result.kind === 'winner'
+      ? `✅ delivered: ${JSON.stringify(result.out)}`
+      : `❌ no winner (${result.reason}, ${result.downCount} down)`,
+  )
 }
 
 main().catch((err) => {
