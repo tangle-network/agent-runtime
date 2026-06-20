@@ -73,6 +73,8 @@ export {
   d1ToSqlAdapter,
   defaultIsRetryable,
   defineConversation,
+  type EvalPersonaOptions,
+  evalPersona,
   FileConversationJournal,
   FORWARD_HEADERS,
   InMemoryConversationJournal,
