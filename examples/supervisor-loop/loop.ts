@@ -18,12 +18,12 @@
  * edits, just a different seam. sandbox ↔ local (cli-bridge) needs NO code change at all.
  * Each per-backend runner (`run-*.ts`) builds the seam and calls `runSupervisorLoop`.
  *
- * THE DRIVER-LLM SEAM — `DriverChat`:
- * `coordinationDriverAgent` drives through an injected `DriverChat` (one driver-LLM turn).
- * `run-router.ts` injects `routerDriverChat` so the driver's turns are real router
- * tool-calls. `run-sandbox.ts`/`run-bridge.ts` default to a SCRIPTED `DriverChat`
+ * THE DRIVER-LLM SEAM — `ToolLoopChat`:
+ * `coordinationDriverAgent` drives through an injected `ToolLoopChat` brain (one driver-LLM turn).
+ * `run-router.ts` injects `routerBrain` so the driver's turns are real router
+ * tool-calls. `run-sandbox.ts`/`run-bridge.ts` default to a SCRIPTED brain
  * (`scriptedSupervisorChat`, exported below) so the box/bridge wiring is the only moving
- * part to debug — or opt into `routerDriverChat` with a router key. Same brain, different
+ * part to debug — or opt into `routerBrain` with a router key. Same brain, different
  * inference seam. The fully offline, no-creds wiring is covered by the coordination-driver
  * unit tests (`tests/loops/coordination-driver.test.ts`).
  */
@@ -36,14 +36,12 @@ import {
   createExecutor,
   createInMemoryRunContext,
   createSupervisor,
-  type DriverChat,
-  type DriverMessage,
-  type DriverTurn,
   type ExecutorConfig,
   type ExecutorContext,
   gateOnDeliverable,
   type Scope,
   type SupervisedResult,
+  type ToolLoopChat,
 } from '@tangle-network/agent-runtime/loops'
 
 /** The supervisor's goal + the deployable check that decides DELIVERED. */
@@ -79,14 +77,21 @@ export const demoTask: SupervisorTask = {
 }
 
 /**
- * A SCRIPTED `DriverChat`: spawn `workerCount` workers (the "drive N workers" shape), await
- * each settlement, then stop. This is the exact contract `routerDriverChat` fills in
- * production — here it returns a fixed turn sequence so the brain runs with no inference (the
- * same offline seam the driver's own unit tests use). The brain still REASONS the loop
- * (spawn → await → stop) against a live `Scope`; only the driver-LLM call is mocked.
+ * A SCRIPTED `ToolLoopChat`: spawn `workerCount` workers (the "drive N workers" shape), await
+ * each settlement, then stop. This is the exact contract `routerBrain` fills in production —
+ * here it returns a fixed turn sequence so the brain runs with no inference (the same offline
+ * seam the driver's own unit tests use). The brain still REASONS the loop (spawn → await → stop)
+ * against a live `Scope`; only the driver-LLM call is mocked.
+ *
+ * The canonical loop parses `toolCalls[].arguments` itself, so each scripted call serializes its
+ * arguments to a JSON string; the loop JSON.parses them before running the tool.
  */
-export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solver'): DriverChat {
-  const turns: DriverTurn[] = []
+export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solver'): ToolLoopChat {
+  interface ScriptedTurn {
+    content: string
+    toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
+  }
+  const turns: ScriptedTurn[] = []
   for (let i = 0; i < workerCount; i += 1) {
     turns.push({
       content: `delegating slice ${i}`,
@@ -108,18 +113,23 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
       toolCalls: [{ name: 'await_event', arguments: {} }],
     })
   }
-  turns.push({ content: 'all workers delivered — stopping' })
+  turns.push({ content: 'all workers delivered — stopping', toolCalls: [] })
 
   let i = 0
-  return {
-    next: (input: { messages: ReadonlyArray<DriverMessage> }) => {
-      // A real DriverChat reads `input.messages` (the folded tool results) to decide; the
-      // scripted one advances its fixed plan. Touch `input` so the shape is exercised.
-      void input.messages.length
-      const turn = turns[Math.min(i, turns.length - 1)] ?? {}
-      i += 1
-      return Promise.resolve(turn)
-    },
+  return (messages) => {
+    // A real brain reads `messages` (the folded tool results) to decide; the scripted one advances
+    // its fixed plan. Touch `messages` so the shape is exercised.
+    void messages.length
+    const turn = turns[Math.min(i, turns.length - 1)] ?? { content: '', toolCalls: [] }
+    i += 1
+    return Promise.resolve({
+      content: turn.content,
+      toolCalls: turn.toolCalls.map((tc, j) => ({
+        id: `call-${i}-${j}`,
+        name: tc.name,
+        arguments: JSON.stringify(tc.arguments),
+      })),
+    })
   }
 }
 
@@ -134,10 +144,10 @@ export interface RunSupervisorLoopArgs {
   readonly backend: ExecutorConfig
   /**
    * The driver-LLM seam — one driver turn over the coordination tools. `run-router.ts`
-   * passes `routerDriverChat(cfg)` (real turns); `run-sandbox.ts`/`run-bridge.ts` default to
+   * passes `routerBrain(cfg)` (real turns); `run-sandbox.ts`/`run-bridge.ts` default to
    * `scriptedSupervisorChat(...)` so only the box/bridge wiring moves.
    */
-  readonly chat: DriverChat
+  readonly brain: ToolLoopChat
   /** The supervisor's standing instructions (its stance). */
   readonly systemPrompt: string
   /** Per-worker budget reserved atomically from the conserved pool on each spawn. */
@@ -211,7 +221,7 @@ export async function runSupervisorLoop(
   // `blobs` so `observe_worker`/`finalize` read the same store the scope writes to.
   const root = coordinationDriverAgent({
     name: 'supervisor',
-    chat: args.chat,
+    brain: args.brain,
     blobs: run.blobs,
     makeWorkerAgent: (profile) => makeWorkerAgent(profile, args.backend, args.task.check, counter),
     perWorker,

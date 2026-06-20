@@ -33,7 +33,7 @@
  * appends `/v1/chat/completions`). Bearer defaults to "local".
  */
 
-import { type ExecutorConfig, routerDriverChat } from '@tangle-network/agent-runtime/loops'
+import { type ExecutorConfig, routerBrain } from '@tangle-network/agent-runtime/loops'
 import { demoTask, reportResult, runSupervisorLoop, scriptedSupervisorChat } from './loop'
 
 async function main(): Promise<void> {
@@ -66,9 +66,9 @@ async function main(): Promise<void> {
   // NOT cli-bridge: full-agent harnesses don't return raw tool_calls (see header).
   const routerKey = process.env.TANGLE_API_KEY
   const driverModel = process.env.DRIVER_MODEL
-  const chat =
+  const brain =
     routerKey && driverModel
-      ? routerDriverChat({
+      ? routerBrain({
           routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
           routerKey,
           model: driverModel,
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   const result = await runSupervisorLoop({
     task: demoTask,
     backend,
-    chat,
+    brain,
     systemPrompt:
       'You are a supervisor. Spawn one worker harness session to produce the required line, ' +
       'await it with await_event, and stop once a worker delivered (valid). Do not answer yourself.',

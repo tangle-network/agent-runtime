@@ -179,14 +179,17 @@ export {
   promotionGate,
 } from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
-// The one router chat client (chat / chat-with-tools / off-box tool loop).
-// `ToolSpec` is exported with the executor seam block below.
+// The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
+// with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
+// router's tool-calling as the canonical `ToolLoopChat` seam a `coordinationDriverAgent` drives
+// (tests script a mock `ToolLoopChat`, production passes `routerBrain(cfg)`).
 export {
   type RouterChatResult,
   type RouterChatToolsResult,
   type RouterConfig,
   type RouterToolCall,
   type RouterToolLoopResult,
+  routerBrain,
   routerChatWithTools,
   routerChatWithUsage,
   routerToolLoop,
@@ -299,10 +302,6 @@ export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-
 export {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
-  type DriverChat,
-  type DriverMessage,
-  type DriverToolCall,
-  type DriverTurn,
 } from './supervise/coordination-driver'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
@@ -351,10 +350,6 @@ export {
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
-// The production `DriverChat`: adapt the router's tool-calling to the seam a
-// `coordinationDriverAgent` drives. The one turnkey piece a consumer needs to run the driver
-// brain in-process — tests script a mock `DriverChat`, production passes `routerDriverChat(cfg)`.
-export { routerDriverChat } from './supervise/router-driver-chat'
 // The one-call in-memory store bundle for a supervised run: a fresh journal + blob store +
 // executor registry, shaped to spread straight into `SupervisorOpts`. `{ withDriver: true }`
 // wraps the registry with `withDriverExecutor` for the recursive agents-drive-agents path.
@@ -456,6 +451,9 @@ export {
   type WorktreeFanoutOptions,
   worktreeFanout,
 } from './supervise/worktree-fanout'
+// The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
+// `CoordinationDriverOptions.brain` — the canonical one-inference-turn tool-loop chat.
+export type { ToolLoopChat } from './tool-loop'
 export type {
   AgentRunSpec,
   DefaultVerdict,

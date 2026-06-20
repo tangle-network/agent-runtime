@@ -8,9 +8,6 @@ import {
 import {
   type CoordinationDriverOptions,
   coordinationDriverAgent,
-  type DriverChat,
-  type DriverMessage,
-  type DriverTurn,
 } from '../../src/runtime/supervise/coordination-driver'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -23,6 +20,8 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 
 // ── Two leaf-worker shapes, to exercise BOTH `execute` shapes the gate wraps ──────────────
 interface WorkerScript {
@@ -125,24 +124,12 @@ describe('gateOnDeliverable — the leaf completion-oracle (valid ⟺ the delive
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 let blobs = new InMemoryResultBlobStore()
 
-function scriptedChat(turns: DriverTurn[], seen: DriverMessage[][] = []): DriverChat {
-  let i = 0
-  return {
-    next: async (input) => {
-      seen.push([...input.messages])
-      const t = turns[Math.min(i, turns.length - 1)] ?? {}
-      i += 1
-      return t
-    },
-  }
-}
-
 function driverOpts(
   name: string,
-  chat: DriverChat,
+  brain: ToolLoopChat,
   makeWorkerAgent: (p: unknown) => Agent<unknown, unknown>,
 ): CoordinationDriverOptions {
-  return { name, chat, blobs, makeWorkerAgent, perWorker, systemPrompt: 'drive', maxTurns: 8 }
+  return { name, brain, blobs, makeWorkerAgent, perWorker, systemPrompt: 'drive', maxTurns: 8 }
 }
 
 /** A leaf worker whose executor is gated on a deliverable — `out` is delivered ONLY if `check` passes. */
@@ -161,7 +148,7 @@ function gatedWorkerLeaf(
   }
 }
 
-const spawnAwaitStop: DriverTurn[] = [
+const spawnAwaitStop: ScriptedTurn[] = [
   { toolCalls: [{ name: 'spawn_worker', arguments: { profile: { kind: 'worker' }, task: 'go' } }] },
   { toolCalls: [{ name: 'await_event', arguments: {} }] },
   { content: 'stop' },
@@ -176,7 +163,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { check: () => false }, // it ran, it self-scored 0.95 — but it did not deliver
     )
     const root = coordinationDriverAgent(
-      driverOpts('root', scriptedChat(spawnAwaitStop), () => worker),
+      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
     )
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -198,7 +185,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { check: () => true },
     )
     const root = coordinationDriverAgent(
-      driverOpts('root', scriptedChat(spawnAwaitStop), () => worker),
+      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
     )
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
@@ -227,7 +214,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const makeAgent = (raw: unknown) =>
       (raw as { which?: string })?.which === 'b' ? ran : delivered
     // spawn BOTH, await BOTH, stop.
-    const turns: DriverTurn[] = [
+    const turns: ScriptedTurn[] = [
       {
         toolCalls: [
           { name: 'spawn_worker', arguments: { profile: { which: 'a' }, task: 'a' } },
@@ -242,7 +229,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       },
       { content: 'stop' },
     ]
-    const root = coordinationDriverAgent(driverOpts('root', scriptedChat(turns), makeAgent))
+    const root = coordinationDriverAgent(driverOpts('root', scriptedBrain(turns), makeAgent))
     const result = await createSupervisor<unknown, unknown>().run(root, 'choose', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',
@@ -266,7 +253,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       if (p?.kind === 'driver') {
         return driverChild(
           'mid',
-          coordinationDriverAgent(driverOpts('mid', scriptedChat(spawnAwaitStop), makeAgent)),
+          coordinationDriverAgent(driverOpts('mid', scriptedBrain(spawnAwaitStop), makeAgent)),
           journal,
         )
       }
@@ -276,7 +263,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
         { check: () => false },
       )
     }
-    const rootTurns: DriverTurn[] = [
+    const rootTurns: ScriptedTurn[] = [
       {
         toolCalls: [
           { name: 'spawn_worker', arguments: { profile: { kind: 'driver' }, task: 'delegate' } },
@@ -285,7 +272,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'stop' },
     ]
-    const root = coordinationDriverAgent(driverOpts('root', scriptedChat(rootTurns), makeAgent))
+    const root = coordinationDriverAgent(driverOpts('root', scriptedBrain(rootTurns), makeAgent))
     const result = await createSupervisor<unknown, unknown>().run(root, 'delegate it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',

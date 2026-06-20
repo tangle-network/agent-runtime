@@ -11,7 +11,7 @@
  */
 
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
-import { runToolLoop } from './tool-loop'
+import { runToolLoop, type ToolLoopChat } from './tool-loop'
 
 export interface RouterConfig {
   routerBaseUrl: string
@@ -239,4 +239,16 @@ export async function routerToolLoop(
     initialMessages,
     maxTurns: opts?.maxTurns ?? 4,
   })
+}
+
+/**
+ * The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's
+ * tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
+ * The turnkey production brain — tests script a mock `ToolLoopChat`; production passes
+ * `routerBrain(cfg)`. No message translation: the loop already speaks the router's OpenAI shape.
+ */
+export function routerBrain(cfg: RouterConfig, opts: { temperature?: number } = {}): ToolLoopChat {
+  const temperature = opts.temperature ?? 0.4
+  return (messages, tools) =>
+    routerChatWithTools(cfg, messages, tools, { temperature, toolChoice: 'auto' })
 }

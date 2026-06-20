@@ -17,10 +17,10 @@ supervisor with zero code change; only the worker-leaf seam differs.
 - **`loop.ts`** — the shared, commented loop. `runSupervisorLoop({ task, backend, chat, ... })`
   builds the `coordinationDriverAgent`, resolves each spawned worker to
   `createExecutor({ backend })` gated on the deployable check, and runs it under
-  `createSupervisor()`. The `backend` field is the swap seam; the `chat` field is the
-  driver-LLM seam (`routerDriverChat` for a real brain, `scriptedSupervisorChat` offline).
+  `createSupervisor()`. The `backend` field is the swap seam; the `brain` field is the
+  driver-LLM seam (`routerBrain` for a real brain, `scriptedSupervisorChat` offline).
   Also exports the shared `demoTask` + `scriptedSupervisorChat` the runners reuse.
-- **`run-router.ts`** — backend `router-tools` + `routerDriverChat`. Real inference both ends, off-box.
+- **`run-router.ts`** — backend `router-tools` + `routerBrain`. Real inference both ends, off-box.
 - **`run-sandbox.ts`** — backend `sandbox`. Each worker is a coding harness in a real box.
 - **`run-bridge.ts`** — backend `bridge`. Each worker is a real harness CLI (claude-code / codex / opencode / kimi / gemini) fronted by the OpenAI-compatible bridge in `~/code/cli-bridge`. **The local path.**
 
@@ -58,7 +58,7 @@ WORKER_BACKEND=sandbox SANDBOX_BASE_URL=https://... TANGLE_API_KEY=sk-... \
 ```
 
 This is distinct from the `run-bridge.ts` / `run-sandbox.ts` / `run-router.ts` runners below, which
-drive a **scripted/router `DriverChat` brain** (`coordinationDriverAgent`). `run-supervisor-mcp.ts`
+drive a **scripted/router `ToolLoopChat` brain** (`coordinationDriverAgent`). `run-supervisor-mcp.ts`
 has no driver brain at all — the harness itself reasons the spawn → await → stop loop via the MCP.
 
 ## Run matrix
@@ -96,12 +96,12 @@ pnpm test tests/loops/coordination-driver.test.ts
 
 ## Offline driver vs real driver
 
-`coordinationDriverAgent` drives through an injected `DriverChat` (one driver-LLM turn).
-`run-router.ts` injects **`routerDriverChat(cfg)`** so the supervisor's turns are real router
+`coordinationDriverAgent` drives through an injected `ToolLoopChat` brain (one driver-LLM turn).
+`run-router.ts` injects **`routerBrain(cfg)`** so the supervisor's turns are real router
 tool-calls and the brain decides the loop itself. `run-sandbox.ts`/`run-bridge.ts` default to
-a **scripted** `DriverChat` (`scriptedSupervisorChat`, a fixed `spawn → await → stop` plan) so
+a **scripted** brain (`scriptedSupervisorChat`, a fixed `spawn → await → stop` plan) so
 the box/bridge wiring is the only moving part — the same offline seam the driver's own unit
-tests use — and opt into `routerDriverChat` when a key is present. Same brain, different seam.
+tests use — and opt into `routerBrain` when a key is present. Same brain, different seam.
 
 ## One-call boilerplate: `createInMemoryRunContext`
 

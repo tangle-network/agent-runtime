@@ -14,12 +14,17 @@ type Msg = Record<string, unknown>
 
 /** One inference turn over the running conversation + the tool specs → the model's text, any
  *  tool calls, and token usage. The seam every brain satisfies. */
-export interface ToolLoopChat {
-  (
-    messages: ReadonlyArray<Msg>,
-    tools: ReadonlyArray<ToolSpec>,
-  ): Promise<{ content?: string | null; toolCalls: RouterToolCall[]; usage?: { input: number; output: number } }>
-}
+export type ToolLoopChat = (
+  messages: ReadonlyArray<Msg>,
+  tools: ReadonlyArray<ToolSpec>,
+) => Promise<{
+  content?: string | null
+  toolCalls: RouterToolCall[]
+  usage?: { input: number; output: number }
+  /** The turn's inference cost (usd) when the provider priced it — for callers that meter usd
+   *  into a conserved pool (the supervisor brain). `runToolLoop` itself ignores it. */
+  costUsd?: number
+}>
 
 /** Optional per-loop concerns the metered/steerable call sites attach. The loop is one copy;
  *  the budget/deadline bound, the inbox flush, and the metering hook in HERE — not as forks. */
@@ -71,14 +76,19 @@ export async function runToolLoop(opts: {
       opts.hooks?.onUsage?.(r.usage)
     }
     if (r.content) lastText = r.content
-    if (r.toolCalls.length === 0) return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
+    if (r.toolCalls.length === 0)
+      return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then run each
     // call and fold the result back as a `tool` message.
     messages.push({
       role: 'assistant',
       content: r.content ?? '',
-      tool_calls: r.toolCalls.map((tc) => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.arguments } })),
+      tool_calls: r.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: 'function',
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
     })
     for (const tc of r.toolCalls) {
       toolCalls += 1
@@ -88,7 +98,11 @@ export async function runToolLoop(opts: {
       } catch {
         // Malformed args from the model are a real outcome, not an infra fault — feed the error
         // back so it can correct, rather than throwing the whole loop.
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}` })
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: `error: arguments were not valid JSON: ${tc.arguments.slice(0, 200)}`,
+        })
         continue
       }
       const out = await opts.execute(tc.name, args)

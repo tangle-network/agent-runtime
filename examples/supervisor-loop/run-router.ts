@@ -8,18 +8,18 @@
  * cheap one; override with `LOOP_MODEL`.
  *
  * What is real here:
- *   - the driver-LLM seam is `routerDriverChat(cfg)` — the supervisor's spawn/await/stop
+ *   - the driver-LLM seam is `routerBrain(cfg)` — the supervisor's spawn/await/stop
  *     turns are REAL router tool-calls (the brain decides the loop itself, not a script).
  *   - the worker leaf comes from `createExecutor({ backend: 'router-tools', ... })` — an
  *     off-box tool-using agentic loop over the router (chat → tool_calls → run → repeat).
  *
  * The supervisor + the shared `runSupervisorLoop` are the same across every runner; only the
- * two seams (`chat`, `backend`) differ. THAT is the swap.
+ * two seams (`brain`, `backend`) differ. THAT is the swap.
  */
 
 import {
   type ExecutorConfig,
-  routerDriverChat,
+  routerBrain,
   type ToolSpec,
 } from '@tangle-network/agent-runtime/loops'
 import { demoTask, reportResult, runSupervisorLoop } from './loop'
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
     task: demoTask,
     backend,
     // Real driver-LLM turns — the brain decides spawn/await/stop itself.
-    chat: routerDriverChat({ routerBaseUrl, routerKey, model }),
+    brain: routerBrain({ routerBaseUrl, routerKey, model }),
     systemPrompt:
       'You are a supervisor. Spawn one or two worker agents to produce the required line, ' +
       'await them with await_event, and stop once a worker delivered (valid). Do not answer yourself.',

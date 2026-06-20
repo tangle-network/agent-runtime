@@ -9,7 +9,7 @@
  *
  * The driver-LLM defaults to `scriptedSupervisorChat` (no inference) so the box wiring is the
  * only moving part to debug first; set TANGLE_API_KEY (it is already needed for the box) and
- * the supervisor uses `routerDriverChat` for a real driver brain instead — same supervisor,
+ * the supervisor uses `routerBrain` for a real driver brain instead — same supervisor,
  * just the driver seam changes.
  *
  * ────────────────────────────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@
 import {
   type ExecutorConfig,
   type SandboxClient as RuntimeSandboxClient,
-  routerDriverChat,
+  routerBrain,
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
 import { SandboxClient } from '@tangle-network/sandbox'
@@ -60,8 +60,8 @@ async function main(): Promise<void> {
   const useRouterDriver = process.env.DRIVER !== 'scripted'
   const routerBaseUrl = process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1'
   const driverModel = process.env.LOOP_MODEL ?? 'deepseek-v4-flash'
-  const chat = useRouterDriver
-    ? routerDriverChat({ routerBaseUrl, routerKey: apiKey, model: driverModel })
+  const brain = useRouterDriver
+    ? routerBrain({ routerBaseUrl, routerKey: apiKey, model: driverModel })
     : scriptedSupervisorChat(2, 'box-solver')
 
   console.log(
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
   const result = await runSupervisorLoop({
     task: demoTask,
     backend,
-    chat,
+    brain,
     systemPrompt:
       'You are a supervisor. Spawn worker coding sessions in boxes, await each, and stop on delivery.',
     perWorker: { maxIterations: 1, maxTokens: 200_000 },
