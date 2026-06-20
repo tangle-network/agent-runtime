@@ -22,7 +22,17 @@ One recursive `Agent` atom, run at two timescales, over many tasks. `docs/archit
 
 ## Getting started
 
-Every product agent is a `handleChatTurn` call inside a route. This is what the gtm, creative, legal, and tax products run in production:
+Three entry points, by what you're doing:
+
+| You want to… | Call |
+|---|---|
+| Run one **product chat turn** (gtm/legal/tax/creative run this in prod) | `handleChatTurn(...)` |
+| Have a **supervisor drive a team of agents** to a goal — any harness, any number of sandboxes | `supervise(profile, task, { backend, budget })` |
+| **Self-improve** an agent, certified on a held-out gate | `improve(profile, findings, { surface, gate, … })` |
+
+### Run a chat turn
+
+Every product agent is a `handleChatTurn` call inside a route — what the gtm, creative, legal, and tax products run in production:
 
 ```ts
 import { handleChatTurn } from '@tangle-network/agent-runtime'
@@ -47,7 +57,39 @@ export async function POST({ request, env, ctx }: { request: Request; env: Env; 
 }
 ```
 
-That is the common case. Everything below is for when one chat turn is not enough: multi-attempt loops, delegation, optimization, and the telemetry that makes them auditable.
+That is the common case for a single product agent. The other two entry points are below.
+
+### Run a supervisor (one call)
+
+A supervisor authors and drives a team of workers to a goal. The brain is resolved from the profile's `harness`: `null` → an in-process router tool-loop; `'claude-code'`/`'opencode'`/`'codex'` → a sandboxed coding harness driving the coordination verbs. The scaffolding (blobs / per-worker budget / journal / executors / depth) is defaulted.
+
+```ts
+import { supervise } from '@tangle-network/agent-runtime/loops'
+
+const result = await supervise(
+  { name: 'supervisor', harness: null, systemPrompt: 'Delegate to workers; do not solve the task yourself.' },
+  'Implement the feature and make CI green.',
+  { budget, router, backend }, // `backend` = where the workers run (one data value: router-tools | sandbox+harness | bridge)
+)
+```
+
+See `examples/supervise/` for the full one-call entry; `examples/supervisor-loop/` for the per-backend seams.
+
+### Self-improve an agent
+
+`improve` is the one pluggable RSI verb: it optimizes a `surface` of the profile (prompt / skills / code) with the generator defaulted from the surface (GEPA for prompts, skillOpt for skills, or bring your own), certified on a frozen holdout.
+
+```ts
+import { improve } from '@tangle-network/agent-runtime'
+
+const { profile, shipped, lift } = await improve(baseProfile, findings, {
+  surface: 'prompt',
+  gate: 'holdout',         // certified on a held-out split, never the training set
+  scenarios, judge, agent, // how to MEASURE the profile under a candidate surface
+})
+```
+
+Everything below is the substrate these three sit on: multi-attempt loops, delegation, optimization, and the telemetry that makes them auditable.
 
 ### The system in plain language
 

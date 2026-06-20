@@ -32,6 +32,7 @@ Every symbol below is a LOCAL export of this package (subpath shown) unless tagg
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
+| **Just run a supervisor to a goal (one call, scaffolding defaulted)** — START HERE | `supervise(profile, task, { backend, budget })` — `/loops` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for the lower-level run-verbs below before you need a specific counterparty |
 | Run a genome through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })` — `/loops` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape` — `/loops` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
 | Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })` — root `.` (also `/loops`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |
@@ -55,7 +56,8 @@ Every symbol below is a LOCAL export of this package (subpath shown) unless tagg
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)` — `/loops` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor` — `/loops` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |
 | Evolve a **prompt/string** surface | `gepaDriver({ llm, model, target })` (default inside `selfImprove`) — `agent-eval/contract` | a hand-rolled prompt-mutation reflection loop with its own Pareto bookkeeping |
-| Run a closed self-improvement loop (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | a bespoke optimize loop or a parallel skill-optimizer |
+| Self-improve a profile (one pluggable verb) — START HERE | `improve(profile, findings, { surface, gate })` — root `.` (the RSI verb; defaults the generator from `surface`, wraps `selfImprove`) | a bespoke optimize loop, or calling `selfImprove`/a skill-optimizer directly for the common case |
+| Run the self-improvement loop with full substrate control | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | a bespoke optimize loop or a parallel skill-optimizer |
 | Run the gated loop with full control | `runImprovementLoop({ baselineSurface, dispatchWithSurface, driver, holdoutScenarios, gate })` — `agent-eval/contract` | your own propose→campaign→rank→re-score-on-holdout→gate→PR loop |
 | Decide ship/hold on a candidate (campaign context) | `defaultProductionGate({ holdoutScenarios, deltaThreshold })`; compose with `heldOutGate` / `composeGate` — `agent-eval/contract` | a raw `h1>h0` point comparison on the training set |
 | Decide ship/hold from a **`BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/loops` | comparing two strategies' mean scores directly; re-deriving the bootstrap |
