@@ -13,11 +13,12 @@
 ## §1 — THINK SIMPLE: the converged design (DON'T FORGET)
 
 - **The atom: `AgentProfile`** = `{ prompt, tools, model|harness, skills, mcp }`. Worker/driver/supervisor are **not types** — a *driver* is a profile whose tools spawn; a *supervisor* **authors its children's profiles** ("recursive profile authoring" — supervisor-lab's core primitive). Everything spawned is an AgentProfile. No `role` flags, no `{name, systemPrompt}` shims.
-- **THREE public verbs:**
-  - `run(workerProfile, against, scope?) → { result, trace, spend }` — the one driven loop; recurses when the worker spawns. **The counterparty axis:** `against` = a **TASK** (benchmark; oracle = `score()` passes) | a **DRIVER profile** (user-sim eval; oracle = persona signs off DONE) | a **HUMAN** (product; oracle = human approves, via the turn boundary + persisted sandbox session).
-  - `improve(profile, findings, opts) → profile'` — honest **facade over 3 engines** (in-flight steer / across-round skills + per-workspace memory / across-generation genome), **boundary-gated**, optimizes the **whole** profile (not just a prompt string).
-  - `gate(profile, { baseline?, holdout? }) → verdict` — relative certification (with baseline+holdout) **or** static refusal (without). Honest: returns `improved:false` rather than ship a fake win.
-- **Invariants:** `analyze` is **internal** (auto-runs the analyst on settle; findings flow UP the one event bus — *not* a public verb). Backend is **DATA** (router/sandbox/cli-bridge). Compute is **agent-managed** under a fail-closed `ComputeGovernor` (proven 8/8). Durability = **lean on the sandbox session + the existing supervisor journal** (do NOT build a new event log). **Skills = policy.**
+- **FOUR honest public verbs** (red-team-corrected: four honest beat three lying; each wraps a REAL existing function — TARGET, not yet built):
+  - `run(profile, against, scope?) → Result(against)` — the one driven loop; recurses when the worker spawns. **Counterparty axis:** `against` = a **TASK** (benchmark; oracle = `score()`) | a **DRIVER profile** (user-sim; oracle = persona DONE) | a **HUMAN** (product; oracle = the turn boundary + persisted sandbox session). **In-flight STEER lives HERE** — it's loop control (a per-shot string, `strategy.ts pendingSteer`), never a profile change. *Caveat: the return type leaks the counterparty (BenchmarkReport vs transcript vs turn) → a tagged union narrowed on `against`, never `any`.* Wraps `runAgentTask`/`runBenchmark`/`runAgentic`/`runPersonaConversation`/`handleChatTurn`. The per-worker settlement oracle `gateOnDeliverable` lives INSIDE `against` — it is NOT a verb.
+  - `improve(profile, findings, { gate?: 'holdout' | 'none' }) → profile'` — **ONE engine** (NOT three): harvest traces → re-author the WHOLE profile (prompt/skills/tools/mcp) → optionally gate. across-round = `gate:'none'`; across-gen = `gate:'holdout'`. Wraps `harvestCorpus` + `authorStrategy`.
+  - `certify(profile, { baseline?, holdout? }) → verdict` — POST-run statistical cert = `promotionGate` (paired bootstrap + min-tasks floor + CI-low). The real "never fakes a win."
+  - `refuse(task) → verdict` — PRE-run static readiness = `decideKnowledgeReadiness`. SEPARATE from certify on purpose (different input/timing/question); fusing them under one `gate` name is the over-MERGE failure.
+- **Invariants:** `analyze` is **internal** (auto-on-settle; findings UP the bus — not a verb). Backend is **DATA**. **Durability:** turn/leaf resume = sandbox session + journal (real); a half-finished **multi-generation `improve` run is NOT resumable today** (port `loops`' disk-observable phase state — NOT a new event log). **Compute:** the `ComputeGovernor` (8/8) lives in `loops/`, **NOT this repo yet** — migrating it is a real, unstarted task. **Skills = policy.**
 
 ---
 
@@ -29,7 +30,12 @@
 | A new **durability event log** | the sandbox session + the supervisor journal already persist; #346 tried to rebuild this and was reverted **broken**. |
 | `analyze` / `author` / `gateArtifact` as separate public verbs | analyze = internal; author = a supervisor authoring a child (recursive profile authoring); gateArtifact = `gate` with no baseline. |
 | `DriverChat` / `routerDriverChat` / `sandboxDriverChat` | the brain is profile-driven; backend inferred — not a named seam. |
-| My over-split 6+ verb set | the honest minimal set is **3** (run/improve/gate). When in doubt: it's a profile, a skill, or already-there — not a new verb. |
+| My over-split 6+ verb set | the honest minimal set is **4** (run/improve/certify/refuse). When in doubt: it's a profile, a skill, or already-there — not a new verb. |
+| `improve` as "**three engines**" | it's **ONE** engine (harvest→re-author profile→re-measure) + a `gate: holdout\|none` flag. The "in-flight steer" 3rd engine was a mislabel — it's a per-shot string (`strategy.ts`) that never touches the profile → it's loop control in `run`. |
+| `gate` as **one verb** (over-MERGE) | three incompatible signatures: `promotionGate`(BenchmarkReport, post-run) ≠ `decideKnowledgeReadiness`(KnowledgeReadinessReport, pre-run) ≠ `gateOnDeliverable`(wraps an Executor, per-run settlement). A verb that switches its whole body/input on an optional arg is a router pretending to be an abstraction → split into `certify` + `refuse`; `gateOnDeliverable` is `run`'s oracle. |
+| "durability is **handled**" | true for turn/leaf resume; **false** for a half-finished multi-generation `improve` run (corpus + generation pointer + holdout assignment have no resume). Reverting #346 was right; concluding done is not. Fix = **port `loops`' disk-observable phase state**, not a new event log. |
+| "compute is agent-managed **here** (ComputeGovernor 8/8)" | the governor lives in `loops/`, **NOT agent-runtime**; today's only fence is the conserved BudgetPool + maxDepth + deadline. Migrating the governor is real + **unstarted** — not a done fact. |
+| the verbs as **current state** | zero top-level exports of run/improve/certify/refuse; every WS box is unchecked. The verbs are the **TARGET**, validated against the messy real functions — do NOT freeze as the public contract until they wrap those functions. |
 
 ---
 
@@ -132,14 +138,39 @@
 - **WS4 — Naming taxonomy.** depth/breadth→Strategy; improvementDriver→improve; supervisorSkill→supervisorInstructions; DriverChat deleted; `AgentRunSpec`→`SandboxIterationSpec`. Ship deprecation aliases one release + fleet sweep. **Done:** grep "Driver" = one concept.
 - **WS5 — Docs truth + gate.** Separate packages (runtime doc = runtime exports only); extend the gate to EVERY backticked symbol; execute §3. **Done:** a doc symbol that doesn't resolve = red build; canonical-api shrunk/deleted.
 - **WS6 — Examples.** §5. **Done:** offline-first + CI all.
-- **WS7 — RSI is one verb.** `improve()` facade over the 3 engines, boundary-gated, whole-profile (skills/tools/mcp in the loop); per-workspace memory as the across-round engine; keep `explore`/fuzz a SEPARATE proposer. **Done:** one `improve` entrypoint; products use it instead of bespoke string-tuning.
-- **WS8 — Product primitives.** `evaluateWithUser(product, persona)` (rename + oracle weld); the counterparty axis on `run`; route the harness human-tool to the product via the bus; `author(spec)` as recursive-profile-authoring helper; profile-as-worker-behind-an-Environment + route benchmark to the governed fleet. **Done:** the 4 product shapes (product/benchmark/user-sim/builder) use the same primitive.
+- **WS7 — RSI is one verb.** `improve(profile, findings, {gate})` = **ONE** engine (harvest→re-author the whole profile→optionally gate), **not three**; in-flight steer moved to `run`. `certify`=`promotionGate` and `refuse`=`decideKnowledgeReadiness` kept separate (not fused under `gate`). **Done:** one `improve` wraps `harvestCorpus`+`authorStrategy`; products use it instead of bespoke string-tuning.
+- **WS8 — Product primitives.** `evaluateWithUser(product, persona)` (rename `runPersonaConversation` + weld the DONE oracle); the counterparty axis on `run` (tagged-union return); route the harness human-tool to the product via the bus; profile-as-worker-behind-an-Environment + route benchmark to the governed fleet. **Done:** the 4 product shapes (product/benchmark/user-sim/builder) use the same primitive.
+- **WS9 — Long-horizon plan-driver (§7).** Build the **milestone primitive + completion-oracle rollup** (worker `gateOnDeliverable` → milestone acceptance → plan 100%, reusing `CompletionAnalyst`); **vendor the 8 oh-my-codex skills** into supervisor-lab; **port `loops`' disk-observable phase state** for multi-generation `improve`-run resume; **ticket the `ComputeGovernor` migration** (loops→agent-runtime). **Done:** a supervisor finishes a multi-milestone parallel plan with **zero** human steers.
 
 ---
 
-## §7 — Long-horizon plan-driver + skills (THINK BIG) — *red-team workflow pending*
+## §7 — Long-horizon plan-driver + skills (THINK BIG) — VERDICT: **NO today; gaps are POLICY/PRIMITIVE, not architecture**
 
-**Goal:** a supervisor autonomously drives a large multi-day plan to 100% — plans, parallelizes milestones, spawns a driver per parallel milestone, each driver drives a worker, finishes without days of babysitting. **It is `run(supervisorProfile, goal)` where the planning/parallelizing/driving/completion-checking is a SKILL the supervisor uses and authors into its children.** Runtime = mechanism (tree + governed parallel sandboxes + up-flow + completion oracle); skills = policy. *(Exact topology, completion-oracle status, and the skills to vendor from oh-my-codex → supervisor-lab: filled by the running red-team; `~/code/supervisor-lab` already centers recursive profile authoring + skill ingestion.)*
+**Goal:** a supervisor autonomously drives a large multi-day **parallel** plan to 100% with **zero** babysitting. It is `run(supervisorProfile, goal)` where planning/parallelizing/driving/completion-checking is a **SKILL**. Runtime = mechanism; skills = policy.
+
+**Topology (verified real):** root = `createSupervisor().run(rootAgent, task)`; `act()` IS the supervisor brain, driven EITHER in-process (`coordinationDriverAgent`, an LLM tool-loop over `createCoordinationTools`) OR by a coding harness mounting `serveCoordinationMcp`. `Scope.spawn/next` runs N children in PARALLEL gated only by the conserved budget pool (`scope.ts:202,345`).
+
+**MISSING (the binding gaps):**
+- **No plan/milestone primitive anywhere** — grep returns only prose; the "decompose → one driver per parallel milestone" layer is neither code nor skill.
+- **Completion oracle is WORKER-level only** (`gateOnDeliverable`) — no MILESTONE/PLAN-level "100% done" rollup. This is *the* thing that makes "is the plan done" unanswerable → it can't close autonomously.
+- **Decomposition + scoping skills don't exist** in supervisor-lab (it has only `authoring-agent-profiles`).
+
+**BUILD #1 (the binding fix):** a thin **milestone primitive + completion-oracle rollup** in agent-runtime (mechanism): `milestone = { acceptanceCriteria, deliverables[] }`, `plan = ordered milestones`; the oracle rolls up worker `gateOnDeliverable` → milestone acceptance → plan 100%. **Reuse `gateOnDeliverable` + `CompletionAnalyst` as the leaf — do not reinvent.** Fed by a plan-decomposition SKILL in supervisor-lab (policy).
+
+**SKILLS to vendor (oh-my-codex → `supervisor-lab/vendor/`, the policy layer):**
+| Skill | Fills |
+|---|---|
+| **ralplan** | decomposition: goal → ordered, approved, individually-verifiable stories (adversarial Planner/Architect/Critic). Gap #2, highest value. |
+| **ultragoal** | durable one-story-at-a-time ledger, checkpoint-each-step. Maps onto the existing journal/sandbox session (+ port `loops` phase state for gen-resume). |
+| **ralph** | persistence loop: delegate → verify-with-fresh-evidence → sign-off → re-verify, until *genuinely* done. |
+| **ultraqa** | adversarial e2e QA that refuses the build/lint/test checklist + catches misleading-success — hardens the honest oracle. |
+| **deep-interview** | ambiguity-scored Socratic scoping → execution-ready spec w/ non-goals. The `against = HUMAN` intake. Gap #1. |
+| **autopilot** | the phase topology (interview→plan→drive→review→QA) as POLICY — STRIP the OMX/tmux transport, re-point at coordination tools. |
+| **team** | closed-loop delegation protocol (ACK-readback, claim-before-work, terminal-state gate) — INGEST the discipline, DROP the tmux/mailbox transport → the one event bus. |
+| **best-practice-research** | cited, version-aware research-before-build feeding the planner. |
+
+**Do NOT vendor:** swarm/trace/build-fix/note/ecomode (dead shims), tdd/ai-slop-cleaner/analyze (covered), surface skills (frontend/design/hud/doctor).
+**Method:** `git submodule add` oh-my-codex under `supervisor-lab/vendor/` (mirrors `vendor/everyinc`) + ONE ingester line in `src/ingest/skills.ts` + the 8-skill allowlist + transport-strip team/autopilot + tag `{source, license:MIT, redistributable}`. Land as `resources.skills` on a driver profile. **Nothing into agent-runtime; supervisor-lab holds all policy.**
 
 ---
 
