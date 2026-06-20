@@ -338,6 +338,14 @@ export {
   type ToolSpec,
 } from './supervise/runtime'
 export { createScope, settledToIteration } from './supervise/scope'
+// The one-call "just invoke the supervisor": `supervise(profile, task, { backend, budget })` with
+// sensible defaults (blobs/perWorker/journal/executors). `workerFromBackend` derives the worker seam
+// from a backend config + an optional completion oracle (settled⟺delivered).
+export {
+  type SuperviseOptions,
+  supervise,
+  workerFromBackend,
+} from './supervise/supervise'
 export { createSupervisor } from './supervise/supervisor'
 // Build a supervisor FROM its profile: the brain is resolved from `profile.harness` like
 // `createExecutor({backend})` resolves a worker — `null` → the in-process router tool-loop,

@@ -1333,7 +1333,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-8)
+> `readonly` **budget**: [`Budget`](#budget-9)
 
 Defined in: [runtime/personify/analyst.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L78)
 
@@ -1639,7 +1639,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 ##### perChild
 
-> `readonly` **perChild**: [`Budget`](#budget-8)
+> `readonly` **perChild**: [`Budget`](#budget-9)
 
 Defined in: [runtime/personify/types.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L155)
 
@@ -1873,7 +1873,7 @@ Defined in: [runtime/personify/types.ts:226](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-8)
+> `readonly` **budget**: [`Budget`](#budget-9)
 
 Defined in: [runtime/personify/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L227)
 
@@ -6519,7 +6519,7 @@ budget: refine→max shots; sample→rollout width.
 
 ##### rootBudget?
 
-> `optional` **rootBudget?**: [`Budget`](#budget-8)
+> `optional` **rootBudget?**: [`Budget`](#budget-9)
 
 Defined in: [runtime/strategy.ts:977](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L977)
 
@@ -6612,7 +6612,7 @@ caller inspects `ok` before `ticket`.
 
 ###### b
 
-[`Budget`](#budget-8)
+[`Budget`](#budget-9)
 
 ###### Returns
 
@@ -6800,7 +6800,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-8)
+> `readonly` **perWorker**: [`Budget`](#budget-9)
 
 Defined in: [runtime/supervise/coordination-driver.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L46)
 
@@ -7463,6 +7463,116 @@ Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-netw
 
 ***
 
+### SuperviseOptions
+
+Defined in: [runtime/supervise/supervise.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L45)
+
+#### Properties
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](#budget-9)
+
+Defined in: [runtime/supervise/supervise.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L47)
+
+The conserved compute pool for the whole run.
+
+##### backend?
+
+> `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
+
+Defined in: [runtime/supervise/supervise.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L49)
+
+WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+Defined in: [runtime/supervise/supervise.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L53)
+
+The completion oracle for backend-derived workers (settled ⟺ delivered). Strongly recommended:
+ without it the supervisor trusts a worker's self-report — exactly the "ran but didn't deliver"
+ failure mode of a static orchestrator.
+
+##### makeWorkerAgent?
+
+> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+
+Defined in: [runtime/supervise/supervise.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L55)
+
+Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+
+Defined in: [runtime/supervise/supervise.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L57)
+
+The supervisor's router substrate (`harness` null). The profile's model wins.
+
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
+
+Defined in: [runtime/supervise/supervise.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L59)
+
+Inject the supervisor brain directly (tests / advanced).
+
+##### driveHarness?
+
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
+
+Defined in: [runtime/supervise/supervise.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L61)
+
+Run a sandboxed-harness supervisor (`harness` set).
+
+##### perWorker?
+
+> `readonly` `optional` **perWorker?**: [`Budget`](#budget-9)
+
+Defined in: [runtime/supervise/supervise.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L63)
+
+Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+
+##### blobs?
+
+> `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
+
+Defined in: [runtime/supervise/supervise.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L65)
+
+Worker output store. Defaults to in-memory.
+
+##### maxDepth?
+
+> `readonly` `optional` **maxDepth?**: `number`
+
+Defined in: [runtime/supervise/supervise.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L66)
+
+##### maxTurns?
+
+> `readonly` `optional` **maxTurns?**: `number`
+
+Defined in: [runtime/supervise/supervise.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L67)
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+Defined in: [runtime/supervise/supervise.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L68)
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+Defined in: [runtime/supervise/supervise.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L69)
+
+###### Returns
+
+`number`
+
+***
+
 ### SupervisorProfile
 
 Defined in: [runtime/supervise/supervisor-agent.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L26)
@@ -7526,7 +7636,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-8)
+> `readonly` **perWorker**: [`Budget`](#budget-9)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L52)
 
@@ -7550,7 +7660,7 @@ Inject the brain directly (tests / advanced) instead of resolving `routerBrain` 
 
 ##### driveHarness?
 
-> `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness)
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
 
@@ -8353,7 +8463,7 @@ Defined in: [runtime/supervise/types.ts:432](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-8)
+> `readonly` **budget**: [`Budget`](#budget-9)
 
 Defined in: [runtime/supervise/types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L434)
 
@@ -13683,7 +13793,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 ##### root
 
-[`Budget`](#budget-8)
+[`Budget`](#budget-9)
 
 ##### now?
 
@@ -13805,7 +13915,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### perWorker
 
-[`Budget`](#budget-8)
+[`Budget`](#budget-9)
 
 ###### port?
 
@@ -14072,6 +14182,58 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 #### Returns
 
 [`Iteration`](#iteration-1)\<`unknown`, `Out`\>
+
+***
+
+### workerFromBackend()
+
+> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+
+Defined in: [runtime/supervise/supervise.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L25)
+
+Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the
+ deliverable check that makes "settled ⟺ delivered" true — the guard against "ran but didn't
+ deliver"). The ONE place a backend becomes a spawnable worker.
+
+#### Parameters
+
+##### backend
+
+[`ExecutorConfig`](#executorconfig)
+
+##### deliverable?
+
+[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
+
+#### Returns
+
+[`MakeWorkerAgent`](mcp.md#makeworkeragent)
+
+***
+
+### supervise()
+
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
+
+Defined in: [runtime/supervise/supervise.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L80)
+
+#### Parameters
+
+##### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+##### task
+
+`unknown`
+
+##### opts
+
+[`SuperviseOptions`](#superviseoptions)
+
+#### Returns
+
+`Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
 ***
 
