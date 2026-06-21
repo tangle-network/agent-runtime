@@ -351,3 +351,111 @@ describe('coordinationDriverAgent — maxTurns=0 lifts the turn cap; the conserv
     expect(result.kind).toBe('no-winner')
   })
 })
+
+describe('coordinationDriverAgent — the driver can ACT (call work tools itself), not only SPAWN', () => {
+  const echoTool = {
+    name: 'echo',
+    description: 'echoes its text back',
+    parameters: {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+    },
+  }
+
+  it('runs a work tool DIRECTLY and folds its result back (no spawn needed)', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: SeenMessages = []
+    const workCalls: Array<{ name: string; args: Record<string, unknown> }> = []
+
+    // The driver calls the work tool itself on turn 0, then stops — it never spawns a worker.
+    const chat = scriptedBrain(
+      [{ toolCalls: [{ name: 'echo', arguments: { text: 'hi' } }] }, { content: 'acted, done' }],
+      seen,
+    )
+    const opts: CoordinationDriverOptions = {
+      ...driverOpts('root', chat, dummyWorker),
+      extraTools: [echoTool],
+      executeExtraTool: async (name, args) => {
+        workCalls.push({ name, args })
+        return name === 'echo' ? `echoed: ${String(args.text)}` : null
+      },
+    }
+    const root = coordinationDriverAgent(opts)
+    await createSupervisor<unknown, unknown>().run(root, 'echo hi', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'work-act',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+
+    // The work tool ran with the model's args, and its result was folded back as a `tool` message —
+    // the driver ACTED on its own, no worker spawned.
+    expect(workCalls).toEqual([{ name: 'echo', args: { text: 'hi' } }])
+    const lastConvo = seen[seen.length - 1]!
+    expect(
+      lastConvo.some((m) => m.role === 'tool' && String(m.content).includes('echoed: hi')),
+    ).toBe(true)
+    // 0 worker spawns — the only `spawned` event is the root agent's own run (label 'root'), no child.
+    const tree = (await journal.loadTree('work-act')) as SpawnEvent[]
+    const childSpawns = tree.filter((e) => e.kind === 'spawned' && e.id !== 'work-act')
+    expect(childSpawns).toEqual([])
+  })
+
+  it('the work tool is tried FIRST; a null return falls through to the coordination dispatch', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seen: SeenMessages = []
+    let extraSawCoordVerb = false
+
+    // The driver calls a coordination verb (list_questions). The work executor returns null for it,
+    // so the call must fall through to the real coordination tool — not be swallowed.
+    const chat = scriptedBrain([benignTurn, { content: 'done' }], seen)
+    const opts: CoordinationDriverOptions = {
+      ...driverOpts('root', chat, dummyWorker),
+      extraTools: [echoTool],
+      executeExtraTool: async (name) => {
+        if (name === 'list_questions') extraSawCoordVerb = true
+        return name === 'echo' ? 'echoed' : null // null ⇒ not mine
+      },
+    }
+    const root = coordinationDriverAgent(opts)
+    await createSupervisor<unknown, unknown>().run(root, 'x', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'work-fallthrough',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
+
+    // The executor was consulted first (saw the verb name) but returned null, so the coordination
+    // tool actually ran — its result (a questions list, never the string "echoed") came back.
+    expect(extraSawCoordVerb).toBe(true)
+    const lastConvo = seen[seen.length - 1]!
+    expect(lastConvo.some((m) => m.role === 'tool' && String(m.content) === 'echoed')).toBe(false)
+  })
+
+  it('fails loud on a half-wired seam (extraTools without executeExtraTool)', () => {
+    const opts: CoordinationDriverOptions = {
+      ...driverOpts('root', scriptedBrain([], []), dummyWorker),
+      extraTools: [echoTool],
+    }
+    expect(() => coordinationDriverAgent(opts)).toThrow(/extraTools requires executeExtraTool/)
+  })
+
+  it('fails loud at CONSTRUCTION when a work tool shadows a coordination verb', () => {
+    const opts: CoordinationDriverOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      extraTools: [{ ...echoTool, name: 'spawn_agent' }],
+      executeExtraTool: async () => 'nope',
+    }
+    // The collision guard fires eagerly — NOT buried in a swallowed act() throw.
+    expect(() => coordinationDriverAgent(opts)).toThrow(/collides with a coordination verb/)
+  })
+})

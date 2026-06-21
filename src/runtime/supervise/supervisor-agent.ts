@@ -56,6 +56,18 @@ export interface SupervisorAgentDeps {
   readonly brain?: ToolLoopChat
   /** Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver. */
   readonly driveHarness?: DriveHarness
+  /** WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
+   *  only delegate when it needs parallelism. Pair with `executeExtraTool`. */
+  readonly extraTools?: ReadonlyArray<{
+    readonly name: string
+    readonly description?: string
+    readonly parameters: Record<string, unknown>
+  }>
+  /** Runs an `extraTools` call; null/undefined falls through to the coordination dispatch. */
+  readonly executeExtraTool?: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<string | null | undefined>
   readonly maxTurns?: number
 }
 
@@ -78,6 +90,8 @@ export function supervisorAgent(
       makeWorkerAgent: deps.makeWorkerAgent,
       perWorker: deps.perWorker,
       systemPrompt,
+      ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
+      ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
     })
   }

@@ -131,6 +131,23 @@ export interface CoordinationTools {
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
 }
 
+/** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
+ *  (the analyst pair is conditional but still reserved). A driver's extra WORK tools must not
+ *  collide with any of these, or it could no longer coordinate; callers validate eagerly against
+ *  this set so the conflict fails loud at construction, not buried in a swallowed `act()` throw. */
+export const coordinationVerbNames = [
+  'spawn_agent',
+  'observe_agent',
+  'steer_agent',
+  'await_event',
+  'list_questions',
+  'answer_question',
+  'ask_parent',
+  'stop',
+  'list_analysts',
+  'run_analyst',
+] as const
+
 const idArg = { type: 'string', description: 'The workerId returned by spawn_agent.' } as const
 
 /** Build the driver's MCP tools over a live scope. */
