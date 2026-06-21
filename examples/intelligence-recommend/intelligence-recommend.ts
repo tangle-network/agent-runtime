@@ -19,10 +19,10 @@
 import { makeFinding } from '@tangle-network/agent-eval'
 import type {
   DispatchContext,
-  ImprovementDriver,
   JudgeConfig,
   MutableSurface,
   Scenario,
+  SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { improve } from '@tangle-network/agent-runtime'
@@ -101,9 +101,9 @@ const judge: JudgeConfig<string, DemoScenario> = {
   },
 }
 
-// The scripted stand-in for the reflective driver — in production this is `gepaDriver`, which reads
+// The scripted stand-in for the reflective proposer — in production this is `gepaProposer`, which reads
 // the findings above and proposes a reworded prompt. Offline it returns a fixed winning candidate.
-const scriptedWinner: ImprovementDriver = {
+const scriptedWinner: SurfaceProposer = {
   kind: 'scripted-winner',
   async propose() {
     return [{ surface: 'PROMOTED', label: 'win', rationale: 'from findings' }]

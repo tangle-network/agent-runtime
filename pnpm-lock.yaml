@@ -16,8 +16,8 @@ importers:
         specifier: ^2.4.15
         version: 2.4.15
       '@tangle-network/agent-eval':
-        specifier: '>=0.93.0 <1.0.0'
-        version: 0.93.0(@tangle-network/sandbox@0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)
+        specifier: '>=0.95.0 <1.0.0'
+        version: 0.95.0(typescript@5.9.3)
       '@tangle-network/agent-interface':
         specifier: '>=0.10.0 <1.0.0'
         version: 0.10.0
@@ -488,15 +488,10 @@ packages:
       '@tangle-network/sandbox':
         optional: true
 
-  '@tangle-network/agent-eval@0.93.0':
-    resolution: {integrity: sha512-EPpluyrHTPnBQxi2Mbx6LGkmPLndk8XhsY4iPIxxhuv23GGoL6FYvrwPq/eu+uxTwmfIVwdJsKchk2nj/ke1tA==}
+  '@tangle-network/agent-eval@0.95.0':
+    resolution: {integrity: sha512-qb4ntvDIMj1yPISP2g6zO0qzxYNQINdZLQbxZh4id115nMzUNVij3xHkaeO8EvcFvzqrMJ2s+gK1sbf9gc8Dyw==}
     engines: {node: '>=20'}
     hasBin: true
-    peerDependencies:
-      '@tangle-network/sandbox': '>=0.2.1 <0.5.0'
-    peerDependenciesMeta:
-      '@tangle-network/sandbox':
-        optional: true
 
   '@tangle-network/agent-integrations@0.29.0':
     resolution: {integrity: sha512-Avn4oBDTRP5v/3o1xq++uu/9+Rhl2hscIggeFPBGjtVYwhvbsSZL9pRrF3LfjqL9rjx9AocZOdsZC6MXrxKnkg==}
@@ -1428,16 +1423,15 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@tangle-network/agent-eval@0.93.0(@tangle-network/sandbox@0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3)))(typescript@5.9.3)':
+  '@tangle-network/agent-eval@0.95.0(typescript@5.9.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
       '@ax-llm/ax': 19.0.45(zod@4.4.3)
       '@hono/node-server': 2.0.4(hono@4.12.25)
+      '@tangle-network/agent-interface': 0.10.0
       '@tangle-network/tcloud': 0.4.12(typescript@5.9.3)(zod@4.4.3)
       hono: 4.12.25
       zod: 4.4.3
-    optionalDependencies:
-      '@tangle-network/sandbox': 0.8.2(viem@2.52.2(typescript@5.9.3)(zod@4.4.3))
     transitivePeerDependencies:
       - '@mastra/core'
       - '@modelcontextprotocol/sdk'

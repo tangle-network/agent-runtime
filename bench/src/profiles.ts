@@ -5,8 +5,8 @@
  * "operator type" or "analyst type" — there are profiles + the operator toolbox they use to manage
  * each other (in-process via the Scope, in a sandbox via the same verbs exposed as MCP tools).
  *
- * The directory is OPTIMIZED over time by the agent-eval RSI loop (`runImprovementLoop`): `gepaDriver`
- * evolves the prompts, a `skillopt` ImprovementDriver evolves `skills`, Pareto-tracked + holdout-gated.
+ * The directory is OPTIMIZED over time by the agent-eval RSI loop (`runImprovementLoop`): `gepaProposer`
+ * evolves the prompts, a `skillOptProposer` evolves `skills`, Pareto-tracked + holdout-gated.
  * The trace-analyst's findings are the optimizer's input — the loop improves the profile that the
  * findings say is weak.
  */
