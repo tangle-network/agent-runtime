@@ -258,11 +258,16 @@ export interface RouterToolsSeam {
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
   /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
-   *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves. */
+   *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves, with
+   *  real per-call wall-clock (`startedAt`/`endedAt`/`durationMs`) so a push `TraceSource` can carry
+   *  non-zero span durations onto the unified timeline. */
   onToolStep?: (step: {
     toolName: string
     args: Record<string, unknown>
     status: 'ok' | 'error'
+    startedAt: number
+    endedAt: number
+    durationMs: number
   }) => void
   /** Max inference turns. Default 200 (runaway backstop — set far above any
    *  legitimate workflow). For tighter per-workflow limits use a cost budget
@@ -433,18 +438,27 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           const toolName = tc?.function?.name ?? ''
           let result: string
           let status: 'ok' | 'error' = 'ok'
+          const toolStartedAt = Date.now()
           try {
             result = await seam.executeToolCall(toolName, args, task)
           } catch (e) {
             status = 'error'
             result = `error: ${e instanceof Error ? e.message : String(e)}`
           }
+          const toolEndedAt = Date.now()
           messages.push({ role: 'tool', tool_call_id: id, content: result })
           // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
           // call or hammering errors is caught mid-run, not only at settle. This is an observability
           // side-channel: a throwing monitor must never crash the production inference loop.
           try {
-            seam.onToolStep?.({ toolName, args, status })
+            seam.onToolStep?.({
+              toolName,
+              args,
+              status,
+              startedAt: toolStartedAt,
+              endedAt: toolEndedAt,
+              durationMs: toolEndedAt - toolStartedAt,
+            })
           } catch {
             // ignore — monitoring must not break the worker
           }

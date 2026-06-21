@@ -9,6 +9,10 @@
  * concurrency, abort, cost aggregation, and trace emission.
  */
 
+// The analyst-finding factory + id helper from the substrate, re-surfaced here so a host that builds
+// findings on the coordination bus (the profile-richness gate, an online detector) does not need a
+// separate agent-eval import. The taxonomy + firewall provenance live in agent-eval.
+export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
 // One-stop import: sandbox-SDK types consumers need to spell out an
 // `AgentRunSpec` without importing `@tangle-network/sandbox` separately.
 export type {
@@ -31,6 +35,10 @@ export {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../durable/spawn-journal'
+// The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
+// here so a host folding the bus onto its own timeline (the supervise-topology observability) can
+// type its `onEvent` subscriber without reaching into the `/mcp` subpath.
+export type { CoordinationEvent } from './../mcp/tools/coordination'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
@@ -278,7 +286,12 @@ export {
 export {
   type AuthoredProfile,
   asAuthoredProfile,
+  assessAuthoredProfile,
   authoredWorker,
+  defaultProfileRichnessThresholds,
+  type ProfileRichness,
+  type ProfileRichnessThresholds,
+  profileRichnessFinding,
   supervisorInstructions,
 } from './supervise/authoring'
 export {
