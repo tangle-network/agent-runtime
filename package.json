@@ -34,6 +34,11 @@
       "import": "./dist/loops.js",
       "default": "./dist/loops.js"
     },
+    "./analyst-loop": {
+      "types": "./dist/analyst-loop.d.ts",
+      "import": "./dist/analyst-loop.js",
+      "default": "./dist/analyst-loop.js"
+    },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
       "import": "./dist/profiles.js",
