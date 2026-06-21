@@ -1512,7 +1512,7 @@ the call site.
 
 ### createSurfaceImprovementAdapter()
 
-> **createSurfaceImprovementAdapter**(`opts`): `ImprovementAdapter`\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
+> **createSurfaceImprovementAdapter**(`opts`): [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
 Defined in: [agent/improvement-adapter.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L129)
 
@@ -1524,13 +1524,13 @@ Defined in: [agent/improvement-adapter.ts:129](https://github.com/tangle-network
 
 #### Returns
 
-`ImprovementAdapter`\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
+[`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
 ***
 
 ### createSurfaceKnowledgeAdapter()
 
-> **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): `KnowledgeAdapter`\<`TProposal`\>
+> **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): [`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
 
 Defined in: [agent/knowledge-adapter.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L58)
 
@@ -1552,13 +1552,13 @@ Defined in: [agent/knowledge-adapter.ts:58](https://github.com/tangle-network/ag
 
 #### Returns
 
-`KnowledgeAdapter`\<`TProposal`\>
+[`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
 
 ***
 
 ### measureOutcome()
 
-> **measureOutcome**\<`TProposal`, `TEdit`\>(`result`, `opts`): `Promise`\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\> & `object`\>
+> **measureOutcome**\<`TProposal`, `TEdit`\>(`result`, `opts`): `Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
 
 Defined in: [agent/outcome.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/outcome.ts#L65)
 
@@ -1584,7 +1584,7 @@ optional on the type; missing means no measurement was wired).
 
 ##### result
 
-`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>
+[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>
 
 ##### opts
 
@@ -1592,7 +1592,7 @@ optional on the type; missing means no measurement was wired).
 
 #### Returns
 
-`Promise`\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\> & `object`\>
+`Promise`\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\> & `object`\>
 
 ***
 

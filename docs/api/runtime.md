@@ -12558,7 +12558,7 @@ over with a fabricated input here.
 
 ##### registry
 
-`AnalystRegistryLike`
+[`AnalystRegistryLike`](analyst-loop.md#analystregistrylike)
 
 ##### buildInputs
 

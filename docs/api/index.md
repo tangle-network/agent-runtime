@@ -2522,7 +2522,7 @@ Defined in: [improvement/agentic-generator.ts:43](https://github.com/tangle-netw
 
 Defined in: [improvement/agentic-generator.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L51)
 
-`@tangle-network/agent-runtime` improvement — the CODE-surface driver for
+`@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
 
 The ONE entry point for optimization is agent-eval's `selfImprove`
@@ -2530,7 +2530,7 @@ The ONE entry point for optimization is agent-eval's `selfImprove`
 with `analyzeGeneration` for analyst-fed reflection and `analyzeRuns` /
 `fromOtelSpans` / `partitionRunsByAuthoringModel` for production intake +
 cohorting. This module supplies only the one genuinely runtime-specific piece:
-a CODE-surface `ImprovementDriver` you pass to `selfImprove` as `driver`, which
+a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
 mutates a git worktree via a pluggable `CandidateGenerator`:
   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
@@ -2673,12 +2673,12 @@ Which profile lever to optimize. Default `'prompt'`. Selects the default
 
 ##### generator?
 
-> `optional` **generator?**: `ImprovementDriver`\<`unknown`\>
+> `optional` **generator?**: `SurfaceProposer`\<`unknown`\>
 
 Defined in: [improvement/improve.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L55)
 
-The `ImprovementDriver` that mutates the surface. When unset, the facade
- picks the default for `surface` (`gepaDriver` for prompt, `skillOptDriver`
+The `SurfaceProposer` that mutates the surface. When unset, the facade
+ picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
  for skills); surfaces with no default REQUIRE this (fail-loud otherwise).
 
 ##### gate?
@@ -2748,7 +2748,7 @@ Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 Defined in: [improvement/improve.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L70)
 
 LLM config. Passthrough to `selfImprove` AND used to construct the default
- reflective driver (`gepaDriver`/`skillOptDriver`) when `generator` is unset.
+ reflective proposer (`gepaProposer`/`skillOptProposer`) when `generator` is unset.
 
 ##### allowedModels?
 
@@ -2973,7 +2973,7 @@ Defined in: [improvement/reflective-generator.ts:20](https://github.com/tangle-n
 
 ##### improvementAdapter
 
-> **improvementAdapter**: `ImprovementAdapter`\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+> **improvementAdapter**: [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
 
 Defined in: [improvement/reflective-generator.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L21)
 
@@ -7736,7 +7736,7 @@ Wire integration:
 
 Defined in: [improvement/agentic-generator.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L71)
 
-`@tangle-network/agent-runtime` improvement — the CODE-surface driver for
+`@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
 
 The ONE entry point for optimization is agent-eval's `selfImprove`
@@ -7744,7 +7744,7 @@ The ONE entry point for optimization is agent-eval's `selfImprove`
 with `analyzeGeneration` for analyst-fed reflection and `analyzeRuns` /
 `fromOtelSpans` / `partitionRunsByAuthoringModel` for production intake +
 cohorting. This module supplies only the one genuinely runtime-specific piece:
-a CODE-surface `ImprovementDriver` you pass to `selfImprove` as `driver`, which
+a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
 mutates a git worktree via a pluggable `CandidateGenerator`:
   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
@@ -7884,7 +7884,7 @@ Optimize the system prompt, default holdout gate:
 
 ### improvementDriver()
 
-> **improvementDriver**(`opts`): `ImprovementDriver`\<`AnalystFinding`\>
+> **improvementDriver**(`opts`): `SurfaceProposer`\<`AnalystFinding`\>
 
 Defined in: [improvement/improvement-driver.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L60)
 
@@ -7896,7 +7896,7 @@ Defined in: [improvement/improvement-driver.ts:60](https://github.com/tangle-net
 
 #### Returns
 
-`ImprovementDriver`\<`AnalystFinding`\>
+`SurfaceProposer`\<`AnalystFinding`\>
 
 ***
 
@@ -8110,7 +8110,7 @@ Defined in: [loop-runner.ts:309](https://github.com/tangle-network/agent-runtime
 
 ### auditLoopRunner()
 
-> **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>\>
+> **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
 
 Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L316)
 
@@ -8132,11 +8132,11 @@ Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime
 
 ##### options
 
-`RunAnalystLoopOpts`
+[`RunAnalystLoopOpts`](analyst-loop.md#runanalystloopopts)
 
 #### Returns
 
-[`DelegatedLoopRunner`](#delegatedlooprunner)\<`RunAnalystLoopResult`\<`TProposal`, `TEdit`\>\>
+[`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
 
 ***
 

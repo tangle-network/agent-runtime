@@ -7,6 +7,7 @@
 ## Modules
 
 - [agent](agent.md)
+- [analyst-loop](analyst-loop.md)
 - [index](index.md)
 - [intelligence](intelligence.md)
 - [mcp](mcp.md)
