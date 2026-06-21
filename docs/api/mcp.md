@@ -4182,7 +4182,7 @@ Defined in: [mcp/tools/coordination.ts:100](https://github.com/tangle-network/ag
 
 ###### event
 
-[`CoordinationEvent`](#coordinationevent)
+[`CoordinationEvent`](runtime.md#coordinationevent)
 
 ###### Returns
 
@@ -4269,7 +4269,7 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 ##### history()
 
-> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
+> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
 Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L125)
 
@@ -4279,7 +4279,7 @@ The full ordered log of every bus event — UP (settled / question / finding) an
 
 ###### Returns
 
-readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
+readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
 ##### stats()
 
@@ -5878,18 +5878,6 @@ Defined in: [mcp/tools/coordination.ts:48](https://github.com/tangle-network/age
 > **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
 Defined in: [mcp/tools/coordination.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L60)
-
-***
-
-### CoordinationEvent
-
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: `AnalystFindingEvent`; \} \| \{ `type`: `"steer"`; `down`: `DownMessageEvent`; \} \| \{ `type`: `"answer"`; `down`: `DownMessageEvent`; `questionId`: `string`; \}
-
-Defined in: [mcp/tools/coordination.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L85)
-
-Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
- the driver to `pull`. DOWN (parent→child): steer / answer — record-only (history + subscribers),
- routed to the child inbox. New kinds are additive.
 
 ***
 
@@ -7824,7 +7812,7 @@ passed in because replay-safe paths must not read `Date.now`.
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
 
-Defined in: [mcp/tools/coordination.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L137)
+Defined in: [mcp/tools/coordination.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L154)
 
 Build the driver's MCP tools over a live scope.
 
@@ -8221,3 +8209,9 @@ Re-exports [mcpToolsForRuntimeMcp](index.md#mcptoolsforruntimemcp)
 ### mcpToolsForRuntimeMcpSubset
 
 Re-exports [mcpToolsForRuntimeMcpSubset](index.md#mcptoolsforruntimemcpsubset)
+
+***
+
+### CoordinationEvent
+
+Re-exports [CoordinationEvent](runtime.md#coordinationevent)

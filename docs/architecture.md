@@ -793,7 +793,7 @@ kernel.**
   `canonical-api.md` §1.5): a supervisor's intelligence is *writing full AgentProfiles for
   its children*. The coordination toolbox `spawn_agent` carries the child profile
   (`mcp/tools/coordination.ts`).
-- The in-process driver brain is `coordinationDriverAgent`
+- The in-process driver brain is `driverAgent`
   (`supervise/coordination-driver.ts`) running the owned tool-loop executor
   `routerToolsInlineExecutor` (`supervise/runtime.ts`). A driver/supervisor's brain is
   driven from its `AgentProfile` (tools = the coordination verbs); inferring the brain

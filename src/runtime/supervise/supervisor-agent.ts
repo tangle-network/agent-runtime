@@ -4,7 +4,7 @@
  * no hand-built brain. The supervisor stops being special — it's one profile, materialized by the
  * same resolution rule as every other agent.
  *
- *  - `harness` null/undefined → the in-process router tool-loop: `coordinationDriverAgent` over the
+ *  - `harness` null/undefined → the in-process router tool-loop: `driverAgent` over the
  *    canonical `ToolLoopChat`, built by `routerBrain` from the profile's model + the router seam.
  *  - `harness` a coding CLI (`claude-code`/`opencode`/`codex`/…) → a SANDBOXED harness drives the
  *    coordination verbs: `serveCoordinationMcp` exposes spawn/await/steer/stop over the live scope,
@@ -17,7 +17,7 @@ import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
-import { coordinationDriverAgent, finalizeBestDelivered } from './coordination-driver'
+import { driverAgent, finalizeBestDelivered } from './coordination-driver'
 import { serveCoordinationMcp } from './coordination-mcp'
 import type { Agent, Budget, ResultBlobStore, Scope } from './types'
 
@@ -83,7 +83,7 @@ export function supervisorAgent(
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
     // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
     const brain = deps.brain ?? routerBrainFromProfile(profile, deps)
-    return coordinationDriverAgent({
+    return driverAgent({
       name,
       brain,
       blobs: deps.blobs,

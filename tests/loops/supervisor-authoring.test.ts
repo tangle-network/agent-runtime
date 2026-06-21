@@ -6,7 +6,7 @@ import {
   asAuthoredProfile,
   supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
-import { coordinationDriverAgent } from '../../src/runtime/supervise/coordination-driver'
+import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -98,7 +98,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
     }
 
     const blobs = new InMemoryResultBlobStore() // ONE shared store: workers settle into it, finalize reads it
-    const root = coordinationDriverAgent({
+    const root = driverAgent({
       name: 'supervisor',
       brain: scriptedBrain(turns),
       blobs,

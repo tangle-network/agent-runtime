@@ -41,7 +41,7 @@ Era tags: **production runtime** (`runAgentTask` / `handleChatTurn` — what eve
 
 | # | Example | Era | One sentence |
 |---|---|---|---|
-| 9b | [`supervisor-loop/`](./supervisor-loop/) | supervisor core | One LLM SUPERVISOR (`coordinationDriverAgent`) spawns + drives N worker agents to a checked completion on one conserved pool — the SAME code over `router-tools` / `sandbox` (a box) / `bridge` (local cli-bridge), swapping only the worker-leaf seam |
+| 9b | [`supervisor-loop/`](./supervisor-loop/) | supervisor core | One LLM SUPERVISOR (`driverAgent`) spawns + drives N worker agents to a checked completion on one conserved pool — the SAME code over `router-tools` / `sandbox` (a box) / `bridge` (local cli-bridge), swapping only the worker-leaf seam |
 
 ## The runLoop kernel (driver-planned fanout)
 

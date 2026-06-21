@@ -265,9 +265,12 @@ export interface RouterToolsSeam {
     toolName: string
     args: Record<string, unknown>
     status: 'ok' | 'error'
-    startedAt: number
-    endedAt: number
-    durationMs: number
+    // Real per-call wall-clock — the owned-loop executor always supplies these. Optional so an
+    // external `RouterToolsSeam` that omits timing still satisfies the type (the span then collapses
+    // to order + counts, per `toToolSpan`), keeping this an additive, non-breaking field set.
+    startedAt?: number
+    endedAt?: number
+    durationMs?: number
   }) => void
   /** Max inference turns. Default 200 (runaway backstop — set far above any
    *  legitimate workflow). For tighter per-workflow limits use a cost budget

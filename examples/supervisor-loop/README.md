@@ -1,7 +1,7 @@
 # supervisor-loop — one agent drives N worker agents to completion
 
 The "an LLM agent spawns and drives N workers" path, made runnable. A SUPERVISOR agent
-(the real `coordinationDriverAgent` brain) reasons a loop over the coordination verbs —
+(the real `driverAgent` brain) reasons a loop over the coordination verbs —
 `spawn_agent` → `await_event` → `observe_agent` / `steer_agent` → `stop` — against a live
 `Scope`, on **one conserved budget pool**. Each worker is a leaf from
 `createExecutor({ backend })`; the supervisor settles on the best **delivered** worker (a
@@ -109,13 +109,13 @@ different seam.
 ## One-call boilerplate: `createInMemoryRunContext`
 
 A supervised run needs three stores threaded into `SupervisorOpts`: a spawn journal, a result
-blob store, and an executor registry — and the blob store passed to `coordinationDriverAgent`
+blob store, and an executor registry — and the blob store passed to `driverAgent`
 **must be the same instance** the run uses. `createInMemoryRunContext()` (exported from
 `@tangle-network/agent-runtime` and `/loops`) bundles all three:
 
 ```ts
 const run = createInMemoryRunContext()                 // { journal, blobs, executors }
-const root = coordinationDriverAgent({ blobs: run.blobs, /* ... */ })
+const root = driverAgent({ blobs: run.blobs, /* ... */ })
 await createSupervisor().run(root, task, { budget, runId, ...run })
 ```
 

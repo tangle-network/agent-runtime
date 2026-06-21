@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * `coordinationDriverAgent` — the driver's BRAIN.
+ * `driverAgent` — the driver's BRAIN.
  *
  * The recursive driver-executor (`driver-executor.ts`) runs a driver `Agent.act` inside a
  * nested `Scope`; this is the intelligent `act`: it mounts the coordination MCP verbs
@@ -13,7 +13,7 @@
  *
  * Recursion composes through `makeWorkerAgent`: `spawn_agent` resolves a `profile` to a
  * worker LEAF or — when the profile is a driver — a `driverChild` wrapping ANOTHER
- * `coordinationDriverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
+ * `driverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
  * drives an agent that drives an agent, each an LLM tool-loop, all on one conserved-budget
  * tree.
  *
@@ -36,7 +36,7 @@ import type { ToolSpec } from '../router-client'
 import { runBrainLoop, type ToolLoopChat } from '../tool-loop'
 import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
-export interface CoordinationDriverOptions {
+export interface DriverAgentOptions {
   readonly name: string
   /** The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
    *  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -107,15 +107,15 @@ function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
  * Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
  * `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
  */
-export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<unknown, unknown> {
+export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   if (typeof opts.brain !== 'function') {
-    throw new ValidationError('coordinationDriverAgent: opts.brain must be a function')
+    throw new ValidationError('driverAgent: opts.brain must be a function')
   }
   // Fail loud on a half-wired work-tool seam: extra tool specs with no executor (or an executor
   // with no specs the model can see) is a silent no-op the house rules forbid.
   if ((opts.extraTools?.length ?? 0) > 0 && typeof opts.executeExtraTool !== 'function') {
     throw new ValidationError(
-      'coordinationDriverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
+      'driverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
     )
   }
   // A work tool that shadows a coordination verb would leave the driver unable to coordinate.
@@ -125,7 +125,7 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
   for (const t of opts.extraTools ?? []) {
     if (reserved.has(t.name)) {
       throw new ValidationError(
-        `coordinationDriverAgent: extra work tool "${t.name}" collides with a coordination verb`,
+        `driverAgent: extra work tool "${t.name}" collides with a coordination verb`,
       )
     }
   }
@@ -133,7 +133,7 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
   // finalize an empty no-winner — a silent zero the house rules forbid.
   if (opts.maxTurns !== undefined && opts.maxTurns < 0) {
     throw new ValidationError(
-      'coordinationDriverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
+      'driverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
     )
   }
   // maxTurns=0 lifts the turn-COUNT cap: a long-horizon decomposition must not die on an
