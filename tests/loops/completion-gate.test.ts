@@ -162,9 +162,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { out: { code: 'broken' }, score: 0.95 },
       { check: () => false }, // it ran, it self-scored 0.95 — but it did not deliver
     )
-    const root = driverAgent(
-      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
-    )
+    const root = driverAgent(driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker))
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',
@@ -184,9 +182,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { out: { code: 'works' }, score: 0.6 },
       { check: () => true },
     )
-    const root = driverAgent(
-      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
-    )
+    const root = driverAgent(driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker))
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',

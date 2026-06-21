@@ -176,11 +176,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       const p = raw as { kind?: string }
       if (p?.kind === 'driver') {
         const childBrain = scriptedBrain(midTurns, midSeen)
-        return driverChild(
-          'mid',
-          driverAgent(driverOpts('mid', childBrain, makeAgent)),
-          journal,
-        )
+        return driverChild('mid', driverAgent(driverOpts('mid', childBrain, makeAgent)), journal)
       }
       return worker
     }

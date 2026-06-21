@@ -97,19 +97,15 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 8,
     }
-    const result = await createSupervisor<unknown, unknown>().run(
-      driverAgent(opts),
-      'task',
-      {
-        budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
-        runId: 'meter',
-        journal,
-        blobs,
-        executors: createExecutorRegistry(),
-        maxDepth: 2,
-        now: () => 0,
-      },
-    )
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
+      budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
+      runId: 'meter',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
 
     expect(result.kind).toBe('winner')
     if (result.kind !== 'winner') return
@@ -147,11 +143,7 @@ describe("driver inference metering — the driver's own tokens count against th
     function makeAgent(raw: unknown): Agent<unknown, unknown> {
       const p = raw as P
       if (p?.kind === 'driver') {
-        return driverChild(
-          p.name,
-          driverAgent(driverOf(p.name, meteredChat(p.turns))),
-          journal,
-        )
+        return driverChild(p.name, driverAgent(driverOf(p.name, meteredChat(p.turns))), journal)
       }
       return worker
     }
@@ -427,19 +419,15 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 0,
     }
-    const result = await createSupervisor<unknown, unknown>().run(
-      driverAgent(opts),
-      'usd-bound',
-      {
-        budget: { maxIterations: 1000, maxTokens: 10_000_000, maxUsd: 0.1 }, // ~2-3 turns of $0.04 fit
-        runId: 'meter-usd-bound',
-        journal,
-        blobs,
-        executors: createExecutorRegistry(),
-        maxDepth: 2,
-        now: () => 0,
-      },
-    )
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'usd-bound', {
+      budget: { maxIterations: 1000, maxTokens: 10_000_000, maxUsd: 0.1 }, // ~2-3 turns of $0.04 fit
+      runId: 'meter-usd-bound',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
 
     // usdLeft: 0.1 → 0.06 → 0.02 → -0.02; poolStarved's usd arm breaks at the top of turn 3
     // (usdLeft -0.02 <= 0). The driver halts on USD — NOT the 2000-turn tripwire, NOT the token
