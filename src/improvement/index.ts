@@ -1,5 +1,5 @@
 /**
- * `@tangle-network/agent-runtime` improvement — the CODE-surface driver for
+ * `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
  * agent-eval's improvement loop.
  *
  * The ONE entry point for optimization is agent-eval's `selfImprove`
@@ -7,7 +7,7 @@
  * with `analyzeGeneration` for analyst-fed reflection and `analyzeRuns` /
  * `fromOtelSpans` / `partitionRunsByAuthoringModel` for production intake +
  * cohorting. This module supplies only the one genuinely runtime-specific piece:
- * a CODE-surface `ImprovementDriver` you pass to `selfImprove` as `driver`, which
+ * a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
  * mutates a git worktree via a pluggable `CandidateGenerator`:
  *   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot

@@ -6,15 +6,15 @@
  * A thin facade over agent-eval's `selfImprove` (the held-out-gated closed
  * loop). It removes the two things a caller otherwise has to know to drive the
  * loop by hand: WHICH `MutableSurface` of the profile is being optimized, and
- * WHICH `ImprovementDriver` mutates that surface. You name a `surface`; the
- * facade picks the matching default driver, extracts the baseline surface from
+ * WHICH `SurfaceProposer` mutates that surface. You name a `surface`; the
+ * facade picks the matching default proposer, extracts the baseline surface from
  * the profile, runs `selfImprove`, and (on a ship verdict) writes the promoted
  * winner back into the corresponding profile field.
  *
- *   - `surface: 'prompt'` → `gepaDriver` mutates `profile.prompt.systemPrompt`.
- *   - `surface: 'skills'` → `skillOptDriver` mutates a skills document string.
+ *   - `surface: 'prompt'` → `gepaProposer` mutates `profile.prompt.systemPrompt`.
+ *   - `surface: 'skills'` → `skillOptProposer` mutates a skills document string.
  *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `code`} → no zero-config default
- *     driver exists (a code/config driver needs caller-supplied wiring — a
+ *     proposer exists (a code/config proposer needs caller-supplied wiring — a
  *     worktree repo root, a candidate generator, a serializer). The facade
  *     requires an explicit `opts.generator` for these and throws a `ConfigError`
  *     otherwise. This is a designed boundary, not a missing default: there is
@@ -24,17 +24,17 @@
  * straight through to `selfImprove`.
  */
 
-import { skillOptDriver } from '@tangle-network/agent-eval/campaign'
+import { skillOptProposer } from '@tangle-network/agent-eval/campaign'
 import {
   type DispatchContext,
-  gepaDriver,
-  type ImprovementDriver,
+  gepaProposer,
   type JudgeConfig,
   type MutableSurface,
   type Scenario,
   type SelfImproveBudget,
   type SelfImproveLlm,
   type SelfImproveResult,
+  type SurfaceProposer,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -49,10 +49,10 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Which profile lever to optimize. Default `'prompt'`. Selects the default
    *  generator + the baseline-surface extraction shape. */
   surface?: ImproveSurface
-  /** The `ImprovementDriver` that mutates the surface. When unset, the facade
-   *  picks the default for `surface` (`gepaDriver` for prompt, `skillOptDriver`
+  /** The `SurfaceProposer` that mutates the surface. When unset, the facade
+   *  picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
    *  for skills); surfaces with no default REQUIRE this (fail-loud otherwise). */
-  generator?: ImprovementDriver
+  generator?: SurfaceProposer
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
    *  `'none'` is a baseline-only run (`budget.generations = 0`). */
   gate?: 'holdout' | 'none'
@@ -66,7 +66,7 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`. */
   budget?: SelfImproveBudget
   /** LLM config. Passthrough to `selfImprove` AND used to construct the default
-   *  reflective driver (`gepaDriver`/`skillOptDriver`) when `generator` is unset. */
+   *  reflective proposer (`gepaProposer`/`skillOptProposer`) when `generator` is unset. */
   llm?: SelfImproveLlm
   /** Restrict the run to this subset of models. When set, the reflection model
    *  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
@@ -92,24 +92,24 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
  *  router actually serves (callers should pass their own `llm.model`). */
 const defaultReflectionModel = 'deepseek-v4-flash'
 
-/** The reflective drivers (`gepaDriver`/`skillOptDriver`) take a full
+/** The reflective proposers (`gepaProposer`/`skillOptProposer`) take a full
  *  `LlmClientOptions`; `SelfImproveLlm` is the thin user-facing subset. */
 function llmClientOptions(llm: SelfImproveLlm | undefined): { baseUrl?: string; apiKey?: string } {
   return { baseUrl: llm?.baseUrl, apiKey: llm?.apiKey }
 }
 
-/** The default driver for a surface, or `undefined` when the surface has no
+/** The default proposer for a surface, or `undefined` when the surface has no
  *  zero-config default (the caller must supply `opts.generator`). */
 function defaultGeneratorFor(
   surface: ImproveSurface,
   llm: SelfImproveLlm | undefined,
-): ImprovementDriver | undefined {
+): SurfaceProposer | undefined {
   const model = llm?.model ?? defaultReflectionModel
   switch (surface) {
     case 'prompt':
-      return gepaDriver({ llm: llmClientOptions(llm), model, target: 'agent system prompt' })
+      return gepaProposer({ llm: llmClientOptions(llm), model, target: 'agent system prompt' })
     case 'skills':
-      return skillOptDriver({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
+      return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
     default:
       return undefined
   }
@@ -209,10 +209,10 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   // (no-op when allowedModels is unset).
   assertModelAllowed(opts.llm?.model ?? defaultReflectionModel, opts.allowedModels)
 
-  const driver = opts.generator ?? defaultGeneratorFor(surface, opts.llm)
-  if (!driver) {
+  const proposer = opts.generator ?? defaultGeneratorFor(surface, opts.llm)
+  if (!proposer) {
     throw new ConfigError(
-      `improve(): surface '${surface}' has no default generator — pass opts.generator (an ImprovementDriver) explicitly`,
+      `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
     )
   }
 
@@ -224,7 +224,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     scenarios: opts.scenarios,
     judge: opts.judge,
     baselineSurface: baselineSurfaceFor(profile, surface),
-    driver,
+    proposer,
     budget,
     llm: opts.llm,
     findings,

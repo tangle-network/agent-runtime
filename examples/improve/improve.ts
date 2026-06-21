@@ -10,7 +10,7 @@
  * The REQUIRED positional `findings` (an `AnalystFinding[]`) is what the loop reflects on: the trace
  * analysts' read of what went wrong. Here it is a single hand-written finding.
  *
- * This example runs OFFLINE with no credentials: a scripted `ImprovementDriver` proposes a fixed
+ * This example runs OFFLINE with no credentials: a scripted `SurfaceProposer` proposes a fixed
  * winning candidate, a deterministic judge scores it, and the "agent" returns the surface verbatim
  * while reporting token usage (so agent-eval's backend-integrity guard sees a real backend). Mirrors
  * `tests/improve.test.ts`.
@@ -21,10 +21,10 @@
 import { makeFinding } from '@tangle-network/agent-eval'
 import type {
   DispatchContext,
-  ImprovementDriver,
   JudgeConfig,
   MutableSurface,
   Scenario,
+  SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { improve } from '@tangle-network/agent-runtime'
@@ -61,9 +61,9 @@ const judge: JudgeConfig<string, DemoScenario> = {
   },
 }
 
-// A scripted ImprovementDriver that always proposes the winning surface — the offline stand-in for
-// `gepaDriver`, no router call.
-const scriptedWinner: ImprovementDriver = {
+// A scripted SurfaceProposer that always proposes the winning surface — the offline stand-in for
+// `gepaProposer`, no router call.
+const scriptedWinner: SurfaceProposer = {
   kind: 'scripted-winner',
   async propose() {
     return [{ surface: 'PROMOTED', label: 'win', rationale: 'scripted' }]

@@ -1,8 +1,8 @@
 /**
  * @experimental
  *
- * `improvementDriver` — the ONE reflective/agentic improvement driver for
- * agent-eval's improvement loop. It implements `ImprovementDriver` and owns
+ * `improvementDriver` — the ONE reflective/agentic improvement proposer for
+ * agent-eval's improvement loop. It implements `SurfaceProposer` and owns
  * the candidate lifecycle (worktree create → generate → finalize/discard,
  * × populationSize); it delegates the only thing that genuinely varies — HOW
  * a candidate change is produced — to a pluggable `CandidateGenerator`.
@@ -22,9 +22,9 @@
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import type {
   CodeSurface,
-  ImprovementDriver,
   LabeledScenarioStore,
   ProposeContext,
+  SurfaceProposer,
   WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 
@@ -57,14 +57,12 @@ export interface ImprovementDriverOptions {
   baseRef?: string
 }
 
-export function improvementDriver(
-  opts: ImprovementDriverOptions,
-): ImprovementDriver<AnalystFinding> {
+export function improvementDriver(opts: ImprovementDriverOptions): SurfaceProposer<AnalystFinding> {
   const baseRef = opts.baseRef ?? 'main'
 
   return {
     kind: `improvement:${opts.generator.kind}`,
-    async propose(ctx) {
+    async propose(ctx: ProposeContext<AnalystFinding>) {
       const findings = resolveFindings(ctx)
       // No signal to act on — propose nothing rather than spin up worktrees.
       if (findings.length === 0 && ctx.report === undefined) return []

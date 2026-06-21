@@ -1,9 +1,9 @@
 import type {
   DispatchContext,
-  ImprovementDriver,
   JudgeConfig,
   MutableSurface,
   Scenario,
+  SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
@@ -43,9 +43,9 @@ const judge: JudgeConfig<string, DemoScenario> = {
   },
 }
 
-/** A scripted `ImprovementDriver` that always proposes the winning surface —
- *  the hand-written stand-in for `gepaDriver`, no router call. */
-const scriptedWinner: ImprovementDriver = {
+/** A scripted `SurfaceProposer` that always proposes the winning surface —
+ *  the hand-written stand-in for `gepaProposer`, no router call. */
+const scriptedWinner: SurfaceProposer = {
   kind: 'scripted-winner',
   async propose() {
     return [{ surface: 'PROMOTED', label: 'win', rationale: 'scripted' }]
@@ -140,7 +140,7 @@ describe('improve() — facade over selfImprove', () => {
     // Scores 1.0 (includes PROMOTED, so the held-out gate ships it) but is NOT
     // valid JSON for the `skills` surface — `applyWinnerToProfile` must fail loud
     // with a typed error, not throw a raw SyntaxError after the ship verdict.
-    const malformedWinner: ImprovementDriver = {
+    const malformedWinner: SurfaceProposer = {
       kind: 'malformed-json',
       async propose() {
         return [{ surface: 'PROMOTED not json {{{', label: 'win', rationale: 'x' }]
