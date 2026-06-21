@@ -89,13 +89,13 @@ interface SupportScenario extends Scenario {
 async function scoredCell(): Promise<void> {
   const dispatch = runPersonaDispatch<SupportScenario, number>({
     backendFor: () => createOpenAICompatibleBackend({ apiKey, baseUrl, model }),
-    systemPromptOf: (p: CellProfile) => `support agent (${p.id})`,
+    systemPromptOf: (p: CellProfile) => `support agent (${p.name})`,
     personaOf: (s) => ({ kind: 'scripted', turns: [s.question] }),
     // The scored artifact: how many turns the agent answered. A real eval scores the transcript.
     artifactOf: (transcript) => transcript.filter((t) => t.speaker === 'agent').length,
   })
   const result = await runProfileMatrix<SupportScenario, number>({
-    profiles: [{ id: 'support-v1', model }],
+    profiles: [{ name: 'support-v1', model: { default: model } }],
     scenarios: [{ id: 's1', kind: 'support', question: 'reset password?' }],
     dispatch,
     runDir: mkdtempSync(join(tmpdir(), 'product-eval-')),
