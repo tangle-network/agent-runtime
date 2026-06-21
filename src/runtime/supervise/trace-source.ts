@@ -28,6 +28,10 @@ export interface ToolStepInput {
   /** Stable id of the tool call — used to de-duplicate the repeated state transitions a harness
    *  streams for one call (opencode emits pending→running→completed, plus a `raw`-wrapped copy). */
   readonly callId?: string
+  /** Real per-call wall-clock when the source has it (owned tool-loop; opencode parts with `time`).
+   *  When omitted the span collapses to a single instant (`at`) — order + counts only, no duration. */
+  readonly startedAt?: number
+  readonly endedAt?: number
 }
 
 export interface TraceSource {
@@ -38,8 +42,12 @@ export interface TraceSource {
   collect(): Promise<ToolSpan[]>
 }
 
-/** Project a normalized tool step into the canonical agent-eval `ToolSpan`. */
+/** Project a normalized tool step into the canonical agent-eval `ToolSpan`. When the step carries
+ *  real wall-clock (`startedAt`/`endedAt`) the span gets a true duration; otherwise it collapses to
+ *  the single instant `at` (order + counts only — the historical behavior). */
 export function toToolSpan(input: ToolStepInput, runId: string, seq: number, at: number): ToolSpan {
+  const startedAt = typeof input.startedAt === 'number' ? input.startedAt : at
+  const endedAt = typeof input.endedAt === 'number' ? input.endedAt : startedAt
   return {
     spanId: `${runId}-t${seq}`,
     runId,
@@ -48,8 +56,8 @@ export function toToolSpan(input: ToolStepInput, runId: string, seq: number, at:
     toolName: input.toolName,
     args: input.args,
     status: input.status ?? 'ok',
-    startedAt: at,
-    endedAt: at,
+    startedAt,
+    endedAt,
     ...(input.result !== undefined ? { result: input.result } : {}),
   }
 }

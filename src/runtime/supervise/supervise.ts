@@ -60,6 +60,19 @@ export interface SuperviseOptions {
   readonly brain?: ToolLoopChat
   /** Run a sandboxed-harness supervisor (`harness` set). */
   readonly driveHarness?: DriveHarness
+  /** WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
+   *  itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
+   *  `executeExtraTool`. Router arm only (`harness` null). */
+  readonly extraTools?: ReadonlyArray<{
+    readonly name: string
+    readonly description?: string
+    readonly parameters: Record<string, unknown>
+  }>
+  /** Runs an `extraTools` call; null/undefined falls through to the coordination dispatch. */
+  readonly executeExtraTool?: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<string | null | undefined>
   /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
   readonly perWorker?: Budget
   /** Worker output store. Defaults to in-memory. */
@@ -114,6 +127,8 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.router ? { router: opts.router } : {}),
     ...(opts.brain ? { brain: opts.brain } : {}),
     ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
+    ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
+    ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
   })
 

@@ -9,6 +9,10 @@
  * concurrency, abort, cost aggregation, and trace emission.
  */
 
+// The analyst-finding factory + id helper from the substrate, re-surfaced here so a host that builds
+// findings on the coordination bus (the profile-richness gate, an online detector) does not need a
+// separate agent-eval import. The taxonomy + firewall provenance live in agent-eval.
+export { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'
 // One-stop import: sandbox-SDK types consumers need to spell out an
 // `AgentRunSpec` without importing `@tangle-network/sandbox` separately.
 export type {
@@ -31,6 +35,10 @@ export {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../durable/spawn-journal'
+// The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
+// here so a host folding the bus onto its own timeline (the supervise-topology observability) can
+// type its `onEvent` subscriber without reaching into the `/mcp` subpath.
+export type { CoordinationEvent } from './../mcp/tools/coordination'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
@@ -177,7 +185,7 @@ export {
 export { reportLoopUsage, type UsageSink } from './report-usage'
 // The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
 // with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
-// router's tool-calling as the canonical `ToolLoopChat` seam a `coordinationDriverAgent` drives
+// router's tool-calling as the canonical `ToolLoopChat` seam a `driverAgent` drives
 // (tests script a mock `ToolLoopChat`, production passes `routerBrain(cfg)`).
 export {
   type RouterChatResult,
@@ -278,7 +286,12 @@ export {
 export {
   type AuthoredProfile,
   asAuthoredProfile,
+  assessAuthoredProfile,
   authoredWorker,
+  defaultProfileRichnessThresholds,
+  type ProfileRichness,
+  type ProfileRichnessThresholds,
+  profileRichnessFinding,
   supervisorInstructions,
 } from './supervise/authoring'
 export {
@@ -295,8 +308,8 @@ export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-
 // verbs over the Scope (no box, no creds). The CAPABLE driver is a sandbox agent with the
 // coordination verbs mounted as an MCP — this is the low-cost + offline-testable variant.
 export {
-  type CoordinationDriverOptions,
-  coordinationDriverAgent,
+  type DriverAgentOptions,
+  driverAgent,
   finalizeBestDelivered,
 } from './supervise/coordination-driver'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
@@ -409,7 +422,7 @@ export {
   worktreeFanout,
 } from './supervise/worktree-fanout'
 // The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
-// `CoordinationDriverOptions.brain` — the canonical one-inference-turn tool-loop chat.
+// `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat.
 export type { ToolLoopChat } from './tool-loop'
 export type {
   AgentRunSpec,

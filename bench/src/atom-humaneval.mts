@@ -1,7 +1,7 @@
 /**
  * The "useful or BS" verdict: agents-driving-agents on a REAL deployable-checked domain.
  *
- * A `coordinationDriverAgent` with a REAL router-LLM brain drives, per HumanEval task: it spawns
+ * A `driverAgent` with a REAL router-LLM brain drives, per HumanEval task: it spawns
  * worker agents (each a router LLM that writes the function), every worker GATED by the
  * deterministic local Docker checker (the deliverable — a worker settles `valid` ⟺ its tests
  * pass), and the completion-oracle keeps-best a DELIVERED worker. The supervisor returns a winner
@@ -21,8 +21,8 @@ import {
   type AgentProfile,
   type AgentSpec,
   contentAddress,
-  type CoordinationDriverOptions,
-  coordinationDriverAgent,
+  type DriverAgentOptions,
+  driverAgent,
   createExecutorRegistry,
   createSupervisor,
   type Executor,
@@ -116,7 +116,7 @@ async function driveTask(
     spawns += 1
     return w
   }
-  const opts: CoordinationDriverOptions = {
+  const opts: DriverAgentOptions = {
     name: `drv-${task.taskId}`,
     brain: routerBrain(driverCfg),
     blobs,
@@ -125,7 +125,7 @@ async function driveTask(
     systemPrompt: driverSystem,
     maxTurns: K + 4,
   }
-  const root = coordinationDriverAgent(opts)
+  const root = driverAgent(opts)
   const runId = `he-${task.taskId.replace('/', '-')}`
   const result = await createSupervisor<unknown, unknown>().run(root, basePrompt(task), {
     budget: { maxIterations: 100, maxTokens: 400_000 },

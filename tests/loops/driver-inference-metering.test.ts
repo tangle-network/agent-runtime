@@ -8,8 +8,8 @@ import {
 import { trajectoryReport } from '../../src/runtime/personify/trajectory'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import {
-  type CoordinationDriverOptions,
-  coordinationDriverAgent,
+  type DriverAgentOptions,
+  driverAgent,
 } from '../../src/runtime/supervise/coordination-driver'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -88,7 +88,7 @@ describe("driver inference metering — the driver's own tokens count against th
       },
       { content: 'delivered', usage: { input: 30, output: 10 }, costUsd: 0.002 },
     ])
-    const opts: CoordinationDriverOptions = {
+    const opts: DriverAgentOptions = {
       name: 'root',
       brain: chat,
       blobs,
@@ -97,19 +97,15 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 8,
     }
-    const result = await createSupervisor<unknown, unknown>().run(
-      coordinationDriverAgent(opts),
-      'task',
-      {
-        budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
-        runId: 'meter',
-        journal,
-        blobs,
-        executors: createExecutorRegistry(),
-        maxDepth: 2,
-        now: () => 0,
-      },
-    )
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
+      budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
+      runId: 'meter',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
 
     expect(result.kind).toBe('winner')
     if (result.kind !== 'winner') return
@@ -133,9 +129,9 @@ describe("driver inference metering — the driver's own tokens count against th
     const worker = workerLeaf('leaf', { input: 10, output: 5 })
 
     // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
-    // a driverChild wrapping another coordinationDriverAgent; a 'worker' profile becomes the leaf.
+    // a driverChild wrapping another driverAgent; a 'worker' profile becomes the leaf.
     type P = { kind: 'driver'; name: string; turns: ScriptedTurn[] } | { kind: 'worker' }
-    const driverOf = (name: string, brain: ToolLoopChat): CoordinationDriverOptions => ({
+    const driverOf = (name: string, brain: ToolLoopChat): DriverAgentOptions => ({
       name,
       brain,
       blobs,
@@ -147,11 +143,7 @@ describe("driver inference metering — the driver's own tokens count against th
     function makeAgent(raw: unknown): Agent<unknown, unknown> {
       const p = raw as P
       if (p?.kind === 'driver') {
-        return driverChild(
-          p.name,
-          coordinationDriverAgent(driverOf(p.name, meteredChat(p.turns))),
-          journal,
-        )
+        return driverChild(p.name, driverAgent(driverOf(p.name, meteredChat(p.turns))), journal)
       }
       return worker
     }
@@ -184,7 +176,7 @@ describe("driver inference metering — the driver's own tokens count against th
     ])
 
     const result = await createSupervisor<unknown, unknown>().run(
-      coordinationDriverAgent(driverOf('root', rootChat)),
+      driverAgent(driverOf('root', rootChat)),
       'task',
       {
         budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
@@ -228,7 +220,7 @@ describe("driver inference metering — the driver's own tokens count against th
         }
         return driverChild(
           'mid',
-          coordinationDriverAgent({
+          driverAgent({
             name: 'mid',
             brain: crashingChat,
             blobs,
@@ -254,7 +246,7 @@ describe("driver inference metering — the driver's own tokens count against th
     ])
 
     await createSupervisor<unknown, unknown>().run(
-      coordinationDriverAgent({
+      driverAgent({
         name: 'root',
         brain: rootChat,
         blobs,
@@ -304,7 +296,7 @@ describe("driver inference metering — the driver's own tokens count against th
         usage: { input: 150, output: 50 },
       }
     }
-    const opts: CoordinationDriverOptions = {
+    const opts: DriverAgentOptions = {
       name: 'root',
       brain: chat,
       blobs,
@@ -314,7 +306,7 @@ describe("driver inference metering — the driver's own tokens count against th
       maxTurns: 0, // unlimited turn count — the pool is the only bound
     }
     const result = await createSupervisor<unknown, unknown>().run(
-      coordinationDriverAgent(opts),
+      driverAgent(opts),
       'never-ending',
       {
         budget: { maxIterations: 100, maxTokens: 1000 }, // only ~5 turns of 200-token inference fit
@@ -348,7 +340,7 @@ describe("driver inference metering — the driver's own tokens count against th
       { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 80, output: 40 } },
       { content: 'done', usage: { input: 30, output: 10 } },
     ])
-    const opts: CoordinationDriverOptions = {
+    const opts: DriverAgentOptions = {
       name: 'root',
       brain: chat,
       blobs,
@@ -357,7 +349,7 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 8,
     }
-    await createSupervisor<unknown, unknown>().run(coordinationDriverAgent(opts), 'task', {
+    await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
       budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
       runId: 'meter-obs',
       journal,
@@ -418,7 +410,7 @@ describe("driver inference metering — the driver's own tokens count against th
         costUsd: 0.04,
       }
     }
-    const opts: CoordinationDriverOptions = {
+    const opts: DriverAgentOptions = {
       name: 'root',
       brain: chat,
       blobs,
@@ -427,19 +419,15 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 0,
     }
-    const result = await createSupervisor<unknown, unknown>().run(
-      coordinationDriverAgent(opts),
-      'usd-bound',
-      {
-        budget: { maxIterations: 1000, maxTokens: 10_000_000, maxUsd: 0.1 }, // ~2-3 turns of $0.04 fit
-        runId: 'meter-usd-bound',
-        journal,
-        blobs,
-        executors: createExecutorRegistry(),
-        maxDepth: 2,
-        now: () => 0,
-      },
-    )
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'usd-bound', {
+      budget: { maxIterations: 1000, maxTokens: 10_000_000, maxUsd: 0.1 }, // ~2-3 turns of $0.04 fit
+      runId: 'meter-usd-bound',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+    })
 
     // usdLeft: 0.1 → 0.06 → 0.02 → -0.02; poolStarved's usd arm breaks at the top of turn 3
     // (usdLeft -0.02 <= 0). The driver halts on USD — NOT the 2000-turn tripwire, NOT the token

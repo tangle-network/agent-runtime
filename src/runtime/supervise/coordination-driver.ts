@@ -1,7 +1,7 @@
 /**
  * @experimental
  *
- * `coordinationDriverAgent` — the driver's BRAIN.
+ * `driverAgent` — the driver's BRAIN.
  *
  * The recursive driver-executor (`driver-executor.ts`) runs a driver `Agent.act` inside a
  * nested `Scope`; this is the intelligent `act`: it mounts the coordination MCP verbs
@@ -13,7 +13,7 @@
  *
  * Recursion composes through `makeWorkerAgent`: `spawn_agent` resolves a `profile` to a
  * worker LEAF or — when the profile is a driver — a `driverChild` wrapping ANOTHER
- * `coordinationDriverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
+ * `driverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
  * drives an agent that drives an agent, each an LLM tool-loop, all on one conserved-budget
  * tree.
  *
@@ -27,12 +27,16 @@
 
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
-import { createCoordinationTools, type MakeWorkerAgent } from '../../mcp/tools/coordination'
+import {
+  coordinationVerbNames,
+  createCoordinationTools,
+  type MakeWorkerAgent,
+} from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
 import { runBrainLoop, type ToolLoopChat } from '../tool-loop'
 import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
-export interface CoordinationDriverOptions {
+export interface DriverAgentOptions {
   readonly name: string
   /** The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
    *  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -47,6 +51,21 @@ export interface CoordinationDriverOptions {
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
+  /** WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
+   *  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
+   *  Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
+   *  `executeExtraTool`. Unset → coordination-only (the prior behavior). */
+  readonly extraTools?: ReadonlyArray<{
+    readonly name: string
+    readonly description?: string
+    readonly parameters: Record<string, unknown>
+  }>
+  /** Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
+   *  so the call falls through to the coordination dispatch. Required iff `extraTools` is set. */
+  readonly executeExtraTool?: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Promise<string | null | undefined>
   /** Max driver turns before the loop force-finalizes on the best settled child. Default 16.
    *  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
    *  an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
@@ -88,15 +107,33 @@ function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
  * Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
  * `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
  */
-export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<unknown, unknown> {
+export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   if (typeof opts.brain !== 'function') {
-    throw new ValidationError('coordinationDriverAgent: opts.brain must be a function')
+    throw new ValidationError('driverAgent: opts.brain must be a function')
+  }
+  // Fail loud on a half-wired work-tool seam: extra tool specs with no executor (or an executor
+  // with no specs the model can see) is a silent no-op the house rules forbid.
+  if ((opts.extraTools?.length ?? 0) > 0 && typeof opts.executeExtraTool !== 'function') {
+    throw new ValidationError(
+      'driverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
+    )
+  }
+  // A work tool that shadows a coordination verb would leave the driver unable to coordinate.
+  // Validate against the reserved verb set HERE (construction), so the conflict fails loud — not
+  // buried inside act() where the supervisor would swallow the throw into a quiet no-winner.
+  const reserved = new Set<string>(coordinationVerbNames)
+  for (const t of opts.extraTools ?? []) {
+    if (reserved.has(t.name)) {
+      throw new ValidationError(
+        `driverAgent: extra work tool "${t.name}" collides with a coordination verb`,
+      )
+    }
   }
   // Fail loud on a nonsensical cap: a negative maxTurns would silently run zero turns and
   // finalize an empty no-winner — a silent zero the house rules forbid.
   if (opts.maxTurns !== undefined && opts.maxTurns < 0) {
     throw new ValidationError(
-      'coordinationDriverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
+      'driverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
     )
   }
   // maxTurns=0 lifts the turn-COUNT cap: a long-horizon decomposition must not die on an
@@ -116,10 +153,17 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         perWorker: opts.perWorker,
       })
       const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
-      const toolSpecs: ToolSpec[] = coord.tools.map((t) => ({
-        type: 'function' as const,
-        function: { name: t.name, description: t.description, parameters: t.inputSchema },
-      }))
+      const toolSpecs: ToolSpec[] = [
+        ...coord.tools.map((t) => ({
+          type: 'function' as const,
+          function: { name: t.name, description: t.description, parameters: t.inputSchema },
+        })),
+        // Work tools the driver calls DIRECTLY — so it can ACT, not only delegate.
+        ...(opts.extraTools ?? []).map((t) => ({
+          type: 'function' as const,
+          function: { name: t.name, description: t.description, parameters: t.parameters },
+        })),
+      ]
       const system =
         typeof opts.systemPrompt === 'function' ? opts.systemPrompt(task) : opts.systemPrompt
 
@@ -153,6 +197,12 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
         chat,
         tools: toolSpecs,
         execute: async (name, args) => {
+          // WORK FIRST: a work tool the driver runs itself (act). A non-null return is handled here;
+          // null/undefined means "not mine" → fall through to the coordination dispatch (spawn/await/…).
+          if (opts.executeExtraTool) {
+            const worked = await runExtraTool(opts.executeExtraTool, name, args)
+            if (worked !== null && worked !== undefined) return worked
+          }
           const tool = byName.get(name)
           const result = tool ? await runTool(tool, args) : { error: `unknown tool: ${name}` }
           return safeJson(result)
@@ -177,6 +227,21 @@ export function coordinationDriverAgent(opts: CoordinationDriverOptions): Agent<
       // prose — a driver cannot self-declare done (Foreman 0/18). No delivered child → undefined.
       return finalize(coord, opts.blobs)
     },
+  }
+}
+
+/** Run a work tool. A throw is data to the driver (it can recover next turn), not a crash — fold
+ *  the error back as a string result. null/undefined passes through (the caller treats it as "not
+ *  handled" and falls to the coordination dispatch). */
+async function runExtraTool(
+  execute: (name: string, args: Record<string, unknown>) => Promise<string | null | undefined>,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string | null | undefined> {
+  try {
+    return await execute(name, args)
+  } catch (e) {
+    return `error: ${e instanceof Error ? e.message : String(e)}`
   }
 }
 

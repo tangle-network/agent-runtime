@@ -6,8 +6,8 @@ import {
   gateOnDeliverable,
 } from '../../src/runtime/supervise/completion-gate'
 import {
-  type CoordinationDriverOptions,
-  coordinationDriverAgent,
+  type DriverAgentOptions,
+  driverAgent,
 } from '../../src/runtime/supervise/coordination-driver'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -128,7 +128,7 @@ function driverOpts(
   name: string,
   brain: ToolLoopChat,
   makeWorkerAgent: (p: unknown) => Agent<unknown, unknown>,
-): CoordinationDriverOptions {
+): DriverAgentOptions {
   return { name, brain, blobs, makeWorkerAgent, perWorker, systemPrompt: 'drive', maxTurns: 8 }
 }
 
@@ -162,9 +162,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { out: { code: 'broken' }, score: 0.95 },
       { check: () => false }, // it ran, it self-scored 0.95 — but it did not deliver
     )
-    const root = coordinationDriverAgent(
-      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
-    )
+    const root = driverAgent(driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker))
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',
@@ -184,9 +182,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { out: { code: 'works' }, score: 0.6 },
       { check: () => true },
     )
-    const root = coordinationDriverAgent(
-      driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker),
-    )
+    const root = driverAgent(driverOpts('root', scriptedBrain(spawnAwaitStop), () => worker))
     const result = await createSupervisor<unknown, unknown>().run(root, 'ship it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',
@@ -229,7 +225,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       },
       { content: 'stop' },
     ]
-    const root = coordinationDriverAgent(driverOpts('root', scriptedBrain(turns), makeAgent))
+    const root = driverAgent(driverOpts('root', scriptedBrain(turns), makeAgent))
     const result = await createSupervisor<unknown, unknown>().run(root, 'choose', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',
@@ -253,7 +249,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       if (p?.kind === 'driver') {
         return driverChild(
           'mid',
-          coordinationDriverAgent(driverOpts('mid', scriptedBrain(spawnAwaitStop), makeAgent)),
+          driverAgent(driverOpts('mid', scriptedBrain(spawnAwaitStop), makeAgent)),
           journal,
         )
       }
@@ -272,7 +268,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'stop' },
     ]
-    const root = coordinationDriverAgent(driverOpts('root', scriptedBrain(rootTurns), makeAgent))
+    const root = driverAgent(driverOpts('root', scriptedBrain(rootTurns), makeAgent))
     const result = await createSupervisor<unknown, unknown>().run(root, 'delegate it', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'cg',

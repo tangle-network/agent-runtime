@@ -160,7 +160,7 @@ The naming work converged on these calls. Each is settled — do not re-propose;
 
 **Goal:** a supervisor autonomously drives a large multi-day **parallel** plan to 100% with **zero** babysitting. It is `run(supervisorProfile, goal)` where planning/parallelizing/driving/completion-checking is a **SKILL**. Runtime = mechanism; skills = policy.
 
-**Topology (verified real):** root = `createSupervisor().run(rootAgent, task)`; `act()` IS the supervisor brain, driven EITHER in-process (`coordinationDriverAgent`, an LLM tool-loop over `createCoordinationTools`) OR by a coding harness mounting `serveCoordinationMcp`. `Scope.spawn/next` runs N children in PARALLEL gated only by the conserved budget pool (`scope.ts:202,345`).
+**Topology (verified real):** root = `createSupervisor().run(rootAgent, task)`; `act()` IS the supervisor brain, driven EITHER in-process (`driverAgent`, an LLM tool-loop over `createCoordinationTools`) OR by a coding harness mounting `serveCoordinationMcp`. `Scope.spawn/next` runs N children in PARALLEL gated only by the conserved budget pool (`scope.ts:202,345`).
 
 **MISSING (the binding gaps):**
 - **No plan/milestone primitive anywhere** — grep returns only prose; the "decompose → one driver per parallel milestone" layer is neither code nor skill.
