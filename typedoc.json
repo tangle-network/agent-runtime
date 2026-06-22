@@ -6,6 +6,7 @@
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
     "src/analyst-loop/index.ts",
+    "src/lifecycle/index.ts",
     "src/profiles/index.ts",
     "src/platform/index.ts",
     "src/mcp/index.ts"

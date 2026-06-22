@@ -39,6 +39,11 @@
       "import": "./dist/analyst-loop.js",
       "default": "./dist/analyst-loop.js"
     },
+    "./lifecycle": {
+      "types": "./dist/lifecycle.d.ts",
+      "import": "./dist/lifecycle.js",
+      "default": "./dist/lifecycle.js"
+    },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
       "import": "./dist/profiles.js",
