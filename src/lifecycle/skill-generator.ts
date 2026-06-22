@@ -13,9 +13,10 @@
  *      reflection over the trace produces the first draft.
  *
  *   2. REFINE — take the distilled draft and improve its wording/structure. The
- *      production `refine` wraps agent-eval's skill optimizer (`runSkillOpt`).
- *      Refinement is optional: with no `refine`, the distilled draft IS the
- *      candidate.
+ *      production `refine` drives agent-eval's `skillOptProposer` (the uniform
+ *      skill-surface proposer factory from `@tangle-network/agent-eval/campaign`,
+ *      the same source as `gepaProposer` for the prompt surface). Refinement is
+ *      optional: with no `refine`, the distilled draft IS the candidate.
  *
  * Both steps are INJECTED seams, not hardcoded engines — per the §1.5 law, the
  * generator AUTHORS a profile piece; it does not embed a specific LLM loop. That
@@ -48,8 +49,8 @@ export type DistillSkills = (ctx: GenerateContext) => Promise<SkillDraft[]> | Sk
 
 /**
  * REFINE — improve ONE distilled draft (wording, structure, examples). The
- * production implementation wraps `runSkillOpt`. Returns the refined draft; when
- * omitted from `skillGenerator`, the distilled draft is used as-is.
+ * production implementation drives `skillOptProposer`. Returns the refined draft;
+ * when omitted from `skillGenerator`, the distilled draft is used as-is.
  */
 export type RefineSkill = (draft: SkillDraft) => Promise<SkillDraft> | SkillDraft
 
@@ -65,10 +66,10 @@ export interface SkillGeneratorOptions {
  * from history, then (optionally) refines them, and emits each as a `skill`
  * artifact carrying an inline `SKILL.md` resource ref.
  *
- * @example Production wiring (distill = LLM reflection, refine = skillOpt):
+ * @example Production wiring (distill = LLM reflection, refine = skillOptProposer):
  *   skillGenerator({
  *     distill: reflectiveDistill,   // creates the draft from traces
- *     refine: skillOptRefine,       // optimizes the draft
+ *     refine: skillOptRefine,       // optimizes the draft via skillOptProposer
  *   })
  */
 export function skillGenerator(opts: SkillGeneratorOptions): CandidateGenerator<'skill'> {

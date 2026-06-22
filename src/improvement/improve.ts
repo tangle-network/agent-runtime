@@ -24,10 +24,9 @@
  * straight through to `selfImprove`.
  */
 
-import { skillOptProposer } from '@tangle-network/agent-eval/campaign'
+import { gepaProposer, skillOptProposer } from '@tangle-network/agent-eval/campaign'
 import {
   type DispatchContext,
-  gepaProposer,
   type JudgeConfig,
   type MutableSurface,
   type Scenario,
