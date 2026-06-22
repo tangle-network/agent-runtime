@@ -304,10 +304,18 @@ export function buildLoopSpanNodes(
   const rootAttrs: Record<string, string | number | boolean> = {
     [GEN_AI.operation]: 'invoke_workflow',
     [GEN_AI.conversationId]: runId,
+    // Explicit run identity under the tangle namespace so a consuming system of
+    // record (Tangle Intelligence's run spine) maps this span tree to one run
+    // deterministically, instead of inferring it from the conversation id.
+    'tangle.run.id': runId,
     'tangle.loop.driver': str(sp.driver) ?? 'driver',
   }
   if (Array.isArray(sp.agentRunNames) && sp.agentRunNames.length > 0) {
     rootAttrs['tangle.loop.agents'] = sp.agentRunNames.map(String).join(',')
+    // Subject grain: the primary agent/profile this run drove. Lets the spine
+    // group runs under the thing being worked on rather than one service-wide
+    // bucket. `agentRunNames[0]` is the lead agent on a fan-out.
+    rootAttrs['tangle.subject.key'] = String(sp.agentRunNames[0])
   }
   if (ended) {
     const ep = rec(ended.payload)
