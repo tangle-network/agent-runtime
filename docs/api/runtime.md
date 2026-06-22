@@ -4568,7 +4568,7 @@ Destroy every box this lineage owns. Best-effort, bounded, parallel.
 
 ### CheckpointCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:375](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L375)
+Defined in: [runtime/sandbox-lineage.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L383)
 
 **`Experimental`**
 
@@ -4583,7 +4583,7 @@ without importing sandbox-backend specifics.
 
 > `optional` **checkpoint?**: (`options?`) => `Promise`\<\{ `checkpointId`: `string`; \}\>
 
-Defined in: [runtime/sandbox-lineage.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L376)
+Defined in: [runtime/sandbox-lineage.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L384)
 
 **`Experimental`**
 
@@ -4607,7 +4607,7 @@ Defined in: [runtime/sandbox-lineage.ts:376](https://github.com/tangle-network/a
 
 ### ForkCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:382](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L382)
+Defined in: [runtime/sandbox-lineage.ts:390](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L390)
 
 **`Experimental`**
 
@@ -4619,7 +4619,7 @@ Loop-side widening of the box's optional fork method.
 
 > `optional` **fork?**: (`checkpointId`, `options?`) => `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/sandbox-lineage.ts:383](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L383)
+Defined in: [runtime/sandbox-lineage.ts:391](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L391)
 
 **`Experimental`**
 
@@ -4643,7 +4643,7 @@ Defined in: [runtime/sandbox-lineage.ts:383](https://github.com/tangle-network/a
 
 ### SessionCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:393](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L393)
+Defined in: [runtime/sandbox-lineage.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L401)
 
 **`Experimental`**
 
@@ -4658,7 +4658,7 @@ fakes. `status()` resolves `null` when the id is unknown to the sandbox.
 
 > `optional` **session?**: (`id`) => `object`
 
-Defined in: [runtime/sandbox-lineage.ts:394](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L394)
+Defined in: [runtime/sandbox-lineage.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L402)
 
 **`Experimental`**
 
@@ -9509,7 +9509,7 @@ Task → prompt formatter. Pure and deterministic.
 
 > `optional` **prepareBox?**: (`box`, `ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L80)
+Defined in: [runtime/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L85)
 
 **`Experimental`**
 
@@ -9519,6 +9519,11 @@ domain-agnostic setup such as repo snapshots, benchmark fixtures, policy
 files, or seed datasets. The hook is part of the runtime surface so loop
 consumers do not hand-roll Sandbox SDK orchestration just to prepare a
 workspace before the agent sees it.
+
+`ctx.recordMount` records what was placed into the box so the run carries a
+provenance manifest (`LoopResult.provenance.mounts`). It is optional and
+provenance-only — the kernel never reads box contents and attaches no
+meaning to the entries; not calling it simply leaves the manifest empty.
 
 ###### Parameters
 
@@ -9532,6 +9537,10 @@ workspace before the agent sees it.
 
 `AbortSignal`
 
+###### recordMount
+
+[`MountRecorder`](#mountrecorder)
+
 ###### Returns
 
 `void` \| `Promise`\<`void`\>
@@ -9540,7 +9549,7 @@ workspace before the agent sees it.
 
 > `optional` **name?**: `string`
 
-Defined in: [runtime/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L85)
+Defined in: [runtime/types.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L93)
 
 **`Experimental`**
 
@@ -9551,7 +9560,7 @@ selector tiebreak. Falls back to `profile.name ?? 'agent'`.
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: [runtime/types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L91)
+Defined in: [runtime/types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L99)
 
 **`Experimental`**
 
@@ -9569,7 +9578,7 @@ kernel and cannot be overridden here — use `profile` itself for that.
 
 ### OutputAdapter
 
-Defined in: [runtime/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L105)
+Defined in: [runtime/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L113)
 
 **`Experimental`**
 
@@ -9591,7 +9600,7 @@ persisted streams during tests / replays.
 
 > **parse**(`events`): `Output`
 
-Defined in: [runtime/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L106)
+Defined in: [runtime/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L114)
 
 **`Experimental`**
 
@@ -9609,7 +9618,7 @@ Defined in: [runtime/types.ts:106](https://github.com/tangle-network/agent-runti
 
 ### LoopTokenUsage
 
-Defined in: [runtime/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L113)
+Defined in: [runtime/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L121)
 
 LLM token usage. Structurally matches agent-eval's `RunTokenUsage` /
  `CampaignTokenUsage` ({ input, output }) so a loop result maps straight
@@ -9622,19 +9631,183 @@ LLM token usage. Structurally matches agent-eval's `RunTokenUsage` /
 
 > **input**: `number`
 
-Defined in: [runtime/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L114)
+Defined in: [runtime/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L122)
 
 ##### output
 
 > **output**: `number`
 
-Defined in: [runtime/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L115)
+Defined in: [runtime/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L123)
+
+***
+
+### MountManifestEntry
+
+Defined in: [runtime/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L137)
+
+**`Experimental`**
+
+One mounted resource recorded during box preparation — a pure provenance
+record of what the caller placed into a box before the agent saw it. The
+kernel never reads box contents itself (it does not know what was mounted);
+the caller, which owns the bytes inside `prepareBox`, supplies each entry via
+`recordMount`. Carries no domain semantics — just where the resource landed,
+its content fingerprint, its size, and where it came from — so a run is
+auditable after the fact ("what exactly was this agent given?").
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+Defined in: [runtime/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L139)
+
+**`Experimental`**
+
+Destination path inside the box where the resource was placed.
+
+##### sha256
+
+> **sha256**: `string`
+
+Defined in: [runtime/types.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L142)
+
+**`Experimental`**
+
+Hex SHA-256 of the mounted bytes. The caller computes it from the bytes
+ it wrote — the kernel does not hash box contents.
+
+##### bytes
+
+> **bytes**: `number`
+
+Defined in: [runtime/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L144)
+
+**`Experimental`**
+
+Size of the mounted resource in bytes.
+
+##### source
+
+> **source**: `string`
+
+Defined in: [runtime/types.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L147)
+
+**`Experimental`**
+
+Free-form origin of the resource (e.g. a repo ref, a corpus id, a local
+ path, a URL). Provenance only — the kernel attaches no meaning to it.
+
+***
+
+### SelectionReceipt
+
+Defined in: [runtime/types.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L159)
+
+**`Experimental`**
+
+A record of one candidate-selection decision: which iteration the selector
+picked (or rejected) and why. Pure audit trail of the SELECTOR role — it
+carries the selector's identity, the candidate's score, and an optional
+human-readable reason, with no domain semantics. The kernel emits one receipt
+per scored candidate at finalize so a run answers "why did THIS one win?".
+
+#### Properties
+
+##### candidateIndex
+
+> **candidateIndex**: `number`
+
+Defined in: [runtime/types.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L161)
+
+**`Experimental`**
+
+Iteration index this receipt is about.
+
+##### selected
+
+> **selected**: `boolean`
+
+Defined in: [runtime/types.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L163)
+
+**`Experimental`**
+
+True for the iteration the selector chose as winner; false otherwise.
+
+##### score?
+
+> `optional` **score?**: `number`
+
+Defined in: [runtime/types.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L165)
+
+**`Experimental`**
+
+The candidate's verdict score, when it has one.
+
+##### reason?
+
+> `optional` **reason?**: `string`
+
+Defined in: [runtime/types.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L167)
+
+**`Experimental`**
+
+Why this candidate was (or was not) selected, when the selector states it.
+
+##### selector
+
+> **selector**: `"driver"` \| `"caller"` \| `"default"`
+
+Defined in: [runtime/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L171)
+
+**`Experimental`**
+
+Identity of the selector that produced this receipt — `'caller'` (an
+ explicit `selectWinner`), `'driver'` (a driver-authored winner), or
+ `'default'` (the kernel's best-valid-score argmax).
+
+***
+
+### RunProvenance
+
+Defined in: [runtime/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L183)
+
+**`Experimental`**
+
+Domain-free run provenance: a manifest of what was mounted into the run's
+boxes and the receipts for how the winner was selected. Surfaced on
+`LoopResult` purely for run auditability — nothing in the kernel branches on
+it. Empty arrays when the caller recorded no mounts and there was no
+candidate to select.
+
+#### Properties
+
+##### mounts
+
+> **mounts**: [`MountManifestEntry`](#mountmanifestentry)[]
+
+Defined in: [runtime/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L185)
+
+**`Experimental`**
+
+Every resource recorded via `prepareBox`'s `recordMount`, in record order.
+
+##### selectionReceipts
+
+> **selectionReceipts**: [`SelectionReceipt`](#selectionreceipt)[]
+
+Defined in: [runtime/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L187)
+
+**`Experimental`**
+
+One receipt per scored candidate at finalize, in iteration order.
 
 ***
 
 ### Iteration
 
-Defined in: [runtime/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L119)
+Defined in: [runtime/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L200)
 
 **`Experimental`**
 
@@ -9654,7 +9827,7 @@ Defined in: [runtime/types.ts:119](https://github.com/tangle-network/agent-runti
 
 > **index**: `number`
 
-Defined in: [runtime/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L121)
+Defined in: [runtime/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L202)
 
 **`Experimental`**
 
@@ -9664,7 +9837,7 @@ Defined in: [runtime/types.ts:121](https://github.com/tangle-network/agent-runti
 
 > **task**: `Task`
 
-Defined in: [runtime/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L122)
+Defined in: [runtime/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L203)
 
 **`Experimental`**
 
@@ -9672,7 +9845,7 @@ Defined in: [runtime/types.ts:122](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L124)
+Defined in: [runtime/types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L205)
 
 **`Experimental`**
 
@@ -9682,7 +9855,7 @@ Stable name of the `AgentRunSpec` that produced this iteration.
 
 > `optional` **output?**: `Output`
 
-Defined in: [runtime/types.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L125)
+Defined in: [runtime/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L206)
 
 **`Experimental`**
 
@@ -9690,7 +9863,7 @@ Defined in: [runtime/types.ts:125](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L126)
+Defined in: [runtime/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L207)
 
 **`Experimental`**
 
@@ -9698,7 +9871,7 @@ Defined in: [runtime/types.ts:126](https://github.com/tangle-network/agent-runti
 
 > `optional` **error?**: `Error`
 
-Defined in: [runtime/types.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L127)
+Defined in: [runtime/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L208)
 
 **`Experimental`**
 
@@ -9706,7 +9879,7 @@ Defined in: [runtime/types.ts:127](https://github.com/tangle-network/agent-runti
 
 > **events**: `SandboxEvent`[]
 
-Defined in: [runtime/types.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L129)
+Defined in: [runtime/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L210)
 
 **`Experimental`**
 
@@ -9716,7 +9889,7 @@ Raw sandbox event stream collected for this iteration.
 
 > **startedAt**: `number`
 
-Defined in: [runtime/types.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L130)
+Defined in: [runtime/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L211)
 
 **`Experimental`**
 
@@ -9724,7 +9897,7 @@ Defined in: [runtime/types.ts:130](https://github.com/tangle-network/agent-runti
 
 > **endedAt**: `number`
 
-Defined in: [runtime/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L131)
+Defined in: [runtime/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L212)
 
 **`Experimental`**
 
@@ -9732,7 +9905,7 @@ Defined in: [runtime/types.ts:131](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L132)
+Defined in: [runtime/types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L213)
 
 **`Experimental`**
 
@@ -9740,7 +9913,7 @@ Defined in: [runtime/types.ts:132](https://github.com/tangle-network/agent-runti
 
 > **tokenUsage**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L134)
+Defined in: [runtime/types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L215)
 
 **`Experimental`**
 
@@ -9750,7 +9923,7 @@ Summed LLM token usage across every `llm_call` event in this iteration.
 
 ### Driver
 
-Defined in: [runtime/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L138)
+Defined in: [runtime/types.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L219)
 
 **`Experimental`**
 
@@ -9774,7 +9947,7 @@ Defined in: [runtime/types.ts:138](https://github.com/tangle-network/agent-runti
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [runtime/types.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L142)
+Defined in: [runtime/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L223)
 
 **`Experimental`**
 
@@ -9786,7 +9959,7 @@ Stable identifier surfaced in trace events. Default `'driver'`.
 
 > **plan**(`task`, `history`): `Promise`\<`Task`[]\>
 
-Defined in: [runtime/types.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L147)
+Defined in: [runtime/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L228)
 
 **`Experimental`**
 
@@ -9811,7 +9984,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 > **decide**(`history`): `Decision` \| `Promise`\<`Decision`\>
 
-Defined in: [runtime/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L154)
+Defined in: [runtime/types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L235)
 
 **`Experimental`**
 
@@ -9834,7 +10007,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 > `optional` **describePlan**(): [`LoopPlanDescription`](#loopplandescription) \| `undefined`
 
-Defined in: [runtime/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L164)
+Defined in: [runtime/types.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L245)
 
 **`Experimental`**
 
@@ -9854,7 +10027,7 @@ own topology returns its chosen move's kind + rationale here.
 
 > `optional` **selectWinner**(`history`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [runtime/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L174)
+Defined in: [runtime/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L255)
 
 **`Experimental`**
 
@@ -9879,7 +10052,7 @@ readonly [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
 ### LoopPlanDescription
 
-Defined in: [runtime/types.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L180)
+Defined in: [runtime/types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L261)
 
 **`Experimental`**
 
@@ -9891,7 +10064,7 @@ Driver-supplied description of the just-planned move.
 
 > **kind**: `string`
 
-Defined in: [runtime/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L182)
+Defined in: [runtime/types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L263)
 
 **`Experimental`**
 
@@ -9901,7 +10074,7 @@ Topology move this round — e.g. `'refine' | 'fanout' | 'verify' | 'stop'`.
 
 > `optional` **rationale?**: `string`
 
-Defined in: [runtime/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L184)
+Defined in: [runtime/types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L265)
 
 **`Experimental`**
 
@@ -9911,7 +10084,7 @@ Why the driver chose this move (the agent's rationale), when available.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L191)
+Defined in: [runtime/types.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L272)
 
 **`Experimental`**
 
@@ -9924,7 +10097,7 @@ Omit to keep the inferred (best-valid / latest) branch point.
 
 ### LoopWinner
 
-Defined in: [runtime/types.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L195)
+Defined in: [runtime/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L276)
 
 **`Experimental`**
 
@@ -9944,7 +10117,7 @@ Defined in: [runtime/types.ts:195](https://github.com/tangle-network/agent-runti
 
 > **task**: `Task`
 
-Defined in: [runtime/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L196)
+Defined in: [runtime/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L277)
 
 **`Experimental`**
 
@@ -9952,7 +10125,7 @@ Defined in: [runtime/types.ts:196](https://github.com/tangle-network/agent-runti
 
 > **output**: `Output`
 
-Defined in: [runtime/types.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L197)
+Defined in: [runtime/types.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L278)
 
 **`Experimental`**
 
@@ -9960,7 +10133,7 @@ Defined in: [runtime/types.ts:197](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L198)
+Defined in: [runtime/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L279)
 
 **`Experimental`**
 
@@ -9968,7 +10141,7 @@ Defined in: [runtime/types.ts:198](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L199)
+Defined in: [runtime/types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L280)
 
 **`Experimental`**
 
@@ -9976,7 +10149,7 @@ Defined in: [runtime/types.ts:199](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L200)
+Defined in: [runtime/types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L281)
 
 **`Experimental`**
 
@@ -9984,7 +10157,7 @@ Defined in: [runtime/types.ts:200](https://github.com/tangle-network/agent-runti
 
 ### LoopResult
 
-Defined in: [runtime/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L204)
+Defined in: [runtime/types.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L285)
 
 **`Experimental`**
 
@@ -10008,7 +10181,7 @@ Defined in: [runtime/types.ts:204](https://github.com/tangle-network/agent-runti
 
 > **decision**: `Decision`
 
-Defined in: [runtime/types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L205)
+Defined in: [runtime/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L286)
 
 **`Experimental`**
 
@@ -10016,7 +10189,7 @@ Defined in: [runtime/types.ts:205](https://github.com/tangle-network/agent-runti
 
 > **iterations**: [`Iteration`](#iteration-1)\<`Task`, `Output`\>[]
 
-Defined in: [runtime/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L206)
+Defined in: [runtime/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L287)
 
 **`Experimental`**
 
@@ -10024,7 +10197,7 @@ Defined in: [runtime/types.ts:206](https://github.com/tangle-network/agent-runti
 
 > `optional` **winner?**: [`LoopWinner`](#loopwinner)\<`Task`, `Output`\>
 
-Defined in: [runtime/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L207)
+Defined in: [runtime/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L288)
 
 **`Experimental`**
 
@@ -10032,7 +10205,7 @@ Defined in: [runtime/types.ts:207](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L208)
+Defined in: [runtime/types.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L289)
 
 **`Experimental`**
 
@@ -10040,7 +10213,7 @@ Defined in: [runtime/types.ts:208](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L210)
+Defined in: [runtime/types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L291)
 
 **`Experimental`**
 
@@ -10050,7 +10223,7 @@ Sum of every iteration's `costUsd`.
 
 > **tokenUsage**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L214)
+Defined in: [runtime/types.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L295)
 
 **`Experimental`**
 
@@ -10058,11 +10231,23 @@ Sum of every iteration's token usage. Forward to
  `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch so the
  integrity guard sees real LLM activity.
 
+##### provenance
+
+> **provenance**: [`RunProvenance`](#runprovenance)
+
+Defined in: [runtime/types.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L299)
+
+**`Experimental`**
+
+Domain-free run provenance for auditability: the mount manifest recorded
+ during `prepareBox` and the selection receipts for how the winner was
+ chosen. Always present; empty arrays when nothing was recorded.
+
 ***
 
 ### SandboxClient
 
-Defined in: [runtime/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L230)
+Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L315)
 
 **`Experimental`**
 
@@ -10082,7 +10267,7 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 > **create**(`options?`): `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/types.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L231)
+Defined in: [runtime/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L316)
 
 **`Experimental`**
 
@@ -10100,7 +10285,7 @@ Defined in: [runtime/types.ts:231](https://github.com/tangle-network/agent-runti
 
 > `optional` **describePlacement**(`box`): [`LoopSandboxPlacement`](#loopsandboxplacement)
 
-Defined in: [runtime/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L232)
+Defined in: [runtime/types.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L317)
 
 **`Experimental`**
 
@@ -10118,7 +10303,7 @@ Defined in: [runtime/types.ts:232](https://github.com/tangle-network/agent-runti
 
 > `optional` **criuStatus**(): `Promise`\<\{ `available`: `boolean`; `criuVersion?`: `string`; `reason?`: `string`; \}\>
 
-Defined in: [runtime/types.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L243)
+Defined in: [runtime/types.ts:328](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L328)
 
 **`Experimental`**
 
@@ -10138,7 +10323,7 @@ The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
 
 ### LoopLineageOptions
 
-Defined in: [runtime/types.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L267)
+Defined in: [runtime/types.ts:352](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L352)
 
 **`Experimental`**
 
@@ -10166,7 +10351,7 @@ are copy-on-write, but each is still a live box until loop end).
 
 > `optional` **sessionContinuity?**: `boolean`
 
-Defined in: [runtime/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L282)
+Defined in: [runtime/types.ts:367](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L367)
 
 **`Experimental`**
 
@@ -10187,7 +10372,7 @@ proves the session EXISTS server-side, not that prior turns replay into it.
 
 > `optional` **forkFanout?**: `boolean`
 
-Defined in: [runtime/types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L297)
+Defined in: [runtime/types.ts:382](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L382)
 
 **`Experimental`**
 
@@ -10208,7 +10393,7 @@ different-per-branch profiles use the unforked fanout path.
 
 > `optional` **streaming?**: `"sse"` \| `"poll"`
 
-Defined in: [runtime/types.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L309)
+Defined in: [runtime/types.ts:394](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L394)
 
 **`Experimental`**
 
@@ -10226,7 +10411,7 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 ### LoopSandboxPlacement
 
-Defined in: [runtime/types.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L313)
+Defined in: [runtime/types.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L398)
 
 **`Experimental`**
 
@@ -10240,7 +10425,7 @@ Defined in: [runtime/types.ts:313](https://github.com/tangle-network/agent-runti
 
 > **kind**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L314)
+Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
 
 **`Experimental`**
 
@@ -10248,7 +10433,7 @@ Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L315)
+Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
 
 **`Experimental`**
 
@@ -10256,7 +10441,7 @@ Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runti
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L316)
+Defined in: [runtime/types.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L401)
 
 **`Experimental`**
 
@@ -10264,7 +10449,7 @@ Defined in: [runtime/types.ts:316](https://github.com/tangle-network/agent-runti
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L317)
+Defined in: [runtime/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L402)
 
 **`Experimental`**
 
@@ -10272,7 +10457,7 @@ Defined in: [runtime/types.ts:317](https://github.com/tangle-network/agent-runti
 
 ### LoopTraceEmitter
 
-Defined in: [runtime/types.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L321)
+Defined in: [runtime/types.ts:406](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L406)
 
 **`Experimental`**
 
@@ -10282,7 +10467,7 @@ Defined in: [runtime/types.ts:321](https://github.com/tangle-network/agent-runti
 
 > **emit**(`event`): `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime/types.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L322)
+Defined in: [runtime/types.ts:407](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L407)
 
 **`Experimental`**
 
@@ -10300,7 +10485,7 @@ Defined in: [runtime/types.ts:322](https://github.com/tangle-network/agent-runti
 
 ### LoopStartedPayload
 
-Defined in: [runtime/types.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L357)
+Defined in: [runtime/types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L442)
 
 **`Experimental`**
 
@@ -10310,7 +10495,7 @@ Defined in: [runtime/types.ts:357](https://github.com/tangle-network/agent-runti
 
 > **driver**: `string`
 
-Defined in: [runtime/types.ts:358](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L358)
+Defined in: [runtime/types.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L443)
 
 **`Experimental`**
 
@@ -10318,7 +10503,7 @@ Defined in: [runtime/types.ts:358](https://github.com/tangle-network/agent-runti
 
 > **agentRunNames**: `string`[]
 
-Defined in: [runtime/types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L359)
+Defined in: [runtime/types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L444)
 
 **`Experimental`**
 
@@ -10326,7 +10511,7 @@ Defined in: [runtime/types.ts:359](https://github.com/tangle-network/agent-runti
 
 > **maxIterations**: `number`
 
-Defined in: [runtime/types.ts:360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L360)
+Defined in: [runtime/types.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L445)
 
 **`Experimental`**
 
@@ -10334,7 +10519,7 @@ Defined in: [runtime/types.ts:360](https://github.com/tangle-network/agent-runti
 
 > **maxConcurrency**: `number`
 
-Defined in: [runtime/types.ts:361](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L361)
+Defined in: [runtime/types.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L446)
 
 **`Experimental`**
 
@@ -10342,7 +10527,7 @@ Defined in: [runtime/types.ts:361](https://github.com/tangle-network/agent-runti
 
 ### LoopPlanPayload
 
-Defined in: [runtime/types.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L372)
+Defined in: [runtime/types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L457)
 
 **`Experimental`**
 
@@ -10357,7 +10542,7 @@ provided, else inferred from `plannedCount` (0→stop, 1→refine, N→fanout).
 
 > **roundIndex**: `number`
 
-Defined in: [runtime/types.ts:374](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L374)
+Defined in: [runtime/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L459)
 
 **`Experimental`**
 
@@ -10367,7 +10552,7 @@ Defined in: [runtime/types.ts:374](https://github.com/tangle-network/agent-runti
 
 > **plannedCount**: `number`
 
-Defined in: [runtime/types.ts:376](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L376)
+Defined in: [runtime/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L461)
 
 **`Experimental`**
 
@@ -10377,7 +10562,7 @@ Tasks the driver issued this round.
 
 > **moveKind**: `string`
 
-Defined in: [runtime/types.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L378)
+Defined in: [runtime/types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L463)
 
 **`Experimental`**
 
@@ -10387,7 +10572,7 @@ Topology move — `'refine' | 'fanout' | 'verify' | 'stop'` etc.
 
 > `optional` **rationale?**: `string`
 
-Defined in: [runtime/types.ts:380](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L380)
+Defined in: [runtime/types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L465)
 
 **`Experimental`**
 
@@ -10397,7 +10582,7 @@ Driver rationale for the move, when available.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:386](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L386)
+Defined in: [runtime/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L471)
 
 **`Experimental`**
 
@@ -10409,7 +10594,7 @@ latest) iteration so far — unless a driver later declares it explicitly.
 
 > **childIndices**: `number`[]
 
-Defined in: [runtime/types.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L388)
+Defined in: [runtime/types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L473)
 
 **`Experimental`**
 
@@ -10419,7 +10604,7 @@ Iteration indices this round dispatched (the edge targets).
 
 ### LoopIterationStartedPayload
 
-Defined in: [runtime/types.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L392)
+Defined in: [runtime/types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L477)
 
 **`Experimental`**
 
@@ -10429,7 +10614,7 @@ Defined in: [runtime/types.ts:392](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:393](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L393)
+Defined in: [runtime/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L478)
 
 **`Experimental`**
 
@@ -10437,7 +10622,7 @@ Defined in: [runtime/types.ts:393](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:394](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L394)
+Defined in: [runtime/types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L479)
 
 **`Experimental`**
 
@@ -10445,7 +10630,7 @@ Defined in: [runtime/types.ts:394](https://github.com/tangle-network/agent-runti
 
 > **taskHash**: `string`
 
-Defined in: [runtime/types.ts:395](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L395)
+Defined in: [runtime/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L480)
 
 **`Experimental`**
 
@@ -10453,7 +10638,7 @@ Defined in: [runtime/types.ts:395](https://github.com/tangle-network/agent-runti
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L397)
+Defined in: [runtime/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L482)
 
 **`Experimental`**
 
@@ -10463,7 +10648,7 @@ Plan round (== `LoopPlanPayload.roundIndex`) this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
+Defined in: [runtime/types.ts:484](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L484)
 
 **`Experimental`**
 
@@ -10473,7 +10658,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 ### LoopIterationDispatchPayload
 
-Defined in: [runtime/types.ts:410](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L410)
+Defined in: [runtime/types.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L495)
 
 **`Experimental`**
 
@@ -10488,7 +10673,7 @@ they write lands on it directly.
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:411](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L411)
+Defined in: [runtime/types.ts:496](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L496)
 
 **`Experimental`**
 
@@ -10496,7 +10681,7 @@ Defined in: [runtime/types.ts:411](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:412](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L412)
+Defined in: [runtime/types.ts:497](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L497)
 
 **`Experimental`**
 
@@ -10504,7 +10689,7 @@ Defined in: [runtime/types.ts:412](https://github.com/tangle-network/agent-runti
 
 > **placement**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:413](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L413)
+Defined in: [runtime/types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L498)
 
 **`Experimental`**
 
@@ -10512,7 +10697,7 @@ Defined in: [runtime/types.ts:413](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L415)
+Defined in: [runtime/types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L500)
 
 **`Experimental`**
 
@@ -10522,7 +10707,7 @@ Set on every placement. Lets analyst loops correlate per-iteration logs.
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:417](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L417)
+Defined in: [runtime/types.ts:502](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L502)
 
 **`Experimental`**
 
@@ -10532,7 +10717,7 @@ Set only when `placement === 'fleet'`.
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:419](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L419)
+Defined in: [runtime/types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L504)
 
 **`Experimental`**
 
@@ -10542,7 +10727,7 @@ Set only when `placement === 'fleet'`.
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:421](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L421)
+Defined in: [runtime/types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L506)
 
 **`Experimental`**
 
@@ -10552,7 +10737,7 @@ Plan round this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:423](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L423)
+Defined in: [runtime/types.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L508)
 
 **`Experimental`**
 
@@ -10562,7 +10747,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 ### LoopIterationEndedPayload
 
-Defined in: [runtime/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L427)
+Defined in: [runtime/types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L512)
 
 **`Experimental`**
 
@@ -10572,7 +10757,7 @@ Defined in: [runtime/types.ts:427](https://github.com/tangle-network/agent-runti
 
 > **iterationIndex**: `number`
 
-Defined in: [runtime/types.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L428)
+Defined in: [runtime/types.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L513)
 
 **`Experimental`**
 
@@ -10580,7 +10765,7 @@ Defined in: [runtime/types.ts:428](https://github.com/tangle-network/agent-runti
 
 > **agentRunName**: `string`
 
-Defined in: [runtime/types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L429)
+Defined in: [runtime/types.ts:514](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L514)
 
 **`Experimental`**
 
@@ -10588,7 +10773,7 @@ Defined in: [runtime/types.ts:429](https://github.com/tangle-network/agent-runti
 
 > `optional` **outputHash?**: `string`
 
-Defined in: [runtime/types.ts:430](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L430)
+Defined in: [runtime/types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L515)
 
 **`Experimental`**
 
@@ -10596,7 +10781,7 @@ Defined in: [runtime/types.ts:430](https://github.com/tangle-network/agent-runti
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-Defined in: [runtime/types.ts:431](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L431)
+Defined in: [runtime/types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L516)
 
 **`Experimental`**
 
@@ -10604,7 +10789,7 @@ Defined in: [runtime/types.ts:431](https://github.com/tangle-network/agent-runti
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime/types.ts:432](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L432)
+Defined in: [runtime/types.ts:517](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L517)
 
 **`Experimental`**
 
@@ -10612,7 +10797,7 @@ Defined in: [runtime/types.ts:432](https://github.com/tangle-network/agent-runti
 
 > **costUsd**: `number`
 
-Defined in: [runtime/types.ts:433](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L433)
+Defined in: [runtime/types.ts:518](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L518)
 
 **`Experimental`**
 
@@ -10620,7 +10805,7 @@ Defined in: [runtime/types.ts:433](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L434)
+Defined in: [runtime/types.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L519)
 
 **`Experimental`**
 
@@ -10628,7 +10813,7 @@ Defined in: [runtime/types.ts:434](https://github.com/tangle-network/agent-runti
 
 > `optional` **tokenUsage?**: [`LoopTokenUsage`](#looptokenusage)
 
-Defined in: [runtime/types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L437)
+Defined in: [runtime/types.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L522)
 
 **`Experimental`**
 
@@ -10639,7 +10824,7 @@ Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
 
 > `optional` **groupId?**: `number`
 
-Defined in: [runtime/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L439)
+Defined in: [runtime/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L524)
 
 **`Experimental`**
 
@@ -10649,7 +10834,7 @@ Plan round this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-Defined in: [runtime/types.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L441)
+Defined in: [runtime/types.ts:526](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L526)
 
 **`Experimental`**
 
@@ -10659,7 +10844,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 > `optional` **outputPreview?**: `string`
 
-Defined in: [runtime/types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L444)
+Defined in: [runtime/types.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L529)
 
 **`Experimental`**
 
@@ -10670,7 +10855,7 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 
 ### LoopDecisionPayload
 
-Defined in: [runtime/types.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L448)
+Defined in: [runtime/types.ts:533](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L533)
 
 **`Experimental`**
 
@@ -10680,7 +10865,7 @@ Defined in: [runtime/types.ts:448](https://github.com/tangle-network/agent-runti
 
 > **decision**: `string`
 
-Defined in: [runtime/types.ts:449](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L449)
+Defined in: [runtime/types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L534)
 
 **`Experimental`**
 
@@ -10688,7 +10873,7 @@ Defined in: [runtime/types.ts:449](https://github.com/tangle-network/agent-runti
 
 > **historyLength**: `number`
 
-Defined in: [runtime/types.ts:450](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L450)
+Defined in: [runtime/types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L535)
 
 **`Experimental`**
 
@@ -10696,7 +10881,7 @@ Defined in: [runtime/types.ts:450](https://github.com/tangle-network/agent-runti
 
 ### LoopEndedPayload
 
-Defined in: [runtime/types.ts:454](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L454)
+Defined in: [runtime/types.ts:539](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L539)
 
 **`Experimental`**
 
@@ -10706,7 +10891,7 @@ Defined in: [runtime/types.ts:454](https://github.com/tangle-network/agent-runti
 
 > `optional` **winnerIterationIndex?**: `number`
 
-Defined in: [runtime/types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L455)
+Defined in: [runtime/types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L540)
 
 **`Experimental`**
 
@@ -10714,7 +10899,7 @@ Defined in: [runtime/types.ts:455](https://github.com/tangle-network/agent-runti
 
 > **totalCostUsd**: `number`
 
-Defined in: [runtime/types.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L456)
+Defined in: [runtime/types.ts:541](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L541)
 
 **`Experimental`**
 
@@ -10722,7 +10907,7 @@ Defined in: [runtime/types.ts:456](https://github.com/tangle-network/agent-runti
 
 > **durationMs**: `number`
 
-Defined in: [runtime/types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L457)
+Defined in: [runtime/types.ts:542](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L542)
 
 **`Experimental`**
 
@@ -10730,7 +10915,7 @@ Defined in: [runtime/types.ts:457](https://github.com/tangle-network/agent-runti
 
 > **iterations**: `number`
 
-Defined in: [runtime/types.ts:458](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L458)
+Defined in: [runtime/types.ts:543](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L543)
 
 **`Experimental`**
 
@@ -10738,7 +10923,7 @@ Defined in: [runtime/types.ts:458](https://github.com/tangle-network/agent-runti
 
 ### LoopTeardownFailedPayload
 
-Defined in: [runtime/types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L464)
+Defined in: [runtime/types.ts:549](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L549)
 
 **`Experimental`**
 
@@ -10752,7 +10937,7 @@ Emitted when a box's `delete()` throws or times out during teardown — the
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L465)
+Defined in: [runtime/types.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L550)
 
 **`Experimental`**
 
@@ -10760,7 +10945,7 @@ Defined in: [runtime/types.ts:465](https://github.com/tangle-network/agent-runti
 
 > **reason**: `string`
 
-Defined in: [runtime/types.ts:467](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L467)
+Defined in: [runtime/types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L552)
 
 **`Experimental`**
 
@@ -10770,7 +10955,7 @@ Defined in: [runtime/types.ts:467](https://github.com/tangle-network/agent-runti
 
 ### ExecCtx
 
-Defined in: [runtime/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L471)
+Defined in: [runtime/types.ts:556](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L556)
 
 **`Experimental`**
 
@@ -10780,7 +10965,7 @@ Defined in: [runtime/types.ts:471](https://github.com/tangle-network/agent-runti
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-1)
 
-Defined in: [runtime/types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L473)
+Defined in: [runtime/types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L558)
 
 **`Experimental`**
 
@@ -10790,7 +10975,7 @@ Sandbox SDK client — the kernel calls `.create()` per iteration.
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L475)
+Defined in: [runtime/types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L560)
 
 **`Experimental`**
 
@@ -10800,7 +10985,7 @@ Optional runtime hooks. Execution-scoped; never part of `AgentProfile`.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](#looptraceemitter)
 
-Defined in: [runtime/types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L477)
+Defined in: [runtime/types.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L562)
 
 **`Experimental`**
 
@@ -10810,7 +10995,7 @@ Optional trace emitter. When set, the kernel emits `loop.*` events.
 
 > `optional` **runHandle?**: [`RuntimeRunHandle`](index.md#runtimerunhandle)
 
-Defined in: [runtime/types.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L483)
+Defined in: [runtime/types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L568)
 
 **`Experimental`**
 
@@ -10822,7 +11007,7 @@ the kernel infers from a sandbox event stream is forwarded via
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/types.ts:485](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L485)
+Defined in: [runtime/types.ts:570](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L570)
 
 **`Experimental`**
 
@@ -10832,7 +11017,7 @@ Cooperative cancellation signal.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [runtime/types.ts:491](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L491)
+Defined in: [runtime/types.ts:576](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L576)
 
 **`Experimental`**
 
@@ -10844,7 +11029,7 @@ inherited from TRACE_ID env var in MCP subprocess mode.
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [runtime/types.ts:496](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L496)
+Defined in: [runtime/types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L581)
 
 **`Experimental`**
 
@@ -12104,11 +12289,35 @@ One inference turn over the running conversation + the tool specs → the model'
 
 ***
 
+### MountRecorder
+
+> **MountRecorder** = (`entry`) => `void`
+
+Defined in: [runtime/types.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L197)
+
+**`Experimental`**
+
+Records a mounted resource into the run's provenance manifest. Passed to
+`prepareBox` so the caller — which owns the bytes it writes into the box —
+declares what it mounted without the kernel having to inspect box contents.
+
+#### Parameters
+
+##### entry
+
+[`MountManifestEntry`](#mountmanifestentry)
+
+#### Returns
+
+`void`
+
+***
+
 ### LoopTraceEvent
 
 > **LoopTraceEvent** = \{ `kind`: `"loop.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopStartedPayload`](#loopstartedpayload); \} \| \{ `kind`: `"loop.plan"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopPlanPayload`](#loopplanpayload); \} \| \{ `kind`: `"loop.iteration.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationStartedPayload`](#loopiterationstartedpayload); \} \| \{ `kind`: `"loop.iteration.dispatch"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationDispatchPayload`](#loopiterationdispatchpayload); \} \| \{ `kind`: `"loop.iteration.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationEndedPayload`](#loopiterationendedpayload); \} \| \{ `kind`: `"loop.decision"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopDecisionPayload`](#loopdecisionpayload); \} \| \{ `kind`: `"loop.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopEndedPayload`](#loopendedpayload); \} \| \{ `kind`: `"loop.teardown.failed"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopTeardownFailedPayload`](#loopteardownfailedpayload); \}
 
-Defined in: [runtime/types.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L326)
+Defined in: [runtime/types.ts:411](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L411)
 
 **`Experimental`**
 
@@ -13539,7 +13748,7 @@ Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
 > **runLoop**\<`Task`, `Output`, `Decision`\>(`options`): `Promise`\<[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>\>
 
-Defined in: [runtime/run-loop.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L135)
+Defined in: [runtime/run-loop.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L138)
 
 **`Experimental`**
 
@@ -13573,7 +13782,7 @@ Defined in: [runtime/run-loop.ts:135](https://github.com/tangle-network/agent-ru
 
 > **defaultSelectWinner**\<`Task`, `Output`\>(`iterations`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [runtime/run-loop.ts:983](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L983)
+Defined in: [runtime/run-loop.ts:1099](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1099)
 
 The kernel's winner argmax — best-valid-score, ties broken by earliest index,
 falling back to the best-scoring non-errored output when none is valid. Exported
@@ -13762,6 +13971,14 @@ and the lineage stays a pure function of "what this platform can do".
 ###### streaming?
 
 `"sse"` \| `"poll"`
+
+###### recordMount?
+
+[`MountRecorder`](#mountrecorder)
+
+Run provenance recorder forwarded to every `prepareBox` the lineage runs
+ (fresh start, continue, and fork branches). Absent ⇒ mounts go unrecorded
+ (a no-op recorder stands in so the ctx shape is always satisfied).
 
 #### Returns
 

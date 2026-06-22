@@ -37,7 +37,7 @@ import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import type { SandboxCapabilities } from './sandbox-capabilities'
-import type { AgentRunSpec, SandboxClient } from './types'
+import type { AgentRunSpec, MountRecorder, SandboxClient } from './types'
 import {
   deleteBoxSafe,
   mapWithConcurrency,
@@ -189,7 +189,14 @@ export interface SandboxLineage {
 export function createSandboxLineage(
   client: SandboxClient,
   capabilities: SandboxCapabilities,
-  options: { maxConcurrency?: number; streaming?: 'sse' | 'poll' } = {},
+  options: {
+    maxConcurrency?: number
+    streaming?: 'sse' | 'poll'
+    /** Run provenance recorder forwarded to every `prepareBox` the lineage runs
+     *  (fresh start, continue, and fork branches). Absent ⇒ mounts go unrecorded
+     *  (a no-op recorder stands in so the ctx shape is always satisfied). */
+    recordMount?: MountRecorder
+  } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
     throw new ValidationError('createSandboxLineage: client.create is required')
@@ -197,6 +204,7 @@ export function createSandboxLineage(
   // 'sse' (default) preserves the byte-identical live-stream behavior; 'poll' is
   // the drop-resilient fire-and-detach path for long, quiet batch turns.
   const streaming = options.streaming ?? 'sse'
+  const recordMount: MountRecorder = options.recordMount ?? (() => {})
   // Bounds the burst of box creation inside `fork` so an N-way fanout doesn't
   // provision N boxes simultaneously regardless of the loop's concurrency cap.
   const forkConcurrency = Math.max(
@@ -212,7 +220,7 @@ export function createSandboxLineage(
     if (signal.aborted) throwAbort()
     const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
     const box = await acquireSandbox(client, opts, { signal })
-    await spec.prepareBox?.(box, { signal })
+    await spec.prepareBox?.(box, { signal, recordMount })
     owned.push(box)
     return box
   }
@@ -258,7 +266,7 @@ export function createSandboxLineage(
         if (checkpointId !== undefined) {
           const box = await forkFromCheckpoint(parent.box, checkpointId, signal)
           owned.push(box)
-          await spec.prepareBox?.(box, { signal })
+          await spec.prepareBox?.(box, { signal, recordMount })
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },

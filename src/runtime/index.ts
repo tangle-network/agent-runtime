@@ -455,8 +455,12 @@ export type {
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
+  MountManifestEntry,
+  MountRecorder,
   OutputAdapter,
+  RunProvenance,
   SandboxClient,
+  SelectionReceipt,
   ValidationCtx,
   Validator,
 } from './types'
