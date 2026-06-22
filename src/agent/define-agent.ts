@@ -16,6 +16,9 @@
  */
 
 import type { TraceAnalystKindSpec } from '@tangle-network/agent-eval'
+import type { PromotionGate } from '../lifecycle/gate'
+import type { CandidateGenerator } from '../lifecycle/generator'
+import type { ArtifactKind } from '../lifecycle/types'
 import type { RuntimeStreamEvent } from '../types'
 import { type AgentSurfaces, renderSurfaceIssues, validateSurfaces } from './surfaces'
 
@@ -113,6 +116,39 @@ export interface AgentManifest<TPersona = unknown, TRunOutput = unknown> {
    * `enabled: false` until the agent author has measured precision.
    */
   autoApply?: AutoApplyPolicy
+
+  /**
+   * Declarative per-surface artifact-lifecycle config the closed loop reads.
+   *
+   * Each entry names a profile surface (`skill` / `tool` / `prompt` / `mcp` /
+   * `hook` / `subagent`) and supplies the `CandidateGenerator` that grows it +
+   * the `PromotionGate` (the held-back exam) that decides promotion. `runLifecycle`
+   * consumes these: it pools the generators, measures each candidate's marginal
+   * lift on the held-back split, gates it, and stores the winners in an
+   * `ArtifactRegistry` — then `composeProfile` folds the top-`k` active artifacts
+   * back into this agent's profile.
+   *
+   * Optional — agents that don't self-improve their profile omit it. An empty or
+   * absent map means "no lifecycle"; the manifest is otherwise unchanged.
+   */
+  lifecycles?: ReadonlyArray<SurfaceLifecycle>
+}
+
+/**
+ * One profile surface's artifact-lifecycle wiring — the declarative config a
+ * `defineAgent` manifest carries and `runLifecycle` reads. It is config, not
+ * execution: it names the generator + gate; the loop runs them.
+ */
+export interface SurfaceLifecycle {
+  /** The profile surface this lifecycle grows. */
+  surface: ArtifactKind
+  /** Produces fresh candidate artifacts for `surface` from the agent's history. */
+  generator: CandidateGenerator
+  /** The held-back exam that decides promotion of a measured candidate. */
+  gate: PromotionGate
+  /** Top-`k` budget for `composeProfile` when folding this surface's promoted
+   *  artifacts back in. Omit to fold in every active artifact. */
+  composeK?: number
 }
 
 export interface AgentRubric<TRunOutput> {

@@ -18,6 +18,7 @@ export type {
   AutoApplyPolicy,
   JudgeConfig,
   RubricDimension,
+  SurfaceLifecycle,
 } from './define-agent'
 export {
   AgentManifestError,

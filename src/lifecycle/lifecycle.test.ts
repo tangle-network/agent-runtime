@@ -166,16 +166,16 @@ describe('ArtifactRegistry', () => {
     reg.register({ kind: 'tool', name: 'edit', payload: { enabled: true } })
     expect(reg.list().every((a) => a.status === 'candidate')).toBe(true)
     reg.promote(p.id)
-    expect(reg.list({ status: 'promoted' })).toHaveLength(1)
+    expect(reg.list({ status: 'active' })).toHaveLength(1)
     expect(reg.list({ kind: 'tool' })).toHaveLength(1)
-    expect(reg.list({ kind: 'tool', status: 'promoted' })).toHaveLength(0)
+    expect(reg.list({ kind: 'tool', status: 'active' })).toHaveLength(0)
   })
 
   it('promote is idempotent and fails loud on an unknown id', () => {
     const reg = new ArtifactRegistry()
     const p = reg.register(promptArtifact())
-    expect(reg.promote(p.id).status).toBe('promoted')
-    expect(reg.promote(p.id).status).toBe('promoted') // idempotent, no throw
+    expect(reg.promote(p.id).status).toBe('active')
+    expect(reg.promote(p.id).status).toBe('active') // idempotent, no throw
     expect(() => reg.promote('nope')).toThrow(ValidationError)
   })
 
@@ -318,9 +318,9 @@ describe('measureMarginalLift', () => {
       if (lift.scoreDelta > 0) reg.promote(a.id)
     }
 
-    expect(reg.get(good.id)?.status).toBe('promoted')
+    expect(reg.get(good.id)?.status).toBe('active')
     expect(reg.get(noop.id)?.status).toBe('candidate')
-    // composing the promoted set yields exactly the winning artifact applied
+    // composing the active set yields exactly the winning artifact applied
     expect(reg.compose(baseProfile()).prompt?.instructions).toContain('check state before acting')
   })
 })
