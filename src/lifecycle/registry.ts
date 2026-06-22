@@ -21,12 +21,20 @@ export interface ArtifactQuery {
 
 /**
  * The metadata key under which the registry stores an artifact's measured held-
- * back lift at promotion time. This is the registry INVARIANT's anchor: an
- * artifact is `promoted` (active) IFF this key holds a finite number — see
- * `promoteWithLift` and `liftOf`. The lifecycle never promotes by status flag
- * alone; the lift score is the receipt.
+ * back lift. This is the registry INVARIANT's anchor: an artifact is `active`
+ * IFF this key holds a finite number — see `promoteWithLift` and `liftOf`. The
+ * lifecycle never promotes by status flag alone; the lift score is the receipt.
+ * `driftWatch` overwrites it with the latest re-measure so `liftOf` always
+ * reflects the most recent evidence.
  */
 export const liftMetadataKey = 'measuredLift'
+
+/**
+ * The metadata key under which the registry records WHY an artifact left the
+ * active set — the human-readable reason a `demote` (→ decayed) or `retire`
+ * (→ retired) carried. Kept so a demotion/retirement is auditable, not silent.
+ */
+export const lifecycleReasonKey = 'lifecycleReason'
 
 /**
  * A typed, in-memory registry of `ProfileArtifact`s with stable ids.
@@ -87,10 +95,9 @@ export class ArtifactRegistry {
   }
 
   /**
-   * Mark an artifact `promoted`. Fails loud on an unknown id — promoting a
+   * Mark an artifact `active`. Fails loud on an unknown id — promoting a
    * non-existent artifact is a caller bug, not a no-op. Returns the updated
-   * record. Idempotent: promoting an already-promoted artifact is a no-op
-   * return.
+   * record. Idempotent: promoting an already-active artifact is a no-op return.
    *
    * NOTE: the artifact-lifecycle INVARIANT (no measured lift ⇒ not active) is
    * enforced by `promoteWithLift`, the path the closed loop uses. This bare
@@ -105,8 +112,8 @@ export class ArtifactRegistry {
         `ArtifactRegistry.promote: no artifact with id ${JSON.stringify(id)} is registered`,
       )
     }
-    if (artifact.status === 'promoted') return artifact
-    const promoted: ProfileArtifact = { ...artifact, status: 'promoted' }
+    if (artifact.status === 'active') return artifact
+    const promoted: ProfileArtifact = { ...artifact, status: 'active' }
     this.artifacts.set(id, promoted)
     return promoted
   }
@@ -114,10 +121,11 @@ export class ArtifactRegistry {
   /**
    * Promote an artifact AND record the measured held-back lift that earned it.
    * This is the closed loop's promotion path and the enforcement point of the
-   * lifecycle invariant: an artifact becomes active (`promoted`) only WITH a
-   * finite lift number stamped under `liftMetadataKey`. A non-finite `lift`
-   * (NaN/Infinity) fails loud — promoting on a broken measurement is exactly the
-   * silent-zero the doctrine forbids. Returns the updated record.
+   * lifecycle invariant: an artifact becomes `active` only WITH a finite lift
+   * number stamped under `liftMetadataKey`. A non-finite `lift` (NaN/Infinity)
+   * fails loud — promoting on a broken measurement is exactly the silent-zero the
+   * doctrine forbids. Re-promotes a `decayed` artifact whose lift recovered.
+   * Returns the updated record.
    */
   promoteWithLift(id: string, lift: number): ProfileArtifact {
     if (!Number.isFinite(lift)) {
@@ -133,7 +141,7 @@ export class ArtifactRegistry {
     }
     const promoted: ProfileArtifact = {
       ...artifact,
-      status: 'promoted',
+      status: 'active',
       metadata: { ...artifact.metadata, [liftMetadataKey]: lift },
     }
     this.artifacts.set(id, promoted)
@@ -141,11 +149,77 @@ export class ArtifactRegistry {
   }
 
   /**
-   * The measured held-back lift recorded at promotion time, or `undefined` when
-   * the artifact was never promoted WITH a lift (a fresh candidate, or one
-   * promoted via the bare `promote`). The lifecycle invariant in one accessor:
-   * `liftOf(id) === undefined` ⇒ the artifact has no measured lift ⇒ it is not
-   * eligible for a lift-ranked compose.
+   * Demote an `active` artifact to `decayed`: it was promoted, but a later
+   * re-measure (`driftWatch`) found its held-back lift fell below the keep-bar.
+   * Records the latest re-measured `lift` (so `liftOf` reflects current evidence)
+   * and the `reason` (so the demotion is auditable). The artifact stays in the
+   * registry — `decayed`, not deleted — so it can be re-promoted if a future
+   * re-measure recovers the lift. Fails loud on an unknown id. Demoting a
+   * non-`active` artifact fails loud too: only the active set decays.
+   */
+  demote(id: string, reason: string, lift?: number): ProfileArtifact {
+    const artifact = this.artifacts.get(id)
+    if (!artifact) {
+      throw new ValidationError(
+        `ArtifactRegistry.demote: no artifact with id ${JSON.stringify(id)} is registered`,
+      )
+    }
+    if (artifact.status !== 'active') {
+      throw new ValidationError(
+        `ArtifactRegistry.demote: artifact ${JSON.stringify(id)} is '${artifact.status}', not 'active' — only an active artifact can decay`,
+      )
+    }
+    if (lift !== undefined && !Number.isFinite(lift)) {
+      throw new ValidationError(
+        `ArtifactRegistry.demote: re-measured lift for ${JSON.stringify(id)} must be a finite number (got ${lift})`,
+      )
+    }
+    const demoted: ProfileArtifact = {
+      ...artifact,
+      status: 'decayed',
+      metadata: {
+        ...artifact.metadata,
+        [lifecycleReasonKey]: reason,
+        ...(lift !== undefined ? { [liftMetadataKey]: lift } : {}),
+      },
+    }
+    this.artifacts.set(id, demoted)
+    return demoted
+  }
+
+  /**
+   * Retire an artifact to the terminal `retired` state: it is permanently out of
+   * the active set (`dedupeArtifacts` retires the weaker half of a non-stacking
+   * pair). Records the `reason` for the audit trail. Unlike `demote`, this is
+   * terminal — a retired artifact is never re-promoted by the loop. Idempotent on
+   * an already-retired artifact; fails loud on an unknown id.
+   */
+  retire(id: string, reason: string): ProfileArtifact {
+    const artifact = this.artifacts.get(id)
+    if (!artifact) {
+      throw new ValidationError(
+        `ArtifactRegistry.retire: no artifact with id ${JSON.stringify(id)} is registered`,
+      )
+    }
+    if (artifact.status === 'retired') return artifact
+    const retired: ProfileArtifact = {
+      ...artifact,
+      status: 'retired',
+      metadata: { ...artifact.metadata, [lifecycleReasonKey]: reason },
+    }
+    this.artifacts.set(id, retired)
+    return retired
+  }
+
+  /**
+   * The measured held-back lift recorded at promotion time (and overwritten by
+   * the latest `driftWatch` re-measure), or `undefined` when the artifact was
+   * never promoted WITH a lift (a fresh candidate, or one promoted via the bare
+   * `promote`). The lifecycle invariant in one accessor: `liftOf(id) ===
+   * undefined` ⇒ the artifact has no measured lift ⇒ it is not eligible for a
+   * lift-ranked compose. Note this returns the recorded lift regardless of status
+   * — `composeProfile` separately filters to `active`, so a `decayed` artifact's
+   * stale lift is visible for audit but never folded into a profile.
    */
   liftOf(id: string): number | undefined {
     const value = this.artifacts.get(id)?.metadata?.[liftMetadataKey]
@@ -154,16 +228,16 @@ export class ArtifactRegistry {
 
   /**
    * Compose a set of registered artifacts onto a baseline profile. With no ids
-   * given, composes every `promoted` artifact (the "ship the passing set"
+   * given, composes every `active` artifact (the "ship the passing set"
    * default). With explicit ids, composes exactly those (in id order given),
    * failing loud on any unknown id. The applied order is the order passed (or
-   * registration order for the promoted-default), and later artifacts win on key
+   * registration order for the active-default), and later artifacts win on key
    * conflicts — same semantics as `applyArtifacts`.
    */
   compose(base: AgentProfile, ids?: readonly string[]): AgentProfile {
     const selected =
       ids === undefined
-        ? this.list({ status: 'promoted' })
+        ? this.list({ status: 'active' })
         : ids.map((id) => {
             const artifact = this.artifacts.get(id)
             if (!artifact) {

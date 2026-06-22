@@ -11,18 +11,40 @@
  *   STORE (`ArtifactRegistry`, lift recorded as the receipt)  →  COMPOSE
  *   (`composeProfile` — top-k active artifacts folded back into a profile).
  *
- * The ONLY per-surface code is the thin `CandidateGenerator` adapter; everything
- * else is shared. The reference generator, `skillGenerator`, DISTILLS a new skill
- * from traces (the create step an optimizer can't do) then refines it — the
- * answer to "an empty profile has no skills".
+ * Two maintenance stages close the lifecycle once artifacts are live:
  *
- * INVARIANT: an artifact is active (`promoted`) IFF it carries a measured held-
- * back lift (`registry.liftOf` returns a number). `composeProfile` folds in only
- * those — a status flag without a lift receipt is invisible.
+ *   DRIFT-WATCH (`driftWatch`)  — a scheduled re-measure of the active set that
+ *     DEMOTES (`active` → `decayed`) any artifact whose held-back lift decayed
+ *     below the keep-bar. Promotion is a snapshot; the world moves on.
+ *   DEDUPE (`dedupeArtifacts`)  — a stacking judge over active artifact PAIRS that
+ *     RETIRES (→ `retired`) the weaker member of any pair whose lifts do not stack
+ *     (they teach the agent the same thing, so keeping both is wasted surface).
+ *
+ * The ONLY per-surface code is the thin `CandidateGenerator` adapter; everything
+ * else — measure, gate, compose, drift-watch, dedupe — is shared. The reference
+ * generator, `skillGenerator`, DISTILLS a new skill from traces (the create step
+ * an optimizer can't do) then refines it — the answer to "an empty profile has no
+ * skills".
+ *
+ * INVARIANT: an artifact is `active` IFF it carries a measured held-back lift
+ * (`registry.liftOf` returns a number). `composeProfile` folds in only the active
+ * set — a `candidate`/`decayed`/`retired` artifact is invisible to compose.
  */
 
 export { applyArtifact, applyArtifacts } from './apply'
 export { type ComposeProfileOptions, composeProfile } from './compose'
+export {
+  type DedupeOptions,
+  type DedupeResult,
+  dedupeArtifacts,
+  type PairStackCheck,
+} from './dedupe'
+export {
+  type DriftCheck,
+  type DriftWatchOptions,
+  type DriftWatchResult,
+  driftWatch,
+} from './drift-watch'
 export {
   type HeldOutPromotionGateOptions,
   heldOutPromotionGate,
@@ -53,6 +75,7 @@ export {
   type ArtifactQuery,
   ArtifactRegistry,
   createArtifactRegistry,
+  lifecycleReasonKey,
   liftMetadataKey,
 } from './registry'
 export {

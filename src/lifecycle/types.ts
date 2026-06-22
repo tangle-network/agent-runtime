@@ -78,16 +78,38 @@ export interface ProfileArtifact<K extends ArtifactKind = ArtifactKind> {
   description?: string
   payload: ArtifactPayloads[K]
   /**
-   * Lifecycle status. Phase 1 tracks only `candidate` (registered, not yet
-   * promoted) and `promoted` (passed whatever gate the caller ran). The
-   * registry never auto-promotes; promotion is an explicit `promote(id)` call.
+   * Lifecycle status — the full artifact state machine:
+   *
+   *   `candidate` → `active` → `decayed` (re-promotable)
+   *                         ↘ `retired` (terminal)
+   *
+   *   - `candidate` — registered, not yet promoted. The default at register time.
+   *   - `active`    — passed the promotion gate and carries a measured held-back
+   *                   lift; the only status `composeProfile` folds into a profile.
+   *   - `decayed`   — was active, but a later re-measure (`driftWatch`) found its
+   *                   lift fell below the keep-bar. Demoted out of the composed
+   *                   profile; kept as an auditable record and a re-promotion
+   *                   candidate if a future re-measure recovers the lift.
+   *   - `retired`   — permanently removed from the active set (`dedupeArtifacts`
+   *                   retires the weaker half of a non-stacking pair). Terminal.
+   *
+   * The registry never auto-promotes; every transition is an explicit call
+   * (`promote`/`promoteWithLift`/`demote`/`retire`).
    */
   status: ArtifactStatus
   /** Free-form metadata (provenance, generation id, the measured lift, …). */
   metadata?: Record<string, unknown>
 }
 
-export type ArtifactStatus = 'candidate' | 'promoted'
+/**
+ * The artifact lifecycle states. `active` is the load-bearing one — it is the
+ * sole status `composeProfile` folds into a deployable profile, and it is gated
+ * by a measured held-back lift (the registry invariant). `decayed` and `retired`
+ * are the two ways an artifact LEAVES the active set: a decayed artifact lost its
+ * lift on re-measure (reversible — `driftWatch`), a retired one was deduped away
+ * (terminal — `dedupeArtifacts`).
+ */
+export type ArtifactStatus = 'candidate' | 'active' | 'decayed' | 'retired'
 
 /** The input to `register` — everything on `ProfileArtifact` except the
  *  registry-owned `id` and `status`. An explicit `id` may be supplied for

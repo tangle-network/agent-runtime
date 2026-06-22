@@ -50,7 +50,7 @@ export function composeProfile(
   opts: ComposeProfileOptions = {},
 ): AgentProfile {
   const eligible: Array<{ artifact: ProfileArtifact; lift: number }> = []
-  for (const artifact of registry.list({ status: 'promoted', kind: opts.kind })) {
+  for (const artifact of registry.list({ status: 'active', kind: opts.kind })) {
     const lift = registry.liftOf(artifact.id)
     // Invariant: no measured lift ⇒ not eligible for a lift-ranked compose.
     if (lift === undefined) continue

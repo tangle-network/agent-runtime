@@ -103,7 +103,7 @@ describe('artifact lifecycle — end-to-end closed loop (the #267 proof)', () =>
     expect(outcome.promoted).toBe(true)
     expect(result.promoted).toHaveLength(1)
     const promotedId = result.promoted[0]!
-    expect(result.registry.get(promotedId)?.status).toBe('promoted')
+    expect(result.registry.get(promotedId)?.status).toBe('active')
     // INVARIANT: an active artifact carries a measured lift.
     expect(result.registry.liftOf(promotedId)).toBeCloseTo(1, 10)
 

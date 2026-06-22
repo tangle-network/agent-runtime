@@ -653,7 +653,7 @@ Defined in: [platform/integrations.ts:30](https://github.com/tangle-network/agen
 
 ##### status
 
-> **status**: `string` & `object` \| `"unhealthy"` \| `"active"` \| `"revoked"` \| `"reconnect_required"`
+> **status**: `string` & `object` \| `"active"` \| `"unhealthy"` \| `"revoked"` \| `"reconnect_required"`
 
 Defined in: [platform/integrations.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L31)
 
