@@ -52,6 +52,11 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortError()
 }
 
+/** True for any error whose `name` is `AbortError` (the cross-kernel abort contract). */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError'
+}
+
 /**
  * Sleep that resolves early on abort and always clears its timer so it never
  * keeps the event loop alive. Resolves (does not reject) on abort — callers
