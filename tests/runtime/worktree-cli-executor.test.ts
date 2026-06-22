@@ -169,7 +169,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
   })
 
-  it('is budgetExempt (a harness CLI cannot account tokens)', () => {
+  it('is budgetExempt by default (a harness CLI cannot account tokens)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: authoredProfile,
@@ -180,6 +180,19 @@ describe('createWorktreeCliExecutor', () => {
     })
     expect(exec.runtime).toBe('cli')
     expect(exec.budgetExempt).toBe(true)
+  })
+
+  it('budgetExempt: false opts the leaf into metering (explicit, not a buried hardcode)', () => {
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: authoredProfile,
+      harness: 'claude',
+      taskPrompt: 'x',
+      budgetExempt: false,
+      runGit: makeFakeGit(freshGitState()),
+      runHarness: vi.fn(),
+    })
+    expect(exec.budgetExempt).toBe(false)
   })
 
   it('resultArtifact() before execute() resolves throws (fail loud, no fabricated artifact)', () => {

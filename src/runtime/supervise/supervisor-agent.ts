@@ -50,6 +50,10 @@ export interface SupervisorAgentDeps {
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
+   *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
+   *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
+  readonly maxLiveWorkers?: number
   /** Router substrate for a router-brained supervisor (`harness` null). The profile's model wins. */
   readonly router?: RouterConfig
   /** Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile. */
@@ -90,6 +94,7 @@ export function supervisorAgent(
       makeWorkerAgent: deps.makeWorkerAgent,
       perWorker: deps.perWorker,
       systemPrompt,
+      ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
       ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
       ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -111,6 +116,7 @@ export function supervisorAgent(
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
         perWorker: deps.perWorker,
+        ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
       })
       try {
         await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })

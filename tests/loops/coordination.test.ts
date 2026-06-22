@@ -82,6 +82,64 @@ describe('coordination tools', () => {
     })
   })
 
+  it('spawn_agent fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
+    // A scope whose live (non-terminal) node set is driven by the spawns we make: each successful
+    // spawn appends a `running` node; nothing settles. The conserved pool always admits, so the
+    // ONLY thing that can stop a spawn here is the concurrency cap.
+    const live: Array<{ status: string }> = []
+    const spawns: unknown[] = []
+    const cappedScope = {
+      spawn: (_a: unknown, _t: unknown, opts: { label: string }) => {
+        spawns.push(opts)
+        live.push({ status: 'running' })
+        return {
+          ok: true as const,
+          handle: {
+            id: `w${live.length - 1}`,
+            label: opts.label,
+            status: 'running' as const,
+            abort() {},
+          },
+        }
+      },
+      next: async () => null,
+      send: () => false,
+      get view() {
+        return { root: 'root', nodes: live, inFlight: live.length }
+      },
+      budget: { tokensLeft: 1e9, usdLeft: 0, deadlineMs: 0, reservedTokens: 0 },
+      signal: new AbortController().signal,
+    } as unknown as Scope<unknown>
+
+    const tb = createCoordinationTools({
+      scope: cappedScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      maxLiveWorkers: 2,
+    })
+    const spawn = () => tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
+    expect(await spawn()).toEqual({ workerId: 'w0' })
+    expect(await spawn()).toEqual({ workerId: 'w1' })
+    // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
+    expect(await spawn()).toEqual({ error: 'max-live-workers' })
+    expect(spawns).toHaveLength(2)
+    // A settled worker frees a slot — mark one terminal and the next spawn admits again.
+    live[0]!.status = 'done'
+    expect(await spawn()).toEqual({ workerId: 'w2' })
+
+    // No cap (omitted) → the pool stays the only fence; the same scope admits past the prior cap.
+    const uncapped = createCoordinationTools({
+      scope: cappedScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(await tool(uncapped, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
+      workerId: 'w3',
+    })
+  })
+
   it('spawn_agent reserves the per-worker default when no budget is given', async () => {
     const { scope, spawns } = mockScope()
     const tb = createCoordinationTools({

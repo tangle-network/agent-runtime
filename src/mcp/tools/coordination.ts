@@ -104,6 +104,12 @@ export interface CoordinationToolsOptions {
    *  and queued for the driver to pull via `await_event`. Omit/empty = no auto-analysis (default;
    *  the driver can still run lenses on demand via `run_analyst`). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string>
+  /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
+   *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
+   *  reserving from the pool when the cap is already met — a concurrency fence on top of the
+   *  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
+   *  sandboxes/boxes). Omit or `<= 0` = no cap (the prior behavior; the pool stays the only fence). */
+  readonly maxLiveWorkers?: number
 }
 
 /**
@@ -375,6 +381,15 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     })
   }
 
+  // Count workers that are LIVE — spawned but not yet settled — off the scope's in-memory live set
+  // (O(live), synchronous). The terminal statuses are done/failed/cancelled; everything else
+  // (pending/acquiring/running) is still in flight. This is the concurrency fence's input.
+  const maxLiveWorkers = opts.maxLiveWorkers
+  const liveWorkerCount = (): number =>
+    opts.scope.view.nodes.filter(
+      (n) => n.status !== 'done' && n.status !== 'failed' && n.status !== 'cancelled',
+    ).length
+
   const tools: McpToolDescriptor[] = [
     {
       name: 'spawn_agent',
@@ -382,7 +397,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
         'Pass an optional `budget` (per-field) to give a hard sub-task more than the default — it ' +
-        'merges over the per-worker default; the conserved pool is still the hard fence.',
+        'merges over the per-worker default; the conserved pool is still the hard fence. When a ' +
+        'max-live-workers cap is set it also fails closed (`error: "max-live-workers"`) while that ' +
+        'many workers are still in flight — settle or steer one before spawning another.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -406,6 +423,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       },
       handler: (raw) => {
         const a = obj(raw)
+        // Concurrency fence FIRST — fail closed before reserving budget, so a rejected spawn never
+        // touches the pool. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work.
+        if (
+          maxLiveWorkers !== undefined &&
+          maxLiveWorkers > 0 &&
+          liveWorkerCount() >= maxLiveWorkers
+        )
+          return Promise.resolve({ error: 'max-live-workers' as const })
         const agent = opts.makeWorkerAgent(a.profile)
         const budget =
           a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget)
