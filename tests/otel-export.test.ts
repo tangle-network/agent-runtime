@@ -159,6 +159,9 @@ describe('buildLoopOtelSpans — nested GenAI topology tree', () => {
     const root = attrMap(spans.find((s) => s.name === 'loop')!)
     expect(root['gen_ai.operation.name']).toBe('invoke_workflow')
     expect(root['gen_ai.conversation.id']).toBe('run-1')
+    // explicit run identity + subject grain for a consuming run spine
+    expect(root['tangle.run.id']).toBe('run-1')
+    expect(typeof root['tangle.subject.key']).toBe('string')
     expect(root['tangle.loop.driver']).toBe('dynamic')
     expect(root['tangle.loop.winner.iteration_index']).toBe(0)
     expect(root['tangle.cost.usd']).toBeCloseTo(0.05, 6)
