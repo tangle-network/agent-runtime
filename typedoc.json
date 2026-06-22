@@ -7,6 +7,7 @@
     "src/runtime/index.ts",
     "src/analyst-loop/index.ts",
     "src/profiles/index.ts",
+    "src/platform/index.ts",
     "src/mcp/index.ts"
   ],
   "entryPointStrategy": "resolve",

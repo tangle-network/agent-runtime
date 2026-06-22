@@ -86,17 +86,24 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
     expect(result.spentTotal).toEqual(spentTotal)
   })
 
-  it('reports no-winner faithfully with the reason (never a faked success)', async () => {
+  it('reports no-winner faithfully with the reason AND the real spend (never a faked success or zero cost)', async () => {
     superviseSpy.mockResolvedValue({
       kind: 'no-winner',
       reason: 'all-children-down',
       tree: emptyTree,
       downCount: 2,
+      spentTotal,
     })
     const handler = createDelegateHandler({ router, backend })
-    const result = (await handler({ intent: 'do x' })) as { status: string; reason: string }
+    const result = (await handler({ intent: 'do x' })) as {
+      status: string
+      reason: string
+      spentTotal: Spend
+    }
     expect(result.status).toBe('no-winner')
     expect(result.reason).toBe('all-children-down')
+    // A failed delegation still cost real compute; the agent must learn it — never a fabricated zero.
+    expect(result.spentTotal).toEqual(spentTotal)
   })
 
   it('applies a per-call model override', async () => {

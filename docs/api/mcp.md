@@ -8208,7 +8208,7 @@ Defined in: [mcp/tools/delegate.ts:78](https://github.com/tangle-network/agent-r
 
 > **createDelegateHandler**(`options`): (`raw`) => `Promise`\<[`DelegateResult`](#delegateresult)\>
 
-Defined in: [mcp/tools/delegate.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L140)
+Defined in: [mcp/tools/delegate.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L139)
 
 Build the `delegate` tool handler. Closes over the injected supervisor substrate (`router` /
 `backend` / `deliverable`); each call routes the agent's intent to `delegate()` and returns the

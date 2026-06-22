@@ -189,23 +189,26 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             : {}),
         }
       }
-      return {
-        kind: 'no-winner',
-        reason: classifyNoWinner(controller, pool, opts, breaker),
-        tree,
-        downCount: breaker.downCount(),
-      }
+      return noWinner()
     }
 
     // act() rejected. The reason is proven from lifecycle state, in precedence order:
     // a tripped breaker outranks any abort (it is the most specific cause) outranks
     // budget-exhaustion outranks the residual "the tree produced nothing usable" bucket.
     // A no-winner is TYPED — never a best-effort coercion of a partial child (M2).
-    return {
-      kind: 'no-winner',
-      reason: classifyNoWinner(controller, pool, opts, breaker),
-      tree,
-      downCount: breaker.downCount(),
+    return noWinner()
+
+    // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
+    // summed off the SAME journal the winner path reads — the caller always learns the cost.
+    async function noWinner(): Promise<SupervisedResult<Out>> {
+      const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+      return {
+        kind: 'no-winner',
+        reason: classifyNoWinner(controller, pool, opts, breaker),
+        tree,
+        downCount: breaker.downCount(),
+        spentTotal: addSpend(childWork, driverInference),
+      }
     }
   }
 

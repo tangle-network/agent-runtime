@@ -710,6 +710,13 @@ describe('supervisor', () => {
     if (result.kind === 'no-winner') {
       expect(result.reason).toBe('all-children-down')
       expect(result.downCount).toBe(2)
+      // A no-winner still carries the conserved spend, summed off the same journal the winner path
+      // reads — well-formed (every channel present, non-negative), never absent or fabricated.
+      expect(result.spentTotal).toBeDefined()
+      expect(result.spentTotal.iterations).toBeGreaterThanOrEqual(0)
+      expect(result.spentTotal.tokens.input).toBeGreaterThanOrEqual(0)
+      expect(result.spentTotal.tokens.output).toBeGreaterThanOrEqual(0)
+      expect(result.spentTotal.usd).toBeGreaterThanOrEqual(0)
     }
   })
 

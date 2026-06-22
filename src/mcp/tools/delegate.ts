@@ -116,13 +116,12 @@ export interface DelegateHandlerOptions {
   allowedModels?: readonly string[]
 }
 
-const zeroSpend: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
-
-/** Project a `SupervisedResult` onto the tool's flat `DelegateResult`. A no-winner carries no spend
- *  on the result union, so it reports zero spend with the failure reason — never a faked output. */
+/** Project a `SupervisedResult` onto the tool's flat `DelegateResult`. Both variants carry the real
+ *  conserved `spentTotal`, so the agent always learns the cost — even on a no-winner, never a faked
+ *  output and never a fabricated zero spend. */
 function toDelegateResult(result: SupervisedResult<unknown>): DelegateResult {
   if (result.kind === 'no-winner') {
-    return { status: 'no-winner', reason: result.reason, spentTotal: zeroSpend }
+    return { status: 'no-winner', reason: result.reason, spentTotal: result.spentTotal }
   }
   return {
     status: 'winner',

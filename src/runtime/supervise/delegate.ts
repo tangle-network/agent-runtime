@@ -13,8 +13,9 @@
  * completion oracle (`deliverable`), the coordination toolbox, and equal-compute accounting all come
  * for free; nothing is hand-rolled. The result is `supervise()`'s `SupervisedResult` returned
  * UNCHANGED, so its `spentTotal` (`{ iterations, tokens, usd, ms }`) rides straight back to the
- * caller. That cost channel is exactly what `delegate_code` lacks — a `delegate()` caller always
- * learns what the delegation actually spent.
+ * caller on BOTH paths — a `winner` carries the delivered worker's spend, a `no-winner` carries the
+ * spend incurred before it failed. That cost channel is exactly what `delegate_code` lacks — a
+ * `delegate()` caller always learns what the delegation actually spent.
  */
 
 import { ConfigError } from '../../errors'

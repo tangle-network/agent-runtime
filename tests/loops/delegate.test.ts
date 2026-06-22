@@ -94,17 +94,22 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     }
   })
 
-  it('forwards a no-winner result faithfully (never fabricates a success)', async () => {
+  it('forwards a no-winner result faithfully — including its real spend (never fabricates a success or zero cost)', async () => {
     const noWinner: SupervisedResult<unknown> = {
       kind: 'no-winner',
       reason: 'budget-exhausted',
       tree: emptyTree,
       downCount: 1,
+      spentTotal,
     }
     superviseSpy.mockResolvedValue(noWinner)
 
     const result = await delegate('do the thing', { backend, router })
     expect(result.kind).toBe('no-winner')
+    if (result.kind === 'no-winner') {
+      // A budget-exhausted delegation still cost real compute; the spend rides back unchanged.
+      expect(result.spentTotal).toEqual(spentTotal)
+    }
   })
 
   it('forwards deliverable, model, budget, allowedModels, runId to supervise()', async () => {
