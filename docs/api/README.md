@@ -11,5 +11,6 @@
 - [index](index.md)
 - [intelligence](intelligence.md)
 - [mcp](mcp.md)
+- [platform](platform.md)
 - [profiles](profiles.md)
 - [runtime](runtime.md)

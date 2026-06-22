@@ -474,6 +474,10 @@ export type SupervisedResult<Out> =
       reason: 'all-children-down' | 'budget-exhausted' | 'aborted'
       tree: TreeView
       downCount: number
+      /** The conserved spend incurred before the run failed — real cost is paid even when no
+       *  worker delivers, so the caller always learns what the delegation actually spent. Summed
+       *  off the same journal the `winner` path reads. */
+      spentTotal: Spend
     }
 
 /** Live root handle — the substrate a chat/pi-viz client attaches to (Q2). `signal`

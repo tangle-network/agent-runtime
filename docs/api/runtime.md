@@ -1333,7 +1333,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-9)
+> `readonly` **budget**: [`Budget`](#budget-10)
 
 Defined in: [runtime/personify/analyst.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L78)
 
@@ -1639,7 +1639,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 ##### perChild
 
-> `readonly` **perChild**: [`Budget`](#budget-9)
+> `readonly` **perChild**: [`Budget`](#budget-10)
 
 Defined in: [runtime/personify/types.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L155)
 
@@ -1873,7 +1873,7 @@ Defined in: [runtime/personify/types.ts:226](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-9)
+> `readonly` **budget**: [`Budget`](#budget-10)
 
 Defined in: [runtime/personify/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L227)
 
@@ -6519,7 +6519,7 @@ budget: refine→max shots; sample→rollout width.
 
 ##### rootBudget?
 
-> `optional` **rootBudget?**: [`Budget`](#budget-9)
+> `optional` **rootBudget?**: [`Budget`](#budget-10)
 
 Defined in: [runtime/strategy.ts:977](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L977)
 
@@ -6735,7 +6735,7 @@ caller inspects `ok` before `ticket`.
 
 ###### b
 
-[`Budget`](#budget-9)
+[`Budget`](#budget-10)
 
 ###### Returns
 
@@ -6923,7 +6923,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-9)
+> `readonly` **perWorker**: [`Budget`](#budget-10)
 
 Defined in: [runtime/supervise/coordination-driver.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L50)
 
@@ -7103,6 +7103,101 @@ Defined in: [runtime/supervise/coordination-mcp.ts:46](https://github.com/tangle
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### DelegateOptions
+
+Defined in: [runtime/supervise/delegate.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L38)
+
+Inputs to [delegate](#delegate). The intent is the first positional arg; everything here is optional
+ with sensible defaults, so the common call is `delegate(intent, { backend, router })`.
+
+#### Type Parameters
+
+##### Out
+
+`Out` = `unknown`
+
+#### Properties
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`Out`\>
+
+Defined in: [runtime/supervise/delegate.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L42)
+
+The completion oracle (settled ⟺ delivered) the authored workers settle against. Strongly
+ recommended — without it the supervisor trusts a worker's self-report. For a code intent,
+ `patchDelivered()` is the canonical example; for a free-form answer, a content check.
+
+##### backend?
+
+> `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
+
+Defined in: [runtime/supervise/delegate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L46)
+
+WHERE the authored workers run — the worker-execution backend (`router-tools` / `sandbox` /
+ `cli-worktree` / …). The supervisor authors the worker PROFILE; this is the substrate it runs
+ on. Provide this OR `makeWorkerAgent`-style wiring through `supervise()` is unavailable.
+
+##### budget?
+
+> `readonly` `optional` **budget?**: [`Budget`](#budget-10)
+
+Defined in: [runtime/supervise/delegate.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L48)
+
+The conserved compute pool for the whole delegation. Defaults to [defaultDelegateBudget](#defaultdelegatebudget).
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+Defined in: [runtime/supervise/delegate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L51)
+
+The model the supervisor BRAIN runs on (the router model). The brain must tool-call
+ (`spawn_agent` / `await_event`), so a delegator model, not a hidden-reasoning model.
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+
+Defined in: [runtime/supervise/delegate.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L55)
+
+The supervisor brain's router substrate. REQUIRED for the default router-brained supervisor
+ (the brain is resolved from this), unless a test injects `brain` directly. `model` overrides
+ `router.model`. (Design delta vs the bare `supervise()` profile: the brain needs a router.)
+
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
+
+Defined in: [runtime/supervise/delegate.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L57)
+
+Inject the supervisor brain directly (tests / advanced) instead of resolving it from `router`.
+
+##### supervisor?
+
+> `readonly` `optional` **supervisor?**: `Partial`\<`Pick`\<[`SupervisorProfile`](#supervisorprofile), `"name"` \| `"systemPrompt"`\>\>
+
+Defined in: [runtime/supervise/delegate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L60)
+
+Override the default authoring-supervisor profile (name / extra system-prompt stance). The
+ default already carries the authoring skill; override only to add a goal or rename.
+
+##### allowedModels?
+
+> `readonly` `optional` **allowedModels?**: readonly `string`[]
+
+Defined in: [runtime/supervise/delegate.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L62)
+
+Restrict the run to this subset of models (forwarded to `supervise()`).
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+Defined in: [runtime/supervise/delegate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L63)
 
 ***
 
@@ -7628,7 +7723,7 @@ Defined in: [runtime/supervise/supervise.ts:46](https://github.com/tangle-networ
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-9)
+> `readonly` **budget**: [`Budget`](#budget-10)
 
 Defined in: [runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
 
@@ -7718,7 +7813,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](#budget-9)
+> `readonly` `optional` **perWorker?**: [`Budget`](#budget-10)
 
 Defined in: [runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
 
@@ -7835,7 +7930,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-9)
+> `readonly` **perWorker**: [`Budget`](#budget-10)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L52)
 
@@ -8693,7 +8788,7 @@ Defined in: [runtime/supervise/types.ts:432](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-9)
+> `readonly` **budget**: [`Budget`](#budget-10)
 
 Defined in: [runtime/supervise/types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L434)
 
@@ -8783,7 +8878,7 @@ Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle em
 
 ### WidenGate
 
-Defined in: [runtime/supervise/types.ts:507](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L507)
+Defined in: [runtime/supervise/types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L511)
 
 The progressive-widening gate (MCTS-PW). Decides whether a settled child is
 `promising` enough to spawn another under the remaining pool. DEFAULTS TO FLAT
@@ -8804,7 +8899,7 @@ an explicit, argued `judgeExempt: true` (the documented escape hatch, off by def
 
 > `readonly` `optional` **judgeExempt?**: `boolean`
 
-Defined in: [runtime/supervise/types.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L512)
+Defined in: [runtime/supervise/types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L516)
 
 When true, widening may read `verdict` directly (collides with the steer firewall —
  must be explicitly argued per cell, never defaulted on).
@@ -8815,7 +8910,7 @@ When true, widening may read `verdict` directly (collides with the steer firewal
 
 > **shouldWiden**(`settled`, `budget`): `boolean`
 
-Defined in: [runtime/supervise/types.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L509)
+Defined in: [runtime/supervise/types.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L513)
 
 Default impl returns false for every settlement (flat — never widens).
 
@@ -11883,7 +11978,7 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
 
 Defined in: [runtime/supervise/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L459)
 
@@ -11945,7 +12040,31 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); \}
+
+###### kind
+
+> **kind**: `"no-winner"`
+
+###### reason
+
+> **reason**: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`
+
+###### tree
+
+> **tree**: [`TreeView`](#treeview)
+
+###### downCount
+
+> **downCount**: `number`
+
+###### spentTotal
+
+> **spentTotal**: [`Spend`](#spend)
+
+The conserved spend incurred before the run failed — real cost is paid even when no
+ worker delivers, so the caller always learns what the delegation actually spent. Summed
+ off the same journal the `winner` path reads.
 
 ***
 
@@ -12121,6 +12240,18 @@ The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept 
 > `const` **defaultProfileRichnessThresholds**: [`ProfileRichnessThresholds`](#profilerichnessthresholds)
 
 Defined in: [runtime/supervise/authoring.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L138)
+
+***
+
+### defaultDelegateBudget
+
+> `const` **defaultDelegateBudget**: [`Budget`](#budget-10)
+
+Defined in: [runtime/supervise/delegate.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L34)
+
+The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
+ A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
+ bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`.
 
 ***
 
@@ -14132,7 +14263,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 ##### root
 
-[`Budget`](#budget-9)
+[`Budget`](#budget-10)
 
 ##### now?
 
@@ -14254,7 +14385,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### perWorker
 
-[`Budget`](#budget-9)
+[`Budget`](#budget-10)
 
 ###### port?
 
@@ -14289,6 +14420,40 @@ Pass-through subscriber for every bus event (settled / question / finding).
 #### Returns
 
 `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
+
+***
+
+### delegate()
+
+> **delegate**\<`Out`\>(`intent`, `opts?`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
+
+Defined in: [runtime/supervise/delegate.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L88)
+
+Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged.
+
+The supervisor authors + spawns whatever worker the intent needs over the conserved-budget pool;
+`result.spentTotal` reports what the whole delegation actually cost. A `winner` result carries the
+authored worker's delivered output; a `no-winner` result names why (never a fabricated success).
+
+#### Type Parameters
+
+##### Out
+
+`Out` = `unknown`
+
+#### Parameters
+
+##### intent
+
+`string`
+
+##### opts?
+
+[`DelegateOptions`](#delegateoptions)\<`Out`\> = `{}`
+
+#### Returns
+
+`Promise`\<[`SupervisedResult`](#supervisedresult)\<`Out`\>\>
 
 ***
 
@@ -14626,7 +14791,7 @@ Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle
 
 ### createSupervisor()
 
-> **createSupervisor**\<`Task`, `Out`\>(): [`Supervisor`](#supervisor)\<`Task`, `Out`\>
+> **createSupervisor**\<`Task`, `Out`\>(): [`Supervisor`](#supervisor-1)\<`Task`, `Out`\>
 
 Defined in: [runtime/supervise/supervisor.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor.ts#L64)
 
@@ -14642,7 +14807,7 @@ Defined in: [runtime/supervise/supervisor.ts:64](https://github.com/tangle-netwo
 
 #### Returns
 
-[`Supervisor`](#supervisor)\<`Task`, `Out`\>
+[`Supervisor`](#supervisor-1)\<`Task`, `Out`\>
 
 ***
 
