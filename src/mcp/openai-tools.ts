@@ -1,16 +1,15 @@
 /**
  * @experimental
  *
- * OpenAI Chat Completions `tools[]` projection of the 5 agent-runtime MCP
- * delegation tools.
+ * OpenAI Chat Completions `tools[]` projection of the queue-bound agent-runtime
+ * MCP delegation tools.
  *
  * Use when configuring `createOpenAICompatibleBackend({ tools: ... })` so the
- * model can call `delegate_code`, `delegate_research`, `delegate_feedback`,
- * `delegation_status`, and `delegation_history` through the OpenAI-compat
- * transport (tcloud, OpenRouter, OpenAI direct, cli-bridge). The runtime
- * surfaces tool calls as `tool_call` stream events — execution is the
- * caller's responsibility (typically the parent sandbox runtime's MCP
- * mount).
+ * model can call `delegate_feedback`, `delegation_status`, and
+ * `delegation_history` through the OpenAI-compat transport (tcloud, OpenRouter,
+ * OpenAI direct, cli-bridge). The runtime surfaces tool calls as `tool_call`
+ * stream events — execution is the caller's responsibility (typically the
+ * parent sandbox runtime's MCP mount).
  *
  * Sandbox-SDK callers do NOT need this helper: the sandbox runtime mounts
  * MCP servers natively and the in-sandbox harness discovers tools via the
@@ -23,20 +22,10 @@
 
 import type { OpenAIChatTool } from '../types'
 import {
-  DELEGATE_CODE_DESCRIPTION,
-  DELEGATE_CODE_INPUT_SCHEMA,
-  DELEGATE_CODE_TOOL_NAME,
-} from './tools/delegate-code'
-import {
   DELEGATE_FEEDBACK_DESCRIPTION,
   DELEGATE_FEEDBACK_INPUT_SCHEMA,
   DELEGATE_FEEDBACK_TOOL_NAME,
 } from './tools/delegate-feedback'
-import {
-  DELEGATE_RESEARCH_DESCRIPTION,
-  DELEGATE_RESEARCH_INPUT_SCHEMA,
-  DELEGATE_RESEARCH_TOOL_NAME,
-} from './tools/delegate-research'
 import {
   DELEGATION_HISTORY_DESCRIPTION,
   DELEGATION_HISTORY_INPUT_SCHEMA,
@@ -66,23 +55,12 @@ function buildTool(
 /**
  * @experimental
  *
- * Returns the 5 delegation tools projected into OpenAI Chat Completions
- * `tools[]` shape. The order is stable: `delegate_code`,
- * `delegate_research`, `delegate_feedback`, `delegation_status`,
- * `delegation_history`.
+ * Returns the queue-bound delegation tools projected into OpenAI Chat
+ * Completions `tools[]` shape. The order is stable: `delegate_feedback`,
+ * `delegation_status`, `delegation_history`.
  */
 export function mcpToolsForRuntimeMcp(): OpenAIChatTool[] {
   return [
-    buildTool(
-      DELEGATE_CODE_TOOL_NAME,
-      DELEGATE_CODE_DESCRIPTION,
-      DELEGATE_CODE_INPUT_SCHEMA as Readonly<Record<string, unknown>>,
-    ),
-    buildTool(
-      DELEGATE_RESEARCH_TOOL_NAME,
-      DELEGATE_RESEARCH_DESCRIPTION,
-      DELEGATE_RESEARCH_INPUT_SCHEMA as Readonly<Record<string, unknown>>,
-    ),
     buildTool(
       DELEGATE_FEEDBACK_TOOL_NAME,
       DELEGATE_FEEDBACK_DESCRIPTION,

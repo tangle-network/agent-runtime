@@ -24,17 +24,14 @@ function buildDelegationMcpEntry(opts: {
       env: {
         TANGLE_API_KEY: opts.sandboxApiKey,
         SANDBOX_BASE_URL: opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
+        // Opt into the ONE generic `delegate` verb (a supervisor that authors + drives its own
+        // worker and returns the delivered output with its cost). It needs a real sandbox key.
+        ...(opts.sandboxApiKey ? { MCP_ENABLE_DELEGATE: '1' } : {}),
       },
       enabled: true,
       metadata: {
         surface: 'delegation:dispatch',
-        tools: [
-          'delegate_code',
-          'delegate_research',
-          'delegate_feedback',
-          'delegation_status',
-          'delegation_history',
-        ],
+        tools: ['delegate', 'delegate_feedback', 'delegation_status', 'delegation_history'],
       },
     },
   }
@@ -42,8 +39,7 @@ function buildDelegationMcpEntry(opts: {
 
 /**
  * Compose a product's AgentProfile with the delegation MCP entry merged in.
- * In production this is the `composeProductionAgentProfile`-style helper
- * each product owns. The shape here is illustrative — copy and adapt.
+ * The shape here is illustrative — copy and adapt.
  */
 export function composeAgentProfileWithDelegation(opts: {
   sandboxApiKey: string
@@ -65,17 +61,13 @@ export function composeAgentProfileWithDelegation(opts: {
 
 // ── 2. SMOKE ─────────────────────────────────────────────────────────────
 //
-// Spawn `agent-runtime-mcp` and verify the five canonical tools show up.
-// The child is the same bin a sandbox-side agent would launch when the
-// profile mounts the MCP entry above.
+// Spawn `agent-runtime-mcp` and verify the always-on queue-bound tools show
+// up. The child is the same bin a sandbox-side agent would launch when the
+// profile mounts the MCP entry above. The generic `delegate` verb registers
+// only when MCP_ENABLE_DELEGATE=1 AND a real sandbox key resolves, so the
+// diagnostic (no-key) smoke asserts only the always-on trio.
 
-const EXPECTED_TOOLS = [
-  'delegate_code',
-  'delegate_feedback',
-  'delegate_research',
-  'delegation_history',
-  'delegation_status',
-]
+const EXPECTED_TOOLS = ['delegate_feedback', 'delegation_history', 'delegation_status']
 
 interface JsonRpcResponse {
   jsonrpc: '2.0'
@@ -171,7 +163,7 @@ async function smokeMcpToolsList(): Promise<void> {
     if (missing.length > 0) {
       throw new Error(`agent-runtime-mcp is missing tools: ${missing.join(', ')}`)
     }
-    console.log('OK — all five delegation tools are exposed.')
+    console.log('OK — the always-on queue-bound delegation tools are exposed.')
   } finally {
     child.kill('SIGINT')
   }

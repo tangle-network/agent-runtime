@@ -20,11 +20,42 @@ import {
 } from '../../src/mcp/detached-turn'
 import { createSiblingSandboxExecutor } from '../../src/mcp/executor'
 import { DelegationTaskQueue } from '../../src/mcp/task-queue'
-import { createDelegateCodeHandler } from '../../src/mcp/tools/delegate-code'
 import type { DelegateCodeArgs } from '../../src/mcp/types'
 import type { LoopTraceEvent, SandboxClient } from '../../src/runtime'
 
 const codeArgs: DelegateCodeArgs = { goal: 'fix bug', repoRoot: '/repo' }
+
+/**
+ * Submit a single-variant coder delegation to the queue exactly as the bin's `delegate` dispatch
+ * does: a deterministic session-only detached ref (so a restart can resume), and a `run` closure
+ * that hands the args + ctx to the coder delegate. `detachedDispatch:false` keeps the streaming path
+ * (no ref recorded).
+ */
+function submitCoder(
+  queue: DelegationTaskQueue,
+  delegate: CoderDelegate,
+  args: DelegateCodeArgs,
+  opts: { detachedDispatch?: boolean } = {},
+): { taskId: string } {
+  const variants = Math.max(1, Math.trunc(args.variants ?? 1))
+  const detached = opts.detachedDispatch && variants <= 1
+  return queue.submit<DelegateCodeArgs>({
+    profile: 'coder',
+    args,
+    ...(detached
+      ? { detachedSessionRef: formatDetachedSessionRef({ sessionId: detachedCoderSessionId() }) }
+      : {}),
+    run: (ctx) => delegate(args, ctx),
+  })
+}
+
+/** Deterministic single-variant detached session id, matching the `dlg-turn-coder-<8hex>` shape. */
+function detachedCoderSessionId(): string {
+  const hex = Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, '0')
+  return `dlg-turn-coder-${hex}`
+}
 
 const patchText = [
   'diff --git a/src/a.ts b/src/a.ts',
@@ -488,8 +519,14 @@ describe('detachedSessionRef population on submit', () => {
         diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
       }
     }
-    const handler = createDelegateCodeHandler({ queue, delegate, detachedDispatch: true })
-    const { taskId } = await handler({ goal: 'fix', repoRoot: '/r' })
+    const { taskId } = submitCoder(
+      queue,
+      delegate,
+      { goal: 'fix', repoRoot: '/r' },
+      {
+        detachedDispatch: true,
+      },
+    )
     await until(() => queue.status(taskId)?.status === 'completed')
     expect(seenRefs).toHaveLength(1)
     const parsed = parseDetachedSessionRef(seenRefs[0] as string)
@@ -510,8 +547,14 @@ describe('detachedSessionRef population on submit', () => {
         diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
       }
     }
-    const handler = createDelegateCodeHandler({ queue, delegate, detachedDispatch: true })
-    const { taskId } = await handler({ goal: 'fix', repoRoot: '/r', variants: 2 })
+    const { taskId } = submitCoder(
+      queue,
+      delegate,
+      { goal: 'fix', repoRoot: '/r', variants: 2 },
+      {
+        detachedDispatch: true,
+      },
+    )
     await until(() => queue.status(taskId)?.status === 'completed')
     expect(seenRefs).toEqual([undefined])
   })
@@ -529,8 +572,7 @@ describe('detachedSessionRef population on submit', () => {
         diffStats: { filesChanged: 1, insertions: 1, deletions: 1 },
       }
     }
-    const handler = createDelegateCodeHandler({ queue, delegate })
-    const { taskId } = await handler({ goal: 'fix', repoRoot: '/r' })
+    const { taskId } = submitCoder(queue, delegate, { goal: 'fix', repoRoot: '/r' })
     await until(() => queue.status(taskId)?.status === 'completed')
     expect(seenRefs).toEqual([undefined])
   })
@@ -566,8 +608,14 @@ describe('detachedSessionDelegate detached path', () => {
     const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
     const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
     const queue = new DelegationTaskQueue()
-    const handler = createDelegateCodeHandler({ queue, delegate, detachedDispatch: true })
-    const { taskId } = await handler({ goal: 'fix', repoRoot: '/r' })
+    const { taskId } = submitCoder(
+      queue,
+      delegate,
+      { goal: 'fix', repoRoot: '/r' },
+      {
+        detachedDispatch: true,
+      },
+    )
     await until(() => queue.status(taskId)?.status === 'completed')
     const status = queue.status(taskId, { includeTrace: true })!
     expect(status.trace?.map((s) => s.kind)).toEqual(['loop', 'branch'])

@@ -1,8 +1,6 @@
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../src/errors'
-import { coderLoopRunner, type DelegatedLoopRegistry, runDelegatedLoop } from '../src/loop-runner'
-import type { CoderOutput } from '../src/mcp/detached-coder'
+import { type DelegatedLoopRegistry, runDelegatedLoop } from '../src/loop-runner'
 
 const clock = () => {
   let t = 0
@@ -38,35 +36,6 @@ describe('runDelegatedLoop — mode dispatch', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toBe('reflection model 502')
     expect(r.durationMs).toBeGreaterThan(0)
-  })
-})
-
-describe('coderLoopRunner — code mode over the hardened delegate', () => {
-  it('runs the coder delegate and returns its winning CoderOutput', async () => {
-    const out: CoderOutput = {
-      branch: 'feat/fix',
-      patch: 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+ok\n',
-      testResult: { passed: true, output: 'ok' },
-      typecheckResult: { passed: true, output: 'ok' },
-      diffStats: { filesChanged: 1, insertions: 1, deletions: 0 },
-    }
-    const sandboxClient = {
-      async create(_o?: CreateSandboxOptions): Promise<SandboxInstance> {
-        return {
-          async *streamPrompt() {
-            yield { type: 'result', data: { result: out } } satisfies SandboxEvent
-          },
-        } as unknown as SandboxInstance
-      },
-    }
-    const runner = coderLoopRunner({
-      sandboxClient,
-      args: { goal: 'fix x', repoRoot: '/repo' },
-    })
-    const registry: DelegatedLoopRegistry = { code: runner }
-    const r = await runDelegatedLoop<CoderOutput>('code', registry)
-    expect(r.ok).toBe(true)
-    expect(r.output?.branch).toBe('feat/fix')
   })
 })
 

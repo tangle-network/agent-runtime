@@ -3,12 +3,13 @@
  *
  * The point of this adapter is parity: the eval substrate must run the agent
  * through the SAME profile the production chat turn uses, or scorecard numbers
- * grade a profile that never ships. `createSandboxAct` composes the production
- * profile via {@link composeProductionAgentProfile}, boots a sandbox with it
- * through the loop kernel's own {@link createSandboxForSpec}, streams the
- * `streamPrompt` events mapped to the `RuntimeStreamEvent` vocabulary, and
- * resolves the `OutputAdapter`-parsed output for rubric scoring — satisfying
- * the `act` streaming contract with one code path shared by chat and eval.
+ * grade a profile that never ships. `createSandboxAct` boots a sandbox with the
+ * agent's profile (the caller's `baseProfile`, with optional per-persona
+ * overrides) through the loop kernel's own {@link createSandboxForSpec},
+ * streams the `streamPrompt` events mapped to the `RuntimeStreamEvent`
+ * vocabulary, and resolves the `OutputAdapter`-parsed output for rubric scoring
+ * — satisfying the `act` streaming contract with one code path shared by chat
+ * and eval.
  *
  * Agents with a bespoke streaming chat turn should wire THAT into `act`
  * directly (the contract is designed for it); this adapter is the default for
@@ -16,18 +17,35 @@
  * agents agent-builder generates.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type {
+  AgentProfile,
+  AgentProfileFileMount,
+  AgentProfileMcpServer,
+} from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import type { ComposeProductionAgentProfileOptions } from '../mcp/delegation-profile'
-import { composeProductionAgentProfile } from '../mcp/delegation-profile'
 import type { AgentRunSpec, OutputAdapter, SandboxClient } from '../runtime'
 import { mapSandboxEvent } from '../runtime'
 import { createSandboxForSpec } from '../runtime/run-loop'
 import type { RuntimeStreamEvent } from '../types'
 import type { AgentRunContext, AgentRunInvocation } from './define-agent'
 
+/** Per-persona profile-merge slots applied over the base profile (§1.5: the caller authors the
+ *  per-persona profile). Each slot overlays the base; an absent slot leaves the base untouched. */
+export interface SandboxActComposeOverrides {
+  /** Replace the base profile's system prompt (e.g. a workspace-augmented prompt). */
+  systemPrompt?: string
+  /** Extra file mounts layered after the base profile's `resources.files`. */
+  extraFiles?: AgentProfileFileMount[]
+  /** Override the profile `name`. Defaults to the base profile's name. */
+  name?: string
+  /** Box built-in tool ON/OFF flags merged over the base profile's `tools` (overlay wins per key). */
+  tools?: Record<string, boolean>
+  /** MCP connections merged over the base profile's `mcp` (overlay wins per key). */
+  mcpConnections?: Record<string, AgentProfileMcpServer>
+}
+
 export interface CreateSandboxActOptions<TPersona, TRunOutput> {
-  /** Canonical agent profile — the same one the prod chat turn composes from. */
+  /** Canonical agent profile — the same one the prod chat turn uses. */
   baseProfile: AgentProfile
   /** Sandbox client used to boot the per-run sandbox. */
   sandboxClient: SandboxClient
@@ -36,12 +54,10 @@ export interface CreateSandboxActOptions<TPersona, TRunOutput> {
   /** Sandbox event stream → typed output the rubric scores. */
   output: OutputAdapter<TRunOutput>
   /**
-   * Per-persona composition overrides (workspace-augmented system prompt,
-   * extra file mounts, sandbox key). Merged into
-   * {@link composeProductionAgentProfile}; `env` here is overridden by the
-   * top-level `env` option when both are set.
+   * Per-persona profile overrides (workspace-augmented system prompt, extra
+   * file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
    */
-  compose?: (persona: TPersona) => ComposeProductionAgentProfileOptions
+  compose?: (persona: TPersona) => SandboxActComposeOverrides
   /** Sandbox-SDK overrides forwarded to `createSandboxForSpec`. */
   sandboxOverrides?: AgentRunSpec<unknown>['sandboxOverrides']
   /** Stable run name surfaced in mapped `llm_call` events. */
@@ -51,8 +67,6 @@ export interface CreateSandboxActOptions<TPersona, TRunOutput> {
     event: SandboxEvent,
     opts: { agentRunName?: string },
   ) => RuntimeStreamEvent | undefined
-  /** Environment source for delegation-MCP composition. Defaults to `process.env`. */
-  env?: Record<string, string | undefined>
 }
 
 /**
@@ -67,10 +81,7 @@ export function createSandboxAct<TPersona, TRunOutput>(
   const mapEvent = options.mapEvent ?? mapSandboxEvent
 
   return (persona: TPersona, ctx: AgentRunContext): AgentRunInvocation<TRunOutput> => {
-    const profile = composeProductionAgentProfile(options.baseProfile, {
-      ...(options.compose?.(persona) ?? {}),
-      ...(options.env ? { env: options.env } : {}),
-    })
+    const profile = applyComposeOverrides(options.baseProfile, options.compose?.(persona))
     const agentRunName = options.name ?? profile.name ?? 'agent'
     const message = options.buildPrompt(persona)
     const signal = ctx.signal ?? new AbortController().signal
@@ -110,5 +121,33 @@ export function createSandboxAct<TPersona, TRunOutput>(
     }
 
     return { events: events(), output }
+  }
+}
+
+/** Overlay the per-persona overrides onto the base profile. Each slot merges over the base; an
+ *  absent override leaves the base profile untouched. */
+function applyComposeOverrides(
+  base: AgentProfile,
+  overrides: SandboxActComposeOverrides | undefined,
+): AgentProfile {
+  if (!overrides) return base
+  const prompt = overrides.systemPrompt
+    ? { ...base.prompt, systemPrompt: overrides.systemPrompt }
+    : base.prompt
+  const mergedTools = overrides.tools ? { ...(base.tools ?? {}), ...overrides.tools } : base.tools
+  const mergedMcp = overrides.mcpConnections
+    ? { ...(base.mcp ?? {}), ...overrides.mcpConnections }
+    : base.mcp
+  const baseFiles = base.resources?.files ?? []
+  const mergedFiles: AgentProfileFileMount[] = overrides.extraFiles?.length
+    ? [...baseFiles, ...overrides.extraFiles]
+    : [...baseFiles]
+  return {
+    ...base,
+    name: overrides.name ?? base.name,
+    prompt,
+    ...(mergedTools ? { tools: mergedTools } : {}),
+    ...(mergedMcp ? { mcp: mergedMcp } : {}),
+    resources: { ...base.resources, files: mergedFiles },
   }
 }

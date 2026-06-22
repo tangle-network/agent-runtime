@@ -1,14 +1,17 @@
 /**
  * @experimental
  *
- * Stdio JSON-RPC MCP server exposing the 5 delegation tools to sandbox
- * coding-harness agents (claude-code, codex, opencode, ...).
+ * Stdio JSON-RPC MCP server exposing the delegation tools to sandbox
+ * coding-harness agents (claude-code, codex, opencode, ...): the generic
+ * `delegate` verb plus the queue-bound `delegate_feedback`,
+ * `delegation_status`, and `delegation_history`. `delegate_ui_audit` is served
+ * when a `uiAuditorDelegate` is wired.
  *
  * The server is transport-bound but topology-free: tool execution is
  * delegated to handler functions composed from a queue, a feedback
- * store, and per-profile run delegates. Consumers wire those at
- * construction time. The `agent-runtime-mcp` bin spins up a default
- * configuration for the common case (real sandbox client + coder).
+ * store, and the wired run delegates. Consumers wire those at
+ * construction time. The `agent-runtime-mcp` bin serves the generic
+ * `delegate` verb over a real sandbox client when `MCP_ENABLE_DELEGATE=1`.
  *
  * Wire protocol: line-delimited JSON-RPC 2.0 over stdio. Each line is
  * one request; each response is one line. `tools/list` and `tools/call`
@@ -19,7 +22,7 @@
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { Readable, Writable } from 'node:stream'
 import { ValidationError } from '../errors'
-import type { CoderDelegate, ResearcherDelegate, UiAuditorDelegate } from './delegates'
+import type { UiAuditorDelegate } from './delegates'
 import { type FeedbackStore, InMemoryFeedbackStore } from './feedback-store'
 import { DelegationTaskQueue } from './task-queue'
 import {
@@ -30,23 +33,11 @@ import {
   type DelegateHandlerOptions,
 } from './tools/delegate'
 import {
-  createDelegateCodeHandler,
-  DELEGATE_CODE_DESCRIPTION,
-  DELEGATE_CODE_INPUT_SCHEMA,
-  DELEGATE_CODE_TOOL_NAME,
-} from './tools/delegate-code'
-import {
   createDelegateFeedbackHandler,
   DELEGATE_FEEDBACK_DESCRIPTION,
   DELEGATE_FEEDBACK_INPUT_SCHEMA,
   DELEGATE_FEEDBACK_TOOL_NAME,
 } from './tools/delegate-feedback'
-import {
-  createDelegateResearchHandler,
-  DELEGATE_RESEARCH_DESCRIPTION,
-  DELEGATE_RESEARCH_INPUT_SCHEMA,
-  DELEGATE_RESEARCH_TOOL_NAME,
-} from './tools/delegate-research'
 import {
   createDelegateUiAuditHandler,
   DELEGATE_UI_AUDIT_DESCRIPTION,
@@ -76,15 +67,6 @@ export interface McpServerOptions {
    * the agent's intent, so there is no worker profile to wire here.
    */
   delegateSupervisor?: DelegateHandlerOptions
-  /** Required to enable delegate_code. */
-  coderDelegate?: CoderDelegate
-  /**
-   * Required to enable delegate_research. The substrate cannot ship a
-   * default — wire one that closes over your `runLoop` + a
-   * researcher profile (typically `@tangle-network/agent-knowledge`'s
-   * `researcherProfile` / `multiHarnessResearcherFanout`).
-   */
-  researcherDelegate?: ResearcherDelegate
   /**
    * Required to enable delegate_ui_audit. Wire one that closes over your
    * `runLoop` + `uiAuditorProfile` + a `SandboxClient` (the
@@ -96,15 +78,6 @@ export interface McpServerOptions {
   feedbackStore?: FeedbackStore
   /** Override the default in-memory task queue. */
   queue?: DelegationTaskQueue
-  /**
-   * Record deterministic detached-session resume keys on single-variant
-   * coder/researcher submissions so a durable queue can resume them after a
-   * restart. Enable only when the wired delegates dispatch via sandbox
-   * sessions (`driveTurn`) AND `queue` persists records — the keys are inert
-   * otherwise. The bin turns this on alongside the durable store for
-   * session-backed (sibling/fleet) placements.
-   */
-  detachedDispatch?: boolean
   /**
    * Extra tools to serve alongside the delegation tools, for example
    * `createCoordinationTools(...).tools`. Registered after the built-ins; a
@@ -192,34 +165,6 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
       description: DELEGATE_DESCRIPTION,
       inputSchema: DELEGATE_INPUT_SCHEMA as unknown as Record<string, unknown>,
       handler: createDelegateHandler(options.delegateSupervisor),
-    })
-  }
-  if (options.coderDelegate) {
-    tools.set(DELEGATE_CODE_TOOL_NAME, {
-      name: DELEGATE_CODE_TOOL_NAME,
-      description: DELEGATE_CODE_DESCRIPTION,
-      inputSchema: DELEGATE_CODE_INPUT_SCHEMA as unknown as Record<string, unknown>,
-      handler: createDelegateCodeHandler({
-        queue,
-        delegate: options.coderDelegate,
-        ...(options.detachedDispatch !== undefined
-          ? { detachedDispatch: options.detachedDispatch }
-          : {}),
-      }),
-    })
-  }
-  if (options.researcherDelegate) {
-    tools.set(DELEGATE_RESEARCH_TOOL_NAME, {
-      name: DELEGATE_RESEARCH_TOOL_NAME,
-      description: DELEGATE_RESEARCH_DESCRIPTION,
-      inputSchema: DELEGATE_RESEARCH_INPUT_SCHEMA as unknown as Record<string, unknown>,
-      handler: createDelegateResearchHandler({
-        queue,
-        delegate: options.researcherDelegate,
-        ...(options.detachedDispatch !== undefined
-          ? { detachedDispatch: options.detachedDispatch }
-          : {}),
-      }),
     })
   }
   if (options.uiAuditorDelegate) {

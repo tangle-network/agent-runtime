@@ -2,7 +2,6 @@ import type { TraceEmitter } from '@tangle-network/agent-eval'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { type AgentRunContext, collectAgentRun, createSandboxAct } from '../src/agent'
-import { DELEGATION_MCP_SERVER_KEY } from '../src/mcp/delegation-profile'
 import type { OutputAdapter, SandboxClient } from '../src/runtime'
 
 const BASE = {
@@ -48,20 +47,20 @@ function ctx(): AgentRunContext {
 }
 
 describe('createSandboxAct — prod-profile eval parity', () => {
-  it('boots the sandbox with the composed PRODUCTION profile (delegation MCP merged when keyed)', async () => {
+  it('boots the sandbox with the agent profile and streams mapped events + parsed output', async () => {
     const { client, captured } = fakeClient(SCRIPT)
     const act = createSandboxAct({
       baseProfile: BASE,
       sandboxClient: client,
       buildPrompt: (p: string) => `prompt:${p}`,
       output,
-      env: { TANGLE_API_KEY: 'sk' },
     })
 
     const { events, output: out } = await collectAgentRun(act('persona-1', ctx()))
 
     const profile = captured.createOpts?.backend?.profile
-    expect(Object.keys(profile?.mcp ?? {})).toEqual(['domain', DELEGATION_MCP_SERVER_KEY])
+    // The eval profile is the agent's own profile, unchanged — no delegation MCP injected.
+    expect(Object.keys(profile?.mcp ?? {})).toEqual(['domain'])
     expect(captured.prompt).toBe('prompt:persona-1')
     expect(out).toBe('Hello')
     // text parts → text_delta, cost event → llm_call, bare result → unmapped
@@ -72,14 +71,13 @@ describe('createSandboxAct — prod-profile eval parity', () => {
     ])
   })
 
-  it('omits the delegation MCP when no sandbox key resolves — eval profile stays a clean local profile', async () => {
+  it('leaves the base profile untouched when no compose overrides are given', async () => {
     const { client, captured } = fakeClient(SCRIPT)
     const act = createSandboxAct({
       baseProfile: BASE,
       sandboxClient: client,
       buildPrompt: () => 'go',
       output,
-      env: {},
     })
     await collectAgentRun(act('p', ctx()))
     expect(captured.createOpts?.backend?.profile?.mcp).toEqual({ domain: BASE.mcp.domain })
@@ -92,11 +90,28 @@ describe('createSandboxAct — prod-profile eval parity', () => {
       sandboxClient: client,
       buildPrompt: (p: string) => p,
       output,
-      env: {},
       compose: (p: string) => ({ systemPrompt: `augmented for ${p}` }),
     })
     await collectAgentRun(act('alice', ctx()))
     expect(captured.createOpts?.backend?.profile?.prompt?.systemPrompt).toBe('augmented for alice')
+  })
+
+  it('merges per-persona mcpConnections over the base profile mcp map', async () => {
+    const { client, captured } = fakeClient(SCRIPT)
+    const act = createSandboxAct({
+      baseProfile: BASE,
+      sandboxClient: client,
+      buildPrompt: () => 'x',
+      output,
+      compose: () => ({
+        mcpConnections: { ticketing: { transport: 'stdio', command: 'node', enabled: true } },
+      }),
+    })
+    await collectAgentRun(act('p', ctx()))
+    expect(Object.keys(captured.createOpts?.backend?.profile?.mcp ?? {})).toEqual([
+      'domain',
+      'ticketing',
+    ])
   })
 
   it('parses output from the RAW stream, including events with no RuntimeStreamEvent projection', async () => {
@@ -107,7 +122,6 @@ describe('createSandboxAct — prod-profile eval parity', () => {
       sandboxClient: client,
       buildPrompt: () => 'x',
       output,
-      env: {},
     })
     const { events, output: out } = await collectAgentRun(act('p', ctx()))
     expect(events).toEqual([])
@@ -121,7 +135,6 @@ describe('createSandboxAct — prod-profile eval parity', () => {
       sandboxClient: client,
       buildPrompt: () => 'x',
       output,
-      env: {},
     })
     await expect(collectAgentRun(act('p', ctx()))).rejects.toThrow('stream boom')
   })

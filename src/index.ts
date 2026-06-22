@@ -120,8 +120,6 @@ export * from './improvement'
 // ── Delegated loop-runner (configured code/research/review/audit/self-improve) ──
 export {
   auditLoopRunner,
-  type CoderLoopRunnerOptions,
-  coderLoopRunner,
   DELEGATED_LOOP_MODES,
   type DelegatedLoopMode,
   type DelegatedLoopRegistry,

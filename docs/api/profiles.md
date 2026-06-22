@@ -204,7 +204,7 @@ Defined in: [audit/issue-writer.ts:374](https://github.com/tangle-network/agent-
 
 ### CoderTask
 
-Defined in: [profiles/coder.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L20)
+Defined in: [profiles/coder.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L15)
 
 **`Experimental`**
 
@@ -216,7 +216,7 @@ The per-task inputs `coderTaskToPrompt` renders + the worktree gate enforces.
 
 > **goal**: `string`
 
-Defined in: [profiles/coder.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L22)
+Defined in: [profiles/coder.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L17)
 
 **`Experimental`**
 
@@ -226,7 +226,7 @@ What the agent must accomplish. Free-form prose.
 
 > **repoRoot**: `string`
 
-Defined in: [profiles/coder.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L24)
+Defined in: [profiles/coder.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L19)
 
 **`Experimental`**
 
@@ -236,7 +236,7 @@ Absolute path inside the sandbox where the repo lives.
 
 > `optional` **baseBranch?**: `string`
 
-Defined in: [profiles/coder.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L26)
+Defined in: [profiles/coder.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L21)
 
 **`Experimental`**
 
@@ -246,7 +246,7 @@ Default `main`. The branch the agent diffs against.
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [profiles/coder.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L28)
+Defined in: [profiles/coder.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L23)
 
 **`Experimental`**
 
@@ -256,7 +256,7 @@ Default `pnpm test --run`.
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [profiles/coder.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L30)
+Defined in: [profiles/coder.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L25)
 
 **`Experimental`**
 
@@ -266,7 +266,7 @@ Default `pnpm typecheck`.
 
 > `optional` **contextFiles?**: `string`[]
 
-Defined in: [profiles/coder.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L32)
+Defined in: [profiles/coder.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L27)
 
 **`Experimental`**
 
@@ -276,7 +276,7 @@ Files the agent may inspect for context. Surfaced verbatim in the prompt.
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [profiles/coder.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L37)
+Defined in: [profiles/coder.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L32)
 
 **`Experimental`**
 
@@ -287,7 +287,7 @@ Use glob-free literal path prefixes for unambiguous enforcement.
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [profiles/coder.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L39)
+Defined in: [profiles/coder.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L34)
 
 **`Experimental`**
 
@@ -1308,32 +1308,6 @@ Severity scale.
 
 ## Variables
 
-### DEFAULT\_CODER\_SYSTEM\_PROMPT
-
-> `const` **DEFAULT\_CODER\_SYSTEM\_PROMPT**: `string`
-
-Defined in: [profiles/coder.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L43)
-
-**`Experimental`**
-
-The coder agent's standing instruction (its body lives in `coderProfile.prompt`).
-
-***
-
-### coderProfile
-
-> `const` **coderProfile**: `AgentProfile`
-
-Defined in: [profiles/coder.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L72)
-
-**`Experimental`**
-
-The coder `AgentProfile` — the §1.5 DATA the substrate materializes into a harness invocation.
-Stateless and harness-agnostic: a consumer overrides `model`/`metadata.backendType` by spreading
-a copy, never by a factory. `worktreeFanout` authors one such profile per harness leaf.
-
-***
-
 ### SHARED\_AUDITOR\_RULES
 
 > `const` **SHARED\_AUDITOR\_RULES**: `string`
@@ -1520,7 +1494,7 @@ Regenerate `<workspace>/index.md` from registry.json.
 
 > **coderTaskToPrompt**(`task`): `string`
 
-Defined in: [profiles/coder.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L81)
+Defined in: [profiles/coder.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/coder.ts#L38)
 
 **`Experimental`**
 

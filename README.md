@@ -240,10 +240,10 @@ on a never-touched holdout slice.
 `runDelegatedLoop` is one entrypoint a worker agent or a scheduled routine calls to run a disciplined loop in a chosen mode, over the hardened engines below. It fails loud on an unwired mode; a thrown engine is captured as `{ ok: false }`, so unattended runs record rather than crash.
 
 ```ts
-import { runDelegatedLoop, coderLoopRunner, researchLoopRunner, type DelegatedLoopRegistry } from '@tangle-network/agent-runtime'
+import { runDelegatedLoop, worktreeLoopRunner, researchLoopRunner, type DelegatedLoopRegistry } from '@tangle-network/agent-runtime'
 
 const registry: DelegatedLoopRegistry = {
-  code: coderLoopRunner({ sandboxClient, args: { goal: 'fix the flaky retry test', repoRoot: '/repo' }, reviewer, winnerSelection: 'smallest-diff' }),
+  code: worktreeLoopRunner({ repoRoot: '/repo', taskPrompt: 'fix the flaky retry test', harnesses, budget }),
   research: researchLoopRunner({ research, gate: { selfArtifactKinds: ['spec'] }, maxRounds: 3 }),
 }
 const result = await runDelegatedLoop('code', registry)
@@ -251,7 +251,7 @@ const result = await runDelegatedLoop('code', registry)
 
 Modes: `code`, `review`, `research`, `audit`, `self-improve`, `dynamic`. The `agent-runtime-loop` bin runs the registry from a cron or routine and exits 0 (ok), 1 (recorded failure), or 2 (usage or config error).
 
-The coder delegate (`createDefaultCoderDelegate`, `/mcp`) has default-on safety gates: no-op rejection (an empty patch cannot pass trivially), an always-on secret-path floor (`.env`, keys, wallets), an optional `reviewer` gate, and a `winnerSelection` policy (`highest-score`, `smallest-diff`, `highest-readiness`, `first-approved`).
+`worktreeLoopRunner` (`code` mode, the generic recursive path) authors one `AgentProfile` per harness and runs them as a `worktreeFanout` (each leaf `gateOnDeliverable`), winner by the shared valid-only selector. The sandbox-session counterpart is `detachedSessionDelegate` (`/mcp`): it drives the in-box harness over a `SandboxClient` to a mechanically-validated patch, with default-on safety gates — no-op rejection, an always-on secret-path floor (`.env`, keys, wallets), an optional `reviewer` gate, and a `winnerSelection` policy. Its worker profile is a parameter the caller authors (`workerProfile`); omit it for a minimal model-only default.
 
 The knowledge-base gate (`createKbGate`, `/mcp`) is fail-closed: a fact's `verbatimPassage` must appear in its `sourceText`, the asserted value must be in the passage, and citations cannot point at self-generated artifacts. `researchLoopRunner` wraps it with a correct-on-veto loop that re-researches the vetoed gaps up to `maxRounds`, then returns the unverified ones rather than dropping them.
 
@@ -271,15 +271,15 @@ The shape: `loop` to `loop.round` (move plus rationale) to `loop.iteration` (age
 
 ## MCP delegation server
 
-Expose the delegation tools (`delegate_code`, `delegate_research`, `delegate_feedback`, `delegation_status`, `delegation_history`) to a sandbox coding agent. Mount the canonical server instead of forking delegation logic.
+Expose the delegation tools to a sandbox coding agent: the generic `delegate` verb (one intent → a supervisor that authors + drives its own worker, returns the delivered output with its real spend) plus the queue-bound `delegate_feedback`, `delegation_status`, `delegation_history` (and `delegate_ui_audit` when a UI-audit runner is wired). Mount the canonical server instead of forking delegation logic.
 
 ```ts
-import { createMcpServer, createDefaultCoderDelegate } from '@tangle-network/agent-runtime/mcp'
+import { createMcpServer } from '@tangle-network/agent-runtime/mcp'
 
-const server = createMcpServer({ coderDelegate: createDefaultCoderDelegate({ sandboxClient }), researcherDelegate })
+const server = createMcpServer({ delegateSupervisor: { router, backend, deliverable } })
 ```
 
-Or mount the `agent-runtime-mcp` stdio bin on a production `AgentProfile.mcp`.
+Or mount the `agent-runtime-mcp` stdio bin on a production `AgentProfile.mcp` with `MCP_ENABLE_DELEGATE=1`.
 
 Delegation state is in-memory by default — a server restart drops pending delegations and history. Set `AGENT_RUNTIME_DELEGATION_STATE_FILE=/path/state.json` on the bin (or construct via `DelegationTaskQueue.restore({ store: new FileDelegationStore({ filePath }) })`) to persist records across restarts: `delegation_status`/`delegation_history` keep answering for prior runs, idempotency keys dedupe resubmissions, and in-flight records either resume through the `resumeDelegate` seam (when submitted with a `detachedSessionRef`) or settle as failed with an explicit driver-restart error. A corrupt state file refuses to load (`DelegationStateCorruptError`); `AGENT_RUNTIME_DELEGATION_STATE_RECOVER=1` archives it and starts empty. `AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL=<n>` caps retained terminal records.
 
@@ -342,7 +342,7 @@ Six subpaths — the public surface:
 | `@tangle-network/agent-runtime` | chat turns, delegated loop-runner, OTEL export, errors, model resolution |
 | `.../agent` | `defineAgent` plus surface and outcome adapters |
 | `.../loops` | **the optimization suite** (`Environment`, `defineStrategy`, `runBenchmark`, `runStrategyEvolution`, `authorStrategy`, `promotionGate`) + the recursive atom (`Supervisor`/`Scope`, `createExecutor`), the `runLoop` kernel, the `Driver` type, `loopDispatch` |
-| `.../profiles` | `coderProfile`, `researcherProfile`, the `uiAuditorProfile` presets + the UI-audit workspace I/O helpers |
+| `.../profiles` | `coderTaskToPrompt` (the coder task formatter), the `uiAuditorProfile` presets + the UI-audit workspace I/O helpers |
 | `.../intelligence` | `withTangleIntelligence`, `createIntelligenceClient` — Observe + the provable-OFF billing boundary |
 | `.../mcp` | `createMcpServer`, `createDefaultCoderDelegate`, `createKbGate`, the `agent-runtime-mcp` bin |
 

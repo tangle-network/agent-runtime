@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { composeProductionAgentProfile } from '../mcp/delegation-profile'
 import {
   type CapabilityManifest,
   CapabilityNotAdmittedError,
@@ -520,45 +519,5 @@ describe('composeCertifiedProfile — sandbox-code', () => {
     const out = await surface.execute('pdf_extract', { file: 'a.pdf' }, null)
     expect(out).toBe('sandbox-result')
     expect(runSandboxCode).toHaveBeenCalledOnce()
-  })
-})
-
-describe('composeProductionAgentProfile — new merge slots', () => {
-  it('merges tools box-flags, hooks, subagents, and injected mcpConnections', () => {
-    const profile = composeProductionAgentProfile(
-      {
-        name: 'base',
-        tools: { read: true },
-        hooks: { 'pre-run': [{ command: 'echo base' }] },
-        subagents: { researcher: { description: 'base researcher' } },
-        mcp: { existing: { transport: 'stdio', command: 'x' } },
-      },
-      {
-        // No sandbox key → delegation entry omitted; assert ONLY the new slots.
-        env: {},
-        tools: { write: true },
-        hooks: { 'pre-run': [{ command: 'echo extra' }], 'post-run': [{ command: 'echo post' }] },
-        subagents: { coder: { description: 'new coder' } },
-        mcpConnections: { ticketing: { transport: 'stdio', command: 'node' } },
-      },
-    )
-    expect(profile.tools).toEqual({ read: true, write: true })
-    expect(profile.hooks?.['pre-run']).toEqual([
-      { command: 'echo base' },
-      { command: 'echo extra' },
-    ])
-    expect(profile.hooks?.['post-run']).toEqual([{ command: 'echo post' }])
-    expect(profile.subagents).toMatchObject({ researcher: {}, coder: {} })
-    expect(profile.mcp).toMatchObject({ existing: {}, ticketing: { command: 'node' } })
-  })
-
-  it('leaves the base profile untouched when no new options are given', () => {
-    const profile = composeProductionAgentProfile(
-      { name: 'base', tools: { read: true } },
-      { env: {} },
-    )
-    expect(profile.tools).toEqual({ read: true })
-    expect(profile.hooks).toBeUndefined()
-    expect(profile.subagents).toBeUndefined()
   })
 })
