@@ -7,6 +7,7 @@ export default defineConfig({
     intelligence: 'src/intelligence/index.ts',
     loops: 'src/runtime/index.ts', // the loop kernel + recursive atom surface (the runtime/ directory)
     'analyst-loop': 'src/analyst-loop/index.ts',
+    lifecycle: 'src/lifecycle/index.ts',
     profiles: 'src/profiles/index.ts',
     platform: 'src/platform/index.ts',
     'mcp/index': 'src/mcp/index.ts',

@@ -10,6 +10,7 @@
 - [analyst-loop](analyst-loop.md)
 - [index](index.md)
 - [intelligence](intelligence.md)
+- [lifecycle](lifecycle.md)
 - [mcp](mcp.md)
 - [platform](platform.md)
 - [profiles](profiles.md)
