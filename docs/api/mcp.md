@@ -2250,7 +2250,7 @@ Which harness handled this delegation.
 
 > **kind**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L314)
+Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
 
 **`Experimental`**
 
@@ -2262,7 +2262,7 @@ Defined in: [runtime/types.ts:314](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L315)
+Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
 
 **`Experimental`**
 
@@ -2274,7 +2274,7 @@ Defined in: [runtime/types.ts:315](https://github.com/tangle-network/agent-runti
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L316)
+Defined in: [runtime/types.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L401)
 
 **`Experimental`**
 
@@ -2286,7 +2286,7 @@ Defined in: [runtime/types.ts:316](https://github.com/tangle-network/agent-runti
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L317)
+Defined in: [runtime/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L402)
 
 **`Experimental`**
 

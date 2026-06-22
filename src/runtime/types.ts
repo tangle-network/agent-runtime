@@ -76,8 +76,16 @@ export interface AgentRunSpec<Task> {
    * files, or seed datasets. The hook is part of the runtime surface so loop
    * consumers do not hand-roll Sandbox SDK orchestration just to prepare a
    * workspace before the agent sees it.
+   *
+   * `ctx.recordMount` records what was placed into the box so the run carries a
+   * provenance manifest (`LoopResult.provenance.mounts`). It is optional and
+   * provenance-only — the kernel never reads box contents and attaches no
+   * meaning to the entries; not calling it simply leaves the manifest empty.
    */
-  prepareBox?: (box: SandboxInstance, ctx: { signal: AbortSignal }) => Promise<void> | void
+  prepareBox?: (
+    box: SandboxInstance,
+    ctx: { signal: AbortSignal; recordMount: MountRecorder },
+  ) => Promise<void> | void
   /**
    * Per-spec stable name. Surfaced in trace events and the default winner
    * selector tiebreak. Falls back to `profile.name ?? 'agent'`.
@@ -114,6 +122,79 @@ export interface LoopTokenUsage {
   input: number
   output: number
 }
+
+/**
+ * One mounted resource recorded during box preparation — a pure provenance
+ * record of what the caller placed into a box before the agent saw it. The
+ * kernel never reads box contents itself (it does not know what was mounted);
+ * the caller, which owns the bytes inside `prepareBox`, supplies each entry via
+ * `recordMount`. Carries no domain semantics — just where the resource landed,
+ * its content fingerprint, its size, and where it came from — so a run is
+ * auditable after the fact ("what exactly was this agent given?").
+ *
+ * @experimental
+ */
+export interface MountManifestEntry {
+  /** Destination path inside the box where the resource was placed. */
+  path: string
+  /** Hex SHA-256 of the mounted bytes. The caller computes it from the bytes
+   *  it wrote — the kernel does not hash box contents. */
+  sha256: string
+  /** Size of the mounted resource in bytes. */
+  bytes: number
+  /** Free-form origin of the resource (e.g. a repo ref, a corpus id, a local
+   *  path, a URL). Provenance only — the kernel attaches no meaning to it. */
+  source: string
+}
+
+/**
+ * A record of one candidate-selection decision: which iteration the selector
+ * picked (or rejected) and why. Pure audit trail of the SELECTOR role — it
+ * carries the selector's identity, the candidate's score, and an optional
+ * human-readable reason, with no domain semantics. The kernel emits one receipt
+ * per scored candidate at finalize so a run answers "why did THIS one win?".
+ *
+ * @experimental
+ */
+export interface SelectionReceipt {
+  /** Iteration index this receipt is about. */
+  candidateIndex: number
+  /** True for the iteration the selector chose as winner; false otherwise. */
+  selected: boolean
+  /** The candidate's verdict score, when it has one. */
+  score?: number
+  /** Why this candidate was (or was not) selected, when the selector states it. */
+  reason?: string
+  /** Identity of the selector that produced this receipt — `'caller'` (an
+   *  explicit `selectWinner`), `'driver'` (a driver-authored winner), or
+   *  `'default'` (the kernel's best-valid-score argmax). */
+  selector: 'caller' | 'driver' | 'default'
+}
+
+/**
+ * Domain-free run provenance: a manifest of what was mounted into the run's
+ * boxes and the receipts for how the winner was selected. Surfaced on
+ * `LoopResult` purely for run auditability — nothing in the kernel branches on
+ * it. Empty arrays when the caller recorded no mounts and there was no
+ * candidate to select.
+ *
+ * @experimental
+ */
+export interface RunProvenance {
+  /** Every resource recorded via `prepareBox`'s `recordMount`, in record order. */
+  mounts: MountManifestEntry[]
+  /** One receipt per scored candidate at finalize, in iteration order. */
+  selectionReceipts: SelectionReceipt[]
+}
+
+/**
+ * Records a mounted resource into the run's provenance manifest. Passed to
+ * `prepareBox` so the caller — which owns the bytes it writes into the box —
+ * declares what it mounted without the kernel having to inspect box contents.
+ *
+ * @experimental
+ */
+export type MountRecorder = (entry: MountManifestEntry) => void
 
 /** @experimental */
 export interface Iteration<Task, Output> {
@@ -212,6 +293,10 @@ export interface LoopResult<Task, Output, Decision> {
    *  `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch so the
    *  integrity guard sees real LLM activity. */
   tokenUsage: LoopTokenUsage
+  /** Domain-free run provenance for auditability: the mount manifest recorded
+   *  during `prepareBox` and the selection receipts for how the winner was
+   *  chosen. Always present; empty arrays when nothing was recorded. */
+  provenance: RunProvenance
 }
 
 /**

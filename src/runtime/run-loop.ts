@@ -48,8 +48,11 @@ import type {
   LoopTraceEmitter,
   LoopTraceEvent,
   LoopWinner,
+  MountManifestEntry,
+  MountRecorder,
   OutputAdapter,
   SandboxClient,
+  SelectionReceipt,
   Validator,
 } from './types'
 import {
@@ -155,6 +158,14 @@ export async function runLoop<Task, Output, Decision>(
   const loopStart = now()
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
+  // Per-run provenance manifest. `recordMount` is threaded into every box
+  // preparation path (fresh + lineage) so a `prepareBox` declares what it
+  // mounted. The kernel never inspects box contents — it only collects what the
+  // caller records.
+  const mounts: MountManifestEntry[] = []
+  const recordMount: MountRecorder = (entry) => {
+    mounts.push(entry)
+  }
   let round = 0
   // Same-sandbox mode: worker boxes are kept alive (not torn down per-iteration)
   // so the planner can stream into the latest; the kernel destroys them at loop end.
@@ -170,7 +181,7 @@ export async function runLoop<Task, Output, Decision>(
   // box+session handles so a refine continues the parent session and a fanout
   // forks the parent checkpoint. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
-  const lineageState = await setUpLineage(options, maxConcurrency)
+  const lineageState = await setUpLineage(options, maxConcurrency, recordMount)
 
   emitRunLoopHook(options, {
     target: 'agent.run',
@@ -304,6 +315,7 @@ export async function runLoop<Task, Output, Decision>(
         collectBox,
         lineagePlan,
         lineageState,
+        recordMount,
       })
 
       if (controller.signal.aborted) throwAbort()
@@ -334,7 +346,15 @@ export async function runLoop<Task, Output, Decision>(
       // Terminal decision ends the loop; a non-terminal one falls through to the
       // next plan() round, so this must return rather than continue.
       if (isTerminalDecision(decision)) {
-        return await finalizeAndEmitEnded(options, decision, iterations, loopStart, now, runId)
+        return await finalizeAndEmitEnded(
+          options,
+          decision,
+          iterations,
+          loopStart,
+          now,
+          runId,
+          mounts,
+        )
       }
       // The loop continues: free any lineage boxes no future round can descend
       // from, so the live-box set tracks the active frontier instead of growing
@@ -344,7 +364,7 @@ export async function runLoop<Task, Output, Decision>(
 
     // Either the cap was reached without a terminal decision, or plan() returned
     // [] first — both ask the driver for its final state and close out identically.
-    return await decideAndFinalize(options, iterations, loopStart, now, runId)
+    return await decideAndFinalize(options, iterations, loopStart, now, runId, mounts)
   } finally {
     if (options.ctx.signal) options.ctx.signal.removeEventListener('abort', onOuterAbort)
     // Same-sandbox mode kept worker boxes alive across plan() so the planner could
@@ -392,6 +412,7 @@ interface LineageState {
 async function setUpLineage<Task, Output, Decision>(
   options: RunLoopOptions<Task, Output, Decision>,
   maxConcurrency: number,
+  recordMount: MountRecorder,
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
@@ -405,6 +426,7 @@ async function setUpLineage<Task, Output, Decision>(
     lineage: createSandboxLineage(options.ctx.sandboxClient, capabilities, {
       maxConcurrency,
       streaming: lineageOpts.streaming,
+      recordMount,
     }),
     options: lineageOpts,
     handles: new Map(),
@@ -572,6 +594,10 @@ interface RunBatchArgs<Task, Output> {
    *  detaches + status-polls the terminal result (drop-resilient for long batch
    *  turns); 'sse' streams live (default). */
   streaming: 'sse' | 'poll'
+  /** The run's provenance recorder, forwarded to `prepareBox` on the default
+   *  fresh-box path so a mount declares itself into the manifest. (The lineage
+   *  path carries its own recorder from `createSandboxLineage`.) */
+  recordMount: MountRecorder
 }
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
@@ -655,7 +681,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       args.lineageState?.handles.set(args.item.index, acquired.handle)
       stream = acquired.events
     } else {
-      box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal)
+      box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal, args.recordMount)
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
       // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
@@ -847,11 +873,17 @@ function readSandboxId(box: SandboxInstance): string | undefined {
  * spec's profile (inferring the backend type when the spec doesn't override
  * it) and merges `sandboxOverrides`. Shared by the loop kernel and the
  * `AgentRuntime.act` sandbox bridge so both boot the sandbox identically.
+ *
+ * `recordMount`, when supplied, is forwarded to `prepareBox` so the caller can
+ * declare what it mounted into the box for the run's provenance manifest. The
+ * loop kernel passes its per-run recorder; other callers (which have no
+ * `LoopResult` to attach to) omit it and the prepareBox recorder is a no-op.
  */
 export async function createSandboxForSpec<Task>(
   client: SandboxClient,
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
+  recordMount?: MountRecorder,
 ): Promise<SandboxInstance> {
   const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
   // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
@@ -859,9 +891,29 @@ export async function createSandboxForSpec<Task>(
   // from sandbox status, and a gateway-timed-out create is recovered by lookup.
   if (signal.aborted) throwAbort()
   const box = await acquireSandbox(client, opts, { signal })
-  await spec.prepareBox?.(box, { signal })
+  await invokePrepareBox(spec, box, signal, recordMount)
   return box
 }
+
+/**
+ * Invoke a spec's `prepareBox` with a complete ctx. `recordMount` is the run's
+ * provenance recorder when one is threaded down; absent, a no-op stands in so
+ * the ctx shape is always satisfied and a caller that records mounts on a path
+ * with no manifest (e.g. the `AgentRuntime.act` bridge) silently drops nothing
+ * it cares about — it simply has nowhere to surface a manifest.
+ */
+async function invokePrepareBox<Task>(
+  spec: AgentRunSpec<Task>,
+  box: SandboxInstance,
+  signal: AbortSignal,
+  recordMount?: MountRecorder,
+): Promise<void> {
+  if (!spec.prepareBox) return
+  await spec.prepareBox(box, { signal, recordMount: recordMount ?? noopMountRecorder })
+}
+
+/** Shared no-op recorder for box-preparation paths that have no run manifest. */
+const noopMountRecorder: MountRecorder = () => {}
 
 interface FinalizeArgs<Task, Output, Decision> {
   options: RunLoopOptions<Task, Output, Decision>
@@ -870,6 +922,8 @@ interface FinalizeArgs<Task, Output, Decision> {
   startMs: number
   now: () => number
   runId: string
+  /** Provenance mounts recorded across the run's box preparations. */
+  mounts: MountManifestEntry[]
 }
 
 function finalize<Task, Output, Decision>(
@@ -878,9 +932,22 @@ function finalize<Task, Output, Decision>(
   // Precedence: an explicit caller `selectWinner` wins; else a driver-AUTHORED
   // winner (a `select` topology move); else the default argmax. A driver that
   // declares nothing returns undefined and falls through — existing behavior.
-  const winner = args.options.selectWinner
-    ? args.options.selectWinner(args.iterations)
-    : (args.options.driver.selectWinner?.(args.iterations) ?? defaultSelectWinner(args.iterations))
+  // Track which selector produced the winner so the receipts attribute it.
+  let selector: SelectionReceipt['selector']
+  let winner: LoopWinner<Task, Output> | undefined
+  if (args.options.selectWinner) {
+    selector = 'caller'
+    winner = args.options.selectWinner(args.iterations)
+  } else {
+    const authored = args.options.driver.selectWinner?.(args.iterations)
+    if (authored) {
+      selector = 'driver'
+      winner = authored
+    } else {
+      selector = 'default'
+      winner = defaultSelectWinner(args.iterations)
+    }
+  }
   const costUsd = args.iterations.reduce((sum, iter) => sum + (iter.costUsd || 0), 0)
   const tokenUsage = args.iterations.reduce((acc: LoopTokenUsage, iter) => {
     addTokenUsage(acc, iter.tokenUsage)
@@ -893,8 +960,55 @@ function finalize<Task, Output, Decision>(
     durationMs: args.now() - args.startMs,
     costUsd,
     tokenUsage,
+    provenance: {
+      mounts: args.mounts,
+      selectionReceipts: buildSelectionReceipts(args.iterations, winner, selector),
+    },
   }
   return result
+}
+
+/**
+ * One receipt per scored candidate — a candidate being an iteration that
+ * produced an output without erroring (an errored or output-less iteration was
+ * never selectable, so it gets no receipt). The receipt records the candidate's
+ * score and whether the selector chose it as the winner, attributed to the
+ * selector identity that ran. Domain-free: it states WHAT was selected and its
+ * score, never anything about the task or output content.
+ */
+function buildSelectionReceipts<Task, Output>(
+  iterations: Iteration<Task, Output>[],
+  winner: LoopWinner<Task, Output> | undefined,
+  selector: SelectionReceipt['selector'],
+): SelectionReceipt[] {
+  const receipts: SelectionReceipt[] = []
+  for (const iter of iterations) {
+    if (iter.output === undefined || iter.error) continue
+    const selected = winner?.iterationIndex === iter.index
+    const receipt: SelectionReceipt = {
+      candidateIndex: iter.index,
+      selected,
+      selector,
+    }
+    if (iter.verdict?.score !== undefined) receipt.score = iter.verdict.score
+    // The kernel can only speak to its OWN selection logic. A caller- or
+    // driver-authored winner runs by its own rationale, so the kernel leaves
+    // `reason` unset rather than inventing one.
+    if (selector === 'default') receipt.reason = defaultSelectorReason(iter, selected)
+    receipts.push(receipt)
+  }
+  return receipts
+}
+
+/** Plain-language reason for the default selector's decision (best-valid-score,
+ *  earliest-index tiebreak, falling back to best non-errored when none valid). */
+function defaultSelectorReason<Task, Output>(
+  iter: Iteration<Task, Output>,
+  selected: boolean,
+): string {
+  const valid = iter.verdict?.valid === true
+  if (selected) return valid ? 'best valid score' : 'best non-errored score (no valid candidate)'
+  return valid ? 'valid but not top score' : 'not selected'
 }
 
 /**
@@ -908,6 +1022,7 @@ async function decideAndFinalize<Task, Output, Decision>(
   startMs: number,
   now: () => number,
   runId: string,
+  mounts: MountManifestEntry[],
 ): Promise<LoopResult<Task, Output, Decision>> {
   emitRunLoopHook(options, {
     target: 'agent.decision',
@@ -930,7 +1045,7 @@ async function decideAndFinalize<Task, Output, Decision>(
     timestamp: now(),
     payload: { decision: stringifySafe(decision), historyLength: iterations.length },
   })
-  return finalizeAndEmitEnded(options, decision, iterations, startMs, now, runId)
+  return finalizeAndEmitEnded(options, decision, iterations, startMs, now, runId, mounts)
 }
 
 /** Finalize the loop and emit the terminal `loop.ended` span. Used by the
@@ -942,8 +1057,9 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
   startMs: number,
   now: () => number,
   runId: string,
+  mounts: MountManifestEntry[],
 ): Promise<LoopResult<Task, Output, Decision>> {
-  const result = finalize({ options, decision, iterations, startMs, now, runId })
+  const result = finalize({ options, decision, iterations, startMs, now, runId, mounts })
   emitRunLoopHook(options, {
     target: 'agent.run',
     phase: 'after',
