@@ -303,7 +303,7 @@ Restrict to one surface (e.g. only fold in skills). Default: all kinds.
 
 ### DedupeOptions
 
-Defined in: lifecycle/dedupe.ts:34
+Defined in: [lifecycle/dedupe.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L34)
 
 #### Properties
 
@@ -311,7 +311,7 @@ Defined in: lifecycle/dedupe.ts:34
 
 > **registry**: [`ArtifactRegistry`](#artifactregistry)
 
-Defined in: lifecycle/dedupe.ts:37
+Defined in: [lifecycle/dedupe.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L37)
 
 The registry whose `active` artifacts are pairwise stack-tested. Mutated in
  place: the weaker member of each non-stacking pair is retired.
@@ -320,7 +320,7 @@ The registry whose `active` artifacts are pairwise stack-tested. Mutated in
 
 > **baseline**: `AgentProfile`
 
-Defined in: lifecycle/dedupe.ts:40
+Defined in: [lifecycle/dedupe.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L40)
 
 The baseline profile the stacking ablation runs on top of. The "without"
  arm is scored once and shared across every pair.
@@ -329,7 +329,7 @@ The baseline profile the stacking ablation runs on top of. The "without"
 
 > **evalRunner**: [`EvalRunner`](#evalrunner-2)
 
-Defined in: lifecycle/dedupe.ts:43
+Defined in: [lifecycle/dedupe.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L43)
 
 Scores a profile on the held-back split. Called for the baseline, each
  artifact alone, and each candidate pair together.
@@ -338,7 +338,7 @@ Scores a profile on the held-back split. Called for the baseline, each
 
 > `optional` **tolerance?**: `number`
 
-Defined in: lifecycle/dedupe.ts:51
+Defined in: [lifecycle/dedupe.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L51)
 
 The stacking tolerance. A pair is judged non-stacking (redundant) when the
 combined lift falls SHORT of the sum of individual lifts by more than this:
@@ -350,7 +350,7 @@ counts as non-stacking (use a positive value on noisy live evals).
 
 > `optional` **kind?**: [`ArtifactKind`](#artifactkind)
 
-Defined in: lifecycle/dedupe.ts:54
+Defined in: [lifecycle/dedupe.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L54)
 
 Restrict dedupe to one surface (only compare skills against skills, …).
  Default: every `active` artifact is a candidate, across kinds.
@@ -359,7 +359,7 @@ Restrict dedupe to one surface (only compare skills against skills, …).
 
 > `optional` **baselineResult?**: [`EvalResult`](#evalresult)
 
-Defined in: lifecycle/dedupe.ts:56
+Defined in: [lifecycle/dedupe.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L56)
 
 A pre-computed baseline result, to skip the shared "without" run.
 
@@ -367,7 +367,7 @@ A pre-computed baseline result, to skip the shared "without" run.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: lifecycle/dedupe.ts:58
+Defined in: [lifecycle/dedupe.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L58)
 
 Cooperative cancellation, forwarded to every `evalRunner` call.
 
@@ -375,7 +375,7 @@ Cooperative cancellation, forwarded to every `evalRunner` call.
 
 ### PairStackCheck
 
-Defined in: lifecycle/dedupe.ts:62
+Defined in: [lifecycle/dedupe.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L62)
 
 The stacking verdict for one pair of active artifacts.
 
@@ -385,7 +385,7 @@ The stacking verdict for one pair of active artifacts.
 
 > **pair**: \[`string`, `string`\]
 
-Defined in: lifecycle/dedupe.ts:64
+Defined in: [lifecycle/dedupe.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L64)
 
 Ids of the two artifacts compared, in (a, b) order as examined.
 
@@ -393,7 +393,7 @@ Ids of the two artifacts compared, in (a, b) order as examined.
 
 > **liftA**: `number`
 
-Defined in: lifecycle/dedupe.ts:66
+Defined in: [lifecycle/dedupe.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L66)
 
 Individual held-back lift of the first artifact alone (re-measured).
 
@@ -401,7 +401,7 @@ Individual held-back lift of the first artifact alone (re-measured).
 
 > **liftB**: `number`
 
-Defined in: lifecycle/dedupe.ts:68
+Defined in: [lifecycle/dedupe.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L68)
 
 Individual held-back lift of the second artifact alone (re-measured).
 
@@ -409,7 +409,7 @@ Individual held-back lift of the second artifact alone (re-measured).
 
 > **combinedLift**: `number`
 
-Defined in: lifecycle/dedupe.ts:70
+Defined in: [lifecycle/dedupe.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L70)
 
 Held-back lift of BOTH artifacts composed together.
 
@@ -417,7 +417,7 @@ Held-back lift of BOTH artifacts composed together.
 
 > **stackGap**: `number`
 
-Defined in: lifecycle/dedupe.ts:73
+Defined in: [lifecycle/dedupe.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L73)
 
 `combinedLift − (liftA + liftB)`: ≥ −tolerance ⇒ they stack; below ⇒ they
  overlap (redundant).
@@ -426,7 +426,7 @@ Defined in: lifecycle/dedupe.ts:73
 
 > **redundant**: `boolean`
 
-Defined in: lifecycle/dedupe.ts:75
+Defined in: [lifecycle/dedupe.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L75)
 
 Whether the pair was judged non-stacking (redundant).
 
@@ -434,7 +434,7 @@ Whether the pair was judged non-stacking (redundant).
 
 > `optional` **retiredId?**: `string`
 
-Defined in: lifecycle/dedupe.ts:77
+Defined in: [lifecycle/dedupe.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L77)
 
 The id retired when redundant (the weaker member), else `undefined`.
 
@@ -442,7 +442,7 @@ The id retired when redundant (the weaker member), else `undefined`.
 
 ### DedupeResult
 
-Defined in: lifecycle/dedupe.ts:80
+Defined in: [lifecycle/dedupe.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L80)
 
 #### Properties
 
@@ -450,7 +450,7 @@ Defined in: lifecycle/dedupe.ts:80
 
 > **checks**: [`PairStackCheck`](#pairstackcheck)[]
 
-Defined in: lifecycle/dedupe.ts:83
+Defined in: [lifecycle/dedupe.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L83)
 
 One verdict per examined pair, in iteration order. Pairs where one member
  was already retired by an earlier pair this cycle are skipped.
@@ -459,7 +459,7 @@ One verdict per examined pair, in iteration order. Pairs where one member
 
 > **retired**: `string`[]
 
-Defined in: lifecycle/dedupe.ts:85
+Defined in: [lifecycle/dedupe.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L85)
 
 Ids retired this cycle (the weaker member of each non-stacking pair).
 
@@ -467,7 +467,7 @@ Ids retired this cycle (the weaker member of each non-stacking pair).
 
 > **baselineResult**: [`EvalResult`](#evalresult)
 
-Defined in: lifecycle/dedupe.ts:87
+Defined in: [lifecycle/dedupe.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L87)
 
 The shared baseline eval (the "without" arm, measured once).
 
@@ -475,7 +475,7 @@ The shared baseline eval (the "without" arm, measured once).
 
 ### DriftWatchOptions
 
-Defined in: lifecycle/drift-watch.ts:33
+Defined in: [lifecycle/drift-watch.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L33)
 
 #### Properties
 
@@ -483,7 +483,7 @@ Defined in: lifecycle/drift-watch.ts:33
 
 > **registry**: [`ArtifactRegistry`](#artifactregistry)
 
-Defined in: lifecycle/drift-watch.ts:36
+Defined in: [lifecycle/drift-watch.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L36)
 
 The registry whose `active` artifacts are re-measured. Mutated in place:
  artifacts that fail the keep-bar are demoted to `decayed`.
@@ -492,7 +492,7 @@ The registry whose `active` artifacts are re-measured. Mutated in place:
 
 > **baseline**: `AgentProfile`
 
-Defined in: lifecycle/drift-watch.ts:40
+Defined in: [lifecycle/drift-watch.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L40)
 
 The baseline profile each artifact is re-measured ON TOP OF — the SAME
  ablation shape as promotion. Pass the CURRENT baseline (the world the
@@ -502,7 +502,7 @@ The baseline profile each artifact is re-measured ON TOP OF — the SAME
 
 > **evalRunner**: [`EvalRunner`](#evalrunner-2)
 
-Defined in: lifecycle/drift-watch.ts:43
+Defined in: [lifecycle/drift-watch.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L43)
 
 Scores a profile on the held-back split. The shared baseline arm is run
  once and reused across every artifact's ablation (the "without" arm).
@@ -511,7 +511,7 @@ Scores a profile on the held-back split. The shared baseline arm is run
 
 > `optional` **minLift?**: `number`
 
-Defined in: lifecycle/drift-watch.ts:50
+Defined in: [lifecycle/drift-watch.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L50)
 
 The absolute keep-bar: an artifact stays `active` only while its re-measured
 held-back lift is STRICTLY ABOVE this floor. Default 0 — an artifact that no
@@ -522,7 +522,7 @@ longer adds anything (or now subtracts) decays. Mirrors `thresholdPromotionGate`
 
 > `optional` **maxRelativeDecay?**: `number`
 
-Defined in: lifecycle/drift-watch.ts:59
+Defined in: [lifecycle/drift-watch.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L59)
 
 The relative keep-bar: an artifact also decays if its re-measured lift fell
 to below this FRACTION of the lift recorded at promotion (`registry.liftOf`).
@@ -535,7 +535,7 @@ recorded prior lift (a bare `promote`), which is judged on `minLift` alone.
 
 > `optional` **kind?**: [`ArtifactKind`](#artifactkind)
 
-Defined in: lifecycle/drift-watch.ts:62
+Defined in: [lifecycle/drift-watch.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L62)
 
 Restrict the watch to one surface (e.g. re-measure only skills). Default:
  every `active` artifact, regardless of kind.
@@ -544,7 +544,7 @@ Restrict the watch to one surface (e.g. re-measure only skills). Default:
 
 > `optional` **baselineResult?**: [`EvalResult`](#evalresult)
 
-Defined in: lifecycle/drift-watch.ts:65
+Defined in: [lifecycle/drift-watch.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L65)
 
 A pre-computed baseline result, to skip the shared "without" run when the
  caller already scored the current baseline this cycle.
@@ -553,7 +553,7 @@ A pre-computed baseline result, to skip the shared "without" run when the
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: lifecycle/drift-watch.ts:67
+Defined in: [lifecycle/drift-watch.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L67)
 
 Cooperative cancellation, forwarded to every `evalRunner` call.
 
@@ -561,7 +561,7 @@ Cooperative cancellation, forwarded to every `evalRunner` call.
 
 ### DriftCheck
 
-Defined in: lifecycle/drift-watch.ts:71
+Defined in: [lifecycle/drift-watch.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L71)
 
 Per-artifact record of what the re-measure found and decided.
 
@@ -571,7 +571,7 @@ Per-artifact record of what the re-measure found and decided.
 
 > **artifact**: [`ProfileArtifact`](#profileartifact)
 
-Defined in: lifecycle/drift-watch.ts:74
+Defined in: [lifecycle/drift-watch.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L74)
 
 The re-measured artifact (status reflects the decision: still `active`, or
  now `decayed`).
@@ -580,7 +580,7 @@ The re-measured artifact (status reflects the decision: still `active`, or
 
 > **priorLift**: `number` \| `undefined`
 
-Defined in: lifecycle/drift-watch.ts:77
+Defined in: [lifecycle/drift-watch.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L77)
 
 The lift recorded at promotion time (`registry.liftOf` before the check),
  or `undefined` if it was promoted without a lift receipt.
@@ -589,7 +589,7 @@ The lift recorded at promotion time (`registry.liftOf` before the check),
 
 > **currentLift**: `number`
 
-Defined in: lifecycle/drift-watch.ts:79
+Defined in: [lifecycle/drift-watch.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L79)
 
 The freshly re-measured held-back lift (with − without composite).
 
@@ -597,7 +597,7 @@ The freshly re-measured held-back lift (with − without composite).
 
 > **demoted**: `boolean`
 
-Defined in: lifecycle/drift-watch.ts:81
+Defined in: [lifecycle/drift-watch.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L81)
 
 Whether this re-measure demoted the artifact (`active` → `decayed`).
 
@@ -605,7 +605,7 @@ Whether this re-measure demoted the artifact (`active` → `decayed`).
 
 > **reason**: `string`
 
-Defined in: lifecycle/drift-watch.ts:84
+Defined in: [lifecycle/drift-watch.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L84)
 
 Human-readable reason the artifact was kept or demoted (the same string
  recorded under `lifecycleReasonKey` on a demotion).
@@ -614,7 +614,7 @@ Human-readable reason the artifact was kept or demoted (the same string
 
 ### DriftWatchResult
 
-Defined in: lifecycle/drift-watch.ts:87
+Defined in: [lifecycle/drift-watch.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L87)
 
 #### Properties
 
@@ -622,7 +622,7 @@ Defined in: lifecycle/drift-watch.ts:87
 
 > **checks**: [`DriftCheck`](#driftcheck)[]
 
-Defined in: lifecycle/drift-watch.ts:89
+Defined in: [lifecycle/drift-watch.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L89)
 
 One check per `active` artifact examined, in registry order.
 
@@ -630,7 +630,7 @@ One check per `active` artifact examined, in registry order.
 
 > **demoted**: `string`[]
 
-Defined in: lifecycle/drift-watch.ts:91
+Defined in: [lifecycle/drift-watch.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L91)
 
 Ids of the artifacts demoted to `decayed` this cycle.
 
@@ -638,7 +638,7 @@ Ids of the artifacts demoted to `decayed` this cycle.
 
 > **baselineResult**: [`EvalResult`](#evalresult)
 
-Defined in: lifecycle/drift-watch.ts:93
+Defined in: [lifecycle/drift-watch.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L93)
 
 The shared baseline eval (the "without" arm, measured once).
 
@@ -2189,7 +2189,7 @@ Cold start — fold the single best distilled skill back in:
 
 > **dedupeArtifacts**(`opts`): `Promise`\<[`DedupeResult`](#deduperesult)\>
 
-Defined in: lifecycle/dedupe.ts:108
+Defined in: [lifecycle/dedupe.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/dedupe.ts#L108)
 
 Pairwise stack-test the `active` artifacts and retire the redundant half of
 each non-stacking pair.
@@ -2228,7 +2228,7 @@ Retire skills that teach the same tactic as a stronger one:
 
 > **driftWatch**(`opts`): `Promise`\<[`DriftWatchResult`](#driftwatchresult)\>
 
-Defined in: lifecycle/drift-watch.ts:119
+Defined in: [lifecycle/drift-watch.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/drift-watch.ts#L119)
 
 Re-measure every `active` artifact and demote those whose held-back lift
 decayed below the keep-bar.
