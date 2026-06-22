@@ -68,6 +68,14 @@ export {
   type SkillGeneratorOptions,
   skillGenerator,
 } from './skill-generator'
+export { type WorktreeBuildOptions, worktreeBuildCandidate } from './tool-build'
+export {
+  type BuildableGeneratorOptions,
+  type BuildableKind,
+  type BuildCandidate,
+  type BuiltCandidate,
+  buildableGenerator,
+} from './tool-generator'
 export type {
   ArtifactInput,
   ArtifactKind,
