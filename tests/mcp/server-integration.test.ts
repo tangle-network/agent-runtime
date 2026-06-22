@@ -1,32 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { CoderDelegate, ResearcherDelegate } from '../../src/mcp/delegates'
+import type { UiAuditorDelegate } from '../../src/mcp/delegates'
 import {
   createInProcessTransport,
   createMcpServer,
   type JsonRpcResponse,
 } from '../../src/mcp/server'
 
-const coderStub: CoderDelegate = async () => ({
-  branch: 'feat/y',
-  patch: '',
-  testResult: { passed: true, output: 'ok' },
-  typecheckResult: { passed: true, output: 'ok' },
-  diffStats: { filesChanged: 1, insertions: 1, deletions: 0 },
-})
-
-const researcherStub: ResearcherDelegate = async () => ({
-  items: [
-    {
-      id: 'i-1',
-      namespace: 'tenant-a',
-      claim: 'cpg-founders use Twitter heavily',
-      evidence: [{ source: 'twitter', capturedAt: 0 }],
-      confidence: 0.6,
-      authoredBy: { kind: 'agent', id: 'r' },
-    },
-  ],
-  citations: [{ url: 'https://x.com', quote: 'q', confidence: 0.5 }],
-  proposedWrites: [],
+const uiAuditorStub: UiAuditorDelegate = async (args) => ({
+  workspaceDir: args.workspaceDir,
+  indexFile: 'index.md',
+  findings: [],
+  iterations: 0,
 })
 
 async function rpcCall(
@@ -39,11 +23,8 @@ async function rpcCall(
 }
 
 describe('createMcpServer — JSON-RPC surface', () => {
-  it('responds to initialize + tools/list with the registered tools', async () => {
-    const server = createMcpServer({
-      coderDelegate: coderStub,
-      researcherDelegate: researcherStub,
-    })
+  it('responds to initialize + tools/list with the always-on queue-bound tools', async () => {
+    const server = createMcpServer({})
     const init = await rpcCall(server, 'initialize', {}, 0)
     expect(init?.result).toMatchObject({
       protocolVersion: '2024-11-05',
@@ -52,28 +33,34 @@ describe('createMcpServer — JSON-RPC surface', () => {
     })
     const listed = await rpcCall(server, 'tools/list', {}, 1)
     const names = (listed?.result as { tools: { name: string }[] }).tools.map((t) => t.name).sort()
-    expect(names).toEqual([
-      'delegate_code',
-      'delegate_feedback',
-      'delegate_research',
-      'delegation_history',
-      'delegation_status',
-    ])
+    expect(names).toEqual(['delegate_feedback', 'delegation_history', 'delegation_status'])
   })
 
-  it('omits delegate_code when coderDelegate is not wired', async () => {
-    const server = createMcpServer({ researcherDelegate: researcherStub })
-    const listed = await rpcCall(server, 'tools/list', {}, 1)
-    const names = (listed?.result as { tools: { name: string }[] }).tools.map((t) => t.name)
-    expect(names).not.toContain('delegate_code')
-    expect(names).toContain('delegate_research')
+  it('registers delegate_ui_audit only when a uiAuditorDelegate is wired', async () => {
+    const without = await rpcCall(createMcpServer({}), 'tools/list', {}, 1)
+    const withoutNames = (without?.result as { tools: { name: string }[] }).tools.map((t) => t.name)
+    expect(withoutNames).not.toContain('delegate_ui_audit')
+
+    const withDelegate = await rpcCall(
+      createMcpServer({ uiAuditorDelegate: uiAuditorStub }),
+      'tools/list',
+      {},
+      1,
+    )
+    const withNames = (withDelegate?.result as { tools: { name: string }[] }).tools.map(
+      (t) => t.name,
+    )
+    expect(withNames).toContain('delegate_ui_audit')
   })
 
   it('routes tools/call through the handler and returns structuredContent', async () => {
-    const server = createMcpServer({ coderDelegate: coderStub })
+    const server = createMcpServer({ uiAuditorDelegate: uiAuditorStub })
     const call = await rpcCall(server, 'tools/call', {
-      name: 'delegate_code',
-      arguments: { goal: 'fix bug', repoRoot: '/r' },
+      name: 'delegate_ui_audit',
+      arguments: {
+        workspaceDir: '/tmp/audits/x',
+        routes: [{ name: 'home', url: 'https://example.com' }],
+      },
     })
     const result = call?.result as {
       content: { type: string; text: string }[]
@@ -86,28 +73,29 @@ describe('createMcpServer — JSON-RPC surface', () => {
   })
 
   it('returns -32602 on validation failures', async () => {
-    const server = createMcpServer({ coderDelegate: coderStub })
+    const server = createMcpServer({ uiAuditorDelegate: uiAuditorStub })
     const call = await rpcCall(server, 'tools/call', {
-      name: 'delegate_code',
-      arguments: { goal: '', repoRoot: '/r' },
+      name: 'delegate_ui_audit',
+      arguments: { workspaceDir: '/tmp/x', routes: [] },
     })
     expect(call?.error?.code).toBe(-32602)
   })
 
   it('returns -32601 for unknown tools', async () => {
-    const server = createMcpServer({ coderDelegate: coderStub })
+    const server = createMcpServer({})
     const call = await rpcCall(server, 'tools/call', { name: 'delegate_evaluation' })
     expect(call?.error?.code).toBe(-32601)
   })
 
-  it('drives the full lifecycle end-to-end: delegate → status → feedback → history', async () => {
-    const server = createMcpServer({
-      coderDelegate: coderStub,
-      researcherDelegate: researcherStub,
-    })
+  it('drives the full lifecycle end-to-end: delegate_ui_audit → status → feedback → history', async () => {
+    const server = createMcpServer({ uiAuditorDelegate: uiAuditorStub })
     const created = await rpcCall(server, 'tools/call', {
-      name: 'delegate_research',
-      arguments: { question: 'who engages cpg-founders?', namespace: 'tenant-a' },
+      name: 'delegate_ui_audit',
+      arguments: {
+        workspaceDir: '/tmp/audits/y',
+        routes: [{ name: 'home', url: 'https://example.com' }],
+        namespace: 'tenant-a',
+      },
     })
     const taskId = (created?.result as { structuredContent: { taskId: string } }).structuredContent
       .taskId
@@ -127,7 +115,7 @@ describe('createMcpServer — JSON-RPC surface', () => {
       name: 'delegate_feedback',
       arguments: {
         refersTo: { kind: 'delegation', ref: taskId },
-        rating: { score: 0.85, label: 'good', notes: 'cited the right source' },
+        rating: { score: 0.85, label: 'good', notes: 'clean audit' },
         by: 'agent',
         namespace: 'tenant-a',
       },
@@ -152,7 +140,7 @@ describe('createMcpServer — JSON-RPC surface', () => {
 
 describe('createMcpServer — stdio transport', () => {
   it('handles a single JSON-RPC line through serve() and writes a response', async () => {
-    const server = createMcpServer({ coderDelegate: coderStub })
+    const server = createMcpServer({})
     const { transport, clientWrite, clientClose, readServer } = createInProcessTransport()
     const servePromise = server.serve(transport)
     clientWrite(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }))
@@ -162,13 +150,14 @@ describe('createMcpServer — stdio transport', () => {
     const responses = await readServer()
     expect(responses.length).toBeGreaterThanOrEqual(2)
     const list = responses.find((r) => r.id === 2)
-    expect((list?.result as { tools: unknown[] }).tools.length).toBe(4)
+    // Always-on: delegate_feedback, delegation_status, delegation_history.
+    expect((list?.result as { tools: unknown[] }).tools.length).toBe(3)
     clientClose()
     await servePromise
   })
 
   it('emits a parse error for malformed JSON', async () => {
-    const server = createMcpServer({ coderDelegate: coderStub })
+    const server = createMcpServer({})
     const { transport, clientWrite, clientClose, readServer } = createInProcessTransport()
     const servePromise = server.serve(transport)
     clientWrite('{not json')

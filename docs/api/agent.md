@@ -1103,7 +1103,7 @@ readonly `string`[]
 
 ### CreateSandboxActOptions
 
-Defined in: [agent/sandbox-act.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L29)
+Defined in: [agent/sandbox-act.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L47)
 
 #### Type Parameters
 
@@ -1121,15 +1121,15 @@ Defined in: [agent/sandbox-act.ts:29](https://github.com/tangle-network/agent-ru
 
 > **baseProfile**: `AgentProfile`
 
-Defined in: [agent/sandbox-act.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L31)
+Defined in: [agent/sandbox-act.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L49)
 
-Canonical agent profile — the same one the prod chat turn composes from.
+Canonical agent profile — the same one the prod chat turn uses.
 
 ##### sandboxClient
 
 > **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-1)
 
-Defined in: [agent/sandbox-act.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L33)
+Defined in: [agent/sandbox-act.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L51)
 
 Sandbox client used to boot the per-run sandbox.
 
@@ -1137,7 +1137,7 @@ Sandbox client used to boot the per-run sandbox.
 
 > **buildPrompt**: (`persona`) => `string`
 
-Defined in: [agent/sandbox-act.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L35)
+Defined in: [agent/sandbox-act.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L53)
 
 Persona → prompt. Pure; the eval cell's input.
 
@@ -1155,20 +1155,18 @@ Persona → prompt. Pure; the eval cell's input.
 
 > **output**: [`OutputAdapter`](runtime.md#outputadapter)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L37)
+Defined in: [agent/sandbox-act.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L55)
 
 Sandbox event stream → typed output the rubric scores.
 
 ##### compose?
 
-> `optional` **compose?**: (`persona`) => [`ComposeProductionAgentProfileOptions`](mcp.md#composeproductionagentprofileoptions)
+> `optional` **compose?**: (`persona`) => `SandboxActComposeOverrides`
 
-Defined in: [agent/sandbox-act.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L44)
+Defined in: [agent/sandbox-act.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L60)
 
-Per-persona composition overrides (workspace-augmented system prompt,
-extra file mounts, sandbox key). Merged into
-[composeProductionAgentProfile](mcp.md#composeproductionagentprofile); `env` here is overridden by the
-top-level `env` option when both are set.
+Per-persona profile overrides (workspace-augmented system prompt, extra
+file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
 
 ###### Parameters
 
@@ -1178,13 +1176,13 @@ top-level `env` option when both are set.
 
 ###### Returns
 
-[`ComposeProductionAgentProfileOptions`](mcp.md#composeproductionagentprofileoptions)
+`SandboxActComposeOverrides`
 
 ##### sandboxOverrides?
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: [agent/sandbox-act.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L46)
+Defined in: [agent/sandbox-act.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L62)
 
 Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
@@ -1198,7 +1196,7 @@ Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
 > `optional` **name?**: `string`
 
-Defined in: [agent/sandbox-act.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L48)
+Defined in: [agent/sandbox-act.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L64)
 
 Stable run name surfaced in mapped `llm_call` events.
 
@@ -1206,7 +1204,7 @@ Stable run name surfaced in mapped `llm_call` events.
 
 > `optional` **mapEvent?**: (`event`, `opts`) => [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [agent/sandbox-act.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L50)
+Defined in: [agent/sandbox-act.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L66)
 
 Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
@@ -1225,14 +1223,6 @@ Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 ###### Returns
 
 [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
-
-##### env?
-
-> `optional` **env?**: `Record`\<`string`, `string` \| `undefined`\>
-
-Defined in: [agent/sandbox-act.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L55)
-
-Environment source for delegation-MCP composition. Defaults to `process.env`.
 
 ***
 
@@ -1600,7 +1590,7 @@ optional on the type; missing means no measurement was wired).
 
 > **createSandboxAct**\<`TPersona`, `TRunOutput`\>(`options`): (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L64)
+Defined in: [agent/sandbox-act.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L78)
 
 Build an `AgentRuntime.act` implementation backed by a single prod-profile
 sandbox run. The returned function honours the `act` contract: it returns

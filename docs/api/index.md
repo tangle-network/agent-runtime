@@ -2981,7 +2981,7 @@ Defined in: [improvement/reflective-generator.ts:21](https://github.com/tangle-n
 
 ### DelegatedLoopResult
 
-Defined in: [loop-runner.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L75)
+Defined in: [loop-runner.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L66)
 
 **`Experimental`**
 
@@ -3000,7 +3000,7 @@ Uniform result — never throws from a registered runner; a
 
 > **mode**: `"code"` \| `"review"` \| `"research"` \| `"audit"` \| `"self-improve"`
 
-Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L76)
+Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L67)
 
 **`Experimental`**
 
@@ -3008,7 +3008,7 @@ Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/
 
 > **ok**: `boolean`
 
-Defined in: [loop-runner.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L77)
+Defined in: [loop-runner.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L68)
 
 **`Experimental`**
 
@@ -3016,7 +3016,7 @@ Defined in: [loop-runner.ts:77](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **output?**: `T`
 
-Defined in: [loop-runner.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L78)
+Defined in: [loop-runner.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L69)
 
 **`Experimental`**
 
@@ -3024,7 +3024,7 @@ Defined in: [loop-runner.ts:78](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **error?**: `string`
 
-Defined in: [loop-runner.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L79)
+Defined in: [loop-runner.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L70)
 
 **`Experimental`**
 
@@ -3032,7 +3032,7 @@ Defined in: [loop-runner.ts:79](https://github.com/tangle-network/agent-runtime/
 
 > **durationMs**: `number`
 
-Defined in: [loop-runner.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L80)
+Defined in: [loop-runner.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L71)
 
 **`Experimental`**
 
@@ -3040,7 +3040,7 @@ Defined in: [loop-runner.ts:80](https://github.com/tangle-network/agent-runtime/
 
 ### RunDelegatedLoopOptions
 
-Defined in: [loop-runner.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L84)
+Defined in: [loop-runner.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L75)
 
 **`Experimental`**
 
@@ -3050,7 +3050,7 @@ Defined in: [loop-runner.ts:84](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [loop-runner.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L85)
+Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L76)
 
 **`Experimental`**
 
@@ -3058,7 +3058,7 @@ Defined in: [loop-runner.ts:85](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **now?**: () => `number`
 
-Defined in: [loop-runner.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L87)
+Defined in: [loop-runner.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L78)
 
 **`Experimental`**
 
@@ -3070,69 +3070,9 @@ Clock override for deterministic tests.
 
 ***
 
-### CoderLoopRunnerOptions
-
-Defined in: [loop-runner.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L128)
-
-**`Experimental`**
-
-Options for the default `code`/`review` runner.
-
-#### Properties
-
-##### sandboxClient
-
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-1)
-
-Defined in: [loop-runner.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L129)
-
-**`Experimental`**
-
-##### args
-
-> **args**: [`DelegateCodeArgs`](mcp.md#delegatecodeargs)
-
-Defined in: [loop-runner.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L131)
-
-**`Experimental`**
-
-What to build — the delegate args (goal, repoRoot, variants, config, …).
-
-##### reviewer?
-
-> `optional` **reviewer?**: [`CoderReviewer`](mcp.md#coderreviewer)
-
-Defined in: [loop-runner.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L133)
-
-**`Experimental`**
-
-Adversarial reviewer. Pass one to run `review` mode (an approval gate over the candidate).
-
-##### winnerSelection?
-
-> `optional` **winnerSelection?**: [`DetachedWinnerSelection`](mcp.md#detachedwinnerselection)
-
-Defined in: [loop-runner.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L135)
-
-**`Experimental`**
-
-Winner-selection strategy. Default `highest-score`.
-
-##### fanoutHarnesses?
-
-> `optional` **fanoutHarnesses?**: `string`[]
-
-Defined in: [loop-runner.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L137)
-
-**`Experimental`**
-
-Harnesses for `variants > 1` fanout.
-
-***
-
 ### WorktreeLoopRunnerOptions
 
-Defined in: [loop-runner.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L158)
+Defined in: [loop-runner.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L119)
 
 **`Experimental`**
 
@@ -3144,7 +3084,7 @@ Options for the local-repo `code` runner over the GENERIC recursive path.
 
 > **repoRoot**: `string`
 
-Defined in: [loop-runner.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L160)
+Defined in: [loop-runner.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L121)
 
 **`Experimental`**
 
@@ -3154,7 +3094,7 @@ Absolute path to the local git checkout each worktree is cut from.
 
 > **taskPrompt**: `string`
 
-Defined in: [loop-runner.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L162)
+Defined in: [loop-runner.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L123)
 
 **`Experimental`**
 
@@ -3164,7 +3104,7 @@ The instruction handed to every authored harness (composed under each profile's 
 
 > **harnesses**: readonly [`AuthoredHarness`](runtime.md#authoredharness)[]
 
-Defined in: [loop-runner.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L164)
+Defined in: [loop-runner.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L125)
 
 **`Experimental`**
 
@@ -3174,7 +3114,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 > **budget**: [`Budget`](runtime.md#budget-10)
 
-Defined in: [loop-runner.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L166)
+Defined in: [loop-runner.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L127)
 
 **`Experimental`**
 
@@ -3184,7 +3124,7 @@ Conserved budget pool bounding the fanout (equal-k holds by construction).
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [loop-runner.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L168)
+Defined in: [loop-runner.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L129)
 
 **`Experimental`**
 
@@ -3194,7 +3134,7 @@ Shell command run in each worktree to derive the tests-PASS signal.
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [loop-runner.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L170)
+Defined in: [loop-runner.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L131)
 
 **`Experimental`**
 
@@ -3204,7 +3144,7 @@ Shell command run in each worktree to derive the typecheck-PASS signal.
 
 > `optional` **require?**: readonly (`"tests"` \| `"typecheck"`)[]
 
-Defined in: [loop-runner.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L172)
+Defined in: [loop-runner.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L133)
 
 **`Experimental`**
 
@@ -3214,7 +3154,7 @@ Which verification signals the deliverable REQUIRES present-and-passing (default
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [loop-runner.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L174)
+Defined in: [loop-runner.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L135)
 
 **`Experimental`**
 
@@ -3224,7 +3164,7 @@ Diff-size cap (lines).
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [loop-runner.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L176)
+Defined in: [loop-runner.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L137)
 
 **`Experimental`**
 
@@ -3234,7 +3174,7 @@ Literal path prefixes the patch must not touch (the secret-floor is always on re
 
 > `optional` **winnerStrategy?**: [`WinnerStrategy`](runtime.md#winnerstrategy)
 
-Defined in: [loop-runner.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L178)
+Defined in: [loop-runner.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L139)
 
 **`Experimental`**
 
@@ -3244,7 +3184,7 @@ Winner-selection strategy among gated candidates. Default `highest-score`.
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [loop-runner.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L180)
+Defined in: [loop-runner.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L141)
 
 **`Experimental`**
 
@@ -3254,7 +3194,7 @@ Test seams forwarded to the worktree-CLI leaves so the runner drives offline.
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [loop-runner.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L181)
+Defined in: [loop-runner.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L142)
 
 **`Experimental`**
 
@@ -3290,7 +3230,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [loop-runner.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L182)
+Defined in: [loop-runner.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L143)
 
 **`Experimental`**
 
@@ -3298,7 +3238,7 @@ Defined in: [loop-runner.ts:182](https://github.com/tangle-network/agent-runtime
 
 ### VetoedFact
 
-Defined in: [loop-runner.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L243)
+Defined in: [loop-runner.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L205)
 
 **`Experimental`**
 
@@ -3310,7 +3250,7 @@ A fact rejected at the KB gate — surfaced, never dropped.
 
 > **candidate**: [`FactCandidate`](mcp.md#factcandidate)
 
-Defined in: [loop-runner.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L244)
+Defined in: [loop-runner.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L206)
 
 **`Experimental`**
 
@@ -3318,7 +3258,7 @@ Defined in: [loop-runner.ts:244](https://github.com/tangle-network/agent-runtime
 
 > `optional` **vetoedBy?**: `string`
 
-Defined in: [loop-runner.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L245)
+Defined in: [loop-runner.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L207)
 
 **`Experimental`**
 
@@ -3326,7 +3266,7 @@ Defined in: [loop-runner.ts:245](https://github.com/tangle-network/agent-runtime
 
 > `optional` **reason?**: `string`
 
-Defined in: [loop-runner.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L246)
+Defined in: [loop-runner.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L208)
 
 **`Experimental`**
 
@@ -3334,7 +3274,7 @@ Defined in: [loop-runner.ts:246](https://github.com/tangle-network/agent-runtime
 
 ### ResearchLoopResult
 
-Defined in: [loop-runner.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L250)
+Defined in: [loop-runner.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L212)
 
 **`Experimental`**
 
@@ -3344,7 +3284,7 @@ Defined in: [loop-runner.ts:250](https://github.com/tangle-network/agent-runtime
 
 > **accepted**: [`FactCandidate`](mcp.md#factcandidate)[]
 
-Defined in: [loop-runner.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L252)
+Defined in: [loop-runner.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L214)
 
 **`Experimental`**
 
@@ -3354,7 +3294,7 @@ Facts that passed the fail-closed gate — safe to write to the KB.
 
 > **vetoed**: [`VetoedFact`](#vetoedfact)[]
 
-Defined in: [loop-runner.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L254)
+Defined in: [loop-runner.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L216)
 
 **`Experimental`**
 
@@ -3364,7 +3304,7 @@ Facts the gate vetoed in the final round — escalate, do not silently drop.
 
 > **rounds**: `number`
 
-Defined in: [loop-runner.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L256)
+Defined in: [loop-runner.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L218)
 
 **`Experimental`**
 
@@ -3374,7 +3314,7 @@ Research rounds actually run.
 
 ### ResearchLoopRunnerOptions
 
-Defined in: [loop-runner.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L260)
+Defined in: [loop-runner.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L222)
 
 **`Experimental`**
 
@@ -3386,7 +3326,7 @@ Options for the default `research` runner.
 
 > **research**: (`round`, `vetoed`) => `Promise`\<[`FactCandidate`](mcp.md#factcandidate)[]\>
 
-Defined in: [loop-runner.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L267)
+Defined in: [loop-runner.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L229)
 
 **`Experimental`**
 
@@ -3413,7 +3353,7 @@ Returns fact candidates carrying their grounding (`verbatimPassage` +
 
 > `optional` **gate?**: [`CreateKbGateOptions`](mcp.md#createkbgateoptions)
 
-Defined in: [loop-runner.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L269)
+Defined in: [loop-runner.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L231)
 
 **`Experimental`**
 
@@ -3423,7 +3363,7 @@ Gate config (extra judges, self-artifact kinds, …). The floor is always on.
 
 > `optional` **maxRounds?**: `number`
 
-Defined in: [loop-runner.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L271)
+Defined in: [loop-runner.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L233)
 
 **`Experimental`**
 
@@ -6451,7 +6391,7 @@ The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
 
 > **DelegatedLoopMode** = *typeof* [`DELEGATED_LOOP_MODES`](#delegated_loop_modes)\[`number`\]
 
-Defined in: [loop-runner.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L58)
+Defined in: [loop-runner.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L49)
 
 **`Experimental`**
 
@@ -6461,7 +6401,7 @@ Defined in: [loop-runner.ts:58](https://github.com/tangle-network/agent-runtime/
 
 > **DelegatedLoopRunner**\<`T`\> = (`signal`) => `Promise`\<`T`\>
 
-Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L67)
+Defined in: [loop-runner.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L58)
 
 **`Experimental`**
 
@@ -6490,7 +6430,7 @@ A pre-configured loop for one mode. Returns the mode's raw
 
 > **DelegatedLoopRegistry** = `Partial`\<`Record`\<[`DelegatedLoopMode`](#delegatedloopmode), [`DelegatedLoopRunner`](#delegatedlooprunner)\>\>
 
-Defined in: [loop-runner.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L71)
+Defined in: [loop-runner.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L62)
 
 **`Experimental`**
 
@@ -7012,7 +6952,7 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 > `const` **DELEGATED\_LOOP\_MODES**: readonly \[`"code"`, `"review"`, `"research"`, `"audit"`, `"self-improve"`\]
 
-Defined in: [loop-runner.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L55)
+Defined in: [loop-runner.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L46)
 
 **`Experimental`**
 
@@ -7940,7 +7880,7 @@ Defined in: [improvement/reflective-generator.ts:24](https://github.com/tangle-n
 
 > **isDelegatedLoopMode**(`value`): value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
 
-Defined in: [loop-runner.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L61)
+Defined in: [loop-runner.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L52)
 
 **`Experimental`**
 
@@ -7962,7 +7902,7 @@ value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
 
 > **runDelegatedLoop**\<`T`\>(`mode`, `registry`, `options?`): `Promise`\<[`DelegatedLoopResult`](#delegatedloopresult)\<`T`\>\>
 
-Defined in: [loop-runner.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L98)
+Defined in: [loop-runner.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L89)
 
 **`Experimental`**
 
@@ -7997,42 +7937,20 @@ config bug, not a silent no-op. A runner that throws is captured as
 
 ***
 
-### coderLoopRunner()
-
-> **coderLoopRunner**(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`CoderOutput`\>
-
-Defined in: [loop-runner.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L144)
-
-**`Experimental`**
-
-Build a `code`/`review`-mode runner over the sandbox-session coder delegate. Pass a
-`reviewer` to run `review` mode — an approval gate over the validated candidate.
-
-#### Parameters
-
-##### options
-
-[`CoderLoopRunnerOptions`](#coderlooprunneroptions)
-
-#### Returns
-
-[`DelegatedLoopRunner`](#delegatedlooprunner)\<`CoderOutput`\>
-
-***
-
 ### worktreeLoopRunner()
 
 > **worktreeLoopRunner**(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`WorktreeHarnessResult`\>
 
-Defined in: [loop-runner.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L197)
+Defined in: [loop-runner.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L159)
 
 **`Experimental`**
 
 `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
 `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
-`runPersonified` on the keystone Supervisor. This is the local-repo counterpart to
-[coderLoopRunner](#coderlooprunner) (which drives the in-box harness over a `SandboxClient`): no `runLoop`
-driver, no role-coupled delegate — the harness list is the fanout, the gate is `patchDelivered`,
+`runPersonified` on the keystone Supervisor. The sandbox-session counterpart that drives the in-box
+harness over a `SandboxClient` is `detachedSessionDelegate` (`./mcp/delegates`); here there is no
+`runLoop` driver, no role-coupled delegate — the harness list is the fanout, the gate is
+`patchDelivered`,
 the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
 would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
 patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
@@ -8053,7 +7971,7 @@ patch artifact, or throws when no candidate is delivered (fail loud, never a vac
 
 > **researchLoopRunner**(`o`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`ResearchLoopResult`](#researchloopresult)\>
 
-Defined in: [loop-runner.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L282)
+Defined in: [loop-runner.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L244)
 
 **`Experimental`**
 
@@ -8080,7 +7998,7 @@ never silently dropped) so the caller audits vs retries.
 
 > **selfImproveLoopRunner**\<`TScenario`, `TArtifact`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`SelfImproveResult`\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [loop-runner.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L309)
+Defined in: [loop-runner.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L271)
 
 **`Experimental`**
 
@@ -8112,7 +8030,7 @@ Defined in: [loop-runner.ts:309](https://github.com/tangle-network/agent-runtime
 
 > **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
 
-Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L316)
+Defined in: [loop-runner.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L278)
 
 **`Experimental`**
 
@@ -8144,14 +8062,13 @@ Defined in: [loop-runner.ts:316](https://github.com/tangle-network/agent-runtime
 
 > **mcpToolsForRuntimeMcp**(): [`OpenAIChatTool`](#openaichattool)[]
 
-Defined in: [mcp/openai-tools.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L74)
+Defined in: [mcp/openai-tools.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L62)
 
 **`Experimental`**
 
-Returns the 5 delegation tools projected into OpenAI Chat Completions
-`tools[]` shape. The order is stable: `delegate_code`,
-`delegate_research`, `delegate_feedback`, `delegation_status`,
-`delegation_history`.
+Returns the queue-bound delegation tools projected into OpenAI Chat
+Completions `tools[]` shape. The order is stable: `delegate_feedback`,
+`delegation_status`, `delegation_history`.
 
 #### Returns
 
@@ -8163,7 +8080,7 @@ Returns the 5 delegation tools projected into OpenAI Chat Completions
 
 > **mcpToolsForRuntimeMcpSubset**(`names`): [`OpenAIChatTool`](#openaichattool)[]
 
-Defined in: [mcp/openai-tools.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L112)
+Defined in: [mcp/openai-tools.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L90)
 
 **`Experimental`**
 

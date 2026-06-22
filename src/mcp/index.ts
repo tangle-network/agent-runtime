@@ -4,15 +4,13 @@
  * `@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
  * delegation tools to sandbox coding-harness agents: the generic `delegate`
  * (one intent → a supervisor that authors + drives its own worker, returns the
- * delivered output with its cost), plus the task-specific `delegate_code`,
- * `delegate_research`, `delegate_feedback`, `delegation_status`, and
- * `delegation_history`.
+ * delivered output with its cost), plus the queue-bound `delegate_feedback`,
+ * `delegation_status`, and `delegation_history`. `delegate_ui_audit` is served
+ * when a `uiAuditorDelegate` is wired.
  *
  * Mount the server inside a product agent's sandbox via
  * `agent-runtime-mcp` (the bin) or wire it into a custom Node entry
- * point with `createMcpServer({ ... })`. Pass `coderDelegate` /
- * `researcherDelegate` factories you build from your project's
- * sandbox client + run-loop topology.
+ * point with `createMcpServer({ ... })`.
  */
 
 export type { DetectExecutorArgs } from './bin-helpers'
@@ -24,7 +22,6 @@ export type {
   DelegateRunCtx,
   DetachedSessionDelegateOptions,
   DetachedWinnerSelection,
-  ResearcherDelegate,
   SettleDetachedCoderTurnOptions,
   UiAuditorDelegate,
 } from './delegates'
@@ -33,15 +30,6 @@ export {
   detachedSessionDelegate,
   settleDetachedCoderTurn,
 } from './delegates'
-export type {
-  BuildDelegationMcpServerOptions,
-  ComposeProductionAgentProfileOptions,
-} from './delegation-profile'
-export {
-  buildDelegationMcpServer,
-  composeProductionAgentProfile,
-  DELEGATION_MCP_SERVER_KEY,
-} from './delegation-profile'
 export type { DelegationStore, FileDelegationStoreOptions } from './delegation-store'
 export {
   DelegationPersistenceError,
@@ -156,26 +144,12 @@ export {
   validateDelegateArgs,
 } from './tools/delegate'
 export {
-  createDelegateCodeHandler,
-  DELEGATE_CODE_DESCRIPTION,
-  DELEGATE_CODE_INPUT_SCHEMA,
-  DELEGATE_CODE_TOOL_NAME,
-  validateDelegateCodeArgs,
-} from './tools/delegate-code'
-export {
   createDelegateFeedbackHandler,
   DELEGATE_FEEDBACK_DESCRIPTION,
   DELEGATE_FEEDBACK_INPUT_SCHEMA,
   DELEGATE_FEEDBACK_TOOL_NAME,
   validateDelegateFeedbackArgs,
 } from './tools/delegate-feedback'
-export {
-  createDelegateResearchHandler,
-  DELEGATE_RESEARCH_DESCRIPTION,
-  DELEGATE_RESEARCH_INPUT_SCHEMA,
-  DELEGATE_RESEARCH_TOOL_NAME,
-  validateDelegateResearchArgs,
-} from './tools/delegate-research'
 export {
   createDelegateUiAuditHandler,
   DELEGATE_UI_AUDIT_DESCRIPTION,

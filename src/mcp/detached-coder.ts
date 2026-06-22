@@ -2,14 +2,12 @@
  * @experimental
  *
  * Sandbox-session coder decode layer. The sandbox-session delegate (`./delegates`) and the
- * cross-restart resume driver (`./bin`) run the in-box harness over a `SandboxClient` and need to
- * (a) build an `AgentRunSpec` from the authored coder profile, (b) decode the harness event stream
- * into a structured `CoderOutput`, and (c) gate it with the shared mechanical checks. This is the
- * MCP server's built-in `delegate_code` path — it is the live default delegate, NOT dormant — and is
- * kept separate from the generic recursive path: `worktreeFanout` instead settles the raw
- * `WorktreePatchArtifact` and gates via `patchDelivered`. Only the OPTIONAL cross-restart resume
- * (the `driveTurn` tick) is opt-in (`MCP_ENABLE_DETACHED_RESUME`); the held-stream delegate is
- * always live. Prefer `worktreeFanout` / `worktreeLoopRunner` for NEW local-repo coding.
+ * cross-restart resume driver run the in-box harness over a `SandboxClient` and need to
+ * (a) build an `AgentRunSpec` from the caller-authored (or minimal model-only default) worker
+ * profile, (b) decode the harness event stream into a structured `CoderOutput`, and (c) gate it with
+ * the shared mechanical checks. This sandbox-session path is kept separate from the generic recursive
+ * path: `worktreeFanout` instead settles the raw `WorktreePatchArtifact` and gates via
+ * `patchDelivered`. Prefer `worktreeFanout` / `worktreeLoopRunner` for NEW local-repo coding.
  *
  * The decode tolerates two `result`-event shapes:
  *   1. the in-process executor's raw worktree-harness result (`{ branch, patch, stats, checks }`),
@@ -20,11 +18,21 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import { type CoderTask, coderProfile, coderTaskToPrompt } from '../profiles/coder'
+import { type CoderTask, coderTaskToPrompt } from '../profiles/coder'
 import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
 import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'
 
 const DEFAULT_MAX_DIFF_LINES = 400
+
+/**
+ * The minimal default worker profile (§1.5: the system authors profiles — there is no hardcoded
+ * coder). Model-only by construction: no skills, no tool grants, no standing prompt. Callers that
+ * want a richer worker pass their own `AgentProfile` via `CoderRunSpecOptions.profile`. `harness` /
+ * `model` / `systemPrompt` are layered onto whichever profile is used.
+ */
+function minimalCoderProfile(): AgentProfile {
+  return { name: 'coder' }
+}
 
 /** @experimental The structured coder result the sandbox-session path decodes + gates. */
 export interface CoderOutput {
@@ -41,27 +49,33 @@ export interface CoderOutput {
 
 /** @experimental Overrides for one authored coder run on the sandbox-session path. */
 export interface CoderRunSpecOptions {
+  /**
+   * The caller-authored worker `AgentProfile` (§1.5). When omitted, a minimal model-only default is
+   * used (no hardcoded skills/tools/prompt). `harness` / `model` / `systemPrompt` are layered onto it.
+   */
+  profile?: AgentProfile
   /** Sandbox-SDK backend.type. Default `'claude-code'`. */
   harness?: string
   /** Default model id passed in `AgentProfile.model.default`. */
   model?: string
-  /** Custom system prompt replacement. Default = the `coderProfile` constant's prompt. */
+  /** Custom system prompt replacement. Default = the supplied profile's own prompt (or none). */
   systemPrompt?: string
   /** Stable name for `AgentRunSpec.name`. Default = `coder-${harness}`. */
   name?: string
 }
 
-/** Build the authored `AgentProfile` for one harness on the sandbox-session path, applying the
- *  optional per-run overrides over the `coderProfile` constant. */
+/** Build the authored `AgentProfile` for one harness on the sandbox-session path: the caller's
+ *  profile (or the minimal model-only default), with the per-run harness/model/prompt overrides. */
 function coderRunProfile(options: CoderRunSpecOptions): AgentProfile {
   const harness = options.harness ?? 'claude-code'
   const name = options.name ?? `coder-${harness}`
+  const base = options.profile ?? minimalCoderProfile()
   return {
-    ...coderProfile,
+    ...base,
     name,
     ...(options.systemPrompt ? { prompt: { systemPrompt: options.systemPrompt } } : {}),
-    model: options.model ? { default: options.model } : undefined,
-    metadata: { ...coderProfile.metadata, backendType: harness },
+    model: options.model ? { default: options.model } : base.model,
+    metadata: { ...base.metadata, backendType: harness },
   }
 }
 
@@ -79,6 +93,11 @@ export const coderOutputAdapter: OutputAdapter<CoderOutput> = { parse: parseCode
 
 /** @experimental */
 export interface MultiHarnessCoderFanoutOptions {
+  /**
+   * The caller-authored worker `AgentProfile` (§1.5), shared across every parallel harness. When
+   * omitted, the minimal model-only default is used.
+   */
+  profile?: AgentProfile
   /**
    * Sandbox-SDK backend.type identifiers, one per parallel agent. Default:
    * `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']`.
@@ -105,7 +124,13 @@ export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions 
       ? options.harnesses
       : ['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']
   const models = options.models ?? []
-  const agentRuns = harnesses.map((harness, i) => coderRunSpec({ harness, model: models[i] }))
+  const agentRuns = harnesses.map((harness, i) =>
+    coderRunSpec({
+      ...(options.profile ? { profile: options.profile } : {}),
+      harness,
+      model: models[i],
+    }),
+  )
   const driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'> = {
     name: 'fanout',
     plan: async (task, history) => (history.length === 0 ? agentRuns.map(() => task) : []),

@@ -24,7 +24,7 @@ export {
   writeAuditIndex,
 } from '../audit'
 export type { CoderTask } from './coder'
-export { coderProfile, coderTaskToPrompt, DEFAULT_CODER_SYSTEM_PROMPT } from './coder'
+export { coderTaskToPrompt } from './coder'
 export type {
   BrowserContextHandle,
   BrowserHandle,

@@ -1,31 +1,24 @@
 /**
  * @experimental
  *
- * Delegate factories — the layer between MCP tool handlers and the
- * underlying `runLoop` runners.
+ * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runLoop`
+ * against a `SandboxClient` + a caller-supplied (or minimal model-only default) worker profile, to a
+ * mechanically-validated `CoderOutput`. The caller invokes the returned delegate directly with its
+ * coder args; when wired into a durable queue it also settles cross-restart-resumed records.
  *
- * Delegation vs COORDINATION (`../runtime/supervise/coordination-mcp.ts`): delegation runs a coding
- * task INSIDE the agent's OWN sandbox environment — a sibling box on its own `SandboxClient`, fresh
- * branch on its repo — as a durable, fire-and-poll job that survives an MCP restart. It is NOT
- * backend-pluggable. To instead SPAWN + live-drive workers in a CHOSEN backend (sandbox OR cli-bridge,
- * via `createExecutor({ backend })`) with observe/steer/resume + recursion, use the coordination MCP.
+ * Delegation vs COORDINATION (`../runtime/supervise/coordination-mcp.ts`): this delegate runs a
+ * coding task INSIDE the agent's OWN sandbox environment — a sibling box on its own `SandboxClient`,
+ * fresh branch on its repo. It is NOT backend-pluggable. To instead SPAWN + live-drive workers in a
+ * CHOSEN backend (sandbox OR cli-bridge, via `createExecutor({ backend })`) with observe/steer/resume
+ * + recursion, use `delegate()` / the coordination MCP.
  *
- * The MCP server is profile-agnostic: it owns the task queue + feedback
- * store + transport. Each `*Delegate` is the closure that the queue
- * invokes when a task runs. Consumers can override either delegate to
- * inject custom drivers, mocks, fleet-aware dispatchers, etc.
- *
- * The `detachedSessionDelegate` here is the built-in SANDBOX-SESSION coder path — the live default
- * `delegate_code` delegate: workers run the in-box harness over a `SandboxClient`. By default it
- * holds the stream; single-variant turns can OPTIONALLY dispatch DETACHED (`driveTurn` ticks) so a
- * durable queue resumes them across an MCP restart — that resume tick is the only part gated behind
- * `MCP_ENABLE_DETACHED_RESUME` (default off) in `bin.ts`, a capability the recursive
- * `Scope`/worktree-CLI leaf has no durable equivalent for yet. For NEW local-repo coding use
- * `worktreeFanout` / `worktreeLoopRunner`. The default researcher delegate is **not** wired in this
- * file — `agent-knowledge` cannot be imported from `agent-runtime` without inducing a cycle.
- * Consumers pass `researcherDelegate` explicitly.
+ * The worker profile is a parameter the caller supplies (§1.5: the system authors profiles). When
+ * none is passed, a minimal model-only default profile is materialized in `./detached-coder` — no
+ * hardcoded skills or tools. For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`
+ * (author one `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`).
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CoderTask } from '../profiles/coder'
 import type {
   AgentRunSpec,
@@ -54,10 +47,8 @@ import {
 import { createSiblingSandboxExecutor, type DelegationExecutor } from './executor'
 import type {
   DelegateCodeArgs,
-  DelegateResearchArgs,
   DelegateUiAuditArgs,
   DelegationProgress,
-  ResearchOutputShape,
   UiAuditorDelegationOutput,
 } from './types'
 
@@ -83,15 +74,10 @@ export interface DelegateRunCtx {
   traceEmitter?: LoopTraceEmitter
 }
 
-/** @experimental The server's coder-profile delegate slot — the closure the queue invokes for a
- *  `delegate_code` task. `detachedSessionDelegate` is the built-in implementation. */
+/** @experimental The coder delegate closure — given the coder args + run context, drives the
+ *  sandbox-session coder path to a validated `CoderOutput`. `detachedSessionDelegate` is the
+ *  built-in implementation; the queue invokes one of these per coder delegation. */
 export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Promise<CoderOutput>
-
-/** @experimental */
-export type ResearcherDelegate = (
-  args: DelegateResearchArgs,
-  ctx: DelegateRunCtx,
-) => Promise<ResearchOutputShape>
 
 /**
  * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
@@ -160,14 +146,22 @@ export interface DetachedSessionDelegateOptions {
    * `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
    */
   sandboxClient?: SandboxClient
-  /** Backend harness for the single-coder path. Default comes from `coderProfile`. */
+  /**
+   * The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
+   * sandbox-session run spec → `runLoop` → the executor's `harnessInvocation`, so the harness runs
+   * under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
+   * `harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
+   * profile is used.
+   */
+  workerProfile?: AgentProfile
+  /** Backend harness for the single-coder path (sets `metadata.backendType`). Default `claude-code`. */
   harness?: string
   /** Model override for the single-coder path. */
   model?: string
   /**
-   * The worker's authored system prompt (§1.5). Flows onto `coderProfile`'s
+   * The worker's authored system prompt (§1.5). Flows onto the run spec's
    * `profile.prompt.systemPrompt` → through `runLoop` → the executor's `harnessInvocation`, so the
-   * harness runs under this stance, not just the default coder prompt. Omit to keep the default.
+   * harness runs under this stance. Omit to keep the profile's own prompt.
    */
   systemPrompt?: string
   /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
@@ -233,6 +227,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
       const agentRunSpec = coderRunSpec({
+        ...(options.workerProfile ? { profile: options.workerProfile } : {}),
         ...(options.harness ? { harness: options.harness } : {}),
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
@@ -301,6 +296,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
       return chosen
     }
     const fanout = multiHarnessCoderFanout({
+      ...(options.workerProfile ? { profile: options.workerProfile } : {}),
       ...(fanoutHarnesses && fanoutHarnesses.length > 0
         ? { harnesses: fanoutHarnesses.slice(0, variants) }
         : {}),

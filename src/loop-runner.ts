@@ -6,9 +6,9 @@
  * One typed entrypoint a worker agent (or a scheduled routine) calls to run a
  * disciplined loop in a chosen MODE, over agent-runtime's hardened engines:
  *
- *   code         → build-in-a-loop via the coder delegate (no-op + secret floor,
- *                  optional reviewer gate, winner-selection)
- *   review       → code mode with a REQUIRED reviewer (the gate is the point)
+ *   code         → build-in-a-loop on the GENERIC recursive path (worktreeLoopRunner: author one
+ *                  `AgentProfile` per harness → worktree-CLI leaves → `patchDelivered` gate)
+ *   review       → caller-registered runner — a `code` runner with an approval gate over candidates
  *   research     → research-in-a-loop with valid-only KB growth (createKbGate)
  *   audit        → analyze trace/run data → findings (runAnalystLoop, caller-wired)
  *   self-improve → closed-loop text/config optimization (selfImprove, held-out gated)
@@ -29,22 +29,13 @@ import {
 import { runAnalystLoop } from './analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
-import {
-  type CoderReviewer,
-  type DelegateRunCtx,
-  type DetachedWinnerSelection,
-  detachedSessionDelegate,
-} from './mcp/delegates'
-import type { CoderOutput } from './mcp/detached-coder'
 import { type CreateKbGateOptions, createKbGate, type FactCandidate } from './mcp/kb-gate'
-import type { DelegateCodeArgs } from './mcp/types'
 import {
   type AuthoredHarness,
   type Budget,
   createExecutorRegistry,
   definePersona,
   runPersonified,
-  type SandboxClient,
   type WinnerStrategy,
   type WorktreeFanoutOptions,
   type WorktreePatchArtifact,
@@ -124,36 +115,6 @@ export async function runDelegatedLoop<T = unknown>(
   }
 }
 
-/** @experimental Options for the default `code`/`review` runner. */
-export interface CoderLoopRunnerOptions {
-  sandboxClient: SandboxClient
-  /** What to build — the delegate args (goal, repoRoot, variants, config, …). */
-  args: DelegateCodeArgs
-  /** Adversarial reviewer. Pass one to run `review` mode (an approval gate over the candidate). */
-  reviewer?: CoderReviewer
-  /** Winner-selection strategy. Default `highest-score`. */
-  winnerSelection?: DetachedWinnerSelection
-  /** Harnesses for `variants > 1` fanout. */
-  fanoutHarnesses?: string[]
-}
-
-/**
- * @experimental Build a `code`/`review`-mode runner over the sandbox-session coder delegate. Pass a
- * `reviewer` to run `review` mode — an approval gate over the validated candidate.
- */
-export function coderLoopRunner(options: CoderLoopRunnerOptions): DelegatedLoopRunner<CoderOutput> {
-  const delegate = detachedSessionDelegate({
-    sandboxClient: options.sandboxClient,
-    ...(options.reviewer ? { reviewer: options.reviewer } : {}),
-    ...(options.winnerSelection ? { winnerSelection: options.winnerSelection } : {}),
-    ...(options.fanoutHarnesses ? { fanoutHarnesses: options.fanoutHarnesses } : {}),
-  })
-  return async (signal) => {
-    const ctx: DelegateRunCtx = { signal, report: () => {} }
-    return delegate(options.args, ctx)
-  }
-}
-
 /** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */
 export interface WorktreeLoopRunnerOptions {
   /** Absolute path to the local git checkout each worktree is cut from. */
@@ -187,9 +148,10 @@ export interface WorktreeLoopRunnerOptions {
  *
  * `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
  * `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
- * `runPersonified` on the keystone Supervisor. This is the local-repo counterpart to
- * {@link coderLoopRunner} (which drives the in-box harness over a `SandboxClient`): no `runLoop`
- * driver, no role-coupled delegate — the harness list is the fanout, the gate is `patchDelivered`,
+ * `runPersonified` on the keystone Supervisor. The sandbox-session counterpart that drives the in-box
+ * harness over a `SandboxClient` is `detachedSessionDelegate` (`./mcp/delegates`); here there is no
+ * `runLoop` driver, no role-coupled delegate — the harness list is the fanout, the gate is
+ * `patchDelivered`,
  * the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
  * would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
  * patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
