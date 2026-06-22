@@ -27,6 +27,16 @@
  *   MCP_CODER_FANOUT_HARNESSES       comma-separated harness ids to use for variants > 1
  *   MCP_DISABLE_CODER                set to `1` to omit `delegate_code`
  *   MCP_DISABLE_RESEARCHER           set to `1` to omit `delegate_research` even when peer is present
+ *   MCP_ENABLE_DELEGATE              set to `1` to serve the ONE generic `delegate` verb (the
+ *                                    replacement for delegate_code / delegate_research). Its authoring
+ *                                    supervisor runs the brain on the router and spawns authored
+ *                                    workers as sub-sandboxes via the same client; needs TANGLE_API_KEY.
+ *   MCP_SUPERVISOR_MODEL             supervisor brain model id (falls back to MCP_WORKER_MODEL, then
+ *                                    WORKER_MODEL, then a default). Must be a tool-calling model.
+ *   MCP_SUPERVISOR_ROUTER_KEY        router key for the supervisor brain (defaults to TANGLE_API_KEY)
+ *   MCP_SUPERVISOR_ROUTER_BASE_URL   router base for the supervisor brain (defaults to the repo's
+ *                                    resolveRouterBaseUrl, normalized to `/v1`)
+ *   MCP_DELEGATE_WORKER_HARNESS      harness the authored workers run on (default `opencode`)
  *   MCP_RESEARCHER_HARNESS           researcher worker harness (default `opencode`)
  *   MCP_RESEARCHER_MODEL             researcher worker model id (falls back to
  *                                    MCP_WORKER_MODEL, then WORKER_MODEL, then a default)
@@ -69,6 +79,7 @@ import { coderTaskToPrompt } from '../profiles/coder'
 import type { AgentRunSpec, LoopTraceEmitter, SandboxClient } from '../runtime'
 import { runLoop } from '../runtime'
 import { detectExecutor } from './bin-helpers'
+import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
 import {
   coderTaskFromArgs,
   detachedSessionDelegate,
@@ -107,13 +118,15 @@ async function main(): Promise<void> {
   const maxConcurrency = parseConcurrency(process.env.MCP_MAX_CONCURRENT_SANDBOXES)
   const wantCoder = !process.env.MCP_DISABLE_CODER
   const wantResearcher = !process.env.MCP_DISABLE_RESEARCHER
+  const wantDelegate = delegateEnabled(process.env)
   const fleetId = parseFleetId(process.env.TANGLE_FLEET_ID)
 
   // Skip the sandbox client load entirely when no profile delegate needs it —
   // the feedback + status + history tools are queue-bound and require no
   // sandbox. Useful for tooling that mounts the MCP server purely for
-  // self-introspection.
-  const needsSandbox = wantCoder || wantResearcher
+  // self-introspection. The generic `delegate` verb needs the client too: its
+  // authored workers run as sub-sandboxes (the `sandbox` backend).
+  const needsSandbox = wantCoder || wantResearcher || wantDelegate
   let sandboxClient: SandboxClient | undefined
   let executor: DelegationExecutor | undefined
   if (needsSandbox) {
@@ -193,10 +206,21 @@ async function main(): Promise<void> {
       ? buildResumeDriver({ sandboxClient, researcherResume: researcherSupport?.resume })
       : undefined
 
+  // The ONE generic `delegate` verb — opt-in via MCP_ENABLE_DELEGATE=1. Its authoring supervisor
+  // runs the brain on the router and spawns authored workers as sub-sandboxes through the SAME
+  // client, so it needs the loaded `sandboxClient`. Gated on the client resolving (no key → no
+  // delegate, matching the coder/researcher fail-closed posture).
+  const delegateSupervisor =
+    wantDelegate && sandboxClient ? resolveDelegateSupervisor(sandboxClient) : undefined
+  if (wantDelegate && delegateSupervisor) {
+    process.stderr.write('agent-runtime-mcp: delegate enabled — generic authoring supervisor\n')
+  }
+
   const durableQueue = await buildDurableQueueFromEnv(resumeDriver, traceContext)
   const server = createMcpServer({
     coderDelegate,
     researcherDelegate: researcherSupport?.delegate,
+    ...(delegateSupervisor ? { delegateSupervisor } : {}),
     detachedDispatch,
     traceContext,
     ...(durableQueue ? { queue: durableQueue } : {}),
