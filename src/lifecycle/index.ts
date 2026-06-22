@@ -1,19 +1,36 @@
 /**
- * `@tangle-network/agent-runtime/lifecycle` — the artifact-lifecycle FOUNDATION.
+ * `@tangle-network/agent-runtime/lifecycle` — the artifact-lifecycle closed loop.
  *
- * PHASE 1: two primitives the rest of the lifecycle hangs off.
- *   - `ArtifactRegistry` — a typed catalog of profile artifacts with stable ids
- *     (`register` / `list` / `get` / `promote` / `compose`).
- *   - `measureMarginalLift` — the with-vs-without ablation: how much score/cost a
- *     single artifact adds on top of a baseline profile.
+ * The §1.5 law: an agent IS its `AgentProfile`. This module grows that profile
+ * by treating each promotable piece — a skill, a tool grant, a prompt line, an
+ * MCP server — as an "artifact" with a stable id, and runs ONE surface-agnostic
+ * loop over them:
  *
- * Both sit on the §1.5 profile law (`applyArtifact` is the one bridge from an
- * `ArtifactKind` to an `AgentProfile` field). The per-surface lifecycles, the
- * `BuildableSurface` author contract, and the promotion-gate wiring are deferred
- * to later phases.
+ *   GENERATE (per-surface `CandidateGenerator`)  →  MEASURE (`measureMarginalLift`
+ *   on the held-back split)  →  PROMOTE (`PromotionGate` — the held-back exam)  →
+ *   STORE (`ArtifactRegistry`, lift recorded as the receipt)  →  COMPOSE
+ *   (`composeProfile` — top-k active artifacts folded back into a profile).
+ *
+ * The ONLY per-surface code is the thin `CandidateGenerator` adapter; everything
+ * else is shared. The reference generator, `skillGenerator`, DISTILLS a new skill
+ * from traces (the create step an optimizer can't do) then refines it — the
+ * answer to "an empty profile has no skills".
+ *
+ * INVARIANT: an artifact is active (`promoted`) IFF it carries a measured held-
+ * back lift (`registry.liftOf` returns a number). `composeProfile` folds in only
+ * those — a status flag without a lift receipt is invisible.
  */
 
 export { applyArtifact, applyArtifacts } from './apply'
+export { type ComposeProfileOptions, composeProfile } from './compose'
+export {
+  type HeldOutPromotionGateOptions,
+  heldOutPromotionGate,
+  type PromotionGate,
+  type PromotionVerdict,
+  thresholdPromotionGate,
+} from './gate'
+export type { CandidateGenerator, GenerateContext } from './generator'
 export {
   type EvalResult,
   type EvalRunner,
@@ -25,7 +42,21 @@ export {
   type ArtifactQuery,
   ArtifactRegistry,
   createArtifactRegistry,
+  liftMetadataKey,
 } from './registry'
+export {
+  type CandidateOutcome,
+  type RunLifecycleOptions,
+  type RunLifecycleResult,
+  runLifecycle,
+} from './run-lifecycle'
+export {
+  type DistillSkills,
+  type RefineSkill,
+  type SkillDraft,
+  type SkillGeneratorOptions,
+  skillGenerator,
+} from './skill-generator'
 export type {
   ArtifactInput,
   ArtifactKind,

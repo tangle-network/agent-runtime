@@ -15,6 +15,7 @@
  * has a real number to decide on.
  */
 
+import type { RunRecord } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { applyArtifact } from './apply'
 import type { ProfileArtifact } from './types'
@@ -30,6 +31,15 @@ export interface EvalResult {
   composite: number
   /** USD cost to produce this result. */
   costUsd: number
+  /**
+   * Per-task records the run produced, when the runner emits them. The marginal
+   * lift only needs `composite`, but the held-out promotion gate (`HeldOutGate`)
+   * pairs candidate vs baseline per-task holdout records by (experimentId, seed)
+   * — so a runner feeding `heldOutPromotionGate` MUST populate this with rows
+   * carrying both `search` and `holdout` split scores. Omit it for evals scored
+   * to a single composite (then use `thresholdPromotionGate`).
+   */
+  runs?: RunRecord[]
   /** Optional opaque passthrough (per-task cells, the raw report, …). */
   details?: unknown
 }

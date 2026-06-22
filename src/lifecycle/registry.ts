@@ -20,6 +20,15 @@ export interface ArtifactQuery {
 }
 
 /**
+ * The metadata key under which the registry stores an artifact's measured held-
+ * back lift at promotion time. This is the registry INVARIANT's anchor: an
+ * artifact is `promoted` (active) IFF this key holds a finite number — see
+ * `promoteWithLift` and `liftOf`. The lifecycle never promotes by status flag
+ * alone; the lift score is the receipt.
+ */
+export const liftMetadataKey = 'measuredLift'
+
+/**
  * A typed, in-memory registry of `ProfileArtifact`s with stable ids.
  *
  * Ids are stable for the life of the registry: `register` assigns one (or honors
@@ -82,6 +91,12 @@ export class ArtifactRegistry {
    * non-existent artifact is a caller bug, not a no-op. Returns the updated
    * record. Idempotent: promoting an already-promoted artifact is a no-op
    * return.
+   *
+   * NOTE: the artifact-lifecycle INVARIANT (no measured lift ⇒ not active) is
+   * enforced by `promoteWithLift`, the path the closed loop uses. This bare
+   * `promote` exists for callers that gate elsewhere and just flip the flag; it
+   * does NOT record a lift score, so `liftOf` returns `undefined` and a
+   * lift-ranked `composeProfile` will skip it. Prefer `promoteWithLift`.
    */
   promote(id: string): ProfileArtifact {
     const artifact = this.artifacts.get(id)
@@ -94,6 +109,47 @@ export class ArtifactRegistry {
     const promoted: ProfileArtifact = { ...artifact, status: 'promoted' }
     this.artifacts.set(id, promoted)
     return promoted
+  }
+
+  /**
+   * Promote an artifact AND record the measured held-back lift that earned it.
+   * This is the closed loop's promotion path and the enforcement point of the
+   * lifecycle invariant: an artifact becomes active (`promoted`) only WITH a
+   * finite lift number stamped under `liftMetadataKey`. A non-finite `lift`
+   * (NaN/Infinity) fails loud — promoting on a broken measurement is exactly the
+   * silent-zero the doctrine forbids. Returns the updated record.
+   */
+  promoteWithLift(id: string, lift: number): ProfileArtifact {
+    if (!Number.isFinite(lift)) {
+      throw new ValidationError(
+        `ArtifactRegistry.promoteWithLift: lift for ${JSON.stringify(id)} must be a finite number (got ${lift})`,
+      )
+    }
+    const artifact = this.artifacts.get(id)
+    if (!artifact) {
+      throw new ValidationError(
+        `ArtifactRegistry.promoteWithLift: no artifact with id ${JSON.stringify(id)} is registered`,
+      )
+    }
+    const promoted: ProfileArtifact = {
+      ...artifact,
+      status: 'promoted',
+      metadata: { ...artifact.metadata, [liftMetadataKey]: lift },
+    }
+    this.artifacts.set(id, promoted)
+    return promoted
+  }
+
+  /**
+   * The measured held-back lift recorded at promotion time, or `undefined` when
+   * the artifact was never promoted WITH a lift (a fresh candidate, or one
+   * promoted via the bare `promote`). The lifecycle invariant in one accessor:
+   * `liftOf(id) === undefined` ⇒ the artifact has no measured lift ⇒ it is not
+   * eligible for a lift-ranked compose.
+   */
+  liftOf(id: string): number | undefined {
+    const value = this.artifacts.get(id)?.metadata?.[liftMetadataKey]
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
   }
 
   /**
