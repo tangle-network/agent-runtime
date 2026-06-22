@@ -6929,11 +6929,20 @@ Defined in: [runtime/supervise/coordination-driver.ts:50](https://github.com/tan
 
 Per-child budget reserved from the conserved pool on each spawn.
 
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [runtime/supervise/coordination-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L53)
+
+Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+ flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
 
-Defined in: [runtime/supervise/coordination-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L53)
+Defined in: [runtime/supervise/coordination-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L56)
 
 The driver's stance — a string, or built from the task (the worker-driver prompt /
  the generator). INJECTED so the prompt is a pluggable, optimizable role.
@@ -6942,7 +6951,7 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/coordination-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L58)
+Defined in: [runtime/supervise/coordination-driver.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L61)
 
 WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
@@ -6953,7 +6962,7 @@ WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — s
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L65)
+Defined in: [runtime/supervise/coordination-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L68)
 
 Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
  so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
@@ -6976,7 +6985,7 @@ Runs an `extraTools` call. Returns a string result, or null/undefined to signal 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L73)
+Defined in: [runtime/supervise/coordination-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L76)
 
 Max driver turns before the loop force-finalizes on the best settled child. Default 16.
  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
@@ -6987,7 +6996,7 @@ Max driver turns before the loop force-finalizes on the best settled child. Defa
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L76)
+Defined in: [runtime/supervise/coordination-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L79)
 
 Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
  deterministic in tests. Defaults to `Date.now`.
@@ -7819,11 +7828,21 @@ Defined in: [runtime/supervise/supervise.ts:77](https://github.com/tangle-networ
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [runtime/supervise/supervise.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L81)
+
+Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+ flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
+ sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence).
+
 ##### blobs?
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/supervise.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L79)
+Defined in: [runtime/supervise/supervise.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L83)
 
 Worker output store. Defaults to in-memory.
 
@@ -7831,25 +7850,25 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L80)
+Defined in: [runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L81)
+Defined in: [runtime/supervise/supervise.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L85)
 
 ##### runId?
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/supervise.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L82)
+Defined in: [runtime/supervise/supervise.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L86)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/supervise.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L83)
+Defined in: [runtime/supervise/supervise.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L87)
 
 ###### Returns
 
@@ -7859,7 +7878,7 @@ Defined in: [runtime/supervise/supervise.ts:83](https://github.com/tangle-networ
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervise.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L87)
+Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -7936,11 +7955,21 @@ Defined in: [runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle
 
 Per-child budget reserved from the conserved pool on each spawn.
 
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L56)
+
+Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
+ this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
+ boxes/sandboxes, not total work). Omit/`<= 0` = no cap.
+
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L54)
+Defined in: [runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
 
 Router substrate for a router-brained supervisor (`harness` null). The profile's model wins.
 
@@ -7948,7 +7977,7 @@ Router substrate for a router-brained supervisor (`harness` null). The profile's
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L56)
+Defined in: [runtime/supervise/supervisor-agent.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L60)
 
 Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
@@ -7956,7 +7985,7 @@ Inject the brain directly (tests / advanced) instead of resolving `routerBrain` 
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
+Defined in: [runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
 
 Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver.
 
@@ -7964,7 +7993,7 @@ Required for a sandboxed-harness supervisor (`harness` set): runs the harness as
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/supervisor-agent.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L61)
+Defined in: [runtime/supervise/supervisor-agent.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L65)
 
 WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
  only delegate when it needs parallelism. Pair with `executeExtraTool`.
@@ -7973,7 +8002,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L67)
+Defined in: [runtime/supervise/supervisor-agent.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L71)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -7995,7 +8024,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L71)
+Defined in: [runtime/supervise/supervisor-agent.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L75)
 
 ***
 
@@ -8932,7 +8961,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ### WorktreeCliExecutorOptions
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L43)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L46)
 
 **`Experimental`**
 
@@ -8942,7 +8971,7 @@ Defined in: [runtime/supervise/worktree-cli-executor.ts:43](https://github.com/t
 
 > **repoRoot**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L45)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L48)
 
 **`Experimental`**
 
@@ -8952,7 +8981,7 @@ Absolute path to the git checkout the worktree is cut from.
 
 > **profile**: `AgentProfile`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L47)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L50)
 
 **`Experimental`**
 
@@ -8962,7 +8991,7 @@ The SUPERVISOR-AUTHORED profile (the §1.5 payload: systemPrompt + model).
 
 > **harness**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L49)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L52)
 
 **`Experimental`**
 
@@ -8972,7 +9001,7 @@ Which local harness CLI drives this leaf (`claude` | `codex` | `opencode`).
 
 > **taskPrompt**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L51)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L54)
 
 **`Experimental`**
 
@@ -8982,7 +9011,7 @@ The per-task instruction handed to the harness (composed under the system prompt
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L53)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L56)
 
 **`Experimental`**
 
@@ -8992,7 +9021,7 @@ Unique id for the worktree path + branch. Defaults to a fresh UUID.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L55)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L58)
 
 **`Experimental`**
 
@@ -9002,7 +9031,7 @@ Override the base ref the worktree is cut from (default `HEAD`).
 
 > `optional` **harnessTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L57)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L60)
 
 **`Experimental`**
 
@@ -9012,7 +9041,7 @@ Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness`
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L62)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L65)
 
 **`Experimental`**
 
@@ -9023,7 +9052,7 @@ Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal de
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L64)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L67)
 
 **`Experimental`**
 
@@ -9033,7 +9062,7 @@ Shell command run in the live worktree to derive the typecheck-PASS signal (e.g.
 
 > `optional` **checkTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L66)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L69)
 
 **`Experimental`**
 
@@ -9043,7 +9072,7 @@ Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L68)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
 
 **`Experimental`**
 
@@ -9053,7 +9082,7 @@ Test seam — inject a git runner so unit tests drive the worktree helpers witho
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L70)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L73)
 
 **`Experimental`**
 
@@ -9091,12 +9120,25 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L73)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L76)
 
 **`Experimental`**
 
 Test seam — inject the verification-command runner so unit tests script test/typecheck
  outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree.
+
+##### budgetExempt?
+
+> `optional` **budgetExempt?**: `boolean`
+
+Defined in: [runtime/supervise/worktree-cli-executor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L83)
+
+**`Experimental`**
+
+Exclude this leaf's spend from the conserved pool + equal-k arms. Defaults to `true` because a
+coding-harness CLI does not surface token usage, so metering it would record a fabricated zero
+(the no-silent-zeros rule forbids that). Set `false` ONLY for a harness that surfaces real
+token/usd usage worth metering — the executor would then debit the (real) spend it captures.
 
 ***
 
@@ -12072,7 +12114,7 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 
 > **WorktreePatchArtifact** = `WorktreeHarnessResult`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L40)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L43)
 
 Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  diff + the harness's run record + the derived checks).
@@ -14312,7 +14354,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L110)
+Defined in: [runtime/supervise/coordination-driver.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L113)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -14333,7 +14375,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L263)
+Defined in: [runtime/supervise/coordination-driver.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L267)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -14386,6 +14428,13 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 ###### perWorker
 
 [`Budget`](#budget-10)
+
+###### maxLiveWorkers?
+
+`number`
+
+Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+ flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
 
 ###### port?
 
@@ -14745,7 +14794,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [runtime/supervise/supervise.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L98)
+Defined in: [runtime/supervise/supervise.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L102)
 
 #### Parameters
 
@@ -14771,7 +14820,7 @@ Defined in: [runtime/supervise/supervise.ts:98](https://github.com/tangle-networ
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
+Defined in: [runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
 
 #### Parameters
 
@@ -14957,7 +15006,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 > **createWorktreeCliExecutor**(`options`): [`Executor`](#executor)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L85)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L95)
 
 **`Experimental`**
 

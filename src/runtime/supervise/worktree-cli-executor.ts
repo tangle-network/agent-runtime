@@ -13,9 +13,12 @@
  * result onto the `Executor` port (artifact + spend) and owns the teardown point. The §1.5 payload
  * (authored systemPrompt + model) reaches the harness inside the core, not here.
  *
- * Token accounting: a harness CLI does not surface usage, so this executor is `budgetExempt: true`
- * — its spend is NOT metered against the conserved pool and its iterations are EXCLUDED from the
- * equal-k arms by construction (mirrors `cliExecutor`).
+ * Token accounting: a harness CLI does not surface usage, so this executor defaults to
+ * `budgetExempt: true` — its spend is NOT metered against the conserved pool and its iterations are
+ * EXCLUDED from the equal-k arms by construction (mirrors `cliExecutor`). The exemption is an
+ * explicit, documented `budgetExempt` option rather than a buried hardcode: set it `false` ONLY for
+ * a harness that genuinely surfaces real token/usd usage to meter into the pool — otherwise the
+ * executor would meter a fabricated zero, which the no-silent-zeros rule forbids.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -71,6 +74,13 @@ export interface WorktreeCliExecutorOptions {
   /** Test seam — inject the verification-command runner so unit tests script test/typecheck
    *  outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree. */
   runCommand?: WorktreeCheckRunner
+  /**
+   * Exclude this leaf's spend from the conserved pool + equal-k arms. Defaults to `true` because a
+   * coding-harness CLI does not surface token usage, so metering it would record a fabricated zero
+   * (the no-silent-zeros rule forbids that). Set `false` ONLY for a harness that surfaces real
+   * token/usd usage worth metering — the executor would then debit the (real) spend it captures.
+   */
+  budgetExempt?: boolean
 }
 
 /**
@@ -97,14 +107,17 @@ export function createWorktreeCliExecutor(
 
   const runId = options.runId ?? randomUUID()
   const controller = new AbortController()
+  // Default true: a harness CLI cannot account tokens, so the honest value is "exclude from the
+  // pool + equal-k" rather than meter a fabricated zero. An explicit `false` opts a real-usage
+  // harness into metering the spend it captures.
+  const budgetExempt = options.budgetExempt ?? true
 
   let run: WorktreeHarnessRun | undefined
   let artifact: ExecutorResult<WorktreePatchArtifact> | undefined
 
   return {
     runtime: 'cli',
-    // A harness CLI cannot account tokens — exclude it from the conserved pool + equal-k.
-    budgetExempt: true,
+    budgetExempt,
     async execute(_task, signal): Promise<ExecutorResult<WorktreePatchArtifact>> {
       const linked = linkSignals(signal, controller.signal)
       const started = Date.now()
@@ -130,7 +143,9 @@ export function createWorktreeCliExecutor(
 
       const spent: Spend = {
         iterations: 1,
-        // budgetExempt: spend is recorded zero (not metered), never a fabricated cost.
+        // The worktree-harness core surfaces no token/usd usage, so tokens/usd are a genuine zero
+        // (NOT a fabricated cost). When budgetExempt is true the pool ignores this spend entirely;
+        // when explicitly false the scope debits exactly this captured spend — the real iteration.
         tokens: zeroTokenUsage(),
         usd: 0,
         ms: Date.now() - started,

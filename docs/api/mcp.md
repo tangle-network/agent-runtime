@@ -4059,11 +4059,23 @@ Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-
  and queued for the driver to pull via `await_event`. Omit/empty = no auto-analysis (default;
  the driver can still run lenses on demand via `run_analyst`). Requires `analysts`.
 
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [mcp/tools/coordination.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L112)
+
+Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
+ counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
+ reserving from the pool when the cap is already met — a concurrency fence on top of the
+ conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
+ sandboxes/boxes). Omit or `<= 0` = no cap (the prior behavior; the pool stays the only fence).
+
 ***
 
 ### CoordinationTools
 
-Defined in: [mcp/tools/coordination.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L116)
+Defined in: [mcp/tools/coordination.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L122)
 
 The supervisor-side toolbox returned by [createCoordinationTools](#createcoordinationtools): the MCP tool
 descriptors a driver `AgentProfile` calls to spawn, steer, observe, and settle workers
@@ -4077,7 +4089,7 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 
 > `readonly` **tools**: [`McpToolDescriptor`](#mcptooldescriptor)[]
 
-Defined in: [mcp/tools/coordination.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L117)
+Defined in: [mcp/tools/coordination.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L123)
 
 #### Methods
 
@@ -4085,7 +4097,7 @@ Defined in: [mcp/tools/coordination.ts:117](https://github.com/tangle-network/ag
 
 > **isStopped**(): `boolean`
 
-Defined in: [mcp/tools/coordination.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L118)
+Defined in: [mcp/tools/coordination.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L124)
 
 ###### Returns
 
@@ -4095,7 +4107,7 @@ Defined in: [mcp/tools/coordination.ts:118](https://github.com/tangle-network/ag
 
 > **stopReason**(): `string` \| `undefined`
 
-Defined in: [mcp/tools/coordination.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L119)
+Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L125)
 
 ###### Returns
 
@@ -4105,7 +4117,7 @@ Defined in: [mcp/tools/coordination.ts:119](https://github.com/tangle-network/ag
 
 > **settled**(): readonly [`SettledWorker`](#settledworker)[]
 
-Defined in: [mcp/tools/coordination.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L120)
+Defined in: [mcp/tools/coordination.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L126)
 
 ###### Returns
 
@@ -4115,7 +4127,7 @@ readonly [`SettledWorker`](#settledworker)[]
 
 > **questions**(): readonly [`QuestionRecord`](#questionrecord)[]
 
-Defined in: [mcp/tools/coordination.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L121)
+Defined in: [mcp/tools/coordination.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L127)
 
 ###### Returns
 
@@ -4125,7 +4137,7 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 > **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
-Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L125)
+Defined in: [mcp/tools/coordination.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L131)
 
 The full ordered log of every bus event — UP (settled / question / finding) and DOWN
  (steer / answer) — the observability audit + replay trail. Each record carries seq,
@@ -4139,7 +4151,7 @@ readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#c
 
 > **stats**(): [`BusStats`](runtime.md#busstats)
 
-Defined in: [mcp/tools/coordination.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L127)
+Defined in: [mcp/tools/coordination.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L133)
 
 Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
@@ -4151,7 +4163,7 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
 > **raiseFinding**(`finding`): `Promise`\<`void`\>
 
-Defined in: [mcp/tools/coordination.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L131)
+Defined in: [mcp/tools/coordination.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L137)
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
@@ -7374,7 +7386,7 @@ passed in because replay-safe paths must not read `Date.now`.
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
 
-Defined in: [mcp/tools/coordination.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L154)
+Defined in: [mcp/tools/coordination.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L160)
 
 Build the driver's MCP tools over a live scope.
 

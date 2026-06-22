@@ -53,6 +53,9 @@ export async function serveCoordinationMcp(opts: {
   blobs: ResultBlobStore
   makeWorkerAgent: MakeWorkerAgent
   perWorker: Budget
+  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+   *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
+  maxLiveWorkers?: number
   port?: number
   host?: string
   /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
@@ -68,6 +71,7 @@ export async function serveCoordinationMcp(opts: {
     blobs: opts.blobs,
     makeWorkerAgent: opts.makeWorkerAgent,
     perWorker: opts.perWorker,
+    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),

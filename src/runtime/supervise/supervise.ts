@@ -75,6 +75,10 @@ export interface SuperviseOptions {
   ) => Promise<string | null | undefined>
   /** Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens. */
   readonly perWorker?: Budget
+  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+   *  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
+   *  sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence). */
+  readonly maxLiveWorkers?: number
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   readonly maxDepth?: number
@@ -124,6 +128,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     blobs,
     makeWorkerAgent,
     perWorker,
+    ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
     ...(opts.router ? { router: opts.router } : {}),
     ...(opts.brain ? { brain: opts.brain } : {}),
     ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),

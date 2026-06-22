@@ -48,6 +48,9 @@ export interface DriverAgentOptions {
   readonly makeWorkerAgent: MakeWorkerAgent
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+   *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
+  readonly maxLiveWorkers?: number
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -151,6 +154,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         blobs: opts.blobs,
         makeWorkerAgent: opts.makeWorkerAgent,
         perWorker: opts.perWorker,
+        ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
       })
       const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
       const toolSpecs: ToolSpec[] = [
