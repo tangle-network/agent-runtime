@@ -230,6 +230,7 @@ export {
   type OpenSandboxRunOptions,
   openSandboxRun,
   type SandboxRun,
+  SandboxRunAbortError,
   type TurnResult,
 } from './sandbox-run'
 // The optimization suite: a domain = an Environment (5 hooks); a Strategy = how the

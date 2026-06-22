@@ -1,6 +1,11 @@
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { type AgentRunSpec, type Deliverable, openSandboxRun } from '../../src/runtime'
+import {
+  type AgentRunSpec,
+  type Deliverable,
+  openSandboxRun,
+  SandboxRunAbortError,
+} from '../../src/runtime'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 
 interface FakeOpts {
@@ -10,6 +15,11 @@ interface FakeOpts {
   sessionLive?: boolean
   /** Called 1-based at the start of each `streamPrompt` — lets a test abort mid-run. */
   onStream?: (callIndex: number) => void
+  /** Events the stream yields, in order. Default: one terminal `result`. A test
+   *  drives partial-event abort by emitting an intermediate event then aborting. */
+  events?: SandboxEvent[]
+  /** Called after each yielded event (1-based) — lets a test abort between events. */
+  onEvent?: (eventIndex: number) => void
 }
 
 /** One recorded `streamPrompt`: the box it ran on + the session id it carried. */
@@ -36,11 +46,26 @@ function createFakeClient(opts: FakeOpts = {}) {
       id,
       async *streamPrompt(
         _message: string,
-        options?: { sessionId?: string },
+        options?: { sessionId?: string; signal?: AbortSignal },
       ): AsyncGenerator<SandboxEvent> {
         streamCalls.push({ boxId: id, sessionId: options?.sessionId })
         opts.onStream?.(streamCalls.length)
-        yield { type: 'result', data: { ok: true, text: 'streamed' } } satisfies SandboxEvent
+        const stream = opts.events ?? [
+          { type: 'result', data: { ok: true, text: 'streamed' } } satisfies SandboxEvent,
+        ]
+        let i = 0
+        for (const event of stream) {
+          // Model the real backend: a cancelled stream throws AbortError on its
+          // next pull rather than silently completing.
+          if (options?.signal?.aborted) {
+            const abort = new Error('aborted')
+            abort.name = 'AbortError'
+            throw abort
+          }
+          yield event
+          i += 1
+          opts.onEvent?.(i)
+        }
       },
       fs: {
         async read(path: string): Promise<string> {
@@ -265,21 +290,101 @@ describe('openSandboxRun — lifecycle guardrails', () => {
   })
 })
 
-describe('openSandboxRun — abort-aware artifact read', () => {
-  it('throws (does not read) when the signal aborts before the artifact read', async () => {
+describe('openSandboxRun — abort-aware artifact read preserves the partial trace', () => {
+  it('throws a SandboxRunAbortError carrying the drained events (does not read) on pre-read abort', async () => {
     const controller = new AbortController()
-    // Abort during the stream so the signal is set by the time settle reaches
-    // the pre-read guard — never silently read a stale workspace after cancel.
+    const partialEvents: SandboxEvent[] = [
+      { type: 'step', data: { i: 0 } } as SandboxEvent,
+      { type: 'step', data: { i: 1 } } as SandboxEvent,
+    ]
+    // Abort once the whole stream has drained but before the artifact read — the
+    // events collected so far must ride out on the thrown error, never silently
+    // read a stale workspace after cancel.
     const { client, readPaths } = createFakeClient({
-      onStream: () => controller.abort(),
+      events: partialEvents,
+      onEvent: (i) => {
+        if (i === partialEvents.length) controller.abort()
+      },
     })
     const run = await openSandboxRun(
       client,
       { agentRun: spec(), signal: controller.signal },
       artifactDeliverable('solution.patch'),
     )
-    await expect(run.start('write the patch')).rejects.toThrow(/abort/i)
+    const err = await run.start('write the patch').then(
+      () => {
+        throw new Error('expected abort')
+      },
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(SandboxRunAbortError)
+    expect((err as Error).name).toBe('AbortError')
+    // The partial trace is preserved — diagnosable as "looped/ran", not "never started".
+    expect((err as SandboxRunAbortError).events).toEqual(partialEvents)
     expect(readPaths).toHaveLength(0)
+  })
+
+  it('carries ONLY the events drained before a mid-stream abort (never-started stays empty)', async () => {
+    const controller = new AbortController()
+    const streamed: SandboxEvent[] = [
+      { type: 'step', data: { i: 0 } } as SandboxEvent,
+      { type: 'step', data: { i: 1 } } as SandboxEvent,
+      { type: 'result', data: { ok: true } } as SandboxEvent,
+    ]
+    // Abort after the FIRST event is drained; the stream throws on its next pull,
+    // so only that one event is carried out.
+    const { client } = createFakeClient({
+      events: streamed,
+      onEvent: (i) => {
+        if (i === 1) controller.abort()
+      },
+    })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: controller.signal },
+      eventsDeliverable,
+    )
+    const err = await run.start('go').then(
+      () => {
+        throw new Error('expected abort')
+      },
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(SandboxRunAbortError)
+    expect((err as SandboxRunAbortError).events).toEqual([streamed[0]])
+  })
+
+  it('preserves partial events when the read loop is aborted mid-retry, with the last readError', async () => {
+    const controller = new AbortController()
+    const partialEvents: SandboxEvent[] = [{ type: 'result', data: { ok: true } } as SandboxEvent]
+    let reads = 0
+    const { client } = createFakeClient({
+      events: partialEvents,
+      // The first read fails (transient), and the signal aborts during the backoff;
+      // the next attempt's guard must throw the typed error carrying both the events
+      // and the last readError so the failure is diagnosable, not masked as empty.
+      fsRead: () => {
+        reads += 1
+        controller.abort()
+        throw new Error('Resource not found: still flushing')
+      },
+    })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: controller.signal, readRetryDelayMs: 0 },
+      artifactDeliverable('solution.patch'),
+    )
+    const err = await run.start('write the patch').then(
+      () => {
+        throw new Error('expected abort')
+      },
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(SandboxRunAbortError)
+    expect((err as SandboxRunAbortError).events).toEqual(partialEvents)
+    expect((err as SandboxRunAbortError).readError).toMatch(/still flushing/)
+    // One read attempted, then the post-backoff guard short-circuits the retries.
+    expect(reads).toBe(1)
   })
 })
 

@@ -37,7 +37,7 @@ import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
-import { randomSuffix, sleep, throwIfAborted } from './util'
+import { isAbortError, randomSuffix, sleep } from './util'
 
 /**
  * @experimental
@@ -61,6 +61,29 @@ export interface TurnResult<Out> {
   out: Out
   events: SandboxEvent[]
   readError?: string
+}
+
+/**
+ * @experimental
+ * Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained
+ * BEFORE the abort fired (and any in-progress `readError`) so an aborted run is
+ * DIAGNOSABLE — the caller can tell never-started (`events: []`) from looped
+ * (many events, no terminal `result`) from produced-nothing-then-cancelled.
+ *
+ * `name === 'AbortError'`, so existing `err.name === 'AbortError'` callers (the
+ * loop kernel, scope, supervise runtime) keep matching it unchanged.
+ */
+export class SandboxRunAbortError extends Error {
+  override readonly name = 'AbortError'
+  /** Events drained from the stream before the abort interrupted the turn. */
+  readonly events: SandboxEvent[]
+  /** The last artifact read error, if the abort fired during the retry loop. */
+  readonly readError?: string
+  constructor(events: SandboxEvent[], readError?: string) {
+    super('aborted')
+    this.events = events
+    if (readError !== undefined) this.readError = readError
+  }
 }
 
 /** @experimental A live run over ONE persistent artifact (box + session). Close it
@@ -184,11 +207,18 @@ export async function openSandboxRun<Out>(
     events: AsyncIterable<SandboxEvent>,
   ): Promise<TurnResult<Out>> {
     const collected: SandboxEvent[] = []
-    for await (const ev of events) collected.push(ev)
+    // The stream itself can throw an AbortError when the run is cancelled mid-drain;
+    // re-throw it carrying the events drained so far so the partial trace is not lost.
+    try {
+      for await (const ev of events) collected.push(ev)
+    } catch (err) {
+      if (isAbortError(err)) throw new SandboxRunAbortError(collected)
+      throw err
+    }
     if (deliverable.kind === 'events') {
       return { out: deliverable.fromEvents(collected), events: collected }
     }
-    throwIfAborted(options.signal)
+    if (options.signal.aborted) throw new SandboxRunAbortError(collected)
     let raw = ''
     let readError: string | undefined
     // The data plane can transiently 404 a just-written artifact (write not yet
@@ -198,7 +228,7 @@ export async function openSandboxRun<Out>(
     const readAttempts = 4
     const readDelayMs = options.readRetryDelayMs ?? 1000
     for (let attempt = 0; attempt < readAttempts; attempt += 1) {
-      throwIfAborted(options.signal)
+      if (options.signal.aborted) throw new SandboxRunAbortError(collected, readError)
       try {
         raw = await box.fs.read(deliverable.path)
         readError = undefined
