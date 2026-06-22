@@ -3172,7 +3172,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 ##### budget
 
-> **budget**: [`Budget`](runtime.md#budget-9)
+> **budget**: [`Budget`](runtime.md#budget-10)
 
 Defined in: [loop-runner.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L166)
 

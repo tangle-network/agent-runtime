@@ -315,6 +315,15 @@ export {
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
 export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
+// The one generic delegation verb: hand it an INTENT, it routes to `supervise()` with a default
+// authoring supervisor (no hardcoded worker profile) and returns the `SupervisedResult` unchanged —
+// so `spentTotal` (what the delegation cost) rides straight back. The generic replacement for
+// delegate_code / delegate_research.
+export {
+  type DelegateOptions,
+  defaultDelegateBudget,
+  delegate,
+} from './supervise/delegate'
 // The ONLINE analyst: watch a TraceSource and raise a `finding` the moment a worker loops/error-storms.
 export {
   defaultToolDetectors,

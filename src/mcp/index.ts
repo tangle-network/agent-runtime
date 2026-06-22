@@ -1,10 +1,12 @@
 /**
  * @experimental
  *
- * `@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the 5
- * delegation tools (`delegate_code`, `delegate_research`,
- * `delegate_feedback`, `delegation_status`, `delegation_history`) to
- * sandbox coding-harness agents.
+ * `@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
+ * delegation tools to sandbox coding-harness agents: the generic `delegate`
+ * (one intent → a supervisor that authors + drives its own worker, returns the
+ * delivered output with its cost), plus the task-specific `delegate_code`,
+ * `delegate_research`, `delegate_feedback`, `delegation_status`, and
+ * `delegation_history`.
  *
  * Mount the server inside a product agent's sandbox via
  * `agent-runtime-mcp` (the bin) or wire it into a custom Node entry
@@ -143,6 +145,16 @@ export {
   type QuestionRecord,
   type SettledWorker,
 } from './tools/coordination'
+export {
+  createDelegateHandler,
+  DELEGATE_DESCRIPTION,
+  DELEGATE_INPUT_SCHEMA,
+  DELEGATE_TOOL_NAME,
+  type DelegateArgs,
+  type DelegateHandlerOptions,
+  type DelegateResult,
+  validateDelegateArgs,
+} from './tools/delegate'
 export {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,

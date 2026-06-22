@@ -23,6 +23,13 @@ import type { CoderDelegate, ResearcherDelegate, UiAuditorDelegate } from './del
 import { type FeedbackStore, InMemoryFeedbackStore } from './feedback-store'
 import { DelegationTaskQueue } from './task-queue'
 import {
+  createDelegateHandler,
+  DELEGATE_DESCRIPTION,
+  DELEGATE_INPUT_SCHEMA,
+  DELEGATE_TOOL_NAME,
+  type DelegateHandlerOptions,
+} from './tools/delegate'
+import {
   createDelegateCodeHandler,
   DELEGATE_CODE_DESCRIPTION,
   DELEGATE_CODE_INPUT_SCHEMA,
@@ -62,6 +69,13 @@ import type { TraceContext } from './trace-propagation'
 
 /** @experimental */
 export interface McpServerOptions {
+  /**
+   * Required to enable `delegate` — the ONE generic delegation verb (the replacement for
+   * delegate_code / delegate_research). Inject the supervisor substrate: its brain `router`, the
+   * worker `backend`, and the completion `deliverable`. The supervisor AUTHORS its own worker from
+   * the agent's intent, so there is no worker profile to wire here.
+   */
+  delegateSupervisor?: DelegateHandlerOptions
   /** Required to enable delegate_code. */
   coderDelegate?: CoderDelegate
   /**
@@ -172,6 +186,14 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
 
   const tools = new Map<string, McpToolDescriptor>()
 
+  if (options.delegateSupervisor) {
+    tools.set(DELEGATE_TOOL_NAME, {
+      name: DELEGATE_TOOL_NAME,
+      description: DELEGATE_DESCRIPTION,
+      inputSchema: DELEGATE_INPUT_SCHEMA as unknown as Record<string, unknown>,
+      handler: createDelegateHandler(options.delegateSupervisor),
+    })
+  }
   if (options.coderDelegate) {
     tools.set(DELEGATE_CODE_TOOL_NAME, {
       name: DELEGATE_CODE_TOOL_NAME,
