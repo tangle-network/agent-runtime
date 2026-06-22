@@ -34,13 +34,13 @@
 import { type AnalystFinding, callLlmJson, type LlmClientOptions } from '@tangle-network/agent-eval'
 import {
   type GenerationRecord,
+  gepaProposer,
   isProposedCandidate,
   type MutableSurface,
   type ProposeContext,
   type ProposedCandidate,
   type SurfaceProposer,
 } from '@tangle-network/agent-eval/campaign'
-import { gepaProposer } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CandidateGenerator, GenerateContext } from './generator'
 import type { ArtifactInput } from './types'

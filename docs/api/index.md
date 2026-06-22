@@ -2648,7 +2648,7 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ### ImproveOptions
 
-Defined in: [improvement/improve.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L48)
+Defined in: [improvement/improve.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L47)
 
 #### Type Parameters
 
@@ -2666,7 +2666,7 @@ Defined in: [improvement/improve.ts:48](https://github.com/tangle-network/agent-
 
 > `optional` **surface?**: [`ImproveSurface`](#improvesurface)
 
-Defined in: [improvement/improve.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L51)
+Defined in: [improvement/improve.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L50)
 
 Which profile lever to optimize. Default `'prompt'`. Selects the default
  generator + the baseline-surface extraction shape.
@@ -2675,7 +2675,7 @@ Which profile lever to optimize. Default `'prompt'`. Selects the default
 
 > `optional` **generator?**: `SurfaceProposer`\<`unknown`\>
 
-Defined in: [improvement/improve.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L55)
+Defined in: [improvement/improve.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L54)
 
 The `SurfaceProposer` that mutates the surface. When unset, the facade
  picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
@@ -2685,7 +2685,7 @@ The `SurfaceProposer` that mutates the surface. When unset, the facade
 
 > `optional` **gate?**: `"none"` \| `"holdout"`
 
-Defined in: [improvement/improve.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L58)
+Defined in: [improvement/improve.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L57)
 
 Gate mode. `'holdout'` (default) runs the held-out promotion gate;
  `'none'` is a baseline-only run (`budget.generations = 0`).
@@ -2694,7 +2694,7 @@ Gate mode. `'holdout'` (default) runs the held-out promotion gate;
 
 > **scenarios**: `TScenario`[]
 
-Defined in: [improvement/improve.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L60)
+Defined in: [improvement/improve.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L59)
 
 Scenarios to evaluate against. Passthrough to `selfImprove`.
 
@@ -2702,7 +2702,7 @@ Scenarios to evaluate against. Passthrough to `selfImprove`.
 
 > **judge**: `JudgeConfig`\<`TArtifact`, `TScenario`\>
 
-Defined in: [improvement/improve.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L62)
+Defined in: [improvement/improve.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L61)
 
 Judge that scores artifacts. Passthrough to `selfImprove`.
 
@@ -2710,7 +2710,7 @@ Judge that scores artifacts. Passthrough to `selfImprove`.
 
 > **agent**: (`surface`, `scenario`, `ctx`) => `Promise`\<`TArtifact`\>
 
-Defined in: [improvement/improve.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L65)
+Defined in: [improvement/improve.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L64)
 
 The agent under improvement — same shape as `selfImprove.agent`: it takes
  the current surface + scenario + ctx and returns the artifact to judge.
@@ -2737,7 +2737,7 @@ The agent under improvement — same shape as `selfImprove.agent`: it takes
 
 > `optional` **budget?**: `SelfImproveBudget`
 
-Defined in: [improvement/improve.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L67)
+Defined in: [improvement/improve.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L66)
 
 Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
@@ -2745,7 +2745,7 @@ Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
 > `optional` **llm?**: `SelfImproveLlm`
 
-Defined in: [improvement/improve.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L70)
+Defined in: [improvement/improve.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L69)
 
 LLM config. Passthrough to `selfImprove` AND used to construct the default
  reflective proposer (`gepaProposer`/`skillOptProposer`) when `generator` is unset.
@@ -2754,7 +2754,7 @@ LLM config. Passthrough to `selfImprove` AND used to construct the default
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [improvement/improve.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L74)
+Defined in: [improvement/improve.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L73)
 
 Restrict the run to this subset of models. When set, the reflection model
  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
@@ -2764,7 +2764,7 @@ Restrict the run to this subset of models. When set, the reflection model
 
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L77)
+Defined in: [improvement/improve.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L76)
 
 #### Type Parameters
 
@@ -2782,7 +2782,7 @@ Defined in: [improvement/improve.ts:77](https://github.com/tangle-network/agent-
 
 > **profile**: `AgentProfile`
 
-Defined in: [improvement/improve.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L80)
+Defined in: [improvement/improve.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L79)
 
 The profile after improvement: the winner surface applied back into the
  matching field when the gate shipped, else the input profile unchanged.
@@ -2791,7 +2791,7 @@ The profile after improvement: the winner surface applied back into the
 
 > **shipped**: `boolean`
 
-Defined in: [improvement/improve.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L82)
+Defined in: [improvement/improve.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L81)
 
 True when `gateDecision === 'ship'`.
 
@@ -2799,7 +2799,7 @@ True when `gateDecision === 'ship'`.
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L84)
+Defined in: [improvement/improve.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L83)
 
 Held-out lift (`winner − baseline` composite).
 
@@ -2807,7 +2807,7 @@ Held-out lift (`winner − baseline` composite).
 
 > **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L86)
+Defined in: [improvement/improve.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L85)
 
 The five-valued gate verdict from `selfImprove`.
 
@@ -2815,7 +2815,7 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L88)
+Defined in: [improvement/improve.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L87)
 
 Full `selfImprove` result for advanced inspection.
 
@@ -6380,7 +6380,7 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 > **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"code"`
 
-Defined in: [improvement/improve.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L46)
+Defined in: [improvement/improve.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L45)
 
 The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  profile levers; `code` is the implementation-tier surface.
@@ -7774,7 +7774,7 @@ Defined in: [improvement/build-prompts.ts:43](https://github.com/tangle-network/
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L200)
+Defined in: [improvement/improve.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L199)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 

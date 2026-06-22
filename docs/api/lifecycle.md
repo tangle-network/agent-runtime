@@ -1376,7 +1376,7 @@ The shared baseline eval (the "without" arm, measured once).
 
 ### SkillDraft
 
-Defined in: [lifecycle/skill-generator.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L32)
+Defined in: [lifecycle/skill-generator.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L33)
 
 A distilled skill draft: a name + the `SKILL.md` body.
 
@@ -1386,7 +1386,7 @@ A distilled skill draft: a name + the `SKILL.md` body.
 
 > **name**: `string`
 
-Defined in: [lifecycle/skill-generator.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L34)
+Defined in: [lifecycle/skill-generator.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L35)
 
 Skill name — becomes the inline resource ref name + the artifact name.
 
@@ -1394,7 +1394,7 @@ Skill name — becomes the inline resource ref name + the artifact name.
 
 > **content**: `string`
 
-Defined in: [lifecycle/skill-generator.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L36)
+Defined in: [lifecycle/skill-generator.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L37)
 
 The `SKILL.md` document body (markdown).
 
@@ -1402,7 +1402,7 @@ The `SKILL.md` document body (markdown).
 
 > `optional` **description?**: `string`
 
-Defined in: [lifecycle/skill-generator.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L38)
+Defined in: [lifecycle/skill-generator.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L39)
 
 Optional one-line description for review surfaces.
 
@@ -1410,7 +1410,7 @@ Optional one-line description for review surfaces.
 
 ### SkillGeneratorOptions
 
-Defined in: [lifecycle/skill-generator.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L56)
+Defined in: [lifecycle/skill-generator.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L57)
 
 #### Properties
 
@@ -1418,7 +1418,7 @@ Defined in: [lifecycle/skill-generator.ts:56](https://github.com/tangle-network/
 
 > **distill**: [`DistillSkills`](#distillskills)
 
-Defined in: [lifecycle/skill-generator.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L58)
+Defined in: [lifecycle/skill-generator.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L59)
 
 REQUIRED — the create step. Without it there is no skill to optimize.
 
@@ -1426,7 +1426,7 @@ REQUIRED — the create step. Without it there is no skill to optimize.
 
 > `optional` **refine?**: [`RefineSkill`](#refineskill)
 
-Defined in: [lifecycle/skill-generator.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L60)
+Defined in: [lifecycle/skill-generator.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L61)
 
 OPTIONAL — the optimize step. Omit to ship distilled drafts unrefined.
 
@@ -1917,7 +1917,7 @@ test injects a pure function. Returns up to `count` drafts.
 
 > **DistillSkills** = (`ctx`) => `Promise`\<[`SkillDraft`](#skilldraft)[]\> \| [`SkillDraft`](#skilldraft)[]
 
-Defined in: [lifecycle/skill-generator.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L47)
+Defined in: [lifecycle/skill-generator.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L48)
 
 DISTILL — create new skill drafts from the agent's history. Returns zero or
 more drafts (zero is valid: nothing worth distilling this round). The
@@ -1940,11 +1940,11 @@ LLM; a test injects a pure function.
 
 > **RefineSkill** = (`draft`) => `Promise`\<[`SkillDraft`](#skilldraft)\> \| [`SkillDraft`](#skilldraft)
 
-Defined in: [lifecycle/skill-generator.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L54)
+Defined in: [lifecycle/skill-generator.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L55)
 
 REFINE — improve ONE distilled draft (wording, structure, examples). The
-production implementation wraps `runSkillOpt`. Returns the refined draft; when
-omitted from `skillGenerator`, the distilled draft is used as-is.
+production implementation drives `skillOptProposer`. Returns the refined draft;
+when omitted from `skillGenerator`, the distilled draft is used as-is.
 
 #### Parameters
 
@@ -2540,7 +2540,7 @@ Cold start on a fixture domain (the closed loop in one call):
 
 > **skillGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)\<`"skill"`\>
 
-Defined in: [lifecycle/skill-generator.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L74)
+Defined in: [lifecycle/skill-generator.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/lifecycle/skill-generator.ts#L75)
 
 Build a `CandidateGenerator` for the skill surface that distills new skills
 from history, then (optionally) refines them, and emits each as a `skill`
@@ -2559,10 +2559,10 @@ artifact carrying an inline `SKILL.md` resource ref.
 #### Example
 
 ```ts
-Production wiring (distill = LLM reflection, refine = skillOpt):
+Production wiring (distill = LLM reflection, refine = skillOptProposer):
   skillGenerator({
     distill: reflectiveDistill,   // creates the draft from traces
-    refine: skillOptRefine,       // optimizes the draft
+    refine: skillOptRefine,       // optimizes the draft via skillOptProposer
   })
 ```
 
