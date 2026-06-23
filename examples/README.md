@@ -36,6 +36,7 @@ Era tags: **production runtime** (`runAgentTask` / `handleChatTurn` — what eve
 |---|---|---|---|
 | 9c | [`strategy-evolution/`](./strategy-evolution/) | loops suite | `runStrategyEvolution` + `promotionGate` — the policy-search journey: author candidate strategies from losses, advance a champion, promote on a fresh holdout slice (needs `TANGLE_API_KEY`) |
 | 9d | [`product-eval/`](./product-eval/) | loops suite | `evalPersona` — user-sim product evals in one call: scripted + LLM-adversarial personas, plus the `runPersonaDispatch` → `runProfileMatrix` scored path (needs `TANGLE_API_KEY`; offline-testable via a `backendFor` override) |
+| 9e | [`coding-benchmark/`](./coding-benchmark/) | loops suite | `runProfileMatrix` over harness × baseline-profile × scenario — one coding task across claude-code / opencode / codex / cli, with a one-line tool knob, validators-before-judge, a no-cheat firewall, and real paired-bootstrap + Wilson + BH stats (offline by default; `--live` for real harness boxes) |
 
 ## The supervisor core, deeper — an agent drives N agents
 
@@ -101,6 +102,8 @@ pnpm dlx tsx examples/ui-audit/ui-audit.ts /tmp/ui-audit-demo https://example.co
 # The loops suite, deeper — search + evals
 TANGLE_API_KEY=... pnpm tsx examples/strategy-evolution/strategy-evolution.ts  # policy search → holdout gate
 TANGLE_API_KEY=... pnpm tsx examples/product-eval/product-eval.ts              # user-sim product evals (evalPersona)
+pnpm tsx examples/coding-benchmark/benchmark.ts                               # harness × profile × scenario matrix (offline)
+pnpm tsx examples/coding-benchmark/benchmark.ts --ensemble --reps 5           # 3-model judge + more reps
 
 # Self-improvement + observability
 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
