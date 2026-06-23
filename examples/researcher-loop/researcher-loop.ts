@@ -145,6 +145,11 @@ async function main(): Promise<void> {
   const { output, validator, agentRunSpec } = researcherProfile({ task })
   const driver: Driver<ResearchTask, ResearchOutput, 'pick-winner' | 'fail'> = {
     name: 'fanout',
+    // A "round" = one plan → run workers → decide cycle. This driver is SINGLE-ROUND:
+    // it returns two copies of the task on round 0 (history empty) → two parallel
+    // workers (a "fanout"), then [] forever after → it spawns, scores, and picks ONCE.
+    // It never reads a worker's output to build the next prompt. For a driver that
+    // re-plans from worker output (the supervisor fold), see examples/driver-loop/.
     plan: async (task, history) => (history.length === 0 ? [task, task] : []),
     decide: (history) => (history.some((i) => i.verdict?.valid === true) ? 'pick-winner' : 'fail'),
   }

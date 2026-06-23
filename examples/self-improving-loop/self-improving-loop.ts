@@ -171,6 +171,11 @@ async function runVariant(profile: AgentProfile, scriptedReplies: ScriptedReply[
       score: { composite: number }
     }> = []
     for (const persona of PERSONAS) {
+      // A "shot" = one independent worker attempt/sample. `runMultishot` plays N shots
+      // in parallel and reports each; here each persona gets one shot (maxTurns:1 = one
+      // turn per shot). Contrast with a "round" (the driver-loop sense): a shot is ONE
+      // worker attempt; a round is one full plan → run workers → decide cycle that can
+      // span many shots. See examples/driver-loop/ for the round/shot vocabulary block.
       const result = await runMultishot({ profile, persona, shape, maxTurns: 1 })
       const score = await runJudge(conversationJudge, { transcript: result.transcript, persona })
       runs.push({ persona, result, score })

@@ -46,4 +46,4 @@ const result = await supervise(
   },
 )
 
-console.log(result.kind === 'winner' ? '✓ delivered' : `✗ no winner (${result.kind})`)
+console.log(result.kind === 'winner' ? '[OK] delivered' : `[--] no winner (${result.kind})`)

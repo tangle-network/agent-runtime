@@ -94,8 +94,8 @@ async function main(): Promise<void> {
 
   console.log(
     result.kind === 'winner'
-      ? `✅ delivered: ${JSON.stringify(result.out)}`
-      : `❌ no winner (${result.reason}, ${result.downCount} down)`,
+      ? `[OK] delivered: ${JSON.stringify(result.out)}`
+      : `[--] no winner (${result.reason}, ${result.downCount} down)`,
   )
 }
 
