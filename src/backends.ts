@@ -18,6 +18,7 @@ import type {
   AgentBackendContext,
   AgentBackendInput,
   AgentExecutionBackend,
+  OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
   RuntimeSession,
@@ -223,6 +224,10 @@ export function createOpenAICompatibleBackend<
    * `'auto'`).
    */
   toolChoice?: OpenAIChatToolChoice
+  /**
+   * OpenAI Chat Completions `response_format`. Omit for provider default text.
+   */
+  responseFormat?: OpenAIChatResponseFormat
   fetchImpl?: typeof fetch
   retry?: BackendRetryPolicy
 }): AgentExecutionBackend<TInput> {
@@ -258,6 +263,9 @@ export function createOpenAICompatibleBackend<
       if (options.tools && options.tools.length > 0) {
         bodyPayload.tools = options.tools
         if (options.toolChoice !== undefined) bodyPayload.tool_choice = options.toolChoice
+      }
+      if (options.responseFormat !== undefined) {
+        bodyPayload.response_format = options.responseFormat
       }
       const requestBody = JSON.stringify(bodyPayload)
       let response: Response | undefined

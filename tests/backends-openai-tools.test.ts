@@ -104,6 +104,32 @@ describe('createOpenAICompatibleBackend — tools[] request shape', () => {
     expect(captured?.tool_choice).toBeUndefined()
   })
 
+  it('includes response_format verbatim when configured', async () => {
+    let captured: Record<string, unknown> | undefined
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.tangle.tools/v1',
+      model: 'gpt-4.1-mini',
+      responseFormat: { type: 'json_object' },
+      fetchImpl: async (_url, init) => {
+        captured = JSON.parse((init?.body as string) ?? '{}') as Record<string, unknown>
+        return new Response('data: [DONE]\n\n', { status: 200 })
+      },
+    })
+    await collect(
+      runAgentTaskStream({
+        task: { id: 'json-response', intent: 'return JSON', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(captured).toMatchObject({
+      stream: true,
+      stream_options: { include_usage: true },
+      response_format: { type: 'json_object' },
+    })
+  })
+
   it('honors an explicit tool_choice value (auto / none / required / pin)', async () => {
     const captures: Record<string, unknown>[] = []
     const make = (toolChoice: Parameters<typeof createOpenAICompatibleBackend>[0]['toolChoice']) =>

@@ -259,6 +259,18 @@ export type OpenAIChatToolChoice =
   | 'required'
   | { type: 'function'; function: { name: string } }
 
+/**
+ * @stable
+ *
+ * `response_format` parameter for OpenAI-compatible chat endpoints. Use
+ * `json_object` when the caller needs syntactically valid JSON, or
+ * `json_schema` when the upstream provider supports schema-constrained JSON.
+ */
+export type OpenAIChatResponseFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | { type: 'json_schema'; json_schema: Record<string, unknown> }
+
 /** @stable */
 export type RuntimeStreamEvent =
   | { type: 'task_start'; task: AgentTaskSpec; timestamp: string }
