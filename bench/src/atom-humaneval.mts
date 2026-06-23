@@ -34,9 +34,7 @@ import {
   routerBrain,
   routerChatWithUsage,
 } from '../../src/runtime/index'
-import { createReplayRecorder, renderReplayHtml } from '../../src/topology/replay'
 import { basePrompt, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { writeFileSync } from 'node:fs'
 
 function must(k: string): string {
   const v = process.env[k]
@@ -106,10 +104,9 @@ interface TaskOutcome {
 // ── Driver arm: the orchestrated atom ────────────────────────────────────────────────────────
 async function driveTask(
   task: HumanEvalTask,
-): Promise<{ delivered: boolean; spawns: number; tokens: number; replay: string }> {
+): Promise<{ delivered: boolean; spawns: number; tokens: number }> {
   const blobs = new InMemoryResultBlobStore()
   const journal = new InMemorySpawnJournal()
-  const recorder = createReplayRecorder()
   let spawns = 0
   const makeWorker = (): Agent<unknown, unknown> => {
     const w = humanEvalWorker(task, `w-${spawns}`)
@@ -134,17 +131,13 @@ async function driveTask(
     blobs,
     executors: createExecutorRegistry(),
     maxDepth: 4,
-    hooks: recorder.hooks,
     now: () => Date.now(),
   })
   const tree = await journal.loadTree(runId)
   const tokens = (tree ?? [])
     .filter((e): e is Extract<NonNullable<typeof tree>[number], { kind: 'settled' }> => e.kind === 'settled')
     .reduce((s, e) => s + e.spent.tokens.input + e.spent.tokens.output, 0)
-  const replay = renderReplayHtml(recorder.timeline(runId), {
-    title: `${task.taskId} · driver=${driverCfg.model}`,
-  })
-  return { delivered: result.kind === 'winner', spawns, tokens, replay }
+  return { delivered: result.kind === 'winner', spawns, tokens }
 }
 
 // ── Blind arm: K independent workers, best-of-K by the checker (no orchestration) ─────────────
@@ -169,14 +162,8 @@ async function main(): Promise<void> {
   console.log(`atom-humaneval: N=${N} K=${K} offset=${OFFSET} worker=${cfg.model} driver=${driverCfg.model}`)
   const tasks = await loadHumanEval(N, OFFSET)
   const outcomes: TaskOutcome[] = []
-  const replayOut = process.env.REPLAY_OUT ?? '/tmp/atom-replay.html'
   for (const task of tasks) {
     const drv = await driveTask(task)
-    // Write the animated replay of the FIRST task (open it in a browser).
-    if (outcomes.length === 0) {
-      writeFileSync(replayOut, drv.replay)
-      console.log(`  ↳ replay written: ${replayOut} (${(drv.replay.length / 1024).toFixed(0)} KB)`)
-    }
     const blind = await blindTask(task)
     outcomes.push({
       taskId: task.taskId,

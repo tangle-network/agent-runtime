@@ -158,11 +158,9 @@ label, runtime, budget, depth) and the settle cursor emits `agent.child` (status
 reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
 `defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
 on the `AgentProfile`, never coupled to one backend. This single stream is the
-opencode-style extension surface *and* what the **topology visualization** consumes:
-`src/topology/` folds the stream into the live recursive agent tree — each node's status,
-steps, child count, and deployable score — and renders it (`createTopologyView().hooks`
-attaches; `.render()` draws the tree). The journal stays the durable record; the hook
-stream is its live projection (both agree).
+opencode-style extension surface *and* the live projection of the recursive agent tree —
+each node's status, steps, child count, and deployable score. The journal stays the durable
+record; the hook stream is its live projection (both agree).
 
 ---
 
@@ -550,8 +548,7 @@ a feature — it's the absence of a base case (`supervise/supervisor.ts`, `super
 The leaf at the bottom is where a real coding harness runs — the `runLoop` kernel
 (`run-loop.ts`) is composed as one leaf execution backend. Everything above it is the same
 `act`/`Scope` atom. The whole tree is observable as one lifecycle stream
-(`scope.spawn`/settle → `agent.spawn`/`agent.child`), rendered by
-[`src/topology/`](../src/topology/tree.ts).
+(`scope.spawn`/settle → `agent.spawn`/`agent.child`).
 
 ### 13.3 The within-run self-improvement loop (§1's agent-driver, drawn)
 
