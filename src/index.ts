@@ -254,6 +254,7 @@ export type {
   AgentTaskSpec,
   AgentTaskStatus,
   BackendErrorDetail,
+  OpenAIChatResponseFormat,
   OpenAIChatTool,
   OpenAIChatToolChoice,
   RuntimeSessionStore,

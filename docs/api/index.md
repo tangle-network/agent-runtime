@@ -5850,7 +5850,7 @@ Defined in: [types.ts:241](https://github.com/tangle-network/agent-runtime/blob/
 
 ### RuntimeSessionStore
 
-Defined in: [types.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L444)
+Defined in: [types.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L456)
 
 #### Stable
 
@@ -5860,7 +5860,7 @@ Defined in: [types.ts:444](https://github.com/tangle-network/agent-runtime/blob/
 
 > **get**(`sessionId`): `RuntimeSession` \| `Promise`\<`RuntimeSession` \| `undefined`\> \| `undefined`
 
-Defined in: [types.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L445)
+Defined in: [types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L457)
 
 ###### Parameters
 
@@ -5876,7 +5876,7 @@ Defined in: [types.ts:445](https://github.com/tangle-network/agent-runtime/blob/
 
 > **put**(`session`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L446)
+Defined in: [types.ts:458](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L458)
 
 ###### Parameters
 
@@ -5892,7 +5892,7 @@ Defined in: [types.ts:446](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **appendEvent**(`sessionId`, `event`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:447](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L447)
+Defined in: [types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L459)
 
 ###### Parameters
 
@@ -5912,7 +5912,7 @@ Defined in: [types.ts:447](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **listEvents**(`sessionId`): [`RuntimeStreamEvent`](#runtimestreamevent)[] \| `Promise`\<[`RuntimeStreamEvent`](#runtimestreamevent)[]\>
 
-Defined in: [types.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L448)
+Defined in: [types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L460)
 
 ###### Parameters
 
@@ -5928,7 +5928,7 @@ Defined in: [types.ts:448](https://github.com/tangle-network/agent-runtime/blob/
 
 ### AgentBackendInput
 
-Defined in: [types.ts:452](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L452)
+Defined in: [types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L464)
 
 #### Stable
 
@@ -5938,19 +5938,19 @@ Defined in: [types.ts:452](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:453](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L453)
+Defined in: [types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L465)
 
 ##### message?
 
 > `optional` **message?**: `string`
 
-Defined in: [types.ts:454](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L454)
+Defined in: [types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L466)
 
 ##### messages?
 
 > `optional` **messages?**: `object`[]
 
-Defined in: [types.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L455)
+Defined in: [types.ts:467](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L467)
 
 ###### role
 
@@ -5964,13 +5964,13 @@ Defined in: [types.ts:455](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **inputs?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L456)
+Defined in: [types.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L468)
 
 ***
 
 ### AgentBackendContext
 
-Defined in: [types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L460)
+Defined in: [types.ts:472](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L472)
 
 #### Stable
 
@@ -5980,31 +5980,31 @@ Defined in: [types.ts:460](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L461)
+Defined in: [types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L473)
 
 ##### knowledge
 
 > **knowledge**: `KnowledgeReadinessReport`
 
-Defined in: [types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L462)
+Defined in: [types.ts:474](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L474)
 
 ##### session
 
 > **session**: `RuntimeSession`
 
-Defined in: [types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L463)
+Defined in: [types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L475)
 
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L464)
+Defined in: [types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L476)
 
 ##### runId?
 
 > `optional` **runId?**: `string`
 
-Defined in: [types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L470)
+Defined in: [types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L482)
 
 Conversation/run identifier when this call is part of a multi-agent run.
 Backends should stamp it into any trace/log emission so cross-participant
@@ -6014,7 +6014,7 @@ events correlate. Absent when the call is a stand-alone `runAgentTask`.
 
 > `optional` **turnId?**: `string`
 
-Defined in: [types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L475)
+Defined in: [types.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L487)
 
 Deterministic turn id for this single call. Stable across retries of the
 same logical turn so a caching gateway / idempotent backend can dedupe.
@@ -6023,7 +6023,7 @@ same logical turn so a caching gateway / idempotent backend can dedupe.
 
 > `optional` **parentTurnId?**: `string`
 
-Defined in: [types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L481)
+Defined in: [types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L493)
 
 If this call is itself nested inside a higher-order conversation
 (recursion via `createConversationBackend`), the enclosing turn's id.
@@ -6033,7 +6033,7 @@ Used for trace stitching across nested orchestration.
 
 > `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [types.ts:488](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L488)
+Defined in: [types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L500)
 
 Headers to forward verbatim to any outbound HTTP the backend issues:
 `X-Tangle-Forwarded-Authorization`, `X-Tangle-Forwarded-Depth`,
@@ -6044,7 +6044,7 @@ the outbound request; backends that don't issue HTTP may ignore them.
 
 ### AgentExecutionBackend
 
-Defined in: [types.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L492)
+Defined in: [types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L504)
 
 #### Stable
 
@@ -6060,7 +6060,7 @@ Defined in: [types.ts:492](https://github.com/tangle-network/agent-runtime/blob/
 
 > **kind**: `string`
 
-Defined in: [types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L493)
+Defined in: [types.ts:505](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L505)
 
 #### Methods
 
@@ -6068,7 +6068,7 @@ Defined in: [types.ts:493](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **start**(`input`, `context`): `RuntimeSession` \| `Promise`\<`RuntimeSession`\>
 
-Defined in: [types.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L494)
+Defined in: [types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L506)
 
 ###### Parameters
 
@@ -6088,7 +6088,7 @@ Defined in: [types.ts:494](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **resume**(`session`, `input`, `context`): `RuntimeSession` \| `Promise`\<`RuntimeSession`\>
 
-Defined in: [types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L498)
+Defined in: [types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L510)
 
 ###### Parameters
 
@@ -6112,7 +6112,7 @@ Defined in: [types.ts:498](https://github.com/tangle-network/agent-runtime/blob/
 
 > **stream**(`input`, `context`): `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
 
-Defined in: [types.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L503)
+Defined in: [types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L515)
 
 ###### Parameters
 
@@ -6132,7 +6132,7 @@ Defined in: [types.ts:503](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **stop**(`session`, `reason`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L504)
+Defined in: [types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L516)
 
 ###### Parameters
 
@@ -6152,7 +6152,7 @@ Defined in: [types.ts:504](https://github.com/tangle-network/agent-runtime/blob/
 
 ### AgentTaskRunResult
 
-Defined in: [types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L540)
+Defined in: [types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L552)
 
 #### Stable
 
@@ -6180,55 +6180,55 @@ Defined in: [types.ts:540](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:546](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L546)
+Defined in: [types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L558)
 
 ##### status
 
 > **status**: [`AgentTaskStatus`](#agenttaskstatus)
 
-Defined in: [types.ts:547](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L547)
+Defined in: [types.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L559)
 
 ##### knowledge
 
 > **knowledge**: `KnowledgeReadinessReport`
 
-Defined in: [types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L548)
+Defined in: [types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L560)
 
 ##### questions
 
 > **questions**: `UserQuestion`[]
 
-Defined in: [types.ts:549](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L549)
+Defined in: [types.ts:561](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L561)
 
 ##### acquisitionPlans
 
 > **acquisitionPlans**: `DataAcquisitionPlan`[]
 
-Defined in: [types.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L550)
+Defined in: [types.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L562)
 
 ##### userAnswers
 
 > **userAnswers**: `Record`\<`string`, `string`\>
 
-Defined in: [types.ts:551](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L551)
+Defined in: [types.ts:563](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L563)
 
 ##### acquiredEvidenceIds
 
 > **acquiredEvidenceIds**: `string`[]
 
-Defined in: [types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L552)
+Defined in: [types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L564)
 
 ##### control
 
 > **control**: `ControlRunResult`\<`TState`, `TAction`, `TActionResult`, `TEval`\>
 
-Defined in: [types.ts:553](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L553)
+Defined in: [types.ts:565](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L565)
 
 ##### runRecords
 
 > **runRecords**: `RunRecord`[]
 
-Defined in: [types.ts:554](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L554)
+Defined in: [types.ts:566](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L566)
 
 ## Type Aliases
 
@@ -6657,11 +6657,25 @@ pin `{ type: 'function', function: { name } }`.
 
 ***
 
+### OpenAIChatResponseFormat
+
+> **OpenAIChatResponseFormat** = \{ `type`: `"text"`; \} \| \{ `type`: `"json_object"`; \} \| \{ `type`: `"json_schema"`; `json_schema`: `Record`\<`string`, `unknown`\>; \}
+
+Defined in: [types.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L269)
+
+#### Stable
+
+`response_format` parameter for OpenAI-compatible chat endpoints. Use
+`json_object` when the caller needs syntactically valid JSON, or
+`json_schema` when the upstream provider supports schema-constrained JSON.
+
+***
+
 ### RuntimeStreamEvent
 
 > **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: `KnowledgeReadinessDecision`; `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
-Defined in: [types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L263)
+Defined in: [types.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L275)
 
 #### Union Members
 
@@ -6982,7 +6996,7 @@ Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body).
 
 > **createIterableBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L28)
+Defined in: [backends.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L29)
 
 #### Type Parameters
 
@@ -7026,7 +7040,7 @@ Defined in: [backends.ts:28](https://github.com/tangle-network/agent-runtime/blo
 
 > **createSandboxPromptBackend**\<`TBox`, `TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L39)
+Defined in: [backends.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L40)
 
 #### Type Parameters
 
@@ -7070,7 +7084,7 @@ Defined in: [backends.ts:39](https://github.com/tangle-network/agent-runtime/blo
 
 > **createOpenAICompatibleBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L205)
+Defined in: [backends.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L206)
 
 #### Type Parameters
 
@@ -7115,6 +7129,12 @@ and feeding `tool_result` messages back on a follow-up turn.
 OpenAI Chat Completions `tool_choice`. Default `undefined` (request
 omits the field; provider falls back to its own default — typically
 `'auto'`).
+
+###### responseFormat?
+
+[`OpenAIChatResponseFormat`](#openaichatresponseformat)
+
+OpenAI Chat Completions `response_format`. Omit for provider default text.
 
 ###### fetchImpl?
 
