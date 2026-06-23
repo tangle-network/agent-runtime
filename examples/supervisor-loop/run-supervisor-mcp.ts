@@ -166,11 +166,11 @@ async function main(): Promise<void> {
   console.log('\n── verdict ──')
   if (result.kind === 'winner') {
     console.log(
-      `✅ supervisor drove a worker via the coordination MCP to a CHECKED delivery on backend "${backend.backend}".`,
+      `[OK] supervisor drove a worker via the coordination MCP to a CHECKED delivery on backend "${backend.backend}".`,
     )
     console.log(`   winner output: ${JSON.stringify(result.out)}`)
   } else {
-    console.log(`❌ no delivery (result=${result.kind}) — see supervisor transcript above`)
+    console.log(`[--] no delivery (result=${result.kind}) — see supervisor transcript above`)
     process.exitCode = 1
   }
 }

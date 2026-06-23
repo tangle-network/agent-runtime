@@ -1,17 +1,24 @@
 /**
- * The sandbox path — each worker is a coding harness running in a real Tangle sandbox box.
+ * SANDBOXED SUPERVISOR — a supervisor that drives workers inside real Tangle sandbox boxes.
+ *
+ * The three-line shape:
+ *   1. the supervisor AUTHORS a worker `AgentProfile` (its standing instructions + harness),
+ *   2. each worker runs `runLoop` INSIDE a real box — `createExecutor({ backend: 'sandbox',
+ *      harness, sandboxClient })` composes the kernel as a single-task leaf in a box running
+ *      `harness` (opencode / claude-code / codex),
+ *   3. the supervisor reads each box's settled output and drives the next worker until the
+ *      deliverable check passes.
  *
  *   TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run-sandbox.ts
  *
  * The supervisor is the canonical one-call `supervise()`; this runner supplies only the
- * load-bearing sandbox seam — a real `SandboxClient` + `backend: 'sandbox'` (each worker leaf
- * is `createExecutor({ backend: 'sandbox', harness, sandboxClient })`, which composes `runLoop`
- * as a single-task leaf inside a box running `harness`).
+ * load-bearing sandbox seam — a real `SandboxClient` + `backend: 'sandbox'`. The WORKER BACKEND
+ * is the only knob: swap `backend: 'sandbox'` for `'bridge'` and the IDENTICAL supervisor drives
+ * local harness CLIs instead (see run-bridge.ts).
  *
  * The driver brain defaults to the router (the box key is already in hand); set DRIVER=scripted
- * for the offline brain. The IDENTICAL supervisor runs against local harness CLIs by swapping
- * the one backend value to `bridge` — see run-bridge.ts. For a fully offline, no-creds wiring
- * check, see tests/loops/coordination-driver.test.ts and tests/supervisor-loop-example.test.ts.
+ * for the offline brain. For a fully offline, no-creds wiring check, see
+ * tests/loops/coordination-driver.test.ts and tests/supervisor-loop-example.test.ts.
  */
 
 import {
@@ -75,8 +82,8 @@ async function main(): Promise<void> {
 
   console.log(
     result.kind === 'winner'
-      ? `✅ delivered: ${JSON.stringify(result.out)}`
-      : `❌ no winner (${result.reason}, ${result.downCount} down)`,
+      ? `[OK] delivered: ${JSON.stringify(result.out)}`
+      : `[--] no winner (${result.reason}, ${result.downCount} down)`,
   )
 }
 

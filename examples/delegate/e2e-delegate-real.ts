@@ -11,7 +11,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { delegate, type ExecutorConfig } from '../../dist/loops.js'
+import { delegate, type ExecutorConfig } from '@tangle-network/agent-runtime/loops'
 
 const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1'
 const routerKey = process.env.TANGLE_API_KEY
