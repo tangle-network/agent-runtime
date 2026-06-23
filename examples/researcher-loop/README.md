@@ -1,17 +1,19 @@
 # researcher-loop
 
 `researcherProfile()` (from `@tangle-network/agent-knowledge/profiles`) +
-`runLoop()` + an inline fanout `Driver` — the researcher-flavoured
-counterpart to [`coder-loop`](../coder-loop). Two parallel researcher
-iterations attempt the same question; the validator scores citation density +
-namespace scoping + per-item provenance; the kernel picks the
-highest-scoring valid winner.
+`runLoop()` + an inline fanout `Driver` — the primary, smallest example of the
+`runLoop` kernel. Two parallel researcher attempts answer the same question;
+the validator scores citation density + namespace scoping + per-item
+provenance; the kernel picks the highest-scoring valid winner.
 
-Same `runLoop` kernel and inline fanout driver as
-[`coder-loop`](../coder-loop), only the profile differs. The load-bearing
-branch below is candidate B: it leaks an item into `other-tenant`, so the
-validator hard-fails the entire output and the kernel prunes it — leaving A
-as the sole winner.
+A **round** is one `plan → run workers → decide` cycle. This driver is
+**single-round**: `plan()` returns two copies of the task on round 0, then `[]`
+forever after — so it spawns two workers, scores both, and picks once. It never
+reads a worker's output to write the next instruction. To see a driver that
+*does* re-plan from worker output (the supervisor pattern), read
+[`driver-loop/`](../driver-loop). The load-bearing branch below is candidate B:
+it leaks an item into `other-tenant`, so the validator hard-fails the entire
+output and the kernel prunes it — leaving A as the sole winner.
 
 ```mermaid
 flowchart TD

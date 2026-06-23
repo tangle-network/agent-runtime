@@ -68,6 +68,10 @@ function lensCyclingDriver(
 ): Driver<UiAuditTask, UiAuditOutput, 'complete' | 'failed'> {
   let cursor = 0
   return {
+    // This driver is CONTENT-BLIND by design: it cycles a fixed lens list off
+    // `history.length` and never reads a worker's output. So "driver" here is just
+    // a counter, NOT the output-driven re-planner. For a driver that builds the next
+    // prompt FROM the last worker's output (the fold), see examples/driver-loop/.
     // plan() returns Task[] — one lens per iteration, [] once all lenses are
     // cycled. The empty plan is what ends the loop: neither 'complete' nor
     // 'failed' is a terminal Decision (isTerminalDecision = stop|fail|done|

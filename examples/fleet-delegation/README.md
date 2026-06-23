@@ -77,9 +77,9 @@ flowchart TD
     end
 ```
 
-- **Sibling** (default): each `delegate_code` / `delegate_research` spawns
-  a fresh sandbox via `sandboxClient.create()`. Worker output flows back
-  through the MCP response — there is no shared filesystem.
+- **Sibling** (default): each `delegate` call spawns a fresh sandbox via
+  `sandboxClient.create()`. Worker output flows back through the MCP
+  response — there is no shared filesystem.
 - **Fleet** (set `TANGLE_FLEET_ID`): each delegation lands on an existing
   machine in the parent fleet. The fleet's shared-workspace policy means
   the worker sees the caller's filesystem and any diff lands in-place.

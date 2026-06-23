@@ -6,8 +6,8 @@ The example uses a **stub judge** so it runs without an API key and demonstrates
 
 ## What the example shows
 
-- A custom `SandboxClient` — the in-process browser+judge client — satisfies the kernel contract WITHOUT a real sandbox-SDK harness. The kernel does `client.create() → box.streamPrompt() → box.delete()` exactly as it does for `coderProfile`; the work happens in-process.
-- A custom `Driver` (`lensCyclingDriver`) plans one iteration per lens in a fixed order. Supply your own `Driver` that authors its topology from the trace for richer policies.
+- A custom `SandboxClient` — the in-process browser+judge client — satisfies the kernel contract WITHOUT a real sandbox-SDK harness. The kernel does `client.create() → box.streamPrompt() → box.delete()` exactly as it does for any profile (e.g. `researcherProfile`); the work happens in-process.
+- A custom `Driver` (`lensCyclingDriver`) plans one iteration per lens in a fixed order. It is **content-blind**: it cycles a fixed lens list off `history.length` and never reads a worker's output to decide what to do next. For a driver that re-plans *from* worker output, see [`driver-loop/`](../driver-loop). Supply your own `Driver` that authors its topology from the trace for richer policies.
 - `appendFindings(workspaceDir, findings)` and `writeAuditIndex(workspaceDir)` persist self-contained GitHub-issue Markdown files plus a registry + index.
 
 ## Run

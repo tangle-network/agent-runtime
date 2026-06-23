@@ -1,12 +1,13 @@
 # product-eval
 
-User-sim product evals in one call — `evalPersona`, plus the `runPersonaDispatch` → matrix path.
+User-sim product evals — `runPersonaConversation` (the persona loop) + the
+`runPersonaDispatch` → matrix path.
 
-A product eval runs the **agent under test** against a **persona** (a simulated user) over a
-multi-round conversation, then scores the transcript. `evalPersona(worker, persona, opts)` is the
-one-call entry — you author a worker `AgentProfile` and a persona, and it defaults the two seams
-`runPersonaConversation` otherwise makes you hand-wire: the backend (from `opts.{apiKey,baseUrl,model}`)
-and the system prompt (`p.prompt?.systemPrompt`).
+A product eval runs the **agent under test** against a **persona** (a simulated
+user) over a multi-round conversation, then scores the transcript.
+`runPersonaConversation` is the loop runner: you author a worker `AgentProfile`
+and a persona, and supply two seams — `backendFor` (turn a profile into a
+runnable backend) and `systemPromptOf` (render its system prompt).
 
 Three cells, smallest to largest:
 
@@ -27,6 +28,6 @@ Optional env: `WORKER_MODEL` (the agent under test, default `gpt-4o-mini`), `ROU
 
 ## Offline
 
-`evalPersona` and `runPersonaDispatch` both take a `backendFor` override — pass a fake backend and the
-whole loop runs with no credentials and no network. See `src/conversation/eval-persona.test.ts` for
-the `$0` offline pattern (it is part of `pnpm test`).
+Both `runPersonaConversation` and `runPersonaDispatch` take a `backendFor` seam — pass a fake
+backend and the whole loop runs with no credentials and no network. See
+`src/conversation/run-persona.test.ts` for the `$0` offline pattern (it is part of `pnpm test`).
