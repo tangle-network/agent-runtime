@@ -64,17 +64,23 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 
 // ── the offline "agent": a scripted, REFINING solution per scenario ───────────
 // Offline we don't have a model, so each scenario's box writes a canned solution.
-// `rate-limiter` IMPROVES across rounds (round 0 = a `return true` stub the realness
-// gate catches; round 2 = the real token-bucket) — a real refine demo. `csv-parser`
-// writes its real implementation from round 0.
-const offlineSolutions: Record<string, OfflineScript> = {
+// `rate-limiter` IMPROVES across rounds (round 0 = a genuinely hollow `return true`
+// stub the realness gate GATES to composite 0; round 1+ = the real token-bucket) —
+// a real refine demo that fires the anti-cheat gate on the benchmark's OWN data.
+// `csv-parser` writes its real implementation from round 0.
+export const offlineSolutions: Record<string, OfflineScript> = {
   'rate-limiter': {
     path: 'src/rate-limiter.ts',
     solutionFor: (round) =>
       round === 0
-        ? // round 0 — a stub: compiles, but `tryRemove` is a hardcoded `return true`
-          // with no refill math. The realness gate flags + gates this.
-          `export class RateLimiter {\n  constructor(private capacity: number, private refillPerSec: number) {}\n` +
+        ? // round 0 — a genuinely HOLLOW stub: it accepts the constructor args (so the
+          // hidden test instantiates it) but the body is pure cheat — `tryRemove` is a
+          // hardcoded `return true` with NO refill math and NO use of the args. The
+          // realness gate's `realImpl` signal does not fire (no `Date.now`/`refill`),
+          // `fakeShim` does, so gateRealness GATES it → composite 0. The param names are
+          // intentionally inert (no `refill` token) so the stub is hollow, not a real
+          // impl that merely "happens to return true". (Verified by the smoke test.)
+          `export class RateLimiter {\n  constructor(_capacity: number, _ratePerSec: number) {}\n` +
           `  tryRemove(n: number): boolean { return true }\n}\n`
         : // round 1+ — the real token-bucket with continuous time-based refill.
           `export class RateLimiter {\n  private tokens: number\n  private last = Date.now()\n` +

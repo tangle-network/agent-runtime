@@ -62,8 +62,14 @@ export interface CodingScenario extends Scenario {
 // non-zero exit (the honest offline signal), not a 20s network stall.
 /** A typecheck shell command for one solution file. */
 const typecheckCmd = (path: string) => `tsc --noEmit --strict --skipLibCheck ${path}`
-/** A `node --test` command for one fixture. The fixture imports the solution. */
-const testCmd = (fixturePath: string) => `node --test ${fixturePath}`
+/** A `node --test` command for one fixture. The fixture imports the solution as a `.ts`
+ *  file, so we run with `--experimental-transform-types`: Node's DEFAULT type-stripping
+ *  is strip-only and throws `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` on TS that emits runtime
+ *  code — including constructor PARAMETER PROPERTIES (`constructor(private x: number)`),
+ *  the exact style the canonical token-bucket impl uses. Without the flag a CORRECT
+ *  solution would exit 1 and score as a test failure. The flag transforms (not just
+ *  strips) the types so param properties run. */
+const testCmd = (fixturePath: string) => `node --experimental-transform-types --test ${fixturePath}`
 /** A lint shell command for one solution file. */
 const lintCmd = (path: string) => `biome check ${path}`
 

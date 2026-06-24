@@ -122,7 +122,12 @@ export function pairwiseStats(
 
   const leaderboard: HarnessRow[] = harnesses.map((harness) => {
     const rs = groups.get(harness) ?? []
-    const scores = rs.map(score)
+    // Collapse reps to ONE mean per scenario BEFORE the CI/Wilson — the SAME unit the
+    // pairing path uses. Reps tighten the per-(harness,scenario) estimate; they are NOT
+    // independent samples, so feeding every raw rep record into the CI would let
+    // identical reps fake a narrower interval out of zero new information. The honest n
+    // is the number of distinct scenarios, not records.
+    const scores = [...meanByScenario(rs).values()]
     const ci = confidenceInterval(scores, 0.95, { seed: 7 })
     const passes = scores.filter((s) => s >= greenThreshold).length
     const passCi = wilson(passes, scores.length, 0.95)
