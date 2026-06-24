@@ -72,12 +72,10 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 }
 
 // ── the offline "agent": a scripted, REFINING solution per scenario ───────────
-// Offline we don't have a model, so each scenario's box writes a canned solution.
-// `rate-limiter` IMPROVES across rounds (round 0 = a HARDCODE-THE-VISIBLE cheat that
-// only answers the visible example inputs; round 1+ = the real token-bucket). The cheat
-// passes the visible tests but FAILS the held-out suite (different inputs it never saw) —
-// the anti-cheat demo fires on the benchmark's OWN data, by execution, not a regex.
-// `csv-parser` writes its real implementation from round 0.
+// The scripted stand-in (see offline-box.ts). `rate-limiter` IMPROVES across rounds:
+// round 0 = a HARDCODE-THE-VISIBLE cheat, round 1+ = the real token-bucket — so the smoke
+// test can assert the cheat fails the held-out suite while the real impl passes (the
+// anti-cheat, by execution). `csv-parser` / `lru-cache` write their real impl from round 0.
 export const offlineSolutions: Record<string, OfflineScript> = {
   'rate-limiter': {
     path: 'src/rate-limiter.ts',
@@ -204,7 +202,7 @@ function judges(
 }
 
 // ── the sweep ─────────────────────────────────────────────────────────────────
-export async function main(argv: string[] = process.argv.slice(2)): Promise<RunArtifactSummary> {
+export async function main(argv: string[] = process.argv.slice(2)): Promise<BenchmarkSummary> {
   const opts = parseArgs(argv)
   const live = opts.live ?? false
   const reps = opts.reps ?? 1
@@ -266,7 +264,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<RunA
   }
 }
 
-export interface RunArtifactSummary {
+export interface BenchmarkSummary {
   records: number
   leaderboard: number
 }

@@ -13,76 +13,20 @@
  */
 
 import {
-  type AgenticTask,
-  type ArtifactHandle,
   defineStrategy,
-  type Environment,
   printBenchmarkReport,
   refine,
   runBenchmark,
   sample,
 } from '@tangle-network/agent-runtime/loops'
+import { counterEnv, counterTask } from './counter-env'
 
-// ── 1. The Environment — the only thing a new domain writes ─────────────────
-// A toy: drive a counter to exactly the target with the increment tool. The
-// "artifact" is an in-memory counter; a real domain opens a repo, a browser,
-// or an MCP server the same way and scores it with its own deployable check.
+// ── 1. The domain — the only thing a new domain writes ──────────────────────
+// `counterEnv` (the shared toy `Environment`, 5 hooks open/tools/call/score/close)
+// lives in ./counter-env.ts so this file shows only the DISTINCT concept: authoring
+// a strategy and comparing it against the built-ins at equal budget.
 
-const target = 5
-const counters = new Map<string, { count: number }>()
-
-const counterEnv: Environment = {
-  name: 'counter',
-  async open(_task) {
-    const id = `counter-${Math.random().toString(36).slice(2, 8)}`
-    counters.set(id, { count: 0 })
-    return { id, surface: 'counter' } satisfies ArtifactHandle
-  },
-  async tools() {
-    return [
-      {
-        type: 'function',
-        function: {
-          name: 'increment',
-          description: 'Add 1 to the counter.',
-          parameters: { type: 'object', properties: {} },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'read_count',
-          description: 'Read the current counter value.',
-          parameters: { type: 'object', properties: {} },
-        },
-      },
-    ]
-  },
-  async call(handle, name) {
-    const c = counters.get(handle.id)
-    if (!c) return 'ERROR: no such counter'
-    if (name === 'increment') {
-      c.count += 1
-      return `count is now ${c.count}`
-    }
-    if (name === 'read_count') return `count is ${c.count}`
-    return `ERROR: unknown tool ${name}`
-  },
-  // The deployable CHECK — your own success criterion, never an LLM's opinion.
-  async score(_task, handle) {
-    const count = counters.get(handle.id)?.count ?? 0
-    return { passes: Math.min(count, target), total: target, errored: 0 }
-  },
-  async close(handle) {
-    counters.delete(handle.id)
-  },
-}
-
-const task: AgenticTask = {
-  id: 'counter-to-5',
-  systemPrompt: 'You operate a counter with tools.',
-  userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
-}
+const task = counterTask('counter-to-5')
 
 // ── 2. Author a strategy — compose shot() + critique(), zero ceremony ───────
 // shot() = one worker attempt over the artifact; critique() = the firewalled

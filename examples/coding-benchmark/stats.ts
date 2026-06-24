@@ -4,7 +4,7 @@
  *   - per-harness PASS-RATE with a binomial Wilson interval (`wilson`) — the correct
  *     CI for a proportion (the continuous CI assumes the wrong distribution)
  *   - every harness PAIR compared on MATCHED scenarios with a REAL paired significance
- *     test (`pairedTTest`, or `wilcoxonSignedRank` for the non-parametric path), then
+ *     test (`pairedTTest`), then
  *     BH-corrected across all pairs (`benjaminiHochberg`) so running many comparisons
  *     doesn't manufacture a false winner. The paired delta + its bootstrap CI
  *     (`pairedBootstrap`) is reported as the effect size.
@@ -24,15 +24,11 @@ import {
   pairedBootstrap,
   pairedTTest,
   type RunRecord,
-  wilcoxonSignedRank,
   wilson,
 } from '@tangle-network/agent-eval'
 
 /** A composite at or above this counts as "green" for the pass-rate proportion. */
 const greenThreshold = 0.6
-
-/** Which paired test to run. Parametric `t` by default; `wilcoxon` for skewed scores. */
-export type PairedTest = 't' | 'wilcoxon'
 
 interface HarnessRow {
   harness: string
@@ -61,7 +57,9 @@ export interface StatsReport {
   pairs: PairResult[]
 }
 
-/** Per-record composite — the score the judges produced. */
+/** Per-record composite — the score the judges produced. This example tags every record
+ *  with `searchScore` (it has no train/holdout split tags), so that is the field read;
+ *  `holdoutScore` is a forward-compat fallback for a split-tagged corpus. */
 function score(r: RunRecord): number {
   return r.outcome.searchScore ?? r.outcome.holdoutScore ?? 0
 }
@@ -122,11 +120,7 @@ function pairedScores(a: RunRecord[], b: RunRecord[]): { aScores: number[]; bSco
   return { aScores, bScores }
 }
 
-export function pairwiseStats(
-  records: RunRecord[],
-  nameOf: (id: string) => string,
-  test: PairedTest = 't',
-): StatsReport {
+export function pairwiseStats(records: RunRecord[], nameOf: (id: string) => string): StatsReport {
   const groups = byHarness(records, nameOf)
   const harnesses = [...groups.keys()].sort()
 
@@ -161,10 +155,7 @@ export function pairwiseStats(
       if (aScores.length === 0) continue
       // Effect size + CI from the paired bootstrap; the p-value from a real paired test.
       const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
-      const p =
-        test === 'wilcoxon'
-          ? wilcoxonSignedRank(aScores, bScores).p
-          : pairedTTest(aScores, bScores).p
+      const p = pairedTTest(aScores, bScores).p
       raw.push({ a: ha, b: hb, delta: boot.median, low: boot.low, high: boot.high, p })
     }
   }
@@ -215,8 +206,8 @@ export function renderStats(report: StatsReport): string {
     )
   }
   // Power caveat: with a tiny scenario corpus the significance machinery is structurally
-  // underpowered — the Wilcoxon path returns p=1 for n<6 non-zero diffs, and the paired
-  // t-test has ~1 df. The tests show the WIRING; a real claim needs 20-50 tasks.
+  // underpowered — the paired t-test has ~1 df on a few scenarios. The tests show the
+  // WIRING; a real claim needs 20-50 tasks.
   if (underpowered) {
     lines.push('')
     lines.push(

@@ -46,7 +46,7 @@ Pairwise (paired delta + bootstrap CI; paired-test p, BH-corrected):
 
 ### The offline "agent" is a scripted stand-in
 
-Offline there is no model, so each scenario's box writes a **canned solution** instead of calling a coding agent — a deterministic stand-in so the example runs with no creds. The scripts are honest: `rate-limiter` **improves across rounds** — round 0 is a **hardcode-the-visible cheat** (it memorizes the visible example answers, no bucket math) and round 1+ is the real token-bucket. The smoke test runs both against the real held-out suite and asserts the cheat **passes the visible test but fails the held-out** (it never saw those inputs), while the real impl passes the held-out outright. Offline `node` is present, so the held-out execution is genuine; `tsc`/`biome` usually aren't, so the typecheck-gated dev checks never fully pass and all 3 rounds run — which is exactly when refinement shows.
+Offline there is no model, so each scenario's box writes a **canned solution** instead of calling a coding agent. The scripts are honest: `rate-limiter` **improves across rounds** — round 0 is a **hardcode-the-visible cheat** (memorizes the visible example answers, no bucket math), round 1+ is the real token-bucket. The smoke test runs both against the real held-out suite and asserts the cheat **passes the visible test but fails the held-out**, while the real impl passes it outright. (`node` is present offline so held-out execution is genuine; `tsc`/`biome` usually aren't, which is why all 3 rounds run — see the note above.)
 
 ## How a tool swap works (one line)
 
@@ -91,11 +91,11 @@ Every number is one `agent-eval` primitive call — **no hand-rolled statistics 
 
 - per-harness **mean composite + bootstrap CI** (`confidenceInterval`)
 - per-harness **pass-rate + Wilson binomial CI** (`wilson`) — the correct interval for a proportion
-- every harness **pair** compared on **matched scenarios** with a **real paired test** (`pairedTTest`, or `wilcoxonSignedRank` for the non-parametric path) for the p-value, and a **paired bootstrap** (`pairedBootstrap`) for the effect size + CI, then **BH-corrected** across all pairs (`benjaminiHochberg`) so running many comparisons doesn't manufacture a false winner.
+- every harness **pair** compared on **matched scenarios** with a **real paired test** (`pairedTTest`) for the p-value, and a **paired bootstrap** (`pairedBootstrap`) for the effect size + CI, then **BH-corrected** across all pairs (`benjaminiHochberg`) so running many comparisons doesn't manufacture a false winner.
 - **Reps don't fake independent n — anywhere.** The paired unit is the *scenario*, and **the leaderboard uses the same unit**: with `--reps > 1`, a harness produces several records per scenario, so BOTH the leaderboard CI/Wilson AND the pairing collapse reps to **one mean per (harness, scenario)** before computing anything. Reps tighten the per-cell *estimate*; they are not independent samples, so they never narrow the interval out of zero new information. The reported `n` is the number of distinct scenarios, not the record count. (A regression test asserts identical reps leave the CI unchanged.)
 - A record missing its `scenarioId` is a **loud throw**, not a silent merge — averaging distinct scenarios into one `''` bucket would corrupt the pairing, so it fails fast instead.
 
-> **Power caveat.** The example corpus is **3 tasks** — far below what these tests need to separate harnesses. The Wilcoxon path returns `p=1` for fewer than 6 non-zero diffs, and the paired t-test has ~1 degree of freedom. Below the power floor (`n < 6`) `renderStats` **suppresses the `SIGNIFICANT` tag entirely** (a near-constant gap on a few scenarios can return `p<0.05` and still mean nothing — the small-n mirage), and a zero-variance pair (a collapsed bootstrap CI) never reads as a real effect either. At this corpus size the example demonstrates the *wiring*, not a defensible claim. A real harness comparison wants **20-50 tasks**.
+> **Power caveat.** The example corpus is **3 tasks** — far below what these tests need to separate harnesses. The paired t-test has ~1 degree of freedom on a few scenarios. Below the power floor (`n < 6`) `renderStats` **suppresses the `SIGNIFICANT` tag entirely** (a near-constant gap on a few scenarios can return `p<0.05` and still mean nothing — the small-n mirage), and a zero-variance pair (a collapsed bootstrap CI) never reads as a real effect either. At this corpus size the example demonstrates the *wiring*, not a defensible claim. A real harness comparison wants **20-50 tasks**.
 
 The leaderboard labels are the readable harness names, not the matrix's internal profile hashes.
 
@@ -121,7 +121,7 @@ The leaderboard labels are the readable harness names, not the matrix's internal
 - **token metering:** `extractLlmCallEvent` (`@tangle-network/agent-runtime/loops`) — reads usage off **every** backend event shape (`done` / `result` / `llm_call` / `usage`) so the integrity guard sees a real run
 - **judges:** `llmJudge` (single model call → canonical `JudgeConfig`, imported from `@tangle-network/agent-eval/campaign` so it resolves across the whole peer range) and `ensembleJudge` for the cross-family panel (`@tangle-network/agent-eval`); the judge transport is a `ChatClient` (`createChatClient` — a `mock` handler offline, the `router` live)
 - **integrity:** `integrity: 'assert'` on the matrix proves a real backend ran (no stubbed cell) — `'off'` only for the offline mock
-- **stats:** `pairedTTest`, `wilcoxonSignedRank`, `pairedBootstrap`, `benjaminiHochberg`, `confidenceInterval`, `wilson`
+- **stats:** `pairedTTest`, `pairedBootstrap`, `benjaminiHochberg`, `confidenceInterval`, `wilson`
 
 ## Going live
 

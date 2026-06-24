@@ -12,13 +12,13 @@ import type { SandboxInstance } from '@tangle-network/sandbox'
 //
 // The shell that launches `agent-runtime-mcp` for a sandbox-side agent
 // chooses the dispatch mode via env.
-const SIBLING_ENV = {
+const siblingEnv = {
   TANGLE_API_KEY: 'sk_sb_demo_placeholder',
   SANDBOX_BASE_URL: 'https://sandbox.tangle.tools',
   // No TANGLE_FLEET_ID → sibling-sandbox mode. Each delegation spawns a
   // fresh sandbox via `sandboxClient.create()`.
 }
-const FLEET_ENV = {
+const fleetEnv = {
   TANGLE_API_KEY: 'sk_sb_demo_placeholder',
   SANDBOX_BASE_URL: 'https://sandbox.tangle.tools',
   TANGLE_FLEET_ID: 'test-fleet',
@@ -48,7 +48,7 @@ function makeFleetStub(): FleetHandle {
 
 async function demoSiblingMode(): Promise<void> {
   console.log('— SIBLING MODE ————————————————————————————————')
-  console.log(`env: ${describeEnv(SIBLING_ENV)}`)
+  console.log(`env: ${describeEnv(siblingEnv)}`)
   // Sibling mode wraps an existing SandboxClient (the raw sandbox SDK).
   // We synthesise a tiny stub here just to show the tagging shape; in
   // production this is `new Sandbox({ apiKey })`.
@@ -67,7 +67,7 @@ async function demoSiblingMode(): Promise<void> {
 
 async function demoFleetMode(): Promise<void> {
   console.log('— FLEET MODE ——————————————————————————————————')
-  console.log(`env: ${describeEnv(FLEET_ENV)}`)
+  console.log(`env: ${describeEnv(fleetEnv)}`)
   const fleet = makeFleetStub()
   const executor = createFleetWorkspaceExecutor({
     fleet,

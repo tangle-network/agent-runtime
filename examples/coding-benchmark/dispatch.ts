@@ -48,15 +48,10 @@ import { type CodingScenario, checkCmds } from './scenarios'
 /** Max refine rounds. Round N+1's prompt is built from round N's CHECK output only. */
 const maxRounds = 3
 
-/** Build the next-round prompt from the checks the AGENT is allowed to see — the
- *  pass/fail + output of the VISIBLE example tests. NEVER from the held-out suite, the
- *  rubric, or the judge. This is the firewall in action: the agent steers on the visible
- *  example failures, nothing else, and is GRADED on the held-out suite it never saw.
- *
- *  typecheck/test are gating (a failure blocks `allPass`); lint is advisory (it never
- *  gates) but its warnings are still surfaced here so the agent can fix style — visible
- *  to the agent is decoupled from gates-allPass. Advisory warnings ride along as a
- *  separate, clearly-labeled section. */
+/** Build the next-round prompt from ONLY the VISIBLE example checks (the firewall — see
+ *  the banner above). typecheck/test are gating (a failure blocks `allPass`); lint is
+ *  advisory (never gates) but its warnings still ride along in a separate, labeled section
+ *  so the agent can fix style. */
 function nextPrompt(report: RunArtifact['checks']): string {
   const fails: string[] = []
   const advisories: string[] = []

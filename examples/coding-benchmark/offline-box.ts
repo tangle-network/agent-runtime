@@ -22,6 +22,9 @@
  *     `dependsOn` it) read as a FAIL — the honest offline signal. The dev checks never
  *     fully pass offline, so all `maxRounds` run, which is when refinement shows.
  *   - `delete()` — tears the temp dir down.
+ *
+ * The cast on the returned box (subset-as-`SandboxInstance`) is the offline seam: it
+ * implements only the members `openSandboxRun` calls, not the full ~40-member interface.
  */
 
 import { exec as execCb } from 'node:child_process'
@@ -101,10 +104,7 @@ export function offlineSandboxClient(script: OfflineScript): SandboxClient {
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const workdir = mkdtempSync(join(tmpdir(), 'coding-bench-'))
-      // The offline box implements only the members `openSandboxRun` actually calls
-      // (streamPrompt / fs / exec / delete), not the full `SandboxInstance`. The cast is
-      // a deliberate subset-as-superset for the offline seam; the live path uses the
-      // real SDK client. We don't stub the ~40 unused members to satisfy the type.
+      // Subset-as-`SandboxInstance` (the offline seam — see the module docstring).
       return instanceMethods(workdir, script) as unknown as SandboxInstance
     },
   }
