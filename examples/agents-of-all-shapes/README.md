@@ -60,6 +60,11 @@ The TypeScript shapes ship deterministic batches so the showcase is
 shape's header comment shows the exact live wiring — swap the batch for your
 framework's real telemetry and it lands on the identical engine.
 
+> The Python agno shape (`python-agno/agno_to_intelligence.py`) is an **illustrative
+> snippet** of the OTLP/HTTP POST a non-TS agent makes — it is **not run by `run.ts`** and
+> not covered by the TypeScript typecheck. `run.ts` exercises the four TS shapes plus the
+> seeded batches; the Python file shows the wire shape for a Python agent.
+
 ## Tangle-runtime live wiring (the built-in exporter)
 
 For the first shape, the live leg is the runtime's built-in exporter — one

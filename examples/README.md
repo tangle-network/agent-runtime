@@ -7,6 +7,19 @@ The fastest way to feel the package is to read **ONE** example: [`driver-loop/`]
 Every example imports from `@tangle-network/agent-runtime` (the surface consumers use), not from
 relative paths, and all of them are typechecked by `pnpm run typecheck:examples`.
 
+## Quickstart — run these three (≈5 min, two run offline)
+
+Get the feel before reading the full map. In order:
+
+```bash
+pnpm tsx examples/driver-loop/driver-loop.ts                  # SEE THE FOLD — offline, no creds
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # one-call supervisor over real workers
+pnpm tsx examples/improve/improve.ts                          # the gated self-improvement verb — offline
+```
+
+`driver-loop` is the one move everything else is built on; `supervise` is the one-call product entry;
+`improve` is the one self-improvement verb. The full learning path is below.
+
 ## Vocabulary
 
 These words appear in every example. The clearest demonstration of all of them is

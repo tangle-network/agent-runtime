@@ -68,11 +68,9 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
 
   let i = 0
   return (messages) => {
-    // A real brain READS `messages` (the folded worker outputs + tool results) and
-    // composes its next move FROM them — that read is "the fold". This scripted brain
-    // deliberately IGNORES `messages` and advances a fixed plan, so do NOT mistake this
-    // for the supervisor pattern. To see a driver that actually reads the last worker's
-    // output and builds the next instruction from it, read examples/driver-loop/.
+    // This scripted brain deliberately IGNORES `messages` and advances a fixed plan, so
+    // do NOT mistake it for the supervisor pattern — a real brain READS the folded worker
+    // outputs and composes its next move FROM them (the fold; see examples/driver-loop/).
     // We touch `messages` only so the shape is exercised:
     void messages.length
     const turn = turns[Math.min(i, turns.length - 1)] ?? { content: '', toolCalls: [] }

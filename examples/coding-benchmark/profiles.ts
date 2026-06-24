@@ -1,20 +1,13 @@
 /**
  * The HARNESS axis + the TOOL knob — the agent-config side of the matrix.
  *
- * We measure the HARNESS on its default behavior, so each profile is deliberately
- * bare: a name, the model it runs, and NOTHING else (no skills, no injected system
- * prompt). Adding scaffolding here would measure our scaffolding, not the harness.
- * The tool surface is a separate, orthogonal knob authored onto the profile in one
- * line (`withTools`), so harness × tool is a clean cartesian.
- *
- * Two things to know about the shape:
- *  - `runProfileMatrix` takes `AgentProfile[]` from `@tangle-network/agent-interface`.
- *    That type has NO `harness` field (harness is a SANDBOX concept, not a profile
- *    concept), so we carry the harness selector on `metadata.harness`. `dispatch.ts`
- *    reads it to pick `backend.type`. `harnessOf()` below is the one reader.
- *  - The matrix REQUIRES a snapshot-dated `model.default` (it stamps it onto every
- *    run record). For a real harness the agent uses the harness's own default model;
- *    we still name a model id here so the record is honest about what ran.
+ * Each profile is deliberately bare (name + model, no skills, no injected prompt) so we
+ * measure the HARNESS, not our scaffolding; the tool surface is a separate orthogonal knob
+ * (`withTools`), making harness × tool a clean cartesian. Two non-obvious facts about the
+ * shape: `AgentProfile` (`@tangle-network/agent-interface`) has no `harness` field (harness
+ * is a SANDBOX concept), so the harness selector rides `metadata.harness` (`harnessOf()` is
+ * the one reader); and `runProfileMatrix` REQUIRES a snapshot-dated `model.default` — see
+ * `harnessModel` below.
  */
 
 import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
@@ -37,14 +30,9 @@ export function harnessOf(profile: AgentProfile): BackendType {
   return h as BackendType
 }
 
-/** The default model each harness runs. Override per-harness via env if you like;
- *  the value is stamped onto the run record, so keep it truthful.
- *
- *  IMPORTANT — the model id MUST carry a SNAPSHOT DATE. `runProfileMatrix` rejects a
- *  bare alias and requires the snapshot form (`provider/name-YYYY-MM-DD`), because a
- *  run record without the exact model snapshot is not reproducible ("which gpt-4.1
- *  was that?"). This is the substrate keeping the benchmark paper-grade — keep the
- *  date current. */
+/** The default model each harness runs (override per-harness via env). The model id MUST
+ *  carry a SNAPSHOT DATE (`provider/name-YYYY-MM-DD`): `runProfileMatrix` rejects a bare
+ *  alias, because a record without the exact snapshot is not reproducible. */
 const harnessModel: Record<BackendType, string> = {
   'claude-code': process.env.CLAUDE_CODE_MODEL ?? 'anthropic/claude-sonnet-4-5-2025-09-29',
   opencode: process.env.OPENCODE_MODEL ?? 'anthropic/claude-sonnet-4-5-2025-09-29',
@@ -63,33 +51,18 @@ const harnessModel: Record<BackendType, string> = {
   cursor: 'anthropic/claude-sonnet-4-5-2025-09-29',
 }
 
-/**
- * One bare baseline profile per harness. The agent's behavior here is the
- * harness's OUT-OF-THE-BOX behavior — exactly what a partner gets on day one.
- */
+/** One bare baseline profile per harness — the harness's out-of-the-box behavior. */
 export const harnessProfiles: AgentProfile[] = harnesses.map((harness) => ({
   name: `${harness}-baseline`,
   model: { default: harnessModel[harness] },
-  // NO prompt, NO resources — measure the harness, not our scaffolding.
   metadata: { harness },
 }))
 
 // ── the tool knob ─────────────────────────────────────────────────────────────
-//
-// A tool surface is a PRESET, not forked code. Each preset authors the SAME two
-// fields onto a profile — native tools on/off (`profile.tools`) and an optional
-// mounted MCP server (`profile.mcp`) — and the sandbox substrate materializes them
-// into each harness's real shape (`.claude/`, `opencode.json`, codex config, ...).
-// We never hand-write a per-harness config file.
-//
-//   withTools(profile, 'web')        // turn on the native web tools
-//   withTools(profile, 'search-mcp') // mount a search MCP instead
-//   withTools(profile, 'none')       // baseline: no web, no MCP
-//
-// Honesty note for partners: a preset only takes effect for a (harness, lever) pair
-// the sandbox actually materializes. If a harness has no native `webfetch`,
-// `withTools(p,'web')` is a no-op THERE — a substrate fact, not something this
-// example silently patches over. See `@tangle-network/sandbox` for the matrix.
+// A tool surface is a PRESET (the README's "How a tool swap works" section explains the
+// one-line knob + the honesty caveat). Each preset authors the same two profile fields —
+// `profile.tools` and `profile.mcp` — and the sandbox substrate materializes them into
+// each harness's real config; we never hand-write a per-harness config file.
 
 /** Where a search MCP lives, when the `search-mcp` preset is selected. */
 const searchMcpUrl = process.env.TANGLE_SEARCH_MCP ?? 'https://search-mcp.tangle.tools/mcp'

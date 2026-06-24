@@ -1,30 +1,10 @@
 /**
- * The held-out coding-task corpus — and the GRADING-CRITERIA FIREWALL, expressed as
- * a type.
- *
- * Every scenario splits into four layers by where each field flows:
- *   - `prompt`        — the only field copied into the agent's CONTEXT. The dispatch
- *                       copies it (and next-round prompts built only from check output)
- *                       into the worker; nothing else reaches the worker's context.
- *   - `visibleTest`   — the example tests, SEEDED into the box workspace during the turn
- *                       (so `node --test` has a file to run) and readable by a multi-round
- *                       agent with native file tools — this is intentional, the same as
- *                       real TDD: a few example cases the agent develops against.
- *   - `heldoutTest`   — the HIDDEN grading suite. Same behavior, MORE cases and DIFFERENT
- *                       inputs/edge cases the visible examples don't cover. It is NEVER
- *                       seeded into the box during the turn — that is the anti-cheat
- *                       firewall. At grading (after the loop) the harness copies it in and
- *                       runs it; the score is the held-out pass rate. A solution that
- *                       hardcoded the visible examples FAILS these; only real behavior
- *                       passes. This is execution truth, not a text scan.
- *   - rubricNote      — the LLM-judge rubric note. Never written into the box at all;
- *                       eval.ts reads it AFTER the loop to score CODE QUALITY (secondary).
- *
- * The firewall is a property of which field flows where — you can SEE it in one place
- * (dispatch.ts seeds `visibleTest` into the box but never `heldoutTest`; see the
- * `// FIREWALL` comment there). The honest claim is the precise one: the held-out test
- * suite and the rubric never touch the box during the turn; the visible example tests are
- * deliberately readable by the agent.
+ * The held-out coding-task corpus — the GRADING-CRITERIA FIREWALL expressed as a type.
+ * Each scenario splits its four fields by WHERE each one flows; the per-field comments
+ * below say which is which, and the firewall that enforces it lives in ONE place —
+ * `dispatch.ts` (the `THE FIREWALL LIVES HERE` banner). The honest claim: the held-out
+ * suite and the rubric never touch the box during the turn; the visible tests are
+ * deliberately readable by the agent (real TDD).
  */
 
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
@@ -86,21 +66,13 @@ const testCmd = (testPath: string) => `node --experimental-transform-types --tes
 const lintCmd = (path: string) => `biome check ${path}`
 
 /**
- * A 3-task corpus. Real benchmarks carry 20-50; three keeps the example readable.
- * Each is a self-contained "write one module that passes these checks" task — the
- * shape that has a CORRECTABLE MIDDLE BAND (build-passes-but-quality-varies), which
- * is what makes a benchmark able to separate harnesses at all.
- *
- * THE ANTI-CHEAT is the held-out suite, not a text scan. Each `heldoutTest` covers the
- * SAME behavior as its `visibleTest` with DIFFERENT inputs and extra edge cases, so a
- * solution that hardcoded the visible examples' exact values passes `visibleTest` but
- * FAILS `heldoutTest`. Execution truth: a real implementation passes both; a cheat that
- * fakes the hard part or memorizes the visible cases fails the held-out one (exit 1).
- *
- * POWER CAVEAT: three scenarios is far below the n the significance machinery needs to
- * separate harnesses — the paired tests demonstrate the WIRING, not a defensible claim.
- * A real run wants 20-50 tasks. At this n a near-constant gap can SHOW significance (the
- * small-n mirage); `renderStats` flags that and prints the caveat when n < 6.
+ * A 3-task corpus (real benchmarks carry 20-50; three keeps the example readable). Each
+ * is a self-contained "write one module that passes these checks" task — the shape with a
+ * CORRECTABLE MIDDLE BAND (build-passes-but-quality-varies) that lets a benchmark separate
+ * harnesses at all. The load-bearing invariant per task: each `heldoutTest` covers the
+ * SAME behavior as its `visibleTest` with DIFFERENT inputs + extra edge cases, so a
+ * hardcode-the-visible cheat passes `visibleTest` but fails `heldoutTest` (exit 1) — the
+ * anti-cheat, by execution. (Power caveat at this n: see `stats.ts` / the README.)
  */
 export const scenarios: CodingScenario[] = [
   {

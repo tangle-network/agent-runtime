@@ -1,28 +1,10 @@
 /**
- * The SCORING stack, in the order it runs — cheapest and most objective first.
- *
- *   1. DEV CHECKS (in the box, ~$0) — an ordered `MultiLayerVerifier` pipeline:
- *      typecheck → test(visible) → lint, with dependency-based skip (test never runs on
- *      a type error) and a blended score. These pass/fail booleans steer the refine loop
- *      (see the firewall in dispatch.ts). They are ADVISORY for the final grade: passing
- *      the visible examples does not prove correctness, it just tells the agent it's on
- *      track.
- *   2. HELD-OUT TEST EXECUTION (in the box, after the loop, ~$0) — the PRIMARY,
- *      ungameable correctness score. The hidden test suite (never seeded during the turn)
- *      is copied in and run with `node --experimental-transform-types --test`; the score
- *      is the held-out PASS RATE. A real solution passes; a cheat that hardcoded the
- *      visible examples or faked the hard part FAILS (it never saw these inputs). This is
- *      execution truth, not a text scan.
- *   3. LLM JUDGE (last) — a SECONDARY code-QUALITY signal. One `llmJudge` model call for
- *      the leaderboard, or a cross-family `ensembleJudge` panel for a ship/no-ship claim.
- *      Both see the SAME full context (code + rubric + check results); the rubric anchors
- *      live HERE, never in the agent's workdir.
- *
- * Composite = held-out correctness (PRIMARY) + judge quality (secondary). The anti-cheat
- * is the held-out execution — a hidden suite the agent never saw — not any text scan.
- *
- * Every layer is a published agent-eval primitive — `MultiLayerVerifier`, `llmJudge`,
- * `ensembleJudge`. No hand-rolled scorer.
+ * The SCORING stack: dev checks (advisory) → held-out execution (PRIMARY) → LLM judge
+ * (secondary), cheapest and most objective first. The README's "How it scores" table is
+ * the canonical explanation; the per-function docstrings below cover the local detail.
+ * Every layer is a published agent-eval primitive (`MultiLayerVerifier`, `llmJudge`,
+ * `ensembleJudge`) — no hand-rolled scorer, and the composite weights held-out
+ * correctness over judge style (see `composeScore`).
  */
 
 import {
