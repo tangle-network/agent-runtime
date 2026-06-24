@@ -83,7 +83,7 @@
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "verify:package": "node scripts/verify-package-exports.mjs",
-    "docs:api": "typedoc",
+    "docs:api": "typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },

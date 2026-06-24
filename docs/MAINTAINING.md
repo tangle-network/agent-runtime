@@ -10,7 +10,8 @@ rules. Confusing them is how docs rot. Read this before editing anything under
 
 | Layer | What it holds | Who maintains it | Where |
 |---|---|---|---|
-| **Generated reference** | Per-symbol signatures, type shapes, source `file:line` links | **TypeDoc** — machine, never by hand | `docs/api/` |
+| **Generated reference** | Per-symbol signatures, type shapes, source `file:line` links | **TypeDoc** — machine, never by hand | `docs/api/` (per-module pages) |
+| **Generated inventory** | The flat, grouped list of every primitive to reuse — name, import path, one-line summary, all read live from source | **`scripts/gen-primitive-catalog.mjs`** — machine, never by hand | `docs/api/primitive-catalog.md` |
 | **Judgment** | The §2 anti-reinvention decision table, when-to-use guidance, every entry's "Do NOT", the mental-model and AgentProfile-law prose | **Humans/agents**, hand-curated | `docs/canonical-api.md` (+ `architecture.md`, `concepts.md`, …) |
 
 The insight: **mechanical content that drifts must be generated and gated; judgment
@@ -32,11 +33,32 @@ turns them into a red build. The decision table's "do this, not that" is *judgme
   `docs:api` run and will fail `docs:check` in CI. Change the **TSDoc comment in the
   source** instead, then regenerate.
 
+## The generated inventory: `docs/api/primitive-catalog.md`
+
+- Produced by `scripts/gen-primitive-catalog.mjs`, which `pnpm run docs:api` runs right
+  after TypeDoc. It is the never-stale answer to "does a primitive for X already exist?"
+  — the mechanical companion to `canonical-api.md`'s judgment table, so the judgment can
+  never silently cite a renamed/removed symbol and the inventory can never lag the code.
+- It reads the **live exports** of (a) this package's own public subpaths (from
+  `package.json` `exports`) and (b) a small curated category→subpath map of the
+  `@tangle-network/agent-eval` substrate surfaces agents should reuse (judge, authenticity,
+  verification, statistics, campaign, token/usage). The category→subpath map is the only
+  hand-curated part; the symbol list under each is generated. Extraction is via the
+  **TypeScript compiler API** (the same compiler TypeDoc uses) over a virtual re-export
+  entry, so it follows aliased re-exports (`S as wilson`) and content-hashed bundle files
+  (`statistics-<hash>.d.ts`) — the exact things that rot a hand-written list.
+- The own-surface half resolves types through `dist/`, so **a `pnpm run build` must precede
+  it** (CI builds before `docs:check`; locally, `pnpm run docs:api` after a build).
+- **Never hand-edit it.** Add a TSDoc summary line at the symbol's declaration in source,
+  or add the export, then regenerate. To catalog a new substrate surface, add an entry to
+  `substrateSurfaces` in the generator.
+
 ## The freshness gate: `scripts/check-docs-freshness.mjs`
 
-Run by `pnpm run docs:freshness`. Pure node, no deps, fail-loud (non-zero exit on any
-drift — matching the repo's `verify:package` / biome / tsc convention; no soft gates).
-It checks the hand-authored judgment docs against ground truth in six classes:
+Run by `pnpm run docs:freshness`. Pure node, fail-loud (non-zero exit on any drift —
+matching the repo's `verify:package` / biome / tsc convention; no soft gates). It checks
+the hand-authored judgment docs **and** the generated catalog against ground truth in
+seven classes:
 
 1. **Version + substrate pins** — the `**Version X.Y.Z**` header and every prose
    `version X.Y.Z` claim must equal `package.json` `version`; the `agent-eval` /
@@ -76,6 +98,11 @@ It checks the hand-authored judgment docs against ground truth in six classes:
    MCP tools, member access, and JS keywords are prose, not symbols. This closes the gap that
    let `gepaDriver`/`refineGepa` live in the docs unchecked — a removed/renamed/fabricated
    symbol anywhere in a curated doc, not just the §2/§3 tables, is now a red build.
+7. **Primitive-catalog freshness** — the gate **re-runs the generator** to a temp file and
+   byte-compares it to the committed `docs/api/primitive-catalog.md`. Any difference means a
+   live export was added/removed/renamed (or a TSDoc summary changed) without regenerating —
+   a red build. This is the enforcement that makes "a new public export absent from the
+   catalog" impossible to ship: the inventory cannot drift behind the code by hand.
 
 The gate does **not** read line numbers exactly (they drift on every edit) and does
 **not** touch the judgment prose. It only catches a renamed/removed/fabricated symbol, a
@@ -118,6 +145,9 @@ that's why CI still goes red.
 - **Freshness gate reports `[SETUP]`** → a `package.json` exports subpath has no
   `typedoc.json` entryPoint (see "Adding a new public export subpath" below), or the
   export universe came up empty (you forgot `pnpm run docs:api`).
+- **Freshness gate reports `[CATALOG]`** → the committed `docs/api/primitive-catalog.md` is
+  stale (a live export or its summary changed) or the generator failed to run. Run
+  `pnpm run build` then `pnpm run docs:api` and commit `docs/api/primitive-catalog.md`.
 
 The rule: **the code wins.** When a doc disagrees with source, fix the doc in the same
 turn. The gate exists so you find out at build time, not three versions later.
@@ -125,5 +155,8 @@ turn. The gate exists so you find out at build time, not three versions later.
 ## Adding a new public export subpath
 
 If you add a `package.json` `exports` subpath, add its source `index.ts` to
-`typedoc.json` `entryPoints`, regenerate (`pnpm run docs:api`), and commit the new
-`docs/api/<module>/`. The freshness gate's export universe picks it up automatically.
+`typedoc.json` `entryPoints`, give it a group label in `ownSurfaceLabels` in
+`scripts/gen-primitive-catalog.mjs` (the generator fails loud if a subpath has no label),
+regenerate (`pnpm run docs:api`), and commit the new `docs/api/` page +
+`docs/api/primitive-catalog.md`. The freshness gate's export universe and the catalog both
+pick it up automatically.
