@@ -44,12 +44,16 @@ This repo's bottleneck is agents paying a **re-discovery tax**: re-reading 15 fi
 ## Repo layering — this package depends on agent-eval, never the reverse
 
 ```
-agent-knowledge ─┐
-                 ├──► agent-eval (substrate — the bottom)
-agent-runtime ───┘   (this repo — wraps the substrate)
+agent-knowledge ──► agent-runtime (this repo — wraps the substrate)
+       │                  │
+       └──────────────────┴──► agent-eval (substrate — the bottom)
 ```
 
+agent-knowledge depends on agent-runtime (it imports `/loops`) and on agent-eval. agent-runtime depends ONLY on agent-eval and deliberately does NOT import agent-knowledge — domain stores/tools enter by injection (`createMcpServer({ feedbackStore })`, per `src/mcp/feedback-store.ts`), so importing the domain package would induce a dependency cycle.
+
 **Rule: agent-runtime depends on agent-eval. agent-eval MUST NOT import from agent-runtime.** No upward imports, no `peerDependencies` in agent-eval pointing here, no `import type { X } from '@tangle-network/agent-runtime'` inside agent-eval. A spotted upward import is a bug — file an issue and move the type into agent-eval. agent-eval is declared a **required `peerDependency`** (floor `>=0.83.0` — `selfImprove` exposes `analyzeGeneration` from 0.83), not a hard dependency — keep it in sync with the `selfImprove`/`heldoutSignificance`/`loopDispatch` APIs the code uses.
+
+**The runtime stays domain-clean by taking domain stores/tools as injected adapters, never importing a domain package** — the dependency arrow points up into this repo (agent-knowledge → agent-runtime), never down out of it.
 
 Substrate primitives CONSUMED from agent-eval: `DefaultVerdict`, `RunRecord`, `AgentEvalError` + taxonomy, `AnalystFinding`/`AnalystRunResult`/`FindingsDiff`, `TraceAnalystKindSpec`, `KnowledgeReadinessReport`, and the campaign types (`DispatchContext`/`ProfileDispatchFn`/`Scenario`, type-only).
 

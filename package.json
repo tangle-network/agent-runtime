@@ -120,15 +120,11 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.97.0 <1.0.0",
     "@tangle-network/agent-interface": ">=0.10.0 <1.0.0",
-    "@tangle-network/agent-knowledge": ">=1.7.0 <2.0.0",
     "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
     "playwright": "^1.40.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/agent-interface": {
-      "optional": true
-    },
-    "@tangle-network/agent-knowledge": {
       "optional": true
     },
     "@tangle-network/sandbox": {
