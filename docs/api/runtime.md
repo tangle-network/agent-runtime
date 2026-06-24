@@ -1018,6 +1018,90 @@ Per-run analysis failures — reported, never silently dropped.
 
 ***
 
+### InProcessPromptCtx
+
+Defined in: [runtime/in-process-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L42)
+
+Context handed to each `onPrompt` call.
+
+#### Properties
+
+##### round
+
+> **round**: `number`
+
+Defined in: [runtime/in-process-sandbox-client.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L45)
+
+0-based round index — increments per `streamPrompt` on the SAME box (so a
+ refine driver's round N can differ from round N-1). Fresh boxes start at 0.
+
+##### workdir?
+
+> `optional` **workdir?**: `string`
+
+Defined in: [runtime/in-process-sandbox-client.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L49)
+
+Absolute path of this box's workspace, when a `workdir` was configured.
+ Write the deliverable / fixtures here; `fs.read`/`fs.write`/`exec` operate
+ over it. `undefined` for pure event-only boxes.
+
+##### signal
+
+> **signal**: `AbortSignal`
+
+Defined in: [runtime/in-process-sandbox-client.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L51)
+
+Cooperative cancellation channel for this turn.
+
+***
+
+### InProcessSandboxClientOptions
+
+Defined in: [runtime/in-process-sandbox-client.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L66)
+
+**`Experimental`**
+
+#### Properties
+
+##### onPrompt
+
+> **onPrompt**: [`InProcessOnPrompt`](#inprocessonprompt)
+
+Defined in: [runtime/in-process-sandbox-client.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L68)
+
+**`Experimental`**
+
+The per-turn behavior — see [InProcessOnPrompt](#inprocessonprompt).
+
+##### workdir?
+
+> `optional` **workdir?**: `string`
+
+Defined in: [runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L76)
+
+**`Experimental`**
+
+Opt in to a REAL filesystem-backed box. When set, each `create()` mints a
+fresh temp directory (prefixed `<workdir>-`) and the box exposes
+`fs.read`/`fs.write` and `exec` over it; `delete()` removes the dir. Omit
+for a pure event-only box (no `fs`/`exec` members), which is all a driver
+or fanout loop needs.
+
+##### id?
+
+> `optional` **id?**: `string` \| ((`seq`) => `string`)
+
+Defined in: [runtime/in-process-sandbox-client.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L83)
+
+**`Experimental`**
+
+Override the box `id`. A string is used verbatim; a function receives the
+0-based create-sequence and returns the id (e.g. machine-keyed placement
+demos). Default `in-process-<seq>`. The id is the value `describePlacement`
+tags, so set it when a demo's output reads on a meaningful sandbox id.
+
+***
+
 ### LoopDispatchOptions
 
 Defined in: [runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L49)
@@ -11674,6 +11758,33 @@ Every message on the one typed pipe. UP (child→parent): question / settled / f
 
 ***
 
+### InProcessOnPrompt
+
+> **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
+
+Defined in: [runtime/in-process-sandbox-client.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L60)
+
+The user callback: given a prompt and its round, produce the box's event
+stream for that turn. Return a plain `SandboxEvent[]` (the common case) or an
+async iterable for streaming. The callback may also write files into
+`ctx.workdir` (read back via `fs.read` or graded by `exec`).
+
+#### Parameters
+
+##### prompt
+
+`string`
+
+##### ctx
+
+[`InProcessPromptCtx`](#inprocesspromptctx)
+
+#### Returns
+
+`SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
+
+***
+
 ### LoopOptionsForDispatch
 
 > **LoopOptionsForDispatch**\<`Task`, `Output`, `Decision`\> = `Omit`\<`RunLoopOptions`\<`Task`, `Output`, `Decision`\>, `"ctx"`\>
@@ -12983,6 +13094,31 @@ Defined in: [runtime/harvest-corpus.ts:62](https://github.com/tangle-network/age
 #### Returns
 
 `Promise`\<[`HarvestReport`](#harvestreport)\>
+
+***
+
+### inProcessSandboxClient()
+
+> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-1)
+
+Defined in: [runtime/in-process-sandbox-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L98)
+
+**`Experimental`**
+
+Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for
+`runLoop` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
+lone `SandboxInstance` cast (object literal → `declare class`) lives inside
+this function, so call sites stay cast-free.
+
+#### Parameters
+
+##### options
+
+[`InProcessSandboxClientOptions`](#inprocesssandboxclientoptions)
+
+#### Returns
+
+[`SandboxClient`](#sandboxclient-1)
 
 ***
 

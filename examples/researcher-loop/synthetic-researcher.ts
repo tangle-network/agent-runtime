@@ -12,7 +12,8 @@
  */
 
 import type { ResearchOutput, ResearchTask } from '@tangle-network/agent-knowledge/profiles'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
 export const namespace = 'example-tenant'
 
@@ -119,29 +120,24 @@ const candidateOutputs: ResearchOutput[] = [
   },
 ]
 
+// Each fanout dispatch picks the NEXT candidate (the inline-fanout driver issues two boxes; the
+// dispatch counter is what hands iteration 0 the valid output and iteration 1 the namespace leak).
+// `inProcessSandboxClient` owns the offline seam — the `onPrompt` callback IS the box, no cast.
 let dispatchIndex = 0
-export const sandboxClient = {
-  async create(): Promise<SandboxInstance> {
-    const index = dispatchIndex++
-    const output = candidateOutputs[index % candidateOutputs.length]
-    const id = `sandbox-researcher-${index + 1}`
-    const box = {
-      id,
-      async *streamPrompt(): AsyncIterable<SandboxEvent> {
-        yield {
-          type: 'llm_call',
-          data: {
-            model: 'opencode/zai-coding-plan/glm-5.1',
-            tokensIn: 1400,
-            tokensOut: 320,
-            costUsd: 0.0028,
-          },
-        }
-        yield { type: 'result', data: { result: output } }
+export const sandboxClient: SandboxClient = inProcessSandboxClient({
+  onPrompt: (): SandboxEvent[] => {
+    const output = candidateOutputs[dispatchIndex++ % candidateOutputs.length]
+    return [
+      {
+        type: 'llm_call',
+        data: {
+          model: 'opencode/zai-coding-plan/glm-5.1',
+          tokensIn: 1400,
+          tokensOut: 320,
+          costUsd: 0.0028,
+        },
       },
-      // The offline seam: this object implements only the members `runLoop` calls on a box
-      // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
-    } as unknown as SandboxInstance
-    return box
+      { type: 'result', data: { result: output } },
+    ]
   },
-}
+})

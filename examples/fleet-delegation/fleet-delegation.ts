@@ -1,6 +1,6 @@
 // TANGLE_FLEET_ID flips delegation from sibling-sandbox to fleet-workspace dispatch. See README.md.
 
-import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
+import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
 import {
   createFleetWorkspaceExecutor,
   createSiblingSandboxExecutor,
@@ -39,9 +39,14 @@ function makeFleetStub(): FleetHandle {
     ids: machines,
     async sandbox(machineId: string): Promise<SandboxInstance> {
       // The real implementation returns a SandboxInstance bound to the
-      // shared workspace; here we synthesize one with just the fields the
-      // executor reads (`id`).
-      return { id: `sandbox-${machineId}` } as unknown as SandboxInstance
+      // shared workspace; here we synthesize one with just the field the
+      // executor reads (`id`). `inProcessSandboxClient` owns the offline
+      // box seam (no `SandboxInstance` cast); the placement demo only needs
+      // the id, so the prompt callback is a no-op.
+      return inProcessSandboxClient({
+        id: `sandbox-${machineId}`,
+        onPrompt: () => [],
+      }).create()
     },
   }
 }
@@ -51,12 +56,13 @@ async function demoSiblingMode(): Promise<void> {
   console.log(`env: ${describeEnv(siblingEnv)}`)
   // Sibling mode wraps an existing SandboxClient (the raw sandbox SDK).
   // We synthesise a tiny stub here just to show the tagging shape; in
-  // production this is `new Sandbox({ apiKey })`.
-  const underlying: SandboxClient = {
-    async create(): Promise<SandboxInstance> {
-      return { id: 'sibling-sandbox-xyz' } as unknown as SandboxInstance
-    },
-  }
+  // production this is `new Sandbox({ apiKey })`. `inProcessSandboxClient`
+  // gives a properly-typed offline box (no `SandboxInstance` cast); the
+  // placement demo only reads the id, so the prompt callback is a no-op.
+  const underlying: SandboxClient = inProcessSandboxClient({
+    id: 'sibling-sandbox-xyz',
+    onPrompt: () => [],
+  })
   const executor = createSiblingSandboxExecutor({ client: underlying })
   console.log(`describe: ${executor.describe()}`)
   const box = await executor.client.create()
