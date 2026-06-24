@@ -17,6 +17,14 @@ export interface RouterConfig {
   routerBaseUrl: string
   routerKey: string
   model: string
+  /**
+   * Optional completion transport. When set, `routerChatWithUsage` / `routerChatWithTools` call it
+   * with the OpenAI-shape request body and use the parsed `/chat/completions` JSON it returns,
+   * INSTEAD of `fetch(routerBaseUrl + '/chat/completions')`. When absent the fetch path runs
+   * unchanged — the live router stays the default. The injection seam an offline benchmark uses to
+   * drive the worker with no network: a deterministic in-process responder satisfies it, no server.
+   */
+  complete?: (body: Record<string, unknown>) => Promise<unknown>
 }
 
 export interface RouterChatResult {
@@ -35,6 +43,17 @@ export async function routerChatWithUsage(
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
   let temperature = opts?.temperature ?? 0.2
+  // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
+  // reasoning_content first — a small router default yields EMPTY content.
+  const body = (): Record<string, unknown> => ({
+    model: cfg.model,
+    messages,
+    temperature,
+    max_tokens: opts?.maxTokens ?? 8192,
+  })
+  // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
+  // determinism, so the fetch-specific transient-retry/temperature-handling below does not apply.
+  if (cfg.complete) return parseChatResult(await cfg.complete(body()), cfg.model)
   // Retry TRANSIENT upstream failures (429/5xx) with backoff so a single capacity
   // hiccup doesn't kill a whole multi-model benchmark run; and auto-handle the
   // "only temperature 1 is allowed" 400 some thinking models (e.g. kimi-k2.6) return.
@@ -43,14 +62,7 @@ export async function routerChatWithUsage(
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
-      // reasoning_content first — a small router default yields EMPTY content.
-      body: JSON.stringify({
-        model: cfg.model,
-        messages,
-        temperature,
-        max_tokens: opts?.maxTokens ?? 8192,
-      }),
+      body: JSON.stringify(body()),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     })
     if (res.ok) return parseChatResult(await res.json(), cfg.model)
@@ -128,21 +140,28 @@ export async function routerChatWithTools(
     maxTokens?: number
   },
 ): Promise<RouterChatToolsResult> {
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      messages,
-      tools,
-      tool_choice: opts?.toolChoice ?? 'auto',
-      temperature: opts?.temperature ?? 0.3,
-      ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
-    }),
-    ...(opts?.signal ? { signal: opts.signal } : {}),
-  })
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as {
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    messages,
+    tools,
+    tool_choice: opts?.toolChoice ?? 'auto',
+    temperature: opts?.temperature ?? 0.3,
+    ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+  }
+  // Injected transport short-circuits the network — the offline benchmark seam (see RouterConfig.complete).
+  const raw = cfg.complete
+    ? await cfg.complete(body)
+    : await (async () => {
+        const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
+          body: JSON.stringify(body),
+          ...(opts?.signal ? { signal: opts.signal } : {}),
+        })
+        if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
+        return res.json()
+      })()
+  const data = raw as {
     choices?: Array<{
       message?: {
         content?: string | null

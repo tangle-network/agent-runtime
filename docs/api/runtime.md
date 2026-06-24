@@ -3875,11 +3875,33 @@ Defined in: [runtime/router-client.ts:18](https://github.com/tangle-network/agen
 
 Defined in: [runtime/router-client.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L19)
 
+##### complete?
+
+> `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
+
+Defined in: [runtime/router-client.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L27)
+
+Optional completion transport. When set, `routerChatWithUsage` / `routerChatWithTools` call it
+with the OpenAI-shape request body and use the parsed `/chat/completions` JSON it returns,
+INSTEAD of `fetch(routerBaseUrl + '/chat/completions')`. When absent the fetch path runs
+unchanged — the live router stays the default. The injection seam an offline benchmark uses to
+drive the worker with no network: a deterministic in-process responder satisfies it, no server.
+
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
 ***
 
 ### RouterChatResult
 
-Defined in: [runtime/router-client.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L22)
+Defined in: [runtime/router-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L30)
 
 #### Properties
 
@@ -3887,13 +3909,13 @@ Defined in: [runtime/router-client.ts:22](https://github.com/tangle-network/agen
 
 > **content**: `string`
 
-Defined in: [runtime/router-client.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L23)
+Defined in: [runtime/router-client.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L31)
 
 ##### usage?
 
 > `optional` **usage?**: `object`
 
-Defined in: [runtime/router-client.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L25)
+Defined in: [runtime/router-client.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L33)
 
 REAL usage, or undefined when the provider reported none.
 
@@ -3909,7 +3931,7 @@ REAL usage, or undefined when the provider reported none.
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/router-client.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L27)
+Defined in: [runtime/router-client.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L35)
 
 Derived from usage via `estimateCost` when the model is priced; else undefined.
 
@@ -3917,7 +3939,7 @@ Derived from usage via `estimateCost` when the model is priced; else undefined.
 
 ### RouterToolCall
 
-Defined in: [runtime/router-client.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L97)
+Defined in: [runtime/router-client.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L109)
 
 A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest).
 
@@ -3927,19 +3949,19 @@ A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallR
 
 > **id**: `string`
 
-Defined in: [runtime/router-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L98)
+Defined in: [runtime/router-client.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L110)
 
 ##### name
 
 > **name**: `string`
 
-Defined in: [runtime/router-client.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L99)
+Defined in: [runtime/router-client.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L111)
 
 ##### arguments
 
 > **arguments**: `string`
 
-Defined in: [runtime/router-client.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L101)
+Defined in: [runtime/router-client.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L113)
 
 Raw JSON arguments string as emitted by the model.
 
@@ -3947,7 +3969,7 @@ Raw JSON arguments string as emitted by the model.
 
 ### RouterChatToolsResult
 
-Defined in: [runtime/router-client.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L104)
+Defined in: [runtime/router-client.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L116)
 
 #### Properties
 
@@ -3955,19 +3977,19 @@ Defined in: [runtime/router-client.ts:104](https://github.com/tangle-network/age
 
 > **content**: `string` \| `null`
 
-Defined in: [runtime/router-client.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L105)
+Defined in: [runtime/router-client.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L117)
 
 ##### toolCalls
 
 > **toolCalls**: [`RouterToolCall`](#routertoolcall)[]
 
-Defined in: [runtime/router-client.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L106)
+Defined in: [runtime/router-client.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L118)
 
 ##### usage?
 
 > `optional` **usage?**: `object`
 
-Defined in: [runtime/router-client.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L107)
+Defined in: [runtime/router-client.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L119)
 
 ###### input
 
@@ -3981,13 +4003,13 @@ Defined in: [runtime/router-client.ts:107](https://github.com/tangle-network/age
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/router-client.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L108)
+Defined in: [runtime/router-client.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L120)
 
 ***
 
 ### ToolSpec
 
-Defined in: [runtime/router-client.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L177)
+Defined in: [runtime/router-client.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L196)
 
 #### Properties
 
@@ -3995,13 +4017,13 @@ Defined in: [runtime/router-client.ts:177](https://github.com/tangle-network/age
 
 > **type**: `"function"`
 
-Defined in: [runtime/router-client.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L178)
+Defined in: [runtime/router-client.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L197)
 
 ##### function
 
 > **function**: `object`
 
-Defined in: [runtime/router-client.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L179)
+Defined in: [runtime/router-client.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L198)
 
 ###### name
 
@@ -4019,7 +4041,7 @@ Defined in: [runtime/router-client.ts:179](https://github.com/tangle-network/age
 
 ### RouterToolLoopResult
 
-Defined in: [runtime/router-client.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L182)
+Defined in: [runtime/router-client.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L201)
 
 #### Properties
 
@@ -4027,7 +4049,7 @@ Defined in: [runtime/router-client.ts:182](https://github.com/tangle-network/age
 
 > **final**: `string`
 
-Defined in: [runtime/router-client.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L184)
+Defined in: [runtime/router-client.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L203)
 
 The model's final assistant text (the turn where it stopped calling tools, or the budget turn).
 
@@ -4035,7 +4057,7 @@ The model's final assistant text (the turn where it stopped calling tools, or th
 
 > **turns**: `number`
 
-Defined in: [runtime/router-client.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L186)
+Defined in: [runtime/router-client.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L205)
 
 Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k.
 
@@ -4043,13 +4065,13 @@ Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k.
 
 > **toolCalls**: `number`
 
-Defined in: [runtime/router-client.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L187)
+Defined in: [runtime/router-client.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L206)
 
 ##### toolTrace
 
 > **toolTrace**: `object`[]
 
-Defined in: [runtime/router-client.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L190)
+Defined in: [runtime/router-client.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L209)
 
 The behavior trace: each tool call + its result, in order. What a trace-analyst
  steerer reads (behavior, never the verdict) to diagnose + redirect the next shot.
@@ -4070,7 +4092,7 @@ The behavior trace: each tool call + its result, in order. What a trace-analyst
 
 > **usage**: `object`
 
-Defined in: [runtime/router-client.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L191)
+Defined in: [runtime/router-client.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L210)
 
 ###### input
 
@@ -4084,7 +4106,7 @@ Defined in: [runtime/router-client.ts:191](https://github.com/tangle-network/age
 
 > **messages**: `Record`\<`string`, `unknown`\>[]
 
-Defined in: [runtime/router-client.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L194)
+Defined in: [runtime/router-client.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L213)
 
 The full conversation after the loop (seed + every assistant/tool turn). Lets a caller
  CARRY the messages into the next shot (depth continuation) and read the trajectory.
@@ -6112,17 +6134,39 @@ Defined in: [runtime/strategy.ts:87](https://github.com/tangle-network/agent-run
 
 Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L88)
 
+##### complete?
+
+> `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
+
+Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+
+Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
+ offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
+ its `routerToolLoop` cfg) AND the analyst's critic (its `ChatClient` is bound to this same
+ transport). One injected responder serves both, as a localhost mock endpoint would. Absent ⇒
+ the live router fetch path (the default).
+
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
 ##### temperature?
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L89)
+Defined in: [runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
 
 ##### maxTokens?
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L92)
+Defined in: [runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
 
 Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
  budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
@@ -6131,7 +6175,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 > `optional` **innerTurns?**: `number`
 
-Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
 
 Turns the agent may take within ONE shot before the driver intervenes.
 
@@ -6139,7 +6183,7 @@ Turns the agent may take within ONE shot before the driver intervenes.
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/strategy.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L97)
+Defined in: [runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
 
 The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
@@ -6148,7 +6192,7 @@ The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
 
 > `optional` **analystModel?**: `string`
 
-Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
+Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
 
 The critic's model — lets the analyst be a stronger (or cheaper) model than the
  worker. Omitted ⇒ the worker's `model`.
@@ -6157,7 +6201,7 @@ The critic's model — lets the analyst be a stronger (or cheaper) model than th
 
 > `optional` **corpus?**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/strategy.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L104)
+Defined in: [runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Priming (the read side) is the caller's move —
@@ -6167,7 +6211,7 @@ Across-run learning: when set, the analyst's observe() pass appends trace-derive
 
 > `optional` **corpusTags?**: `string`[]
 
-Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
+Defined in: [runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
 
 Tags written onto learned facts (and used by the caller's priming query).
 
@@ -6175,7 +6219,7 @@ Tags written onto learned facts (and used by the caller's priming query).
 
 ### AgenticRunResult
 
-Defined in: [runtime/strategy.ts:505](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L505)
+Defined in: [runtime/strategy.ts:554](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L554)
 
 #### Properties
 
@@ -6183,7 +6227,7 @@ Defined in: [runtime/strategy.ts:505](https://github.com/tangle-network/agent-ru
 
 > **mode**: `string`
 
-Defined in: [runtime/strategy.ts:507](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L507)
+Defined in: [runtime/strategy.ts:556](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L556)
 
 The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
@@ -6191,25 +6235,25 @@ The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:508](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L508)
+Defined in: [runtime/strategy.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L557)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L509)
+Defined in: [runtime/strategy.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L558)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L510)
+Defined in: [runtime/strategy.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L559)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L512)
+Defined in: [runtime/strategy.ts:561](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L561)
 
 DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout.
 
@@ -6217,13 +6261,13 @@ DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-s
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L513)
+Defined in: [runtime/strategy.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L562)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [runtime/strategy.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L516)
+Defined in: [runtime/strategy.ts:565](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L565)
 
 The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms.
@@ -6232,13 +6276,13 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 > **ms**: `number`
 
-Defined in: [runtime/strategy.ts:517](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L517)
+Defined in: [runtime/strategy.ts:566](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L566)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [runtime/strategy.ts:518](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L518)
+Defined in: [runtime/strategy.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L567)
 
 ###### input
 
@@ -6252,7 +6296,7 @@ Defined in: [runtime/strategy.ts:518](https://github.com/tangle-network/agent-ru
 
 ### Strategy
 
-Defined in: [runtime/strategy.ts:652](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L652)
+Defined in: [runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
 
 A Strategy is HOW you spend the compute budget to beat the Environment's check — it
 builds the driver `Agent` the Supervisor runs. This is the OPEN extension point: a dev
@@ -6269,7 +6313,7 @@ the reference implementations to copy:
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/strategy.ts:653](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L653)
+Defined in: [runtime/strategy.ts:702](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L702)
 
 #### Methods
 
@@ -6277,7 +6321,7 @@ Defined in: [runtime/strategy.ts:653](https://github.com/tangle-network/agent-ru
 
 > **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:654](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L654)
+Defined in: [runtime/strategy.ts:703](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L703)
 
 ###### Parameters
 
@@ -6305,7 +6349,7 @@ Defined in: [runtime/strategy.ts:654](https://github.com/tangle-network/agent-ru
 
 ### ShotPersona
 
-Defined in: [runtime/strategy.ts:682](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L682)
+Defined in: [runtime/strategy.ts:731](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L731)
 
 A role for one shot — multi-agent loops (researcher + engineer, a panel of k
  researchers) give each shot its own system prompt and optionally its own model.
@@ -6316,7 +6360,7 @@ A role for one shot — multi-agent loops (researcher + engineer, a panel of k
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: [runtime/strategy.ts:685](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L685)
+Defined in: [runtime/strategy.ts:734](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L734)
 
 Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
  injected as a hand-off message (the transcript's earlier roles stay intact).
@@ -6325,7 +6369,7 @@ Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it 
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/strategy.ts:687](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L687)
+Defined in: [runtime/strategy.ts:736](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L736)
 
 Per-shot model override (e.g. a stronger model for the engineer shot).
 
@@ -6333,7 +6377,7 @@ Per-shot model override (e.g. a stronger model for the engineer shot).
 
 ### ShotSpec
 
-Defined in: [runtime/strategy.ts:690](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L690)
+Defined in: [runtime/strategy.ts:739](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L739)
 
 #### Properties
 
@@ -6341,7 +6385,7 @@ Defined in: [runtime/strategy.ts:690](https://github.com/tangle-network/agent-ru
 
 > `optional` **handle?**: [`ArtifactHandle`](#artifacthandle)
 
-Defined in: [runtime/strategy.ts:692](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L692)
+Defined in: [runtime/strategy.ts:741](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L741)
 
 present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart).
 
@@ -6349,25 +6393,25 @@ present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh on
 
 > `optional` **messages?**: `Msg`[]
 
-Defined in: [runtime/strategy.ts:693](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L693)
+Defined in: [runtime/strategy.ts:742](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L742)
 
 ##### steer?
 
 > `optional` **steer?**: `string`
 
-Defined in: [runtime/strategy.ts:694](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L694)
+Defined in: [runtime/strategy.ts:743](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L743)
 
 ##### persona?
 
 > `optional` **persona?**: [`ShotPersona`](#shotpersona)
 
-Defined in: [runtime/strategy.ts:695](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L695)
+Defined in: [runtime/strategy.ts:744](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L744)
 
 ##### tools?
 
 > `optional` **tools?**: `string`[]
 
-Defined in: [runtime/strategy.ts:698](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L698)
+Defined in: [runtime/strategy.ts:747](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L747)
 
 Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all.
@@ -6376,7 +6420,7 @@ Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot 
 
 ### StrategyResult
 
-Defined in: [runtime/strategy.ts:700](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L700)
+Defined in: [runtime/strategy.ts:749](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L749)
 
 #### Properties
 
@@ -6384,37 +6428,37 @@ Defined in: [runtime/strategy.ts:700](https://github.com/tangle-network/agent-ru
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
+Defined in: [runtime/strategy.ts:750](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L750)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:702](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L702)
+Defined in: [runtime/strategy.ts:751](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L751)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:703](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L703)
+Defined in: [runtime/strategy.ts:752](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L752)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:704](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L704)
+Defined in: [runtime/strategy.ts:753](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L753)
 
 ##### shots
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:705](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L705)
+Defined in: [runtime/strategy.ts:754](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L754)
 
 ***
 
 ### StrategyCtx
 
-Defined in: [runtime/strategy.ts:717](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L717)
+Defined in: [runtime/strategy.ts:766](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L766)
 
 What a strategy body composes with: the artifact lifecycle, the budget, and the two steps.
 
@@ -6424,7 +6468,7 @@ What a strategy body composes with: the artifact lifecycle, the budget, and the 
 
 > `readonly` **surface**: `StrategyArtifacts`
 
-Defined in: [runtime/strategy.ts:719](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L719)
+Defined in: [runtime/strategy.ts:768](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L768)
 
 Open/close artifacts the body manages itself (e.g. one persistent handle for depth).
 
@@ -6432,25 +6476,25 @@ Open/close artifacts the body manages itself (e.g. one persistent handle for dep
 
 > `readonly` **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:720](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L720)
+Defined in: [runtime/strategy.ts:769](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L769)
 
 ##### opts
 
 > `readonly` **opts**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [runtime/strategy.ts:721](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L721)
+Defined in: [runtime/strategy.ts:770](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L770)
 
 ##### budget
 
 > `readonly` **budget**: `number`
 
-Defined in: [runtime/strategy.ts:722](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L722)
+Defined in: [runtime/strategy.ts:771](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L771)
 
 ##### scope
 
 > `readonly` **scope**: [`Scope`](#scope-1)\<[`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:723](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L723)
+Defined in: [runtime/strategy.ts:772](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L772)
 
 #### Methods
 
@@ -6458,7 +6502,7 @@ Defined in: [runtime/strategy.ts:723](https://github.com/tangle-network/agent-ru
 
 > **shot**(`spec?`): `Promise`\<`ShotResult` \| `null`\>
 
-Defined in: [runtime/strategy.ts:725](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L725)
+Defined in: [runtime/strategy.ts:774](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L774)
 
 Run ONE worker shot; its harness-scored result, or null if it went down.
 
@@ -6476,7 +6520,7 @@ Run ONE worker shot; its harness-scored result, or null if it went down.
 
 > **critique**(`messages`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:727](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L727)
+Defined in: [runtime/strategy.ts:776](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L776)
 
 The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down.
 
@@ -6494,7 +6538,7 @@ The firewalled critic reads the trajectory → a steer string, or null on COMPLE
 
 > **consult**(`messages`, `instruction`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:732](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L732)
+Defined in: [runtime/strategy.ts:781](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L781)
 
 The RAW analyst channel: the firewalled critic answers `instruction` over the
  trajectory verbatim — no findings extraction, so verdict-shaped formats
@@ -6519,7 +6563,7 @@ The RAW analyst channel: the firewalled critic answers `instruction` over the
 
 > **listTools**(`handle`): `Promise`\<`object`[]\>
 
-Defined in: [runtime/strategy.ts:736](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L736)
+Defined in: [runtime/strategy.ts:785](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L785)
 
 The tools THIS artifact's task actually offers (names + descriptions only — never
  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
@@ -6539,7 +6583,7 @@ The tools THIS artifact's task actually offers (names + descriptions only — ne
 
 ### RunAgenticOptions
 
-Defined in: [runtime/strategy.ts:965](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L965)
+Defined in: [runtime/strategy.ts:1014](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1014)
 
 #### Extends
 
@@ -6577,11 +6621,37 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 [`AgenticOptions`](#agenticoptions).[`model`](#model-6)
 
+##### complete?
+
+> `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
+
+Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+
+Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
+ offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
+ its `routerToolLoop` cfg) AND the analyst's critic (its `ChatClient` is bound to this same
+ transport). One injected responder serves both, as a localhost mock endpoint would. Absent ⇒
+ the live router fetch path (the default).
+
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+###### Inherited from
+
+[`AgenticOptions`](#agenticoptions).[`complete`](#complete-1)
+
 ##### temperature?
 
 > `optional` **temperature?**: `number`
 
-Defined in: [runtime/strategy.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L89)
+Defined in: [runtime/strategy.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L95)
 
 ###### Inherited from
 
@@ -6591,7 +6661,7 @@ Defined in: [runtime/strategy.ts:89](https://github.com/tangle-network/agent-run
 
 > `optional` **maxTokens?**: `number`
 
-Defined in: [runtime/strategy.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L92)
+Defined in: [runtime/strategy.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L98)
 
 Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
  budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
@@ -6604,7 +6674,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 > `optional` **innerTurns?**: `number`
 
-Defined in: [runtime/strategy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L94)
+Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
 
 Turns the agent may take within ONE shot before the driver intervenes.
 
@@ -6616,7 +6686,7 @@ Turns the agent may take within ONE shot before the driver intervenes.
 
 > `optional` **analystInstruction?**: `string`
 
-Defined in: [runtime/strategy.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L97)
+Defined in: [runtime/strategy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L103)
 
 The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
@@ -6629,7 +6699,7 @@ The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
 
 > `optional` **analystModel?**: `string`
 
-Defined in: [runtime/strategy.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L100)
+Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
 
 The critic's model — lets the analyst be a stronger (or cheaper) model than the
  worker. Omitted ⇒ the worker's `model`.
@@ -6642,7 +6712,7 @@ The critic's model — lets the analyst be a stronger (or cheaper) model than th
 
 > `optional` **corpus?**: [`Corpus`](#corpus-2)
 
-Defined in: [runtime/strategy.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L104)
+Defined in: [runtime/strategy.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L110)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Priming (the read side) is the caller's move —
@@ -6656,7 +6726,7 @@ Across-run learning: when set, the analyst's observe() pass appends trace-derive
 
 > `optional` **corpusTags?**: `string`[]
 
-Defined in: [runtime/strategy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L106)
+Defined in: [runtime/strategy.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L112)
 
 Tags written onto learned facts (and used by the caller's priming query).
 
@@ -6668,19 +6738,19 @@ Tags written onto learned facts (and used by the caller's priming query).
 
 > **surface**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/strategy.ts:966](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L966)
+Defined in: [runtime/strategy.ts:1015](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1015)
 
 ##### task
 
 > **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:967](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L967)
+Defined in: [runtime/strategy.ts:1016](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1016)
 
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/strategy.ts:970](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L970)
+Defined in: [runtime/strategy.ts:1019](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1019)
 
 Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
  The seam online watchdogs/route-auditors subscribe to.
@@ -6689,7 +6759,7 @@ Lifecycle observability — every spawn/settle (shots, analysts) streams here li
 
 > `optional` **strategy?**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:972](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L972)
+Defined in: [runtime/strategy.ts:1021](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1021)
 
 A Strategy (the open way) — author/pass your own. Overrides `mode` when present.
 
@@ -6697,7 +6767,7 @@ A Strategy (the open way) — author/pass your own. Overrides `mode` when presen
 
 > `optional` **mode?**: `"depth"` \| `"breadth"`
 
-Defined in: [runtime/strategy.ts:974](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L974)
+Defined in: [runtime/strategy.ts:1023](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1023)
 
 Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
@@ -6705,7 +6775,7 @@ Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
 > **budget**: `number`
 
-Defined in: [runtime/strategy.ts:976](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L976)
+Defined in: [runtime/strategy.ts:1025](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1025)
 
 budget: refine→max shots; sample→rollout width.
 
@@ -6713,7 +6783,7 @@ budget: refine→max shots; sample→rollout width.
 
 > `optional` **rootBudget?**: [`Budget`](#budget-10)
 
-Defined in: [runtime/strategy.ts:977](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L977)
+Defined in: [runtime/strategy.ts:1026](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1026)
 
 ***
 
@@ -12688,7 +12758,7 @@ The compressed consumable a skill carries: everything an author needs to emit a 
 
 > `const` **sample**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:662](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L662)
+Defined in: [runtime/strategy.ts:711](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L711)
 
 ***
 
@@ -12696,7 +12766,7 @@ Defined in: [runtime/strategy.ts:662](https://github.com/tangle-network/agent-ru
 
 > `const` **refine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:666](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L666)
+Defined in: [runtime/strategy.ts:715](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L715)
 
 ***
 
@@ -12704,7 +12774,7 @@ Defined in: [runtime/strategy.ts:666](https://github.com/tangle-network/agent-ru
 
 > `const` **adaptiveRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:866](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L866)
+Defined in: [runtime/strategy.ts:915](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L915)
 
 A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot
  fails to improve the score it ABANDONS that line and restarts fresh (branch-when-stuck)
@@ -12718,7 +12788,7 @@ A NEW strategy, authored from the steps (~20 lines): refine, but when a steered 
 
 > `const` **sampleThenRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:909](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L909)
+Defined in: [runtime/strategy.ts:958](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L958)
 
 The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
  then refine the best-verifying line with the remaining budget. Sample's basin escape +
@@ -13805,7 +13875,7 @@ defaults to `'loop'`.
 
 > **routerChatWithUsage**(`cfg`, `messages`, `opts?`): `Promise`\<[`RouterChatResult`](#routerchatresult)\>
 
-Defined in: [runtime/router-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L30)
+Defined in: [runtime/router-client.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L38)
 
 #### Parameters
 
@@ -13841,7 +13911,7 @@ Defined in: [runtime/router-client.ts:30](https://github.com/tangle-network/agen
 
 > **routerChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
 
-Defined in: [runtime/router-client.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L117)
+Defined in: [runtime/router-client.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L129)
 
 A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape
 `messages` (system/user/assistant-with-tool_calls/tool roles) + function `tools`, and returns the
@@ -13890,7 +13960,7 @@ readonly `object`[]
 
 > **routerToolLoop**(`cfg`, `system`, `user`, `tools`, `execute`, `opts?`): `Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
 
-Defined in: [runtime/router-client.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L208)
+Defined in: [runtime/router-client.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L227)
 
 The tool-using router backend: a real agentic loop OVER the Tangle router (which
 supports tool-calling), off-box — no sandbox. Each turn is one router completion
@@ -13959,7 +14029,7 @@ Seed the loop with an existing conversation (depth continuation) instead of
 
 > **routerBrain**(`cfg`, `opts?`): [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/router-client.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L250)
+Defined in: [runtime/router-client.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/router-client.ts#L269)
 
 The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's
 tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
@@ -14550,7 +14620,7 @@ Defined in: [runtime/strategy-evolution.ts:364](https://github.com/tangle-networ
 
 > **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L527)
+Defined in: [runtime/strategy.ts:576](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L576)
 
 DEPTH: one persistent artifact, carried across analyst-steered shots.
 
@@ -14584,7 +14654,7 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 > **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:595](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L595)
+Defined in: [runtime/strategy.ts:644](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L644)
 
 BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
@@ -14618,7 +14688,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 > **defineStrategy**(`name`, `run`): [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:740](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L740)
+Defined in: [runtime/strategy.ts:789](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L789)
 
 Author a Strategy from the composable steps — the open, compact way.
 
@@ -14642,7 +14712,7 @@ Author a Strategy from the composable steps — the open, compact way.
 
 > **runAgentic**(`opts`): `Promise`\<[`AgenticRunResult`](#agenticrunresult)\>
 
-Defined in: [runtime/strategy.ts:981](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L981)
+Defined in: [runtime/strategy.ts:1030](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1030)
 
 Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope.
 

@@ -7,11 +7,12 @@
  * budget and scored by your own check, for free.
  *
  * Gym-free: no benchmark dataset, no sandbox. Runs fully OFFLINE — with no
- * `TANGLE_API_KEY`, the worker points at an in-process mock router (./mock-router.ts) that drives
- * the counter, so the whole comparison runs end-to-end with zero credentials. Set the key to swap
- * in the live Tangle router as the drop-in upgrade:
+ * `TANGLE_API_KEY` the worker runs against an injected `complete` transport (a deterministic
+ * in-process responder that drives the counter), so the whole comparison runs end-to-end with
+ * zero credentials AND no localhost server. Set the key to swap in the live Tangle router as the
+ * drop-in upgrade — the SAME `runBenchmark` machinery either way:
  *
- *   pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline (mock worker)
+ *   pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline (injected transport)
  *   TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts   # live router worker
  */
 
@@ -22,8 +23,7 @@ import {
   runBenchmark,
   sample,
 } from '@tangle-network/agent-runtime/loops'
-import { counterEnv, counterTask } from './counter-env'
-import { startMockRouter } from './mock-router'
+import { counterEnv, counterTask, target } from './counter-env'
 
 // ── 1. The domain — the only thing a new domain writes ──────────────────────
 // `counterEnv` (the shared toy `Environment`, 5 hooks open/tools/call/score/close)
@@ -65,34 +65,104 @@ const doubleCheck = defineStrategy(
   },
 )
 
+// ── The offline worker: a deterministic `complete` transport (no server) ─────
+// `worker.complete` is the injection seam (RouterConfig.complete): given the OpenAI request body
+// it returns the parsed `/chat/completions` JSON the worker + analyst would have fetched. The same
+// fn serves BOTH legs — the worker's tool-calling turns and the refine analyst's chat-only steer —
+// exactly as a localhost mock endpoint would, but in-process. The live router is the drop-in upgrade.
+
+interface ChatBody {
+  messages?: Array<{ role?: string; content?: string | null }>
+  tools?: Array<{ function?: { name?: string } }>
+}
+
+/** Highest `count is now N` (or `count is N`) seen in the prior tool results. */
+function currentCount(messages: ChatBody['messages']): number {
+  let count = 0
+  for (const m of messages ?? []) {
+    if (m.role !== 'tool' || typeof m.content !== 'string') continue
+    const match = m.content.match(/count is(?: now)? (\d+)/)
+    if (match) count = Math.max(count, Number(match[1]))
+  }
+  return count
+}
+
+/** Drive the counter: emit `increment` until the count hits the target, verify with `read_count`,
+ *  then answer "DONE". With NO tools (the analyst's chat-only call) return a short steer string. */
+async function offlineComplete(body: Record<string, unknown>): Promise<unknown> {
+  const req = body as ChatBody
+  const message = (() => {
+    if (!req.tools?.length) {
+      return {
+        role: 'assistant',
+        content: 'Keep calling increment until read_count shows the target.',
+      }
+    }
+    const count = currentCount(req.messages)
+    if (count < target) {
+      return {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: `call_${count}`,
+            type: 'function',
+            function: { name: 'increment', arguments: '{}' },
+          },
+        ],
+      }
+    }
+    const verified = (req.messages ?? []).some((m) =>
+      (m as { tool_calls?: Array<{ function?: { name?: string } }> }).tool_calls?.some(
+        (t) => t.function?.name === 'read_count',
+      ),
+    )
+    if (!verified) {
+      return {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'call_verify',
+            type: 'function',
+            function: { name: 'read_count', arguments: '{}' },
+          },
+        ],
+      }
+    }
+    return { role: 'assistant', content: `DONE — count is ${count}` }
+  })()
+  return {
+    choices: [{ message, finish_reason: 'tool_calls' in message ? 'tool_calls' : 'stop' }],
+    // Real (small, fixed) usage so the backend-integrity guard sees a backend, never a phantom 0.
+    usage: { prompt_tokens: 40, completion_tokens: 12 },
+  }
+}
+
 // ── 3. Compare them at equal budget, scored by the env's own check ──────────
 
 async function main(): Promise<void> {
-  // No key → spin up the in-process mock router and point the worker at it (offline). A key → use
-  // the live Tangle router. EITHER WAY the worker drives the SAME `runBenchmark` machinery below.
+  // No key → inject the deterministic `complete` transport (offline, no network, no server).
+  // A key → use the live Tangle router. EITHER WAY the worker drives the SAME `runBenchmark` below.
   const routerKey = process.env.TANGLE_API_KEY
-  const mock = routerKey ? null : await startMockRouter()
   const worker = {
-    routerBaseUrl: mock?.baseUrl ?? process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-    routerKey: routerKey ?? 'offline-mock',
+    routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+    routerKey: routerKey ?? 'offline',
     model: process.env.WORKER_MODEL ?? 'gpt-4o-mini',
     innerTurns: 6,
+    ...(routerKey ? {} : { complete: offlineComplete }),
   }
-  console.log(mock ? 'worker: offline mock router\n' : 'worker: live Tangle router\n')
+  console.log(routerKey ? 'worker: live Tangle router\n' : 'worker: offline (injected transport)\n')
 
-  try {
-    printBenchmarkReport(
-      await runBenchmark({
-        environment: counterEnv,
-        tasks: [task],
-        worker,
-        budget: 3,
-        strategies: [sample, refine, doubleCheck],
-      }),
-    )
-  } finally {
-    await mock?.close()
-  }
+  printBenchmarkReport(
+    await runBenchmark({
+      environment: counterEnv,
+      tasks: [task],
+      worker,
+      budget: 3,
+      strategies: [sample, refine, doubleCheck],
+    }),
+  )
 }
 
 main().catch((err) => {
