@@ -14,24 +14,23 @@
  *     guard sees a real run.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  THE FIREWALL LIVES HERE — and it is EXECUTION-BASED, not a text scan.     │
- * │  The ONLY scenario field that reaches the agent's CONTEXT is               │
- * │  `scenario.prompt` (the `taskToPrompt` below, and `nextPrompt` built ONLY  │
- * │  from check output). The LLM-judge rubric note is read later by eval.ts —  │
- * │  never written into the box.                                               │
+ * │  THE FIREWALL LIVES HERE — and it is ENFORCED, not a comment.              │
+ * │  The agent context is ASSEMBLED from the routing (`routeCodingFields`):    │
+ * │  `scenario.prompt` is `agent-visible`, the visible test is                 │
+ * │  `develop-against` (seeded during the turn so `node --test` has a file —   │
+ * │  a multi-round agent CAN read it, intentional TDD), and the held-out suite │
+ * │  + rubric note are `grading-only`/`judge-only` — they must never appear in │
+ * │  the agent context. `assertNoHiddenLeak` (agent-eval) throws if they do.   │
  * │                                                                            │
- * │  The VISIBLE example test is seeded into the box DURING the turn (so       │
- * │  `node --test` has a file to run) and a multi-round agent with native file │
- * │  tools CAN read it — intentional, the same as real TDD.                    │
- * │                                                                            │
- * │  The HELD-OUT grading suite is NEVER seeded during the turn. It is copied  │
- * │  in ONLY at grading (after the loop, `runHeldout` below) and run; the      │
- * │  score is its pass rate. The agent cannot game tests it never saw — a      │
- * │  hardcode-the-visible cheat fails the held-out inputs. THAT is the         │
- * │  anti-cheat: execution truth on hidden tests.                              │
+ * │  At grading, `gradeOnHiddenCriteria` (→ agent-eval's `gradeOnHidden`)      │
+ * │  RE-ASSERTS the firewall against the exact context the run used, THEN      │
+ * │  seeds + runs the held-out suite. A hardcode-the-visible cheat fails the   │
+ * │  held-out inputs it never saw. THAT is the anti-cheat: execution truth on  │
+ * │  hidden tests, behind a firewall the substrate enforces.                   │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
+import { assertNoHiddenLeak } from '@tangle-network/agent-eval'
 import type { DispatchContext, ProfileDispatchFn } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
@@ -41,9 +40,15 @@ import {
   type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import { type CheckBox, layerOutput, type RunArtifact, runChecks, runHeldout } from './eval'
+import {
+  type CheckBox,
+  gradeOnHiddenCriteria,
+  layerOutput,
+  type RunArtifact,
+  runChecks,
+} from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
-import { type CodingScenario, checkCmds } from './scenarios'
+import { type CodingScenario, checkCmds, routeCodingFields } from './scenarios'
 
 /** Max refine rounds. Round N+1's prompt is built from round N's CHECK output only. */
 const maxRounds = 3
@@ -92,6 +97,9 @@ export function codingDispatch(
     // materializes it into the harness's real config.
     const equippedProfile = withTools(profile, toolPreset)
     const cmds = checkCmds(scenario)
+    // Route the scenario's fields by destination (agent-visible / develop-against /
+    // grading-only / judge-only). The firewall reads these tags, not field names.
+    const routedFields = routeCodingFields(scenario)
 
     const agentRun: AgentRunSpec<string> = {
       profile: equippedProfile,
@@ -115,9 +123,19 @@ export function codingDispatch(
       let checks = blankReport()
       let solution = ''
       let finalText = ''
+      // The EXACT text that reaches the agent across the whole run — every prompt it
+      // sees, concatenated. The firewall checks the held-out suite + rubric never appear
+      // in here. `gradeOnHidden` re-asserts this at grading; we also assert per round so a
+      // leak fails the instant it would happen, not three rounds later.
+      const agentContextParts: string[] = []
 
       for (let round = 0; round < maxRounds; round += 1) {
         const prompt = round === 0 ? scenario.prompt : nextPrompt(checks)
+        // Assert BEFORE the prompt reaches the agent: a grading-only/judge-only field's
+        // value inside the prompt is a firewall breach (throws). `routeFields` marked the
+        // visible test `develop-against`, so seeding it never trips this.
+        agentContextParts.push(prompt)
+        assertNoHiddenLeak(routedFields, agentContextParts.join('\n'))
         const turn = round === 0 ? await run.start(prompt) : await run.resume(prompt)
         solution = turn.out.solution
         finalText = turn.events.map(eventText).filter(Boolean).join(' ').slice(0, 2000)
@@ -136,12 +154,20 @@ export function codingDispatch(
         if (checks.allPass) break // stop on worker-observable green only
       }
 
-      // HELD-OUT TEST EXECUTION — the anti-cheat. Runs AFTER the loop in the SAME box:
-      // the held-out suite (never seeded during the turn) is copied in and run against
-      // the agent's real solution. Its pass rate is the PRIMARY correctness score (the
-      // judge blends it as the recorded composite). A solution that hardcoded the visible
-      // examples fails the held-out inputs it never saw — execution truth, not a regex.
-      const heldout = await runHeldout(run.box as CheckBox, scenario, cmds.heldout)
+      // HELD-OUT GRADING behind the FIREWALL — the anti-cheat. `gradeOnHiddenCriteria`
+      // (→ agent-eval's `gradeOnHidden`) RE-ASSERTS `assertNoHiddenLeak` against the exact
+      // agent context the run used (proving on real data that the held-out suite + rubric
+      // never reached the agent), THEN seeds + runs the held-out suite in the SAME box. Its
+      // pass rate is the PRIMARY correctness score (the judge blends it as the recorded
+      // composite). A solution that hardcoded the visible examples fails the held-out inputs
+      // it never saw — execution truth behind a substrate-enforced firewall, not a regex.
+      const heldout = await gradeOnHiddenCriteria(
+        run.box as CheckBox,
+        scenario,
+        cmds.heldout,
+        { fields: routedFields, agentContext: agentContextParts.join('\n') },
+        ctx.signal,
+      )
       await ctx.artifacts.writeJson(`heldout/${ctx.cellId}.json`, heldout)
 
       return { solution, finalText, checks, heldout }
