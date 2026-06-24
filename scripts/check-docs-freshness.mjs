@@ -14,7 +14,8 @@
 // Ground-truth sources (no third-party deps; pure node):
 //   - package.json (version + peerDependencies)
 //   - the generated API index under docs/api/ (every exported symbol -> a <name>.md page)
-//   - the agent-eval substrate contract .d.ts (re-exported symbols the doc cites as substrate)
+//   - the agent-eval substrate barrels the doc cites as substrate: contract / campaign / index /
+//     authenticity .d.ts (each a published export surface a §2 row may recommend importing from)
 //   - bench/src/*.ts|*.mts (harness-local symbols that are NOT package exports)
 //
 // Local fix path on failure: read the report, fix the doc line, and for stale generated
@@ -285,6 +286,13 @@ for (const n of exportsFromDts(
   universe.add(n)
 for (const n of exportsFromDts(
   join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'index.d.ts'),
+))
+  universe.add(n)
+// scoreAuthenticity / gateRealness / AuthenticitySignals are published ONLY on the
+// `agent-eval/authenticity` subpath barrel (not re-exported by the main/contract/campaign
+// barrels), so a §2 row that recommends importing them from that subpath must resolve here.
+for (const n of exportsFromDts(
+  join(repoRoot, 'node_modules', '@tangle-network', 'agent-eval', 'dist', 'authenticity', 'index.d.ts'),
 ))
   universe.add(n)
 // Neutral-contract + substrate types the doc recommends importing directly
