@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 342 exports.
+Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -392,6 +392,7 @@ Import from `@tangle-network/agent-runtime/loops` — 342 exports.
 | `gitWorkspace` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `harvestCorpus` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is |
+| `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `localShell` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `loopDispatch` | function | Adapter for `runProfileMatrix` (profile is an axis). Returns a |
@@ -536,6 +537,8 @@ Import from `@tangle-network/agent-runtime/loops` — 342 exports.
 | `InboxMessage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
+| `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
+| `InProcessSandboxClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `IntentAudit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Iteration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopDecisionPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -660,6 +663,7 @@ Import from `@tangle-network/agent-runtime/loops` — 342 exports.
 | `Fanout` | type | `fanout(items, opts)` — build the fanout combinator over a static item list. |
 | `FanoutWinnerSelector` | type | A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the |
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |
+| `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
 | `LoopOptionsForDispatch` | type | runLoop options minus the `ctx` (loopDispatch builds the ctx). |
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopTraceEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |

@@ -69,6 +69,14 @@ export {
   type HarvestReport,
   harvestCorpus,
 } from './harvest-corpus'
+// The in-process pseudo-box: a user `onPrompt` callback → a SandboxClient for
+// runLoop / openSandboxRun (the typed offline seam, no SandboxInstance cast).
+export {
+  type InProcessOnPrompt,
+  type InProcessPromptCtx,
+  type InProcessSandboxClientOptions,
+  inProcessSandboxClient,
+} from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
 export {

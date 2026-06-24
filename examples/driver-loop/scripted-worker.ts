@@ -13,8 +13,14 @@
  *   • the validator is the pass/fail check the driver reads to decide whether to refine.
  */
 
-import type { DefaultVerdict, OutputAdapter, Validator } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import {
+  type DefaultVerdict,
+  inProcessSandboxClient,
+  type OutputAdapter,
+  type SandboxClient,
+  type Validator,
+} from '@tangle-network/agent-runtime/loops'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // The task must draft a one-line release note that mentions the word "rollback". A real product
 // would validate something richer; the required word keeps the example deterministic.
@@ -28,31 +34,27 @@ export interface NoteOutput {
 }
 export const requiredWord = 'rollback'
 
-// A worker is just something that takes a prompt and streams back events. Here we fake it: the
-// first prompt produces a draft that forgets the required word; any prompt that mentions it
-// produces a corrected draft.
-export function scriptedWorkerClient(): { create(): Promise<SandboxInstance> } {
-  return {
-    async create(): Promise<SandboxInstance> {
-      return {
-        id: `worker-${Math.random().toString(36).slice(2, 8)}`,
-        async *streamPrompt(prompt: string): AsyncIterable<SandboxEvent> {
-          yield {
-            type: 'llm_call',
-            data: { model: 'scripted', tokensIn: 200, tokensOut: 40, costUsd: 0.0006 },
-          }
-          // The worker "obeys" the prompt: if the driver's corrective prompt told it to mention
-          // the required word, it does; otherwise it ships the naive first draft.
-          const note = prompt.toLowerCase().includes(requiredWord)
-            ? 'Shipped one-click restore with an instant rollback path if a deploy goes bad.'
-            : 'Shipped one-click restore for failed deploys.'
-          yield { type: 'result', data: { result: { note } satisfies NoteOutput } }
+// A worker is just something that takes a prompt and streams back events. Here we fake it via
+// the `inProcessSandboxClient` primitive: the first prompt produces a draft that forgets the
+// required word; any prompt that mentions it produces a corrected draft. The `onPrompt` callback
+// IS the worker — no `SandboxInstance` cast (the primitive owns the one offline seam).
+export function scriptedWorkerClient(): SandboxClient {
+  return inProcessSandboxClient({
+    onPrompt: (prompt): SandboxEvent[] => {
+      // The worker "obeys" the prompt: if the driver's corrective prompt told it to mention
+      // the required word, it does; otherwise it ships the naive first draft.
+      const note = prompt.toLowerCase().includes(requiredWord)
+        ? 'Shipped one-click restore with an instant rollback path if a deploy goes bad.'
+        : 'Shipped one-click restore for failed deploys.'
+      return [
+        {
+          type: 'llm_call',
+          data: { model: 'scripted', tokensIn: 200, tokensOut: 40, costUsd: 0.0006 },
         },
-        // The offline seam: this object implements only the members `runLoop` calls on a box
-        // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
-      } as unknown as SandboxInstance
+        { type: 'result', data: { result: { note } satisfies NoteOutput } },
+      ]
     },
-  }
+  })
 }
 
 // Raw event stream → typed output.
