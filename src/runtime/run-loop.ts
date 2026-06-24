@@ -710,6 +710,19 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     const events: SandboxEvent[] = []
     for await (const event of stream) {
       events.push(event)
+      // Tee each raw event to an optional host observer BEFORE it is buffered,
+      // so a caller can stream the agent's live output. Best-effort + isolated:
+      // a throwing observer must never break the run's own event collection.
+      if (args.ctx.onSandboxEvent) {
+        try {
+          args.ctx.onSandboxEvent(event, {
+            iterationIndex: args.item.index,
+            agentRunName: slot.agentRunName,
+          })
+        } catch {
+          // Non-critical telemetry — never let it interrupt the stream.
+        }
+      }
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         slot.costUsd += llmCall.costUsd ?? 0
