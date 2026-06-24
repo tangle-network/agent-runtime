@@ -86,6 +86,12 @@ export interface AgenticOptions {
   routerBaseUrl: string
   routerKey: string
   model: string
+  /** Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
+   *  offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
+   *  its `routerToolLoop` cfg) AND the analyst's critic (its `ChatClient` is bound to this same
+   *  transport). One injected responder serves both, as a localhost mock endpoint would. Absent ⇒
+   *  the live router fetch path (the default). */
+  complete?: (body: Record<string, unknown>) => Promise<unknown>
   temperature?: number
   /** Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
    *  budgets on reasoning and return empty content without it). Omitted ⇒ provider default. */
@@ -171,6 +177,7 @@ async function runShot(
       routerBaseUrl: opts.routerBaseUrl,
       routerKey: opts.routerKey,
       model: modelOverride ?? opts.model,
+      ...(opts.complete ? { complete: opts.complete } : {}),
     },
     '',
     '',
@@ -219,6 +226,58 @@ function compactTrajectory(messages: Msg[]): string {
     .slice(0, 7000)
 }
 
+/** The analyst's chat seam: the live router by default, or — when a `complete` transport is
+ *  injected — that SAME transport, so an offline run drives the critic with no network too (the
+ *  worker and the analyst share the one injected responder, exactly as a localhost mock would
+ *  serve both). The critic speaks the OpenAI request shape; we forward it to `complete` and lift
+ *  the parsed `/chat/completions` JSON back into a `ChatResponse`. */
+function analystChat(
+  opts: AgenticOptions,
+  defaultModel: string,
+): ReturnType<typeof createChatClient> {
+  if (!opts.complete) {
+    return createChatClient({
+      transport: 'router',
+      apiKey: opts.routerKey,
+      baseUrl: opts.routerBaseUrl,
+      defaultModel,
+    })
+  }
+  const complete = opts.complete
+  return createChatClient({
+    transport: 'mock',
+    defaultModel,
+    handler: async (req) => {
+      const raw = (await complete({
+        model: req.model ?? defaultModel,
+        messages: req.messages,
+        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+        ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
+      })) as {
+        choices?: Array<{ message?: { content?: string | null }; finish_reason?: string | null }>
+        usage?: { prompt_tokens?: number; completion_tokens?: number }
+      }
+      const content = raw.choices?.[0]?.message?.content ?? ''
+      const promptTokens = raw.usage?.prompt_tokens ?? 0
+      const completionTokens = raw.usage?.completion_tokens ?? 0
+      return {
+        content,
+        usage: {
+          promptTokens,
+          completionTokens,
+          totalTokens: promptTokens + completionTokens,
+        },
+        costUsd: null,
+        model: req.model ?? defaultModel,
+        durationMs: 0,
+        finishReason: raw.choices?.[0]?.finish_reason ?? null,
+        contentEmpty: content.trim().length === 0,
+        raw: raw as Record<string, unknown>,
+      }
+    },
+  })
+}
+
 /** The RAW analyst channel: the firewalled critic answers `instruction` over the
  *  trajectory directly — no findings schema, no recommended-action extraction. The
  *  channel for verdict-shaped steering (budget controllers, calibrated predictions)
@@ -232,12 +291,7 @@ async function consultAnalyst(
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
-  const chat = createChatClient({
-    transport: 'router',
-    apiKey: opts.routerKey,
-    baseUrl: opts.routerBaseUrl,
-    defaultModel: analystModel,
-  })
+  const chat = analystChat(opts, analystModel)
   const res = await chat.chat({
     model: analystModel,
     temperature: 0.2,
@@ -276,12 +330,7 @@ async function analyze(
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
-  const inner = createChatClient({
-    transport: 'router',
-    apiKey: opts.routerKey,
-    baseUrl: opts.routerBaseUrl,
-    defaultModel: analystModel,
-  })
+  const inner = analystChat(opts, analystModel)
   // The critic's calls are REAL spend — capture usage so the cost vector bills them
   // (an unbilled critic makes every steering-vs-sampling cost comparison dishonest).
   const tokens = { input: 0, output: 0 }
