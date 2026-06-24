@@ -14,22 +14,24 @@
  *     guard sees a real run.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  THE GRADING-CRITERIA FIREWALL LIVES HERE.                                 │
+ * │  THE FIREWALL LIVES HERE — and it is EXECUTION-BASED, not a text scan.     │
  * │  The ONLY scenario field that reaches the agent's CONTEXT is               │
  * │  `scenario.prompt` (the `taskToPrompt` below, and `nextPrompt` built ONLY  │
- * │  from check output). The LLM-judge rubric, the grading note, and the       │
- * │  realness signals are read later by eval.ts — they are never written into  │
- * │  the box, so the agent cannot steer toward the criteria it is scored on.   │
+ * │  from check output). The LLM-judge rubric note is read later by eval.ts —  │
+ * │  never written into the box.                                               │
  * │                                                                            │
- * │  The deterministic test fixture is a different case: it is SEEDED into the │
- * │  box workspace (so `node --test` has a file to run) and a multi-round      │
- * │  agent with native file tools CAN read it — intentional, the same as real  │
- * │  TDD. The test is a SPEC the agent is asked to satisfy, not a hidden       │
- * │  rubric. So: the rubric/realness are firewalled; the test is visible.      │
+ * │  The VISIBLE example test is seeded into the box DURING the turn (so       │
+ * │  `node --test` has a file to run) and a multi-round agent with native file │
+ * │  tools CAN read it — intentional, the same as real TDD.                    │
+ * │                                                                            │
+ * │  The HELD-OUT grading suite is NEVER seeded during the turn. It is copied  │
+ * │  in ONLY at grading (after the loop, `runHeldout` below) and run; the      │
+ * │  score is its pass rate. The agent cannot game tests it never saw — a      │
+ * │  hardcode-the-visible cheat fails the held-out inputs. THAT is the         │
+ * │  anti-cheat: execution truth on hidden tests.                              │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
-import type { ProducedFile } from '@tangle-network/agent-eval/authenticity'
 import type { DispatchContext, ProfileDispatchFn } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
@@ -39,7 +41,7 @@ import {
   type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import { type CheckBox, layerOutput, type RunArtifact, realnessGate, runChecks } from './eval'
+import { type CheckBox, layerOutput, type RunArtifact, runChecks, runHeldout } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
 import { type CodingScenario, checkCmds } from './scenarios'
 
@@ -47,9 +49,9 @@ import { type CodingScenario, checkCmds } from './scenarios'
 const maxRounds = 3
 
 /** Build the next-round prompt from the checks the AGENT is allowed to see — the
- *  pass/fail + output of the deterministic layers. NEVER from the rubric, realness,
- *  or judge. This is the firewall in action: the agent steers on objective check
- *  failures, nothing else.
+ *  pass/fail + output of the VISIBLE example tests. NEVER from the held-out suite, the
+ *  rubric, or the judge. This is the firewall in action: the agent steers on the visible
+ *  example failures, nothing else, and is GRADED on the held-out suite it never saw.
  *
  *  typecheck/test are gating (a failure blocks `allPass`); lint is advisory (it never
  *  gates) but its warnings are still surfaced here so the agent can fix style — visible
@@ -104,30 +106,25 @@ export function codingDispatch(
     }
 
     // Read the produced solution file off the box after each turn (the deliverable).
-    const run = await openSandboxRun<{ solution: string; files: ProducedFile[] }>(
+    const run = await openSandboxRun<{ solution: string }>(
       clientFor(profile),
       { agentRun, signal: ctx.signal, runId: ctx.cellId, scenarioId: scenario.id },
       {
         kind: 'artifact',
         path: scenario.solutionPath,
-        fromArtifact: (raw: string) => ({
-          solution: raw,
-          files: [{ path: scenario.solutionPath, content: raw }],
-        }),
+        fromArtifact: (raw: string) => ({ solution: raw }),
       },
     )
 
     try {
       let checks = blankReport()
       let solution = ''
-      let files: ProducedFile[] = []
       let finalText = ''
 
       for (let round = 0; round < maxRounds; round += 1) {
         const prompt = round === 0 ? scenario.prompt : nextPrompt(checks)
         const turn = round === 0 ? await run.start(prompt) : await run.resume(prompt)
         solution = turn.out.solution
-        files = turn.out.files
         finalText = turn.events.map(eventText).filter(Boolean).join(' ').slice(0, 2000)
 
         // Report usage so the integrity guard sees a real backend (not a stub).
@@ -136,25 +133,23 @@ export function codingDispatch(
         const usage = sumTokens(turn.events)
         if (usage.input || usage.output) ctx.cost.observeTokens(usage)
 
-        // Deterministic checks, IN THE BOX, this round. These (and only these) steer
-        // the next round — the firewall keeps the rubric/realness out of the loop.
-        // `run.box` is a `SandboxInstance`; `CheckBox` is the minimal `exec`(+optional
-        // `fs.write`) subset the checks actually use — a structural narrowing, no widening.
+        // Dev checks (visible example tests), IN THE BOX, this round. These (and only
+        // these) steer the next round — the firewall keeps the held-out suite + rubric
+        // out of the loop. `run.box` is a `SandboxInstance`; `CheckBox` is the minimal
+        // `exec`(+optional `fs.write`) subset the checks use — a structural narrowing.
         checks = await runChecks(run.box as CheckBox, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
-      // The realness anchor runs AFTER the loop — never inside it, so it can never
-      // steer the agent. Its verdict is recorded for honesty AND gates the judge. The
-      // seeded fixture is passed as a non-scored REFERENCE so the scan sees the
-      // solution IS imported (no spurious DEAD_ARTIFACT on a real solution); a cheat
-      // still gates regardless of what references it.
-      const realness = realnessGate(files, scenario.realnessSignals, [
-        { path: scenario.fixture.path, content: scenario.fixture.content },
-      ])
-      await ctx.artifacts.writeJson(`realness/${ctx.cellId}.json`, realness)
+      // HELD-OUT TEST EXECUTION — the anti-cheat. Runs AFTER the loop in the SAME box:
+      // the held-out suite (never seeded during the turn) is copied in and run against
+      // the agent's real solution. Its pass rate is the PRIMARY correctness score (the
+      // judge blends it as the recorded composite). A solution that hardcoded the visible
+      // examples fails the held-out inputs it never saw — execution truth, not a regex.
+      const heldout = await runHeldout(run.box as CheckBox, scenario, cmds.heldout)
+      await ctx.artifacts.writeJson(`heldout/${ctx.cellId}.json`, heldout)
 
-      return { files, solution, finalText, checks, realness }
+      return { solution, finalText, checks, heldout }
     } finally {
       await run.close()
     }

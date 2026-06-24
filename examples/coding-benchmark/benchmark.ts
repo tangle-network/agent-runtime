@@ -73,24 +73,31 @@ function parseArgs(argv: string[]): BenchmarkOptions {
 
 // ── the offline "agent": a scripted, REFINING solution per scenario ───────────
 // Offline we don't have a model, so each scenario's box writes a canned solution.
-// `rate-limiter` IMPROVES across rounds (round 0 = a genuinely hollow `return true`
-// stub the realness gate GATES to composite 0; round 1+ = the real token-bucket) —
-// a real refine demo that fires the anti-cheat gate on the benchmark's OWN data.
+// `rate-limiter` IMPROVES across rounds (round 0 = a HARDCODE-THE-VISIBLE cheat that
+// only answers the visible example inputs; round 1+ = the real token-bucket). The cheat
+// passes the visible tests but FAILS the held-out suite (different inputs it never saw) —
+// the anti-cheat demo fires on the benchmark's OWN data, by execution, not a regex.
 // `csv-parser` writes its real implementation from round 0.
 export const offlineSolutions: Record<string, OfflineScript> = {
   'rate-limiter': {
     path: 'src/rate-limiter.ts',
     solutionFor: (round) =>
       round === 0
-        ? // round 0 — a genuinely HOLLOW stub: it accepts the constructor args (so the
-          // hidden test instantiates it) but the body is pure cheat — `tryRemove` is a
-          // hardcoded `return true` with NO refill math and NO use of the args. The
-          // realness gate's `realImpl` signal does not fire (no `Date.now`/`refill`),
-          // `fakeShim` does, so gateRealness GATES it → composite 0. The param names are
-          // intentionally inert (no `refill` token) so the stub is hollow, not a real
-          // impl that merely "happens to return true". (Verified by the smoke test.)
-          `export class RateLimiter {\n  constructor(_capacity: number, _ratePerSec: number) {}\n` +
-          `  tryRemove(n: number): boolean { return true }\n}\n`
+        ? // round 0 — a HARDCODE-THE-VISIBLE cheat: it replays the exact visible example
+          // calls (cap 10/3/10, the specific draws + their call order) and returns canned
+          // answers, with NO bucket math. It PASSES the visible tests but FAILS the
+          // held-out suite (cap 7/6/5/2, different draws + edge cases it never saw),
+          // caught by EXECUTION on inputs the cheat never memorized.
+          `export class RateLimiter {\n` +
+          `  private cap: number\n  private refill: number\n  private call = 0\n` +
+          `  constructor(capacity: number, refillPerSec: number) { this.cap = capacity; this.refill = refillPerSec }\n` +
+          `  tryRemove(_n: number): boolean {\n` +
+          `    // hardcoded to the visible examples only — keyed on the exact (cap, refill)\n` +
+          `    // pairs the visible tests use; no real bucket math.\n` +
+          `    this.call++\n` +
+          `    if (this.cap === 3) return false              // visible (3,1): draw 4 -> false\n` +
+          `    if (this.cap === 10 && this.refill === 0) return this.call === 1 // visible (10,0): T,F\n` +
+          `    return true                                   // visible (10,1): T,T\n  }\n}\n`
         : // round 1+ — the real token-bucket with continuous time-based refill.
           `export class RateLimiter {\n  private tokens: number\n  private last = Date.now()\n` +
           `  constructor(private capacity: number, private refillPerSec: number) { this.tokens = capacity }\n` +
@@ -113,8 +120,8 @@ export const offlineSolutions: Record<string, OfflineScript> = {
   'lru-cache': {
     path: 'src/lru.ts',
     // Writes the real insertion-ordered-Map LRU from round 0 (the eviction logic is the
-    // whole point; there is no honest hollow stub for this task). passes realness (85)
-    // and the hidden eviction tests.
+    // whole point; there is no honest hollow stub for this task). Passes both the visible
+    // and the held-out eviction suites.
     solutionFor: () =>
       `export class LruCache<K, V> {\n  private map = new Map<K, V>()\n` +
       `  constructor(private capacity: number) {}\n` +

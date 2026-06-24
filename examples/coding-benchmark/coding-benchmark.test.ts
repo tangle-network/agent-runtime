@@ -1,47 +1,99 @@
 /**
  * Offline smoke test — proves the whole pipeline runs with no creds and that the
- * load-bearing honesty claims hold:
+ * load-bearing honesty claims hold, BY EXECUTION (not a text scan):
  *   1. the matrix produces exactly `harnesses × scenarios × reps` records and a
  *      defined leaderboard (the wiring is real, not a stub that returns nothing);
- *   2. the realness gate gates the ACTUAL round-0 stub the dispatch writes (not a
- *      separate strawman) to composite 0 — the anti-cheat demo fires on the
- *      benchmark's own data, and passes the real refined impl;
- *   3. the gate also fires on the NATURAL cheat for EVERY task (not just one stub
- *      shape) — the README's "catches the listed stub shapes" claim, ground-truthed;
- *   4. a real impl scored WITH its seeded fixture as a reference carries no spurious
- *      DEAD_ARTIFACT flag (the realness scan sees the artifact is imported);
- *   5. reps tighten the per-cell estimate HONESTLY — identical reps do NOT narrow
- *      the leaderboard CI vs reps=1 (reps are not independent samples).
+ *   2. THE ANTI-CHEAT, end-to-end: a hardcode-the-visible CHEAT passes the VISIBLE
+ *      tests but FAILS the HELD-OUT suite (low pass rate) → LOW composite; the REAL
+ *      solution PASSES the held-out suite → HIGH composite. Run for real against an
+ *      in-process box (`node --test`), no creds. This is the whole point of the example.
+ *   3. the held-out test is NEVER seeded into the box during the agent turn — the
+ *      firewall — only at grading;
+ *   4. reps tighten the per-cell estimate HONESTLY — identical reps do NOT narrow the
+ *      leaderboard CI vs reps=1 (reps are not independent samples).
  */
 
+import { exec as execCb } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { promisify } from 'node:util'
 import type { RunRecord } from '@tangle-network/agent-eval'
-import type { ProducedFile } from '@tangle-network/agent-eval/authenticity'
 import { describe, expect, it } from 'vitest'
 import { main, offlineSolutions } from './benchmark'
-import { realnessGate } from './eval'
+import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
 import { harnessProfiles } from './profiles'
-import { type CodingScenario, scenarios } from './scenarios'
+import { type CodingScenario, checkCmds, scenarios } from './scenarios'
 import { pairwiseStats } from './stats'
 
-/** The natural cheat per scenario — the shortcut a real agent would actually reach for,
- *  NOT a hand-built strawman: the gate must fire on each of these. */
-const naturalCheats: Record<string, string> = {
-  // hollow body, but the constructor param is named `refillPerSec` (the prompt's own
-  // name) — the decoy that defeated a `/refill/` realImpl.
-  'rate-limiter':
-    'export class RateLimiter {\n  constructor(_capacity: number, refillPerSec: number) {}\n  tryRemove(n: number): boolean { return true }\n}\n',
-  // a for-loop is present, but it splits on newline+comma — the naive parse the
-  // RFC-4180 cases break. The loop must NOT read as a real impl.
-  'csv-parser':
-    'export function parseCsv(input: string): string[][] {\n  const out: string[][] = []\n  for (const line of input.split("\\n")) out.push(line.split(","))\n  return out\n}\n',
-  // a Map wrapper that never evicts — grows without bound, fails the at-capacity test.
-  'lru-cache':
-    'export class LruCache<K, V> {\n  private store = new Map<K, V>()\n  constructor(_capacity: number) {}\n  get(k: K) { return this.store.get(k) }\n  set(k: K, v: V) { this.store.set(k, v) }\n}\n',
+const execAsync = promisify(execCb)
+
+/** A real in-process `CheckBox` over a fresh temp dir — `fs.write` + `exec` only, the
+ *  exact surface `runChecks` / `runHeldout` use. `node --test` runs for real here, so the
+ *  held-out execution is genuine (no creds, no network). */
+function tempBox(): { box: CheckBox; dir: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'coding-bench-test-'))
+  const box: CheckBox = {
+    fs: {
+      async write(path: string, content: string) {
+        const abs = join(dir, path)
+        await mkdir(dirname(abs), { recursive: true })
+        await writeFile(abs, content, 'utf8')
+      },
+    },
+    async exec(command: string) {
+      try {
+        const { stdout, stderr } = await execAsync(command, { cwd: dir, timeout: 30_000 })
+        return { exitCode: 0, stdout, stderr }
+      } catch (err) {
+        const e = err as { code?: number; stdout?: string; stderr?: string; message?: string }
+        return {
+          exitCode: e.code ?? 1,
+          stdout: e.stdout ?? '',
+          stderr: e.stderr ?? e.message ?? '',
+        }
+      }
+    },
+  }
+  return { box, dir }
+}
+
+/** Write a solution, run the VISIBLE example test + the HELD-OUT suite against it in one
+ *  box, and return both pass rates. This is exactly what the dispatch does (minus the
+ *  agent turn): seed the visible test during "the turn", then the held-out suite at
+ *  grading. We run each test command directly (not the typecheck-gated `runChecks`
+ *  pipeline) so the result reflects the TESTS, not the absence of `tsc` offline — the
+ *  whole point is to compare visible-pass vs held-out-pass by execution. */
+async function gradeSolution(
+  scenario: CodingScenario,
+  solution: string,
+): Promise<{ visiblePassRate: number; heldoutPassRate: number; heldoutNotes: string }> {
+  const { box, dir } = tempBox()
+  try {
+    const cmds = checkCmds(scenario)
+    await box.fs?.write(scenario.solutionPath, solution)
+    // "During the turn": the visible example test is seeded + run.
+    const visible = await runHeldout(
+      box,
+      { ...scenario, heldoutTest: scenario.visibleTest },
+      cmds.dev,
+    )
+    // "At grading": the held-out suite is seeded + run (the real anti-cheat).
+    const heldout = await runHeldout(box, scenario, cmds.heldout)
+    return {
+      visiblePassRate: visible.passRate,
+      heldoutPassRate: heldout.passRate,
+      heldoutNotes: heldout.notes,
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 describe('coding-benchmark (offline)', () => {
   // Integration smoke: runs the real matrix end-to-end (real box.exec on the offline
-  // toolchain, all refine rounds since the checks can't pass without the toolchain).
+  // toolchain, all refine rounds since the dev checks can't pass without tsc).
   it('runs the full matrix and returns a defined leaderboard', async () => {
     const reps = 1
     const summary = await main(['--reps', String(reps)])
@@ -49,96 +101,88 @@ describe('coding-benchmark (offline)', () => {
     expect(summary.leaderboard).toBe(harnessProfiles.length)
   }, 180_000)
 
-  it("gates the dispatch's OWN round-0 stub to composite 0 (the demo fires on real data)", () => {
-    const rl = scenarios.find((s) => s.id === 'rate-limiter')
-    expect(rl).toBeDefined()
+  // THE ANTI-CHEAT, proven by execution: the round-0 hardcode-the-visible cheat PASSES
+  // the visible test but FAILS the held-out suite (it never saw those inputs), and the
+  // refined real impl PASSES the held-out suite. Composite ranks the real one far above.
+  it('a hardcode-the-visible cheat FAILS the held-out tests; the real solution PASSES', async () => {
+    const rl = scenarios.find((s) => s.id === 'rate-limiter') as CodingScenario
     const script = offlineSolutions['rate-limiter']
     expect(script).toBeDefined()
-    // The EXACT content the offline dispatch writes on round 0 — not a hand-built
-    // strawman. If a future edit makes this stub look real, this test goes red.
-    const round0 = (script as NonNullable<typeof script>).solutionFor(0)
-    const verdict = realnessGate(
-      [{ path: 'src/rate-limiter.ts', content: round0 }],
-      (rl as NonNullable<typeof rl>).realnessSignals,
-    )
-    expect(verdict.gated).toBe(true)
-    expect(verdict.score).toBe(0)
-  })
+    const cheat = (script as NonNullable<typeof script>).solutionFor(0) // round-0 cheat
+    const real = (script as NonNullable<typeof script>).solutionFor(1) // refined real impl
 
-  it("passes the dispatch's refined round-1 token-bucket implementation", () => {
-    const rl = scenarios.find((s) => s.id === 'rate-limiter')
-    const script = offlineSolutions['rate-limiter']
-    expect(script).toBeDefined()
-    const round1 = (script as NonNullable<typeof script>).solutionFor(1)
-    const verdict = realnessGate(
-      [{ path: 'src/rate-limiter.ts', content: round1 }],
-      (rl as NonNullable<typeof rl>).realnessSignals,
-    )
-    expect(verdict.gated).toBe(false)
-    expect(verdict.score).toBeGreaterThan(0)
-  })
+    const cheatGrade = await gradeSolution(rl, cheat)
+    const realGrade = await gradeSolution(rl, real)
 
-  // The HIGH-severity claim: the gate fires on the NATURAL cheat for every task, not
-  // only on one strawman stub shape. Each cheat below is the realistic shortcut with a
-  // decoy token that defeated a looser realImpl — all must gate.
-  it.each(scenarios)('gates the natural cheat for $id', (scenario: CodingScenario) => {
-    const cheat = naturalCheats[scenario.id]
-    expect(cheat, `no natural-cheat fixture for ${scenario.id}`).toBeDefined()
-    const verdict = realnessGate(
-      [{ path: scenario.solutionPath, content: cheat as string }],
-      scenario.realnessSignals,
-    )
-    expect(verdict.gated, `natural cheat for ${scenario.id} slipped past the gate`).toBe(true)
-    expect(verdict.score).toBe(0)
-  })
+    // The cheat memorizes the visible example answers, so it passes the visible test...
+    expect(
+      cheatGrade.visiblePassRate,
+      `cheat should pass the visible test: ${cheatGrade.heldoutNotes}`,
+    ).toBe(1)
+    // ...but it FAILS the held-out suite (different inputs it never saw).
+    expect(
+      cheatGrade.heldoutPassRate,
+      `cheat should NOT fully pass held-out: ${cheatGrade.heldoutNotes}`,
+    ).toBeLessThan(1)
 
-  // The real offline solution for every task scores real (not gated). Confirms each
-  // scenario's tightened realImpl still accepts the genuine implementation.
-  it.each(scenarios)('passes the real offline solution for $id', (scenario: CodingScenario) => {
+    // The real implementation passes the held-out suite outright.
+    expect(
+      realGrade.heldoutPassRate,
+      `real solution should pass held-out: ${realGrade.heldoutNotes}`,
+    ).toBe(1)
+
+    // Composite ranks the real solution strictly above the cheat (held-out is primary).
+    // Hold the secondary judge score equal so the gap is purely the held-out term.
+    const judgeQuality = 0.8
+    const cheatComposite = composeScore(cheatGrade.heldoutPassRate, judgeQuality)
+    const realComposite = composeScore(realGrade.heldoutPassRate, judgeQuality)
+    expect(realComposite).toBeGreaterThan(cheatComposite)
+  }, 60_000)
+
+  // Every scenario's REAL offline solution passes its held-out suite (the suites are not
+  // accidentally impossible) — run for real against the in-process box.
+  it.each(
+    scenarios,
+  )('the real offline solution passes the held-out suite for $id', async (scenario: CodingScenario) => {
     const script = offlineSolutions[scenario.id]
     expect(script, `no offline solution for ${scenario.id}`).toBeDefined()
-    const content = (script as NonNullable<typeof script>).solutionFor(99) // settled round
-    const verdict = realnessGate(
-      [{ path: scenario.solutionPath, content }],
-      scenario.realnessSignals,
-    )
-    expect(verdict.gated, `real solution for ${scenario.id} was wrongly gated`).toBe(false)
-    expect(verdict.score).toBeGreaterThan(0)
-  })
+    const solution = (script as NonNullable<typeof script>).solutionFor(99) // settled round
+    const grade = await gradeSolution(scenario, solution)
+    expect(
+      grade.heldoutPassRate,
+      `real ${scenario.id} failed held-out: ${grade.heldoutNotes}`,
+    ).toBe(1)
+  }, 60_000)
 
-  // The runtime DEAD_ARTIFACT fix: a real solution scored WITH its seeded fixture as a
-  // non-scored reference carries no DEAD_ARTIFACT flag (the scan sees it IS imported).
+  // FIREWALL: the held-out test is never seeded into the box during the agent turn —
+  // only the visible test is. After running the dev checks (which seed the visible test),
+  // the held-out file must NOT exist in the box; it appears only after `runHeldout`.
   it.each(
     scenarios,
-  )('does not flag DEAD_ARTIFACT on the real $id solution', (scenario: CodingScenario) => {
-    const script = offlineSolutions[scenario.id]
-    const content = (script as NonNullable<typeof script>).solutionFor(99)
-    const reference: ProducedFile[] = [
-      { path: scenario.fixture.path, content: scenario.fixture.content },
-    ]
-    const verdict = realnessGate(
-      [{ path: scenario.solutionPath, content }],
-      scenario.realnessSignals,
-      reference,
-    )
-    expect(verdict.notes).not.toContain('DEAD_ARTIFACT')
-  })
-
-  // A reference cannot rescue a cheat: the gate still fires with the fixture present.
-  it.each(
-    scenarios,
-  )('a fixture reference does not rescue the $id cheat', (scenario: CodingScenario) => {
-    const cheat = naturalCheats[scenario.id] as string
-    const reference: ProducedFile[] = [
-      { path: scenario.fixture.path, content: scenario.fixture.content },
-    ]
-    const verdict = realnessGate(
-      [{ path: scenario.solutionPath, content: cheat }],
-      scenario.realnessSignals,
-      reference,
-    )
-    expect(verdict.gated).toBe(true)
-  })
+  )('does NOT seed the held-out test during the turn for $id', async (scenario: CodingScenario) => {
+    const { box, dir } = tempBox()
+    try {
+      const cmds = checkCmds(scenario)
+      const script = offlineSolutions[scenario.id] as NonNullable<(typeof offlineSolutions)[string]>
+      await box.fs?.write(scenario.solutionPath, script.solutionFor(99))
+      // "The turn": run the dev checks, which seed ONLY the visible test.
+      await runChecks(box, scenario, cmds)
+      // The visible test exists; the held-out test must NOT (the firewall).
+      const visibleExists = await box.exec(`test -f '${scenario.visibleTest.path}'`)
+      const heldoutExists = await box.exec(`test -f '${scenario.heldoutTest.path}'`)
+      expect(visibleExists.exitCode, 'visible test should be seeded during the turn').toBe(0)
+      expect(
+        heldoutExists.exitCode,
+        `held-out test for ${scenario.id} leaked into the box during the turn`,
+      ).not.toBe(0)
+      // Only AFTER grading does the held-out file appear.
+      await runHeldout(box, scenario, cmds.heldout)
+      const afterGrading = await box.exec(`test -f '${scenario.heldoutTest.path}'`)
+      expect(afterGrading.exitCode, 'held-out should be seeded at grading').toBe(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   it('reps do NOT fake independent n — identical reps leave the CI unchanged', () => {
     // Two harnesses, two scenarios, identical scores. Build records for reps=1 and

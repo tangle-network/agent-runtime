@@ -2,34 +2,36 @@
  * The held-out coding-task corpus — and the GRADING-CRITERIA FIREWALL, expressed as
  * a type.
  *
- * Every scenario splits into three layers by where each field flows:
- *   - `prompt`      — the only field copied into the agent's CONTEXT. The dispatch
- *                     copies it (and next-round prompts built only from check output)
- *                     into the worker; nothing else reaches the worker's context.
- *   - `fixture`     — the deterministic test. It is SEEDED into the box workspace (so
- *                     `node --test` has a file to run) and a multi-round agent with
- *                     native file tools CAN read it — this is intentional, the same as
- *                     real TDD: the test is a SPEC the agent is asked to satisfy, not
- *                     a hidden rubric. Its assertions are never described in the
- *                     prompt, but they are not hidden from the filesystem.
- *   - rubric/realness — the LLM-judge rubric note and the realness signals. These are
- *                     never written into the box at all; eval.ts reads them AFTER the
- *                     loop to score the result. THIS is what the firewall actually
- *                     protects: the grading criteria the agent can't steer toward.
+ * Every scenario splits into four layers by where each field flows:
+ *   - `prompt`        — the only field copied into the agent's CONTEXT. The dispatch
+ *                       copies it (and next-round prompts built only from check output)
+ *                       into the worker; nothing else reaches the worker's context.
+ *   - `visibleTest`   — the example tests, SEEDED into the box workspace during the turn
+ *                       (so `node --test` has a file to run) and readable by a multi-round
+ *                       agent with native file tools — this is intentional, the same as
+ *                       real TDD: a few example cases the agent develops against.
+ *   - `heldoutTest`   — the HIDDEN grading suite. Same behavior, MORE cases and DIFFERENT
+ *                       inputs/edge cases the visible examples don't cover. It is NEVER
+ *                       seeded into the box during the turn — that is the anti-cheat
+ *                       firewall. At grading (after the loop) the harness copies it in and
+ *                       runs it; the score is the held-out pass rate. A solution that
+ *                       hardcoded the visible examples FAILS these; only real behavior
+ *                       passes. This is execution truth, not a text scan.
+ *   - rubricNote      — the LLM-judge rubric note. Never written into the box at all;
+ *                       eval.ts reads it AFTER the loop to score CODE QUALITY (secondary).
  *
  * The firewall is a property of which field flows where — you can SEE it in one place
- * (it would require dispatch.ts to put a rubric/realness field into the profile, which
- * it does not; see the `// FIREWALL` comment in dispatch.ts). The honest claim is the
- * precise one: the rubric and realness signals never touch the box; the test fixture
- * is deliberately visible to the agent.
+ * (dispatch.ts seeds `visibleTest` into the box but never `heldoutTest`; see the
+ * `// FIREWALL` comment there). The honest claim is the precise one: the held-out test
+ * suite and the rubric never touch the box during the turn; the visible example tests are
+ * deliberately readable by the agent.
  */
 
-import type { AuthenticitySignals } from '@tangle-network/agent-eval/authenticity'
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
 
-/** A file the harness seeds into the box workspace before the run — the test the
- *  deterministic check executes. EVAL-ONLY: its content is never shown to the agent. */
-export interface Fixture {
+/** A test file the harness writes into the box. `visibleTest` is seeded DURING the turn
+ *  (the agent may read it); `heldoutTest` is seeded ONLY at grading, after the turn. */
+export interface TestFile {
   path: string
   content: string
 }
@@ -41,23 +43,22 @@ export interface CodingScenario extends Scenario {
    *  This is the WHOLE of what reaches the worker's context. */
   prompt: string
 
-  /** ── EVAL-ONLY (the agent never reads these) ──────────────────────────── */
-
   /** Path (relative to the workspace root) the agent is asked to produce. The
    *  checks read this file off the box AFTER the turn; the judge scores it. */
   solutionPath: string
 
-  /** The hidden test, seeded into the box so `node --test` has a real file to run.
-   *  Seeded write-only — the agent is told WHAT to build (the prompt), never the
-   *  assertions it is graded against. */
-  fixture: Fixture
+  /** ── DEVELOP-AGAINST (seeded during the turn, TDD-style) ─────────────────
+   *  A few example tests, seeded into the box so the agent can run/read them. */
+  visibleTest: TestFile
 
-  /** Realness anchor input for `scoreAuthenticity` — catches a stub that compiles
-   *  but fakes the hard part. Write-only to the record; never reaches the box. */
-  realnessSignals: AuthenticitySignals
+  /** ── GRADING-ONLY (the agent NEVER sees this during the turn) ────────────
+   *  The held-out suite — same behavior, different inputs + edge cases the visible
+   *  examples don't cover. Seeded ONLY at grading; the held-out pass rate is the
+   *  PRIMARY, ungameable correctness score. Catches a hardcode-the-visible cheat. */
+  heldoutTest: TestFile
 
   /** Extra grading context for the JUDGE only (design intent, edge cases to
-   *  reward). Lives with the judge, never in the workdir. */
+   *  reward). Lives with the judge, never in the workdir. Secondary signal. */
   rubricNote: string
 }
 
@@ -67,7 +68,7 @@ export interface CodingScenario extends Scenario {
 // non-zero exit (the honest offline signal), not a 20s network stall.
 /** A typecheck shell command for one solution file. */
 const typecheckCmd = (path: string) => `tsc --noEmit --strict --skipLibCheck ${path}`
-/** A `node --test` command for one fixture. The fixture imports the solution as a `.ts`
+/** A `node --test` command for one test file. The test imports the solution as a `.ts`
  *  file, so we run with `--experimental-transform-types`: Node's DEFAULT type-stripping
  *  is strip-only and throws `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` on TS that emits runtime
  *  code — including constructor PARAMETER PROPERTIES (`constructor(private x: number)`),
@@ -80,7 +81,7 @@ const typecheckCmd = (path: string) => `tsc --noEmit --strict --skipLibCheck ${p
  *  degrades gracefully when the toolchain is absent, but the test LAYER itself — live
  *  or when copied — requires Node >= 22.6). On an older Node a correct solution would
  *  fail with no hint why. */
-const testCmd = (fixturePath: string) => `node --experimental-transform-types --test ${fixturePath}`
+const testCmd = (testPath: string) => `node --experimental-transform-types --test ${testPath}`
 /** A lint shell command for one solution file. */
 const lintCmd = (path: string) => `biome check ${path}`
 
@@ -90,15 +91,16 @@ const lintCmd = (path: string) => `biome check ${path}`
  * shape that has a CORRECTABLE MIDDLE BAND (build-passes-but-quality-varies), which
  * is what makes a benchmark able to separate harnesses at all.
  *
- * The realness signals on each task are tuned so the NATURAL cheat gates, not just one
- * strawman stub: a shim only reads as "real" when the actual hard-part work is present
- * (refill math / quote-state tracking / capacity eviction), and the fake patterns catch
- * the obvious shortcut regardless of decoy tokens (a `refill` param name, a stray
- * `for (`, a passthrough `Map`). The smoke test asserts each natural cheat is gated.
+ * THE ANTI-CHEAT is the held-out suite, not a text scan. Each `heldoutTest` covers the
+ * SAME behavior as its `visibleTest` with DIFFERENT inputs and extra edge cases, so a
+ * solution that hardcoded the visible examples' exact values passes `visibleTest` but
+ * FAILS `heldoutTest`. Execution truth: a real implementation passes both; a cheat that
+ * fakes the hard part or memorizes the visible cases fails the held-out one (exit 1).
  *
  * POWER CAVEAT: three scenarios is far below the n the significance machinery needs to
  * separate harnesses — the paired tests demonstrate the WIRING, not a defensible claim.
- * A real run wants 20-50 tasks. `renderStats` prints this caveat when n < 6.
+ * A real run wants 20-50 tasks. At this n a near-constant gap can SHOW significance (the
+ * small-n mirage); `renderStats` flags that and prints the caveat when n < 6.
  */
 export const scenarios: CodingScenario[] = [
   {
@@ -113,8 +115,8 @@ export const scenarios: CodingScenario[] = [
       'and false otherwise. No external dependencies.',
     ].join(' '),
     solutionPath: 'src/rate-limiter.ts',
-    fixture: {
-      path: 'test/rate-limiter.test.js',
+    visibleTest: {
+      path: 'test/rate-limiter.test.ts',
       content: `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { RateLimiter } from '../src/rate-limiter.ts'
@@ -137,22 +139,38 @@ test('rejects a second draw that exceeds the remaining bucket', () => {
 })
 `,
     },
-    realnessSignals: {
-      label: 'token-bucket',
-      requiredArtifact: /rate-limiter\.ts$/,
-      // The hard part must be present: actual refill MATH — a clock read combined with
-      // refillPerSec, or refillPerSec used in an arithmetic expression. A bare `refill`
-      // identifier (e.g. a constructor param named `refillPerSec`) is NOT enough, so a
-      // hollow `return true` whose only `refill` is the param name does not read as real.
-      realImpl:
-        /(Date\.now\(\)|performance\.now\(\))[\s\S]*refillPerSec\s*[)*]|\*\s*(this\.)?refillPerSec/,
-      realInfra: /class\s+RateLimiter/,
-      // The fake: a tryRemove whose body opens with `return true` (no refill math before
-      // it). A real impl that legitimately ENDS in `return true` after the math is not
-      // flagged — the shim is "returns true with no logic", not "returns true". Combined
-      // with the tightened realImpl above, the gate (fakeShim && !realImpl) now fires on
-      // a stub even when its constructor param is named `refillPerSec`.
-      fakeShim: /tryRemove\([^)]*\)\s*:\s*boolean\s*{\s*return\s+true/,
+    // HELD-OUT: same token-bucket behavior, DIFFERENT capacities/draws + extra edge
+    // cases (exact-capacity draw, zero-token draw). A solution that hardcoded the
+    // visible numbers (cap 10/3/10, draws 5/4/8) cannot satisfy these.
+    heldoutTest: {
+      path: 'test/rate-limiter.heldout.test.ts',
+      content: `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { RateLimiter } from '../src/rate-limiter.ts'
+
+test('consumes within a different capacity', () => {
+  const rl = new RateLimiter(7, 1)
+  assert.equal(rl.tryRemove(4), true)
+  assert.equal(rl.tryRemove(3), true)
+})
+
+test('allows a draw exactly equal to the remaining bucket', () => {
+  const rl = new RateLimiter(6, 0)
+  assert.equal(rl.tryRemove(6), true)
+  assert.equal(rl.tryRemove(1), false)
+})
+
+test('rejects a draw over a different capacity', () => {
+  const rl = new RateLimiter(5, 1)
+  assert.equal(rl.tryRemove(6), false)
+})
+
+test('a zero-token draw always succeeds without consuming', () => {
+  const rl = new RateLimiter(2, 0)
+  assert.equal(rl.tryRemove(0), true)
+  assert.equal(rl.tryRemove(2), true)
+})
+`,
     },
     rubricNote:
       'Reward continuous (not discrete-tick) refill, integer-safe token accounting, and ' +
@@ -169,8 +187,8 @@ test('rejects a second draw that exceeds the remaining bucket', () => {
       'No external dependencies.',
     ].join(' '),
     solutionPath: 'src/csv.ts',
-    fixture: {
-      path: 'test/csv.test.js',
+    visibleTest: {
+      path: 'test/csv.test.ts',
       content: `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseCsv } from '../src/csv.ts'
@@ -192,20 +210,39 @@ test('unescapes a doubled quote', () => {
 })
 `,
     },
-    realnessSignals: {
-      label: 'csv-rfc4180',
-      requiredArtifact: /csv\.ts$/,
-      // Real parsers track quote state and walk the string char-by-char. We anchor to
-      // quote-state / per-char access (`inQuotes`, `charAt(`, `input[i]`), NOT a bare
-      // `for (` — a naive `for (line of input.split('\n'))` cheat has a loop but no
-      // quote state, so it must not read as a real impl.
-      realImpl: /inQuotes|charAt\(|input\[\s*i\s*\]|quote/i,
-      realInfra: /function\s+parseCsv/,
-      // The fake: splitting on comma or newline (naive parse) — the RFC-4180 cases
-      // (quoted comma, embedded newline) make `.split` wrong. Matches anywhere, so the
-      // naive `input.split('\n').map(l => l.split(','))` AND a `for (… input.split('\n'))`
-      // loop are both caught. Any such split is the shortcut, regardless of loops around it.
-      fakeShim: /\.split\(\s*['"`](,|\\n)['"`]\s*\)/,
+    // HELD-OUT: same RFC-4180 behaviors, DIFFERENT strings + extra edge cases (a multi-row
+    // input with two records, an empty field). A parser that hardcoded the visible inputs
+    // cannot satisfy these.
+    heldoutTest: {
+      path: 'test/csv.heldout.test.ts',
+      content: `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { parseCsv } from '../src/csv.ts'
+
+test('parses a different plain row', () => {
+  assert.deepEqual(parseCsv('x,y,z,w'), [['x', 'y', 'z', 'w']])
+})
+
+test('keeps a comma inside a different quoted field', () => {
+  assert.deepEqual(parseCsv('p,"q,r,s"'), [['p', 'q,r,s']])
+})
+
+test('parses two records separated by a newline', () => {
+  assert.deepEqual(parseCsv('a,b\\nc,d'), [['a', 'b'], ['c', 'd']])
+})
+
+test('keeps a newline inside a different quoted field', () => {
+  assert.deepEqual(parseCsv('"alpha\\nbeta",gamma'), [['alpha\\nbeta', 'gamma']])
+})
+
+test('unescapes a different doubled quote', () => {
+  assert.deepEqual(parseCsv('"a ""b"" c"'), [['a "b" c']])
+})
+
+test('keeps an empty field between commas', () => {
+  assert.deepEqual(parseCsv('a,,c'), [['a', '', 'c']])
+})
+`,
     },
     rubricNote:
       'Reward a single-pass state machine over naive splitting; correct handling of a quoted ' +
@@ -214,7 +251,7 @@ test('unescapes a doubled quote', () => {
   {
     // The "only the real algorithm passes" task: a capacity-bounded LRU cache. There is
     // no shortcut that satisfies the eviction tests — a bare `Map` (or `extends Map`)
-    // grows without bound and fails the at-capacity test, AND gates on realness.
+    // grows without bound and fails the at-capacity held-out test.
     id: 'lru-cache',
     kind: 'coding',
     tags: ['data-structures', 'eviction'],
@@ -226,8 +263,8 @@ test('unescapes a doubled quote', () => {
       '(refreshes recency). No external dependencies.',
     ].join(' '),
     solutionPath: 'src/lru.ts',
-    fixture: {
-      path: 'test/lru.test.js',
+    visibleTest: {
+      path: 'test/lru.test.ts',
       content: `import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LruCache } from '../src/lru.ts'
@@ -258,20 +295,47 @@ test('returns undefined for a missing key', () => {
 })
 `,
     },
-    realnessSignals: {
-      label: 'lru-cache',
-      requiredArtifact: /lru\.ts$/,
-      // The hard part is eviction: a delete that precedes a set (the recency move), the
-      // canonical `keys().next()` oldest-key eviction, or an explicit size>=capacity
-      // check. None of these appear in a no-eviction wrapper.
-      realImpl:
-        /\.delete\([^)]*\)[\s\S]*\.set\(|\.keys\(\)\.next\(\)|\.size\s*>=?\s*this\.capacity/,
-      realInfra: /class\s+LruCache/,
-      // The fake: a class that `extends Map` (no eviction override), or a `set` body that
-      // is a single passthrough `.set` with no delete/size logic — the bounded-cache
-      // shortcut that grows forever.
-      fakeShim:
-        /extends\s+Map\b|set\([^)]*\)[^{]*{\s*(this\.|return\s+)?\w+\.set\([^)]*\)\s*;?\s*}/,
+    // HELD-OUT: same eviction behavior, DIFFERENT capacity + key sequence + extra edge
+    // cases (a re-set updates value AND refreshes recency). A cache that hardcoded the
+    // visible keys/order cannot satisfy these.
+    heldoutTest: {
+      path: 'test/lru.heldout.test.ts',
+      content: `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { LruCache } from '../src/lru.ts'
+
+test('evicts the LRU entry at a different capacity', () => {
+  const c = new LruCache(3)
+  c.set('p', 1)
+  c.set('q', 2)
+  c.set('r', 3)
+  c.set('s', 4)
+  assert.equal(c.get('p'), undefined)
+  assert.equal(c.get('q'), 2)
+  assert.equal(c.get('s'), 4)
+})
+
+test('a get refreshes recency for a different sequence', () => {
+  const c = new LruCache(2)
+  c.set('m', 1)
+  c.set('n', 2)
+  assert.equal(c.get('m'), 1)
+  c.set('o', 3)
+  assert.equal(c.get('n'), undefined)
+  assert.equal(c.get('m'), 1)
+})
+
+test('a re-set updates the value and refreshes recency', () => {
+  const c = new LruCache(2)
+  c.set('a', 1)
+  c.set('b', 2)
+  c.set('a', 9)
+  c.set('c', 3)
+  assert.equal(c.get('b'), undefined)
+  assert.equal(c.get('a'), 9)
+  assert.equal(c.get('c'), 3)
+})
+`,
     },
     rubricNote:
       'Reward O(1) get/set with correct LRU eviction and recency refresh on read; an ' +
@@ -279,17 +343,23 @@ test('returns undefined for a missing key', () => {
   },
 ]
 
-/** The deterministic check commands for a scenario — derived from its paths, in the
- *  ordered pipeline the verifier runs (typecheck → test → lint). Eval config: the
- *  agent is told WHAT to build, never the commands it is graded by. */
+/** The deterministic check commands for a scenario — derived from its paths.
+ *
+ *  `dev` runs the VISIBLE example tests (seeded during the turn, what steers the refine
+ *  loop). `heldout` runs the HIDDEN grading suite (seeded only at grading, never during
+ *  the turn — the firewall). Eval config: the agent is told WHAT to build (the prompt)
+ *  and develops against the visible tests, but is GRADED on the held-out suite it never
+ *  saw, so it cannot fit the grade. */
 export function checkCmds(scenario: CodingScenario): {
   typecheck: string
-  test: string
+  dev: string
+  heldout: string
   lint: string
 } {
   return {
     typecheck: typecheckCmd(scenario.solutionPath),
-    test: testCmd(scenario.fixture.path),
+    dev: testCmd(scenario.visibleTest.path),
+    heldout: testCmd(scenario.heldoutTest.path),
     lint: lintCmd(scenario.solutionPath),
   }
 }

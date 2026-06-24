@@ -4,8 +4,8 @@
  *
  * The offline "agent" is a SCRIPTED STAND-IN for a real coding agent: it writes a
  * canned solution per round instead of calling a model. That is the only thing
- * stubbed — the matrix, the verifier, the realness gate, the judge wiring, and the
- * stats all run for real. `--live` swaps this client for `new SandboxClient(...)`
+ * stubbed — the matrix, the verifier, the held-out test execution, the judge wiring,
+ * and the stats all run for real. `--live` swaps this client for `new SandboxClient(...)`
  * and the same dispatch runs each round in a real harness box.
  *
  * It implements only what `openSandboxRun` actually calls on a box:
@@ -14,11 +14,13 @@
  *     SAME shape a live box emits, carrying `tokenUsage` so the run meters honestly
  *     and `extractLlmCallEvent` reads it.
  *   - `fs.read` / `fs.write` — over the temp workspace (the `artifact` deliverable +
- *     the seeded fixture live here).
- *   - `exec(cmd)` — runs the deterministic check + fixture-seed commands. Offline the
- *     toolchain (tsc / biome / node --test) usually isn't installed, so a missing tool
- *     reads as a FAIL — the honest offline signal, not a fake pass. (The checks never
- *     pass offline, so all `maxRounds` run — which is exactly when refinement shows.)
+ *     the seeded test files live here).
+ *   - `exec(cmd)` — runs the check + seed commands. Offline, `node` IS present so the
+ *     test commands (`node --experimental-transform-types --test`) run for real — which
+ *     is what lets the HELD-OUT execution genuinely grade the solution with no creds. But
+ *     `tsc`/`biome` usually aren't installed, so the typecheck (and the test layer that
+ *     `dependsOn` it) read as a FAIL — the honest offline signal. The dev checks never
+ *     fully pass offline, so all `maxRounds` run, which is when refinement shows.
  *   - `delete()` — tears the temp dir down.
  */
 

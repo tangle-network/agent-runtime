@@ -179,6 +179,11 @@ export function pairwiseStats(
   return { leaderboard, pairs }
 }
 
+/** The power floor below which we never print a bare `SIGNIFICANT` claim — a paired
+ *  test on fewer scenarios than this cannot defensibly separate harnesses, so the tag
+ *  is suppressed regardless of the p-value (small-n mirage protection). */
+const powerFloor = 6
+
 /** Render the report as a plain leaderboard + significance lines. */
 export function renderStats(report: StatsReport): string {
   const lines: string[] = []
@@ -191,10 +196,19 @@ export function renderStats(report: StatsReport): string {
         `[${(row.passCi.lower * 100).toFixed(0)}%, ${(row.passCi.upper * 100).toFixed(0)}%]  (n=${row.n})`,
     )
   }
+  // The honest n for the significance tests is the number of MATCHED scenarios — the
+  // paired unit. Below the power floor we suppress the SIGNIFICANT tag entirely (a
+  // near-constant gap on a few scenarios can return p<0.05 yet mean nothing — the
+  // small-n mirage), and a zero-variance pair (delta CI collapsed to a point) likewise
+  // never reads as a real effect.
+  const maxN = report.leaderboard.reduce((m, r) => Math.max(m, r.n), 0)
+  const underpowered = maxN < powerFloor
   lines.push('')
   lines.push('Pairwise (paired delta + bootstrap CI; paired-test p, BH-corrected):')
   for (const p of report.pairs) {
-    const tag = p.significant ? 'SIGNIFICANT' : 'n.s.'
+    const degenerate = p.low === p.high // bootstrap CI collapsed → no variance to test
+    const claimSignificant = p.significant && !underpowered && !degenerate
+    const tag = claimSignificant ? 'SIGNIFICANT' : underpowered ? 'n.s. (underpowered)' : 'n.s.'
     lines.push(
       `  ${p.b} − ${p.a}: Δ=${p.delta.toFixed(3)} [${p.low.toFixed(3)}, ${p.high.toFixed(3)}] ` +
         `p=${p.p.toFixed(3)} ${tag}`,
@@ -203,13 +217,13 @@ export function renderStats(report: StatsReport): string {
   // Power caveat: with a tiny scenario corpus the significance machinery is structurally
   // underpowered — the Wilcoxon path returns p=1 for n<6 non-zero diffs, and the paired
   // t-test has ~1 df. The tests show the WIRING; a real claim needs 20-50 tasks.
-  const maxN = report.leaderboard.reduce((m, r) => Math.max(m, r.n), 0)
-  if (maxN < 6) {
+  if (underpowered) {
     lines.push('')
     lines.push(
-      `  NOTE: n=${maxN} scenarios — below the power floor. The paired tests above cannot ` +
-        'reach significance at this corpus size (they demonstrate the wiring). Use 20-50 ' +
-        'tasks for a real harness comparison.',
+      `  NOTE: n=${maxN} scenarios — below the power floor (${powerFloor}). The paired tests ` +
+        'above cannot defensibly reach significance at this corpus size, so the SIGNIFICANT ' +
+        'tag is suppressed (they demonstrate the wiring). Use 20-50 tasks for a real ' +
+        'harness comparison.',
     )
   }
   return lines.join('\n')
