@@ -3,7 +3,7 @@
  * scenarios, with controlled tool use, validators-before-judge, real stats, and a
  * no-cheat firewall. Every moving part is an agent-runtime / agent-eval primitive.
  *
- *   # offline (no creds — uses the in-process box + stub judge)
+ *   # offline (no creds — uses the in-process box + a mock judge transport)
  *   pnpm tsx examples/coding-benchmark/benchmark.ts
  *
  *   # one tool preset / ensemble / more reps
@@ -21,6 +21,12 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  agentProfileId,
+  type ChatClient,
+  type ChatResponse,
+  createChatClient,
+} from '@tangle-network/agent-eval'
+import {
   inMemoryCampaignStorage,
   type JudgeConfig,
   runProfileMatrix,
@@ -28,38 +34,54 @@ import {
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import { codingDispatch } from './dispatch'
-import { type CompleteFn, ensembleCodeJudge, type RubricDim, singleCodeJudge } from './judges'
+import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
 import { type OfflineScript, offlineSandboxClient } from './offline-box'
-import { harnessProfiles } from './profiles'
+import { harnessProfiles, type ToolPreset } from './profiles'
 import { type CodingScenario, scenarios } from './scenarios'
 import { pairwiseStats, renderStats } from './stats'
-import type { ToolPreset } from './tools'
-import type { RunArtifact } from './validators'
+
+export interface BenchmarkOptions {
+  live?: boolean
+  ensemble?: boolean
+  toolPreset?: ToolPreset
+  reps?: number
+}
 
 // ── flags ───────────────────────────────────────────────────────────────────
-const argv = process.argv.slice(2)
-const flag = (name: string) => argv.includes(`--${name}`)
-const opt = (name: string, fallback: string) => {
-  const i = argv.indexOf(`--${name}`)
-  return i >= 0 && argv[i + 1] ? (argv[i + 1] as string) : fallback
+function parseArgs(argv: string[]): BenchmarkOptions {
+  const flag = (name: string) => argv.includes(`--${name}`)
+  const opt = (name: string, fallback: string) => {
+    const i = argv.indexOf(`--${name}`)
+    return i >= 0 && argv[i + 1] ? (argv[i + 1] as string) : fallback
+  }
+  return {
+    live: flag('live'),
+    ensemble: flag('ensemble'),
+    toolPreset: opt('tools', 'none') as ToolPreset,
+    reps: Number(opt('reps', '1')),
+  }
 }
-const live = flag('live')
-const ensemble = flag('ensemble')
-const toolPreset = opt('tools', 'none') as ToolPreset
-const reps = Number(opt('reps', '1'))
 
-// ── the offline "agent": a scripted solution per scenario ─────────────────────
-// Offline we don't have a model, so each scenario's box writes a canned, REAL
-// implementation. (Swap in a `stub` to watch the realness validator catch it.)
+// ── the offline "agent": a scripted, REFINING solution per scenario ───────────
+// Offline we don't have a model, so each scenario's box writes a canned solution.
+// `rate-limiter` IMPROVES across rounds (round 0 = a `return true` stub the realness
+// gate catches; round 2 = the real token-bucket) — a real refine demo. `csv-parser`
+// writes its real implementation from round 0.
 const offlineSolutions: Record<string, OfflineScript> = {
   'rate-limiter': {
     path: 'src/rate-limiter.ts',
-    solutionFor: () =>
-      `export class RateLimiter {\n  private tokens: number\n  private last = Date.now()\n` +
-      `  constructor(private capacity: number, private refillPerSec: number) { this.tokens = capacity }\n` +
-      `  tryRemove(n: number): boolean {\n    const now = Date.now()\n` +
-      `    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.refillPerSec)\n` +
-      `    this.last = now\n    if (n > this.tokens) return false\n    this.tokens -= n\n    return true\n  }\n}\n`,
+    solutionFor: (round) =>
+      round === 0
+        ? // round 0 — a stub: compiles, but `tryRemove` is a hardcoded `return true`
+          // with no refill math. The realness gate flags + gates this.
+          `export class RateLimiter {\n  constructor(private capacity: number, private refillPerSec: number) {}\n` +
+          `  tryRemove(n: number): boolean { return true }\n}\n`
+        : // round 1+ — the real token-bucket with continuous time-based refill.
+          `export class RateLimiter {\n  private tokens: number\n  private last = Date.now()\n` +
+          `  constructor(private capacity: number, private refillPerSec: number) { this.tokens = capacity }\n` +
+          `  tryRemove(n: number): boolean {\n    const now = Date.now()\n` +
+          `    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.refillPerSec)\n` +
+          `    this.last = now\n    if (n > this.tokens) return false\n    this.tokens -= n\n    return true\n  }\n}\n`,
   },
   'csv-parser': {
     path: 'src/csv.ts',
@@ -76,58 +98,101 @@ const offlineSolutions: Record<string, OfflineScript> = {
 }
 
 // ── the box client: live (real harness) or offline (in-process) ───────────────
-function clientFor(scenario: CodingScenario): (profile: AgentProfile) => SandboxClient {
-  if (live) {
-    // Real Tangle sandbox — one real harness box per cell. (Lazy import so the
-    // offline path never needs the SDK creds.)
-    const apiKey = process.env.TANGLE_API_KEY
-    const baseUrl = process.env.SANDBOX_BASE_URL
-    if (!apiKey || !baseUrl) throw new Error('--live needs TANGLE_API_KEY + SANDBOX_BASE_URL')
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { SandboxClient: RealClient } = require('@tangle-network/sandbox')
-    return () => new RealClient({ apiKey, baseUrl }) as unknown as SandboxClient
+function clientFor(
+  live: boolean,
+  RealClient: (new (opts: { apiKey: string; baseUrl: string }) => unknown) | undefined,
+): (scenario: CodingScenario) => (profile: AgentProfile) => SandboxClient {
+  return (scenario) => {
+    if (live) {
+      const apiKey = process.env.TANGLE_API_KEY
+      const baseUrl = process.env.SANDBOX_BASE_URL
+      if (!apiKey || !baseUrl) throw new Error('--live needs TANGLE_API_KEY + SANDBOX_BASE_URL')
+      if (!RealClient) throw new Error('@tangle-network/sandbox not loaded')
+      return () => new RealClient({ apiKey, baseUrl }) as unknown as SandboxClient
+    }
+    const script = offlineSolutions[scenario.id]
+    if (!script) throw new Error(`no offline script for scenario ${scenario.id}`)
+    return () => offlineSandboxClient(script)
   }
-  const script = offlineSolutions[scenario.id]
-  if (!script) throw new Error(`no offline script for scenario ${scenario.id}`)
-  return () => offlineSandboxClient(script)
 }
 
-// ── the judge(s): one model, or a 3-model cross-family ensemble ───────────────
-// Offline the model caller is a deterministic stub (so the pipeline runs with no
-// creds). Live, point `complete` / `scoreOne` at your router.
-const stubComplete: CompleteFn = async () =>
-  JSON.stringify({
-    correctness: 0.85,
-    completeness: 0.8,
-    code_quality: 0.8,
-    robustness: 0.75,
-    notes: 'stub',
-  })
-
-const stubScoreOne = async (): Promise<Record<RubricDim, number>> => ({
-  correctness: 0.85,
-  completeness: 0.8,
-  code_quality: 0.8,
-  robustness: 0.75,
-})
-
-function judges(): JudgeConfig<RunArtifact, CodingScenario>[] {
-  if (ensemble) {
-    // ensembleCodeJudge returns JudgeConfig<unknown>; the matrix accepts it on
-    // any artifact — cast to the cell artifact type for the typed judges array.
-    return [ensembleCodeJudge(stubScoreOne) as unknown as JudgeConfig<RunArtifact, CodingScenario>]
+// ── the judge transport: a real router (live) or a deterministic mock (offline) ─
+// Offline the mock handler returns a fixed rubric verdict so the pipeline runs with
+// no creds. Live, `createChatClient({ transport: 'router', apiKey })` calls the real
+// router. The SAME `singleCodeJudge` / `ensembleCodeJudge` wiring runs either way.
+function judgeChat(live: boolean): ChatClient {
+  if (live) {
+    const apiKey = process.env.TANGLE_API_KEY
+    if (!apiKey) throw new Error('--live needs TANGLE_API_KEY for the judge router')
+    return createChatClient({
+      transport: 'router',
+      apiKey,
+      ...(process.env.TANGLE_ROUTER_URL ? { baseUrl: process.env.TANGLE_ROUTER_URL } : {}),
+      defaultModel: process.env.JUDGE_MODEL ?? 'openai/gpt-4.1-2025-04-14',
+    })
   }
-  return [singleCodeJudge(stubComplete)]
+  const verdict = JSON.stringify({
+    dimensions: { correctness: 0.85, completeness: 0.8, code_quality: 0.8, robustness: 0.75 },
+    notes: 'offline mock judge',
+  })
+  return createChatClient({
+    transport: 'mock',
+    defaultModel: 'mock-judge',
+    handler: async (): Promise<ChatResponse> => ({
+      content: verdict,
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      costUsd: 0,
+      model: 'mock-judge',
+      durationMs: 0,
+      raw: {},
+    }),
+  })
+}
+
+function judges(
+  opts: BenchmarkOptions,
+  chat: ChatClient,
+): JudgeConfig<RunArtifact, CodingScenario>[] {
+  if (opts.ensemble) {
+    // The ensemble scores each panel model through the SAME chat transport — offline
+    // that is the mock, live it is the router. It sees the SAME full context the
+    // single judge does.
+    const scoreOne = async (model: string, context: string): Promise<Record<RubricDim, number>> => {
+      const res = await chat.chat({ model, messages: [{ role: 'user', content: context }] })
+      const parsed = JSON.parse(res.content) as { dimensions: Record<RubricDim, number> }
+      return parsed.dimensions
+    }
+    return [ensembleCodeJudge(scoreOne)]
+  }
+  return [singleCodeJudge(chat)]
 }
 
 // ── the sweep ─────────────────────────────────────────────────────────────────
-async function main(): Promise<void> {
+export async function main(argv: string[] = process.argv.slice(2)): Promise<RunArtifactSummary> {
+  const opts = parseArgs(argv)
+  const live = opts.live ?? false
+  const reps = opts.reps ?? 1
+  const toolPreset = opts.toolPreset ?? 'none'
   const runDir = mkdtempSync(join(tmpdir(), 'coding-benchmark-'))
+
+  // Lazy dynamic import so the offline path never needs the SDK or its creds. (This
+  // is an ESM "type":"module" package — a top-level `require` would throw.)
+  let RealClient: (new (o: { apiKey: string; baseUrl: string }) => unknown) | undefined
+  if (live) {
+    const sdk = (await import('@tangle-network/sandbox')) as {
+      SandboxClient: new (o: never) => unknown
+    }
+    RealClient = sdk.SandboxClient as never
+  }
+
   console.log(
     `coding-benchmark · ${live ? 'LIVE' : 'OFFLINE'} · tools=${toolPreset} · ` +
-      `judges=${ensemble ? '3 (ensemble)' : '1'} · reps=${reps} · ` +
+      `judges=${opts.ensemble ? '3 (ensemble)' : '1'} · reps=${reps} · ` +
       `harnesses=${harnessProfiles.length} · scenarios=${scenarios.length}`,
   )
+
+  const chat = judgeChat(live)
+  const resolveClient = clientFor(live, RealClient)
 
   // The matrix runs one campaign per profile. The dispatch is per-scenario only in
   // its CLIENT (offline scripts differ by scenario), so run each scenario's matrix
@@ -137,10 +202,10 @@ async function main(): Promise<void> {
     const result = await runProfileMatrix<CodingScenario, RunArtifact>({
       profiles: harnessProfiles, // axis: harness × baseline
       scenarios: [scenario], // axis: tasks (one at a time so the offline client matches)
-      dispatch: codingDispatch(toolPreset, clientFor(scenario)),
-      judges: judges(),
+      dispatch: codingDispatch(toolPreset, resolveClient(scenario)),
+      judges: judges(opts, chat),
       reps,
-      integrity: live ? 'assert' : 'off', // offline stub has no real backend; live proves it
+      integrity: live ? 'assert' : 'off', // offline mock has no real backend; live proves it
       costCeiling: 5,
       runDir,
       commitSha: process.env.GIT_SHA ?? 'example',
@@ -149,11 +214,25 @@ async function main(): Promise<void> {
     allRecords.push(...result.records)
   }
 
+  // Map the matrix's hashed profileId → the readable harness name for the leaderboard.
+  const nameById = new Map(harnessProfiles.map((p) => [agentProfileId(p), p.name ?? 'unknown']))
+  const nameOf = (id: string) => nameById.get(id) ?? id
+  const report = pairwiseStats(allRecords, nameOf)
+
   console.log(`\nrecords: ${allRecords.length}\n`)
-  console.log(renderStats(pairwiseStats(allRecords)))
+  console.log(renderStats(report))
+  return { records: allRecords.length, leaderboard: report.leaderboard.length }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
-  process.exit(1)
-})
+export interface RunArtifactSummary {
+  records: number
+  leaderboard: number
+}
+
+// Run only when invoked directly (not when imported by the smoke test).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err))
+    process.exit(1)
+  })
+}

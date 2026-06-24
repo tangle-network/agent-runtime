@@ -4,20 +4,23 @@
  * back the `RunArtifact` the judges score.
  *
  * This file composes four primitives and nothing bespoke:
- *   - `createExecutor`/`new SandboxClient` give the box (live) — or `offlineSandboxClient` (offline).
+ *   - `offlineSandboxClient` (offline) or `new SandboxClient(...)` (live) give the box.
  *   - `openSandboxRun(client, opts, deliverable)` opens ONE persistent, resumable box.
  *     `.start(prompt)` = round 1; `.resume(prompt)` = round N over the SAME session.
  *     That IS the "each round builds on the prior output" loop — no extra combinator.
- *   - `runBoxChecks` (validators.ts) runs the deterministic checks in the box each round.
- *   - `ctx.cost.observeTokens(...)` reports usage so the backend-integrity guard sees a real run.
+ *   - `runChecks` (eval.ts) runs the deterministic `MultiLayerVerifier` pipeline each round.
+ *   - `extractLlmCallEvent` (the runtime's own metering seam) reads token usage off the
+ *     stream — across ALL backend event shapes — and reports it so the backend-integrity
+ *     guard sees a real run.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │  THE NO-CHEAT FIREWALL LIVES HERE.                                         │
  * │  The ONLY scenario field that ever reaches the box is `scenario.prompt`    │
- * │  (the `agentRun.taskToPrompt` below, and `nextPrompt` built ONLY from      │
- * │  validator stderr). The rubric, the realness signals, and the grading      │
- * │  note are read later by judges.ts / the realness validator — never written  │
- * │  into the box. The agent literally cannot read the answer key.             │
+ * │  (the `taskToPrompt` below, and `nextPrompt` built ONLY from validator     │
+ * │  output). The hidden test is SEEDED into the box but never described to    │
+ * │  the agent; the rubric, the realness signals, and the grading note are     │
+ * │  read later by eval.ts — never written into the box. The agent literally    │
+ * │  cannot read the answer key.                                               │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -26,38 +29,29 @@ import type { DispatchContext, ProfileDispatchFn } from '@tangle-network/agent-e
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentRunSpec,
-  type DefaultVerdict,
+  extractLlmCallEvent,
   openSandboxRun,
   type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
-import { harnessOf } from './profiles'
-import type { CodingScenario } from './scenarios'
-import { type ToolPreset, withTools } from './tools'
-import {
-  type BoxCheckResult,
-  type CheckBox,
-  type RunArtifact,
-  realnessValidator,
-  runBoxChecks,
-} from './validators'
+import { type CheckBox, layerOutput, type RunArtifact, realnessGate, runChecks } from './eval'
+import { harnessOf, type ToolPreset, withTools } from './profiles'
+import { type CodingScenario, checkCmds } from './scenarios'
 
 /** Max refine rounds. Round N+1's prompt is built from round N's CHECK output only. */
 const maxRounds = 3
 
-/** Build the next-round prompt from the validators the AGENT is allowed to see —
- *  pass/fail + stderr. NEVER from the rubric, realness, or judge. This is the
- *  firewall in action: the agent steers on objective check failures, nothing else. */
-function nextPrompt(checks: BoxCheckResult): string {
+/** Build the next-round prompt from the checks the AGENT is allowed to see — the
+ *  pass/fail + output of the deterministic layers. NEVER from the rubric, realness,
+ *  or judge. This is the firewall in action: the agent steers on objective check
+ *  failures, nothing else. */
+function nextPrompt(report: RunArtifact['checks']): string {
   const fails: string[] = []
-  if (!checks.typecheck.passed)
-    fails.push(`typecheck failed:\n${checks.typecheck.output.slice(0, 1200)}`)
-  if (!checks.test.passed) fails.push(`tests failed:\n${checks.test.output.slice(0, 1200)}`)
-  if (!checks.lint.passed) fails.push(`lint failed:\n${checks.lint.output.slice(0, 600)}`)
+  for (const layer of ['typecheck', 'test', 'lint'] as const) {
+    const c = layerOutput(report, layer)
+    if (!c.passed) fails.push(`${layer} failed:\n${c.output.slice(0, 1200)}`)
+  }
   return `Your solution did not pass these checks. Fix the file and try again.\n\n${fails.join('\n\n')}`
 }
-
-/** A box exposing the methods both `openSandboxRun` and the validators call. */
-type RunBox = CheckBox & { fs: { read(path: string): Promise<string> } }
 
 /**
  * The dispatch factory. Curry the tool preset + the sandbox client; return a
@@ -79,6 +73,7 @@ export function codingDispatch(
     // Author the tool surface onto the profile (one line). The substrate
     // materializes it into the harness's real config.
     const equippedProfile = withTools(profile, toolPreset)
+    const cmds = checkCmds(scenario)
 
     const agentRun: AgentRunSpec<string> = {
       profile: equippedProfile,
@@ -102,7 +97,7 @@ export function codingDispatch(
     )
 
     try {
-      let checks: BoxCheckResult = { typecheck: blank, test: blank, lint: blank, allPass: false }
+      let checks = blankReport()
       let solution = ''
       let files: ProducedFile[] = []
       let finalText = ''
@@ -115,22 +110,20 @@ export function codingDispatch(
         finalText = turn.events.map(eventText).filter(Boolean).join(' ').slice(0, 2000)
 
         // Report usage so the integrity guard sees a real backend (not a stub).
+        // `extractLlmCallEvent` reads usage off EVERY backend event shape — the live
+        // sandbox's `done`/`result`/`llm_call` events all sum correctly here.
         const usage = sumTokens(turn.events)
         if (usage.input || usage.output) ctx.cost.observeTokens(usage)
 
         // Deterministic checks, IN THE BOX, this round. These (and only these) steer
         // the next round — the firewall keeps the rubric/realness out of the loop.
-        checks = await runBoxChecks(run.box as unknown as RunBox, scenario.validatorCmds)
+        checks = await runChecks(run.box as unknown as CheckBox, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
       // The realness anchor runs AFTER the loop — never inside it, so it can never
-      // steer the agent. Its verdict is recorded for honesty (`ctx.artifacts`) and
-      // carried on the artifact for the record; the box never saw the signals.
-      const realness = await realnessValidator(scenario.realnessSignals).validate(
-        { files, solution, finalText, checks, realness: emptyVerdict },
-        { iteration: maxRounds, signal: ctx.signal },
-      )
+      // steer the agent. Its verdict is recorded for honesty AND gates the judge.
+      const realness = realnessGate(files, scenario.realnessSignals)
       await ctx.artifacts.writeJson(`realness/${ctx.cellId}.json`, realness)
 
       return { files, solution, finalText, checks, realness }
@@ -140,11 +133,24 @@ export function codingDispatch(
   }
 }
 
-const blank = { passed: false, output: '' }
-
-/** A placeholder verdict for the artifact passed INTO the realness validator (which
- *  reads only `files`, never this field). The real verdict replaces it on return. */
-const emptyVerdict: DefaultVerdict = { valid: false, score: 0 }
+/** An empty verifier report for the pre-loop state (no layer has run yet). */
+function blankReport(): RunArtifact['checks'] {
+  const now = new Date().toISOString()
+  return {
+    layers: [],
+    passCount: 0,
+    failCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    allPass: false,
+    blendedScore: 0,
+    valid: false,
+    score: 0,
+    durationMs: 0,
+    startedAt: now,
+    finishedAt: now,
+  }
+}
 
 /** Pull the agent's text out of a stream event (best-effort, for judge context). */
 function eventText(ev: unknown): string {
@@ -153,15 +159,17 @@ function eventText(ev: unknown): string {
 }
 
 /** Sum token usage across the turn's events into the `{ input, output }` shape
- *  `ctx.cost.observeTokens` (and `RunTokenUsage`) expect. */
+ *  `ctx.cost.observeTokens` expects, using the runtime's own metering extractor so
+ *  EVERY backend event shape (`done`/`result`/`llm_call`/`usage`) is counted. */
 function sumTokens(events: unknown[]): { input: number; output: number } {
   let input = 0
   let output = 0
   for (const ev of events) {
-    const d = (ev as { data?: { tokenUsage?: { inputTokens?: number; outputTokens?: number } } })
-      .data
-    input += d?.tokenUsage?.inputTokens ?? 0
-    output += d?.tokenUsage?.outputTokens ?? 0
+    const call = extractLlmCallEvent(ev as never, 'agent')
+    if (call) {
+      input += call.tokensIn ?? 0
+      output += call.tokensOut ?? 0
+    }
   }
   return { input, output }
 }

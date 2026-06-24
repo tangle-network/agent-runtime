@@ -4,13 +4,15 @@
  * Every scenario splits cleanly into two halves:
  *   - `prompt`      — THE ONLY field the agent ever sees. The dispatch copies it
  *                     (and nothing else) into the worker's context.
- *   - everything else — the rubric note, the validator commands, the realness
- *                     signals — is EVAL-ONLY. It is read by validators.ts and
- *                     judges.ts to score the result; it is NEVER written into the
- *                     box. Because the two halves are different fields on the same
- *                     object, "the agent can read the answer key" becomes a thing
- *                     you can SEE in one place: it would require dispatch.ts to put
- *                     a non-`prompt` field into the profile. It does not. (See the
+ *   - everything else — the deterministic test fixture, the realness signals, the
+ *                     rubric note — is EVAL-ONLY. It is read by eval.ts to score the
+ *                     result; the fixture is SEEDED into the box (so `node --test`
+ *                     has something to run) but its CONTENT is never described to the
+ *                     agent, and the rubric/realness signals are never written into
+ *                     the box at all. Because the two halves are different fields on
+ *                     one object, "the agent can read the answer key" becomes a thing
+ *                     you can SEE in one place: it would require dispatch.ts to put a
+ *                     non-`prompt` field into the profile. It does not. (See the
  *                     `// FIREWALL` comment in dispatch.ts for the exact line.)
  *
  * This is the structural defense the design calls for: the firewall is a property
@@ -20,6 +22,13 @@
 import type { AuthenticitySignals } from '@tangle-network/agent-eval/authenticity'
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
 
+/** A file the harness seeds into the box workspace before the run — the test the
+ *  deterministic check executes. EVAL-ONLY: its content is never shown to the agent. */
+export interface Fixture {
+  path: string
+  content: string
+}
+
 /** One held-out coding task. Extends the substrate `Scenario` ({ id, kind, tags }). */
 export interface CodingScenario extends Scenario {
   /** ── AGENT-VISIBLE ──────────────────────────────────────────────────────
@@ -27,29 +36,36 @@ export interface CodingScenario extends Scenario {
    *  This is the WHOLE of what reaches the worker's context. */
   prompt: string
 
-  /** ── EVAL-ONLY (never written into the box) ───────────────────────────── */
+  /** ── EVAL-ONLY (the agent never reads these) ──────────────────────────── */
 
   /** Path (relative to the workspace root) the agent is asked to produce. The
-   *  validators read this file off the box AFTER the turn; the judge scores it. */
+   *  checks read this file off the box AFTER the turn; the judge scores it. */
   solutionPath: string
 
-  /** Deterministic checks, run in order, in the box, BEFORE any judge. These are
-   *  shell commands the harness runs against the produced code. Objective, ~$0.
-   *  They are eval config — the agent is told WHAT to build, never HOW it's graded. */
-  validatorCmds: {
-    typecheck: string
-    test: string
-    lint: string
-  }
+  /** The hidden test, seeded into the box so `node --test` has a real file to run.
+   *  Seeded write-only — the agent is told WHAT to build (the prompt), never the
+   *  assertions it is graded against. */
+  fixture: Fixture
 
-  /** Drives `scoreAuthenticity` — catches a stub that compiles but fakes the
-   *  hard part. Write-only to the record; the agent cannot read or steer it. */
+  /** Realness anchor input for `scoreAuthenticity` — catches a stub that compiles
+   *  but fakes the hard part. Write-only to the record; never reaches the box. */
   realnessSignals: AuthenticitySignals
 
   /** Extra grading context for the JUDGE only (design intent, edge cases to
    *  reward). Lives with the judge, never in the workdir. */
   rubricNote: string
 }
+
+// The deterministic check commands. Invoked directly (NOT via `npx -y`, which forces
+// a registry round-trip every run): a real harness box has `tsc`/`biome`/`node` on
+// PATH, so these run for real there; offline the missing tool fails FAST with a
+// non-zero exit (the honest offline signal), not a 20s network stall.
+/** A typecheck shell command for one solution file. */
+const typecheckCmd = (path: string) => `tsc --noEmit --strict --skipLibCheck ${path}`
+/** A `node --test` command for one fixture. The fixture imports the solution. */
+const testCmd = (fixturePath: string) => `node --test ${fixturePath}`
+/** A lint shell command for one solution file. */
+const lintCmd = (path: string) => `biome check ${path}`
 
 /**
  * A 2-task corpus. Real benchmarks carry 20-50; two keeps the example readable.
@@ -70,10 +86,29 @@ export const scenarios: CodingScenario[] = [
       'and false otherwise. No external dependencies.',
     ].join(' '),
     solutionPath: 'src/rate-limiter.ts',
-    validatorCmds: {
-      typecheck: 'npx tsc --noEmit src/rate-limiter.ts',
-      test: 'node --test test/rate-limiter.test.js',
-      lint: 'npx biome check src/rate-limiter.ts',
+    fixture: {
+      path: 'test/rate-limiter.test.js',
+      content: `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { RateLimiter } from '../src/rate-limiter.ts'
+
+test('consumes when tokens available', () => {
+  const rl = new RateLimiter(10, 1)
+  assert.equal(rl.tryRemove(5), true)
+  assert.equal(rl.tryRemove(5), true)
+})
+
+test('rejects when over capacity', () => {
+  const rl = new RateLimiter(3, 1)
+  assert.equal(rl.tryRemove(4), false)
+})
+
+test('rejects a second draw that exceeds the remaining bucket', () => {
+  const rl = new RateLimiter(10, 0)
+  assert.equal(rl.tryRemove(8), true)
+  assert.equal(rl.tryRemove(8), false)
+})
+`,
     },
     realnessSignals: {
       label: 'token-bucket',
@@ -101,10 +136,28 @@ export const scenarios: CodingScenario[] = [
       'No external dependencies.',
     ].join(' '),
     solutionPath: 'src/csv.ts',
-    validatorCmds: {
-      typecheck: 'npx tsc --noEmit src/csv.ts',
-      test: 'node --test test/csv.test.js',
-      lint: 'npx biome check src/csv.ts',
+    fixture: {
+      path: 'test/csv.test.js',
+      content: `import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { parseCsv } from '../src/csv.ts'
+
+test('parses a plain row', () => {
+  assert.deepEqual(parseCsv('a,b,c'), [['a', 'b', 'c']])
+})
+
+test('keeps a comma inside a quoted field', () => {
+  assert.deepEqual(parseCsv('"a,b",c'), [['a,b', 'c']])
+})
+
+test('keeps a newline inside a quoted field', () => {
+  assert.deepEqual(parseCsv('"line1\\nline2",b'), [['line1\\nline2', 'b']])
+})
+
+test('unescapes a doubled quote', () => {
+  assert.deepEqual(parseCsv('"she said ""hi"""'), [['she said "hi"']])
+})
+`,
     },
     realnessSignals: {
       label: 'csv-rfc4180',
@@ -122,3 +175,18 @@ export const scenarios: CodingScenario[] = [
       'field containing a comma, a literal newline, and an escaped quote.',
   },
 ]
+
+/** The deterministic check commands for a scenario — derived from its paths, in the
+ *  ordered pipeline the verifier runs (typecheck → test → lint). Eval config: the
+ *  agent is told WHAT to build, never the commands it is graded by. */
+export function checkCmds(scenario: CodingScenario): {
+  typecheck: string
+  test: string
+  lint: string
+} {
+  return {
+    typecheck: typecheckCmd(scenario.solutionPath),
+    test: testCmd(scenario.fixture.path),
+    lint: lintCmd(scenario.solutionPath),
+  }
+}

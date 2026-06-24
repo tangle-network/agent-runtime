@@ -2,20 +2,24 @@
  * The OFFLINE seam — an in-process `SandboxClient` so the WHOLE benchmark runs
  * with no creds and no network, exactly like `examples/ui-audit/` does.
  *
- * It implements only what `openSandboxRun` actually calls on a box:
- *   - `streamPrompt(prompt, opts)` — the "agent" turn. Offline it deterministically
- *     writes a canned solution into a real temp workspace and emits one terminal
- *     `result` event carrying finalText + tokenUsage (so the run meters honestly).
- *   - `fs.read` / `fs.write` — over the temp workspace (the `artifact` deliverable
- *     + the validators read/write real files here).
- *   - `exec(cmd)` — runs the deterministic check commands. Offline the toolchain
- *     (tsc/biome/node --test) usually isn't installed, so a missing tool reads as a
- *     FAIL — which is the honest offline signal, not a fake pass.
- *   - `delete()` — tears the temp dir down.
+ * The offline "agent" is a SCRIPTED STAND-IN for a real coding agent: it writes a
+ * canned solution per round instead of calling a model. That is the only thing
+ * stubbed — the matrix, the verifier, the realness gate, the judge wiring, and the
+ * stats all run for real. `--live` swaps this client for `new SandboxClient(...)`
+ * and the same dispatch runs each round in a real harness box.
  *
- * Swap this for `new SandboxClient({ apiKey, baseUrl })` (cast to the runtime's
- * `SandboxClient`) and the SAME dispatch runs each round in a real harness box.
- * Nothing else in the example changes — that is the point.
+ * It implements only what `openSandboxRun` actually calls on a box:
+ *   - `streamPrompt(prompt, opts)` — the "agent" turn. Writes the round's scripted
+ *     solution into a real temp workspace and emits one terminal `done` event — the
+ *     SAME shape a live box emits, carrying `tokenUsage` so the run meters honestly
+ *     and `extractLlmCallEvent` reads it.
+ *   - `fs.read` / `fs.write` — over the temp workspace (the `artifact` deliverable +
+ *     the seeded fixture live here).
+ *   - `exec(cmd)` — runs the deterministic check + fixture-seed commands. Offline the
+ *     toolchain (tsc / biome / node --test) usually isn't installed, so a missing tool
+ *     reads as a FAIL — the honest offline signal, not a fake pass. (The checks never
+ *     pass offline, so all `maxRounds` run — which is exactly when refinement shows.)
+ *   - `delete()` — tears the temp dir down.
  */
 
 import { exec as execCb } from 'node:child_process'
@@ -29,13 +33,9 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 
 const execAsync = promisify(execCb)
 
-/** Produces the canned solution an offline "agent" writes for a given task. Two
- *  fidelity levels let the example show the validators/judge separating quality:
- *  a `real` implementation passes the realness scan, a `stub` is caught by it. */
-export type OfflineQuality = 'real' | 'stub'
-
-/** A scripted offline solution: which file, what content, per round. The harness
- *  calls `solutionFor(round)` so round 2 can differ from round 1 (refine demo). */
+/** A scripted offline solution: which file, and what content to write on a given
+ *  round. `solutionFor(round)` lets round N differ from round N-1 — a REAL refine
+ *  demo, not a constant. */
 export interface OfflineScript {
   path: string
   solutionFor: (round: number) => string
@@ -52,12 +52,14 @@ function instanceMethods(workdir: string, script: OfflineScript) {
       const abs = join(workdir, script.path)
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, content, 'utf8')
+      // The real sandbox terminal event shape: `done` with `data.tokenUsage` +
+      // top-level `totalCostUsd`. `extractLlmCallEvent` reads exactly this.
       yield {
-        type: 'result',
+        type: 'done',
         data: {
-          finalText: `wrote ${script.path} (offline round ${round})`,
           tokenUsage: { inputTokens: 600, outputTokens: 400 },
-          costUsd: 0,
+          totalCostUsd: 0,
+          finalText: `wrote ${script.path} (offline round ${round})`,
         },
       } as unknown as SandboxEvent
     },

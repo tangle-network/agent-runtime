@@ -3,26 +3,36 @@
  *   - per-harness mean composite + a bootstrap CONFIDENCE INTERVAL (`confidenceInterval`)
  *   - per-harness PASS-RATE with a binomial Wilson interval (`wilson`) — the correct
  *     CI for a proportion (the continuous CI assumes the wrong distribution)
- *   - every harness PAIR compared on MATCHED scenarios with a paired bootstrap
- *     (`pairedBootstrap`), then BH-corrected across all pairs (`benjaminiHochberg`)
- *     so running many comparisons doesn't manufacture a false winner.
+ *   - every harness PAIR compared on MATCHED scenarios with a REAL paired significance
+ *     test (`pairedTTest`, or `wilcoxonSignedRank` for the non-parametric path), then
+ *     BH-corrected across all pairs (`benjaminiHochberg`) so running many comparisons
+ *     doesn't manufacture a false winner. The paired delta + its bootstrap CI
+ *     (`pairedBootstrap`) is reported as the effect size.
  *
- * Every number here is one agent-eval primitive call. No hand-rolled statistics.
+ * Every number here is one agent-eval primitive call. No hand-rolled statistics,
+ * and no fake p-values: BH is fed the actual paired-test p, not a CI proxy.
  *
- * (The design flagged "no binomial CI in agent-eval" as a gap — that's stale:
- *  `wilson(successes, n)` ships in the stats surface and is exactly this CI. Used below.)
+ * Pairing discipline: the paired unit is the SCENARIO. With `reps > 1` a harness
+ * produces several records per scenario; we average them to ONE score per
+ * (harness, scenario) before pairing, so the paired arrays line up scenario-for-
+ * scenario and reps tighten the per-cell estimate instead of corrupting the pairing.
  */
 
 import {
   benjaminiHochberg,
   confidenceInterval,
   pairedBootstrap,
+  pairedTTest,
   type RunRecord,
+  wilcoxonSignedRank,
   wilson,
 } from '@tangle-network/agent-eval'
 
 /** A composite at or above this counts as "green" for the pass-rate proportion. */
 const greenThreshold = 0.6
+
+/** Which paired test to run. Parametric `t` by default; `wilcoxon` for skewed scores. */
+export type PairedTest = 't' | 'wilcoxon'
 
 interface HarnessRow {
   harness: string
@@ -40,6 +50,8 @@ interface PairResult {
   delta: number
   low: number
   high: number
+  /** the paired-test p-value (before correction) */
+  p: number
   /** BH-significant after correcting across all pairs */
   significant: boolean
 }
@@ -49,16 +61,17 @@ export interface StatsReport {
   pairs: PairResult[]
 }
 
-/** Per-record composite — the search-split score the judges produced. */
+/** Per-record composite — the score the judges produced. */
 function score(r: RunRecord): number {
   return r.outcome.searchScore ?? r.outcome.holdoutScore ?? 0
 }
 
-/** Group records by harness profile (the matrix stamps the profile id as candidateId). */
-function byHarness(records: RunRecord[]): Map<string, RunRecord[]> {
+/** Group records by harness profile. The matrix stamps the profile id (a hash) as
+ *  `candidateId`; we resolve it to the readable harness name via `nameOf`. */
+function byHarness(records: RunRecord[], nameOf: (id: string) => string): Map<string, RunRecord[]> {
   const m = new Map<string, RunRecord[]>()
   for (const r of records) {
-    const key = r.agentProfile?.profileId ?? r.candidateId
+    const key = nameOf(r.agentProfile?.profileId ?? r.candidateId)
     const list = m.get(key) ?? []
     list.push(r)
     m.set(key, list)
@@ -66,23 +79,45 @@ function byHarness(records: RunRecord[]): Map<string, RunRecord[]> {
   return m
 }
 
-/** Scores for harness A and B on the SAME scenarios, aligned for pairing. */
+/** ONE mean score per scenario for a harness — collapses reps so the paired unit is
+ *  the scenario, in a stable scenario order. */
+function meanByScenario(records: RunRecord[]): Map<string, number> {
+  const sums = new Map<string, { total: number; n: number }>()
+  for (const r of records) {
+    const id = r.scenarioId ?? ''
+    const acc = sums.get(id) ?? { total: 0, n: 0 }
+    acc.total += score(r)
+    acc.n += 1
+    sums.set(id, acc)
+  }
+  const out = new Map<string, number>()
+  for (const [id, acc] of sums) out.set(id, acc.n ? acc.total / acc.n : 0)
+  return out
+}
+
+/** Scores for harness A and B on the SAME scenarios, aligned for pairing (one
+ *  averaged score per scenario, in shared scenario order). */
 function pairedScores(a: RunRecord[], b: RunRecord[]): { aScores: number[]; bScores: number[] } {
-  const bByScenario = new Map(b.map((r) => [r.scenarioId ?? '', r]))
+  const aMean = meanByScenario(a)
+  const bMean = meanByScenario(b)
   const aScores: number[] = []
   const bScores: number[] = []
-  for (const ra of a) {
-    const rb = bByScenario.get(ra.scenarioId ?? '')
-    if (rb) {
-      aScores.push(score(ra))
-      bScores.push(score(rb))
+  for (const scenarioId of [...aMean.keys()].sort()) {
+    const bv = bMean.get(scenarioId)
+    if (bv !== undefined) {
+      aScores.push(aMean.get(scenarioId) as number)
+      bScores.push(bv)
     }
   }
   return { aScores, bScores }
 }
 
-export function pairwiseStats(records: RunRecord[]): StatsReport {
-  const groups = byHarness(records)
+export function pairwiseStats(
+  records: RunRecord[],
+  nameOf: (id: string) => string,
+  test: PairedTest = 't',
+): StatsReport {
+  const groups = byHarness(records, nameOf)
   const harnesses = [...groups.keys()].sort()
 
   const leaderboard: HarnessRow[] = harnesses.map((harness) => {
@@ -101,7 +136,7 @@ export function pairwiseStats(records: RunRecord[]): StatsReport {
     }
   })
 
-  // Every unordered harness pair, paired-bootstrapped on matched scenarios.
+  // Every unordered harness pair, with a REAL paired test on matched scenarios.
   const raw: Omit<PairResult, 'significant'>[] = []
   for (let i = 0; i < harnesses.length; i += 1) {
     for (let j = i + 1; j < harnesses.length; j += 1) {
@@ -109,14 +144,21 @@ export function pairwiseStats(records: RunRecord[]): StatsReport {
       const hb = harnesses[j] as string
       const { aScores, bScores } = pairedScores(groups.get(ha) ?? [], groups.get(hb) ?? [])
       if (aScores.length === 0) continue
+      // Effect size + CI from the paired bootstrap; the p-value from a real paired test.
       const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
-      raw.push({ a: ha, b: hb, delta: boot.median, low: boot.low, high: boot.high })
+      const p =
+        test === 'wilcoxon'
+          ? wilcoxonSignedRank(aScores, bScores).p
+          : pairedTTest(aScores, bScores).p
+      raw.push({ a: ha, b: hb, delta: boot.median, low: boot.low, high: boot.high, p })
     }
   }
 
-  // A CI excluding 0 is the per-pair p<0.05 proxy; BH-correct across all pairs.
-  const pProxy = raw.map((r) => (r.low > 0 || r.high < 0 ? 0.04 : 0.5))
-  const { significant } = benjaminiHochberg(pProxy, 0.05)
+  // BH-correct the REAL p-values across all pairs (controls the false-discovery rate).
+  const { significant } = benjaminiHochberg(
+    raw.map((r) => r.p),
+    0.05,
+  )
   const pairs: PairResult[] = raw.map((r, i) => ({ ...r, significant: significant[i] ?? false }))
 
   return { leaderboard, pairs }
@@ -135,11 +177,12 @@ export function renderStats(report: StatsReport): string {
     )
   }
   lines.push('')
-  lines.push('Pairwise (paired bootstrap on matched scenarios, BH-corrected):')
+  lines.push('Pairwise (paired delta + bootstrap CI; paired-test p, BH-corrected):')
   for (const p of report.pairs) {
     const tag = p.significant ? 'SIGNIFICANT' : 'n.s.'
     lines.push(
-      `  ${p.b} − ${p.a}: Δ=${p.delta.toFixed(3)} [${p.low.toFixed(3)}, ${p.high.toFixed(3)}] ${tag}`,
+      `  ${p.b} − ${p.a}: Δ=${p.delta.toFixed(3)} [${p.low.toFixed(3)}, ${p.high.toFixed(3)}] ` +
+        `p=${p.p.toFixed(3)} ${tag}`,
     )
   }
   return lines.join('\n')
