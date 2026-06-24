@@ -1,9 +1,34 @@
 #!/usr/bin/env sh
-# Auto-fix biome (lint + format) on staged files, then re-stage them so the
-# commit lands clean. No-op when biome isn't installed or nothing relevant is
-# staged. Activated by `prepare` (git config core.hooksPath .githooks).
-[ -x ./node_modules/.bin/biome ] || exit 0
-files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|jsx|json|jsonc)$' || true)
-[ -z "$files" ] && exit 0
-printf '%s\n' "$files" | xargs ./node_modules/.bin/biome check --write --no-errors-on-unmatched
-printf '%s\n' "$files" | xargs git add
+# Pre-commit, two independent steps, each re-stages so the commit lands clean:
+#   (1) auto-fix biome (lint + format) on staged files.
+#   (2) regenerate the generated primitive catalog when staged changes touch
+#       exports — the self-healing companion to the docs:check CLASS-7 freshness
+#       gate, so a forgotten regen never red-builds CI.
+# Activated by `prepare` (git config core.hooksPath .githooks). No-op when a
+# step's tools/inputs are absent.
+
+# (1) biome auto-fix on staged source files.
+if [ -x ./node_modules/.bin/biome ]; then
+  files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|jsx|json|jsonc)$' || true)
+  if [ -n "$files" ]; then
+    printf '%s\n' "$files" | xargs ./node_modules/.bin/biome check --write --no-errors-on-unmatched
+    printf '%s\n' "$files" | xargs git add
+  fi
+fi
+
+# (2) regenerate docs/api/primitive-catalog.md when a staged change adds/removes
+# an export under src/ or edits the package.json `exports` map (the only things
+# that change the generated inventory). Skipped in CI (docs:check runs there) and
+# when nothing export-relevant is staged. `SKIP_DOCS_REGEN=1` bypasses it.
+if [ "$CI" != "true" ] && [ "$SKIP_DOCS_REGEN" != "1" ]; then
+  exports_changed=$(git diff --cached --diff-filter=ACMR -- src | grep -E '^[+-]' | grep -vE '^[+-][+-][+-]' | grep -E 'export[[:space:]]+(const|function|class|type|interface|enum|namespace|abstract|declare|default|async|let|var)|export[[:space:]]*[*{]' || true)
+  pkg_exports_changed=$(git diff --cached --diff-filter=ACMR -- package.json | grep -E '^[+-]' | grep -vE '^[+-][+-][+-]' | grep -E '"exports"|"\./' || true)
+  if [ -n "$exports_changed" ] || [ -n "$pkg_exports_changed" ]; then
+    printf 'pre-commit: exports changed — regenerating primitive catalog (builds; set SKIP_DOCS_REGEN=1 to skip)\n'
+    # The catalog generator resolves the own surface through dist, so build first.
+    # Fail loud: a stale/empty catalog would defeat the gate it exists to satisfy.
+    pnpm run build >/dev/null 2>&1 || { printf 'pre-commit: build failed — cannot regenerate the catalog (fix the build, or SKIP_DOCS_REGEN=1)\n' >&2; exit 1; }
+    node scripts/gen-primitive-catalog.mjs >/dev/null 2>&1 || { printf 'pre-commit: catalog regeneration failed\n' >&2; exit 1; }
+    git add docs/api/primitive-catalog.md
+  fi
+fi
