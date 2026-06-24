@@ -29,93 +29,28 @@
  * for a missing word; the driver READS that rejected draft and BUILDS a corrective prompt from it;
  * shot 1 re-runs with that prompt and passes — proving the loop's behavior changed BECAUSE of the fold.
  *
- * Fully offline — the worker is a scripted client keyed on the prompt, so it runs with zero
- * credentials (the same offline pattern self-improving-loop uses).
+ * Fully offline — the worker is a scripted client (in ./scripted-worker.ts, keyed on the prompt),
+ * so it runs with zero credentials (the same offline pattern self-improving-loop uses).
  *
  * Run:  pnpm tsx examples/driver-loop/driver-loop.ts
  */
 
+import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
+import type { AgentProfile } from '@tangle-network/sandbox'
 import {
-  type DefaultVerdict,
-  type Driver,
-  type OutputAdapter,
-  runLoop,
-  type Validator,
-} from '@tangle-network/agent-runtime/loops'
-import type { AgentProfile, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-
-// ── The task + what "good" means ────────────────────────────────────────────────────────
-// The agent must draft a one-line release note that mentions the word "rollback". A real
-// product would validate something richer; the required word keeps the example deterministic.
-interface NoteTask {
-  feature: string
-  /** The next instruction the worker should run. The DRIVER rewrites this between shots. */
-  prompt: string
-}
-interface NoteOutput {
-  note: string
-}
-const requiredWord = 'rollback'
-
-// ── The worker (scripted, offline) ──────────────────────────────────────────────────────
-// A worker is just something that takes a prompt and streams back events. Here we fake it:
-// the FIRST prompt produces a draft that forgets the required word (so it will be rejected);
-// any prompt that mentions the required word produces a corrected draft. That keyed behavior
-// is what lets the example PROVE the fold worked: shot 1 only passes because the driver put
-// the right correction into the prompt.
-function scriptedWorkerClient(): { create(): Promise<SandboxInstance> } {
-  return {
-    async create(): Promise<SandboxInstance> {
-      return {
-        id: `worker-${Math.random().toString(36).slice(2, 8)}`,
-        async *streamPrompt(prompt: string): AsyncIterable<SandboxEvent> {
-          yield {
-            type: 'llm_call',
-            data: { model: 'scripted', tokensIn: 200, tokensOut: 40, costUsd: 0.0006 },
-          }
-          // The worker "obeys" the prompt: if the driver's corrective prompt told it to
-          // mention the required word, it does; otherwise it ships the naive first draft.
-          const note = prompt.toLowerCase().includes(requiredWord)
-            ? 'Shipped one-click restore with an instant rollback path if a deploy goes bad.'
-            : 'Shipped one-click restore for failed deploys.'
-          yield { type: 'result', data: { result: { note } satisfies NoteOutput } }
-        },
-        // The offline seam: this object implements only the members `runLoop` calls on a box
-        // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
-      } as unknown as SandboxInstance
-    },
-  }
-}
-
-// ── The output adapter: raw event stream → typed output ─────────────────────────────────
-const output: OutputAdapter<NoteOutput> = {
-  parse(events: SandboxEvent[]): NoteOutput {
-    for (const ev of events) {
-      if (ev.type === 'result') {
-        const r = (ev as { data?: { result?: unknown } }).data?.result
-        if (r && typeof r === 'object' && 'note' in r) return r as NoteOutput
-      }
-    }
-    return { note: '' }
-  },
-}
-
-// ── The validator: the pass/fail check the driver reads to decide whether to refine ──────
-const validator: Validator<NoteOutput> = {
-  validate(out: NoteOutput): Promise<DefaultVerdict> {
-    const valid = out.note.toLowerCase().includes(requiredWord)
-    return Promise.resolve({
-      valid,
-      score: valid ? 1 : 0,
-      notes: valid ? 'mentions rollback' : `missing required word "${requiredWord}"`,
-    })
-  },
-}
+  type NoteOutput,
+  type NoteTask,
+  output,
+  requiredWord,
+  scriptedWorkerClient,
+  validator,
+} from './scripted-worker'
 
 // ── THE DRIVER — this is the example ────────────────────────────────────────────────────
 // A driver is two functions: plan() (what to run this shot) and decide() (are we done?).
 // The fold lives inside plan(): on shot > 0 it READS history (the last worker's real output
-// + its verdict) and COMPOSES the next prompt FROM that output.
+// + its verdict) and COMPOSES the next prompt FROM that output. The task + worker + validator
+// it operates over live in ./scripted-worker.ts so this file shows only the fold.
 //
 // Decision values: the kernel STOPS the loop when decide() returns a TERMINAL value
 // ('stop' | 'pick-winner' | 'fail' | 'done'). Any other string is non-terminal → the loop

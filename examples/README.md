@@ -35,7 +35,7 @@ These words appear in every example. The clearest demonstration of all of them i
 | # | Example | Use this when… |
 |---|---|---|
 | 1 | [`chat-handler/`](./chat-handler/) | You're wiring a product's chat turn — the `handleChatTurn` lifecycle every product runs. |
-| 2 | [`strategy-suite/`](./strategy-suite/) | You want to compare optimization strategies (sample vs refine vs your own) against your own pass/fail check (needs `TANGLE_API_KEY`). |
+| 2 | [`strategy-suite/`](./strategy-suite/) | You want to compare optimization strategies (sample vs refine vs your own) against your own pass/fail check (offline via an in-process mock router; `TANGLE_API_KEY` swaps in the live router). |
 | 3 | [`recursive-supervisor/`](./recursive-supervisor/) | You want the raw recursive atom: one `Agent` spawning children on a conserved budget pool, shown twice (raw `scope.spawn` + the `fanout` combinator, offline). |
 
 ## Tier 1 — the driver loop & supervisor (the heart of the product)
@@ -89,9 +89,10 @@ purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver tha
 
 ## Conventions
 
-- Examples are synthetic unless noted. `strategy-suite`, `strategy-evolution`, `product-eval`,
-  `supervise`, and `delegate` need `TANGLE_API_KEY`; `stream-backends`' OpenAI section needs
-  `OPENAI_API_KEY` (the rest runs offline); `mcp-delegation` needs `pnpm build` first so the local
+- Examples are synthetic unless noted. `strategy-evolution`, `product-eval`, `supervise`, and
+  `delegate` need `TANGLE_API_KEY` (`strategy-suite` and `product-eval` also run offline — the
+  former on an in-process mock router, the latter via a `backendFor` override); `stream-backends`'
+  OpenAI section needs `OPENAI_API_KEY` (the rest runs offline); `mcp-delegation` needs `pnpm build` first so the local
   MCP bin exists; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
   Everything else runs fully offline.
 - Where domain types are needed (`SandboxBox`, evidence stores), the example defines them inline —
@@ -106,7 +107,7 @@ From the agent-runtime repo root, in the learning order above:
 ```bash
 # Tier 0 — the three cores
 pnpm tsx examples/chat-handler/chat-handler.ts
-TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts
+pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline (mock worker); TANGLE_API_KEY swaps in the live router
 pnpm tsx examples/recursive-supervisor/recursive-supervisor.ts
 
 # Tier 1 — driver loop & supervisor (the heart)

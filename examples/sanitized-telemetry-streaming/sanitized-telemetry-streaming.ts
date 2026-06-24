@@ -21,9 +21,11 @@
 
 import {
   type AgentBackendInput,
+  type AgentTaskSpec,
   createIterableBackend,
   createRuntimeStreamEventCollector,
   type RuntimeStreamEvent,
+  type RuntimeStreamEventCollector,
   runAgentTaskStream,
 } from '@tangle-network/agent-runtime'
 
@@ -80,54 +82,49 @@ const backend = createIterableBackend<AgentBackendInput>({
   },
 })
 
-async function main() {
-  // ── 1. Safe collector. Default redaction.
-  const safe = createRuntimeStreamEventCollector()
+// One task spec, one drain — the ONLY thing that changes between the two runs below is which
+// collector the events flow through. `intent` is fixed operation metadata (safe to expose);
+// `inputs` / `metadata` carry the PII the collector redacts by default.
+const task: AgentTaskSpec = {
+  id: 'demo-stream',
+  // Fixed operation kind — NOT user-provided. Safe to expose in sanitized telemetry.
+  // Never put PII or user input here.
+  intent: 'Look up a customer record',
+  domain: 'demo',
+  inputs: { customerId: 'cust-42' },
+  metadata: { tenantId: 'tenant-7' },
+}
+
+async function drain(label: string, collector: RuntimeStreamEventCollector): Promise<void> {
   for await (const event of runAgentTaskStream({
-    task: {
-      id: 'demo-stream',
-      // Fixed operation kind — NOT user-provided. Safe to expose in
-      // sanitized telemetry. Never put PII or user input here.
-      intent: 'Look up a customer record',
-      domain: 'demo',
-      inputs: { customerId: 'cust-42' },
-      metadata: { tenantId: 'tenant-7' },
-    },
+    task,
     backend,
     input: { message: 'find the customer' } as Partial<AgentBackendInput>,
   })) {
-    safe.onEvent(event as RuntimeStreamEvent)
+    collector.onEvent(event as RuntimeStreamEvent)
   }
+  console.log(`--- ${label} stream events ---`)
+  for (const e of collector.events) console.log(JSON.stringify(e))
+}
 
-  console.log('--- safe stream events (default redaction) ---')
-  for (const e of safe.events) console.log(JSON.stringify(e))
+async function main() {
+  // ── 1. Default redaction: PII inputs/metadata, tool args/results, and artifact
+  // uris are all stripped — the safe-by-default state any telemetry sink gets.
+  const safe = createRuntimeStreamEventCollector()
+  await drain('safe (default redaction)', safe)
   console.log('\n--- safe summary ---')
   console.log(safe.summary())
 
-  // ── 2. Verbose collector. Same task, opt-in fields for a privileged
-  // operator triaging an incident. Stream events that the collector
-  // wasn't told to include are still redacted.
+  // ── 2. Opt-in verbose: a privileged operator triaging an incident turns on the
+  // exact fields they need; everything they did NOT opt into stays redacted.
   const verbose = createRuntimeStreamEventCollector({
     includeInputs: true,
     includeMetadata: true,
     includeControlPayloads: true,
     includeEvidenceIds: true,
   })
-  for await (const event of runAgentTaskStream({
-    task: {
-      id: 'demo-stream-2',
-      intent: 'Look up a customer record',
-      domain: 'demo',
-      inputs: { customerId: 'cust-42' },
-      metadata: { tenantId: 'tenant-7' },
-    },
-    backend,
-    input: { message: 'find the customer' } as Partial<AgentBackendInput>,
-  })) {
-    verbose.onEvent(event as RuntimeStreamEvent)
-  }
-  console.log('\n--- verbose stream events (opt-in fields) ---')
-  for (const e of verbose.events) console.log(JSON.stringify(e))
+  console.log()
+  await drain('verbose (opt-in fields)', verbose)
 }
 
 main().catch((err) => {

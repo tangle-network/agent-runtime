@@ -24,12 +24,15 @@ free.
 ## Run
 
 ```bash
-TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts
+pnpm tsx examples/strategy-suite/strategy-suite.ts                      # offline (mock worker)
+TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts   # live Tangle router worker
 ```
 
-The worker calls the Tangle router, so a key is required (`WORKER_MODEL` /
-`ROUTER_BASE` optional). Everything else — the environment, the check, the
-strategies — runs in-process.
+With no key the worker points at an in-process mock router (`mock-router.ts`)
+that drives the counter, so the whole comparison runs end-to-end with zero
+credentials. Set `TANGLE_API_KEY` to swap in the live Tangle router as the
+drop-in upgrade (`WORKER_MODEL` / `ROUTER_BASE` optional). Everything else —
+the environment, the check, the strategies — runs in-process either way.
 
 ## Where to go next
 

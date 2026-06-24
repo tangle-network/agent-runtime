@@ -2,32 +2,25 @@
  * The intelligence loop, end to end and OFFLINE: a recorded TRACE → derived FINDINGS → a gated
  * improvement CANDIDATE.
  *
- * The branch ships the two halves of this loop disconnected: Observe (`createIntelligenceClient` +
- * `recordTrace`, which exports a run's loop topology as a trace) and `improve()` (the held-out-gated
- * RSI verb). This example is the first to connect them — the seam a Recommend mode runs in production:
+ * This is `improve()` (see examples/improve/) with ONE thing changed: the findings the loop
+ * reflects on are no longer hand-written — they are DERIVED from a recorded run trace. The agent
+ * harness (scenarios, agent, judge, the scripted proposer, the baseline profile) is imported from
+ * improve.ts verbatim, so this file shows only the NEW seam a Recommend mode runs in production:
  *
  *   1. OBSERVE — record a run's `LoopTraceEvent` stream as one trace (best-effort export; with no
  *      OTLP endpoint configured it is a no-op, so this runs offline with no credentials).
  *   2. ANALYZE — derive `AnalystFinding`s from that trace. In production a trace analyst reads the
- *      spans; here we hand-derive two findings that cite the recorded trace, to keep it offline.
- *   3. IMPROVE — feed the findings to `improve()` (the REQUIRED positional `findings` arg) with a
- *      scripted generator + deterministic judge, and print the gated candidate.
+ *      spans; here we hand-derive two findings that CITE the recorded trace, to keep it offline.
+ *   3. IMPROVE — feed those findings to `improve()` and print the gated candidate.
  *
  * Run:  pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts
  */
 
 import { makeFinding } from '@tangle-network/agent-eval'
-import type {
-  DispatchContext,
-  JudgeConfig,
-  MutableSurface,
-  Scenario,
-  SurfaceProposer,
-} from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { improve } from '@tangle-network/agent-runtime'
 import { createIntelligenceClient } from '@tangle-network/agent-runtime/intelligence'
 import type { LoopTraceEvent } from '@tangle-network/agent-runtime/loops'
+import { agent, judge, profile, scenarios, scriptedWinner } from '../improve/improve'
 
 // ── 1. OBSERVE — record a run's loop topology as one trace ──────────────────
 // A real run emits this `LoopTraceEvent` stream from the kernel; here a tiny two-event trace stands
@@ -73,45 +66,7 @@ const findings = [
   }),
 ]
 
-// ── 3. IMPROVE — feed the findings to the gated RSI verb (offline scripted) ──
-interface DemoScenario extends Scenario {
-  kind: 'demo'
-}
-const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, i) => ({
-  id: `s${i}`,
-  kind: 'demo' as const,
-}))
-
-const agent = async (
-  surface: MutableSurface,
-  _scenario: DemoScenario,
-  ctx: DispatchContext,
-): Promise<string> => {
-  ctx.cost.observe(0.0001, 'example')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
-}
-
-const judge: JudgeConfig<string, DemoScenario> = {
-  name: 'literal',
-  dimensions: [{ key: 'q', description: 'q' }],
-  score: ({ artifact }) => {
-    const composite = artifact.includes('PROMOTED') ? 1 : 0
-    return { dimensions: { q: composite }, composite, notes: '' }
-  },
-}
-
-// The scripted stand-in for the reflective proposer — in production this is `gepaProposer`, which reads
-// the findings above and proposes a reworded prompt. Offline it returns a fixed winning candidate.
-const scriptedWinner: SurfaceProposer = {
-  kind: 'scripted-winner',
-  async propose() {
-    return [{ surface: 'PROMOTED', label: 'win', rationale: 'from findings' }]
-  },
-}
-
-const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
-
+// ── 3. IMPROVE — feed the derived findings to the gated RSI verb (offline) ──
 async function main(): Promise<void> {
   const out = await improve(profile, findings, {
     surface: 'prompt',

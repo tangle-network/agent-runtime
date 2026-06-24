@@ -29,19 +29,19 @@ import type {
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { improve } from '@tangle-network/agent-runtime'
 
-interface DemoScenario extends Scenario {
+export interface DemoScenario extends Scenario {
   kind: 'demo'
 }
 
 // 12 trivial scenarios — enough for the held-out gate's minimum-evidence floor.
-const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, i) => ({
+export const scenarios: DemoScenario[] = Array.from({ length: 12 }, (_, i) => ({
   id: `s${i}`,
   kind: 'demo' as const,
 }))
 
 // The agent returns the surface verbatim as the artifact AND reports usage, so the backend-integrity
 // guard sees a real backend rather than a stub-zero cell. No LLM.
-const agent = async (
+export const agent = async (
   surface: MutableSurface,
   _scenario: DemoScenario,
   ctx: DispatchContext,
@@ -52,7 +52,7 @@ const agent = async (
 }
 
 // Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else 0.0 — no LLM.
-const judge: JudgeConfig<string, DemoScenario> = {
+export const judge: JudgeConfig<string, DemoScenario> = {
   name: 'literal',
   dimensions: [{ key: 'q', description: 'q' }],
   score: ({ artifact }) => {
@@ -63,10 +63,10 @@ const judge: JudgeConfig<string, DemoScenario> = {
 
 // A scripted SurfaceProposer that always proposes the winning surface — the offline stand-in for
 // `gepaProposer`, no router call.
-const scriptedWinner: SurfaceProposer = {
+export const scriptedWinner: SurfaceProposer = {
   kind: 'scripted-winner',
   async propose() {
-    return [{ surface: 'PROMOTED', label: 'win', rationale: 'scripted' }]
+    return [{ surface: 'PROMOTED', label: 'win', rationale: 'from findings' }]
   },
 }
 
@@ -83,7 +83,7 @@ const findings = [
   }),
 ]
 
-const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
+export const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
 
 async function main(): Promise<void> {
   const out = await improve(profile, findings, {
@@ -99,7 +99,12 @@ async function main(): Promise<void> {
   console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+// Only run the demo when this file is executed directly — intelligence-recommend.ts imports the
+// scaffolding above (scenarios / agent / judge / scriptedWinner / profile) and must not trigger
+// this loop on import.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
+}
