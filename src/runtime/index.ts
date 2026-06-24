@@ -212,14 +212,6 @@ export {
 export { defaultSelectWinner, runLoop } from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
 export {
-  type ApplyContinuation,
-  type DumbDriverOptions,
-  dumbDriver,
-  type NaiveDriverOptions,
-  naiveDriver,
-  type SteeringDecision,
-} from './steering-drivers'
-export {
   type CriuCapableClient,
   probeSandboxCapabilities,
   type SandboxCapabilities,
@@ -241,6 +233,14 @@ export {
   SandboxRunAbortError,
   type TurnResult,
 } from './sandbox-run'
+export {
+  type ApplyContinuation,
+  type DumbDriverOptions,
+  dumbDriver,
+  type NaiveDriverOptions,
+  naiveDriver,
+  type SteeringDecision,
+} from './steering-drivers'
 // The optimization suite: a domain = an Environment (5 hooks); a Strategy = how the
 // budget is spent to beat its check. Built-ins `sample`/`refine`; author your own with
 // `defineStrategy` (compose shot() + critique(), zero Supervisor ceremony); compare
