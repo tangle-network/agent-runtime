@@ -20,7 +20,9 @@
 // Local fix path on failure: read the report, fix the doc line, and for stale generated
 // pages run `pnpm run docs:api`. The gate must NEVER be weakened to hide real drift.
 
-import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -558,6 +560,54 @@ for (const docName of curatedDocs) {
           docName,
         )
       }
+    }
+  }
+}
+
+// =========================================================================
+// CLASS 7 — PRIMITIVE-CATALOG: the generated anti-reinvention inventory
+// (docs/api/primitive-catalog.md) must be REGENERATABLE-IDENTICAL to the
+// committed copy. Re-run the generator to a temp file and byte-compare; any
+// difference means a live export was added/removed/renamed (or a TSDoc summary
+// changed) without `pnpm run docs:api` — a RED BUILD, same enforcement the
+// `git diff --exit-code -- docs/api` step gives the TypeDoc pages. This is what
+// makes "a new live export absent from the catalog" impossible to miss.
+// =========================================================================
+
+const catalogPath = join(apiDir, 'primitive-catalog.md')
+if (!existsSync(catalogPath)) {
+  report(
+    'CATALOG',
+    0,
+    'docs/api/primitive-catalog.md is missing — run `pnpm run docs:api` to generate it (scripts/gen-primitive-catalog.mjs)',
+    'api/primitive-catalog.md',
+  )
+} else {
+  const genScript = join(repoRoot, 'scripts', 'gen-primitive-catalog.mjs')
+  const tmpOut = join(tmpdir(), `primitive-catalog-check-${process.pid}.md`)
+  const res = spawnSync(process.execPath, [genScript], {
+    cwd: repoRoot,
+    env: { ...process.env, PRIMITIVE_CATALOG_OUT: tmpOut },
+    encoding: 'utf8',
+  })
+  if (res.status !== 0) {
+    report(
+      'CATALOG',
+      0,
+      `regenerating the primitive catalog failed (exit ${res.status}). The generator needs a build + installed substrate: run \`pnpm run build\` then \`pnpm run docs:api\`. stderr:\n${(res.stderr || '').trim().slice(0, 600)}`,
+      'api/primitive-catalog.md',
+    )
+  } else {
+    const committed = readFileSync(catalogPath, 'utf8')
+    const fresh = existsSync(tmpOut) ? readFileSync(tmpOut, 'utf8') : ''
+    if (existsSync(tmpOut)) rmSync(tmpOut, { force: true })
+    if (committed !== fresh) {
+      report(
+        'CATALOG',
+        0,
+        'docs/api/primitive-catalog.md is STALE — a live export (or its TSDoc summary) changed but the committed catalog was not regenerated. Run `pnpm run docs:api` and commit docs/api/primitive-catalog.md. A new public export absent here is the exact drift this gate exists to catch.',
+        'api/primitive-catalog.md',
+      )
     }
   }
 }
