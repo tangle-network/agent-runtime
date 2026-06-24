@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 336 exports.
+Import from `@tangle-network/agent-runtime/loops` — 342 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -382,6 +382,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `deterministicCompletion` | function | Completion for a DETERMINISTIC check (build/test/lint/citation/proof): done iff the check |
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
+| `dumbDriver` | function | `dumbDriver` — the pass/fail-only steering control. |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
 | `fanout` | function | `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved |
@@ -397,6 +398,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `loopUntil` | function | `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into |
 | `makeFinding` | function | Convenience factory: produce a fully-formed AnalystFinding with the |
 | `mapSandboxEvent` | function | Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary, |
+| `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
 | `observe` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `openSandboxRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
@@ -508,6 +510,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `DeliverableSpec` | interface | The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that |
 | `Driver` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DriverAgentOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
 | `EqualKVerdict` | interface | The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the |
@@ -556,6 +559,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
 | `McpEnvironmentOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
+| `NaiveDriverOptions` | interface | Options for {@link naiveDriver}. |
 | `Observation` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ObserveInput` | interface | The third-person observer — the connective tissue that closes the loop. |
 | `ObserveOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -641,6 +645,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `WorktreeCliExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `WorktreeFanoutOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ApplyContinuation` | type | Fold a steering string into the caller's Task shape, producing the Task for |
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |
 | `ChampionPolicy` | type | _(no summary — add a TSDoc line at the declaration)_ |
@@ -667,6 +672,7 @@ Import from `@tangle-network/agent-runtime/loops` — 336 exports.
 | `RunPersonified` | type | The composed run signature. |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
+| `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
 | `TrajectoryReportFn` | type | `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). |
