@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.76.0` and `@tangle-network/agent-eval@0.97.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.76.0` and `@tangle-network/agent-eval@0.99.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1026,7 +1026,7 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 29 exports.
+Import from `@tangle-network/agent-eval` — 30 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1045,6 +1045,7 @@ Import from `@tangle-network/agent-eval` — 29 exports.
 | `judgeReplayGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `judgeSpans` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `linterJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
 | `replayTraceThroughJudge` | function | Apply a judge function to every LLM span in a run and record the |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
@@ -1156,7 +1157,7 @@ Import from `@tangle-network/agent-eval` — 49 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 203 exports.
+Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1192,6 +1193,7 @@ Import from `@tangle-network/agent-eval/campaign` — 203 exports.
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `labelTrustRank` | function | Ordinal rank for a label-trust tier; absent ⇒ `unverified` (rank 0). |
+| `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
 | `loopProvenanceSpans` | function | Build the loop's OTLP-ingestable spans from a provenance record. One root |
 | `makePlaybackDispatch` | function | Adapt a `PlaybackDriver` into a `runProfileMatrix` dispatch. The artifact the |
 | `memoryCurationProposer` | function | Build the CURATOR proposer. |
@@ -1283,6 +1285,7 @@ Import from `@tangle-network/agent-eval/campaign` — 203 exports.
 | `LabeledScenarioSampleArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LabeledScenarioStore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
+| `LlmJudgeOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopProvenanceBackend` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopProvenanceCandidate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopProvenanceRecord` | interface | The durable provenance record. Aligns to the hosted `EvalRunEvent` path but |
@@ -1353,6 +1356,7 @@ Import from `@tangle-network/agent-eval/campaign` — 203 exports.
 | `JsonValue` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `LabeledScenarioSource` | type | Source tag — required on every store write. Used by the |
 | `LabelTrust` | type | How much a label can be trusted to evaluate against — the gold-admission |
+| `LlmJudgeDimension` | type | A rubric dimension as a bare key or the full `{ key, description }` shape. A |
 | `MutableSurface` | type | The mutable surface a proposer changes. Tiers (see |
 | `ObjectiveSource` | type | Where an objective's per-cell scalar comes from. `composite` reads the |
 | `OptimizationProposer` | type | Optional vocabulary alias. The loop is the optimizer; this object is the |
