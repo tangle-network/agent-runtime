@@ -21,7 +21,6 @@ import {
   type ChatClient,
   ensembleJudge,
   type Layer,
-  llmJudge,
   MultiLayerVerifier,
   type VerificationReport,
 } from '@tangle-network/agent-eval'
@@ -31,7 +30,10 @@ import {
   type ProducedFile,
   scoreAuthenticity,
 } from '@tangle-network/agent-eval/authenticity'
-import type { JudgeConfig, JudgeScore } from '@tangle-network/agent-eval/campaign'
+// `llmJudge` is imported from the `/campaign` subpath, not the main index: it is
+// exported from `/campaign` across the entire declared peer range (>=0.97), whereas the
+// main-index re-export is newer — so a consumer pinned to the peer floor still compiles.
+import { type JudgeConfig, type JudgeScore, llmJudge } from '@tangle-network/agent-eval/campaign'
 import type { CodingScenario, Fixture } from './scenarios'
 
 // ── the rubric (4 weighted dimensions, total 1.0) ─────────────────────────────
@@ -91,18 +93,28 @@ export interface RealnessVerdict {
 // ── layer 1: the deterministic check pipeline ─────────────────────────────────
 
 /** The minimal box surface the checks need — a subset of the real `SandboxInstance`.
- *  The live sandbox satisfies it; the offline in-process box implements it too. */
+ *  The live sandbox satisfies it; the offline in-process box implements it too. `fs.write`
+ *  is the structured write seam (both boxes expose it); we prefer it over a shell write so
+ *  seeding never interpolates a path into a command string. */
 export interface CheckBox {
   exec(command: string): Promise<{ exitCode: number; stdout: string; stderr: string }>
+  fs?: { write(path: string, content: string): Promise<void> }
 }
 
-/** Seed an eval-only file into the box via `exec` (base64 → file). Works on the
- *  `exec`-only surface, offline and live. The fixture's CONTENT is never described
- *  to the agent — this is write-only scaffold, not part of the prompt (the firewall). */
+/** Seed an eval-only file into the box. Prefers the structured `fs.write` seam so the
+ *  fixture path/content is never interpolated into a shell command (no injection
+ *  surface for partners who later load scenario paths from config). Falls back to a
+ *  base64 shell write with SINGLE-QUOTED path words on a box that only exposes `exec`.
+ *  The fixture's CONTENT is never described to the agent — this is write-only scaffold,
+ *  not part of the prompt (the firewall). */
 async function seedFile(box: CheckBox, file: Fixture): Promise<void> {
+  if (box.fs) {
+    await box.fs.write(file.path, file.content)
+    return
+  }
   const b64 = Buffer.from(file.content, 'utf8').toString('base64')
   const dir = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.'
-  await box.exec(`mkdir -p ${dir} && printf %s '${b64}' | base64 -d > ${file.path}`)
+  await box.exec(`mkdir -p '${dir}' && printf %s '${b64}' | base64 -d > '${file.path}'`)
 }
 
 /** One check command → a `Layer`. Pass/fail comes from the exit code. `advisory`
@@ -175,14 +187,18 @@ export async function runChecks(
   return verifier.run({ env: box, overallCapMs: 120_000 })
 }
 
-/** Pull one check layer's captured output (for the refine prompt). */
+/** Pull one check layer's captured output (for the refine prompt). `passed` is the
+ *  gating status (advisory layers always report `pass`); `clean` is the layer's real
+ *  cleanliness (score === 1) — so the refine prompt can surface advisory lint warnings
+ *  (clean === false) without those warnings gating `allPass`. */
 export function layerOutput(
   report: VerificationReport,
   layer: string,
-): { passed: boolean; output: string } {
+): { passed: boolean; clean: boolean; output: string } {
   const r = report.layers.find((l) => l.layer === layer)
   return {
     passed: r?.status === 'pass',
+    clean: r ? r.score === 1 : false,
     output: typeof r?.detail?.output === 'string' ? r.detail.output : '',
   }
 }
@@ -194,9 +210,19 @@ export function layerOutput(
  * (required artifact present? hard part implemented? or a fake shim?), and
  * `gateRealness` caps anything that faked or omitted the required artifact. The
  * verdict is recorded AND read by the judge — a gated artifact cannot earn a score.
+ *
+ * `reference` files (e.g. the seeded test fixture) are passed to the scan as non-scored
+ * context: they let `scoreAuthenticity` observe that the required artifact IS imported,
+ * so a real solution does not get a spurious `DEAD_ARTIFACT` flag just because the
+ * dispatch scores the solution file in isolation. A reference cannot rescue a cheat —
+ * the gate still fires on `fakeShim && !realImpl` regardless of what imports it.
  */
-export function realnessGate(files: ProducedFile[], signals: AuthenticitySignals): RealnessVerdict {
-  const result = scoreAuthenticity(files, signals)
+export function realnessGate(
+  files: ProducedFile[],
+  signals: AuthenticitySignals,
+  reference: ProducedFile[] = [],
+): RealnessVerdict {
+  const result = scoreAuthenticity([...files, ...reference], signals)
   const gate = gateRealness(result, { requireArtifact: true })
   const flags = result.flags.length > 0 ? ` — flags: ${result.flags.join(', ')}` : ''
   return {
@@ -237,13 +263,9 @@ function renderForJudge(artifact: RunArtifact, scenario: CodingScenario): string
  *  against the rubric and reduces it to a canonical `{ dimensions, composite, notes }`.
  *  We wrap it so a realness-gated artifact short-circuits to composite 0 WITHOUT a
  *  model call — the realness gate genuinely gates the judge. */
-export function singleCodeJudge(
-  chat: ChatClient,
-  model?: string,
-): JudgeConfig<RunArtifact, CodingScenario> {
+export function singleCodeJudge(chat: ChatClient): JudgeConfig<RunArtifact, CodingScenario> {
   const base = llmJudge<RunArtifact, CodingScenario>('code-quality', judgePrompt, {
     chat,
-    ...(model ? { model } : {}),
     dimensions,
     weights,
     scale: 'unit',
@@ -264,7 +286,13 @@ export function ensembleCodeJudge(
   const base = ensembleJudge<RubricDim>({
     name: 'code-quality-ensemble',
     dimensions: dimKeys,
-    models: ['deepseek-chat', 'gpt-4o-mini', 'gemini-flash'],
+    // Snapshot-dated, cross-family panel — the SAME reproducibility rule profiles.ts
+    // enforces on harness models (a bare alias isn't reproducible: "which gpt-4o-mini?").
+    models: [
+      'deepseek/deepseek-chat-2025-08-21',
+      'openai/gpt-4o-mini-2024-07-18',
+      'google/gemini-2.0-flash-2025-02-05',
+    ],
     crossFamily: true,
     weights,
     scoreWith: async (model, input) => {

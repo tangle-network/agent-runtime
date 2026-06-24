@@ -17,7 +17,7 @@
  * dispatch + the judge(s), run it, then compute pairwise stats. ~40 lines of glue.
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -50,15 +50,24 @@ export interface BenchmarkOptions {
 // ── flags ───────────────────────────────────────────────────────────────────
 function parseArgs(argv: string[]): BenchmarkOptions {
   const flag = (name: string) => argv.includes(`--${name}`)
+  // A value is the token AFTER `--name`, but only when it is not itself a flag — so
+  // `--reps --live` does NOT consume `--live` as reps' value (which would yield NaN);
+  // it falls back instead. `opt` never swallows a following flag.
   const opt = (name: string, fallback: string) => {
     const i = argv.indexOf(`--${name}`)
-    return i >= 0 && argv[i + 1] ? (argv[i + 1] as string) : fallback
+    if (i < 0) return fallback
+    const v = argv[i + 1]
+    return v && !v.startsWith('--') ? v : fallback
   }
+  // Clamp reps to a positive integer — a non-numeric or <1 value is a usage error, not
+  // a silent 0/NaN rep count that produces an empty matrix.
+  const repsRaw = Math.floor(Number(opt('reps', '1')))
+  const reps = Number.isFinite(repsRaw) && repsRaw >= 1 ? repsRaw : 1
   return {
     live: flag('live'),
     ensemble: flag('ensemble'),
     toolPreset: opt('tools', 'none') as ToolPreset,
-    reps: Number(opt('reps', '1')),
+    reps,
   }
 }
 
@@ -100,6 +109,20 @@ export const offlineSolutions: Record<string, OfflineScript> = {
       `    else if (c === ',') { row.push(field); field = '' }\n` +
       `    else if (c === '\\n') { row.push(field); rows.push(row); row = []; field = '' }\n` +
       `    else field += c\n  }\n  row.push(field); rows.push(row)\n  return rows\n}\n`,
+  },
+  'lru-cache': {
+    path: 'src/lru.ts',
+    // Writes the real insertion-ordered-Map LRU from round 0 (the eviction logic is the
+    // whole point; there is no honest hollow stub for this task). passes realness (85)
+    // and the hidden eviction tests.
+    solutionFor: () =>
+      `export class LruCache<K, V> {\n  private map = new Map<K, V>()\n` +
+      `  constructor(private capacity: number) {}\n` +
+      `  get(key: K): V | undefined {\n    if (!this.map.has(key)) return undefined\n` +
+      `    const v = this.map.get(key) as V\n    this.map.delete(key)\n    this.map.set(key, v)\n    return v\n  }\n` +
+      `  set(key: K, value: V): void {\n    if (this.map.has(key)) this.map.delete(key)\n` +
+      `    else if (this.map.size >= this.capacity) this.map.delete(this.map.keys().next().value as K)\n` +
+      `    this.map.set(key, value)\n  }\n}\n`,
   },
 }
 
@@ -200,34 +223,40 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<RunA
   const chat = judgeChat(live)
   const resolveClient = clientFor(live, RealClient)
 
-  // The matrix runs one campaign per profile. The dispatch is per-scenario only in
-  // its CLIENT (offline scripts differ by scenario), so run each scenario's matrix
-  // and merge the records. (Live, one client serves all scenarios — collapse this.)
-  const allRecords = []
-  for (const scenario of scenarios) {
-    const result = await runProfileMatrix<CodingScenario, RunArtifact>({
-      profiles: harnessProfiles, // axis: harness × baseline
-      scenarios: [scenario], // axis: tasks (one at a time so the offline client matches)
-      dispatch: codingDispatch(toolPreset, resolveClient(scenario)),
-      judges: judges(opts, chat),
-      reps,
-      integrity: live ? 'assert' : 'off', // offline mock has no real backend; live proves it
-      costCeiling: 5,
-      runDir,
-      commitSha: process.env.GIT_SHA ?? 'example',
-      storage: inMemoryCampaignStorage(),
-    })
-    allRecords.push(...result.records)
+  try {
+    // The matrix runs one campaign per profile. The dispatch is per-scenario only in
+    // its CLIENT (offline scripts differ by scenario), so run each scenario's matrix
+    // and merge the records. (Live, one client serves all scenarios — collapse this.)
+    const allRecords = []
+    for (const scenario of scenarios) {
+      const result = await runProfileMatrix<CodingScenario, RunArtifact>({
+        profiles: harnessProfiles, // axis: harness × baseline
+        scenarios: [scenario], // axis: tasks (one at a time so the offline client matches)
+        dispatch: codingDispatch(toolPreset, resolveClient(scenario)),
+        judges: judges(opts, chat),
+        reps,
+        integrity: live ? 'assert' : 'off', // offline mock has no real backend; live proves it
+        costCeiling: 5,
+        runDir,
+        commitSha: process.env.GIT_SHA ?? 'example',
+        storage: inMemoryCampaignStorage(),
+      })
+      allRecords.push(...result.records)
+    }
+
+    // Map the matrix's hashed profileId → the readable harness name for the leaderboard.
+    const nameById = new Map(harnessProfiles.map((p) => [agentProfileId(p), p.name ?? 'unknown']))
+    const nameOf = (id: string) => nameById.get(id) ?? id
+    const report = pairwiseStats(allRecords, nameOf)
+
+    console.log(`\nrecords: ${allRecords.length}\n`)
+    console.log(renderStats(report))
+    return { records: allRecords.length, leaderboard: report.leaderboard.length }
+  } finally {
+    // The matrix writes its run artifacts under `runDir`; tear the temp tree down so
+    // repeated runs don't leak `/tmp/coding-benchmark-*` directories.
+    rmSync(runDir, { recursive: true, force: true })
   }
-
-  // Map the matrix's hashed profileId → the readable harness name for the leaderboard.
-  const nameById = new Map(harnessProfiles.map((p) => [agentProfileId(p), p.name ?? 'unknown']))
-  const nameOf = (id: string) => nameById.get(id) ?? id
-  const report = pairwiseStats(allRecords, nameOf)
-
-  console.log(`\nrecords: ${allRecords.length}\n`)
-  console.log(renderStats(report))
-  return { records: allRecords.length, leaderboard: report.leaderboard.length }
 }
 
 export interface RunArtifactSummary {

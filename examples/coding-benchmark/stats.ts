@@ -80,11 +80,21 @@ function byHarness(records: RunRecord[], nameOf: (id: string) => string): Map<st
 }
 
 /** ONE mean score per scenario for a harness — collapses reps so the paired unit is
- *  the scenario, in a stable scenario order. */
+ *  the scenario, in a stable scenario order. Fails LOUD on a record missing its
+ *  `scenarioId`: a record with no scenario id cannot be paired honestly, and an empty
+ *  '' fallback would silently merge DISTINCT scenarios into one bucket (corrupting both
+ *  the leaderboard n and the pairing). No silent default — throw. */
 function meanByScenario(records: RunRecord[]): Map<string, number> {
   const sums = new Map<string, { total: number; n: number }>()
   for (const r of records) {
-    const id = r.scenarioId ?? ''
+    const id = r.scenarioId
+    if (!id) {
+      throw new Error(
+        `RunRecord (candidate ${r.candidateId ?? 'unknown'}) is missing scenarioId — ` +
+          'cannot pair or average it. The matrix stamps scenarioId on every record; a ' +
+          'missing one means an upstream bug, not something to silently merge.',
+      )
+    }
     const acc = sums.get(id) ?? { total: 0, n: 0 }
     acc.total += score(r)
     acc.n += 1
@@ -188,6 +198,18 @@ export function renderStats(report: StatsReport): string {
     lines.push(
       `  ${p.b} − ${p.a}: Δ=${p.delta.toFixed(3)} [${p.low.toFixed(3)}, ${p.high.toFixed(3)}] ` +
         `p=${p.p.toFixed(3)} ${tag}`,
+    )
+  }
+  // Power caveat: with a tiny scenario corpus the significance machinery is structurally
+  // underpowered — the Wilcoxon path returns p=1 for n<6 non-zero diffs, and the paired
+  // t-test has ~1 df. The tests show the WIRING; a real claim needs 20-50 tasks.
+  const maxN = report.leaderboard.reduce((m, r) => Math.max(m, r.n), 0)
+  if (maxN < 6) {
+    lines.push('')
+    lines.push(
+      `  NOTE: n=${maxN} scenarios — below the power floor. The paired tests above cannot ` +
+        'reach significance at this corpus size (they demonstrate the wiring). Use 20-50 ' +
+        'tasks for a real harness comparison.',
     )
   }
   return lines.join('\n')

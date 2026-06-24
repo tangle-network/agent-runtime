@@ -14,13 +14,18 @@
  *     guard sees a real run.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │  THE NO-CHEAT FIREWALL LIVES HERE.                                         │
- * │  The ONLY scenario field that ever reaches the box is `scenario.prompt`    │
- * │  (the `taskToPrompt` below, and `nextPrompt` built ONLY from validator     │
- * │  output). The hidden test is SEEDED into the box but never described to    │
- * │  the agent; the rubric, the realness signals, and the grading note are     │
- * │  read later by eval.ts — never written into the box. The agent literally    │
- * │  cannot read the answer key.                                               │
+ * │  THE GRADING-CRITERIA FIREWALL LIVES HERE.                                 │
+ * │  The ONLY scenario field that reaches the agent's CONTEXT is               │
+ * │  `scenario.prompt` (the `taskToPrompt` below, and `nextPrompt` built ONLY  │
+ * │  from check output). The LLM-judge rubric, the grading note, and the       │
+ * │  realness signals are read later by eval.ts — they are never written into  │
+ * │  the box, so the agent cannot steer toward the criteria it is scored on.   │
+ * │                                                                            │
+ * │  The deterministic test fixture is a different case: it is SEEDED into the │
+ * │  box workspace (so `node --test` has a file to run) and a multi-round      │
+ * │  agent with native file tools CAN read it — intentional, the same as real  │
+ * │  TDD. The test is a SPEC the agent is asked to satisfy, not a hidden       │
+ * │  rubric. So: the rubric/realness are firewalled; the test is visible.      │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -33,6 +38,7 @@ import {
   openSandboxRun,
   type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import { type CheckBox, layerOutput, type RunArtifact, realnessGate, runChecks } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
 import { type CodingScenario, checkCmds } from './scenarios'
@@ -43,14 +49,29 @@ const maxRounds = 3
 /** Build the next-round prompt from the checks the AGENT is allowed to see — the
  *  pass/fail + output of the deterministic layers. NEVER from the rubric, realness,
  *  or judge. This is the firewall in action: the agent steers on objective check
- *  failures, nothing else. */
+ *  failures, nothing else.
+ *
+ *  typecheck/test are gating (a failure blocks `allPass`); lint is advisory (it never
+ *  gates) but its warnings are still surfaced here so the agent can fix style — visible
+ *  to the agent is decoupled from gates-allPass. Advisory warnings ride along as a
+ *  separate, clearly-labeled section. */
 function nextPrompt(report: RunArtifact['checks']): string {
   const fails: string[] = []
-  for (const layer of ['typecheck', 'test', 'lint'] as const) {
+  const advisories: string[] = []
+  for (const layer of ['typecheck', 'test'] as const) {
     const c = layerOutput(report, layer)
     if (!c.passed) fails.push(`${layer} failed:\n${c.output.slice(0, 1200)}`)
   }
-  return `Your solution did not pass these checks. Fix the file and try again.\n\n${fails.join('\n\n')}`
+  // lint is advisory: report its warnings (not "clean") without treating them as a
+  // gating failure, so style issues can actually be refined.
+  const lint = layerOutput(report, 'lint')
+  if (!lint.clean && lint.output) advisories.push(`lint warnings:\n${lint.output.slice(0, 1200)}`)
+
+  const sections = [`Your solution did not pass these checks. Fix the file and try again.`]
+  if (fails.length > 0) sections.push(fails.join('\n\n'))
+  if (advisories.length > 0)
+    sections.push(`Advisory (does not block, but improve if you can):\n${advisories.join('\n\n')}`)
+  return sections.join('\n\n')
 }
 
 /**
@@ -117,13 +138,20 @@ export function codingDispatch(
 
         // Deterministic checks, IN THE BOX, this round. These (and only these) steer
         // the next round — the firewall keeps the rubric/realness out of the loop.
-        checks = await runChecks(run.box as unknown as CheckBox, scenario, cmds)
+        // `run.box` is a `SandboxInstance`; `CheckBox` is the minimal `exec`(+optional
+        // `fs.write`) subset the checks actually use — a structural narrowing, no widening.
+        checks = await runChecks(run.box as CheckBox, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
       // The realness anchor runs AFTER the loop — never inside it, so it can never
-      // steer the agent. Its verdict is recorded for honesty AND gates the judge.
-      const realness = realnessGate(files, scenario.realnessSignals)
+      // steer the agent. Its verdict is recorded for honesty AND gates the judge. The
+      // seeded fixture is passed as a non-scored REFERENCE so the scan sees the
+      // solution IS imported (no spurious DEAD_ARTIFACT on a real solution); a cheat
+      // still gates regardless of what references it.
+      const realness = realnessGate(files, scenario.realnessSignals, [
+        { path: scenario.fixture.path, content: scenario.fixture.content },
+      ])
       await ctx.artifacts.writeJson(`realness/${ctx.cellId}.json`, realness)
 
       return { files, solution, finalText, checks, realness }
@@ -152,20 +180,22 @@ function blankReport(): RunArtifact['checks'] {
   }
 }
 
-/** Pull the agent's text out of a stream event (best-effort, for judge context). */
-function eventText(ev: unknown): string {
+/** Pull the agent's text out of a stream event (best-effort, for judge context). The
+ *  text payload isn't on `SandboxEvent`'s typed surface, so we read `data` defensively. */
+function eventText(ev: SandboxEvent): string {
   const e = ev as { data?: { finalText?: string; text?: string; delta?: string } }
   return e.data?.finalText ?? e.data?.text ?? e.data?.delta ?? ''
 }
 
 /** Sum token usage across the turn's events into the `{ input, output }` shape
  *  `ctx.cost.observeTokens` expects, using the runtime's own metering extractor so
- *  EVERY backend event shape (`done`/`result`/`llm_call`/`usage`) is counted. */
-function sumTokens(events: unknown[]): { input: number; output: number } {
+ *  EVERY backend event shape (`done`/`result`/`llm_call`/`usage`) is counted.
+ *  `events` is the turn's real `SandboxEvent[]` — `extractLlmCallEvent` takes it directly. */
+function sumTokens(events: SandboxEvent[]): { input: number; output: number } {
   let input = 0
   let output = 0
   for (const ev of events) {
-    const call = extractLlmCallEvent(ev as never, 'agent')
+    const call = extractLlmCallEvent(ev, 'agent')
     if (call) {
       input += call.tokensIn ?? 0
       output += call.tokensOut ?? 0

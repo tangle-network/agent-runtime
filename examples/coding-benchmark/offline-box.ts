@@ -53,7 +53,9 @@ function instanceMethods(workdir: string, script: OfflineScript) {
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, content, 'utf8')
       // The real sandbox terminal event shape: `done` with `data.tokenUsage` +
-      // top-level `totalCostUsd`. `extractLlmCallEvent` reads exactly this.
+      // top-level `totalCostUsd`. `extractLlmCallEvent` reads exactly this. The cast is
+      // structural: this is one member of the wide `SandboxEvent` union, written out
+      // literally; we don't reconstruct the whole union just to emit one done event.
       yield {
         type: 'done',
         data: {
@@ -97,6 +99,10 @@ export function offlineSandboxClient(script: OfflineScript): SandboxClient {
   return {
     async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const workdir = mkdtempSync(join(tmpdir(), 'coding-bench-'))
+      // The offline box implements only the members `openSandboxRun` actually calls
+      // (streamPrompt / fs / exec / delete), not the full `SandboxInstance`. The cast is
+      // a deliberate subset-as-superset for the offline seam; the live path uses the
+      // real SDK client. We don't stub the ~40 unused members to satisfy the type.
       return instanceMethods(workdir, script) as unknown as SandboxInstance
     },
   }
