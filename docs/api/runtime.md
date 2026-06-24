@@ -4990,6 +4990,116 @@ Base backoff (ms) for retrying a transient artifact `fs.read` failure; the i-th
 
 ***
 
+### NaiveDriverOptions
+
+Defined in: [runtime/steering-drivers.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L81)
+
+Options for [naiveDriver](#naivedriver).
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+#### Properties
+
+##### continuation
+
+> **continuation**: `string`
+
+Defined in: [runtime/steering-drivers.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L88)
+
+The fixed continuation issued every round after shot 0. The same string is
+sent whether the prior shot passed inspection or not — the naive driver
+reads no part of the verdict. Domain text is the caller's; the substrate
+supplies none.
+
+##### applyContinuation
+
+> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
+
+Defined in: [runtime/steering-drivers.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L90)
+
+Folds `continuation` into the caller's Task shape for the next shot.
+
+##### maxIterations
+
+> **maxIterations**: `number`
+
+Defined in: [runtime/steering-drivers.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L92)
+
+Hard shot cap. The loop stops refining once history reaches this length.
+
+##### name?
+
+> `optional` **name?**: `string`
+
+Defined in: [runtime/steering-drivers.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L94)
+
+Trace-event identifier. Default `'naive'`.
+
+***
+
+### DumbDriverOptions
+
+Defined in: [runtime/steering-drivers.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L135)
+
+Options for [dumbDriver](#dumbdriver).
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+#### Properties
+
+##### onPass
+
+> **onPass**: `string`
+
+Defined in: [runtime/steering-drivers.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L142)
+
+Continuation issued when the prior shot's verdict is valid. In a
+stop-on-pass loop this is rarely reached (a valid shot ends the loop), but
+it is required so the driver is total over the pass/fail bit; pass a
+confirmation/keep-going string.
+
+##### onFail
+
+> **onFail**: `string`
+
+Defined in: [runtime/steering-drivers.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L144)
+
+Continuation issued when the prior shot's verdict is NOT valid.
+
+##### applyContinuation
+
+> **applyContinuation**: [`ApplyContinuation`](#applycontinuation)\<`Task`\>
+
+Defined in: [runtime/steering-drivers.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L146)
+
+Folds the chosen continuation into the caller's Task shape.
+
+##### maxIterations
+
+> **maxIterations**: `number`
+
+Defined in: [runtime/steering-drivers.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L148)
+
+Hard shot cap. The loop stops refining once history reaches this length.
+
+##### name?
+
+> `optional` **name?**: `string`
+
+Defined in: [runtime/steering-drivers.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L150)
+
+Trace-event identifier. Default `'dumb'`.
+
+***
+
 ### AuthorStrategyOptions
 
 Defined in: [runtime/strategy-author.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy-author.ts#L77)
@@ -12146,6 +12256,54 @@ How a typed deliverable `Out` is materialized from a finished turn.
 
 ***
 
+### SteeringDecision
+
+> **SteeringDecision** = `"refine"` \| `"pick-winner"` \| `"fail"`
+
+Defined in: [runtime/steering-drivers.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L54)
+
+Terminal-or-continue decision shared by all three steering drivers. The
+non-terminal `'refine'` keeps the loop running another shot; the terminal
+`'pick-winner'`/`'fail'` stop it (`isTerminalDecision` in run-loop.ts treats
+`'pick-winner'` and `'fail'` as terminal and any other string as a request
+for another round). Identical to the reference refine driver's decision set.
+
+***
+
+### ApplyContinuation
+
+> **ApplyContinuation**\<`Task`\> = (`task`, `continuation`) => `Task`
+
+Defined in: [runtime/steering-drivers.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L63)
+
+Fold a steering string into the caller's Task shape, producing the Task for
+the next shot. The substrate never assumes how a Task carries its prompt, so
+the caller supplies this — the same way it supplies `taskToPrompt`. The
+original `task` is passed so the fold can preserve task-level fields (ids,
+fixtures, feature names) and replace only the instruction.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+#### Parameters
+
+##### task
+
+`Task`
+
+##### continuation
+
+`string`
+
+#### Returns
+
+`Task`
+
+***
+
 ### ChampionPolicy
 
 > **ChampionPolicy** = `"score"` \| `"costAware"`
@@ -14145,6 +14303,85 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 #### Returns
 
 `Promise`\<[`SandboxRun`](#sandboxrun)\<`Out`\>\>
+
+***
+
+### naiveDriver()
+
+> **naiveDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+Defined in: [runtime/steering-drivers.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L108)
+
+`naiveDriver` — the no-signal steering control.
+
+`plan()` runs the initial `task` at shot 0, then issues the SAME fixed
+`continuation` every subsequent round until a shot is valid or the cap is
+hit. It reads NOTHING from `history[last].verdict` — not `.valid`, not
+`.notes`, not `.scores`. It is the floor a coached loop must beat to earn its
+coaching: any lift over naive that is not also present in `dumb` is
+attributable to the pass/fail bit, and any lift of `refine` over `dumb` is
+attributable to the grader's findings.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+#### Parameters
+
+##### options
+
+[`NaiveDriverOptions`](#naivedriveroptions)\<`Task`\>
+
+#### Returns
+
+[`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+***
+
+### dumbDriver()
+
+> **dumbDriver**\<`Task`, `Output`\>(`options`): [`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
+
+Defined in: [runtime/steering-drivers.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/steering-drivers.ts#L167)
+
+`dumbDriver` — the pass/fail-only steering control.
+
+`plan()` runs the initial `task` at shot 0, then reads ONLY
+`history[last].verdict.valid` (the boolean) and issues `onPass` or `onFail`
+accordingly. It MUST NOT read `.notes` or `.scores` — that boundary is the
+leak-free firewall. A `verdict` with no `valid` set (or no verdict) is
+treated as not-valid, so the driver is total and never throws on a
+grader/transport gap.
+
+The `dumb → refine` gap is the headline measurement: refine reads the
+grader's `notes`, dumb reads only the pass/fail bit, so the difference is
+exactly the value the findings add over a bare boolean.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+#### Parameters
+
+##### options
+
+[`DumbDriverOptions`](#dumbdriveroptions)\<`Task`\>
+
+#### Returns
+
+[`Driver`](#driver-1)\<`Task`, `Output`, [`SteeringDecision`](#steeringdecision)\>
 
 ***
 

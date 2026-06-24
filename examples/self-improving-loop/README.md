@@ -3,16 +3,21 @@
 The v0 → judge → analyst → mutation → v1 → gate cycle in one runnable file:
 `@tangle-network/agent-eval`'s multishot + judge primitives driven from this
 package, with the `@tangle-network/sandbox` `AgentProfile` type as the shared
-contract. The analyst and gate are hand-rolled inline so the demo is
-deterministic and offline — in production, use `selfImprove` from
-`@tangle-network/agent-eval` for text-surface optimization, or
+contract. The finding type and the gate statistic are the real substrate
+primitives — the analyst emits a canonical `AnalystFinding` (`makeFinding`) and
+the gate ships on a `pairedBootstrap` confidence interval, the production
+held-out gate's statistical core. Only the analyst body, the proposer, and the
+LLM are scripted, so the demo is deterministic and offline. In production, run
+`improve()` over `selfImprove` from `@tangle-network/agent-eval` for text-surface
+optimization (see [`examples/improve/`](../improve/) and
+[`examples/intelligence-recommend/`](../intelligence-recommend/)), or
 `runStrategyEvolution` + `promotionGate` from
 `@tangle-network/agent-runtime/loops` for strategy/topology optimization (see
 [`examples/strategy-suite/`](../strategy-suite/)).
 
 ## What it shows
 
-The 7-phase evolution loop in `self-improving-loop.ts`. Each phase is annotated with the substrate package that owns it (per the *Where each substrate piece lives* table below). The load-bearing join is the gate: it compares the v0 and v1 means and is the only thing that decides whether the mutation ships.
+The 7-phase evolution loop in `self-improving-loop.ts`. Each phase is annotated with the substrate package that owns it (per the *Where each substrate piece lives* table below). The load-bearing join is the gate: it pairs v1 against v0 per persona and ships only if the `pairedBootstrap` CI lower bound clears 0 — the production held-out gate's statistical core, not a bare mean-delta threshold.
 
 ```mermaid
 flowchart TD
@@ -30,7 +35,7 @@ flowchart TD
   j0theo --> v0mean
   j0aur --> v0mean
 
-  v0mean --> P2["Phase 2 — runAnalyst<br/>sort runs, take worst (b2b-saas)<br/>emit AnalystFinding{rootCause, proposedMutation}<br/><i>@tangle-network/agent-runtime/analyst-loop (in prod)</i>"]
+  v0mean --> P2["Phase 2 — runAnalyst<br/>sort runs, take worst (b2b-saas)<br/>makeFinding → AnalystFinding{claim, recommended_action}<br/><i>agent-eval makeFinding · prod: @tangle-network/agent-runtime/analyst-loop</i>"]
 
   P2 --> P3["Phase 3 — applyMutation<br/>append mutation as systemPrompt suffix<br/><i>(this file)</i>"]
   P3 --> v1["AgentProfile v1<br/>baseline + 'IMPROVED v1: ...'<br/><i>@tangle-network/sandbox</i>"]
@@ -47,11 +52,11 @@ flowchart TD
   j1theo --> v1mean
   j1aur --> v1mean
 
-  v0mean -.v0 baseline.-> gate
-  v1mean --> gate{"Phase 5 — gate<br/>v1Mean − v0Mean ≥ requiredDelta (0.5)?<br/><i>(this file)</i>"}
+  v0mean -.v0 paired.-> gate
+  v1mean --> gate{"Phase 5 — gate<br/>pairedBootstrap(v0, v1).low &gt; 0?<br/><i>agent-eval statistics · prod: HeldOutGate / improve()</i>"}
 
-  gate -->|"ship: true"| promoted["PROMOTED v1 → production"]
-  gate -->|"hold (delta < 0.5)"| held["HELD — keep v0"]
+  gate -->|"ship: true (CI clears 0)"| promoted["PROMOTED v1 → production"]
+  gate -->|"hold (CI includes 0)"| held["HELD — keep v0"]
 ```
 
 This is the loop every product wires for evolution — the substrate makes each piece composable, this example shows them snapping together.
@@ -74,13 +79,13 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
 ═══ self-improving-loop demo ═══
 
 — Phase 1: v0 baseline run
-  v0 mean: 3.00 (over 3 personas)
+  v0 mean: 3.17 (over 3 personas)
     cpg-founder    composite=3.50
     b2b-saas       composite=2.50
     creator        composite=3.50
 
 — Phase 2: analyst proposes mutation
-  root cause: b2b-saas run scored 2.5 — output was too generic, no concrete posts.
+  root cause: Theo run scored 2.5 — output was too generic, no concrete posts.
   mutation:   Always include 2 ready-to-post examples tailored to the persona's exact domain...
 
 — Phase 3: apply mutation → v1 profile
@@ -92,7 +97,7 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
     creator        composite=8.50
 
 — Phase 5: gate decision
-  ship: true | delta: +5.50 | v1 beat v0 by 5.50 (>= 0.5)
+  ship: true | paired median delta: +5.00 | paired median +5.00, 95% CI [5.00, 6.00] clears 0 (n=3)
 
 ═══ PROMOTED v1 → production ═══
 ```
@@ -104,9 +109,9 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
 | 1, 4 | `@tangle-network/agent-eval/multishot` `runMultishot` | Multi-turn driver-agent loop + inline tool execution |
 | 1, 4 | `@tangle-network/agent-eval/multishot` `runJudge` | Generic 0-10 dimensional scorer with JSON parsing |
 | 1-7 | `@tangle-network/sandbox` `AgentProfile` | The substrate type that flows unwrapped through the entire loop |
-| 2 | `@tangle-network/agent-runtime/analyst-loop` `runAnalystLoop` | Real product analyst — reads traces, finds patterns, proposes mutations (mocked here for reproducibility) |
+| 2 | `@tangle-network/agent-eval` `makeFinding` → `AnalystFinding` | The canonical finding type the loop reflects on. The analyst BODY (which finding) is scripted here; in production `@tangle-network/agent-runtime/analyst-loop` `runAnalystLoop` reads traces and emits these |
 | 3 | (this file) `applyMutation` | Domain-specific — typically a systemPrompt suffix or a tool addition |
-| 5 | (this file) `gate` | Domain-specific — products usually use `evaluateReleaseConfidence` from agent-eval with a held-out set + threshold |
+| 5 | `@tangle-network/agent-eval` `pairedBootstrap` | The real paired-bootstrap CI the production held-out gate is built on. Products call the full gate (`HeldOutGate` / `improve()` over `selfImprove`, `agent-eval/contract`) with a held-out set + threshold |
 
 ## How this maps to a real product
 

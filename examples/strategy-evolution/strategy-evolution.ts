@@ -21,66 +21,16 @@ import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
 import {
   type AgenticTask,
-  type ArtifactHandle,
-  type Environment,
   refine,
   runStrategyEvolution,
   sample,
 } from '@tangle-network/agent-runtime/loops'
+import { counterEnv, counterTask } from '../strategy-suite/counter-env'
 
-// ── The Environment — your domain + its own check ───────────────────────────
-// A toy: drive a counter to the target with the increment tool. A real domain opens a repo, a
-// browser, or an MCP server the same way and scores it with its own deployable check.
-
-const target = 5
-const counters = new Map<string, { count: number }>()
-
-const counterEnv: Environment = {
-  name: 'counter',
-  async open(_task) {
-    const id = `counter-${Math.random().toString(36).slice(2, 8)}`
-    counters.set(id, { count: 0 })
-    return { id, surface: 'counter' } satisfies ArtifactHandle
-  },
-  async tools() {
-    return [
-      {
-        type: 'function',
-        function: {
-          name: 'increment',
-          description: 'Add 1 to the counter.',
-          parameters: { type: 'object', properties: {} },
-        },
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'read_count',
-          description: 'Read the current counter value.',
-          parameters: { type: 'object', properties: {} },
-        },
-      },
-    ]
-  },
-  async call(handle, name) {
-    const c = counters.get(handle.id)
-    if (!c) return 'ERROR: no such counter'
-    if (name === 'increment') {
-      c.count += 1
-      return `count is now ${c.count}`
-    }
-    if (name === 'read_count') return `count is ${c.count}`
-    return `ERROR: unknown tool ${name}`
-  },
-  // The deployable CHECK — your own success criterion, never an LLM's opinion.
-  async score(_task, handle) {
-    const count = counters.get(handle.id)?.count ?? 0
-    return { passes: Math.min(count, target), total: target, errored: 0 }
-  },
-  async close(handle) {
-    counters.delete(handle.id)
-  },
-}
+// ── The domain ──────────────────────────────────────────────────────────────
+// `counterEnv` (the shared toy `Environment` + its own deployable check) lives in
+// ../strategy-suite/counter-env.ts so this file shows only its DISTINCT concept: the
+// disjoint-slice task supplier + the held-out promotion gate.
 
 // ── The task supplier — DISJOINT slices by offset ───────────────────────────
 // The engine calls this with (0, trainN) for the practice set and (trainN + holdoutOffset, holdoutN)
@@ -88,11 +38,7 @@ const counterEnv: Environment = {
 // good holdout score cannot be memorization of the practice tasks.
 
 const tasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
-  Array.from({ length: n }, (_, i) => ({
-    id: `counter-${offset + i}`,
-    systemPrompt: 'You operate a counter with tools.',
-    userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
-  }))
+  Array.from({ length: n }, (_, i) => counterTask(`counter-${offset + i}`))
 
 async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY

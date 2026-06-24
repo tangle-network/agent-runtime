@@ -6,13 +6,19 @@
 //   1. baseline AgentProfile (substrate type from @tangle-network/sandbox)
 //   2. runMultishot over N personas (from @tangle-network/agent-eval/multishot)
 //   3. 3 judges score conversations + artifacts
-//   4. analyst phase reads transcripts → proposes a systemPrompt mutation
+//   4. analyst phase reads transcripts → emits a canonical `AnalystFinding` (`makeFinding`,
+//      agent-eval) carrying the proposed systemPrompt mutation as `recommended_action`
 //   5. apply mutation → new AgentProfile variant
 //   6. re-run multishot with v1 profile
-//   7. gate compares v0 vs v1 means → ship / no-ship decision
+//   7. gate pairs v1 vs v0 per persona and ships only if the `pairedBootstrap` CI lower bound
+//      clears 0 — the production held-out gate's statistical core (NOT a bare mean-delta threshold)
 //
-// See README.md for the conceptual map.
+// The finding type and the gate statistic are the real substrate primitives (not a local one-off);
+// the analyst body, the proposer, and the LLM are scripted ONLY so the demo runs offline and
+// deterministically. The production path is `improve()` over `selfImprove` (see examples/improve/)
+// or `runStrategyEvolution` + `promotionGate`. See README.md for the conceptual map.
 
+import { type AnalystFinding, makeFinding, pairedBootstrap } from '@tangle-network/agent-eval'
 import {
   type JudgeConfig,
   type MultishotMessage,
@@ -111,25 +117,28 @@ const conversationJudge: JudgeConfig<{ transcript: MultishotMessage[]; persona: 
         .join('\n\n')}\n\nRespond with ONLY: {"concreteness":N,"audience_fit":N,"notes":"..."}`,
   }
 
-// ── 5. Analyst — reads v0 transcripts + scores, proposes a mutation ────────
-
-interface AnalystFinding {
-  rootCause: string
-  proposedMutation: string
-}
+// ── 5. Analyst — reads v0 transcripts + scores, emits a canonical AnalystFinding ──
+// The reflective step a production analyst-loop runs (@tangle-network/agent-runtime/analyst-loop /
+// improvementDriver). The finding type is the canonical `AnalystFinding` from agent-eval — stamped via
+// `makeFinding` (schema-version / finding-id / timestamp) — NOT a local one-off interface; that is the
+// exact shape `improve(profile, findings, opts)` reflects on. The proposed mutation rides
+// `recommended_action`. Offline we derive it deterministically so the demo stays reproducible.
 
 async function runAnalyst(
   v0Runs: Array<{ persona: FounderPersona; result: MultishotResult; score: { composite: number } }>,
 ): Promise<AnalystFinding> {
-  // In a real product the analyst would be an LLM call (@tangle-network/agent-runtime/analyst-loop).
-  // Here we synthesise the finding deterministically so the demo is reproducible.
   const worst = [...v0Runs].sort((a, b) => a.score.composite - b.score.composite)[0]
   if (!worst) throw new Error('analyst: no v0 runs to analyze')
-  return {
-    rootCause: `${worst.persona.name} run scored ${worst.score.composite.toFixed(1)} — output was too generic, no concrete posts.`,
-    proposedMutation:
+  return makeFinding({
+    analyst_id: 'content-quality-analyst',
+    severity: 'high',
+    area: 'agent-reasoning',
+    claim: `${worst.persona.name} run scored ${worst.score.composite.toFixed(1)} — output was too generic, no concrete posts.`,
+    confidence: 0.9,
+    evidence_refs: [],
+    recommended_action:
       "Always include 2 ready-to-post examples tailored to the persona's exact domain (use specific verbs, numbers, and audience language).",
-  }
+  })
 }
 
 function applyMutation(base: AgentProfile, mutation: string): AgentProfile {
@@ -142,20 +151,28 @@ function applyMutation(base: AgentProfile, mutation: string): AgentProfile {
   }
 }
 
-// ── 6. Gate — promote v1 only if it beats v0 by >= delta ───────────────────
+// ── 6. Gate — promote v1 only if the PAIRED-bootstrap CI lower bound clears 0 ──
+// The ship rule the production held-out gate (`HeldOutGate` / `improve()` over `selfImprove`,
+// `agent-eval/contract`) enforces, reduced to its statistical core: pair v1 against v0 per scenario,
+// bootstrap a CI on the median paired delta, and ship only if the CI's lower bound beats 0 — i.e. the
+// lift is unlikely to be luck. `pairedBootstrap` (the same statistics primitive the real gate is built
+// on) does exactly this; the `seed` keeps it deterministic offline. NOT a bare `v1Mean − v0Mean >= 0.5`
+// point comparison, which throws away the paired CI and the minimum-evidence floor.
 
 function gate(
-  v0Mean: number,
-  v1Mean: number,
-  requiredDelta = 0.5,
-): { ship: boolean; delta: number; reason: string } {
-  const delta = v1Mean - v0Mean
-  if (delta >= requiredDelta)
-    return { ship: true, delta, reason: `v1 beat v0 by ${delta.toFixed(2)} (>= ${requiredDelta})` }
+  v0Scores: number[],
+  v1Scores: number[],
+): { ship: boolean; delta: number; low: number; high: number; reason: string } {
+  const ci = pairedBootstrap(v0Scores, v1Scores, { seed: 42 })
+  const ship = ci.low > 0
   return {
-    ship: false,
-    delta,
-    reason: `v1 only beat v0 by ${delta.toFixed(2)} (< ${requiredDelta})`,
+    ship,
+    delta: ci.median,
+    low: ci.low,
+    high: ci.high,
+    reason: ship
+      ? `paired median +${ci.median.toFixed(2)}, 95% CI [${ci.low.toFixed(2)}, ${ci.high.toFixed(2)}] clears 0 (n=${ci.n})`
+      : `paired median ${ci.median >= 0 ? '+' : ''}${ci.median.toFixed(2)}, 95% CI [${ci.low.toFixed(2)}, ${ci.high.toFixed(2)}] includes 0 — not beyond luck (n=${ci.n})`,
   }
 }
 
@@ -171,11 +188,8 @@ async function runVariant(profile: AgentProfile, scriptedReplies: ScriptedReply[
       score: { composite: number }
     }> = []
     for (const persona of PERSONAS) {
-      // A "shot" = one independent worker attempt/sample. `runMultishot` plays N shots
-      // in parallel and reports each; here each persona gets one shot (maxTurns:1 = one
-      // turn per shot). Contrast with a "round" (the driver-loop sense): a shot is ONE
-      // worker attempt; a round is one full plan → run workers → decide cycle that can
-      // span many shots. See examples/driver-loop/ for the round/shot vocabulary block.
+      // Each persona gets one shot (`maxTurns: 1`). `runMultishot` plays N shots in
+      // parallel. (shot/round vocabulary: see examples/driver-loop/.)
       const result = await runMultishot({ profile, persona, shape, maxTurns: 1 })
       const score = await runJudge(conversationJudge, { transcript: result.transcript, persona })
       runs.push({ persona, result, score })
@@ -207,11 +221,12 @@ async function main(): Promise<void> {
 
   console.log('\n— Phase 2: analyst proposes mutation')
   const finding = await runAnalyst(v0.runs)
-  console.log(`  root cause: ${finding.rootCause}`)
-  console.log(`  mutation:   ${finding.proposedMutation}`)
+  const mutation = finding.recommended_action ?? ''
+  console.log(`  root cause: ${finding.claim}`)
+  console.log(`  mutation:   ${mutation}`)
 
   console.log('\n— Phase 3: apply mutation → v1 profile')
-  const v1 = applyMutation(baseline, finding.proposedMutation)
+  const v1 = applyMutation(baseline, mutation)
 
   // v1 replies: now concrete + audience-fit
   const v1Replies: ScriptedReply[] = [
@@ -236,9 +251,13 @@ async function main(): Promise<void> {
     console.log(`    ${r.persona.id.padEnd(14)} composite=${r.score.composite.toFixed(2)}`)
 
   console.log('\n— Phase 5: gate decision')
-  const verdict = gate(v0.mean, v1Result.mean)
+  // Pair v1 against v0 per persona (both iterate PERSONAS in order, so index aligns) and gate on the
+  // paired-bootstrap CI — the production held-out gate's statistical core, not a bare mean delta.
+  const v0Scores = v0.runs.map((r) => r.score.composite)
+  const v1Scores = v1Result.runs.map((r) => r.score.composite)
+  const verdict = gate(v0Scores, v1Scores)
   console.log(
-    `  ship: ${verdict.ship} | delta: ${verdict.delta >= 0 ? '+' : ''}${verdict.delta.toFixed(2)} | ${verdict.reason}`,
+    `  ship: ${verdict.ship} | paired median delta: ${verdict.delta >= 0 ? '+' : ''}${verdict.delta.toFixed(2)} | ${verdict.reason}`,
   )
 
   if (verdict.ship) {
