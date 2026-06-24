@@ -75,7 +75,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "prepare": "tsup",
+    "prepare": "(git rev-parse --git-dir > /dev/null 2>&1 && git config core.hooksPath .githooks) || true; tsup",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src tests examples",

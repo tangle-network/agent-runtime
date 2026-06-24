@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# Auto-fix biome (lint + format) on staged files, then re-stage them so the
+# commit lands clean. No-op when biome isn't installed or nothing relevant is
+# staged. Activated by `prepare` (git config core.hooksPath .githooks).
+[ -x ./node_modules/.bin/biome ] || exit 0
+files=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|jsx|json|jsonc)$' || true)
+[ -z "$files" ] && exit 0
+printf '%s\n' "$files" | xargs ./node_modules/.bin/biome check --write --no-errors-on-unmatched
+printf '%s\n' "$files" | xargs git add
