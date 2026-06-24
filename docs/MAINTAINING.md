@@ -122,6 +122,14 @@ to regenerate after a TSDoc change), then runs the freshness gate. CI runs this 
 last step of the `ci` job (`.github/workflows/ci.yml`); drift is a red build, not a
 silent lie.
 
+**The pre-commit hook (`.githooks/pre-commit`) is the gate's self-healing companion.**
+When a staged change adds/removes an export under `src/` (or edits the `package.json`
+`exports` map), the hook rebuilds and regenerates `docs/api/primitive-catalog.md` and
+re-stages it, so the commit already carries a fresh catalog and you don't hit the "forgot
+to regenerate" red build. It no-ops on changes that can't affect the catalog, skips in CI
+(where `docs:check` runs regardless), and is bypassable with `SKIP_DOCS_REGEN=1`. The gate
+catches drift; the hook prevents it.
+
 The `git diff --exit-code -- docs/api` staleness catch relies on the **tracked
 per-module README index** (`docs/api/<module>/README.md`): every new export — even one
 with no TSDoc — adds a link line to that index, dirtying a tracked file. `git diff`
