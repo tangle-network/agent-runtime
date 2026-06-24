@@ -8,23 +8,32 @@
  */
 
 import {
+  blendHeldout,
   type ChatClient,
   ensembleJudge,
+  gradeOnHidden,
+  type HiddenCriteriaGrader,
+  type HiddenGradeResult,
+  hiddenGrade,
   type Layer,
   MultiLayerVerifier,
+  type RoutedField,
   type VerificationReport,
+  withHeldoutBlend,
 } from '@tangle-network/agent-eval'
-// `llmJudge` is imported from the `/campaign` subpath, not the main index: it is
-// exported from `/campaign` across the entire declared peer range (>=0.97), whereas the
-// main-index re-export is newer — so a consumer pinned to the peer floor still compiles.
+// `llmJudge` + the judge types are imported from the `/campaign` subpath, not the main
+// index: they are exported from `/campaign` across the entire declared peer range (>=0.97),
+// whereas the main-index re-export is newer — so a consumer pinned to the peer floor still
+// compiles. (The hidden-criteria port above is new in >=0.100 and lives at the root only,
+// which the devDependency floor now matches.)
 import { type JudgeConfig, type JudgeScore, llmJudge } from '@tangle-network/agent-eval/campaign'
 import type { CodingScenario, TestFile } from './scenarios'
 
 // ── the composite weighting ───────────────────────────────────────────────────
 // Held-out correctness is the PRIMARY, ungameable score; the judge is a secondary
-// quality signal. composite = heldoutWeight·heldout + judgeWeight·judge.
-export const heldoutWeight = 0.7
-export const judgeWeight = 0.3
+// quality signal. The substrate's `blendHeldout` renormalizes these, so they are a
+// ratio: composite = heldout·heldout-pass-rate + judge·judge-quality.
+export const blendWeights = { heldout: 0.7, judge: 0.3 } as const
 
 // ── the judge rubric (4 weighted dimensions, total 1.0) ───────────────────────
 // The rubric text + anchors live HERE, with the judge — never in the workdir. The
@@ -57,17 +66,9 @@ const weights = Object.fromEntries(dimKeys.map((k) => [k, rubric[k].weight])) as
 const dimensions = dimKeys.map((k) => ({ key: k, description: rubric[k].description }))
 
 // ── the held-out result ────────────────────────────────────────────────────────
-export interface HeldoutResult {
-  /** Held-out tests that passed. */
-  passed: number
-  /** Total held-out tests run. */
-  total: number
-  /** Pass rate (0..1) — the PRIMARY correctness score. 0 when the suite errored
-   *  (typecheck failure, import failure, or no tests ran). */
-  passRate: number
-  /** Captured runner output (record only). */
-  notes: string
-}
+// The substrate's canonical hidden-criteria grade: { passed, total, passRate, notes? }.
+// `passRate` is the PRIMARY correctness score; `hiddenGrade` makes a no-run an honest 0.
+export type HeldoutResult = HiddenGradeResult
 
 // ── the artifact the dispatch produces and the judges score ───────────────────
 export interface RunArtifact {
@@ -80,6 +81,10 @@ export interface RunArtifact {
   /** The held-out test execution result, run AFTER the loop. The PRIMARY score. */
   heldout: HeldoutResult
 }
+
+/** Read the held-out pass rate off a run artifact — the seam `withHeldoutBlend` calls to
+ *  fold the PRIMARY correctness score into the composite. */
+export const heldoutPassRateOf = (artifact: RunArtifact): number => artifact.heldout.passRate
 
 // ── layer 1: the deterministic check pipeline (visible tests) ──────────────────
 
@@ -196,40 +201,82 @@ export function layerOutput(
 
 // ── layer 2: held-out test execution (the PRIMARY anti-cheat) ──────────────────
 
+/** The hidden criteria for a coding task: the held-out test file to seed at grading +
+ *  the command to run it. This is the `THidden` payload the grader receives — opaque to
+ *  the substrate, owned by the coding domain. */
+export interface CodingHiddenCriteria {
+  heldoutTest: TestFile
+  heldoutCmd: string
+}
+
 /**
- * Seed the held-out suite into the box AFTER the loop and run it. The score is the
- * held-out PASS RATE — the primary, ungameable correctness number. The agent never saw
- * these tests during the turn (the firewall), so a solution that hardcoded the visible
- * examples or faked the hard part fails them; only real behavior passes.
+ * THE DOMAIN GRADER — the coding `HiddenCriteriaGrader` a consumer plugs into
+ * `gradeOnHidden`. The substrate bakes in NO node/test/TS/exec/regex; THIS is where the
+ * coding execution lives: seed the held-out suite into the box AFTER the loop and run it,
+ * then read the pass counts off `node --test`'s output. The score is the held-out PASS
+ * RATE — the primary, ungameable correctness number. The agent never saw these tests during
+ * the turn (the firewall), so a hardcode-the-visible cheat or a faked impl fails them.
  *
  * `node --test` prints a TAP-ish summary (`# tests N`, `# pass N`, `# fail N`). We parse
  * those counts. A non-zero exit with no parseable counts (a typecheck/import error before
- * any test ran) is a 0/0 → passRate 0 — the honest "did not even run" signal, never a
- * spurious pass. This runs in the SAME box, so it sees the agent's real solution file.
+ * any test ran) is a 0/0 → `hiddenGrade` makes that an honest passRate 0, never a spurious
+ * pass. The grader runs in the box (the `artifact`), so it sees the agent's real solution.
  */
-export async function runHeldout(
+export function nodeTestGrader(): HiddenCriteriaGrader<CheckBox, CodingHiddenCriteria> {
+  return async (box, criteria): Promise<HiddenGradeResult> => {
+    await seedFile(box, criteria.heldoutTest)
+    const r = await box.exec(criteria.heldoutCmd)
+    const output = `${r.stdout}\n${r.stderr}`.trim()
+    const { total, pass } = parseTestCounts(output)
+    // `hiddenGrade` normalizes: total === 0 (the suite never ran — e.g. the solution
+    // didn't typecheck or import) becomes the honest passRate 0, never a spurious pass.
+    return hiddenGrade(
+      pass,
+      total,
+      total > 0
+        ? `held-out ${pass}/${total} pass`
+        : `held-out suite did not run (exit ${r.exitCode})`,
+    )
+  }
+}
+
+/** A pre-built coding grader — one instance reused by every grading call. */
+const codingGrader = nodeTestGrader()
+
+/**
+ * Run the held-out grader directly (NO firewall — the firewall is `gradeOnHiddenCriteria`,
+ * which re-asserts it on real data before grading). This is the bare executor seam: seed
+ * the held-out suite, run it, return the `HiddenGradeResult`. Used where the suite to run
+ * is supplied explicitly (the smoke test grades the visible suite this way too).
+ */
+export function runHeldout(
   box: CheckBox,
   scenario: CodingScenario,
   heldoutCmd: string,
-): Promise<HeldoutResult> {
-  await seedFile(box, scenario.heldoutTest)
-  const r = await box.exec(heldoutCmd)
-  const output = `${r.stdout}\n${r.stderr}`.trim()
-  const counts = parseTestCounts(output)
-  // No parseable counts means the suite never ran (e.g. the solution didn't typecheck or
-  // import) — that is a 0 pass rate, the honest "did not even run" result.
-  const total = counts.total
-  const passed = counts.pass
-  const passRate = total > 0 ? passed / total : 0
-  return {
-    passed,
-    total,
-    passRate,
-    notes:
-      total > 0
-        ? `held-out ${passed}/${total} pass`
-        : `held-out suite did not run (exit ${r.exitCode})`,
-  }
+): Promise<HiddenGradeResult> {
+  return Promise.resolve(codingGrader(box, { heldoutTest: scenario.heldoutTest, heldoutCmd }))
+}
+
+/**
+ * Grade behind the firewall — the dispatch's grading call. `agent-eval`'s `gradeOnHidden`
+ * re-asserts `assertNoHiddenLeak` against the exact agent context the run used (proving, on
+ * real data at grading time, that the held-out suite + rubric never reached the agent), THEN
+ * runs the coding grader. A breach throws — the firewall is enforcement, not a comment.
+ */
+export function gradeOnHiddenCriteria(
+  box: CheckBox,
+  scenario: CodingScenario,
+  heldoutCmd: string,
+  firewall: { fields: readonly RoutedField[]; agentContext: string },
+  signal?: AbortSignal,
+): Promise<HiddenGradeResult> {
+  return gradeOnHidden<CheckBox, CodingHiddenCriteria>({
+    artifact: box,
+    hiddenCriteria: { heldoutTest: scenario.heldoutTest, heldoutCmd },
+    grader: codingGrader,
+    firewall,
+    signal,
+  })
 }
 
 /** Parse `node --test`'s summary counts from its output. Reads the `tests`, `pass`, and
@@ -294,7 +341,7 @@ export function singleCodeJudge(chat: ChatClient): JudgeConfig<RunArtifact, Codi
     appliesTo: (s) => s.kind === 'coding',
     renderUser: ({ artifact, scenario }) => renderForJudge(artifact, scenario),
   })
-  return blendHeldout(base)
+  return withHeldoutComposite(base)
 }
 
 /** ── THREE judges ────────────────────────────────────────────────────────────
@@ -324,50 +371,42 @@ export function ensembleCodeJudge(
       return { model, perDimension }
     },
   }) as JudgeConfig<RunArtifact, CodingScenario>
-  return blendHeldout(base)
+  return withHeldoutComposite(base)
 }
 
 // ── the composite: held-out correctness (PRIMARY) + judge quality (secondary) ──
 
 /**
  * Blend the PRIMARY held-out pass rate with the SECONDARY judge composite into the final
- * score the leaderboard ranks on. This is what makes held-out execution the load-bearing
+ * score the leaderboard ranks on — `agent-eval`'s `blendHeldout` (renormalized weights,
+ * both inputs clamped to [0,1]). This is what makes held-out execution the load-bearing
  * grade: a solution that fails the held-out suite is capped low no matter how the judge
- * felt about its style, and a stylistically-mediocre but CORRECT solution still scores
- * the bulk of the points.
+ * felt about its style, and a stylistically-mediocre but CORRECT solution still scores the
+ * bulk of the points. Re-exported under the bench's name so the smoke test reads in the
+ * domain's vocabulary.
  */
 export function composeScore(heldoutPassRate: number, judgeComposite: number): number {
-  return heldoutWeight * heldoutPassRate + judgeWeight * judgeComposite
+  return blendHeldout(heldoutPassRate, judgeComposite, blendWeights)
 }
 
-/** Wrap a judge so the composite it REPORTS is the held-out-weighted blend. The judge
- *  still scores its quality dimensions (recorded, secondary), but the composite the
- *  matrix stamps as the run's score is `composeScore(heldoutPassRate, judgeComposite)` —
- *  so the leaderboard ranks on execution truth first, style second. The artifact is in
- *  scope at score time, so the held-out pass rate (computed before the judge runs) is
- *  read directly off it; no separate stats-side blend is needed. */
-function blendHeldout(
+/** Wrap a judge so the composite it REPORTS is the held-out-weighted blend — the substrate's
+ *  `withHeldoutBlend` does exactly this: the judge still scores its quality dimensions
+ *  (recorded, secondary), but the composite downstream selection reads becomes
+ *  `blendHeldout(heldoutPassRate(artifact), judgeComposite, weights)`. The held-out pass
+ *  rate is read off the artifact via `heldoutPassRateOf` (already computed before the judge
+ *  runs), so no second grading pass is needed. We thread it back through a `JudgeConfig` so
+ *  the matrix's judge interface is unchanged. */
+function withHeldoutComposite(
   judge: JudgeConfig<RunArtifact, CodingScenario>,
 ): JudgeConfig<RunArtifact, CodingScenario> {
+  const blendedScore = withHeldoutBlend<RunArtifact>(
+    (input) => judge.score(input as Parameters<typeof judge.score>[0]),
+    heldoutPassRateOf,
+    blendWeights,
+  )
   return {
     ...judge,
-    async score(input: {
-      artifact: RunArtifact
-      scenario: CodingScenario
-      signal: AbortSignal
-    }): Promise<JudgeScore> {
-      const base = await judge.score(input)
-      const heldout = input.artifact.heldout
-      const composite = composeScore(heldout.passRate, base.composite)
-      return {
-        ...base,
-        composite,
-        notes:
-          `composite=${composite.toFixed(3)} ` +
-          `(held-out ${(heldout.passRate * 100).toFixed(0)}% × ${heldoutWeight} + ` +
-          `quality ${base.composite.toFixed(3)} × ${judgeWeight})` +
-          (base.notes ? ` — ${base.notes}` : ''),
-      }
-    },
+    score: (input: { artifact: RunArtifact; scenario: CodingScenario; signal: AbortSignal }) =>
+      blendedScore(input) as Promise<JudgeScore>,
   }
 }

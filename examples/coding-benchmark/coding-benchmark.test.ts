@@ -19,12 +19,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import type { RunRecord } from '@tangle-network/agent-eval'
+import { assertNoHiddenLeak, type RunRecord } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { main, offlineAgentScripts } from './benchmark'
 import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
 import { harnessProfiles } from './profiles'
-import { type CodingScenario, checkCmds, scenarios } from './scenarios'
+import { type CodingScenario, checkCmds, routeCodingFields, scenarios } from './scenarios'
 import { pairwiseStats } from './stats'
 
 const execAsync = promisify(execCb)
@@ -84,7 +84,9 @@ async function gradeSolution(
     return {
       visiblePassRate: visible.passRate,
       heldoutPassRate: heldout.passRate,
-      heldoutNotes: heldout.notes,
+      // `HiddenGradeResult.notes` is optional in the substrate type; the coding grader
+      // always sets it, so coalesce for the diagnostic message.
+      heldoutNotes: heldout.notes ?? '',
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -185,6 +187,30 @@ describe('coding-benchmark (offline)', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   }, 60_000)
+
+  // FIREWALL ENFORCEMENT (the agent-eval port): `assertNoHiddenLeak` over the routed fields
+  // is real enforcement, not a comment — a clean agent context passes, but the held-out
+  // suite's CONTENT inside the context is a breach that THROWS. This is what the dispatch's
+  // `gradeOnHidden` re-asserts on real data at grading time.
+  it.each(
+    scenarios,
+  )('the firewall passes a clean context but THROWS when the held-out suite leaks for $id', (scenario: CodingScenario) => {
+    const fields = routeCodingFields(scenario)
+    // A clean context — only the agent-visible prompt — does not trip the firewall.
+    expect(() => assertNoHiddenLeak(fields, scenario.prompt)).not.toThrow()
+    // The held-out suite's CONTENT pasted into the context IS a breach → throws loud.
+    const leaked = `${scenario.prompt}\n${scenario.heldoutTest.content}`
+    expect(
+      () => assertNoHiddenLeak(fields, leaked),
+      `held-out leak for ${scenario.id} should throw`,
+    ).toThrow(/firewall/i)
+    // The rubric note (judge-only) leaking is also a breach.
+    const rubricLeak = `${scenario.prompt}\n${scenario.rubricNote}`
+    expect(
+      () => assertNoHiddenLeak(fields, rubricLeak),
+      `rubric leak for ${scenario.id} should throw`,
+    ).toThrow(/firewall/i)
+  })
 
   it('reps do NOT fake independent n — identical reps leave the CI unchanged', () => {
     // Two harnesses, two scenarios, identical scores. Build records for reps=1 and

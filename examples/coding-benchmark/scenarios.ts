@@ -1,12 +1,14 @@
 /**
  * The held-out coding-task corpus — the GRADING-CRITERIA FIREWALL expressed as a type.
- * Each scenario splits its four fields by WHERE each one flows; the per-field comments
- * below say which is which, and the firewall that enforces it lives in ONE place —
- * `dispatch.ts` (the `THE FIREWALL LIVES HERE` banner). The honest claim: the held-out
+ * Each scenario splits its four fields by WHERE each one flows. The `fieldRouting` below
+ * declares each field's `FieldDestination`; `routeCodingFields` turns a scenario into the
+ * substrate's `RoutedField[]`, and `dispatch.ts` feeds those to `assertNoHiddenLeak` /
+ * `gradeOnHidden` (the agent-eval hidden-criteria firewall). The honest claim: the held-out
  * suite and the rubric never touch the box during the turn; the visible tests are
  * deliberately readable by the agent (real TDD).
  */
 
+import { type FieldDestination, type RoutedField, routeFields } from '@tangle-network/agent-eval'
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
 
 /** A test file the harness writes into the box. `visibleTest` is seeded DURING the turn
@@ -334,4 +336,39 @@ export function checkCmds(scenario: CodingScenario): {
     heldout: testCmd(scenario.heldoutTest.path),
     lint: lintCmd(scenario.solutionPath),
   }
+}
+
+/** The fields the coding domain owns, by name. The keys here are the names
+ *  `routeCodingFields` projects each scenario into; the firewall is keyed on the
+ *  DESTINATION, not the name. */
+type CodingFieldName = 'prompt' | 'visibleTest' | 'heldoutTest' | 'rubricNote'
+
+/**
+ * WHERE each scenario field is allowed to flow — the firewall, declared as data.
+ * `agent-eval`'s `assertNoHiddenLeak` reads these tags (not field names): a
+ * `grading-only`/`judge-only` value found in the agent context is a breach.
+ *
+ *   - prompt        → `agent-visible`   (the task the agent reads to act)
+ *   - visibleTest   → `develop-against` (seeded during the turn; the agent MAY read it — TDD)
+ *   - heldoutTest   → `grading-only`    (the hidden suite; never reaches the agent)
+ *   - rubricNote    → `judge-only`      (rubric context; lives with the judge, never in the box)
+ */
+export const fieldRouting: Readonly<Record<CodingFieldName, FieldDestination>> = {
+  prompt: 'agent-visible',
+  visibleTest: 'develop-against',
+  heldoutTest: 'grading-only',
+  rubricNote: 'judge-only',
+}
+
+/** Project a scenario into the substrate's `RoutedField[]` — each field paired with the
+ *  destination `fieldRouting` declares. `dispatch.ts` hands the result to `assertNoHiddenLeak`
+ *  / `gradeOnHidden`. The rendered VALUE is what the firewall substring-checks against the
+ *  agent context, so the test-file fields render their CONTENT (the text that must not leak). */
+export function routeCodingFields(scenario: CodingScenario): RoutedField[] {
+  return routeFields<CodingFieldName>(fieldRouting, {
+    prompt: scenario.prompt,
+    visibleTest: scenario.visibleTest.content,
+    heldoutTest: scenario.heldoutTest.content,
+    rubricNote: scenario.rubricNote,
+  })
 }
