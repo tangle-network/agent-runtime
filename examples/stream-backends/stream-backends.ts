@@ -23,6 +23,7 @@ import {
   runAgentTaskStream,
   runtimeStreamServerSentEvent,
 } from '@tangle-network/agent-runtime'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // ── 1. Iterable backend — you yield RuntimeStreamEvent values directly ───────
 // The simplest transport: your own async generator is the model. Use it for
@@ -40,17 +41,12 @@ const iterableBackend = createIterableBackend({
 })
 
 // ── 2. Sandbox backend — the canonical sandbox-SDK `SandboxEvent` shape ──────
-// Production code imports `SandboxEvent` from `@tangle-network/sandbox`; it is
-// restated inline so the example is self-contained. The default
-// `mapCommonBackendEvent` recognises every variant below — text deltas arrive
-// as `message.part.updated` with the text nested under `data.part.text`, tool
-// turns as `tool_call` / `tool_result` — so no custom `mapEvent` is required.
-
-interface SandboxEvent {
-  type: string
-  data: Record<string, unknown>
-  id?: string
-}
+// `SandboxEvent` is the real union imported from `@tangle-network/sandbox` (no
+// inline restatement — a status the SDK adds is a compile error here, not a
+// silent miss). The default `mapCommonBackendEvent` recognises every variant
+// below — text deltas arrive as `message.part.updated` with the text nested
+// under `data.part.text`, tool turns as `tool_call` / `tool_result` — so no
+// custom `mapEvent` is required.
 
 interface SandboxBox {
   id: string
@@ -137,6 +133,9 @@ async function main() {
   await drainToSse('sandbox backend', sandboxBackend, 'hello')
 
   // ── 3. OpenAI-compatible backend — a real endpoint, so key-gated ──────────
+  // Defaults to OpenAI itself, so the OPENAI_* names mean what they say. Point
+  // OPENAI_BASE_URL at any OpenAI-compatible endpoint — e.g. the Tangle router
+  // (https://router.tangle.tools/v1) with a TANGLE_API_KEY as OPENAI_API_KEY.
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     console.log('\n--- openai-compatible backend ---')
@@ -146,7 +145,7 @@ async function main() {
     return
   }
   const openAiBackend = createOpenAICompatibleBackend({
-    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1',
+    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
     apiKey,
     model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
   })

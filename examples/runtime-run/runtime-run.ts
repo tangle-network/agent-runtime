@@ -19,11 +19,13 @@ import {
   startRuntimeRun,
 } from '@tangle-network/agent-runtime'
 
+// The run's identity (workspaceId / sessionId / agentId) is passed explicitly to
+// `startRuntimeRun` below and is what lands in the persisted row's typed columns — the task spec
+// carries only what describes the WORK (id / intent / domain), not a duplicate of that identity.
 const readyTask: AgentTaskSpec = {
   id: 'legal-chat:thread-42',
   intent: 'Run a legal advisory chat turn with workspace context.',
   domain: 'legal',
-  metadata: { workspaceId: 'ws-1', threadId: 'thread-42' },
 }
 
 // Toy backend that yields a couple of llm_call events so the cost ledger has

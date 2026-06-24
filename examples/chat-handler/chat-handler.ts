@@ -50,6 +50,11 @@ async function runTurn(userMessage: string, turnIndex: number): Promise<string> 
     },
   })
 
+  // The drain below is ILLUSTRATIVE, not an API to copy: any NDJSON reader works (your HTTP
+  // framework, fetch's body reader, `readline`). The SUBJECT is `handleChatTurn` above — it OWNS
+  // the framing (one JSON event per line, `application/x-ndjson`, the `session.run.*` envelope and
+  // the post-drain `persistAssistantMessage` hook). Here we read it back by hand so the example is
+  // self-contained.
   const reader = result.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''

@@ -1,4 +1,16 @@
-// researcherProfile + runLoop + FanoutVote — smallest end-to-end researcher loop. See README.md for context.
+/**
+ * researcherProfile + runLoop + an inline FANOUT driver — the smallest end-to-end researcher loop.
+ *
+ * The SUBJECT is the wiring below: `researcherProfile({ task })` hands you the output adapter,
+ * validator, and agent-run spec; a single-round fanout driver spawns two parallel researchers and
+ * the kernel picks the best VALID one. The validator hard-fails any output that leaks into a
+ * different knowledge namespace, so the bad candidate is pruned by construction.
+ *
+ * Offline: the two synthetic researcher outputs and the stand-in `sandboxClient` live in
+ * ./synthetic-researcher.ts. Needs the optional `@tangle-network/agent-knowledge` peer.
+ *
+ * Run:  pnpm tsx examples/researcher-loop/researcher-loop.ts
+ */
 
 import {
   type ResearchOutput,
@@ -6,142 +18,7 @@ import {
   researcherProfile,
 } from '@tangle-network/agent-knowledge/profiles'
 import { type Driver, runLoop } from '@tangle-network/agent-runtime/loops'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-
-const namespace = 'example-tenant'
-const task: ResearchTask = {
-  question: "What is the SemVer spec's range syntax?",
-  knowledgeNamespace: namespace,
-  sources: ['web', 'docs'],
-  maxItems: 4,
-}
-
-// ── Synthetic researcher outputs ─────────────────────────────────────────
-// Two iterations: the first emits a valid ResearchOutput (per-item evidence,
-// in-namespace, citation density >= floor); the second emits an item that
-// leaks into a different namespace — the validator hard-fails it.
-const now = Date.now()
-const candidateOutputs: ResearchOutput[] = [
-  {
-    items: [
-      {
-        id: 'sv-1',
-        namespace,
-        claim:
-          'A caret range like `^1.2.3` allows changes that do not modify the left-most non-zero element.',
-        evidence: [
-          {
-            source: 'docs/semver-spec',
-            quote: '"^1.2.3 := >=1.2.3 <2.0.0"',
-            url: 'https://semver.npmjs.com/',
-            capturedAt: now,
-          },
-        ],
-        confidence: 0.92,
-        authoredBy: { kind: 'agent', id: 'researcher-a' },
-      },
-      {
-        id: 'sv-2',
-        namespace,
-        claim: 'A tilde range like `~1.2.3` allows patch-level changes (>=1.2.3 <1.3.0).',
-        evidence: [
-          {
-            source: 'docs/semver-spec',
-            quote: '"~1.2.3 := >=1.2.3 <1.3.0"',
-            url: 'https://semver.npmjs.com/',
-            capturedAt: now,
-          },
-        ],
-        confidence: 0.95,
-        authoredBy: { kind: 'agent', id: 'researcher-a' },
-      },
-    ],
-    citations: [
-      {
-        url: 'https://semver.npmjs.com/',
-        quote: '^1.2.3 := >=1.2.3 <2.0.0',
-        confidence: 0.92,
-      },
-      {
-        url: 'https://semver.npmjs.com/',
-        quote: '~1.2.3 := >=1.2.3 <1.3.0',
-        confidence: 0.95,
-      },
-    ],
-    proposedWrites: [
-      {
-        kind: 'insert',
-        namespace,
-        item: {
-          id: 'sv-1',
-          namespace,
-          claim:
-            'A caret range like `^1.2.3` allows changes that do not modify the left-most non-zero element.',
-          evidence: [
-            {
-              source: 'docs/semver-spec',
-              quote: '"^1.2.3 := >=1.2.3 <2.0.0"',
-              url: 'https://semver.npmjs.com/',
-              capturedAt: now,
-            },
-          ],
-          confidence: 0.92,
-          authoredBy: { kind: 'agent', id: 'researcher-a' },
-        },
-      },
-    ],
-    notes: 'Two SemVer range operators covered; gap on hyphenated and `x` ranges.',
-    gaps: ['hyphen ranges (e.g. `1.0.0 - 2.0.0`)', 'X-ranges (e.g. `1.2.x`)'],
-  },
-  {
-    items: [
-      {
-        id: 'sv-leak-1',
-        // Namespace mismatch — validator hard-fails this entire output.
-        namespace: 'other-tenant',
-        claim: 'Caret ranges restrict to compatible-version updates.',
-        evidence: [
-          {
-            source: 'docs/semver-spec',
-            url: 'https://semver.npmjs.com/',
-            capturedAt: now,
-          },
-        ],
-        confidence: 0.7,
-        authoredBy: { kind: 'agent', id: 'researcher-b' },
-      },
-    ],
-    citations: [{ url: 'https://semver.npmjs.com/', quote: 'compatible with', confidence: 0.6 }],
-    proposedWrites: [],
-  },
-]
-
-let dispatchIndex = 0
-const sandboxClient = {
-  async create(): Promise<SandboxInstance> {
-    const index = dispatchIndex++
-    const output = candidateOutputs[index % candidateOutputs.length]
-    const id = `sandbox-researcher-${index + 1}`
-    const box = {
-      id,
-      async *streamPrompt(): AsyncIterable<SandboxEvent> {
-        yield {
-          type: 'llm_call',
-          data: {
-            model: 'opencode/zai-coding-plan/glm-5.1',
-            tokensIn: 1400,
-            tokensOut: 320,
-            costUsd: 0.0028,
-          },
-        }
-        yield { type: 'result', data: { result: output } }
-      },
-      // The offline seam: this object implements only the members `runLoop` calls on a box
-      // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
-    } as unknown as SandboxInstance
-    return box
-  },
-}
+import { sandboxClient, task } from './synthetic-researcher'
 
 async function main(): Promise<void> {
   const { output, validator, agentRunSpec } = researcherProfile({ task })
