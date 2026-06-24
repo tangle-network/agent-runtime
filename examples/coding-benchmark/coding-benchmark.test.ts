@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RunRecord } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
-import { main, offlineSolutions } from './benchmark'
+import { main, offlineAgentScripts } from './benchmark'
 import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
 import { harnessProfiles } from './profiles'
 import { type CodingScenario, checkCmds, scenarios } from './scenarios'
@@ -106,7 +106,7 @@ describe('coding-benchmark (offline)', () => {
   // refined real impl PASSES the held-out suite. Composite ranks the real one far above.
   it('a hardcode-the-visible cheat FAILS the held-out tests; the real solution PASSES', async () => {
     const rl = scenarios.find((s) => s.id === 'rate-limiter') as CodingScenario
-    const script = offlineSolutions['rate-limiter']
+    const script = offlineAgentScripts['rate-limiter']
     expect(script).toBeDefined()
     const cheat = (script as NonNullable<typeof script>).solutionFor(0) // round-0 cheat
     const real = (script as NonNullable<typeof script>).solutionFor(1) // refined real impl
@@ -144,7 +144,7 @@ describe('coding-benchmark (offline)', () => {
   it.each(
     scenarios,
   )('the real offline solution passes the held-out suite for $id', async (scenario: CodingScenario) => {
-    const script = offlineSolutions[scenario.id]
+    const script = offlineAgentScripts[scenario.id]
     expect(script, `no offline solution for ${scenario.id}`).toBeDefined()
     const solution = (script as NonNullable<typeof script>).solutionFor(99) // settled round
     const grade = await gradeSolution(scenario, solution)
@@ -163,7 +163,9 @@ describe('coding-benchmark (offline)', () => {
     const { box, dir } = tempBox()
     try {
       const cmds = checkCmds(scenario)
-      const script = offlineSolutions[scenario.id] as NonNullable<(typeof offlineSolutions)[string]>
+      const script = offlineAgentScripts[scenario.id] as NonNullable<
+        (typeof offlineAgentScripts)[string]
+      >
       await box.fs?.write(scenario.solutionPath, script.solutionFor(99))
       // "The turn": run the dev checks, which seed ONLY the visible test.
       await runChecks(box, scenario, cmds)

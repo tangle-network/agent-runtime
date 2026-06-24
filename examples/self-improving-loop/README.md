@@ -6,7 +6,8 @@ package, with the `@tangle-network/sandbox` `AgentProfile` type as the shared
 contract. The finding type and the gate statistic are the real substrate
 primitives — the analyst emits a canonical `AnalystFinding` (`makeFinding`) and
 the gate ships on a `pairedBootstrap` confidence interval, the production
-held-out gate's statistical core. Only the analyst body, the proposer, and the
+held-out gate's statistical core (minus the minimum-evidence floor it omits at
+this demo's n=3 — see the ⚠️ under *What it shows*). Only the analyst body, the proposer, and the
 LLM are scripted, so the demo is deterministic and offline. In production, run
 `improve()` over `selfImprove` from `@tangle-network/agent-eval` for text-surface
 optimization (see [`examples/improve/`](../improve/) and
@@ -18,6 +19,8 @@ optimization (see [`examples/improve/`](../improve/) and
 ## What it shows
 
 The 7-phase evolution loop in `self-improving-loop.ts`. Each phase is annotated with the substrate package that owns it (per the *Where each substrate piece lives* table below). The load-bearing join is the gate: it pairs v1 against v0 per persona and ships only if the `pairedBootstrap` CI lower bound clears 0 — the production held-out gate's statistical core, not a bare mean-delta threshold.
+
+> **⚠️ The demo gates at n=3; the production gate does not.** Three personas keep the example small and runnable, but n=3 is below the minimum-evidence floor the real gate enforces — agent-eval's `heldoutSignificance` won't report a pair under `minSamples` (default 8), and `HeldOutGate` rejects below `minProductiveRuns` with `few_runs`. A CI on 3 paired points is the **small-n mirage** (this repo's documented #1 failure mode): a near-constant gap can clear 0 and still mean nothing. **Never ship a real change on n=3** — call `improve()` / the held-out gate (which floors the evidence for you) and bring 20-50 paired observations.
 
 ```mermaid
 flowchart TD

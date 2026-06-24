@@ -40,6 +40,15 @@ const adapter: AgentAdapter<{ ready: boolean }, void, void> = {
   act() {
     return undefined
   },
+  // The headline hook: when readiness blocks, the runtime hands the adapter the open
+  // questions + acquisition plans so a domain agent can ACT on the gap (ask the user,
+  // query a connector) instead of just failing. This demo records the question it would
+  // ask and stops cleanly; a real adapter would return `{ type: 'continue', action }`
+  // to run an acquisition step and re-score.
+  onKnowledgeBlocked({ questions }) {
+    const ask = questions.map((q) => q.question).join('; ') || 'the blocking requirement'
+    return { type: 'stop', pass: false, reason: `would ask the user: ${ask}` }
+  },
 }
 
 async function main() {
@@ -60,6 +69,8 @@ async function main() {
     '  blocking gaps:',
     blocked.knowledge.blockingMissingRequirements.map((r) => r.id),
   )
+  // The onKnowledgeBlocked hook's decision flows through as the run's stop reason.
+  console.log('  onKnowledgeBlocked →', blocked.control.reason)
 
   // Run 2: full confidence → readiness passes → control loop runs.
   const ready = await runAgentTask({

@@ -11,7 +11,9 @@
 //   5. apply mutation → new AgentProfile variant
 //   6. re-run multishot with v1 profile
 //   7. gate pairs v1 vs v0 per persona and ships only if the `pairedBootstrap` CI lower bound
-//      clears 0 — the production held-out gate's statistical core (NOT a bare mean-delta threshold)
+//      clears 0 — the production held-out gate's statistical core. NOTE the gate runs at n=3 here
+//      for a runnable demo; the production gate ALSO enforces a minimum-evidence floor this omits
+//      (see the ⚠️ at the gate, § 6). Never ship a real change on n=3.
 //
 // The finding type and the gate statistic are the real substrate primitives (not a local one-off);
 // the analyst body, the proposer, and the LLM are scripted ONLY so the demo runs offline and
@@ -152,12 +154,19 @@ function applyMutation(base: AgentProfile, mutation: string): AgentProfile {
 }
 
 // ── 6. Gate — promote v1 only if the PAIRED-bootstrap CI lower bound clears 0 ──
-// The ship rule the production held-out gate (`HeldOutGate` / `improve()` over `selfImprove`,
-// `agent-eval/contract`) enforces, reduced to its statistical core: pair v1 against v0 per scenario,
-// bootstrap a CI on the median paired delta, and ship only if the CI's lower bound beats 0 — i.e. the
-// lift is unlikely to be luck. `pairedBootstrap` (the same statistics primitive the real gate is built
-// on) does exactly this; the `seed` keeps it deterministic offline. NOT a bare `v1Mean − v0Mean >= 0.5`
-// point comparison, which throws away the paired CI and the minimum-evidence floor.
+// This shows the STATISTICAL CORE of the production held-out gate (`HeldOutGate` / `improve()` over
+// `selfImprove`, `agent-eval/contract`): pair v1 against v0 per scenario, bootstrap a CI on the median
+// paired delta, and ship only if the CI's lower bound beats 0 — i.e. the lift is unlikely to be luck.
+// `pairedBootstrap` (the same statistics primitive the real gate is built on) does exactly this; the
+// `seed` keeps it deterministic offline.
+//
+// ⚠️ MINIMUM-EVIDENCE FLOOR — this demo deliberately omits it. We gate at n=3 personas so the example
+// stays small and runnable, but n=3 is BELOW the floor the production gate enforces: agent-eval's
+// `heldoutSignificance` won't even report a pair under `minSamples` (default 8), and `HeldOutGate`
+// rejects with `few_runs` below `minProductiveRuns`. A CI on 3 paired points is the "small-n mirage"
+// (this repo's documented #1 failure mode): a near-constant gap can clear 0 and still mean nothing.
+// NEVER ship a real change on n=3 — call `improve()` / the held-out gate, which floors the evidence
+// for you, and bring 20-50 paired observations to a defensible claim.
 
 function gate(
   v0Scores: number[],

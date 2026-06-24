@@ -45,7 +45,7 @@ These words appear in every example. The clearest demonstration of all of them i
 | 4 | [`driver-loop/`](./driver-loop/) | **You want to SEE the fold** — a driver reads the last worker's output and composes the next prompt from it (plan → run → decide → re-plan). The seam that makes everything else click. Offline. |
 | 5 | [`supervise/`](./supervise/) | You want the one-call headline: `supervise(profile, goal)` — a router-brained supervisor with all scaffolding defaulted (needs `TANGLE_API_KEY`). |
 | 6 | [`supervisor-loop/`](./supervisor-loop/) | You want that same supervisor over a real worker backend — sandbox box / local cli-bridge / coordination MCP — with the **worker backend as the only knob**. |
-| 7 | [`delegate/`](./delegate/) | You want the one-call `delegate(intent)` proven e2e: a worker does real on-disk filesystem work, the gate settles only when the file exists, cost rides through (needs `TANGLE_API_KEY`). |
+| 7 | [`delegate/`](./delegate/) | You want the one-call `delegate(intent)`: the supervisor authors + spawns a worker that does real on-disk filesystem work, the gate settles only when the file exists, cost rides through (needs `TANGLE_API_KEY`). |
 
 ## Tier 2 — the runLoop kernel (the leaf the benches drive)
 
@@ -114,7 +114,7 @@ pnpm tsx examples/driver-loop/driver-loop.ts                       # SEE THE FOL
 TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts        # the one-call supervisor
 WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
   pnpm tsx examples/supervisor-loop/run-bridge.ts                  # same supervisor, local cli-bridge backend
-TANGLE_API_KEY=... pnpm tsx examples/delegate/e2e-delegate-real.ts # delegate(intent), e2e
+TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts          # delegate(intent), one call
 
 # Tier 2 — the runLoop kernel
 pnpm tsx examples/researcher-loop/researcher-loop.ts
