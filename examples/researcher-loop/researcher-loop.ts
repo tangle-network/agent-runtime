@@ -136,6 +136,8 @@ const sandboxClient = {
         }
         yield { type: 'result', data: { result: output } }
       },
+      // The offline seam: this object implements only the members `runLoop` calls on a box
+      // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
     } as unknown as SandboxInstance
     return box
   },

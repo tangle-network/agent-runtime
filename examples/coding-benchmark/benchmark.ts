@@ -35,6 +35,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
 import { codingDispatch } from './dispatch'
 import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
+import { csvParserSource, lruCacheSource } from './fixtures'
 import { type OfflineScript, offlineSandboxClient } from './offline-box'
 import { harnessProfiles, type ToolPreset } from './profiles'
 import { type CodingScenario, scenarios } from './scenarios'
@@ -71,12 +72,14 @@ function parseArgs(argv: string[]): BenchmarkOptions {
   }
 }
 
-// ── the offline "agent": a scripted, REFINING solution per scenario ───────────
-// The scripted stand-in (see offline-box.ts). `rate-limiter` IMPROVES across rounds:
-// round 0 = a HARDCODE-THE-VISIBLE cheat, round 1+ = the real token-bucket — so the smoke
-// test can assert the cheat fails the held-out suite while the real impl passes (the
-// anti-cheat, by execution). `csv-parser` / `lru-cache` write their real impl from round 0.
-export const offlineSolutions: Record<string, OfflineScript> = {
+// ── the offline AGENT SCRIPTS: a scripted, REFINING solution per scenario ─────
+// These stand in for a real coding agent ONLY offline (live, `--live` swaps a real harness box for
+// the scripted client). `rate-limiter` is the one deliberate-CHEAT pair: round 0 is a
+// HARDCODE-THE-VISIBLE cheat the held-out suite MUST catch (the smoke test asserts it fails held-out
+// while round 1+'s real token-bucket passes — the anti-cheat, by execution). `csv-parser`/`lru-cache`
+// have no honest hollow stub, so their offline agent writes the real impl from round 0 (source in
+// fixtures.ts, kept out of this file so the one teaching pair stays readable).
+export const offlineAgentScripts: Record<string, OfflineScript> = {
   'rate-limiter': {
     path: 'src/rate-limiter.ts',
     solutionFor: (round) =>
@@ -86,49 +89,39 @@ export const offlineSolutions: Record<string, OfflineScript> = {
           // answers, with NO bucket math. It PASSES the visible tests but FAILS the
           // held-out suite (cap 7/6/5/2, different draws + edge cases it never saw),
           // caught by EXECUTION on inputs the cheat never memorized.
-          `export class RateLimiter {\n` +
-          `  private cap: number\n  private refill: number\n  private call = 0\n` +
-          `  constructor(capacity: number, refillPerSec: number) { this.cap = capacity; this.refill = refillPerSec }\n` +
-          `  tryRemove(_n: number): boolean {\n` +
-          `    // hardcoded to the visible examples only — keyed on the exact (cap, refill)\n` +
-          `    // pairs the visible tests use; no real bucket math.\n` +
-          `    this.call++\n` +
-          `    if (this.cap === 3) return false              // visible (3,1): draw 4 -> false\n` +
-          `    if (this.cap === 10 && this.refill === 0) return this.call === 1 // visible (10,0): T,F\n` +
-          `    return true                                   // visible (10,1): T,T\n  }\n}\n`
+          `export class RateLimiter {
+  private cap: number
+  private refill: number
+  private call = 0
+  constructor(capacity: number, refillPerSec: number) { this.cap = capacity; this.refill = refillPerSec }
+  tryRemove(_n: number): boolean {
+    // hardcoded to the visible examples only — keyed on the exact (cap, refill)
+    // pairs the visible tests use; no real bucket math.
+    this.call++
+    if (this.cap === 3) return false              // visible (3,1): draw 4 -> false
+    if (this.cap === 10 && this.refill === 0) return this.call === 1 // visible (10,0): T,F
+    return true                                   // visible (10,1): T,T
+  }
+}
+`
         : // round 1+ — the real token-bucket with continuous time-based refill.
-          `export class RateLimiter {\n  private tokens: number\n  private last = Date.now()\n` +
-          `  constructor(private capacity: number, private refillPerSec: number) { this.tokens = capacity }\n` +
-          `  tryRemove(n: number): boolean {\n    const now = Date.now()\n` +
-          `    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.refillPerSec)\n` +
-          `    this.last = now\n    if (n > this.tokens) return false\n    this.tokens -= n\n    return true\n  }\n}\n`,
+          `export class RateLimiter {
+  private tokens: number
+  private last = Date.now()
+  constructor(private capacity: number, private refillPerSec: number) { this.tokens = capacity }
+  tryRemove(n: number): boolean {
+    const now = Date.now()
+    this.tokens = Math.min(this.capacity, this.tokens + ((now - this.last) / 1000) * this.refillPerSec)
+    this.last = now
+    if (n > this.tokens) return false
+    this.tokens -= n
+    return true
+  }
+}
+`,
   },
-  'csv-parser': {
-    path: 'src/csv.ts',
-    solutionFor: () =>
-      `export function parseCsv(input: string): string[][] {\n  const rows: string[][] = []\n` +
-      `  let row: string[] = []\n  let field = ''\n  let inQuotes = false\n` +
-      `  for (let i = 0; i < input.length; i++) {\n    const c = input.charAt(i)\n` +
-      `    if (inQuotes) {\n      if (c === '"' && input.charAt(i + 1) === '"') { field += '"'; i++ }\n` +
-      `      else if (c === '"') inQuotes = false\n      else field += c\n    } else if (c === '"') inQuotes = true\n` +
-      `    else if (c === ',') { row.push(field); field = '' }\n` +
-      `    else if (c === '\\n') { row.push(field); rows.push(row); row = []; field = '' }\n` +
-      `    else field += c\n  }\n  row.push(field); rows.push(row)\n  return rows\n}\n`,
-  },
-  'lru-cache': {
-    path: 'src/lru.ts',
-    // Writes the real insertion-ordered-Map LRU from round 0 (the eviction logic is the
-    // whole point; there is no honest hollow stub for this task). Passes both the visible
-    // and the held-out eviction suites.
-    solutionFor: () =>
-      `export class LruCache<K, V> {\n  private map = new Map<K, V>()\n` +
-      `  constructor(private capacity: number) {}\n` +
-      `  get(key: K): V | undefined {\n    if (!this.map.has(key)) return undefined\n` +
-      `    const v = this.map.get(key) as V\n    this.map.delete(key)\n    this.map.set(key, v)\n    return v\n  }\n` +
-      `  set(key: K, value: V): void {\n    if (this.map.has(key)) this.map.delete(key)\n` +
-      `    else if (this.map.size >= this.capacity) this.map.delete(this.map.keys().next().value as K)\n` +
-      `    this.map.set(key, value)\n  }\n}\n`,
-  },
+  'csv-parser': { path: 'src/csv.ts', solutionFor: () => csvParserSource },
+  'lru-cache': { path: 'src/lru.ts', solutionFor: () => lruCacheSource },
 }
 
 // ── the box client: live (real harness) or offline (in-process) ───────────────
@@ -144,7 +137,7 @@ function clientFor(
       if (!RealClient) throw new Error('@tangle-network/sandbox not loaded')
       return () => new RealClient({ apiKey, baseUrl }) as unknown as SandboxClient
     }
-    const script = offlineSolutions[scenario.id]
+    const script = offlineAgentScripts[scenario.id]
     if (!script) throw new Error(`no offline script for scenario ${scenario.id}`)
     return () => offlineSandboxClient(script)
   }

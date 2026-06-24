@@ -80,6 +80,8 @@ function scriptedWorkerClient(): { create(): Promise<SandboxInstance> } {
             : 'Shipped one-click restore for failed deploys.'
           yield { type: 'result', data: { result: { note } satisfies NoteOutput } }
         },
+        // The offline seam: this object implements only the members `runLoop` calls on a box
+        // (`id` + `streamPrompt`), not the full ~40-member `SandboxInstance` — hence the cast.
       } as unknown as SandboxInstance
     },
   }

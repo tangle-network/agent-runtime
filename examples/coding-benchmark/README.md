@@ -46,7 +46,7 @@ Pairwise (paired delta + bootstrap CI; paired-test p, BH-corrected):
 
 ### The offline "agent" is a scripted stand-in
 
-Offline there is no model, so each scenario's box writes a **canned solution** instead of calling a coding agent. The scripts are honest: `rate-limiter` **improves across rounds** — round 0 is a **hardcode-the-visible cheat** (memorizes the visible example answers, no bucket math), round 1+ is the real token-bucket. The smoke test runs both against the real held-out suite and asserts the cheat **passes the visible test but fails the held-out**, while the real impl passes it outright. (`node` is present offline so held-out execution is genuine; `tsc`/`biome` usually aren't, which is why all 3 rounds run — see the note above.)
+Offline there is no model, so each scenario's box writes a **canned solution** (`offlineAgentScripts`) instead of calling a coding agent. They are honest: `rate-limiter` is the one **deliberate-cheat pair** — round 0 hardcodes the visible example answers (no bucket math), round 1+ is the real token-bucket — so the smoke test can assert the cheat **passes the visible test but fails the held-out** while the real impl passes outright. `csv-parser`/`lru-cache` have no honest hollow stub, so they write the real impl from round 0 (source in `fixtures.ts`). Live, `--live` swaps the scripted client for a real harness box.
 
 ## How a tool swap works (one line)
 
@@ -108,6 +108,7 @@ The leaderboard labels are the readable harness names, not the matrix's internal
 | `eval.ts` | the scoring stack: `runChecks` (`MultiLayerVerifier`) + `runHeldout` (the held-out execution) + `composeScore` (held-out × judge blend) + `singleCodeJudge` (`llmJudge`) / `ensembleCodeJudge` (`ensembleJudge`) |
 | `dispatch.ts` | renders one matrix cell: persistent box + multi-round refine + held-out grading + token metering. **The firewall lives here.** |
 | `offline-box.ts` | an in-process `SandboxClient` so the whole thing runs with no creds |
+| `fixtures.ts` | the real `csv-parser` / `lru-cache` offline solution source (kept out of `benchmark.ts` so the one rate-limiter cheat/real teaching pair stays readable) |
 | `stats.ts` | leaderboard + `pairedTTest` / `pairedBootstrap` / `benjaminiHochberg` / `confidenceInterval` / `wilson`, with the small-n SIGNIFICANT-suppression guard |
 | `benchmark.ts` | the entrypoint: build the axes, hand the matrix the dispatch + judges, run, print stats |
 | `coding-benchmark.test.ts` | offline smoke — the matrix produces `harnesses × scenarios × reps` records; a hardcode-the-visible cheat fails the held-out suite while the real solution passes (by execution); the held-out test is never seeded during the turn (firewall); reps don't narrow the CI |
@@ -130,7 +131,7 @@ The leaderboard labels are the readable harness names, not the matrix's internal
 1. **`TANGLE_API_KEY` + `SANDBOX_BASE_URL`** — the dispatch lazily `import()`s `@tangle-network/sandbox` (behind the live flag, so the offline path never needs the SDK) and creates a real harness box per cell.
 2. **A real judge model** — the judge's `ChatClient` becomes `createChatClient({ transport: 'router', apiKey })`; set `JUDGE_MODEL` (and optionally `TANGLE_ROUTER_URL`) to point it at your router. `--ensemble` then calls three real cross-family models.
 3. The matrix runs with `integrity: 'assert'`, so a cell that produced no real token usage fails loudly instead of reporting a clean stub leaderboard.
-4. **The harness box image must provide the toolchain on `PATH`** — the checks invoke bare `tsc`, `biome`, and `node --experimental-transform-types`. The test layer **and the held-out grading** need **Node >= 22.6** (for `--experimental-transform-types` and `.ts`-import test execution); on an older Node a correct param-property solution would fail with no hint why. A missing **advisory** tool (`biome`) folds to 0.5 and doesn't gate; a missing **`tsc`** fails the dev checks — so sanity-check your box image before trusting a live leaderboard. (Offline, `tsc`/`biome` are absent so the dev checks fail fast, but `node` is present so the held-out grading still runs for real.)
+4. **The harness box image must provide the toolchain on `PATH`** — the checks invoke bare `tsc`, `biome`, and `node --experimental-transform-types` (which needs **Node >= 22.6**, see *How it scores* item 1). A missing **advisory** tool (`biome`) folds to 0.5 and doesn't gate; a missing **`tsc`** fails the dev checks — so sanity-check your box image before trusting a live leaderboard.
 
 Everything else — the dispatch, the verifier, the held-out execution, the stats — is identical between offline and live. That's the point: only the agent and the judge model change.
 

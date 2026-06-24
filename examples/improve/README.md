@@ -18,15 +18,15 @@ the full finding shape needs.
 pnpm tsx examples/improve/improve.ts
 ```
 
-Runs **offline, no credentials**: a scripted `ImprovementDriver` proposes a fixed winning candidate, a
+Runs **offline, no credentials**: a scripted `SurfaceProposer` proposes a fixed winning candidate, a
 deterministic judge scores it, and the "agent" returns the surface verbatim while reporting token
 usage (so agent-eval's backend-integrity guard sees a real backend). Prints `{ shipped, lift }` and
-the prompt after improvement. The same path is covered by `tests/improve.test.ts` (part of
+the prompt after improvement. The same path is covered by `src/improvement/improve.test.ts` (part of
 `pnpm test`).
 
 ## Going live
 
 Swap the scripted `generator` out (omit it) and pass `llm: { apiKey, baseUrl, model }` — the facade
-then builds the real reflective mutator (`gepaDriver` for `surface: 'prompt'`). Drop `gate: 'none'` /
+then builds the real reflective proposer (`gepaProposer` for `surface: 'prompt'`). Drop `gate: 'none'` /
 keep the default `'holdout'` so the held-out gate decides what ships. `opts.allowedModels` restricts
 the run to a chosen model subset (fail-loud before the generator is built).

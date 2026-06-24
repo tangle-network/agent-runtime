@@ -33,7 +33,9 @@ import {
   writeAuditIndex,
 } from '@tangle-network/agent-runtime/profiles'
 
-const LENSES_TO_RUN = ['consistency', 'hierarchy', 'layout', 'ux-flow'] as const
+// Lowercase module-global by repo convention (an UPPERCASE name trips the publish
+// obfuscator — see CLAUDE.md § Publish gotcha).
+const lensesToRun = ['consistency', 'hierarchy', 'layout', 'ux-flow'] as const
 
 /**
  * Deterministic stub judge — returns one canned finding referencing the
@@ -106,7 +108,7 @@ async function main(): Promise<void> {
       lens: 'consistency',
       captures: [{ route: 'home', url: startUrl, fullPage: true }],
     }
-    const driver = lensCyclingDriver(LENSES_TO_RUN, task)
+    const driver = lensCyclingDriver(lensesToRun, task)
 
     const result = await runLoop({
       driver,
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
       validator,
       task,
       ctx: { sandboxClient: client },
-      maxIterations: LENSES_TO_RUN.length,
+      maxIterations: lensesToRun.length,
     })
 
     console.log(`iterations: ${result.iterations.length}`)

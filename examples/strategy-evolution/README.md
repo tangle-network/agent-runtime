@@ -29,6 +29,10 @@ Optional env: `WORKER_MODEL` (the worker that drives the env, default `gpt-4o-mi
 It prints the gen0 vs final champion, the promotion verdict (`promoted` + `reason`), the paired task
 count `n`, and the held-out lift with its bootstrap CI.
 
+At the example's toy task count, `promoted: false` is the EXPECTED outcome — that is the gate working,
+not a break. A few tasks cannot clear the held-out promotion bar defensibly (the small-n mirage); the
+gate refusing to ship on thin evidence is exactly what you want. Bring 20-50 tasks for a real promote.
+
 ## Going further
 
 The real config carries more knobs the example leaves at their defaults — see
