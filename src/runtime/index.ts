@@ -212,6 +212,14 @@ export {
 export { defaultSelectWinner, runLoop } from './run-loop'
 export { acquireSandbox } from './sandbox-acquire'
 export {
+  type ApplyContinuation,
+  type DumbDriverOptions,
+  dumbDriver,
+  type NaiveDriverOptions,
+  naiveDriver,
+  type SteeringDecision,
+} from './steering-drivers'
+export {
   type CriuCapableClient,
   probeSandboxCapabilities,
   type SandboxCapabilities,
