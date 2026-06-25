@@ -78,13 +78,13 @@ describe('runLoop onSandboxEvent tee', () => {
     { type: 'result', data: { finalText: 'done' } } as SandboxEvent,
   ]
 
-  function runWithObserver(onSandboxEvent: Observer) {
+  function runWithObserver(onSandboxEvent: Observer, stream: SandboxEvent[] = STREAM) {
     const box = {
       id: 'box-1',
       name: 'box-1',
       status: 'running',
       async *streamPrompt(_prompt: string): AsyncIterable<SandboxEvent> {
-        for (const event of STREAM) yield event
+        for (const event of stream) yield event
       },
     } as SandboxInstance
     const client: SandboxClient = {
@@ -175,6 +175,26 @@ describe('runLoop onSandboxEvent tee', () => {
     // The observer returns a promise that never resolves. The run must not await
     // it; if a future refactor adds an `await`, this test hangs and fails.
     const result = await runWithObserver(() => new Promise<void>(() => {}))
+    expect(result.iterations[0]?.output).toBe('done')
+  })
+
+  it('forwards a non-cloneable event via a shallow-copy fallback (never drops it)', async () => {
+    // event.data is Record<string, unknown>, so an event can carry a value that
+    // makes structuredClone throw (here, a function). The tee must fall back to
+    // a shallow copy and still forward the event rather than silently dropping
+    // it — upholding the "forwards EVERY raw event" contract.
+    const nonCloneable = {
+      type: 'tool',
+      data: { fn: () => 'nope' },
+    } as unknown as SandboxEvent
+    const seen: string[] = []
+    const result = await runWithObserver(
+      (event) => {
+        seen.push(event.type)
+      },
+      [nonCloneable, { type: 'result', data: { finalText: 'done' } } as SandboxEvent],
+    )
+    expect(seen).toEqual(['tool', 'result'])
     expect(result.iterations[0]?.output).toBe('done')
   })
 })
