@@ -561,6 +561,27 @@ export interface ExecCtx {
   /** Optional trace emitter. When set, the kernel emits `loop.*` events. */
   traceEmitter?: LoopTraceEmitter
   /**
+   * Optional per-event tee. When set, the kernel forwards EVERY raw event from
+   * each iteration's `streamPrompt` stream as it arrives, so a host can stream
+   * the agent's live output (tokens, tool calls) token-by-token. The observer
+   * receives a defensive copy of each event — mutating it cannot affect the
+   * run's own cost accounting or output parsing. Called synchronously in the hot
+   * stream loop and never awaited, so a slow or never-settling observer cannot
+   * stall the stream; keep it cheap. An async observer is fire-and-forget: its
+   * promise is not awaited, so events carry no ordering or backpressure
+   * guarantees (the next event may be observed before a prior async observer
+   * settles) — use it for side-effect telemetry, not sequential processing.
+   * Both a synchronous throw and a rejected returned promise are caught +
+   * ignored so the observer can never break the run — but prefer not to depend
+   * on that.
+   *
+   * @experimental
+   */
+  onSandboxEvent?: (
+    event: SandboxEvent,
+    meta: { iterationIndex: number; agentRunName: string },
+  ) => void | PromiseLike<void>
+  /**
    * Optional production-run handle. When set, every synthesized `llm_call`
    * the kernel infers from a sandbox event stream is forwarded via
    * `runHandle.observe` so per-run cost aggregates pick up loop spend.

@@ -710,6 +710,33 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     const events: SandboxEvent[] = []
     for await (const event of stream) {
       events.push(event)
+      // Tee each raw event to an optional host observer so a caller can stream
+      // the agent's live output. Best-effort + isolated: the observer gets a
+      // defensive copy (mutating it cannot corrupt the event the run itself
+      // consumes for cost accounting + output parsing below), and a sync throw
+      // or a rejected async result is swallowed — it can never break the run.
+      if (args.ctx.onSandboxEvent) {
+        try {
+          // Hand the observer its own defensive copy so it cannot mutate the
+          // event the run consumes below (output.parse reads event.data.*; cost
+          // accounting reads event.data.usage.* + event.data.tokenUsage.*). The
+          // copy is built inside this try so even a malformed event (a throwing
+          // getter / hostile proxy that defeats the fallback copy) cannot break
+          // the run — the observer is simply skipped for that event.
+          const observerEvent = cloneEventForObserver(event)
+          const result = args.ctx.onSandboxEvent(observerEvent, {
+            iterationIndex: args.item.index,
+            agentRunName: slot.agentRunName,
+          })
+          // An async observer's rejection escapes this try/catch (the promise is
+          // not awaited), so attach a catch to uphold the isolation guarantee.
+          if (result && typeof (result as PromiseLike<void>).then === 'function') {
+            void (result as PromiseLike<void>).then(undefined, () => {})
+          }
+        } catch {
+          // Non-critical telemetry — never let it interrupt the stream.
+        }
+      }
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         slot.costUsd += llmCall.costUsd ?? 0
@@ -1169,6 +1196,54 @@ async function emitTrace(
 ): Promise<void> {
   if (!emitter) return
   await emitter.emit(event)
+}
+
+/**
+ * Defensive copy of a sandbox event for the per-event observer tee. Prefers
+ * `structuredClone` for full deep isolation. `event.data` is
+ * `Record<string, unknown>`, so it may carry a non-cloneable leaf (a function
+ * or stream) that makes `structuredClone` throw; in that case fall back to a
+ * recursive copy of the plain-object/array spine. That still isolates every
+ * field the run reads (output.parse reads `event.data.*`; cost accounting reads
+ * `event.data.usage.*` and `event.data.tokenUsage.*`). Function leaves are
+ * shared by reference (the run never reads them) and non-plain containers are
+ * replaced by inert placeholders, so the observer shares no mutable object the
+ * run consumes.
+ */
+function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
+  try {
+    return structuredClone(event)
+  } catch {
+    return copyPlainSpine(event, new WeakMap()) as SandboxEvent
+  }
+}
+
+/**
+ * Recursively copy the plain-object/array spine of `value`, sharing only
+ * primitives and functions (which the run never reads) by reference. `seen`
+ * maps each original object to its copy and is populated before recursing into
+ * children, so a cycle or a repeated reference resolves to the copy — never the
+ * original. A non-plain object (a Map, class instance, etc. — the kind of value
+ * that made `structuredClone` throw and that can't be generically deep-copied)
+ * is replaced by an inert empty object rather than shared by reference, so the
+ * observer can never reach a mutable container the run reads.
+ */
+function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const existing = seen.get(value)
+  if (existing !== undefined) return existing
+  if (Array.isArray(value)) {
+    const copy: unknown[] = []
+    seen.set(value, copy)
+    for (const item of value) copy.push(copyPlainSpine(item, seen))
+    return copy
+  }
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return {}
+  const copy: Record<string, unknown> = {}
+  seen.set(value, copy)
+  for (const [key, v] of Object.entries(value)) copy[key] = copyPlainSpine(v, seen)
+  return copy
 }
 
 /**
