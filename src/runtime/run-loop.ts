@@ -716,11 +716,14 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // consumes for cost accounting + output parsing below), and a sync throw
       // or a rejected async result is swallowed — it can never break the run.
       if (args.ctx.onSandboxEvent) {
-        // Hand the observer its own defensive copy so it cannot mutate the event
-        // the run consumes below (output.parse reads event.data.*; cost
-        // accounting reads event.data.usage.* + event.data.tokenUsage.*).
-        const observerEvent = cloneEventForObserver(event)
         try {
+          // Hand the observer its own defensive copy so it cannot mutate the
+          // event the run consumes below (output.parse reads event.data.*; cost
+          // accounting reads event.data.usage.* + event.data.tokenUsage.*). The
+          // copy is built inside this try so even a malformed event (a throwing
+          // getter / hostile proxy that defeats the fallback copy) cannot break
+          // the run — the observer is simply skipped for that event.
+          const observerEvent = cloneEventForObserver(event)
           const result = args.ctx.onSandboxEvent(observerEvent, {
             iterationIndex: args.item.index,
             agentRunName: slot.agentRunName,
@@ -1210,29 +1213,34 @@ function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
   try {
     return structuredClone(event)
   } catch {
-    return copyPlainSpine(event, new WeakSet()) as SandboxEvent
+    return copyPlainSpine(event, new WeakMap()) as SandboxEvent
   }
 }
 
 /**
  * Recursively copy the plain-object/array spine of `value`, sharing primitives
  * and non-plain objects (the leaves that made `structuredClone` throw) by
- * reference. The `seen` set guards against a cycle so the fallback can never
- * recurse forever.
+ * reference. `seen` maps each original object to its copy and is populated
+ * before recursing into children, so a cycle or a repeated reference resolves
+ * to the copy — never the original — keeping the observer fully isolated from
+ * the run's own event.
  */
-function copyPlainSpine(value: unknown, seen: WeakSet<object>): unknown {
+function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value === null || typeof value !== 'object') return value
-  if (seen.has(value)) return value
+  const existing = seen.get(value)
+  if (existing !== undefined) return existing
   if (Array.isArray(value)) {
-    seen.add(value)
-    return value.map((item) => copyPlainSpine(item, seen))
+    const copy: unknown[] = []
+    seen.set(value, copy)
+    for (const item of value) copy.push(copyPlainSpine(item, seen))
+    return copy
   }
   const proto = Object.getPrototypeOf(value)
   if (proto !== Object.prototype && proto !== null) return value
-  seen.add(value)
-  const out: Record<string, unknown> = {}
-  for (const [key, v] of Object.entries(value)) out[key] = copyPlainSpine(v, seen)
-  return out
+  const copy: Record<string, unknown> = {}
+  seen.set(value, copy)
+  for (const [key, v] of Object.entries(value)) copy[key] = copyPlainSpine(v, seen)
+  return copy
 }
 
 /**
