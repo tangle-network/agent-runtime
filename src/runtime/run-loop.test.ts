@@ -178,11 +178,11 @@ describe('runLoop onSandboxEvent tee', () => {
     expect(result.iterations[0]?.output).toBe('done')
   })
 
-  it('forwards a non-cloneable event via a shallow-copy fallback (never drops it)', async () => {
+  it('forwards a non-cloneable event via the spine-copy fallback (never drops it)', async () => {
     // event.data is Record<string, unknown>, so an event can carry a value that
     // makes structuredClone throw (here, a function). The tee must fall back to
-    // a shallow copy and still forward the event rather than silently dropping
-    // it — upholding the "forwards EVERY raw event" contract.
+    // a deep spine copy and still forward the event rather than silently
+    // dropping it — upholding the "forwards EVERY raw event" contract.
     const nonCloneable = {
       type: 'tool',
       data: { fn: () => 'nope' },
@@ -196,5 +196,34 @@ describe('runLoop onSandboxEvent tee', () => {
     )
     expect(seen).toEqual(['tool', 'result'])
     expect(result.iterations[0]?.output).toBe('done')
+  })
+
+  it('isolates nested data on a non-cloneable event — mutation cannot corrupt the run', async () => {
+    // The event has a function leaf (structuredClone throws → spine-copy
+    // fallback) plus nested fields the run reads: data.finalText (output.parse)
+    // and data.usage.inputTokens (cost accounting, two levels deep). A mutating
+    // observer gets its own deep copy, so the run reads its own values.
+    const event = {
+      type: 'result',
+      data: {
+        finalText: 'done',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        leak: () => 'nope',
+      },
+    } as unknown as SandboxEvent
+    const result = await runWithObserver(
+      (ev) => {
+        const d = (
+          ev as unknown as {
+            data: { finalText: string; usage: { inputTokens: number } }
+          }
+        ).data
+        d.finalText = 'corrupted'
+        d.usage.inputTokens = 999
+      },
+      [event],
+    )
+    expect(result.iterations[0]?.output).toBe('done')
+    expect(result.tokenUsage.input).toBe(10)
   })
 })
