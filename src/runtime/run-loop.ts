@@ -716,8 +716,20 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // consumes for cost accounting + output parsing below), and a sync throw
       // or a rejected async result is swallowed — it can never break the run.
       if (args.ctx.onSandboxEvent) {
+        // Hand the observer its own copy so it cannot mutate the event the run
+        // consumes below (cost accounting + output parsing). structuredClone
+        // gives deep isolation but throws on non-cloneable data (event.data is
+        // Record<string, unknown>, so it may hold functions/streams); fall back
+        // to a shallow copy so every event is still forwarded per the JSDoc
+        // contract rather than silently dropped on a clone failure.
+        let observerEvent: SandboxEvent
         try {
-          const result = args.ctx.onSandboxEvent(structuredClone(event), {
+          observerEvent = structuredClone(event)
+        } catch {
+          observerEvent = { ...event }
+        }
+        try {
+          const result = args.ctx.onSandboxEvent(observerEvent, {
             iterationIndex: args.item.index,
             agentRunName: slot.agentRunName,
           })
