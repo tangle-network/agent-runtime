@@ -715,10 +715,15 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // a throwing observer must never break the run's own event collection.
       if (args.ctx.onSandboxEvent) {
         try {
-          args.ctx.onSandboxEvent(event, {
+          const result = args.ctx.onSandboxEvent(event, {
             iterationIndex: args.item.index,
             agentRunName: slot.agentRunName,
           })
+          // An async observer's rejection escapes this try/catch (the promise is
+          // not awaited), so attach a catch to uphold the isolation guarantee.
+          if (result && typeof (result as PromiseLike<void>).then === 'function') {
+            void (result as PromiseLike<void>).then(undefined, () => {})
+          }
         } catch {
           // Non-critical telemetry — never let it interrupt the stream.
         }

@@ -565,15 +565,16 @@ export interface ExecCtx {
    * each iteration's `streamPrompt` stream as it arrives — before it is buffered
    * or parsed — so a host can stream the agent's live output (tokens, tool
    * calls) token-by-token. Called synchronously in the hot stream loop; keep it
-   * cheap and non-throwing (a throw is caught + ignored so it can never break
-   * the run's own event collection).
+   * cheap and non-throwing. Both a synchronous throw and a rejected returned
+   * promise are caught + ignored so the observer can never break the run's own
+   * event collection — but prefer not to depend on that.
    *
    * @experimental
    */
   onSandboxEvent?: (
     event: SandboxEvent,
     meta: { iterationIndex: number; agentRunName: string },
-  ) => void
+  ) => void | PromiseLike<void>
   /**
    * Optional production-run handle. When set, every synthesized `llm_call`
    * the kernel infers from a sandbox event stream is forwarded via
