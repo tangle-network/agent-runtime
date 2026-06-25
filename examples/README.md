@@ -5,7 +5,9 @@ The fastest way to feel the package is to read **ONE** example: [`driver-loop/`]
 (below), which shows the move every supervisor is built on.
 
 Every example imports from `@tangle-network/agent-runtime` (the surface consumers use), not from
-relative paths, and all of them are typechecked by `pnpm run typecheck:examples`.
+relative paths, and they are typechecked by `pnpm run typecheck:examples` — except `researcher-loop`,
+which needs the optional `@tangle-network/agent-knowledge` peer that agent-runtime doesn't depend on
+and CI doesn't install, so it is excluded from that typecheck (run it with `agent-knowledge` installed).
 
 ## Quickstart — run these three (≈5 min, two run offline)
 
