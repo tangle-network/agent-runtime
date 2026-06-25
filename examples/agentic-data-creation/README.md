@@ -84,11 +84,14 @@ with any challenger/solvers/judge.
 A gap metric is only a useful reward if it *separates* hard examples from easy ones. The run proves
 this before trusting it (the `calibrate-before-measure` discipline): it measures the gap on the
 challenger's **first (un-refined) draft** — plain generation — and on the **loop-accepted** example,
-and shows the agentic loop widens the gap. This reproduces the paper's Table 1:
+and shows the accept rule separates them. **Offline the solvers are scripted, so this proves the
+wiring + that the rule discriminates by construction — it is NOT an empirical reproduction of the
+paper's Table 1.** Reproducing Table 1 for real (the loop actually producing harder data) needs the
+live run below, with real two-tier solver models:
 
 ```
-plain   (first-draft examples)   mean gap ≈ 0.02
-agentic (loop-accepted examples) mean gap ≈ 0.31     →  ✓ SEPARATES
+plain   (first-draft examples)   mean gap ≈ 0.02   (scripted)
+agentic (loop-accepted examples) mean gap ≈ 0.31   (scripted) →  rule fires; live run needed for the real number
 ```
 
 If the two did NOT separate, the run says so — a gap metric that doesn't move between easy and hard

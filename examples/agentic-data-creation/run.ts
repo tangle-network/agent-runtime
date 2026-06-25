@@ -62,7 +62,7 @@ async function main(): Promise<void> {
   const separates = Number.isFinite(plain) && Number.isFinite(agentic) && agentic - plain >= 0.15
   console.log(
     separates
-      ? `  ✓ SEPARATES: the agentic loop widens the gap by +${(agentic - plain).toFixed(2)} — the reward is real.`
+      ? `  ✓ the accept rule separates (Δ=+${(agentic - plain).toFixed(2)}) — but these solvers are SCRIPTED, so this proves the wiring + that the rule discriminates by construction, NOT that the loop makes real data harder. The empirical gap (paper Table 1) needs the live run (real two-tier solvers); see README.`
       : `  ✗ does NOT separate (Δ=${(agentic - plain).toFixed(2)}) — the gap metric would be uninformative here.`,
   )
 
