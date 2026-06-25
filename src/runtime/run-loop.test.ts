@@ -158,4 +158,23 @@ describe('runLoop onSandboxEvent tee', () => {
     })
     expect(result.iterations[0]?.output).toBe('done')
   })
+
+  it('isolates observer mutation — the run consumes its own uncorrupted events', async () => {
+    // A buggy/hostile observer mutates the event it receives. Because it gets a
+    // defensive copy, the run's own buffered event (read by output.parse) is
+    // untouched: output stays 'done', not the observer's 'corrupted'.
+    const result = await runWithObserver((event) => {
+      const mutable = event as unknown as { type: string; data: Record<string, unknown> }
+      mutable.type = 'mutated'
+      mutable.data.finalText = 'corrupted'
+    })
+    expect(result.iterations[0]?.output).toBe('done')
+  })
+
+  it('does not await the observer — a never-settling observer cannot stall the stream', async () => {
+    // The observer returns a promise that never resolves. The run must not await
+    // it; if a future refactor adds an `await`, this test hangs and fails.
+    const result = await runWithObserver(() => new Promise<void>(() => {}))
+    expect(result.iterations[0]?.output).toBe('done')
+  })
 })
