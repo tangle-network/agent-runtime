@@ -8,5 +8,14 @@
     "sourceMap": false
   },
   "include": ["examples"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    // researcher-loop imports the optional `@tangle-network/agent-knowledge`
+    // peer (researcherProfile lives there). agent-runtime intentionally does
+    // not depend on agent-knowledge, so it isn't installed here — exclude this
+    // optional-peer example from the typecheck rather than failing on an
+    // unresolved import. Run it with agent-knowledge installed.
+    "examples/researcher-loop"
+  ]
 }
