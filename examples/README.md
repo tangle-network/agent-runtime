@@ -88,6 +88,7 @@ purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver tha
 | 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | You want to wrap any agent with `withTangleIntelligence` and ship one trace per call (best-effort; off = passthrough). |
 | 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | You want proof that any framework's traces converge on one OTel contract → one `InsightReport` (the CI-tested example). |
 | 22 | [`product-eval/`](./product-eval/) | You want user-sim product evals: a persona over a multi-round conversation via `runPersonaConversation`, then score the transcript (`maxTurns` is a ceiling, not a target). Needs `TANGLE_API_KEY`; offline via a `backendFor` override. |
+| 23 | [`agentic-data-creation/`](./agentic-data-creation/) | You want the **Autodata inner loop**: an agent manufactures HARD training examples from a doc and keeps only the ones that DISCRIMINATE a strong solver from a weak one. Composes the fold (`runLoop`+refine driver), N× sampling (`runLoop`+fanout driver), `llmJudge`, `CostLedger`, and `Corpus`; the one new piece is `discriminativeAcceptRule`. Shows the calibration (plain gap ≈ 0.02 vs agentic ≈ 0.31). Offline. |
 
 ## Conventions
 
@@ -144,6 +145,7 @@ pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts
 pnpm tsx examples/intelligence-drop-in/intelligence-drop-in.ts
 pnpm tsx examples/agents-of-all-shapes/run.ts
 TANGLE_API_KEY=... pnpm tsx examples/product-eval/product-eval.ts
+pnpm tsx examples/agentic-data-creation/run.ts                      # Autodata inner loop (offline)
 ```
 
 ## Tracing
