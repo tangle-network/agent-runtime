@@ -716,18 +716,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // consumes for cost accounting + output parsing below), and a sync throw
       // or a rejected async result is swallowed — it can never break the run.
       if (args.ctx.onSandboxEvent) {
-        // Hand the observer its own copy so it cannot mutate the event the run
-        // consumes below (cost accounting + output parsing). structuredClone
-        // gives deep isolation but throws on non-cloneable data (event.data is
-        // Record<string, unknown>, so it may hold functions/streams); fall back
-        // to a shallow copy so every event is still forwarded per the JSDoc
-        // contract rather than silently dropped on a clone failure.
-        let observerEvent: SandboxEvent
-        try {
-          observerEvent = structuredClone(event)
-        } catch {
-          observerEvent = { ...event }
-        }
+        // Hand the observer its own defensive copy so it cannot mutate the event
+        // the run consumes below (output.parse reads event.data.*; cost
+        // accounting reads event.data.usage.* + event.data.tokenUsage.*).
+        const observerEvent = cloneEventForObserver(event)
         try {
           const result = args.ctx.onSandboxEvent(observerEvent, {
             iterationIndex: args.item.index,
@@ -1201,6 +1193,46 @@ async function emitTrace(
 ): Promise<void> {
   if (!emitter) return
   await emitter.emit(event)
+}
+
+/**
+ * Defensive copy of a sandbox event for the per-event observer tee. Prefers
+ * `structuredClone` for full deep isolation. `event.data` is
+ * `Record<string, unknown>`, so it may carry a non-cloneable leaf (a function
+ * or stream) that makes `structuredClone` throw; in that case fall back to a
+ * recursive copy of the plain-object/array spine. That still isolates every
+ * field the run reads (output.parse reads `event.data.*`; cost accounting reads
+ * `event.data.usage.*` and `event.data.tokenUsage.*`) — only non-cloneable
+ * leaves and exotic (non-plain) objects are shared by reference, and the run
+ * never reads those.
+ */
+function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
+  try {
+    return structuredClone(event)
+  } catch {
+    return copyPlainSpine(event, new WeakSet()) as SandboxEvent
+  }
+}
+
+/**
+ * Recursively copy the plain-object/array spine of `value`, sharing primitives
+ * and non-plain objects (the leaves that made `structuredClone` throw) by
+ * reference. The `seen` set guards against a cycle so the fallback can never
+ * recurse forever.
+ */
+function copyPlainSpine(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return value
+  if (Array.isArray(value)) {
+    seen.add(value)
+    return value.map((item) => copyPlainSpine(item, seen))
+  }
+  const proto = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return value
+  seen.add(value)
+  const out: Record<string, unknown> = {}
+  for (const [key, v] of Object.entries(value)) out[key] = copyPlainSpine(v, seen)
+  return out
 }
 
 /**
