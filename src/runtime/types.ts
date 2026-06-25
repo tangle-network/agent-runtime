@@ -567,9 +567,13 @@ export interface ExecCtx {
    * receives a defensive copy of each event — mutating it cannot affect the
    * run's own cost accounting or output parsing. Called synchronously in the hot
    * stream loop and never awaited, so a slow or never-settling observer cannot
-   * stall the stream; keep it cheap. Both a synchronous throw and a rejected
-   * returned promise are caught + ignored so the observer can never break the
-   * run — but prefer not to depend on that.
+   * stall the stream; keep it cheap. An async observer is fire-and-forget: its
+   * promise is not awaited, so events carry no ordering or backpressure
+   * guarantees (the next event may be observed before a prior async observer
+   * settles) — use it for side-effect telemetry, not sequential processing.
+   * Both a synchronous throw and a rejected returned promise are caught +
+   * ignored so the observer can never break the run — but prefer not to depend
+   * on that.
    *
    * @experimental
    */
