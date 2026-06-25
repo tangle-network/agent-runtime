@@ -562,12 +562,14 @@ export interface ExecCtx {
   traceEmitter?: LoopTraceEmitter
   /**
    * Optional per-event tee. When set, the kernel forwards EVERY raw event from
-   * each iteration's `streamPrompt` stream as it arrives — before it is buffered
-   * or parsed — so a host can stream the agent's live output (tokens, tool
-   * calls) token-by-token. Called synchronously in the hot stream loop; keep it
-   * cheap and non-throwing. Both a synchronous throw and a rejected returned
-   * promise are caught + ignored so the observer can never break the run's own
-   * event collection — but prefer not to depend on that.
+   * each iteration's `streamPrompt` stream as it arrives, so a host can stream
+   * the agent's live output (tokens, tool calls) token-by-token. The observer
+   * receives a defensive copy of each event — mutating it cannot affect the
+   * run's own cost accounting or output parsing. Called synchronously in the hot
+   * stream loop and never awaited, so a slow or never-settling observer cannot
+   * stall the stream; keep it cheap. Both a synchronous throw and a rejected
+   * returned promise are caught + ignored so the observer can never break the
+   * run — but prefer not to depend on that.
    *
    * @experimental
    */

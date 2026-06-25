@@ -710,12 +710,14 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     const events: SandboxEvent[] = []
     for await (const event of stream) {
       events.push(event)
-      // Tee each raw event to an optional host observer BEFORE it is buffered,
-      // so a caller can stream the agent's live output. Best-effort + isolated:
-      // a throwing observer must never break the run's own event collection.
+      // Tee each raw event to an optional host observer so a caller can stream
+      // the agent's live output. Best-effort + isolated: the observer gets a
+      // defensive copy (mutating it cannot corrupt the event the run itself
+      // consumes for cost accounting + output parsing below), and a sync throw
+      // or a rejected async result is swallowed — it can never break the run.
       if (args.ctx.onSandboxEvent) {
         try {
-          const result = args.ctx.onSandboxEvent(event, {
+          const result = args.ctx.onSandboxEvent(structuredClone(event), {
             iterationIndex: args.item.index,
             agentRunName: slot.agentRunName,
           })
