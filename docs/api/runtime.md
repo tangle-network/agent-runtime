@@ -11379,11 +11379,53 @@ Defined in: [runtime/types.ts:562](https://github.com/tangle-network/agent-runti
 
 Optional trace emitter. When set, the kernel emits `loop.*` events.
 
+##### onSandboxEvent?
+
+> `optional` **onSandboxEvent?**: (`event`, `meta`) => `void` \| `PromiseLike`\<`void`\>
+
+Defined in: [runtime/types.ts:580](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L580)
+
+**`Experimental`**
+
+Optional per-event tee. When set, the kernel forwards EVERY raw event from
+each iteration's `streamPrompt` stream as it arrives, so a host can stream
+the agent's live output (tokens, tool calls) token-by-token. The observer
+receives a defensive copy of each event — mutating it cannot affect the
+run's own cost accounting or output parsing. Called synchronously in the hot
+stream loop and never awaited, so a slow or never-settling observer cannot
+stall the stream; keep it cheap. An async observer is fire-and-forget: its
+promise is not awaited, so events carry no ordering or backpressure
+guarantees (the next event may be observed before a prior async observer
+settles) — use it for side-effect telemetry, not sequential processing.
+Both a synchronous throw and a rejected returned promise are caught +
+ignored so the observer can never break the run — but prefer not to depend
+on that.
+
+###### Parameters
+
+###### event
+
+`SandboxEvent`
+
+###### meta
+
+###### iterationIndex
+
+`number`
+
+###### agentRunName
+
+`string`
+
+###### Returns
+
+`void` \| `PromiseLike`\<`void`\>
+
 ##### runHandle?
 
 > `optional` **runHandle?**: [`RuntimeRunHandle`](index.md#runtimerunhandle)
 
-Defined in: [runtime/types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L568)
+Defined in: [runtime/types.ts:589](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L589)
 
 **`Experimental`**
 
@@ -11395,7 +11437,7 @@ the kernel infers from a sandbox event stream is forwarded via
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/types.ts:570](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L570)
+Defined in: [runtime/types.ts:591](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L591)
 
 **`Experimental`**
 
@@ -11405,7 +11447,7 @@ Cooperative cancellation signal.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [runtime/types.ts:576](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L576)
+Defined in: [runtime/types.ts:597](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L597)
 
 **`Experimental`**
 
@@ -11417,7 +11459,7 @@ inherited from TRACE_ID env var in MCP subprocess mode.
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [runtime/types.ts:581](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L581)
+Defined in: [runtime/types.ts:602](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L602)
 
 **`Experimental`**
 
@@ -14270,7 +14312,7 @@ Defined in: [runtime/run-loop.ts:138](https://github.com/tangle-network/agent-ru
 
 > **defaultSelectWinner**\<`Task`, `Output`\>(`iterations`): [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
 
-Defined in: [runtime/run-loop.ts:1099](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1099)
+Defined in: [runtime/run-loop.ts:1126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/run-loop.ts#L1126)
 
 The kernel's winner argmax — best-valid-score, ties broken by earliest index,
 falling back to the best-scoring non-errored output when none is valid. Exported
