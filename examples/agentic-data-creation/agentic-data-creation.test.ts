@@ -105,4 +105,28 @@ describe('createDataCreationLoop (offline)', () => {
     expect(stored).toHaveLength(2)
     expect(result.cost.summary().totalCostUsd).toBeGreaterThan(0)
   })
+
+  it('never force-accepts a rejected example (the null case yields zero accepted)', async () => {
+    // `runLoop`'s winner is best-SCORING, and falls back to the best score even when nothing passed
+    // the accept rule. With an accept rule that always rejects, NO example should be accepted — the
+    // loop must report an honest empty set, not the least-bad reject pushed through as a "winner".
+    const result = await createDataCreationLoop({
+      doc: groundingDoc,
+      baseInstruction,
+      challenger: challengerClient(),
+      weakSolver: solverClient('weak'),
+      strongSolver: solverClient('strong'),
+      judge: buildRubricJudge(),
+      target: 2,
+      samples: 2,
+      maxRetries: 2,
+      accept: () => ({ accept: false, reason: 'forced reject (null-case regression)' }),
+    })
+
+    expect(result.accepted).toHaveLength(0)
+    expect(result.agenticGaps).toHaveLength(0)
+    expect(await result.corpus.query({ area: 'training-data' })).toHaveLength(0)
+    // Plain-gap calibration is still recorded even when nothing is accepted.
+    expect(result.plainGaps.length).toBeGreaterThan(0)
+  })
 })
