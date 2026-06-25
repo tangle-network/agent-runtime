@@ -251,4 +251,26 @@ describe('runLoop onSandboxEvent tee', () => {
     )
     expect(result.tokenUsage.input).toBe(10)
   })
+
+  it('isolates non-plain (class instance) event data — observer cannot reach the run object', async () => {
+    // event.data is a class instance with a function leaf: structuredClone
+    // throws, and the spine copy replaces the non-plain container with an inert
+    // placeholder rather than sharing the run's own object. The observer's
+    // mutation therefore cannot corrupt the run's output or cost.
+    class CustomData {
+      finalText = 'done'
+      usage = { inputTokens: 10, outputTokens: 5 }
+      leak = () => 'nope'
+    }
+    const event = { type: 'result', data: new CustomData() } as unknown as SandboxEvent
+    const result = await runWithObserver(
+      (ev) => {
+        const d = (ev as unknown as { data: { finalText?: string } }).data
+        d.finalText = 'corrupted'
+      },
+      [event],
+    )
+    expect(result.iterations[0]?.output).toBe('done')
+    expect(result.tokenUsage.input).toBe(10)
+  })
 })
