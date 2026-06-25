@@ -1205,9 +1205,10 @@ async function emitTrace(
  * or stream) that makes `structuredClone` throw; in that case fall back to a
  * recursive copy of the plain-object/array spine. That still isolates every
  * field the run reads (output.parse reads `event.data.*`; cost accounting reads
- * `event.data.usage.*` and `event.data.tokenUsage.*`) — only non-cloneable
- * leaves and exotic (non-plain) objects are shared by reference, and the run
- * never reads those.
+ * `event.data.usage.*` and `event.data.tokenUsage.*`). Function leaves are
+ * shared by reference (the run never reads them) and non-plain containers are
+ * replaced by inert placeholders, so the observer shares no mutable object the
+ * run consumes.
  */
 function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
   try {
@@ -1218,12 +1219,14 @@ function cloneEventForObserver(event: SandboxEvent): SandboxEvent {
 }
 
 /**
- * Recursively copy the plain-object/array spine of `value`, sharing primitives
- * and non-plain objects (the leaves that made `structuredClone` throw) by
- * reference. `seen` maps each original object to its copy and is populated
- * before recursing into children, so a cycle or a repeated reference resolves
- * to the copy — never the original — keeping the observer fully isolated from
- * the run's own event.
+ * Recursively copy the plain-object/array spine of `value`, sharing only
+ * primitives and functions (which the run never reads) by reference. `seen`
+ * maps each original object to its copy and is populated before recursing into
+ * children, so a cycle or a repeated reference resolves to the copy — never the
+ * original. A non-plain object (a Map, class instance, etc. — the kind of value
+ * that made `structuredClone` throw and that can't be generically deep-copied)
+ * is replaced by an inert empty object rather than shared by reference, so the
+ * observer can never reach a mutable container the run reads.
  */
 function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown {
   if (value === null || typeof value !== 'object') return value
@@ -1236,7 +1239,7 @@ function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown
     return copy
   }
   const proto = Object.getPrototypeOf(value)
-  if (proto !== Object.prototype && proto !== null) return value
+  if (proto !== Object.prototype && proto !== null) return {}
   const copy: Record<string, unknown> = {}
   seen.set(value, copy)
   for (const [key, v] of Object.entries(value)) copy[key] = copyPlainSpine(v, seen)
