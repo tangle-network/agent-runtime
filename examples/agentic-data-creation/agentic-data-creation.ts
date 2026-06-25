@@ -436,9 +436,12 @@ export async function createDataCreationLoop(
     const plain = evaluations.get(0)
     if (plain) plainGaps.push(plain.gap)
 
-    if (result.winner) {
-      const winnerEval = evaluations.get(result.winner.iterationIndex)
-      if (!winnerEval) throw new Error('internal: accepted iteration has no recorded evaluation')
+    // `result.winner` is the best-scoring iteration — but `defaultSelectWinner` falls back to the
+    // best score even when NO iteration passed the accept rule. An example only counts as accepted
+    // if its own evaluation accepted it; otherwise the slot produced nothing (an honest miss, not a
+    // forced accept of the least-bad reject).
+    const winnerEval = result.winner ? evaluations.get(result.winner.iterationIndex) : undefined
+    if (winnerEval?.decision.accept) {
       const append = await corpus.append(toCorpusRecord(winnerEval, i))
       if (!append.succeeded) throw new Error(`corpus append failed: ${append.error}`)
       accepted.push(winnerEval)
