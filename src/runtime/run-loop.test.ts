@@ -226,4 +226,29 @@ describe('runLoop onSandboxEvent tee', () => {
     expect(result.iterations[0]?.output).toBe('done')
     expect(result.tokenUsage.input).toBe(10)
   })
+
+  it('isolates a repeated nested reference on a non-cloneable event', async () => {
+    // The same `usage` object is referenced twice in the event. A seen-set that
+    // returned the original on the second encounter would leak it to the
+    // observer; the copy must map originals to copies so both positions point to
+    // the isolated copy, not the run's own object.
+    const usage = { inputTokens: 10, outputTokens: 5 }
+    const event = {
+      type: 'result',
+      data: {
+        finalText: 'done',
+        usage,
+        usageAlias: usage,
+        leak: () => 'nope',
+      },
+    } as unknown as SandboxEvent
+    const result = await runWithObserver(
+      (ev) => {
+        const d = (ev as unknown as { data: { usageAlias: { inputTokens: number } } }).data
+        d.usageAlias.inputTokens = 999
+      },
+      [event],
+    )
+    expect(result.tokenUsage.input).toBe(10)
+  })
 })
