@@ -25,6 +25,7 @@ evidence ledger.
 | [long-horizon-agent-map.md](./long-horizon-agent-map.md) | The long-horizon steered-agent product — map + decisions. |
 | [atom-compression-plan.md](./atom-compression-plan.md) | The self-designing atom's cut-list + build-list (feeds the deep-clean). |
 | [loop-facade-postmortem.md](./loop-facade-postmortem.md) | **Active guardrail.** Failure record for the deleted `defineLoop` facade + the prevention rule. |
+| [environment-provider-adapter-spec.md](./environment-provider-adapter-spec.md) | Generic environment provider adapter spec: what to lift from sandbox SDK, cli-bridge, runtime routing, and profile execution so third-party compute/sandbox providers can plug in. |
 | [deletion-ledger.md](./deletion-ledger.md) | The deletion record for the `chore/atom-deep-clean` passes. |
 
 ## Moved to the run archive ([tangle-network/agent-lab](https://github.com/tangle-network/agent-lab), private)
