@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 346 exports.
+Import from `@tangle-network/agent-runtime/loops` — 379 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -356,6 +356,7 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `completionAuthorizes` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
 | `contentAddress` | function | Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a |
+| `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
 | `createBudgetPool` | function | Create a conserved reservation pool from a root `Budget`. `now()` is injected so the |
 | `createEventBus` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `createExecutor` | function | The single built-in executor factory. Picks a leaf backend by data (`config.backend`), |
@@ -410,12 +411,15 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
 | `promotionGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
+| `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
 | `renderCorpusToInstructions` | function | The learning-flywheel READ side. Queries the corpus through `filter`, renders the matching facts |
 | `renderReport` | function | Operator-facing report, split by who should act. The agent block is the |
 | `reportLoopUsage` | function | Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost |
+| `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
 | `routerBrain` | function | The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's |
 | `routerChatWithTools` | function | A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape |
 | `routerChatWithUsage` | function | _(no summary — add a TSDoc line at the declaration)_ |
@@ -426,6 +430,7 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `runLoop` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
 | `runStrategyEvolution` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `selectChampion` | function | Search-side champion selection over a tournament report. |
 | `selectValidWinner` | function | The single content-free valid-only winner selector. Among the gated-VALID children only |
@@ -462,6 +467,13 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `Agent` | interface | One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver |
+| `AgentEnvironment` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentCapabilities` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProvider` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
+| `AgentEnvironmentQuery` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgenticOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgenticRunResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgenticSurface` | interface | A stateful, checkable environment an agent operates over with tools. Open behind one interface. |
@@ -469,7 +481,11 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `AgenticTool` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentProfile` | interface | Public provider-neutral agent profile contract. |
 | `AgentRunSpec` | interface | Sandbox-SDK-shaped agent specification. |
+| `AgentSession` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentSessionRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentSpec` | interface | `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the |
+| `AgentTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnytimeReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnytimeStrategySummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -494,6 +510,8 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `BusStats` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ChampionPick` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
+| `CheckpointRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CheckpointRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
@@ -502,6 +520,7 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
 | `CorpusRecord` | interface | One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from |
+| `CreateAgentEnvironmentInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CreateSandboxOptions` | interface | Configuration for creating a new sandbox. |
 | `CreateScopeAnalystOptions` | interface | The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far. |
 | `CriuCapableClient` | interface | Narrowed view of the optional CRIU probe. The loop-side `SandboxClient` |
@@ -523,12 +542,15 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `EvolutionGeneration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `EvolutionReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ExecCtx` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExecRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExecResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
 | `ExecutorContext` | interface | Construction context handed to a `ExecutorFactory` — the seams a built-in needs |
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
 | `ForkCapableBox` | interface | Loop-side widening of the box's optional fork method. |
+| `ForkRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `GitWorkspaceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `HarvestCorpusOptions` | interface | harvestCorpus — production traces → corpus, the G2 bridge (the playbook's step 6). |
 | `HarvestFailure` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -576,14 +598,19 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `PersonaContext` | interface | The persona context blob — who the loop is acting as. Open by intent: a persona names its |
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
 | `PipelineStage` | interface | `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next |
+| `PlacementInfo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
 | `PromotionGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `PromotionVerdict` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
+| `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
+| `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
 | `PublishOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
+| `ResourceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
 | `RouterChatResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RouterChatToolsResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -595,6 +622,7 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
+| `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
@@ -644,10 +672,15 @@ Import from `@tangle-network/agent-runtime/loops` — 346 exports.
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |
 | `Workspace` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `WorkspaceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorkspaceRun` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreeCliExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `WorktreeFanoutOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
+| `AgentEnvironmentStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
+| `AgentSessionStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `ApplyContinuation` | type | Fold a steering string into the caller's Task shape, producing the Task for |
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |

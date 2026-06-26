@@ -292,7 +292,7 @@ export class DelegationTaskQueue {
   static async restore(options: DelegationTaskQueueOptions = {}): Promise<DelegationTaskQueue> {
     const queue = new DelegationTaskQueue(options)
     const loaded = await queue.store.loadAll()
-    queue.rehydrate(loaded)
+    await queue.rehydrate(loaded)
     return queue
   }
 
@@ -513,17 +513,18 @@ export class DelegationTaskQueue {
     if (truncated) record.traceTruncated = true
   }
 
-  private rehydrate(loaded: DelegationRecord[]): void {
+  private async rehydrate(loaded: DelegationRecord[]): Promise<void> {
     const records = [...loaded].sort((a, b) => a.startedAt.localeCompare(b.startedAt))
     for (const record of records) {
       this.records.set(record.taskId, record)
       if (record.idempotencyKey) this.byIdempotencyKey.set(record.idempotencyKey, record.taskId)
     }
+    const restoreWrites: Promise<void>[] = []
     for (const record of this.records.values()) {
       if (isTerminal(record.status)) continue
       if (record.detachedSessionRef && this.resumeDelegate) {
         record.status = 'running'
-        this.persist(record)
+        restoreWrites.push(this.persist(record))
         this.startResume(record, record.detachedSessionRef, this.resumeDelegate)
         continue
       }
@@ -535,9 +536,12 @@ export class DelegationTaskQueue {
           : 'delegation driver restarted while the task was in flight; the run was not detached and cannot be resumed',
         kind: 'DriverRestartError',
       }
-      this.persist(record)
+      restoreWrites.push(this.persist(record))
     }
-    this.enforceRetention()
+    const retentionWrite = this.enforceRetention()
+    if (retentionWrite) restoreWrites.push(retentionWrite)
+    await Promise.all(restoreWrites)
+    if (this.persistFailure) throw this.persistFailure
   }
 
   private startResume(
@@ -637,8 +641,8 @@ export class DelegationTaskQueue {
     ])
   }
 
-  private persist(record: DelegationRecord): void {
-    if (this.persistFailure) return
+  private persist(record: DelegationRecord): Promise<void> {
+    if (this.persistFailure) return Promise.resolve()
     const snapshot = structuredClone(record)
     this.persistTail = this.persistTail.then(async () => {
       if (this.persistFailure) return
@@ -648,10 +652,11 @@ export class DelegationTaskQueue {
         this.failPersistence(err)
       }
     })
+    return this.persistTail
   }
 
-  private persistRemoval(taskIds: string[]): void {
-    if (this.persistFailure || taskIds.length === 0) return
+  private persistRemoval(taskIds: string[]): Promise<void> | undefined {
+    if (this.persistFailure || taskIds.length === 0) return undefined
     this.persistTail = this.persistTail.then(async () => {
       if (this.persistFailure) return
       try {
@@ -660,6 +665,7 @@ export class DelegationTaskQueue {
         this.failPersistence(err)
       }
     })
+    return this.persistTail
   }
 
   private failPersistence(cause: unknown): void {
@@ -675,14 +681,14 @@ export class DelegationTaskQueue {
     this.onPersistError(error)
   }
 
-  private enforceRetention(): void {
-    if (!Number.isFinite(this.maxTerminalRecords)) return
+  private enforceRetention(): Promise<void> | undefined {
+    if (!Number.isFinite(this.maxTerminalRecords)) return undefined
     const terminal: DelegationRecord[] = []
     for (const record of this.records.values()) {
       if (isTerminal(record.status)) terminal.push(record)
     }
     const excess = terminal.length - this.maxTerminalRecords
-    if (excess <= 0) return
+    if (excess <= 0) return undefined
     terminal.sort((a, b) =>
       (a.completedAt ?? a.startedAt).localeCompare(b.completedAt ?? b.startedAt),
     )
@@ -696,7 +702,7 @@ export class DelegationTaskQueue {
         this.byIdempotencyKey.delete(record.idempotencyKey)
       }
     }
-    this.persistRemoval(evicted.map((record) => record.taskId))
+    return this.persistRemoval(evicted.map((record) => record.taskId))
   }
 }
 

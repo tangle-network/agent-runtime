@@ -168,6 +168,11 @@ describe('DelegationTaskQueue durable mode', () => {
     expect(status?.status).toBe('failed')
     expect(status?.error?.message).toContain('sess-xyz')
     expect(status?.error?.message).toContain('needs a resumeDelegate')
+
+    const third = await DelegationTaskQueue.restore({
+      store: new FileDelegationStore({ filePath }),
+    })
+    expect(third.status(taskId)?.status).toBe('failed')
   })
 
   it('settles a resumed record as failed when the driver tick throws', async () => {

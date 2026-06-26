@@ -29,6 +29,13 @@ import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
+import {
+  type AgentEnvironmentProvider,
+  type AgentEnvironmentProviderRegistry,
+  type ProviderExecutorOptions,
+  providerAsExecutor,
+  resolveAgentEnvironmentProvider,
+} from '../environment-provider'
 import { routerChatWithUsage, type ToolSpec } from '../router-client'
 import type { RunLoopOptions } from '../run-loop'
 import { runLoop } from '../run-loop'
@@ -141,11 +148,20 @@ export interface BridgeSeam {
   maxTurns?: number
 }
 
+/** Generic environment provider executor config. External packages implement
+ *  `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
+ *  consume them as backend data while preserving the existing usage channel. */
+export interface ProviderSeam extends ProviderExecutorOptions {
+  provider: AgentEnvironmentProvider | string
+  registry?: AgentEnvironmentProviderRegistry
+}
+
 const routerSeamKey = 'router'
 const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
 const cliWorktreeSeamKey = 'cli-worktree'
+const providerSeamKey = 'provider'
 
 // ── Content-addressed result pointers (the B1 replay source) ───────────────────
 
@@ -1141,6 +1157,7 @@ export type ExecutorConfig =
   | ({ backend: 'bridge' } & BridgeSeam)
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
+  | ({ backend: 'provider' } & ProviderSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
 /**
@@ -1166,6 +1183,14 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return cliExecutor(spec, seamed)
       case 'cli-worktree':
         return cliWorktreeExecutor(spec, seamed)
+      case 'provider': {
+        const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
+        const provider = resolveAgentEnvironmentProvider(
+          providerSeam.provider,
+          providerSeam.registry,
+        )
+        return providerAsExecutor(provider, providerSeam)(spec, seamed)
+      }
       case 'sandbox': {
         // The sandbox executor requires a concrete harness; a spec-level harness
         // wins, else the config names it (fail-loud inside if both are absent).
