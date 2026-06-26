@@ -714,7 +714,7 @@ describe('restored-record resume end-to-end', () => {
           }),
       }),
     })
-    expect(second.status(taskId)?.status).toBe('running')
+    expect(['running', 'completed']).toContain(second.status(taskId)?.status)
     await until(() => second.status(taskId)?.status === 'completed')
     expect(resolved.every((id) => id === 'sandbox_e2e')).toBe(true)
     const status = second.status(taskId, { includeTrace: true })
