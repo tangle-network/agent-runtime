@@ -26,6 +26,9 @@ try {
   run('tar', ['-xzf', tarballs[0], '-C', unpackDir], repoRoot)
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+  if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
+    throw new Error('@tangle-network/agent-eval must stay required: root and ./loops import it at runtime')
+  }
   const requiredExports = {
     '.': ['import', 'types'],
     './agent': ['import', 'types'],
