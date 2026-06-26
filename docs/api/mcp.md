@@ -2719,10 +2719,10 @@ Defined in: [mcp/server.ts:69](https://github.com/tangle-network/agent-runtime/b
 
 **`Experimental`**
 
-Required to enable `delegate` — the ONE generic delegation verb (the replacement for
-delegate_code / delegate_research). Inject the supervisor substrate: its brain `router`, the
-worker `backend`, and the completion `deliverable`. The supervisor AUTHORS its own worker from
-the agent's intent, so there is no worker profile to wire here.
+Required to enable `delegate` — the ONE generic delegation verb. Inject the supervisor
+substrate: its brain `router`, the worker `backend`, and the completion `deliverable`. The
+supervisor AUTHORS its own worker from the agent's intent, so there is no worker profile to
+wire here.
 
 ##### uiAuditorDelegate?
 
@@ -4183,7 +4183,7 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 ### DelegateArgs
 
-Defined in: [mcp/tools/delegate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L71)
+Defined in: [mcp/tools/delegate.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L67)
 
 Parsed `delegate` tool arguments.
 
@@ -4193,25 +4193,25 @@ Parsed `delegate` tool arguments.
 
 > **intent**: `string`
 
-Defined in: [mcp/tools/delegate.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L72)
+Defined in: [mcp/tools/delegate.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L68)
 
 ##### model?
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L73)
+Defined in: [mcp/tools/delegate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L69)
 
 ##### runId?
 
 > `optional` **runId?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L74)
+Defined in: [mcp/tools/delegate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L70)
 
 ***
 
 ### DelegateHandlerOptions
 
-Defined in: [mcp/tools/delegate.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L106)
+Defined in: [mcp/tools/delegate.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L102)
 
 **`Experimental`**
 
@@ -4221,7 +4221,7 @@ Defined in: [mcp/tools/delegate.ts:106](https://github.com/tangle-network/agent-
 
 > **router**: [`RouterConfig`](runtime.md#routerconfig)
 
-Defined in: [mcp/tools/delegate.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L108)
+Defined in: [mcp/tools/delegate.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L104)
 
 **`Experimental`**
 
@@ -4231,7 +4231,7 @@ The supervisor brain's router substrate (REQUIRED — the default supervisor is 
 
 > **backend**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-Defined in: [mcp/tools/delegate.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L110)
+Defined in: [mcp/tools/delegate.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L106)
 
 **`Experimental`**
 
@@ -4241,7 +4241,7 @@ WHERE the authored workers run. Required for `supervise()` to spawn anything.
 
 > `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
 
-Defined in: [mcp/tools/delegate.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L112)
+Defined in: [mcp/tools/delegate.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L108)
 
 **`Experimental`**
 
@@ -4251,7 +4251,7 @@ The completion oracle the authored workers settle against (settled ⟺ delivered
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L114)
+Defined in: [mcp/tools/delegate.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L110)
 
 **`Experimental`**
 
@@ -4261,7 +4261,7 @@ Default supervisor brain model when a call omits `model`.
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [mcp/tools/delegate.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L116)
+Defined in: [mcp/tools/delegate.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L112)
 
 **`Experimental`**
 
@@ -5834,7 +5834,7 @@ Defined in: [mcp/tools/coordination.ts:92](https://github.com/tangle-network/age
 
 > **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \}
 
-Defined in: [mcp/tools/delegate.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L101)
+Defined in: [mcp/tools/delegate.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L97)
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.
@@ -6133,7 +6133,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:51](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_TOOL\_NAME**: `"delegate_ui_audit"` = `'delegate_ui_audit'`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L30)
+Defined in: [mcp/tools/delegate-ui-audit.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L29)
 
 **`Experimental`**
 
@@ -6143,7 +6143,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:30](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L33)
+Defined in: [mcp/tools/delegate-ui-audit.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L32)
 
 **`Experimental`**
 
@@ -6153,7 +6153,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:33](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L86)
+Defined in: [mcp/tools/delegate-ui-audit.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L85)
 
 **`Experimental`**
 
@@ -6409,7 +6409,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:86](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_TOOL\_NAME**: `"delegate"` = `'delegate'`
 
-Defined in: [mcp/tools/delegate.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L29)
+Defined in: [mcp/tools/delegate.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L25)
 
 **`Experimental`**
 
@@ -6419,7 +6419,7 @@ Defined in: [mcp/tools/delegate.ts:29](https://github.com/tangle-network/agent-r
 
 > `const` **DELEGATE\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegate.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L32)
+Defined in: [mcp/tools/delegate.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L28)
 
 **`Experimental`**
 
@@ -6429,7 +6429,7 @@ Defined in: [mcp/tools/delegate.ts:32](https://github.com/tangle-network/agent-r
 
 > `const` **DELEGATE\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegate.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L50)
+Defined in: [mcp/tools/delegate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L46)
 
 **`Experimental`**
 
@@ -6629,7 +6629,7 @@ Defined in: [mcp/tools/delegation-status.ts:41](https://github.com/tangle-networ
 
 ###### properties.taskId.description
 
-> `readonly` **description**: `"Returned by delegate_code / delegate_research."` = `'Returned by delegate_code / delegate_research.'`
+> `readonly` **description**: `"Returned by delegate_ui_audit."` = `'Returned by delegate_ui_audit.'`
 
 ###### properties.includeTrace
 
@@ -6702,9 +6702,9 @@ This is the SANDBOX-SESSION coder path: workers run the in-box harness via the
 the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
 
 For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
-per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate stays as the
-MCP server's built-in `delegate_code` path; it runs held-stream by default and only its OPTIONAL
-cross-restart resume (the `driveTurn` tick) is opt-in behind `MCP_ENABLE_DETACHED_RESUME`.
+per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate runs
+held-stream by default and only its OPTIONAL cross-restart resume (the `driveTurn` tick) is opt-in
+behind `MCP_ENABLE_DETACHED_RESUME`.
 
 #### Parameters
 
@@ -7446,7 +7446,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:159](https://github.com/tangle-netwo
 
 > **validateDelegateUiAuditArgs**(`raw`): [`DelegateUiAuditArgs`](#delegateuiauditargs)
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L114)
+Defined in: [mcp/tools/delegate-ui-audit.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L113)
 
 **`Experimental`**
 
@@ -7466,7 +7466,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:114](https://github.com/tangle-netwo
 
 > **createDelegateUiAuditHandler**(`options`): (`raw`) => `Promise`\<[`DelegateUiAuditResult`](#delegateuiauditresult)\>
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L300)
+Defined in: [mcp/tools/delegate-ui-audit.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L299)
 
 **`Experimental`**
 
@@ -7486,7 +7486,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:300](https://github.com/tangle-netwo
 
 > **validateDelegateArgs**(`raw`): [`DelegateArgs`](#delegateargs)
 
-Defined in: [mcp/tools/delegate.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L78)
+Defined in: [mcp/tools/delegate.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L74)
 
 **`Experimental`**
 
@@ -7506,7 +7506,7 @@ Defined in: [mcp/tools/delegate.ts:78](https://github.com/tangle-network/agent-r
 
 > **createDelegateHandler**(`options`): (`raw`) => `Promise`\<[`DelegateResult`](#delegateresult)\>
 
-Defined in: [mcp/tools/delegate.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L139)
+Defined in: [mcp/tools/delegate.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L135)
 
 Build the `delegate` tool handler. Closes over the injected supervisor substrate (`router` /
 `backend` / `deliverable`); each call routes the agent's intent to `delegate()` and returns the

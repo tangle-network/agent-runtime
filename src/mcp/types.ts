@@ -5,10 +5,10 @@
  * sees over the wire. These types are the contract; the JSON schemas under
  * `tools/*` mirror them for the MCP `tools/list` advertisement.
  *
- * Async semantics: `delegate_code` + `delegate_research` return a `taskId`
- * immediately. The product agent polls `delegation_status` until the task
- * transitions to `completed` | `failed` | `cancelled`. `delegate_feedback`
- * + `delegation_history` are synchronous reads / writes against the local
+ * Async semantics: `delegate_ui_audit` returns a `taskId` immediately. The
+ * product agent polls `delegation_status` until the task transitions to
+ * `completed` | `failed` | `cancelled`. `delegate_feedback` +
+ * `delegation_history` are synchronous reads / writes against the local
  * task queue + feedback store.
  */
 

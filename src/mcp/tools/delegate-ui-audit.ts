@@ -1,9 +1,8 @@
 /**
  * @experimental
  *
- * `delegate_ui_audit` MCP tool — async kickoff for UI audit runs. Same
- * async semantics as `delegate_code` / `delegate_research`: validates the
- * input, computes an idempotency key over the canonical fields, hands
+ * `delegate_ui_audit` MCP tool — async kickoff for UI audit runs. Validates
+ * the input, computes an idempotency key over the canonical fields, hands
  * the task to the queue, and returns a taskId. Identical inputs return
  * the same taskId.
  *

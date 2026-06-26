@@ -1,7 +1,7 @@
 /**
- * Researcher delegate provisioning — resolves the worker harness, model, and router
- * credentials for `delegate_research`, and injects the OpenAI-compatible router creds
- * into a sandbox agent-run spec.
+ * Researcher delegate provisioning — resolves a research worker's harness, model, and
+ * router credentials, and injects the OpenAI-compatible router creds into a sandbox
+ * agent-run spec.
  *
  * Why this exists: the agent-knowledge researcher profile defaults to a harness
  * (`opencode/zai-coding-plan/glm-5.1`) that isn't broadly provisionable, and the sandbox

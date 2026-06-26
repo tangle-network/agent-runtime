@@ -3,7 +3,7 @@
  *
  * Subprocess wrappers for the local coding-harness CLIs installed in the
  * sandbox image (claude-code, codex, opencode). Used by the in-process
- * delegation executor (`createInProcessExecutor`) so a `delegate_code` call
+ * delegation executor (`createInProcessExecutor`) so a delegated coding task
  * spawns a real harness on a real git worktree instead of provisioning a
  * sibling sandbox.
  *

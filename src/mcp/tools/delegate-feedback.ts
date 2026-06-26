@@ -34,7 +34,7 @@ export const DELEGATE_FEEDBACK_DESCRIPTION = [
   'on the same target are expected and never deduped.',
   '',
   '`refersTo.kind`:',
-  '  - "delegation": ref is a taskId returned by delegate_code/delegate_research',
+  '  - "delegation": ref is a taskId returned by delegate_ui_audit',
   '  - "artifact":   ref is a URI/path/git-sha — anything you can dereference',
   '  - "outcome":    ref is a free-form description of a downstream result',
   '',

@@ -2,14 +2,14 @@
  * @experimental
  *
  * Resolve the `delegate` supervisor substrate (router brain + worker backend) from env, so the
- * `agent-runtime-mcp` bin can serve the ONE generic `delegate` verb the same way it serves
- * `delegate_code` — by env, over the SAME stdio invocation a consumer already mounts.
+ * `agent-runtime-mcp` bin can serve the ONE generic `delegate` verb by env, over the SAME stdio
+ * invocation a consumer already mounts.
  *
  * `delegate` is wired into `createMcpServer` via `McpServerOptions.delegateSupervisor`, which needs a
  * router (the supervisor brain's substrate) and a backend (WHERE the authored workers run). Inside a
  * sandbox child the natural backend is `sandbox`: authored workers run as sub-sandboxes through the
- * SAME `SandboxClient` the bin already loads from `TANGLE_API_KEY` — the deployment shape
- * `delegate_code` used. The brain's router reuses the repo's `resolveRouterBaseUrl` convention
+ * SAME `SandboxClient` the bin already loads from `TANGLE_API_KEY`. The brain's router reuses the
+ * repo's `resolveRouterBaseUrl` convention
  * (`TANGLE_ROUTER_URL` / `TANGLE_ROUTER_BASE_URL`), normalised to an OpenAI-compatible `/v1` endpoint,
  * keyed by `TANGLE_API_KEY`.
  */
@@ -30,7 +30,7 @@ function trimmed(value: string | undefined): string | undefined {
 }
 
 /** True when the operator opted the generic `delegate` verb in (`MCP_ENABLE_DELEGATE=1`). Default off:
- *  the wiring is additive, so existing `delegate_code` / `delegate_research` consumers are unaffected. */
+ *  the wiring is additive, so consumers that do not enable it are unaffected. */
 export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.MCP_ENABLE_DELEGATE === '1'
 }
