@@ -6,10 +6,11 @@
  */
 import { Sandbox } from '@tangle-network/sandbox'
 
-const KEY = process.env.SANDBOX_KEY
-if (!KEY) throw new Error('SANDBOX_KEY required (sk-tan- sandbox-scoped key)')
+const KEY = process.env.SANDBOX_KEY ?? process.env.TANGLE_API_KEY
+if (!KEY) throw new Error('SANDBOX_KEY or TANGLE_API_KEY required (sk-tan- key)')
 const BASE = process.env.SANDBOX_BASE_URL ?? 'https://staging-sandbox.tangle.tools'
-const MODEL = process.env.SANDBOX_MODEL ?? 'claude-haiku-4-5-20251001'
+const MODEL = process.env.SANDBOX_MODEL ?? 'zai/glm-4.7'
+const EXPECTED = 'provider-git-from-staging'
 
 const client = new Sandbox({ baseUrl: BASE, apiKey: KEY })
 console.log(`creating sandbox on ${BASE} (backend=opencode model=${MODEL})…`)
@@ -24,7 +25,7 @@ try {
         provider: 'openai', // router is OpenAI-compatible at /v1
         model: MODEL,
         baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
-        apiKey: process.env.ROUTER_KEY,
+        apiKey: process.env.ROUTER_KEY ?? KEY,
       },
     },
   })
@@ -32,17 +33,30 @@ try {
 
   console.log('→ streamPrompt (trivial git task)…')
   let lastText = ''
+  let sawTerminal = false
+  let sawExpected = false
+  let errorMessage = ''
   for await (const ev of box.streamPrompt(
-    'In a fresh temp dir, run: `git init -q && echo hello-from-staging > f.txt && git add f.txt && git diff --cached`. Then report the exact diff you saw.',
-    {},
+    `In a fresh temp dir, run: \`git init -q && echo ${EXPECTED} > f.txt && git add f.txt && git diff --cached\`. Then report the exact diff you saw.`,
+    { timeoutMs: 120000 },
   )) {
     const data = ev?.data
     const t = ev?.type
     const preview = typeof data === 'string' ? data : JSON.stringify(data)
     if (preview && preview.length > 2) lastText = preview
+    if (preview?.includes(EXPECTED) || preview?.includes('diff --git')) sawExpected = true
+    if (t === 'done' || t === 'result' || t === 'completed' || t === 'execution.completed') {
+      sawTerminal = true
+    }
+    if (t === 'error') {
+      errorMessage = preview ?? 'sandbox emitted error event'
+    }
     console.log(`   [${t}] ${preview ? preview.slice(0, 160) : ''}`)
   }
-  console.log(`\n✅ agent responded (model call via router worked). last: ${lastText.slice(0, 200)}`)
+  if (errorMessage) throw new Error(errorMessage)
+  if (!sawTerminal) throw new Error('stream ended without a terminal done/result event')
+  if (!sawExpected) throw new Error(`stream ended without expected git diff text '${EXPECTED}'`)
+  console.log(`\n✅ agent completed real git task. last: ${lastText.slice(0, 200)}`)
 } catch (err) {
   console.error(`\n❌ ${err instanceof Error ? err.message : String(err)}`)
   process.exitCode = 1
