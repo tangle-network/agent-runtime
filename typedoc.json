@@ -5,6 +5,7 @@
     "src/agent/index.ts",
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
+    "src/runtime/environment-provider.ts",
     "src/analyst-loop/index.ts",
     "src/lifecycle/index.ts",
     "src/profiles/index.ts",

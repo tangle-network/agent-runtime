@@ -36,7 +36,6 @@ import type {
   ExecResult as SandboxExecResult,
   SandboxInstance,
 } from '@tangle-network/sandbox'
-import { ValidationError } from '../errors'
 import type {
   Executor,
   ExecutorContext,
@@ -48,6 +47,14 @@ import type {
 } from './supervise/types'
 import type { LoopSandboxPlacement, SandboxClient } from './types'
 import { zeroTokenUsage } from './util'
+
+// Keep this file loadable from the lean `./environment-provider` export without agent-eval installed.
+class ValidationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'ValidationError'
+  }
+}
 
 export type {
   AgentEnvironment,

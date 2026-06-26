@@ -472,7 +472,13 @@ if (existsSync(typedocPath)) {
     const dist = typeof target === 'string' ? target : target.import || target.types
     if (!dist) continue
     const base = dist.replace(/^\.\/dist\//, '').replace(/\.js$|\.d\.ts$/, '')
-    const candidates = [`src/${base}.ts`, `src/${base.replace(/\/index$/, '')}/index.ts`, `src/${base}/index.ts`]
+    const candidates = [
+      `src/${base}.ts`,
+      `src/${base.replace(/\/index$/, '')}/index.ts`,
+      `src/${base}/index.ts`,
+      `src/runtime/${base}.ts`,
+      `src/runtime/${base.replace(/\/index$/, '')}/index.ts`,
+    ]
     const matched = candidates.find((c) => entryPoints.has(c))
     if (!matched) {
       report(
