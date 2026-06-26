@@ -31,6 +31,7 @@ try {
     './agent': ['import', 'types'],
     './intelligence': ['import', 'types'],
     './loops': ['import', 'types'],
+    './environment-provider': ['import', 'types'],
     './profiles': ['import', 'types'],
     './mcp': ['import', 'types'],
   }
@@ -67,6 +68,27 @@ try {
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const provider = await import('@tangle-network/agent-runtime/environment-provider')
+        const expectedProvider = [
+          'createAgentEnvironmentProviderRegistry',
+          'providerAsExecutor',
+          'providerAsSandboxClient',
+          'resolveAgentEnvironmentProvider',
+          'sandboxClientAsProvider',
+        ]
+        for (const name of expectedProvider) {
+          if (typeof provider[name] !== 'function') throw new Error('missing environment-provider export ' + name)
         }
       `,
     ],

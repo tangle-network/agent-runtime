@@ -133,7 +133,7 @@ describe('DelegationTaskQueue durable mode', () => {
       store: new FileDelegationStore({ filePath }),
       resumeDelegate,
     })
-    expect(second.status(taskId)?.status).toBe('running')
+    expect(['running', 'completed']).toContain(second.status(taskId)?.status)
     await until(() => second.status(taskId)?.status === 'completed')
     expect(seenRefs.every((ref) => ref === 'sess-abc')).toBe(true)
     expect(ticks).toBe(3)

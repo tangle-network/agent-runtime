@@ -637,7 +637,7 @@ Backend hint for the AxAIService factory — same shape every kind uses.
 
 ###### name?
 
-> `optional` **name?**: `"openai"` \| `"router"`
+> `optional` **name?**: `"router"` \| `"openai"`
 
 ###### apiKey?
 

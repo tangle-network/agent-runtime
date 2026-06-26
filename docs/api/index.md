@@ -5660,7 +5660,7 @@ via a custom `mapEvent` or backend wrapper.
 
 ##### kind
 
-> **kind**: `"transport"` \| `"backend"`
+> **kind**: `"backend"` \| `"transport"`
 
 Defined in: [types.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L216)
 

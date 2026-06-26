@@ -50,6 +50,7 @@ const ownSurfaceLabels = {
   './agent': 'Vertical agent — manifest + improvement adapter',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './loops': 'Recursive atom + loop kernel (alias of ./runtime)',
+  './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './lifecycle': 'Artifact lifecycle — generate → measure → promote → compose',
   './profiles': 'Built-in agent profiles',

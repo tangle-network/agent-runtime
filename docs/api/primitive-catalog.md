@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.79.0` and `@tangle-network/agent-eval@0.100.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.79.1` and `@tangle-network/agent-eval@0.100.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -720,6 +720,45 @@ Import from `@tangle-network/agent-runtime/loops` — 379 exports.
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorkspaceCommit` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
+
+### Environment provider adapters — generic sandbox/compute bridge
+
+Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
+| `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
+| `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
+| `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
+| `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
+| `AgentEnvironment` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentCapabilities` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProvider` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
+| `AgentEnvironmentQuery` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentSession` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentSessionRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CheckpointRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CheckpointRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CreateAgentEnvironmentInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExecRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExecResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ForkRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `PlacementInfo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
+| `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
+| `ResourceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
+| `WorkspaceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
+| `AgentEnvironmentStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
+| `AgentSessionStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 
 ### Analyst loop — trace findings on a running loop
 
