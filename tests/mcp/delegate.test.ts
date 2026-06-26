@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The `delegate` tool routes through `delegate()` → `supervise()`. Mock the ONE front door so the
 // tool's contract is provable offline: it hands the agent's INTENT to a supervisor and returns the
-// delivered output TOGETHER WITH the conserved cost (spentTotal) — the channel delegate_code lacks.
+// delivered output TOGETHER WITH the conserved cost (spentTotal).
 const superviseSpy =
   vi.fn<
     (

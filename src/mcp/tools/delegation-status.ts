@@ -21,13 +21,13 @@ export const DELEGATION_STATUS_DESCRIPTION = [
   '(pending | running | completed | failed | cancelled), optional progress,',
   'and the final result when status === "completed".',
   '',
-  'Use when: you previously called delegate_code or delegate_research and',
-  "need to know whether the work is done. The agent's right rhythm is to",
+  'Use when: you previously kicked off an async delegation (delegate_ui_audit)',
+  "and need to know whether the work is done. The agent's right rhythm is to",
   'call this every minute or two while waiting; do not busy-poll.',
   '',
-  'For a completed coder task, `result.output` is a CoderOutput with branch,',
-  'patch, test/typecheck results, and diff stats. For a completed research',
-  'task, `result.output` is the items + citations + proposedWrites bundle.',
+  'For a completed delegate_ui_audit run, `result.output` is the array of UI',
+  'findings — one self-contained Markdown finding per issue, each with an',
+  'embedded screenshot and a suggested fix.',
   '',
   'Pass includeTrace: true to also receive the journaled loop-trace span',
   'tree (loop → round → iteration, with placement/cost/verdict metadata).',
@@ -41,7 +41,7 @@ export const DELEGATION_STATUS_DESCRIPTION = [
 export const DELEGATION_STATUS_INPUT_SCHEMA = {
   type: 'object',
   properties: {
-    taskId: { type: 'string', description: 'Returned by delegate_code / delegate_research.' },
+    taskId: { type: 'string', description: 'Returned by delegate_ui_audit.' },
     includeTrace: {
       type: 'boolean',
       description:

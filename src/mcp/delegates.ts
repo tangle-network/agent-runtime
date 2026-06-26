@@ -208,9 +208,9 @@ export interface DetachedSessionDelegateOptions {
  * the recursive worktree-CLI leaf does not yet have a journal-replay equivalent for.
  *
  * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner` (author an `AgentProfile`
- * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate stays as the
- * MCP server's built-in `delegate_code` path; it runs held-stream by default and only its OPTIONAL
- * cross-restart resume (the `driveTurn` tick) is opt-in behind `MCP_ENABLE_DETACHED_RESUME`.
+ * per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`). This delegate runs
+ * held-stream by default and only its OPTIONAL cross-restart resume (the `driveTurn` tick) is opt-in
+ * behind `MCP_ENABLE_DETACHED_RESUME`.
  *
  * @experimental
  */

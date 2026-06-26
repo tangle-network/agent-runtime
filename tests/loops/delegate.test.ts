@@ -87,7 +87,7 @@ describe('delegate — the one generic delegation verb over supervise()', () => 
     expect(result).toBe(canned)
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') {
-      // The whole reason delegate beats delegate_code: the real spend comes back.
+      // delegate returns the real spend (spentTotal) alongside the delivered output.
       expect(result.spentTotal).toEqual(spentTotal)
       expect(result.spentTotal.usd).toBeGreaterThan(0)
       expect(result.spentTotal.tokens.input).toBe(1200)

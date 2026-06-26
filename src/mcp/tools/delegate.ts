@@ -4,19 +4,15 @@
  * `delegate` MCP tool — the ONE generic delegation verb, the agent-facing front door to
  * `delegate()` / `supervise()`. The agent hands it an INTENT (what it wants done); a default
  * authoring supervisor decomposes the intent and AUTHORS the worker profile it needs — there is no
- * hardcoded coder/researcher profile. It is the generic replacement for `delegate_code` /
- * `delegate_research`.
+ * hardcoded coder/researcher profile, so one verb covers code, research, and anything else.
  *
- * Unlike those async, queue-backed tools (kick off → return a taskId → poll `delegation_status`),
  * `delegate` is SYNCHRONOUS: it awaits the full supervised run and returns the delivered output
  * TOGETHER WITH `spentTotal` — the conserved cost of the whole delegation (`iterations` / `tokens` /
- * `usd` / `ms`). Returning the real spend is the whole reason `delegate` beats `delegate_code`,
- * which has no cost channel.
+ * `usd` / `ms`), so the caller always learns what the delegation actually spent.
  *
  * The supervisor's substrate (its brain `router`, the worker `backend`, the completion `deliverable`)
- * is INJECTED at server construction — never an agent-supplied arg — exactly as `delegate_code`
- * injects its `CoderDelegate`. The agent supplies only the intent (+ an optional per-call `model` /
- * `runId`).
+ * is INJECTED at server construction — never an agent-supplied arg. The agent supplies only the
+ * intent (+ an optional per-call `model` / `runId`).
  */
 
 import type { RouterConfig } from '../../runtime/router-client'

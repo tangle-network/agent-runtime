@@ -61,10 +61,10 @@ import type { TraceContext } from './trace-propagation'
 /** @experimental */
 export interface McpServerOptions {
   /**
-   * Required to enable `delegate` — the ONE generic delegation verb (the replacement for
-   * delegate_code / delegate_research). Inject the supervisor substrate: its brain `router`, the
-   * worker `backend`, and the completion `deliverable`. The supervisor AUTHORS its own worker from
-   * the agent's intent, so there is no worker profile to wire here.
+   * Required to enable `delegate` — the ONE generic delegation verb. Inject the supervisor
+   * substrate: its brain `router`, the worker `backend`, and the completion `deliverable`. The
+   * supervisor AUTHORS its own worker from the agent's intent, so there is no worker profile to
+   * wire here.
    */
   delegateSupervisor?: DelegateHandlerOptions
   /**
