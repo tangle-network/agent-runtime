@@ -16,7 +16,7 @@
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
-import type { ToolLoopChat } from '../tool-loop'
+import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { driverAgent, finalizeBestDelivered } from './coordination-driver'
 import { serveCoordinationMcp } from './coordination-mcp'
 import type { Agent, Budget, ResultBlobStore, Scope } from './types'
@@ -98,13 +98,7 @@ export interface SupervisorAgentDeps {
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
    *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
    *  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`. */
-  readonly compaction?: {
-    readonly thresholdTokens: number
-    readonly distill?: (
-      messages: ReadonlyArray<Record<string, unknown>>,
-    ) => Promise<string> | string
-    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
-  }
+  readonly compaction?: ToolLoopCompactionOptions
 }
 
 export function supervisorAgent(
@@ -114,6 +108,12 @@ export function supervisorAgent(
   const name = profile.name ?? 'supervisor'
   const systemPrompt = profile.systemPrompt ?? defaultSupervisorPrompt
   const harness = profile.harness ?? null
+
+  if (harness !== null && deps.compaction) {
+    throw new ValidationError(
+      'supervisorAgent: compaction is only supported for router-brained supervisors (profile.harness null)',
+    )
+  }
 
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller

@@ -64,8 +64,8 @@ describe('runBrainLoop self-compaction', () => {
     expect(headPreserved).toBe(true)
     expect(events.length).toBeGreaterThan(0)
     expect(events[0]!.afterTokens).toBeLessThan(events[0]!.beforeTokens)
-    // After each compaction the conversation resets to [system, task, digest] (3) and re-grows by one
-    // tool round (5) before the next compaction — it never approaches the unbounded run's max (14).
+    // With this low threshold, compaction fires before each post-tool inference, so the brain sees
+    // the compacted 3-message state instead of the unbounded run's max (14).
     expect(Math.max(...sizes)).toBeLessThanOrEqual(6)
   })
 
@@ -110,6 +110,27 @@ describe('runBrainLoop self-compaction', () => {
     expect(Math.max(...sizes)).toBeLessThanOrEqual(6)
   })
 
+  it('preserveHead: 0 is treated as invalid and keeps the system/task head', async () => {
+    const sizes: number[] = []
+    let headIntact = true
+    const inner = recordingBrain(6, sizes)
+    const chat: ToolLoopChat = async (messages, t) => {
+      const head0 = (messages[0] as { content?: unknown }).content
+      const head1 = (messages[1] as { content?: unknown }).content
+      if (head0 !== 'SYS' || head1 !== 'TASK') headIntact = false
+      return inner(messages, t)
+    }
+    await runBrainLoop({
+      chat,
+      tools,
+      execute: async () => bigResult,
+      initialMessages: init,
+      maxTurns: 8,
+      compaction: { thresholdTokens: 200, distill: () => 'DIGEST', preserveHead: 0 },
+    })
+    expect(headIntact).toBe(true)
+  })
+
   it('the distiller receives the full accumulated conversation (so it can summarize everything)', async () => {
     const sizes: number[] = []
     let distillSawAtLeast = 0
@@ -129,5 +150,75 @@ describe('runBrainLoop self-compaction', () => {
     })
     // The distiller is handed the full pre-compaction conversation (head + at least one tool round).
     expect(distillSawAtLeast).toBeGreaterThanOrEqual(4)
+  })
+
+  it('hands the distiller a clean boundary with every tool call paired to its tool reply', async () => {
+    let snapshot: ReadonlyArray<Record<string, unknown>> = []
+    await runBrainLoop({
+      chat: recordingBrain(2, []),
+      tools,
+      execute: async () => bigResult,
+      initialMessages: init,
+      maxTurns: 4,
+      compaction: {
+        thresholdTokens: 200,
+        distill: (messages) => {
+          snapshot = messages
+          return 'DIGEST'
+        },
+      },
+    })
+
+    const toolReplyIds = new Set(
+      snapshot
+        .filter((m) => m.role === 'tool')
+        .map((m) => (m as { tool_call_id?: unknown }).tool_call_id),
+    )
+    const assistantCalls = snapshot.flatMap(
+      (m) => (m as { tool_calls?: Array<{ id?: unknown }> }).tool_calls ?? [],
+    )
+    expect(assistantCalls.length).toBeGreaterThan(0)
+    expect(assistantCalls.every((tc) => toolReplyIds.has(tc.id))).toBe(true)
+  })
+
+  it('uses the custom token estimator for firing and compaction event sizes', async () => {
+    const events: Array<{ beforeTokens: number; afterTokens: number }> = []
+    let calls = 0
+    await runBrainLoop({
+      chat: recordingBrain(2, []),
+      tools,
+      execute: async () => bigResult,
+      initialMessages: init,
+      maxTurns: 4,
+      compaction: {
+        thresholdTokens: 10,
+        estimateTokens: (messages) => {
+          calls += 1
+          return messages.length > 3 ? 999 : 3
+        },
+        distill: () => 'DIGEST',
+        onCompact: (info) => events.push(info),
+      },
+    })
+    expect(calls).toBeGreaterThan(0)
+    expect(events[0]).toMatchObject({ beforeTokens: 999, afterTokens: 3 })
+  })
+
+  it('does not crash when non-string message content cannot be JSON-stringified', async () => {
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    await expect(
+      runBrainLoop({
+        chat: recordingBrain(1, []),
+        tools,
+        execute: async () => bigResult,
+        initialMessages: [
+          { role: 'system', content: circular },
+          { role: 'user', content: 'TASK' },
+        ],
+        maxTurns: 3,
+        compaction: { thresholdTokens: 1, distill: () => 'DIGEST' },
+      }),
+    ).resolves.toMatchObject({ final: 'done' })
   })
 })

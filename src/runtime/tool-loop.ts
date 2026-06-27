@@ -61,6 +61,12 @@ export interface ToolLoopCompaction {
   readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
 }
 
+/** Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional
+ *  because the supervisor has a default digest that combines a brain note with live worker state. */
+export type ToolLoopCompactionOptions = Omit<ToolLoopCompaction, 'distill'> & {
+  readonly distill?: ToolLoopCompaction['distill']
+}
+
 /** ≈ chars/4 over content + any tool-call arguments — a cheap, provider-agnostic size proxy. The
  *  exact constant does not matter: it only has to track GROWTH so the threshold trips as history
  *  accumulates, which a uniform chars/4 does. */
@@ -68,12 +74,20 @@ function estimateConversationTokens(messages: ReadonlyArray<Msg>): number {
   let chars = 0
   for (const m of messages) {
     const content = (m as { content?: unknown }).content
-    chars +=
-      typeof content === 'string' ? content.length : content ? JSON.stringify(content).length : 0
+    chars += typeof content === 'string' ? content.length : safeJsonLength(content)
     const calls = (m as { tool_calls?: Array<{ function?: { arguments?: string } }> }).tool_calls
     if (calls) for (const c of calls) chars += c.function?.arguments?.length ?? 0
   }
   return Math.ceil(chars / 4)
+}
+
+function safeJsonLength(value: unknown): number {
+  if (value === undefined || value === null) return 0
+  try {
+    return JSON.stringify(value)?.length ?? 0
+  } catch {
+    return String(value).length
+  }
 }
 
 /** Distill the conversation's accumulated middle into one note and splice it in, IF the estimated
@@ -89,13 +103,13 @@ async function maybeCompact(
   // the wrong messages; an invalid value falls back to the default (keep system + task) rather than
   // zero (which would splice the system message away). A too-large value is already safe — the length
   // guard below makes it a no-op. (Callers never pass `preserveHead`; this guards the exported primitive.)
-  const head = c.preserveHead !== undefined && c.preserveHead >= 0 ? c.preserveHead : 2
+  const head = c.preserveHead !== undefined && c.preserveHead > 0 ? c.preserveHead : 2
   // Nothing meaningful to collapse yet (only head + at most one trailing message).
   if (messages.length <= head + 1) return false
   const estimate = c.estimateTokens ?? estimateConversationTokens
   const before = estimate(messages)
   if (before <= c.thresholdTokens) return false
-  const digest = await c.distill(messages)
+  const digest = await c.distill([...messages])
   messages.splice(head, messages.length - head, {
     role: 'user',
     content: `[earlier work compacted to save context — progress so far]\n${digest}`,

@@ -11,7 +11,7 @@ import type { AgentProfile } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
-import type { ToolLoopChat } from '../tool-loop'
+import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { assertModelAllowed } from './model-policy'
 import { createInMemoryRunContext } from './run-context'
@@ -88,13 +88,7 @@ export interface SuperviseOptions {
    *  continues, instead of re-billing the whole transcript every turn (the cost that makes the LLM-brain
    *  front door lose to a dumb-Ralph respawn). The live `Scope` roster is the durable state across
    *  chapters. Default off. `distill` defaults to a brain self-summary + the settled-worker roster. */
-  readonly compaction?: {
-    readonly thresholdTokens: number
-    readonly distill?: (
-      messages: ReadonlyArray<Record<string, unknown>>,
-    ) => Promise<string> | string
-    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
-  }
+  readonly compaction?: ToolLoopCompactionOptions
   readonly runId?: string
   readonly now?: () => number
   /** Restrict the run to this subset of models. When set, every configured model — the

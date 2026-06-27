@@ -31,10 +31,16 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
+  type SettledWorker,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
-import { runBrainLoop, type ToolLoopChat, type ToolLoopCompaction } from '../tool-loop'
-import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
+import {
+  runBrainLoop,
+  type ToolLoopChat,
+  type ToolLoopCompaction,
+  type ToolLoopCompactionOptions,
+} from '../tool-loop'
+import type { Agent, Budget, NodeSnapshot, ResultBlobStore, Scope, Spend, TreeView } from './types'
 
 export interface DriverAgentOptions {
   readonly name: string
@@ -85,13 +91,7 @@ export interface DriverAgentOptions {
    *  against external tracking state, except the live `Scope` roster IS the durable state. Default
    *  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
    *  with the factual settled-worker roster; override to supply your own. */
-  readonly compaction?: {
-    readonly thresholdTokens: number
-    readonly distill?: (
-      messages: ReadonlyArray<Record<string, unknown>>,
-    ) => Promise<string> | string
-    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
-  }
+  readonly compaction?: ToolLoopCompactionOptions
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -100,19 +100,27 @@ export interface DriverAgentOptions {
 const distillInstruction =
   'CONTEXT COMPACTION. Your detailed turn-by-turn history is about to be discarded to free your context window. Write a COMPLETE, compact handoff note for your future self so you can keep going without it. Cover: (1) what you have accomplished; (2) every worker you spawned and its current status/result; (3) what subtasks remain unfinished, failing, or unverified — be specific and exhaustive here, this is the part you must not lose; (4) your immediate next action. Do not call any tools; respond with the note only.'
 
-/** Factual ground truth for the digest — the settled-worker roster from the live scope, independent
- *  of whatever the brain's prose summary captures (so a flaky/empty narrative never erases state). */
-function summarizeRoster(
-  settled: ReadonlyArray<{ id: string; status: string; valid?: boolean; score?: number }>,
-): string {
-  if (settled.length === 0) return 'Workers settled so far: none yet.'
-  const lines = settled.map(
-    (w) =>
-      `- ${w.id}: ${w.status}${w.valid !== undefined ? `, delivered=${w.valid}` : ''}${
-        w.score !== undefined ? `, score=${w.score}` : ''
-      }`,
-  )
-  return `Workers settled so far (ground truth from the run, ${settled.length}):\n${lines.join('\n')}`
+/** Factual ground truth for the digest — the live worker roster from Scope plus the delivered-result
+ *  ledger, independent of whatever the brain's prose summary captures. */
+function summarizeRoster(view: TreeView, settled: ReadonlyArray<SettledWorker>): string {
+  if (view.nodes.length === 0) return 'Workers in current live scope: none yet.'
+  const settledById = new Map(settled.map((w) => [w.id, w]))
+  const lines = view.nodes.map((node) => formatRosterNode(node, settledById.get(node.id)))
+  return `Workers in current live scope (ground truth from the run, ${view.nodes.length} total, ${view.inFlight} in flight):\n${lines.join('\n')}`
+}
+
+function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
+  const result =
+    settled?.status === 'done'
+      ? `, delivered=${settled.valid ?? false}${
+          settled.score !== undefined ? `, score=${settled.score}` : ''
+        }${settled.outRef ? `, outRef=${settled.outRef}` : ''}`
+      : settled?.status === 'down'
+        ? `, reason=${settled.reason ?? 'unknown'}`
+        : node.outRef
+          ? `, outRef=${node.outRef}`
+          : ''
+  return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}`
 }
 
 /** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
@@ -212,8 +220,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // drains the pool → poolStarved). Wrapping the brain keeps the debit exactly where it was; a
       // scripted/mock turn reports no usage and meters nothing, so offline equal-k stays exact.
       // iterations:0 — the conserved iteration channel budgets CHILD rounds, not driver turns.
-      let turn = 0
-      const chat: ToolLoopChat = async (messages, tools) => {
+      let driverTurn = 0
+      const meteredBrain = async (
+        messages: ReadonlyArray<Record<string, unknown>>,
+        tools: ReadonlyArray<ToolSpec>,
+        detail: Record<string, unknown>,
+      ) => {
         const res = await opts.brain(messages, tools)
         if (res.usage || res.costUsd !== undefined) {
           const turnSpend: Spend = {
@@ -223,13 +235,20 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             ms: 0,
           }
           await scope.meter(turnSpend, {
-            kind: 'driver-inference',
             driver: opts.name,
-            turn,
             toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+            ...detail,
           })
         }
-        turn += 1
+        return res
+      }
+      const chat: ToolLoopChat = async (messages, tools) => {
+        const turn = driverTurn
+        const res = await meteredBrain(messages, tools, {
+          kind: 'driver-inference',
+          turn,
+        })
+        driverTurn += 1
         return res
       }
 
@@ -243,12 +262,26 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             distill:
               opts.compaction.distill ??
               (async (msgs) => {
-                const roster = summarizeRoster(coord.settled())
-                const res = await chat([...msgs, { role: 'user', content: distillInstruction }], [])
-                const narrative = (res.content ?? '').trim()
-                return narrative ? `${roster}\n\n## Progress notes\n${narrative}` : roster
+                const roster = summarizeRoster(scope.view, coord.settled())
+                try {
+                  const res = await meteredBrain(
+                    [...msgs, { role: 'user', content: distillInstruction }],
+                    [],
+                    { kind: 'driver-compaction', compactingTurn: driverTurn },
+                  )
+                  const narrative = (res.content ?? '').trim()
+                  return narrative ? `${roster}\n\n## Progress notes\n${narrative}` : roster
+                } catch (e) {
+                  return `${roster}\n\n## Progress notes\nSummary unavailable: ${errMessage(e)}`
+                }
               }),
             ...(opts.compaction.onCompact ? { onCompact: opts.compaction.onCompact } : {}),
+            ...(opts.compaction.preserveHead !== undefined
+              ? { preserveHead: opts.compaction.preserveHead }
+              : {}),
+            ...(opts.compaction.estimateTokens
+              ? { estimateTokens: opts.compaction.estimateTokens }
+              : {}),
           }
         : undefined
 
@@ -350,4 +383,8 @@ function safeJson(v: unknown): string {
   } catch {
     return String(v)
   }
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }
