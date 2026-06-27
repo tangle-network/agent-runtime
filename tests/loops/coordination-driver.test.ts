@@ -18,6 +18,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
 
 type SeenMessages = Array<ReadonlyArray<Record<string, unknown>>>
@@ -60,6 +61,37 @@ function workerLeaf(name: string, s: WorkerScript): Agent<unknown, unknown> {
     executor: workerExecutor(s),
   }
   return { name, act: async () => s.out, executorSpec: spec } as Agent<unknown, unknown> & {
+    executorSpec: AgentSpec
+  }
+}
+
+function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
+  const spec: AgentSpec = {
+    profile: { name } as AgentProfile,
+    harness: null,
+    executor: {
+      runtime: 'router',
+      execute(_task: unknown, signal: AbortSignal): Promise<ExecutorResult<unknown>> {
+        return new Promise((_, reject) => {
+          if (signal.aborted) {
+            reject(new Error('aborted'))
+            return
+          }
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+        })
+      },
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact(): ExecutorResult<unknown> {
+        return {
+          outRef: 'never',
+          out: {},
+          verdict: { valid: false, score: 0 },
+          spent: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        }
+      },
+    },
+  }
+  return { name, act: async () => ({}), executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
 }
@@ -223,6 +255,78 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const nested = (await journal.loadTree(nestedKeys[0]!)) as SpawnEvent[]
     expect(nested.some((e) => e.kind === 'spawned')).toBe(true)
     expect(nested.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
+  })
+
+  it('default compaction keeps in-flight workers in the compressed driver memory', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const seenNormalTurns: SeenMessages = []
+    const turnEvents: RuntimeHookEvent[] = []
+    let normalTurn = 0
+    let compactionCalls = 0
+    const worker = hangingWorkerLeaf('slow-worker')
+
+    const chat: ToolLoopChat = async (messages, tools) => {
+      const last = String(messages[messages.length - 1]?.content ?? '')
+      if (last.includes('CONTEXT COMPACTION')) {
+        compactionCalls += 1
+        return {
+          content: 'Spawned one slow worker; it is still running.',
+          toolCalls: [],
+          usage: { input: 7, output: 3 },
+        }
+      }
+      seenNormalTurns.push(messages)
+      normalTurn += 1
+      if (normalTurn === 1) {
+        expect(tools.some((t) => t.function.name === 'spawn_agent')).toBe(true)
+        return {
+          toolCalls: [
+            {
+              id: 'spawn',
+              name: 'spawn_agent',
+              arguments: JSON.stringify({ profile: {}, task: 'go' }),
+            },
+          ],
+          usage: { input: 11, output: 5 },
+        }
+      }
+      return { content: 'stop', toolCalls: [], usage: { input: 13, output: 2 } }
+    }
+
+    const root = driverAgent({
+      ...driverOpts('root', chat, () => worker),
+      compaction: { thresholdTokens: 1 },
+    })
+    const result = await createSupervisor<unknown, unknown>().run(root, 'keep track of work', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-live',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+      now: () => 0,
+      hooks: {
+        onEvent: (event) => {
+          if (event.target === 'agent.turn') turnEvents.push(event)
+        },
+      },
+    })
+
+    expect(result.kind).toBe('no-winner')
+    expect(compactionCalls).toBe(1)
+    const compacted = String(seenNormalTurns[1]?.[2]?.content ?? '')
+    expect(compacted).toContain('Workers in current live scope')
+    expect(compacted).toContain('cd-live:s0')
+    expect(compacted).toContain('running')
+
+    const kinds = turnEvents.map((event) => (event.payload as { kind?: string }).kind)
+    expect(kinds).toEqual(['driver-inference', 'driver-compaction', 'driver-inference'])
+    const driverTurns = turnEvents
+      .map((event) => event.payload as { kind?: string; turn?: number })
+      .filter((event) => event.kind === 'driver-inference')
+      .map((event) => event.turn)
+    expect(driverTurns).toEqual([0, 1])
   })
 })
 

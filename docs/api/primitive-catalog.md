@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 379 exports.
+Import from `@tangle-network/agent-runtime/loops` — 381 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -651,6 +651,7 @@ Import from `@tangle-network/agent-runtime/loops` — 379 exports.
 | `SupervisorOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SupervisorProfile` | interface | The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain. |
 | `SurfaceScore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `TraceSource` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `TrajectoryAnalysis` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -712,6 +713,7 @@ Import from `@tangle-network/agent-runtime/loops` — 379 exports.
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
+| `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 | `TrajectoryReportFn` | type | `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). |
 | `UsageEvent` | type | Normalized usage event — the single channel every executor reports through, so the |
 | `Verify` | type | `verify(spec)` — build the 2-node implement→verifier-gate combinator. |

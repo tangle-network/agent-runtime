@@ -31,10 +31,16 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
+  type SettledWorker,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
-import { runBrainLoop, type ToolLoopChat } from '../tool-loop'
-import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
+import {
+  runBrainLoop,
+  type ToolLoopChat,
+  type ToolLoopCompaction,
+  type ToolLoopCompactionOptions,
+} from '../tool-loop'
+import type { Agent, Budget, NodeSnapshot, ResultBlobStore, Scope, Spend, TreeView } from './types'
 
 export interface DriverAgentOptions {
   readonly name: string
@@ -77,6 +83,44 @@ export interface DriverAgentOptions {
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
   readonly now?: () => number
+  /** Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
+   *  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
+   *  turn — the same context overflow a single steered agent suffers, one level up. With this set,
+   *  once the brain's running conversation exceeds `thresholdTokens` it distills the accumulated
+   *  history to a compact progress note and continues fresh: the supervisor analog of respawning
+   *  against external tracking state, except the live `Scope` roster IS the durable state. Default
+   *  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
+   *  with the factual settled-worker roster; override to supply your own. */
+  readonly compaction?: ToolLoopCompactionOptions
+}
+
+/** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
+ *  the detailed history is dropped. Emphasis on PENDING work — the part a too-eager chapter-close
+ *  loses (the coding-burn counter-finding: closing after one fix leaves integration bugs uncircled). */
+const distillInstruction =
+  'CONTEXT COMPACTION. Your detailed turn-by-turn history is about to be discarded to free your context window. Write a COMPLETE, compact handoff note for your future self so you can keep going without it. Cover: (1) what you have accomplished; (2) every worker you spawned and its current status/result; (3) what subtasks remain unfinished, failing, or unverified — be specific and exhaustive here, this is the part you must not lose; (4) your immediate next action. Do not call any tools; respond with the note only.'
+
+/** Factual ground truth for the digest — the live worker roster from Scope plus the delivered-result
+ *  ledger, independent of whatever the brain's prose summary captures. */
+function summarizeRoster(view: TreeView, settled: ReadonlyArray<SettledWorker>): string {
+  if (view.nodes.length === 0) return 'Workers in current live scope: none yet.'
+  const settledById = new Map(settled.map((w) => [w.id, w]))
+  const lines = view.nodes.map((node) => formatRosterNode(node, settledById.get(node.id)))
+  return `Workers in current live scope (ground truth from the run, ${view.nodes.length} total, ${view.inFlight} in flight):\n${lines.join('\n')}`
+}
+
+function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
+  const result =
+    settled?.status === 'done'
+      ? `, delivered=${settled.valid ?? false}${
+          settled.score !== undefined ? `, score=${settled.score}` : ''
+        }${settled.outRef ? `, outRef=${settled.outRef}` : ''}`
+      : settled?.status === 'down'
+        ? `, reason=${settled.reason ?? 'unknown'}`
+        : node.outRef
+          ? `, outRef=${node.outRef}`
+          : ''
+  return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}`
 }
 
 /** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
@@ -176,8 +220,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // drains the pool → poolStarved). Wrapping the brain keeps the debit exactly where it was; a
       // scripted/mock turn reports no usage and meters nothing, so offline equal-k stays exact.
       // iterations:0 — the conserved iteration channel budgets CHILD rounds, not driver turns.
-      let turn = 0
-      const chat: ToolLoopChat = async (messages, tools) => {
+      let driverTurn = 0
+      const meteredBrain = async (
+        messages: ReadonlyArray<Record<string, unknown>>,
+        tools: ReadonlyArray<ToolSpec>,
+        detail: Record<string, unknown>,
+      ) => {
         const res = await opts.brain(messages, tools)
         if (res.usage || res.costUsd !== undefined) {
           const turnSpend: Spend = {
@@ -187,19 +235,60 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             ms: 0,
           }
           await scope.meter(turnSpend, {
-            kind: 'driver-inference',
             driver: opts.name,
-            turn,
             toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+            ...detail,
           })
         }
-        turn += 1
         return res
       }
+      const chat: ToolLoopChat = async (messages, tools) => {
+        const turn = driverTurn
+        const res = await meteredBrain(messages, tools, {
+          kind: 'driver-inference',
+          turn,
+        })
+        driverTurn += 1
+        return res
+      }
+
+      // Chapter-close on the brain's own window. The default distiller pairs the factual settled-worker
+      // roster (from the live scope) with a brain-authored progress note; the brain call runs through
+      // the metered `chat`, so the one-time O(history) distill cost debits the conserved pool like any
+      // turn. It replaces the per-turn O(history) re-billing it removes.
+      const compaction: ToolLoopCompaction | undefined = opts.compaction
+        ? {
+            thresholdTokens: opts.compaction.thresholdTokens,
+            distill:
+              opts.compaction.distill ??
+              (async (msgs) => {
+                const roster = summarizeRoster(scope.view, coord.settled())
+                try {
+                  const res = await meteredBrain(
+                    [...msgs, { role: 'user', content: distillInstruction }],
+                    [],
+                    { kind: 'driver-compaction', compactingTurn: driverTurn },
+                  )
+                  const narrative = (res.content ?? '').trim()
+                  return narrative ? `${roster}\n\n## Progress notes\n${narrative}` : roster
+                } catch (e) {
+                  return `${roster}\n\n## Progress notes\nSummary unavailable: ${errMessage(e)}`
+                }
+              }),
+            ...(opts.compaction.onCompact ? { onCompact: opts.compaction.onCompact } : {}),
+            ...(opts.compaction.preserveHead !== undefined
+              ? { preserveHead: opts.compaction.preserveHead }
+              : {}),
+            ...(opts.compaction.estimateTokens
+              ? { estimateTokens: opts.compaction.estimateTokens }
+              : {}),
+          }
+        : undefined
 
       await runBrainLoop({
         chat,
         tools: toolSpecs,
+        ...(compaction ? { compaction } : {}),
         execute: async (name, args) => {
           // WORK FIRST: a work tool the driver runs itself (act). A non-null return is handled here;
           // null/undefined means "not mine" → fall through to the coordination dispatch (spawn/await/…).
@@ -294,4 +383,8 @@ function safeJson(v: unknown): string {
   } catch {
     return String(v)
   }
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
 }

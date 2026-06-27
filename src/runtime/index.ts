@@ -482,8 +482,9 @@ export {
   worktreeFanout,
 } from './supervise/worktree-fanout'
 // The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
-// `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat.
-export type { ToolLoopChat } from './tool-loop'
+// `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat. `ToolLoopCompaction`
+// is the self-compaction config that bounds the brain's own context window (the supervisor chapter-close).
+export type { ToolLoopChat, ToolLoopCompaction, ToolLoopCompactionOptions } from './tool-loop'
 export type {
   AgentRunSpec,
   DefaultVerdict,
