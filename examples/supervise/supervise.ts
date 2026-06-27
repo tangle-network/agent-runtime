@@ -11,7 +11,7 @@
 import { type ExecutorConfig, supervise } from '@tangle-network/agent-runtime/loops'
 
 async function main(): Promise<void> {
-  const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools'
+  const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1'
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('set TANGLE_API_KEY (your Tangle router key)')
   const model = process.env.MODEL ?? 'gemini-2.5-pro'
