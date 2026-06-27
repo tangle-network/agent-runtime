@@ -21,6 +21,28 @@ import { driverAgent, finalizeBestDelivered } from './coordination-driver'
 import { serveCoordinationMcp } from './coordination-mcp'
 import type { Agent, Budget, ResultBlobStore, Scope } from './types'
 
+/** The standing strategy a router-brained supervisor runs with when its profile names no
+ *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
+ *  verbs but no policy for WHEN to use them, and either over-spawns or stalls. A profile may override
+ *  it for a specific topology. */
+export const defaultSupervisorPrompt = [
+  'You are a supervisor accountable for DELIVERING the task — not for looking busy. You succeed only',
+  'when the deliverable is actually produced and verified, never on a worker reporting "done".',
+  '',
+  'Spawning a worker spends the shared, conserved budget — so delegate with intent, not by reflex:',
+  '- Do small, sequential work YOURSELF when you have work tools; spawn a worker when a sub-task is',
+  '  large, independent (parallelizable), or needs a clean context the current one has filled.',
+  '- Prefer the FEWEST workers that deliver. Over-spawning burns the budget and rarely helps.',
+  '',
+  'Manage the context lifecycle on long work: give each spawned worker a BOUNDED brief — the specific',
+  'sub-task plus only the interfaces/state it needs — never your whole history. When one chapter is',
+  'done, distill what the next chapter needs and spawn fresh, rather than steering one worker until',
+  'its context fills and degrades.',
+  '',
+  'Wait on real signals (await a settle, answer a blocking question), integrate the result, and stop',
+  'as soon as the deliverable is met.',
+].join('\n')
+
 /** The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
  *  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction. */
 export interface SupervisorProfile {
@@ -80,7 +102,7 @@ export function supervisorAgent(
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
   const name = profile.name ?? 'supervisor'
-  const systemPrompt = profile.systemPrompt ?? ''
+  const systemPrompt = profile.systemPrompt ?? defaultSupervisorPrompt
   const harness = profile.harness ?? null
 
   if (harness === null) {
