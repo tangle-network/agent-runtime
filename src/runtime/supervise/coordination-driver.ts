@@ -33,7 +33,7 @@ import {
   type MakeWorkerAgent,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
-import { runBrainLoop, type ToolLoopChat } from '../tool-loop'
+import { runBrainLoop, type ToolLoopChat, type ToolLoopCompaction } from '../tool-loop'
 import type { Agent, Budget, ResultBlobStore, Scope, Spend } from './types'
 
 export interface DriverAgentOptions {
@@ -77,6 +77,42 @@ export interface DriverAgentOptions {
   /** Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
    *  deterministic in tests. Defaults to `Date.now`. */
   readonly now?: () => number
+  /** Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
+   *  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
+   *  turn — the same context overflow a single steered agent suffers, one level up. With this set,
+   *  once the brain's running conversation exceeds `thresholdTokens` it distills the accumulated
+   *  history to a compact progress note and continues fresh: the supervisor analog of respawning
+   *  against external tracking state, except the live `Scope` roster IS the durable state. Default
+   *  off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
+   *  with the factual settled-worker roster; override to supply your own. */
+  readonly compaction?: {
+    readonly thresholdTokens: number
+    readonly distill?: (
+      messages: ReadonlyArray<Record<string, unknown>>,
+    ) => Promise<string> | string
+    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
+  }
+}
+
+/** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
+ *  the detailed history is dropped. Emphasis on PENDING work — the part a too-eager chapter-close
+ *  loses (the coding-burn counter-finding: closing after one fix leaves integration bugs uncircled). */
+const distillInstruction =
+  'CONTEXT COMPACTION. Your detailed turn-by-turn history is about to be discarded to free your context window. Write a COMPLETE, compact handoff note for your future self so you can keep going without it. Cover: (1) what you have accomplished; (2) every worker you spawned and its current status/result; (3) what subtasks remain unfinished, failing, or unverified — be specific and exhaustive here, this is the part you must not lose; (4) your immediate next action. Do not call any tools; respond with the note only.'
+
+/** Factual ground truth for the digest — the settled-worker roster from the live scope, independent
+ *  of whatever the brain's prose summary captures (so a flaky/empty narrative never erases state). */
+function summarizeRoster(
+  settled: ReadonlyArray<{ id: string; status: string; valid?: boolean; score?: number }>,
+): string {
+  if (settled.length === 0) return 'Workers settled so far: none yet.'
+  const lines = settled.map(
+    (w) =>
+      `- ${w.id}: ${w.status}${w.valid !== undefined ? `, delivered=${w.valid}` : ''}${
+        w.score !== undefined ? `, score=${w.score}` : ''
+      }`,
+  )
+  return `Workers settled so far (ground truth from the run, ${settled.length}):\n${lines.join('\n')}`
 }
 
 /** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
@@ -197,9 +233,29 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         return res
       }
 
+      // Chapter-close on the brain's own window. The default distiller pairs the factual settled-worker
+      // roster (from the live scope) with a brain-authored progress note; the brain call runs through
+      // the metered `chat`, so the one-time O(history) distill cost debits the conserved pool like any
+      // turn. It replaces the per-turn O(history) re-billing it removes.
+      const compaction: ToolLoopCompaction | undefined = opts.compaction
+        ? {
+            thresholdTokens: opts.compaction.thresholdTokens,
+            distill:
+              opts.compaction.distill ??
+              (async (msgs) => {
+                const roster = summarizeRoster(coord.settled())
+                const res = await chat([...msgs, { role: 'user', content: distillInstruction }], [])
+                const narrative = (res.content ?? '').trim()
+                return narrative ? `${roster}\n\n## Progress notes\n${narrative}` : roster
+              }),
+            ...(opts.compaction.onCompact ? { onCompact: opts.compaction.onCompact } : {}),
+          }
+        : undefined
+
       await runBrainLoop({
         chat,
         tools: toolSpecs,
+        ...(compaction ? { compaction } : {}),
         execute: async (name, args) => {
           // WORK FIRST: a work tool the driver runs itself (act). A non-null return is handled here;
           // null/undefined means "not mine" → fall through to the coordination dispatch (spawn/await/…).

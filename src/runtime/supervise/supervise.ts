@@ -83,6 +83,18 @@ export interface SuperviseOptions {
   readonly blobs?: ResultBlobStore
   readonly maxDepth?: number
   readonly maxTurns?: number
+  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
+   *  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
+   *  continues, instead of re-billing the whole transcript every turn (the cost that makes the LLM-brain
+   *  front door lose to a dumb-Ralph respawn). The live `Scope` roster is the durable state across
+   *  chapters. Default off. `distill` defaults to a brain self-summary + the settled-worker roster. */
+  readonly compaction?: {
+    readonly thresholdTokens: number
+    readonly distill?: (
+      messages: ReadonlyArray<Record<string, unknown>>,
+    ) => Promise<string> | string
+    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
+  }
   readonly runId?: string
   readonly now?: () => number
   /** Restrict the run to this subset of models. When set, every configured model — the
@@ -135,6 +147,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
     ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
+    ...(opts.compaction ? { compaction: opts.compaction } : {}),
   })
 
   return createSupervisor<unknown, unknown>().run(agent, task, {

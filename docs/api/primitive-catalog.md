@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 379 exports.
+Import from `@tangle-network/agent-runtime/loops` — 380 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -651,6 +651,7 @@ Import from `@tangle-network/agent-runtime/loops` — 379 exports.
 | `SupervisorOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SupervisorProfile` | interface | The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain. |
 | `SurfaceScore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `TraceSource` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `TrajectoryAnalysis` | interface | _(no summary — add a TSDoc line at the declaration)_ |

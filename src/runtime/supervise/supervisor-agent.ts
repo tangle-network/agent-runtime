@@ -95,6 +95,16 @@ export interface SupervisorAgentDeps {
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
   readonly maxTurns?: number
+  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
+   *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
+   *  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`. */
+  readonly compaction?: {
+    readonly thresholdTokens: number
+    readonly distill?: (
+      messages: ReadonlyArray<Record<string, unknown>>,
+    ) => Promise<string> | string
+    readonly onCompact?: (info: { turn: number; beforeTokens: number; afterTokens: number }) => void
+  }
 }
 
 export function supervisorAgent(
@@ -120,6 +130,7 @@ export function supervisorAgent(
       ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
       ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
+      ...(deps.compaction ? { compaction: deps.compaction } : {}),
     })
   }
 

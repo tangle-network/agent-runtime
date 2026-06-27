@@ -7351,6 +7351,63 @@ Injected clock for the in-loop absolute-deadline guard — keeps the deadline ch
 
 `number`
 
+##### compaction?
+
+> `readonly` `optional` **compaction?**: `object`
+
+Defined in: [runtime/supervise/coordination-driver.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L88)
+
+Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
+ lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
+ turn — the same context overflow a single steered agent suffers, one level up. With this set,
+ once the brain's running conversation exceeds `thresholdTokens` it distills the accumulated
+ history to a compact progress note and continues fresh: the supervisor analog of respawning
+ against external tracking state, except the live `Scope` roster IS the durable state. Default
+ off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
+ with the factual settled-worker roster; override to supply your own.
+
+###### thresholdTokens
+
+> `readonly` **thresholdTokens**: `number`
+
+###### distill?
+
+> `readonly` `optional` **distill?**: (`messages`) => `string` \| `Promise`\<`string`\>
+
+###### Parameters
+
+###### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+###### Returns
+
+`string` \| `Promise`\<`string`\>
+
+###### onCompact?
+
+> `readonly` `optional` **onCompact?**: (`info`) => `void`
+
+###### Parameters
+
+###### info
+
+###### turn
+
+`number`
+
+###### beforeTokens
+
+`number`
+
+###### afterTokens
+
+`number`
+
+###### Returns
+
+`void`
+
 ***
 
 ### CoordinationMcpHandle
@@ -8306,17 +8363,71 @@ Defined in: [runtime/supervise/supervise.ts:84](https://github.com/tangle-networ
 
 Defined in: [runtime/supervise/supervise.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L85)
 
+##### compaction?
+
+> `readonly` `optional` **compaction?**: `object`
+
+Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
+
+Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
+ its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
+ continues, instead of re-billing the whole transcript every turn (the cost that makes the LLM-brain
+ front door lose to a dumb-Ralph respawn). The live `Scope` roster is the durable state across
+ chapters. Default off. `distill` defaults to a brain self-summary + the settled-worker roster.
+
+###### thresholdTokens
+
+> `readonly` **thresholdTokens**: `number`
+
+###### distill?
+
+> `readonly` `optional` **distill?**: (`messages`) => `string` \| `Promise`\<`string`\>
+
+###### Parameters
+
+###### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+###### Returns
+
+`string` \| `Promise`\<`string`\>
+
+###### onCompact?
+
+> `readonly` `optional` **onCompact?**: (`info`) => `void`
+
+###### Parameters
+
+###### info
+
+###### turn
+
+`number`
+
+###### beforeTokens
+
+`number`
+
+###### afterTokens
+
+`number`
+
+###### Returns
+
+`void`
+
 ##### runId?
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/supervise.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L86)
+Defined in: [runtime/supervise/supervise.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L98)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/supervise.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L87)
+Defined in: [runtime/supervise/supervise.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L99)
 
 ###### Returns
 
@@ -8326,7 +8437,7 @@ Defined in: [runtime/supervise/supervise.ts:87](https://github.com/tangle-networ
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
+Defined in: [runtime/supervise/supervise.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L103)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -8336,7 +8447,7 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ### SupervisorProfile
 
-Defined in: [runtime/supervise/supervisor-agent.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L26)
+Defined in: [runtime/supervise/supervisor-agent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L48)
 
 The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
  `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
@@ -8347,13 +8458,13 @@ The supervisor's profile — the subset of an `AgentProfile` that selects + shap
 
 > `readonly` `optional` **name?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L27)
+Defined in: [runtime/supervise/supervisor-agent.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L49)
 
 ##### harness?
 
 > `readonly` `optional` **harness?**: `string` \| `null`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L29)
+Defined in: [runtime/supervise/supervisor-agent.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L51)
 
 null/undefined → router brain (in-process tool-loop); a coding-CLI harness → sandboxed brain.
 
@@ -8361,7 +8472,7 @@ null/undefined → router brain (in-process tool-loop); a coding-CLI harness →
 
 > `readonly` `optional` **model?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L31)
+Defined in: [runtime/supervise/supervisor-agent.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L53)
 
 The router model when the brain is router-driven (falls back to the deps router config).
 
@@ -8369,7 +8480,7 @@ The router model when the brain is router-driven (falls back to the deps router 
 
 > `readonly` `optional` **systemPrompt?**: `string`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L33)
+Defined in: [runtime/supervise/supervisor-agent.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L55)
 
 The standing instructions ("you delegate, you do not solve").
 
@@ -8377,7 +8488,7 @@ The standing instructions ("you delegate, you do not solve").
 
 ### SupervisorAgentDeps
 
-Defined in: [runtime/supervise/supervisor-agent.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L47)
+Defined in: [runtime/supervise/supervisor-agent.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L69)
 
 #### Properties
 
@@ -8385,13 +8496,13 @@ Defined in: [runtime/supervise/supervisor-agent.ts:47](https://github.com/tangle
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L48)
+Defined in: [runtime/supervise/supervisor-agent.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L70)
 
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L50)
+Defined in: [runtime/supervise/supervisor-agent.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L72)
 
 Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same for both arms).
 
@@ -8399,7 +8510,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 > `readonly` **perWorker**: [`Budget`](#budget-10)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L52)
+Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -8407,7 +8518,7 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L56)
+Defined in: [runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
 
 Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
@@ -8417,7 +8528,7 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails
 
 > `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L58)
+Defined in: [runtime/supervise/supervisor-agent.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L80)
 
 Router substrate for a router-brained supervisor (`harness` null). The profile's model wins.
 
@@ -8425,7 +8536,7 @@ Router substrate for a router-brained supervisor (`harness` null). The profile's
 
 > `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L60)
+Defined in: [runtime/supervise/supervisor-agent.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L82)
 
 Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
@@ -8433,7 +8544,7 @@ Inject the brain directly (tests / advanced) instead of resolving `routerBrain` 
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
+Defined in: [runtime/supervise/supervisor-agent.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L84)
 
 Required for a sandboxed-harness supervisor (`harness` set): runs the harness as the driver.
 
@@ -8441,7 +8552,7 @@ Required for a sandboxed-harness supervisor (`harness` set): runs the harness as
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/supervisor-agent.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L65)
+Defined in: [runtime/supervise/supervisor-agent.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L87)
 
 WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple work ITSELF and
  only delegate when it needs parallelism. Pair with `executeExtraTool`.
@@ -8450,7 +8561,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L71)
+Defined in: [runtime/supervise/supervisor-agent.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L93)
 
 Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
 
@@ -8472,7 +8583,59 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L75)
+Defined in: [runtime/supervise/supervisor-agent.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L97)
+
+##### compaction?
+
+> `readonly` `optional` **compaction?**: `object`
+
+Defined in: [runtime/supervise/supervisor-agent.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L101)
+
+Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
+ distills its coordination transcript to a compact progress note once it exceeds the threshold,
+ instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`.
+
+###### thresholdTokens
+
+> `readonly` **thresholdTokens**: `number`
+
+###### distill?
+
+> `readonly` `optional` **distill?**: (`messages`) => `string` \| `Promise`\<`string`\>
+
+###### Parameters
+
+###### messages
+
+readonly `Record`\<`string`, `unknown`\>[]
+
+###### Returns
+
+`string` \| `Promise`\<`string`\>
+
+###### onCompact?
+
+> `readonly` `optional` **onCompact?**: (`info`) => `void`
+
+###### Parameters
+
+###### info
+
+###### turn
+
+`number`
+
+###### beforeTokens
+
+`number`
+
+###### afterTokens
+
+`number`
+
+###### Returns
+
+`void`
 
 ***
 
@@ -9844,6 +10007,106 @@ Does NOT throw when:
 Defined in: [runtime/supervise/worktree-fanout.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-fanout.ts#L68)
 
 **`Experimental`**
+
+***
+
+### ToolLoopCompaction
+
+Defined in: [runtime/tool-loop.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L50)
+
+Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop
+ does, but in place. A stateless chat API re-sends the WHOLE running conversation every turn, so an
+ agent that accumulates dozens of turns of tool results re-bills its entire transcript on every
+ inference — the context-overflow-one-level-up that the conserved budget pool cannot fix. With
+ compaction set, once the conversation exceeds `thresholdTokens` the accumulated middle (every prior
+ assistant turn + tool result) is distilled into ONE compact progress note and the conversation is
+ reset to `[...head, digest]`: the preserved head (system + the original task) survives, the stale
+ turn-by-turn history does not. The model keeps deciding; it stops re-billing the whole transcript.
+ Fires at a CLEAN turn boundary (after a turn's tool results are folded in, before the next
+ inference) so it never orphans an assistant `tool_calls` from its `tool` replies.
+
+#### Properties
+
+##### thresholdTokens
+
+> `readonly` **thresholdTokens**: `number`
+
+Defined in: [runtime/tool-loop.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L52)
+
+Compact once the estimated token count of the conversation exceeds this.
+
+##### distill
+
+> `readonly` **distill**: (`messages`) => `string` \| `Promise`\<`string`\>
+
+Defined in: [runtime/tool-loop.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L55)
+
+Distill the conversation into a compact progress note that REPLACES the middle. Receives the
+ full conversation (so it can summarize everything done so far); returns the digest string.
+
+###### Parameters
+
+###### messages
+
+readonly `Msg`[]
+
+###### Returns
+
+`string` \| `Promise`\<`string`\>
+
+##### preserveHead?
+
+> `readonly` `optional` **preserveHead?**: `number`
+
+Defined in: [runtime/tool-loop.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L57)
+
+Leading messages preserved verbatim (system + the original task). Default 2.
+
+##### estimateTokens?
+
+> `readonly` `optional` **estimateTokens?**: (`messages`) => `number`
+
+Defined in: [runtime/tool-loop.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L59)
+
+Token estimator over the conversation. Default ≈ chars/4 (incl. tool-call arguments).
+
+###### Parameters
+
+###### messages
+
+readonly `Msg`[]
+
+###### Returns
+
+`number`
+
+##### onCompact?
+
+> `readonly` `optional` **onCompact?**: (`info`) => `void`
+
+Defined in: [runtime/tool-loop.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/tool-loop.ts#L61)
+
+Notified each time a compaction fires — for observability/metering.
+
+###### Parameters
+
+###### info
+
+###### turn
+
+`number`
+
+###### beforeTokens
+
+`number`
+
+###### afterTokens
+
+`number`
+
+###### Returns
+
+`void`
 
 ***
 
@@ -12667,7 +12930,7 @@ variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/
 
 > **DriveHarness** = (`args`) => `Promise`\<`void`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L40)
+Defined in: [runtime/supervise/supervisor-agent.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L62)
 
 How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
@@ -15240,7 +15503,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L113)
+Defined in: [runtime/supervise/coordination-driver.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L149)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -15261,7 +15524,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L267)
+Defined in: [runtime/supervise/coordination-driver.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L323)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -15680,7 +15943,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [runtime/supervise/supervise.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L102)
+Defined in: [runtime/supervise/supervise.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L114)
 
 #### Parameters
 
@@ -15706,7 +15969,7 @@ Defined in: [runtime/supervise/supervise.ts:102](https://github.com/tangle-netwo
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L78)
+Defined in: [runtime/supervise/supervisor-agent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L110)
 
 #### Parameters
 
