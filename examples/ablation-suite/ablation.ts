@@ -166,7 +166,10 @@ export async function runAblation(opts: {
         trainOffset: opts.holdoutOffset + opts.holdoutN,
         trainN: opts.holdoutN,
         baselinePrompt: baselineDriverPrompt,
-        worker: opts.worker,
+        // Match the DEPLOYMENT regime: the same per-worker refine budget AND the same supervisor brain
+        // the held-out arm runs with — else the prompt is tuned against a different model/compute.
+        worker: { ...opts.worker, budget: arm.knobs.budget },
+        supervisorRouter,
         ...(opts.supervisor?.reflectionModel !== undefined
           ? { reflectionModel: opts.supervisor.reflectionModel }
           : {}),
