@@ -17,7 +17,7 @@ import {
   type SupervisorProfile,
   supervise,
 } from '@tangle-network/agent-runtime/loops'
-import { surfaceWorkerSeam } from './surface-worker'
+import { surfaceWorkerSeam, type SurfaceWorkerOut } from './surface-worker'
 
 export interface SelfImprovingSupervisorOptions {
   /** The agentic surface the worker acts on (grading + task generation live here). */
@@ -90,7 +90,10 @@ export async function selfImprovingSupervisor(
       : {}),
   })
 
-  const resolved = result.kind === 'winner'
-  const score = result.kind === 'winner' ? (result.verdict?.score ?? 0) : 0
+  // The supervise winner carries the driver's finalize output (the best-delivered worker's blob), NOT a
+  // verdict field — read the real surface-checked score/resolved off that SurfaceWorkerOut.
+  const out = result.kind === 'winner' ? (result.out as SurfaceWorkerOut | undefined) : undefined
+  const resolved = out?.resolved ?? false
+  const score = out?.score ?? 0
   return { resolved, score, usd: result.spentTotal.usd }
 }
