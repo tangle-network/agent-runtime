@@ -1104,6 +1104,57 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `ResearchSource` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
+### Deliberation-policy experiment ledger — typed campaign schema + capture-integrity
+
+Import from `@tangle-network/agent-runtime/experiment` — 44 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `appendCampaignCell` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `assertCampaignManifest` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `assertExecutableEvidence` | function | Assert that a cell's evidence kind is one whose score is executable, not |
+| `assertExperimentCellRecord` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `campaignConfigHash` | function | Content-addressed identity of a campaign config, ignoring the timestamp and |
+| `hashJson` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `manifestWithHash` | function | Validate and stamp the deterministic config hash; rejects a mismatched |
+| `normalizeEvidence` | function | Validate evidence invariants. Throws {@link CampaignIntegrityError} on a |
+| `readCampaignLedger` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `shouldRetryEvidence` | function | True when a cell has not produced trustworthy evidence and should be re-run: |
+| `stableJson` | function | Deterministic JSON: object keys sorted, undefined dropped. The basis for a |
+| `summarizeCampaign` | function | Summarize a campaign per arm and compute the by-construction integrity block. |
+| `writeCampaignArtifact` | function | Write the manifest, cells, summary, and full artifact to `outDir`. If a |
+| `armRoles` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `evidenceKinds` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `experimentObjectives` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `policyOrigins` | const | The deliberation-policy experiment substrate: a typed ledger that records one |
+| `recommendedCarriers` | const | Recommended carrier levels. The schema accepts any string so consumers are |
+| `recommendedPromptTransformations` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `runAdapterKinds` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignIntegrityError` | class | Capture-integrity guards: make the most common dishonest-number failure modes |
+| `MissingCampaignAdapterError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignAdapter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignArtifact` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignIntegrity` | interface | Capture-integrity counters computed by construction over the ledger. A |
+| `CampaignSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignSummaryArm` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `DeliberationPolicyAxes` | interface | The eight axes of a deliberation policy. `carrier` and `promptTransformation` |
+| `DeploymentTarget` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExperimentArm` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExperimentCampaignManifest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExperimentCellRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExperimentCellSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ReasoningBudgetPolicy` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `RunEvidence` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `TaskSlice` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `UsageMeasurement` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ArmRole` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignAdapterRegistry` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `CampaignReportRenderer` | type | Renders a campaign artifact to markdown. Injected into |
+| `EvidenceKind` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExperimentObjective` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `PolicyOrigin` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `RunAdapterKind` | type | _(no summary — add a TSDoc line at the declaration)_ |
+
 ## 2. agent-eval — substrate primitives to REUSE
 
 The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authenticity check, a verifier, a statistics routine, a profile-matrix runner, or usage extraction** — import them from here. The category→subpath mapping is curated; the symbols are generated.

@@ -56,6 +56,7 @@ const ownSurfaceLabels = {
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
+  './experiment': 'Deliberation-policy experiment ledger — typed campaign schema + capture-integrity',
 }
 // ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,
 // since that is the public name the canonical doc and the codebase use.
