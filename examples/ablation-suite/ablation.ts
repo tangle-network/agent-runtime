@@ -18,9 +18,9 @@ import {
   type AgenticTask,
   refine,
   runAgentic,
+  type Strategy,
   sample,
   sampleThenRefine,
-  type Strategy,
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
 
@@ -50,9 +50,21 @@ const topologyStrategy: Record<AblationKnobs['topology'], Strategy> = {
 }
 
 /** Fail loud on a set-but-unwired knob — the house rule (no silent no-op). Names the primitive to wire. */
-const unwiredKnobs: Array<{ k: keyof AblationKnobs; isSet: (v: unknown) => boolean; prim: string }> = [
-  { k: 'driverSteer', isSet: (v) => v === true, prim: 'supervise(driverProfile,{backend,analyzeOnSettle}) — driver composes the steer from the analyst finding' },
-  { k: 'optimize', isSet: (v) => !!v && v !== 'off', prim: "selfImprove() w/ executable JudgeConfig optimizing the driver's compose-prompt on TRAIN, frozen" },
+const unwiredKnobs: Array<{
+  k: keyof AblationKnobs
+  isSet: (v: unknown) => boolean
+  prim: string
+}> = [
+  {
+    k: 'driverSteer',
+    isSet: (v) => v === true,
+    prim: 'supervise(driverProfile,{backend,analyzeOnSettle}) — driver composes the steer from the analyst finding',
+  },
+  {
+    k: 'optimize',
+    isSet: (v) => !!v && v !== 'off',
+    prim: "selfImprove() w/ executable JudgeConfig optimizing the driver's compose-prompt on TRAIN, frozen",
+  },
   { k: 'halo', isSet: (v) => v === true, prim: 'HALO analyst option' },
   { k: 'persistentArtifact', isSet: (v) => v === true, prim: 'openSandboxRun resume' },
 ]
@@ -80,14 +92,23 @@ export async function runAblation(opts: {
   base: AblationKnobs
   /** Each delta = a ONE-KNOB change vs base (the one-knob-delta design). */
   deltas: Array<{ name: string; knob: Partial<AblationKnobs> }>
-  worker: { routerBaseUrl: string; routerKey: string; model: string; maxTokens?: number; innerTurns?: number }
+  worker: {
+    routerBaseUrl: string
+    routerKey: string
+    model: string
+    maxTokens?: number
+    innerTurns?: number
+  }
   onArm?: (r: ArmResult) => void
 }): Promise<ArmResult[]> {
   // ONE held-out set, shared across all arms — the fair-comparison invariant.
   const tasks = await opts.tasks(opts.holdoutOffset, opts.holdoutN)
   const arms = [
     { name: 'baseline', knobs: opts.base },
-    ...opts.deltas.map((d) => ({ name: d.name, knobs: { ...opts.base, ...d.knob } as AblationKnobs })),
+    ...opts.deltas.map((d) => ({
+      name: d.name,
+      knobs: { ...opts.base, ...d.knob } as AblationKnobs,
+    })),
   ]
   const results: ArmResult[] = []
   for (const arm of arms) {
@@ -152,7 +173,14 @@ export function printAutopsy(results: ArmResult[]): void {
   const pad = (s: string, n: number) => s.padEnd(n)
   console.log(`\n═══ ABLATION AUTOPSY (n=${base?.n} held-out, one-knob-delta vs baseline) ═══`)
   console.log(
-    pad('arm', 16) + pad('topology', 14) + pad('resolve', 9) + pad('$', 9) + pad('lat(s)', 8) + pad('shots', 7) + pad('Δresolve [95% CI]', 24) + 'Δ$',
+    pad('arm', 16) +
+      pad('topology', 14) +
+      pad('resolve', 9) +
+      pad('$', 9) +
+      pad('lat(s)', 8) +
+      pad('shots', 7) +
+      pad('Δresolve [95% CI]', 24) +
+      'Δ$',
   )
   for (const r of results) {
     const dC = base ? r.costUsd - base.costUsd : 0
@@ -161,7 +189,7 @@ export function printAutopsy(results: ArmResult[]): void {
     if (base && r !== base) {
       const b = pairedBootstrap(base.perTask, r.perTask, { confidence: 0.95, statistic: 'mean' })
       const sig = b.low > 0 || b.high < 0 ? '✓' : '·' // CI excludes 0 ⇒ real
-      lift = `${b.median >= 0 ? '+' : ''}${(100 * b.median).toFixed(0)}pp [${(100 * b.low).toFixed(0)},${(100 * b.high).toFixed(0)}] ${sig}`
+      lift = `${b.mean >= 0 ? '+' : ''}${(100 * b.mean).toFixed(0)}pp [${(100 * b.low).toFixed(0)},${(100 * b.high).toFixed(0)}] ${sig}`
     }
     console.log(
       pad(r.name, 16) +
@@ -202,13 +230,16 @@ async function main(): Promise<void> {
       { name: 'fanout-refine', knob: { topology: 'fanout-refine' } },
     ],
     worker,
-    onArm: (r) => console.log(`  ${r.name}: ${(100 * r.resolve).toFixed(0)}% resolve, $${r.costUsd.toFixed(4)}, ${(r.latencyMs / 1000).toFixed(0)}s`),
+    onArm: (r) =>
+      console.log(
+        `  ${r.name}: ${(100 * r.resolve).toFixed(0)}% resolve, $${r.costUsd.toFixed(4)}, ${(r.latencyMs / 1000).toFixed(0)}s`,
+      ),
   })
   printAutopsy(results)
 }
 
 if (import.meta.url === `file://${process.argv[1]}`)
   main().catch((e) => {
-    console.error(e)
+    console.error(e instanceof Error ? (e.stack ?? e.message) : String(e))
     process.exit(1)
   })

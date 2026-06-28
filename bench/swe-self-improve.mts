@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   const innerTurns = Number(process.env.INNER_TURNS ?? 40)
   const { environment, tasks } = await createSweBenchEnvironment(Number(process.env.POOL_N ?? 80))
 
-  if (process.env.CALIBRATE) {
+  if (process.env.CALIBRATE === '1') {
     const n = Number(process.env.N ?? 3)
     const ts = await tasks(0, n)
     console.log(`═══ SWE-bench CALIBRATION — ${workerModel}, baseline=refine, ${n} real bugs ═══`)
@@ -38,26 +38,31 @@ async function main(): Promise<void> {
     return
   }
 
-  const outDir = mkdtempSync(join(process.cwd(), '.swe-run-'))
-  const report = await runStrategyEvolution({
-    environment,
-    tasks,
-    trainN: Number(process.env.TRAIN_N ?? 6),
-    holdoutN: Number(process.env.HOLDOUT_N ?? 8),
-    worker: { routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns },
-    author: {
-      chat: createChatClient({ transport: 'router', baseUrl: routerBaseUrl, apiKey: routerKey, defaultModel: authorModel }),
-      model: authorModel,
-      maxTokens: 8000,
-      fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
-    },
-    baselines: [sample, refine],
-    budget: Number(process.env.BUDGET ?? 2),
-    generations: Number(process.env.GENERATIONS ?? 2),
-    populationSize: Number(process.env.POP ?? 2),
-    outDir,
-  })
-  rmSync(outDir, { recursive: true, force: true })
+  const report = await (async () => {
+    const outDir = mkdtempSync(join(process.cwd(), '.swe-run-'))
+    try {
+      return await runStrategyEvolution({
+        environment,
+        tasks,
+        trainN: Number(process.env.TRAIN_N ?? 6),
+        holdoutN: Number(process.env.HOLDOUT_N ?? 8),
+        worker: { routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns },
+        author: {
+          chat: createChatClient({ transport: 'router', baseUrl: routerBaseUrl, apiKey: routerKey, defaultModel: authorModel }),
+          model: authorModel,
+          maxTokens: 8000,
+          fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+        },
+        baselines: [sample, refine],
+        budget: Number(process.env.BUDGET ?? 2),
+        generations: Number(process.env.GENERATIONS ?? 2),
+        populationSize: Number(process.env.POP ?? 2),
+        outDir,
+      })
+    } finally {
+      rmSync(outDir, { recursive: true, force: true })
+    }
+  })()
 
   const v = report.verdict
   console.log('\n═══ SWE-bench SELF-IMPROVEMENT — certified on a FROZEN holdout (CONTAMINATION-flagged) ═══')
@@ -74,6 +79,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  console.error(e)
+  console.error(e instanceof Error ? (e.stack ?? e.message) : String(e))
   process.exit(1)
 })

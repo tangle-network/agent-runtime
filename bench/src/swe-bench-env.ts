@@ -13,7 +13,7 @@
  * memorization. Always report this; never claim a "clean" frontier number from this arena alone.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -49,11 +49,16 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
       if (!bt) throw new Error(`swe-bench-env: unknown task ${task.id}`)
       const md = bt.metadata as Record<string, string>
       const dir = mkdtempSync(join(tmpdir(), 'swe-'))
-      await exec('git', ['clone', '--filter=blob:none', '--no-checkout', '--quiet', `https://github.com/${md.repo}.git`, dir], { timeout: 420_000 })
-      await exec('git', ['-C', dir, 'checkout', '--quiet', md.base_commit], { timeout: 300_000 })
-      const handle: ArtifactHandle = { id: dir, surface: 'swe-bench-verified' }
-      workspaces.set(dir, { dir, task: bt })
-      return handle
+      try {
+        await exec('git', ['clone', '--filter=blob:none', '--no-checkout', '--quiet', `https://github.com/${md.repo}.git`, dir], { timeout: 420_000 })
+        await exec('git', ['-C', dir, 'checkout', '--quiet', md.base_commit], { timeout: 300_000 })
+        const handle: ArtifactHandle = { id: dir, surface: 'swe-bench-verified' }
+        workspaces.set(dir, { dir, task: bt })
+        return handle
+      } catch (error) {
+        rmSync(dir, { recursive: true, force: true })
+        throw error
+      }
     },
     async tools() {
       return [
@@ -66,8 +71,8 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
       const ws = workspaces.get(handle.id)
       if (!ws) return 'ERROR: workspace closed'
       const safe = (p: string): string | null => {
-        const n = p.replace(/^\.?\//, '')
-        return n.includes('..') || n.startsWith('/') ? null : n
+        if (p.startsWith('/') || p.includes('..')) return null
+        return p.replace(/^\.\//, '')
       }
       if (name === 'list_files') {
         const sub = safe(String(args.dir ?? '')) ?? ''
@@ -87,7 +92,7 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
             const p = join(d, e)
             let isDir = false
             try {
-              isDir = statSync(p).isDirectory()
+              isDir = lstatSync(p).isDirectory()
             } catch {
               continue
             }

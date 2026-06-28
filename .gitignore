@@ -13,3 +13,5 @@ bench/scripts/__pycache__/
 # local rollout-corpus scratch (raw jsonl, per work-line)
 corpus/
 test_repo/
+.sic-run-*/
+.swe-run-*/

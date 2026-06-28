@@ -25,7 +25,7 @@
  * Run:  TANGLE_API_KEY=<router key>  pnpm tsx examples/self-improving-coder/self-improving-coder.ts
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
@@ -36,8 +36,8 @@ import {
   type ArtifactHandle,
   refine,
   runStrategyEvolution,
-  sample,
   type SurfaceScore,
+  sample,
 } from '@tangle-network/agent-runtime/loops'
 
 // ── The contamination-proof task generator (deterministic per seed) ──────────────
@@ -46,7 +46,11 @@ import {
  *  agent edits + the hidden-ish test file (the agent may read it; grading runs it). */
 function constsFor(seed: number): { VER: string; SEP: string; MOD: number } {
   const r = (m: number) => ((seed * 2654435761) >>> 0) % m
-  return { VER: `v${(r(900) + 100).toString(36)}`, SEP: ['-', '|', ':', '/', '#'][r(5)]!, MOD: [97, 101, 103, 107, 109][r(5)]! }
+  return {
+    VER: `v${(r(900) + 100).toString(36)}`,
+    SEP: ['-', '|', ':', '/', '#'][r(5)]!,
+    MOD: [97, 101, 103, 107, 109][r(5)]!,
+  }
 }
 function genTask(seed: number): { stub: string; test: string; total: number } {
   const { VER, SEP, MOD } = constsFor(seed)
@@ -91,17 +95,22 @@ const workspaces = new Map<string, Ws>()
 function pytestPassed(dir: string): { passed: number; total: number } {
   let out = ''
   try {
-    out = execFileSync('python3', ['-m', 'pytest', '-q', '--tb=no', '-p', 'no:cacheprovider', 'test_lib.py'], {
-      cwd: dir,
-      encoding: 'utf8',
-      timeout: 60_000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    out = execFileSync(
+      'python3',
+      ['-m', 'pytest', '-q', '--tb=no', '-p', 'no:cacheprovider', 'test_lib.py'],
+      {
+        cwd: dir,
+        encoding: 'utf8',
+        timeout: 60_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    )
   } catch (e) {
     out = (e as { stdout?: string }).stdout ?? ''
   }
   const passed = Number(out.match(/(\d+) passed/)?.[1] ?? 0)
-  const failed = Number(out.match(/(\d+) failed/)?.[1] ?? 0) + Number(out.match(/(\d+) error/)?.[1] ?? 0)
+  const failed =
+    Number(out.match(/(\d+) failed/)?.[1] ?? 0) + Number(out.match(/(\d+) error/)?.[1] ?? 0)
   return { passed, total: passed + failed }
 }
 
@@ -119,9 +128,39 @@ export const codingEnv: AgenticSurface = {
   },
   async tools() {
     return [
-      { type: 'function', function: { name: 'list_files', description: 'List the files in the workspace.', parameters: { type: 'object', properties: {} } } },
-      { type: 'function', function: { name: 'read_file', description: 'Read a file (e.g. test_lib.py to learn the contract, or lib.py).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
-      { type: 'function', function: { name: 'write_file', description: 'Write COMPLETE contents of lib.py (the implementation). test_lib.py is read-only.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
+      {
+        type: 'function',
+        function: {
+          name: 'list_files',
+          description: 'List the files in the workspace.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'read_file',
+          description: 'Read a file (e.g. test_lib.py to learn the contract, or lib.py).',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'write_file',
+          description:
+            'Write COMPLETE contents of lib.py (the implementation). test_lib.py is read-only.',
+          parameters: {
+            type: 'object',
+            properties: { path: { type: 'string' }, content: { type: 'string' } },
+            required: ['path', 'content'],
+          },
+        },
+      },
       // NO run_tests: the agent cannot iterate-until-green. It must implement correctly from READING the
       // tests — which creates real headroom and makes the STRATEGY (planning, multiple attempts) matter.
     ] satisfies AgenticTool[]
@@ -131,26 +170,24 @@ export const codingEnv: AgenticSurface = {
     if (!ws) return 'ERROR: workspace closed'
     if (name === 'list_files') return readdirSync(ws.dir).join('\n')
     if (name === 'read_file') {
+      const p = String(args.path ?? '')
+      if (p !== 'lib.py' && p !== 'test_lib.py')
+        return 'ERROR: only lib.py and test_lib.py are readable'
       try {
-        return readFileSync(join(ws.dir, String(args.path ?? '')), 'utf8').slice(0, 8000)
+        return readFileSync(join(ws.dir, p), 'utf8').slice(0, 8000)
       } catch (e) {
         return `ERROR: ${(e as Error).message}`
       }
     }
     if (name === 'write_file') {
       const p = String(args.path ?? '')
-      if (!p.endsWith('lib.py') || p.includes('..') || p.startsWith('/')) return 'ERROR: only lib.py is writable'
+      if (p !== 'lib.py') return 'ERROR: only lib.py is writable'
       try {
-        mkdirSync(ws.dir, { recursive: true })
         writeFileSync(join(ws.dir, 'lib.py'), String(args.content ?? ''))
         return 'wrote lib.py'
       } catch (e) {
         return `ERROR: ${(e as Error).message}`
       }
-    }
-    if (name === 'run_tests') {
-      const { passed, total } = pytestPassed(ws.dir)
-      return `pytest: ${passed}/${total} passed`
     }
     return `ERROR: unknown tool ${name}`
   },
@@ -158,7 +195,9 @@ export const codingEnv: AgenticSurface = {
     const ws = workspaces.get(handle.id)
     if (!ws) return { passes: 0, total: 0, errored: 1 }
     const { passed, total } = pytestPassed(ws.dir)
-    return total > 0 ? { passes: passed, total, errored: 0 } : { passes: 0, total: ws.total, errored: 1 }
+    return total > 0
+      ? { passes: passed, total, errored: 0 }
+      : { passes: 0, total: ws.total, errored: 1 }
   },
   async close(handle) {
     const ws = workspaces.get(handle.id)
@@ -179,7 +218,8 @@ export const codingTasks = async (offset: number, n: number): Promise<AgenticTas
         'test_lib.py. You CANNOT run the tests — read test_lib.py CAREFULLY (every assertion, every edge case) and ' +
         'implement lib.py correctly in one pass with write_file. Get the edge cases right (empty inputs, malformed ' +
         'inputs, exact formats). Do not edit test_lib.py.',
-      userPrompt: 'Read test_lib.py to learn the exact contract, then write a correct lib.py. You cannot run the tests — reason carefully.',
+      userPrompt:
+        'Read test_lib.py to learn the exact contract, then write a correct lib.py. You cannot run the tests — reason carefully.',
       meta: { seed },
     } satisfies AgenticTask
   })
@@ -217,16 +257,23 @@ async function calibrate(): Promise<void> {
     await codingEnv.close(h)
     const pass = ref.passes === ref.total && ref.total > 0 && stub.passes === 0
     ok &&= pass
-    console.log(`  seed ${seed}: stub ${stub.passes}/${stub.total}  →  reference ${ref.passes}/${ref.total}  ${pass ? '✓' : '✗ BROKEN'}`)
+    console.log(
+      `  seed ${seed}: stub ${stub.passes}/${stub.total}  →  reference ${ref.passes}/${ref.total}  ${pass ? '✓' : '✗ BROKEN'}`,
+    )
   }
-  console.log(ok ? '\n>>> CALIBRATED — task is solvable + the grader discriminates. Safe to run the loop.' : '\n>>> BROKEN — fix the task/grader before spending.')
+  console.log(
+    ok
+      ? '\n>>> CALIBRATED — task is solvable + the grader discriminates. Safe to run the loop.'
+      : '\n>>> BROKEN — fix the task/grader before spending.',
+  )
   if (!ok) process.exit(1)
 }
 
 async function main(): Promise<void> {
-  if (process.env.CALIBRATE) return calibrate()
+  if (process.env.CALIBRATE === '1') return calibrate()
   const routerKey = process.env.TANGLE_API_KEY
-  if (!routerKey) throw new Error('set TANGLE_API_KEY (the worker + the author both call the router)')
+  if (!routerKey)
+    throw new Error('set TANGLE_API_KEY (the worker + the author both call the router)')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   // The author WRITES strategy code (a `defineStrategy` module) — it needs a strong coder + a token
@@ -236,29 +283,45 @@ async function main(): Promise<void> {
   // The author writes candidate-strategy .mts files into outDir, then dynamically imports them — they
   // `import '@tangle-network/agent-runtime/loops'`, which only resolves UNDER the package (self-reference).
   // A /tmp outDir would fail to resolve it; keep it under the project root.
-  const outDir = mkdtempSync(join(process.cwd(), '.sic-run-'))
-  const report = await runStrategyEvolution({
-    environment: codingEnv,
-    tasks: codingTasks,
-    trainN: Number(process.env.TRAIN_N ?? 8),
-    holdoutN: Number(process.env.HOLDOUT_N ?? 12),
-    worker: { routerBaseUrl, routerKey, model: workerModel, innerTurns: Number(process.env.INNER_TURNS ?? 8), maxTokens: 4000 },
-    author: {
-      chat: createChatClient({ transport: 'router', baseUrl: routerBaseUrl, apiKey: routerKey, defaultModel: authorModel }),
-      model: authorModel,
-      maxTokens: 8000,
-      fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
-    },
-    baselines: [sample, refine],
-    budget: Number(process.env.BUDGET ?? 3),
-    generations: Number(process.env.GENERATIONS ?? 2),
-    populationSize: Number(process.env.POP ?? 2),
-    outDir,
-  })
-  rmSync(outDir, { recursive: true, force: true })
+  const report = await (async () => {
+    const outDir = mkdtempSync(join(process.cwd(), '.sic-run-'))
+    try {
+      return await runStrategyEvolution({
+        environment: codingEnv,
+        tasks: codingTasks,
+        trainN: Number(process.env.TRAIN_N ?? 8),
+        holdoutN: Number(process.env.HOLDOUT_N ?? 12),
+        worker: {
+          routerBaseUrl,
+          routerKey,
+          model: workerModel,
+          innerTurns: Number(process.env.INNER_TURNS ?? 8),
+          maxTokens: 4000,
+        },
+        author: {
+          chat: createChatClient({
+            transport: 'router',
+            baseUrl: routerBaseUrl,
+            apiKey: routerKey,
+            defaultModel: authorModel,
+          }),
+          model: authorModel,
+          maxTokens: 8000,
+          fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+        },
+        baselines: [sample, refine],
+        budget: Number(process.env.BUDGET ?? 3),
+        generations: Number(process.env.GENERATIONS ?? 2),
+        populationSize: Number(process.env.POP ?? 2),
+        outDir,
+      })
+    } finally {
+      rmSync(outDir, { recursive: true, force: true })
+    }
+  })()
 
   const v = report.verdict
-  if (process.env.DUMP) {
+  if (process.env.DUMP === '1') {
     // Autopsy: gen0 baseline scores (headroom) + every authored candidate's score/error (did they
     // lose on a saturated task, or error at runtime?).
     const r = report as unknown as Record<string, unknown>
@@ -272,7 +335,9 @@ async function main(): Promise<void> {
   console.log(`gen0 champion:   ${report.gen0Champion.name}`)
   console.log(`final champion:  ${report.finalChampion.name}`)
   console.log(`PROMOTED:        ${v.promoted}  (${v.reason})`)
-  console.log(`held-out lift:   mean ${v.lift.mean.toFixed(3)}  95% CI [${v.lift.low.toFixed(3)}, ${v.lift.high.toFixed(3)}]  n=${v.n}`)
+  console.log(
+    `held-out lift:   mean ${v.lift.mean.toFixed(3)}  95% CI [${v.lift.low.toFixed(3)}, ${v.lift.high.toFixed(3)}]  n=${v.n}`,
+  )
   console.log(
     v.promoted
       ? '\n>>> The search taught the agent a strategy that fixes MORE on tasks it never trained on, beyond luck. Self-improvement CERTIFIED.'
@@ -282,6 +347,6 @@ async function main(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`)
   main().catch((e) => {
-  console.error(e)
-  process.exit(1)
-})
+    console.error(e instanceof Error ? (e.stack ?? e.message) : String(e))
+    process.exit(1)
+  })
