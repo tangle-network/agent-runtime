@@ -4,14 +4,14 @@
  * draws a disjoint holdout slice and gates once — adaptive reuse is impossible). CONTAMINATION CAVEAT
  * applies (public fixes may be memorized) — reported, never claimed clean.
  *
- *   CALIBRATE first (cost gate):  TANGLE_API_KEY=… CALIBRATE=1 N=3 tsx bench/swe-self-improve.mts
- *   Full run:                     TANGLE_API_KEY=… TRAIN_N=6 HOLDOUT_N=8 GENERATIONS=2 tsx bench/swe-self-improve.mts
+ *   CALIBRATE first (cost gate):  TANGLE_API_KEY=… CALIBRATE=1 N=3 tsx bench/src/swe-self-improve.mts
+ *   Full run:                     TANGLE_API_KEY=… TRAIN_N=6 HOLDOUT_N=8 GENERATIONS=2 tsx bench/src/swe-self-improve.mts
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { createChatClient } from '@tangle-network/agent-eval'
 import { refine, runAgentic, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/loops'
-import { createSweBenchEnvironment } from './src/swe-bench-env'
+import { createSweBenchEnvironment } from './swe-bench-env'
 
 async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY

@@ -559,3 +559,35 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     expect(() => driverAgent(opts)).toThrow(/collides with a coordination verb/)
   })
 })
+
+describe('driverAgent — the analyst up-leg (analysts + analyzeOnSettle pass-through)', () => {
+  const noWorker = (_p: unknown): Agent<unknown, unknown> =>
+    ({
+      name: 'w',
+      act: async () => '',
+      executorSpec: { profile: { name: 'w' } as AgentProfile, harness: null },
+    }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+  const analysts = {
+    kinds: [{ id: 'progress', description: 'read the settled output', area: 'progress' }],
+    run: async () => ({ note: 'ok' }),
+  }
+
+  it('fails loud when analyzeOnSettle is set without analysts (matches the extraTools guard)', () => {
+    expect(() =>
+      driverAgent({
+        ...driverOpts('x', scriptedBrain([]), noWorker),
+        analyzeOnSettle: ['progress'],
+      }),
+    ).toThrow(/analyzeOnSettle requires analysts/)
+  })
+
+  it('constructs when both analysts and analyzeOnSettle are provided (the up-leg wired)', () => {
+    expect(() =>
+      driverAgent({
+        ...driverOpts('x', scriptedBrain([]), noWorker),
+        analysts,
+        analyzeOnSettle: ['progress'],
+      }),
+    ).not.toThrow()
+  })
+})

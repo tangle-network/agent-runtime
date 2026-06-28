@@ -3956,40 +3956,6 @@ Defined in: [mcp/tools/coordination.ts:56](https://github.com/tangle-network/age
 
 ***
 
-### AnalystRegistry
-
-Defined in: [mcp/tools/coordination.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L62)
-
-#### Properties
-
-##### kinds
-
-> `readonly` **kinds**: readonly `object`[]
-
-Defined in: [mcp/tools/coordination.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L63)
-
-##### run
-
-> `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
-
-Defined in: [mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
-
-###### Parameters
-
-###### kindId
-
-`string`
-
-###### trace
-
-`unknown`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
 ### CoordinationToolsOptions
 
 Defined in: [mcp/tools/coordination.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L94)
@@ -4010,7 +3976,7 @@ Defined in: [mcp/tools/coordination.ts:96](https://github.com/tangle-network/age
 
 ##### makeWorkerAgent
 
-> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
+> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
 Defined in: [mcp/tools/coordination.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L97)
 
@@ -4022,7 +3988,7 @@ Defined in: [mcp/tools/coordination.ts:98](https://github.com/tangle-network/age
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](runtime.md#analystregistry)
 
 Defined in: [mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
 
@@ -5809,24 +5775,6 @@ Defined in: [mcp/tools/coordination.ts:48](https://github.com/tangle-network/age
 > **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
 Defined in: [mcp/tools/coordination.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L60)
-
-***
-
-### MakeWorkerAgent
-
-> **MakeWorkerAgent** = (`profile`) => [`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
-
-Defined in: [mcp/tools/coordination.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L92)
-
-#### Parameters
-
-##### profile
-
-`unknown`
-
-#### Returns
-
-[`Agent`](runtime.md#agent)\<`unknown`, `unknown`\>
 
 ***
 
@@ -7748,6 +7696,18 @@ Re-exports [mcpToolsForRuntimeMcpSubset](index.md#mcptoolsforruntimemcpsubset)
 
 ***
 
+### AnalystRegistry
+
+Re-exports [AnalystRegistry](runtime.md#analystregistry)
+
+***
+
 ### CoordinationEvent
 
 Re-exports [CoordinationEvent](runtime.md#coordinationevent)
+
+***
+
+### MakeWorkerAgent
+
+Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)

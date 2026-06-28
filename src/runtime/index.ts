@@ -37,8 +37,14 @@ export {
 } from '../durable/spawn-journal'
 // The typed coordination-bus event (up: settled/question/finding; down: steer/answer) — surfaced
 // here so a host folding the bus onto its own timeline (the supervise-topology observability) can
-// type its `onEvent` subscriber without reaching into the `/mcp` subpath.
-export type { CoordinationEvent } from './../mcp/tools/coordination'
+// type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides
+// alongside it: the worker-seam type `supervise`/`workerFromBackend` traffic in, so a host authoring
+// its own seam types it from the loop layer rather than the `/mcp` subpath.
+export type {
+  AnalystRegistry,
+  CoordinationEvent,
+  MakeWorkerAgent,
+} from './../mcp/tools/coordination'
 export {
   type AnytimeReport,
   type AnytimeStrategySummary,
