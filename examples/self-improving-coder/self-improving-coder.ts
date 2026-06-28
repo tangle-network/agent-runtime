@@ -105,7 +105,7 @@ function pytestPassed(dir: string): { passed: number; total: number } {
   return { passed, total: passed + failed }
 }
 
-const codingEnv: AgenticSurface = {
+export const codingEnv: AgenticSurface = {
   name: 'generated-coding',
   async open(task) {
     const seed = Number((task.meta as { seed?: number })?.seed ?? 0)
@@ -169,7 +169,7 @@ const codingEnv: AgenticSurface = {
 }
 
 // ── The disjoint task supplier (train [0,trainN); holdout drawn past it) ──────────
-const tasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
+export const codingTasks = async (offset: number, n: number): Promise<AgenticTask[]> =>
   Array.from({ length: n }, (_, i) => {
     const seed = offset + i
     return {
@@ -208,7 +208,7 @@ async function calibrate(): Promise<void> {
   console.log('═══ CALIBRATION ($0) — task solvable + grader discriminates? ═══')
   let ok = true
   for (const seed of [0, 1, 2, 7, 11]) {
-    const task = (await tasks(seed, 1))[0]!
+    const task = (await codingTasks(seed, 1))[0]!
     const h = await codingEnv.open(task)
     const stub = await codingEnv.score(task, h)
     // write the reference, re-score
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
   const outDir = mkdtempSync(join(process.cwd(), '.sic-run-'))
   const report = await runStrategyEvolution({
     environment: codingEnv,
-    tasks,
+    tasks: codingTasks,
     trainN: Number(process.env.TRAIN_N ?? 8),
     holdoutN: Number(process.env.HOLDOUT_N ?? 12),
     worker: { routerBaseUrl, routerKey, model: workerModel, innerTurns: Number(process.env.INNER_TURNS ?? 8), maxTokens: 4000 },
@@ -280,7 +280,8 @@ async function main(): Promise<void> {
   )
 }
 
-main().catch((e) => {
+if (import.meta.url === `file://${process.argv[1]}`)
+  main().catch((e) => {
   console.error(e)
   process.exit(1)
 })
