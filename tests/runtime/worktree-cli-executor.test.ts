@@ -1,10 +1,14 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import type { AgentProfile } from '@tangle-network/sandbox'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type RunLocalHarnessOptions, runLocalHarness } from '../../src/mcp/local-harness'
 import type { GitRunner } from '../../src/mcp/worktree'
-import { createWorktreeCliExecutor } from '../../src/runtime/supervise/worktree-cli-executor'
+import { type AgentSpec, createExecutor } from '../../src/runtime'
+import {
+  createWorktreeCliExecutor,
+  type WorktreePatchArtifact,
+} from '../../src/runtime/supervise/worktree-cli-executor'
 
 interface FakeGitState {
   worktreesCreated: string[]
@@ -53,6 +57,33 @@ const authoredProfile: AgentProfile = {
   model: { default: 'deepseek/deepseek-v4-flash' },
 }
 
+function bridgeSseResponse(content: string): Response {
+  const payload = [
+    `data: ${JSON.stringify({
+      choices: [{ delta: { content } }],
+      usage: { prompt_tokens: 3, completion_tokens: 5, cost: 0.02 },
+    })}`,
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\n')
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(payload))
+        controller.close()
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream' } },
+  )
+}
+
+async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
+  for await (const event of iterable) {
+    void event
+  }
+}
+
 /** A fake child process that emits a clean exit (mirrors local-harness.test's helper). */
 function makeFakeChild(opts: { stdout?: string; exitCode?: number }): ChildProcess {
   const emitter = new EventEmitter() as ChildProcess
@@ -70,6 +101,8 @@ function makeFakeChild(opts: { stdout?: string; exitCode?: number }): ChildProce
 }
 
 describe('createWorktreeCliExecutor', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
   it('threads the authored systemPrompt + model into the harness invocation', async () => {
     const state = freshGitState()
     let seen: RunLocalHarnessOptions | undefined
@@ -292,6 +325,77 @@ describe('createWorktreeCliExecutor', () => {
     })
     const result = await exec.execute(undefined, new AbortController().signal)
     expect(result.out.checks).toBeUndefined()
+  })
+
+  it('runs cli-worktree over the live bridge transport without losing isolation or steering', async () => {
+    const state = freshGitState({
+      diffPatch:
+        'diff --git a/live.ts b/live.ts\n+++ b/live.ts\n@@ +1 @@\n+export const live = true\n',
+      diffShortstat: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n',
+    })
+    const requests: Array<{
+      cwd?: string
+      session_id?: string
+      messages?: Array<{ role: string; content: string }>
+    }> = []
+    const checks: Array<{ command: string; cwd: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body ?? '{}')))
+        return bridgeSseResponse('done from bridge')
+      }),
+    )
+
+    const factory = createExecutor({
+      backend: 'cli-worktree',
+      repoRoot: '/workspace',
+      taskPrompt: 'implement the feature',
+      runId: 'run-live',
+      bridge: {
+        bridgeUrl: 'http://bridge.test',
+        bridgeBearer: 'secret',
+        model: 'codex/live',
+        sessionId: 'session-live',
+      },
+      testCmd: 'pnpm test',
+      runGit: makeFakeGit(state),
+      runCommand: async ({ command, cwd }) => {
+        checks.push({ command, cwd })
+        return { exitCode: 0, output: 'tests passed' }
+      },
+    })
+    const spec: AgentSpec = { profile: authoredProfile, harness: null }
+    const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+
+    exec.deliver?.({ steer: 'also update docs' })
+    const run = exec.execute(undefined, new AbortController().signal)
+    await drain(run as AsyncIterable<unknown>)
+
+    const worktreePath = state.worktreesCreated[0]
+    expect(worktreePath).toBe('/workspace/.agent-worktrees/run-live')
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.cwd).toBe(worktreePath)
+    expect(requests[0]?.session_id).toBe('session-live')
+    expect(requests[0]?.messages?.some((m) => m.content.includes('implement the feature'))).toBe(
+      true,
+    )
+    expect(requests[0]?.messages?.some((m) => m.content.includes('also update docs'))).toBe(true)
+    expect(checks).toEqual([{ command: 'pnpm test', cwd: worktreePath }])
+
+    const artifact = exec.resultArtifact()
+    const out = artifact.out as WorktreePatchArtifact
+    expect(out.patch).toContain('+export const live = true')
+    expect(out.stats).toEqual({ filesChanged: 1, insertions: 1, deletions: 0 })
+    expect(out.harness.name).toBe('bridge')
+    expect(out.harness.stdout).toBe('done from bridge')
+    expect(out.checks?.tests?.passed).toBe(true)
+    expect(artifact.spent.tokens).toEqual({ input: 3, output: 5 })
+    expect(artifact.spent.usd).toBe(0.02)
+
+    const teardown = await exec.teardown(0)
+    expect(teardown.destroyed).toBe(true)
+    expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
   })
 
   it('fails loud on a missing repoRoot / harness / taskPrompt', () => {
