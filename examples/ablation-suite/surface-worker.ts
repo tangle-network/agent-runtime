@@ -12,10 +12,10 @@
  * didn't drive the artifact to its final checked state settles `valid:false`, so a keep-best driver
  * never counts it as done (the Foreman 0/18 lesson — "done" means the check passed).
  *
- * v1 SIMPLIFICATION: the worker IGNORES the driver's brief — every spawn is a fresh `refine` attempt
- * on the SAME task. The driver's intelligence in v1 is allocation (how many workers, when to stop),
- * not per-worker instruction authoring; threading a per-worker brief into the surface tool loop is the
- * next increment.
+ * The driver's brief is THREADED into each attempt (appended to the surface task's standing prompt), so
+ * the supervisor's steering reaches the worker: a re-spawn after a failure can take a different, targeted
+ * angle rather than an identical refine retry. The driver's intelligence is therefore BOTH allocation
+ * (how many workers, when to stop) AND per-worker instruction authoring (the proposer profile).
  */
 
 import type {
@@ -66,13 +66,21 @@ function surfaceWorkerExecutor(opts: SurfaceWorkerOptions): Executor<SurfaceWork
   let artifact: ExecutorResult<SurfaceWorkerOut> | undefined
   return {
     runtime: 'surface-worker',
-    // v1: the worker ignores the spawn `task` (the driver's brief) — each spawn is a fresh refine
-    // attempt on the SAME surface task. `runAgentic` already stamps real tokens/usd/ms from its
-    // conserved pool, so we forward those as the worker's Spend (no re-pricing here).
-    async execute(): Promise<ExecutorResult<SurfaceWorkerOut>> {
+    // Thread the driver's brief (the spawn instruction) into THIS attempt: the supervisor's steering
+    // reaches the worker as targeted guidance appended to the surface task's standing prompt — so a
+    // re-spawn after a failure can actually be DIFFERENT (a new angle / a fix for what went wrong),
+    // not an identical refine retry. `runAgentic` stamps real tokens/usd/ms; we forward those as Spend.
+    async execute(brief: unknown): Promise<ExecutorResult<SurfaceWorkerOut>> {
+      const guidance = typeof brief === 'string' ? brief.trim() : brief ? JSON.stringify(brief) : ''
+      const attemptTask: AgenticTask = guidance
+        ? {
+            ...task,
+            systemPrompt: `${task.systemPrompt ?? ''}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
+          }
+        : task
       const r = await runAgentic({
         surface,
-        task,
+        task: attemptTask,
         strategy: refine,
         budget: worker.budget ?? 1,
         routerBaseUrl: worker.routerBaseUrl,
