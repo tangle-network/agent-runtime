@@ -12,6 +12,7 @@
  * each is a tracked next-increment over a real substrate primitive (named in the throw). Validate the
  * framework on the cheap contamination-proof task, THEN point `environment`/`tasks` at SWE-bench.
  */
+import { pairedBootstrap } from '@tangle-network/agent-eval'
 import {
   type AgenticSurface,
   type AgenticTask,
@@ -30,10 +31,15 @@ export interface AblationKnobs {
   /** WIRED → equal-compute unit (refine: max shots; fanout: rollout width). */
   budget: number
   // ── DECLARED knobs — fail loud until wired (each over a named substrate primitive) ──
-  optimize?: 'off' | 'gepa' | 'skillOpt' // gepaProposer / skillOptProposer on TRAIN, frozen, then run
-  traceAnalysis?: 'off' | 'settle' | 'live' // analyzeOnSettle / watchTrace (agent-eval analysts)
-  halo?: boolean
-  steering?: boolean // trace finding → steer_worker (event-bus)
+  /** The DRIVER-steers-WORKER loop: supervise() drives the worker, analyzeOnSettle fires the analyst on
+   *  each settled round → a `finding` the driver pulls and composes the next prompt from. (NOT the
+   *  refine analyst-steerer — that's the degenerate inline version; this is a driver brain in the loop.) */
+  driverSteer?: boolean // supervise(driverProfile,{backend,analyzeOnSettle}) + steer_agent
+  /** GEPA-optimize the DRIVER's compose-next-prompt system prompt on TRAIN (executable-graded via the
+   *  surface score), frozen, then run — selfImprove() with an executable JudgeConfig (NOT improve(): the
+   *  steerer prompt is not a profile field). */
+  optimize?: 'off' | 'gepa'
+  halo?: boolean // HALO analyst option
   persistentArtifact?: boolean // multi-round persistent artifact (openSandboxRun resume)
 }
 
@@ -45,10 +51,9 @@ const topologyStrategy: Record<AblationKnobs['topology'], Strategy> = {
 
 /** Fail loud on a set-but-unwired knob — the house rule (no silent no-op). Names the primitive to wire. */
 const unwiredKnobs: Array<{ k: keyof AblationKnobs; isSet: (v: unknown) => boolean; prim: string }> = [
-  { k: 'optimize', isSet: (v) => !!v && v !== 'off', prim: 'gepaProposer/skillOptProposer + improve() on TRAIN, frozen' },
-  { k: 'traceAnalysis', isSet: (v) => !!v && v !== 'off', prim: 'analyzeOnSettle / watchTrace (agent-eval analysts)' },
+  { k: 'driverSteer', isSet: (v) => v === true, prim: 'supervise(driverProfile,{backend,analyzeOnSettle}) — driver composes the steer from the analyst finding' },
+  { k: 'optimize', isSet: (v) => !!v && v !== 'off', prim: "selfImprove() w/ executable JudgeConfig optimizing the driver's compose-prompt on TRAIN, frozen" },
   { k: 'halo', isSet: (v) => v === true, prim: 'HALO analyst option' },
-  { k: 'steering', isSet: (v) => v === true, prim: 'event-bus finding → steer_worker' },
   { k: 'persistentArtifact', isSet: (v) => v === true, prim: 'openSandboxRun resume' },
 ]
 
@@ -63,6 +68,8 @@ export interface ArmResult {
   latencyMs: number
   shotsMean: number
   completionsMean: number
+  /** Per-task resolved (0/1), task-aligned across arms — the paired vector for significance. */
+  perTask: number[]
 }
 
 export async function runAblation(opts: {
@@ -97,6 +104,7 @@ export async function runAblation(opts: {
     let ms = 0
     let shots = 0
     let comps = 0
+    const perTask: number[] = []
     for (const t of tasks) {
       const r = await runAgentic({
         surface: opts.environment,
@@ -110,6 +118,7 @@ export async function runAblation(opts: {
         ...(opts.worker.innerTurns !== undefined ? { innerTurns: opts.worker.innerTurns } : {}),
       })
       if (r.resolved) resolved++
+      perTask.push(r.resolved ? 1 : 0)
       ti += r.tokens.input
       to += r.tokens.output
       usd += r.usd
@@ -129,6 +138,7 @@ export async function runAblation(opts: {
       latencyMs: ms,
       shotsMean: shots / n,
       completionsMean: comps / n,
+      perTask,
     }
     results.push(res)
     opts.onArm?.(res)
@@ -142,25 +152,30 @@ export function printAutopsy(results: ArmResult[]): void {
   const pad = (s: string, n: number) => s.padEnd(n)
   console.log(`\n═══ ABLATION AUTOPSY (n=${base?.n} held-out, one-knob-delta vs baseline) ═══`)
   console.log(
-    pad('arm', 16) + pad('topology', 14) + pad('resolve', 9) + pad('tok(in/out)', 16) + pad('$', 9) + pad('lat(s)', 9) + pad('shots', 7) + pad('Δresolve', 10) + 'Δ$',
+    pad('arm', 16) + pad('topology', 14) + pad('resolve', 9) + pad('$', 9) + pad('lat(s)', 8) + pad('shots', 7) + pad('Δresolve [95% CI]', 24) + 'Δ$',
   )
   for (const r of results) {
-    const dR = base ? r.resolve - base.resolve : 0
     const dC = base ? r.costUsd - base.costUsd : 0
+    // Significance: paired bootstrap of this arm's per-task resolve vs baseline's (task-aligned).
+    let lift = '+0pp'
+    if (base && r !== base) {
+      const b = pairedBootstrap(base.perTask, r.perTask, { confidence: 0.95, statistic: 'mean' })
+      const sig = b.low > 0 || b.high < 0 ? '✓' : '·' // CI excludes 0 ⇒ real
+      lift = `${b.median >= 0 ? '+' : ''}${(100 * b.median).toFixed(0)}pp [${(100 * b.low).toFixed(0)},${(100 * b.high).toFixed(0)}] ${sig}`
+    }
     console.log(
       pad(r.name, 16) +
         pad(r.knobs.topology, 14) +
         pad(`${(100 * r.resolve).toFixed(0)}%`, 9) +
-        pad(`${r.tokensIn}/${r.tokensOut}`, 16) +
         pad(`$${r.costUsd.toFixed(4)}`, 9) +
-        pad((r.latencyMs / 1000).toFixed(0), 9) +
+        pad((r.latencyMs / 1000).toFixed(0), 8) +
         pad(r.shotsMean.toFixed(1), 7) +
-        pad(`${dR >= 0 ? '+' : ''}${(100 * dR).toFixed(0)}pp`, 10) +
+        pad(lift, 24) +
         `${dC >= 0 ? '+' : ''}$${dC.toFixed(4)}`,
     )
   }
   console.log(
-    '\n>>> Read it cost-aware: a +resolve that costs +$$ may be worse than baseline. The whole point is to see what HELPS vs what just BURNS.',
+    '\n>>> Read it cost-aware: ✓ = CI excludes 0 (real lift). A +resolve that costs +$$ or is not ✓ may be worse than baseline. The point is to see what HELPS vs what just BURNS.',
   )
 }
 
