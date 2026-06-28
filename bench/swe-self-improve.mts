@@ -29,9 +29,9 @@ async function main(): Promise<void> {
     let resolved = 0
     for (const t of ts) {
       const t0 = Date.now()
-      const r = await runAgentic({ surface: environment, task: t, strategy: refine, routerBaseUrl, routerKey, model: workerModel, innerTurns, budget: 1 })
+      const r = await runAgentic({ surface: environment, task: t, strategy: refine, routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns, budget: 1 })
       if (r.resolved) resolved++
-      console.log(`  ${t.id.padEnd(32)} resolved=${r.resolved} (${Math.round((Date.now() - t0) / 1000)}s)`)
+      console.log(`  ${t.id.padEnd(32)} resolved=${r.resolved} completions=${r.completions} shots=${r.shots} (${Math.round((Date.now() - t0) / 1000)}s)`)
     }
     const band = resolved > 0 && resolved < n
     console.log(`\n>>> baseline resolved ${resolved}/${n}. ${band ? 'HEADROOM — the loop has room to improve. PROCEED.' : resolved === 0 ? 'TOO HARD / env issue — inspect before the loop.' : 'saturated at this small n — raise N.'}`)
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     tasks,
     trainN: Number(process.env.TRAIN_N ?? 6),
     holdoutN: Number(process.env.HOLDOUT_N ?? 8),
-    worker: { routerBaseUrl, routerKey, model: workerModel, innerTurns },
+    worker: { routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns },
     author: {
       chat: createChatClient({ transport: 'router', baseUrl: routerBaseUrl, apiKey: routerKey, defaultModel: authorModel }),
       model: authorModel,

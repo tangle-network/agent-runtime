@@ -161,9 +161,12 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
     return slice.map((bt) => ({
       id: bt.id,
       systemPrompt:
-        'You are a senior engineer fixing a real bug in the checked-out repository. Use list_files + read_file to ' +
-        'locate and fully read the relevant source, diagnose the root cause from the issue, then fix it with edit_file — ' +
-        'a MINIMAL surgical change (a few lines, like a real PR), source only (test files are rejected). Do not rewrite whole files.',
+        'You are a senior engineer fixing a real bug in the checked-out repository. Work PERSISTENTLY and do not ' +
+        'stop early: use list_files + read_file to explore BROADLY (read many candidate files — the bug is rarely in ' +
+        'the first file you open), trace the issue to its root cause, then fix it with edit_file. You MUST make at ' +
+        'least one edit_file call — never finish with prose alone or without attempting a fix. Make a MINIMAL surgical ' +
+        'change (a few lines, like a real PR), source only (test files are rejected). If an edit_file fails (old_string ' +
+        'not unique/found), read the file again and retry with exact text. Keep going until you have made your best fix.',
       userPrompt: bt.prompt,
       meta: { instanceId: bt.id },
     }))
