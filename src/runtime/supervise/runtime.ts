@@ -30,6 +30,18 @@ import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
 import {
+  captureWorktreeDiff,
+  createWorktree,
+  type GitRunner,
+  removeWorktree,
+  type WorktreeHandle,
+} from '../../mcp/worktree'
+import {
+  runWorktreeChecks,
+  type WorktreeCheckRunner,
+  type WorktreeHarnessResult,
+} from '../../mcp/worktree-harness'
+import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
   type ProviderExecutorOptions,
@@ -113,11 +125,36 @@ export interface CliSeam {
  */
 export interface CliWorktreeSeam {
   repoRoot: string
-  harness: LocalHarness
+  /** Local CLI harness transport. Omit when `bridge` is set. */
+  harness?: LocalHarness
   taskPrompt: string
   runId?: string
   baseRef?: string
   harnessTimeoutMs?: number
+  testCmd?: string
+  typecheckCmd?: string
+  checkTimeoutMs?: number
+  checkOutputCap?: number
+  budgetExempt?: boolean
+  /** Live cli-bridge transport inside the worktree. When set, the worktree leaf accepts
+   *  `deliver()` messages and resumes the same bridge session in this worktree cwd. */
+  bridge?: CliWorktreeBridgeSeam
+  /** Test seam — forwarded to worktree helpers. */
+  runGit?: GitRunner
+  /** Test seam — forwarded to verification checks. */
+  runCommand?: WorktreeCheckRunner
+}
+
+export interface CliWorktreeBridgeSeam {
+  bridgeUrl: string
+  bridgeBearer: string
+  /** Bridge model/harness id. Defaults to the profile's model hint when omitted. */
+  model?: string
+  agentProfile?: Record<string, unknown>
+  timeoutMs?: number
+  /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
+  sessionId?: string
+  maxTurns?: number
 }
 
 /**
@@ -138,6 +175,8 @@ export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
   model: string
+  /** Optional working directory forwarded to cli-bridge and persisted with the session. */
+  cwd?: string
   agentProfile?: Record<string, unknown>
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
@@ -959,6 +998,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           model: seam.model,
           stream: true,
           session_id: args.sessionId,
+          ...(seam.cwd ? { cwd: seam.cwd } : {}),
           ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
           messages,
         }),
@@ -1119,6 +1159,197 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+function bridgeWorktreeExecutor(
+  spec: AgentSpec,
+  ctx: ExecutorContext,
+  seam: CliWorktreeSeam,
+): Executor<WorktreeHarnessResult> {
+  const bridge = seam.bridge
+  if (!bridge) {
+    throw new ValidationError('cliWorktreeExecutor: bridge transport missing')
+  }
+  if (!bridge.bridgeUrl || !bridge.bridgeBearer) {
+    throw new ValidationError(
+      'cliWorktreeExecutor: bridge.bridgeUrl + bridge.bridgeBearer required',
+    )
+  }
+
+  const runId = seam.runId ?? randomUUID()
+  const sessionId = bridge.sessionId ?? `bridge-worktree-${runId}`
+  const controller = new AbortController()
+  const pending: unknown[] = []
+  let inner: Executor<unknown> | undefined
+  let worktree: WorktreeHandle | undefined
+  let removed = false
+  let artifact: ExecutorResult<WorktreeHarnessResult> | undefined
+
+  const cleanupWorktree = async (): Promise<void> => {
+    if (!worktree || removed) return
+    const target = worktree
+    removed = true
+    worktree = undefined
+    await removeWorktree({
+      worktree: target,
+      repoRoot: seam.repoRoot,
+      ...(seam.runGit ? { runGit: seam.runGit } : {}),
+    }).catch(() => undefined)
+  }
+
+  const deliver = (msg: unknown): void => {
+    if (inner?.deliver) {
+      inner.deliver(msg)
+      return
+    }
+    pending.push(msg)
+  }
+
+  return {
+    runtime: 'cli' as Runtime,
+    budgetExempt: seam.budgetExempt ?? false,
+    deliver,
+    execute(_task, signal): AsyncIterable<UsageEvent> {
+      return (async function* bridgeWorktreeStream() {
+        const started = Date.now()
+        const linked = mergeAbortSignals(signal, controller.signal)
+        let bridgeArtifact: ExecutorResult<unknown> | undefined
+
+        try {
+          worktree = await createWorktree({
+            repoRoot: seam.repoRoot,
+            runId,
+            ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
+            ...(seam.runGit ? { runGit: seam.runGit } : {}),
+          })
+          removed = false
+
+          const bridgeSeam: BridgeSeam = {
+            bridgeUrl: bridge.bridgeUrl,
+            bridgeBearer: bridge.bridgeBearer,
+            model: resolveBridgeWorktreeModel(spec, bridge),
+            cwd: worktree.path,
+            sessionId,
+            ...(bridge.agentProfile
+              ? { agentProfile: bridge.agentProfile }
+              : { agentProfile: spec.profile as unknown as Record<string, unknown> }),
+            ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
+            ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
+          }
+          const bridgeCtx: ExecutorContext = {
+            ...ctx,
+            signal: linked,
+            seams: { ...ctx.seams, [bridgeSeamKey]: bridgeSeam },
+          }
+          inner = bridgeExecutor(spec, bridgeCtx)
+          for (const msg of pending.splice(0)) inner.deliver?.(msg)
+
+          const run = inner.execute(seam.taskPrompt, linked)
+          if (isAsyncIterable<UsageEvent>(run)) {
+            for await (const event of run) yield event
+            bridgeArtifact = inner.resultArtifact()
+          } else {
+            bridgeArtifact = await run
+          }
+
+          const diff = await captureWorktreeDiff({
+            worktree,
+            ...(seam.runGit ? { runGit: seam.runGit } : {}),
+          })
+          const checks = await runWorktreeChecks({
+            worktreePath: worktree.path,
+            ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
+            ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
+            timeoutMs:
+              seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
+            cap: seam.checkOutputCap ?? 16_000,
+            ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
+            signal: linked,
+          })
+
+          const result: WorktreeHarnessResult = {
+            branch: worktree.branch,
+            patch: diff.patch,
+            stats: diff.stats,
+            harness: {
+              name: 'bridge',
+              exitCode: null,
+              timedOut: false,
+              killedBySignal: null,
+              durationMs: bridgeArtifact.spent.ms || Date.now() - started,
+              stdout: bridgeOutputText(bridgeArtifact.out),
+              stderr: '',
+            },
+            ...(checks ? { checks } : {}),
+          }
+          const spent: Spend = {
+            ...bridgeArtifact.spent,
+            ms: bridgeArtifact.spent.ms || Date.now() - started,
+          }
+          artifact = {
+            outRef: contentRef('bridge-worktree', { sessionId, result }),
+            out: result,
+            spent,
+          }
+        } catch (err) {
+          controller.abort()
+          await inner?.teardown('brutalKill').catch(() => undefined)
+          await cleanupWorktree()
+          throw err
+        }
+      })()
+    },
+    async teardown(grace): Promise<{ destroyed: boolean }> {
+      controller.abort()
+      let destroyed = true
+      try {
+        if (inner) {
+          destroyed = (await inner.teardown(grace)).destroyed
+        }
+      } finally {
+        await cleanupWorktree()
+      }
+      return { destroyed }
+    },
+    resultArtifact() {
+      if (!artifact) {
+        throw new ValidationError(
+          'cliWorktreeExecutor: bridge resultArtifact() read before stream drained',
+        )
+      }
+      return artifact
+    },
+  }
+}
+
+function resolveBridgeWorktreeModel(spec: AgentSpec, bridge: CliWorktreeBridgeSeam): string {
+  if (bridge.model) return bridge.model
+  const model = spec.profile.model?.default
+  if (typeof model === 'string' && model.length > 0) return model
+  throw new ValidationError(
+    'cliWorktreeExecutor: bridge.model or AgentProfile.model.default required',
+  )
+}
+
+function bridgeOutputText(out: unknown): string {
+  if (typeof out === 'string') return out
+  if (out && typeof out === 'object') {
+    const content = (out as { content?: unknown }).content
+    if (typeof content === 'string') return content
+  }
+  try {
+    return JSON.stringify(out) ?? String(out)
+  } catch {
+    return String(out)
+  }
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  )
+}
+
 // ── cli-worktree executor (authored profile → harness CLI on a git worktree) ────
 
 /**
@@ -1128,9 +1359,13 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
  */
 export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<CliWorktreeSeam>(ctx, cliWorktreeSeamKey, 'cli-worktree')
-  if (!seam.repoRoot || !seam.harness || !seam.taskPrompt) {
+  if (!seam.repoRoot || !seam.taskPrompt) {
+    throw new ValidationError('cliWorktreeExecutor: CliWorktreeSeam.repoRoot + taskPrompt required')
+  }
+  if (seam.bridge) return bridgeWorktreeExecutor(spec, ctx, seam)
+  if (!seam.harness) {
     throw new ValidationError(
-      'cliWorktreeExecutor: CliWorktreeSeam.repoRoot + harness + taskPrompt required',
+      'cliWorktreeExecutor: CliWorktreeSeam.harness required when bridge is not set',
     )
   }
   return createWorktreeCliExecutor({
@@ -1141,6 +1376,13 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     ...(seam.runId ? { runId: seam.runId } : {}),
     ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
     ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
+    ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
+    ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
+    ...(seam.checkTimeoutMs !== undefined ? { checkTimeoutMs: seam.checkTimeoutMs } : {}),
+    ...(seam.checkOutputCap !== undefined ? { checkOutputCap: seam.checkOutputCap } : {}),
+    ...(seam.runGit ? { runGit: seam.runGit } : {}),
+    ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
+    ...(seam.budgetExempt !== undefined ? { budgetExempt: seam.budgetExempt } : {}),
   }) as Executor<unknown>
 }
 

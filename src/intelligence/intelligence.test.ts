@@ -42,6 +42,11 @@ function installFetchSpy(mode: 'ok' | 'throw'): { calls: FetchCall[] } {
   return { calls }
 }
 
+function stubNoEndpointEnv(): void {
+  vi.stubEnv('INTELLIGENCE_OTLP_ENDPOINT', '')
+  vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+}
+
 /** Pull every span attribute across an OTLP export body into one flat map. */
 function attrsOf(body: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -199,6 +204,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
   })
 
   it('is a no-op (no fetch) when no endpoint is configured', async () => {
+    stubNoEndpointEnv()
     const spy = vi.fn()
     vi.stubGlobal('fetch', spy)
     const client = createIntelligenceClient({ project: 'p', apiKey })
@@ -308,6 +314,7 @@ describe('doctor()', () => {
   })
 
   it('reports exportConfigured:false when no endpoint resolves', () => {
+    stubNoEndpointEnv()
     const client = createIntelligenceClient({ project: 'p', apiKey })
     expect(client.doctor().exportConfigured).toBe(false)
   })
@@ -422,6 +429,7 @@ describe('recordTrace — loop topology via buildLoopOtelSpans (gap 2)', () => {
   })
 
   it('is a no-op (no fetch) on an empty event stream or with no endpoint', async () => {
+    stubNoEndpointEnv()
     const spy = vi.fn()
     vi.stubGlobal('fetch', spy)
     const withEndpoint = createIntelligenceClient({ project: 'p', apiKey, endpoint })

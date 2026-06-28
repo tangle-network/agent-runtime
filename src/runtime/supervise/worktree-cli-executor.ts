@@ -67,6 +67,8 @@ export interface WorktreeCliExecutorOptions {
   typecheckCmd?: string
   /** Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 min. */
   checkTimeoutMs?: number
+  /** Cap on each check's captured output. Default 16k. */
+  checkOutputCap?: number
   /** Test seam — inject a git runner so unit tests drive the worktree helpers without git. */
   runGit?: GitRunner
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
@@ -135,6 +137,7 @@ export function createWorktreeCliExecutor(
           ? { harnessTimeoutMs: options.harnessTimeoutMs }
           : {}),
         ...(options.checkTimeoutMs !== undefined ? { checkTimeoutMs: options.checkTimeoutMs } : {}),
+        ...(options.checkOutputCap !== undefined ? { checkOutputCap: options.checkOutputCap } : {}),
         ...(linked ? { signal: linked } : {}),
         ...(options.runGit ? { runGit: options.runGit } : {}),
         ...(options.runHarness ? { runHarness: options.runHarness } : {}),

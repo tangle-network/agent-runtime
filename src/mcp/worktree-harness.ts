@@ -57,7 +57,7 @@ export interface WorktreeHarnessResult {
   stats: { filesChanged: number; insertions: number; deletions: number }
   /** The harness subprocess outcome. */
   harness: {
-    name: LocalHarness
+    name: LocalHarness | 'bridge'
     exitCode: number | null
     timedOut: boolean
     killedBySignal: NodeJS.Signals | null
@@ -170,7 +170,7 @@ export async function runWorktreeHarness(
       ...(opts.runGit ? { runGit: opts.runGit } : {}),
     })
 
-    const checks = await runChecks({
+    const checks = await runWorktreeChecks({
       worktreePath: worktree.path,
       ...(opts.testCmd !== undefined ? { testCmd: opts.testCmd } : {}),
       ...(opts.typecheckCmd !== undefined ? { typecheckCmd: opts.typecheckCmd } : {}),
@@ -204,18 +204,19 @@ export async function runWorktreeHarness(
 
 /** Run the configured test + typecheck commands in the live worktree, projecting exit codes into
  *  `checks`. Returns `undefined` when neither was configured (so the result omits `checks`). */
-async function runChecks(opts: {
+export async function runWorktreeChecks(opts: {
   worktreePath: string
   testCmd?: string
   typecheckCmd?: string
   timeoutMs: number
   cap: number
-  runCommand: WorktreeCheckRunner
+  runCommand?: WorktreeCheckRunner
   signal?: AbortSignal
 }): Promise<WorktreeHarnessResult['checks'] | undefined> {
   if (opts.testCmd === undefined && opts.typecheckCmd === undefined) return undefined
+  const runCommand = opts.runCommand ?? defaultRunCommand
   const run = async (command: string): Promise<WorktreeCommandResult> => {
-    const res = await opts.runCommand({
+    const res = await runCommand({
       command,
       cwd: opts.worktreePath,
       timeoutMs: opts.timeoutMs,
@@ -237,7 +238,7 @@ async function runChecks(opts: {
 /** Default verification-command runner — `/bin/sh -c <command>` in the worktree, capturing
  *  combined stdout+stderr. Never throws on a non-zero exit (that IS the fail signal); only a
  *  spawn failure (ENOENT shell) rejects. */
-function defaultRunCommand(opts: {
+export function defaultRunCommand(opts: {
   command: string
   cwd: string
   timeoutMs: number
