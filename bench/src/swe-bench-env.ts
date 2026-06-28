@@ -13,22 +13,40 @@
  * memorization. Always report this; never claim a "clean" frontier number from this arena alone.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgenticSurface, AgenticTask, AgenticTool, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/loops'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
 
 const exec = promisify(execFile)
-const isTestPath = (p: string) => /(^|\/)(tests?)\//.test(p) || /test_.*\.py$|_test\.py$|conftest\.py$/.test(p)
+export const isTestPath = (p: string) => /(^|\/)(tests?)\//.test(p) || /test_.*\.py$|_test\.py$|conftest\.py$/.test(p)
+
+/**
+ * Cheap string pre-filter for an agent-supplied repo-relative path, applied before the path is
+ * joined to a workspace root: rejects absolute paths and any `..` segment, strips a leading `./`.
+ * Returns the cleaned relative path, or `null` if it must be refused. Pure and side-effect-free —
+ * `root` is unused here (the symlink-following boundary is the realpath jail, not this filter) but
+ * is taken so call sites read symmetrically with the realpath check.
+ */
+export const jailPath = (_root: string, p: string): string | null => {
+  if (p.startsWith('/') || p.includes('..')) return null
+  return p.replace(/^\.\//, '')
+}
+
+/**
+ * Containment predicate for the realpath jail: true iff `real` (an already-resolved absolute path)
+ * is `jailRoot` itself or lies strictly inside it. The `+ sep` guard stops a sibling like
+ * `/tmp/swe-x-evil` from matching the root `/tmp/swe-x`. Pure and side-effect-free.
+ */
+export const isInsideJail = (jailRoot: string, real: string): boolean => real === jailRoot || real.startsWith(jailRoot + sep)
 
 interface Ws {
   dir: string
   task: BenchTask
 }
-const workspaces = new Map<string, Ws>()
 
 /** Build the SWE-bench Environment + a DISJOINT-slice task supplier over the Verified split. The
  *  supplier keys tasks by dataset offset so `runStrategyEvolution`'s train [0,trainN) and holdout
@@ -41,6 +59,8 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
   const adapter = createSweBenchAdapter()
   const pool = await adapter.loadTasks({ limit: poolN, split: 'test' })
   const byId = new Map(pool.map((t) => [t.id, t]))
+  // Each environment owns its workspace registry so concurrent environments don't share state.
+  const workspaces = new Map<string, Ws>()
 
   const environment: AgenticSurface = {
     name: 'swe-bench-verified',
@@ -70,9 +90,18 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
     async call(handle, name, args) {
       const ws = workspaces.get(handle.id)
       if (!ws) return 'ERROR: workspace closed'
-      const safe = (p: string): string | null => {
-        if (p.startsWith('/') || p.includes('..')) return null
-        return p.replace(/^\.\//, '')
+      // Cheap pre-filter: reject absolute paths and `..` traversal, strip a leading `./`. The real
+      // boundary is the realpath jail check below (resolveInJail) — `safe` only normalizes the string
+      // form. `ws.dir` is passed for signature symmetry; the filter itself is root-independent.
+      const safe = (p: string): string | null => jailPath(ws.dir, p)
+      // Resolve `relPath` to an absolute path and assert it stays inside the workspace AFTER following
+      // symlinks (a repo symlink targeting /etc/passwd would otherwise escape the string-only jail).
+      // The target must exist (both callers read it first); a missing path throws and the caller
+      // surfaces the error message, matching the previous read-then-fail behavior.
+      const jailRoot = realpathSync(ws.dir)
+      const resolveInJail = (relPath: string): string | null => {
+        const real = realpathSync(join(ws.dir, relPath))
+        return isInsideJail(jailRoot, real) ? real : null
       }
       if (name === 'list_files') {
         const sub = safe(String(args.dir ?? '')) ?? ''
@@ -106,8 +135,15 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
       if (name === 'read_file') {
         const p = safe(String(args.path ?? ''))
         if (!p) return 'ERROR: invalid path'
+        let real: string | null
         try {
-          const c = readFileSync(join(ws.dir, p), 'utf8')
+          real = resolveInJail(p)
+        } catch (e) {
+          return `(error: ${(e as Error).message})`
+        }
+        if (!real) return `ERROR: path ${p} escapes the workspace`
+        try {
+          const c = readFileSync(real, 'utf8')
           return c.length > 24_000 ? `${c.slice(0, 24_000)}\n...[truncated]` : c
         } catch (e) {
           return `(error: ${(e as Error).message})`
@@ -119,9 +155,16 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
         if (isTestPath(p)) return 'REJECTED: editing test files is forbidden (the evaluation runs hidden tests).'
         const oldStr = String(args.old_string ?? '')
         const newStr = String(args.new_string ?? '')
+        let real: string | null
+        try {
+          real = resolveInJail(p)
+        } catch (e) {
+          return `(cannot read ${p}: ${(e as Error).message})`
+        }
+        if (!real) return `ERROR: path ${p} escapes the workspace`
         let content: string
         try {
-          content = readFileSync(join(ws.dir, p), 'utf8')
+          content = readFileSync(real, 'utf8')
         } catch (e) {
           return `(cannot read ${p}: ${(e as Error).message})`
         }
@@ -129,7 +172,7 @@ export async function createSweBenchEnvironment(poolN = 80): Promise<{
         const count = content.split(oldStr).length - 1
         if (count === 0) return `ERROR: old_string not found in ${p}. read_file it and copy EXACT text.`
         if (count > 1) return `ERROR: old_string appears ${count}× in ${p} — add surrounding context to make it unique.`
-        writeFileSync(join(ws.dir, p), content.replace(oldStr, newStr))
+        writeFileSync(real, content.replace(oldStr, newStr))
         return `edited ${p}: replaced 1 occurrence`
       }
       return `ERROR: unknown tool ${name}`

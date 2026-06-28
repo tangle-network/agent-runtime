@@ -1,0 +1,147 @@
+/**
+ * surface-worker — the GRADED-worker seam for the self-improving supervisor.
+ *
+ * `supervise()` spawns workers by resolving a profile through `makeWorkerAgent` to an `Agent` whose
+ * `executorSpec` carries a leaf `Executor`. This seam makes that worker actually WORK the
+ * `AgenticSurface` task: each spawned worker runs ONE `runAgentic({ surface, task, strategy: refine })`
+ * — the canonical depth tool loop over the surface — and settles with the surface's score as its
+ * verdict. So the driver can spawn/steer workers and read a real, surface-checked result, not a
+ * self-report.
+ *
+ * The paired `deliverable` is the completion oracle: settled ⟺ resolved. A worker that ran but
+ * didn't drive the artifact to its final checked state settles `valid:false`, so a keep-best driver
+ * never counts it as done (the Foreman 0/18 lesson — "done" means the check passed).
+ *
+ * v1 SIMPLIFICATION: the worker IGNORES the driver's brief — every spawn is a fresh `refine` attempt
+ * on the SAME task. The driver's intelligence in v1 is allocation (how many workers, when to stop),
+ * not per-worker instruction authoring; threading a per-worker brief into the surface tool loop is the
+ * next increment.
+ */
+
+import type {
+  Agent,
+  AgentProfile,
+  AgentSpec,
+  Executor,
+  ExecutorResult,
+  Spend,
+} from '@tangle-network/agent-runtime/loops'
+import {
+  type AgenticSurface,
+  type AgenticTask,
+  type DeliverableSpec,
+  type MakeWorkerAgent,
+  refine,
+  runAgentic,
+} from '@tangle-network/agent-runtime/loops'
+
+/** What the worker executor settles with — the surface verdict the driver + deliverable read.
+ *  `resolved` is the surface check's pass/fail (settled ⟺ resolved); `score` is the partial-credit
+ *  fraction; the rest is a short human summary for traces/reports. */
+export interface SurfaceWorkerOut {
+  readonly resolved: boolean
+  readonly score: number
+  readonly shots: number
+  readonly summary: string
+}
+
+export interface SurfaceWorkerOptions {
+  readonly surface: AgenticSurface
+  readonly task: AgenticTask
+  readonly worker: {
+    readonly routerBaseUrl: string
+    readonly routerKey: string
+    readonly model: string
+    readonly maxTokens?: number
+    readonly innerTurns?: number
+    /** refine shot budget for ONE worker attempt (max steered shots). Defaults to 1. */
+    readonly budget?: number
+  }
+}
+
+/** One spawned worker = one `runAgentic` refine attempt over the surface task. The result is cached on
+ *  first `execute` and read back by `resultArtifact()` (the replay source the scope journals). */
+function surfaceWorkerExecutor(opts: SurfaceWorkerOptions): Executor<SurfaceWorkerOut> {
+  const { surface, task, worker } = opts
+  let artifact: ExecutorResult<SurfaceWorkerOut> | undefined
+  return {
+    runtime: 'surface-worker',
+    // v1: the worker ignores the spawn `task` (the driver's brief) — each spawn is a fresh refine
+    // attempt on the SAME surface task. `runAgentic` already stamps real tokens/usd/ms from its
+    // conserved pool, so we forward those as the worker's Spend (no re-pricing here).
+    async execute(): Promise<ExecutorResult<SurfaceWorkerOut>> {
+      const r = await runAgentic({
+        surface,
+        task,
+        strategy: refine,
+        budget: worker.budget ?? 1,
+        routerBaseUrl: worker.routerBaseUrl,
+        routerKey: worker.routerKey,
+        model: worker.model,
+        ...(worker.maxTokens !== undefined ? { maxTokens: worker.maxTokens } : {}),
+        ...(worker.innerTurns !== undefined ? { innerTurns: worker.innerTurns } : {}),
+      })
+      const out: SurfaceWorkerOut = {
+        resolved: r.resolved,
+        score: r.score,
+        shots: r.shots,
+        summary: `refine ${r.shots} shot(s) → ${(100 * r.score).toFixed(0)}% (${
+          r.resolved ? 'resolved' : 'unresolved'
+        })`,
+      }
+      const spent: Spend = {
+        iterations: r.completions,
+        tokens: r.tokens,
+        usd: r.usd,
+        ms: r.ms,
+      }
+      artifact = {
+        outRef: `surface-worker:${task.id}:${r.shots}:${r.resolved ? 'ok' : 'no'}`,
+        out,
+        verdict: { valid: r.resolved, score: r.score },
+        spent,
+      }
+      return artifact
+    },
+    teardown: () => Promise.resolve({ destroyed: true }),
+    resultArtifact() {
+      if (!artifact) throw new Error('surfaceWorkerExecutor: resultArtifact before execute')
+      return artifact
+    },
+  }
+}
+
+/**
+ * Build the graded-worker seam: a `makeWorkerAgent` `supervise()` spawns through, and the matching
+ * `deliverable` (settled ⟺ resolved). Hand both to `supervise(profile, intent, { makeWorkerAgent,
+ * deliverable, budget })` — every spawned worker then works the surface task and settles with the
+ * surface-checked verdict.
+ */
+export function surfaceWorkerSeam(opts: SurfaceWorkerOptions): {
+  makeWorkerAgent: MakeWorkerAgent
+  deliverable: DeliverableSpec<unknown>
+} {
+  const makeWorkerAgent: MakeWorkerAgent = (rawProfile) => {
+    const p = (rawProfile ?? {}) as { name?: unknown }
+    const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'surface-worker'
+    // harness:null is unused — the BYO `executor` overrides harness resolution entirely (the scope
+    // resolves a BYO `spec.executor` first). `act` is never called for a spawned child.
+    const spec: AgentSpec = {
+      profile: rawProfile as AgentProfile,
+      harness: null,
+      executor: surfaceWorkerExecutor(opts) as Executor<unknown>,
+    }
+    return { name, act: async () => '', executorSpec: spec } as Agent<unknown, unknown> & {
+      executorSpec: AgentSpec
+    }
+  }
+
+  // The completion oracle: DELIVERED ⟺ the worker resolved the surface check. The driver's keep-best
+  // / stop decision rides on this `valid`, never on a worker self-report.
+  const deliverable: DeliverableSpec<unknown> = {
+    describe: `resolve the surface task ${opts.task.id} (every required check passes)`,
+    check: (out) => (out as SurfaceWorkerOut | undefined)?.resolved === true,
+  }
+
+  return { makeWorkerAgent, deliverable }
+}

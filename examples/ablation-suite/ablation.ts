@@ -7,10 +7,13 @@
  * just burns tokens. One-knob-delta design (baseline + each single knob flipped) keeps it O(N), not 2^N.
  *
  * STATUS — honest: the framework + the cost autopsy are real; knobs are wired incrementally. WIRED:
- * `topology` (single/fanout/fanout-refine = refine/sample/sampleThenRefine) + `budget`. The rest are
- * DECLARED knobs that FAIL LOUD if set (no silent no-op — you must not think GEPA ran when it didn't);
- * each is a tracked next-increment over a real substrate primitive (named in the throw). Validate the
- * framework on the cheap contamination-proof task, THEN point `environment`/`tasks` at SWE-bench.
+ * `topology` (single/fanout/fanout-refine = refine/sample/sampleThenRefine) + `budget`; `driverSteer`
+ * (the supervisor brain spawns + steers a graded worker, analyst up-leg on — via `selfImprovingSupervisor`)
+ * and `optimize:'gepa'` (GEPA-tune the driver's compose-prompt on a DISJOINT train slice, freeze, then
+ * drive — via `optimizeDriverPrompt`; implies `driverSteer`). STILL DECLARED + FAIL LOUD: `halo`,
+ * `persistentArtifact` (no silent no-op — each names its substrate primitive in the throw). Note: the
+ * driverSteer/optimize arms report real resolve + $ but NOT a per-token/latency breakdown (uncaptured,
+ * not a real zero). Validate on the cheap contamination-proof task, THEN point `environment`/`tasks` at SWE-bench.
  */
 import { pairedBootstrap } from '@tangle-network/agent-eval'
 import {
@@ -23,6 +26,14 @@ import {
   sampleThenRefine,
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
+import { optimizeDriverPrompt } from './gepa-driver-prompt'
+import { selfImprovingSupervisor } from './self-improving-supervisor'
+
+/** The baseline driver/steerer standing instruction — the compose-next-prompt the GEPA pass mutates
+ *  (its `baselinePrompt`) and the prompt the supervisor runs with when `optimize` is off. Kept terse:
+ *  GEPA earns the lift, this is only the floor. */
+const baselineDriverPrompt =
+  'You are a driver coordinating one worker on a coding task. Read the worker’s settled output and the analyst finding, then steer the next attempt: name the concrete next action, require the worker to verify the change took, and only stop once every required check passes.'
 
 export interface AblationKnobs {
   /** WIRED → strategy: single=`refine` (iterate one artifact), fanout=`sample` (N parallel, pick best),
@@ -55,16 +66,6 @@ const unwiredKnobs: Array<{
   isSet: (v: unknown) => boolean
   prim: string
 }> = [
-  {
-    k: 'driverSteer',
-    isSet: (v) => v === true,
-    prim: 'supervise(driverProfile,{backend,analyzeOnSettle}) — driver composes the steer from the analyst finding',
-  },
-  {
-    k: 'optimize',
-    isSet: (v) => !!v && v !== 'off',
-    prim: "selfImprove() w/ executable JudgeConfig optimizing the driver's compose-prompt on TRAIN, frozen",
-  },
   { k: 'halo', isSet: (v) => v === true, prim: 'HALO analyst option' },
   { k: 'persistentArtifact', isSet: (v) => v === true, prim: 'openSandboxRun resume' },
 ]
@@ -99,6 +100,16 @@ export async function runAblation(opts: {
     maxTokens?: number
     innerTurns?: number
   }
+  /** The DRIVER brain's own router substrate (used by the `driverSteer`/`optimize` arms). Defaults to
+   *  the worker's router + model. The supervisor's inference is separate compute from the worker's, so
+   *  it carries its own model knob. */
+  supervisor?: {
+    routerBaseUrl?: string
+    routerKey?: string
+    model?: string
+    /** Reflection model for the GEPA optimize pass (defaults to the supervisor/worker model). */
+    reflectionModel?: string
+  }
   onArm?: (r: ArmResult) => void
 }): Promise<ArmResult[]> {
   // ONE held-out set, shared across all arms — the fair-comparison invariant.
@@ -110,6 +121,13 @@ export async function runAblation(opts: {
       knobs: { ...opts.base, ...d.knob } as AblationKnobs,
     })),
   ]
+  // The driver brain's router substrate (the `driverSteer`/`optimize` arms) — defaults to the worker's
+  // router + model. The supervisor's inference is separate compute from the worker's.
+  const supervisorRouter = {
+    baseUrl: opts.supervisor?.routerBaseUrl ?? opts.worker.routerBaseUrl,
+    apiKey: opts.supervisor?.routerKey ?? opts.worker.routerKey,
+    model: opts.supervisor?.model ?? opts.worker.model,
+  }
   const results: ArmResult[] = []
   for (const arm of arms) {
     for (const u of unwiredKnobs) {
@@ -118,6 +136,31 @@ export async function runAblation(opts: {
           `ablation: knob '${u.k}'=${JSON.stringify(arm.knobs[u.k])} (arm "${arm.name}") is DECLARED but not yet wired — wire it over ${u.prim} before claiming it ran. (No silent no-op.)`,
         )
     }
+    // `optimize` implies `driverSteer`: a tuned compose-prompt only has effect through the driver loop.
+    const driverSteer = arm.knobs.driverSteer === true || arm.knobs.optimize === 'gepa'
+
+    // The `optimize:'gepa'` knob: BEFORE the held-out arm runs, GEPA-tune the driver's compose-prompt on
+    // a DISJOINT train slice (offset past the held-out window so train ∩ holdout = ∅), freeze the winner,
+    // and use it for this arm's driverSteer runs. Off → the baseline standing prompt drives the loop.
+    let driverPrompt = baselineDriverPrompt
+    if (arm.knobs.optimize === 'gepa') {
+      const opt = await optimizeDriverPrompt({
+        surface: opts.environment,
+        tasks: opts.tasks,
+        trainOffset: opts.holdoutOffset + opts.holdoutN,
+        trainN: opts.holdoutN,
+        baselinePrompt: baselineDriverPrompt,
+        worker: opts.worker,
+        ...(opts.supervisor?.reflectionModel !== undefined
+          ? { reflectionModel: opts.supervisor.reflectionModel }
+          : {}),
+      })
+      driverPrompt = opt.systemPrompt
+      console.log(
+        `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (train lift ${(100 * opt.lift).toFixed(0)}pp)`,
+      )
+    }
+
     let resolved = 0
     let ti = 0
     let to = 0
@@ -127,25 +170,66 @@ export async function runAblation(opts: {
     let comps = 0
     const perTask: number[] = []
     for (const t of tasks) {
-      const r = await runAgentic({
-        surface: opts.environment,
-        task: t,
-        strategy: topologyStrategy[arm.knobs.topology],
-        budget: arm.knobs.budget,
-        routerBaseUrl: opts.worker.routerBaseUrl,
-        routerKey: opts.worker.routerKey,
-        model: opts.worker.model,
-        ...(opts.worker.maxTokens !== undefined ? { maxTokens: opts.worker.maxTokens } : {}),
-        ...(opts.worker.innerTurns !== undefined ? { innerTurns: opts.worker.innerTurns } : {}),
-      })
-      if (r.resolved) resolved++
-      perTask.push(r.resolved ? 1 : 0)
-      ti += r.tokens.input
-      to += r.tokens.output
-      usd += r.usd
-      ms += r.ms
-      shots += r.shots
-      comps += r.completions
+      try {
+        if (driverSteer) {
+          // The driver-steered path: the supervisor brain spawns + steers a graded worker on a conserved
+          // pool, with the analyst up-leg on. `selfImprovingSupervisor` reports the deployable outcome +
+          // its real conserved spend ($), but NOT a per-token/latency breakdown — so the token/latency
+          // columns are UNCAPTURED (left 0, not a real zero) for this arm; resolve and $ are real.
+          const sup = await selfImprovingSupervisor({
+            surface: opts.environment,
+            task: t,
+            driverPrompt,
+            worker: {
+              routerBaseUrl: opts.worker.routerBaseUrl,
+              routerKey: opts.worker.routerKey,
+              model: opts.worker.model,
+              ...(opts.worker.maxTokens !== undefined ? { maxTokens: opts.worker.maxTokens } : {}),
+              ...(opts.worker.innerTurns !== undefined
+                ? { innerTurns: opts.worker.innerTurns }
+                : {}),
+              budget: arm.knobs.budget,
+            },
+            budget: {
+              maxIterations: arm.knobs.budget,
+              maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(1, arm.knobs.budget),
+            },
+            analyze: true,
+            router: supervisorRouter,
+          })
+          if (sup.resolved) resolved++
+          perTask.push(sup.resolved ? 1 : 0)
+          usd += sup.usd
+        } else {
+          const r = await runAgentic({
+            surface: opts.environment,
+            task: t,
+            strategy: topologyStrategy[arm.knobs.topology],
+            budget: arm.knobs.budget,
+            routerBaseUrl: opts.worker.routerBaseUrl,
+            routerKey: opts.worker.routerKey,
+            model: opts.worker.model,
+            ...(opts.worker.maxTokens !== undefined ? { maxTokens: opts.worker.maxTokens } : {}),
+            ...(opts.worker.innerTurns !== undefined ? { innerTurns: opts.worker.innerTurns } : {}),
+          })
+          if (r.resolved) resolved++
+          perTask.push(r.resolved ? 1 : 0)
+          ti += r.tokens.input
+          to += r.tokens.output
+          usd += r.usd
+          ms += r.ms
+          shots += r.shots
+          comps += r.completions
+        }
+      } catch (e) {
+        // One task throw (network/quota/etc.) must not lose the whole arm's accumulated data:
+        // count it as unresolved and keep going so the arm returns partial results. Warn loud.
+        const msg = e instanceof Error ? e.message : String(e)
+        console.warn(
+          `ablation: arm "${arm.name}" task "${t.id}" failed (counted unresolved): ${msg}`,
+        )
+        perTask.push(0)
+      }
     }
     const n = tasks.length
     const res: ArmResult = {
@@ -217,19 +301,29 @@ async function main(): Promise<void> {
     maxTokens: 4000,
     innerTurns: Number(process.env.INNER_TURNS ?? 6),
   }
-  console.log(`═══ ABLATION (cheap contamination-proof task) — worker=${worker.model} ═══`)
+  const supervisor = {
+    model: process.env.SUPERVISOR_MODEL ?? worker.model,
+    reflectionModel: process.env.REFLECTION_MODEL ?? 'gemini-2.5-pro',
+  }
+  console.log(
+    `═══ ABLATION (cheap contamination-proof task) — worker=${worker.model} driver=${supervisor.model} ═══`,
+  )
   const results = await runAblation({
     environment: codingEnv,
     tasks: codingTasks,
     holdoutOffset: 100, // a fixed disjoint held-out slice
     holdoutN: Number(process.env.HOLDOUT_N ?? 6),
     base: { topology: 'single', budget: Number(process.env.BUDGET ?? 2) },
-    // one-knob-delta: flip ONLY topology (the wired knob) vs baseline.
+    // one-knob-delta: flip ONLY one knob vs baseline. topology is the cheap free arm; driverSteer adds
+    // the driver brain; optimize tunes that brain's compose-prompt on a disjoint train slice first.
     deltas: [
       { name: 'fanout', knob: { topology: 'fanout' } },
       { name: 'fanout-refine', knob: { topology: 'fanout-refine' } },
+      { name: 'driver-steer', knob: { driverSteer: true } },
+      { name: 'driver-gepa', knob: { optimize: 'gepa' } },
     ],
     worker,
+    supervisor,
     onArm: (r) =>
       console.log(
         `  ${r.name}: ${(100 * r.resolve).toFixed(0)}% resolve, $${r.costUsd.toFixed(4)}, ${(r.latencyMs / 1000).toFixed(0)}s`,
