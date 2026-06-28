@@ -173,6 +173,13 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       'driverAgent: extraTools requires executeExtraTool (how to run a work-tool call)',
     )
   }
+  // Fail loud on a half-wired analyst seam (matches the extraTools pattern): analyze-on-settle with no
+  // lens registry is a silent no-op the house rules forbid — the driver would get no findings, no error.
+  if ((opts.analyzeOnSettle?.length ?? 0) > 0 && !opts.analysts) {
+    throw new ValidationError(
+      'driverAgent: analyzeOnSettle requires analysts (the lens registry the kinds resolve against)',
+    )
+  }
   // A work tool that shadows a coordination verb would leave the driver unable to coordinate.
   // Validate against the reserved verb set HERE (construction), so the conflict fails loud — not
   // buried inside act() where the supervisor would swallow the throw into a quiet no-winner.

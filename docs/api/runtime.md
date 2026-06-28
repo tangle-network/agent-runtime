@@ -412,6 +412,40 @@ The last artifact read error, if the abort fired during the retry loop.
 
 ## Interfaces
 
+### AnalystRegistry
+
+Defined in: [mcp/tools/coordination.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L62)
+
+#### Properties
+
+##### kinds
+
+> `readonly` **kinds**: readonly `object`[]
+
+Defined in: [mcp/tools/coordination.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L63)
+
+##### run
+
+> `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
+
+Defined in: [mcp/tools/coordination.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L64)
+
+###### Parameters
+
+###### kindId
+
+`string`
+
+###### trace
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### WorktreeCommandResult
 
 Defined in: [mcp/worktree-harness.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L39)
@@ -7231,7 +7265,7 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ### DriverAgentOptions
 
-Defined in: [runtime/supervise/coordination-driver.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L45)
+Defined in: [runtime/supervise/coordination-driver.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L46)
 
 #### Properties
 
@@ -7239,13 +7273,13 @@ Defined in: [runtime/supervise/coordination-driver.ts:45](https://github.com/tan
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/supervise/coordination-driver.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L46)
+Defined in: [runtime/supervise/coordination-driver.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L47)
 
 ##### brain
 
 > `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
 
-Defined in: [runtime/supervise/coordination-driver.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L50)
+Defined in: [runtime/supervise/coordination-driver.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L51)
 
 The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -7255,15 +7289,15 @@ The driver-LLM seam — ONE inference turn over the conversation + the coordinat
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/coordination-driver.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L52)
+Defined in: [runtime/supervise/coordination-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L53)
 
 Shared blob store — `observe_agent` reads settled outputs through it.
 
 ##### makeWorkerAgent
 
-> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
-Defined in: [runtime/supervise/coordination-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L54)
+Defined in: [runtime/supervise/coordination-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L55)
 
 Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
 
@@ -7271,7 +7305,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 > `readonly` **perWorker**: [`Budget`](#budget-10)
 
-Defined in: [runtime/supervise/coordination-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L56)
+Defined in: [runtime/supervise/coordination-driver.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L57)
 
 Per-child budget reserved from the conserved pool on each spawn.
 
@@ -7279,16 +7313,35 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L59)
+Defined in: [runtime/supervise/coordination-driver.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L60)
 
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+
+Defined in: [runtime/supervise/coordination-driver.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L63)
+
+The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
+ Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
+
+##### analyzeOnSettle?
+
+> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+
+Defined in: [runtime/supervise/coordination-driver.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L67)
+
+Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
+ `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
+ loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`.
 
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
 
-Defined in: [runtime/supervise/coordination-driver.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L62)
+Defined in: [runtime/supervise/coordination-driver.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L70)
 
 The driver's stance — a string, or built from the task (the worker-driver prompt /
  the generator). INJECTED so the prompt is a pluggable, optimizable role.
@@ -7297,7 +7350,7 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
 
-Defined in: [runtime/supervise/coordination-driver.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L67)
+Defined in: [runtime/supervise/coordination-driver.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L75)
 
 WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
@@ -7308,7 +7361,7 @@ WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — s
 
 > `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L74)
+Defined in: [runtime/supervise/coordination-driver.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L82)
 
 Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
  so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
@@ -7331,7 +7384,7 @@ Runs an `extraTools` call. Returns a string result, or null/undefined to signal 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L82)
+Defined in: [runtime/supervise/coordination-driver.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L90)
 
 Max driver turns before the loop force-finalizes on the best settled child. Default 16.
  `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
@@ -7342,7 +7395,7 @@ Max driver turns before the loop force-finalizes on the best settled child. Defa
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/coordination-driver.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L85)
+Defined in: [runtime/supervise/coordination-driver.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L93)
 
 Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
  deterministic in tests. Defaults to `Date.now`.
@@ -7355,7 +7408,7 @@ Injected clock for the in-loop absolute-deadline guard — keeps the deadline ch
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/coordination-driver.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L94)
+Defined in: [runtime/supervise/coordination-driver.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L102)
 
 Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
  lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
@@ -8221,7 +8274,7 @@ The completion oracle for backend-derived workers (settled ⟺ delivered). Stron
 
 ##### makeWorkerAgent?
 
-> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
 
 Defined in: [runtime/supervise/supervise.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L56)
 
@@ -8301,11 +8354,31 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
  sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence).
 
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+
+Defined in: [runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
+
+Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
+ (the driver receives settled worker outputs, no analyst findings).
+
+##### analyzeOnSettle?
+
+> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+
+Defined in: [runtime/supervise/supervise.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L89)
+
+Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
+ the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+ threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
+ Omit/empty = status quo (no analyst feed). Requires `analysts`.
+
 ##### blobs?
 
 > `readonly` `optional` **blobs?**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/supervise.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L83)
+Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
 
 Worker output store. Defaults to in-memory.
 
@@ -8313,19 +8386,19 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **maxDepth?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L84)
+Defined in: [runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
 
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervise.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L85)
+Defined in: [runtime/supervise/supervise.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L93)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/supervise.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L91)
+Defined in: [runtime/supervise/supervise.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L99)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
@@ -8337,13 +8410,13 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 > `readonly` `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/supervise.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L92)
+Defined in: [runtime/supervise/supervise.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L100)
 
 ##### now?
 
 > `readonly` `optional` **now?**: () => `number`
 
-Defined in: [runtime/supervise/supervise.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L93)
+Defined in: [runtime/supervise/supervise.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L101)
 
 ###### Returns
 
@@ -8353,7 +8426,7 @@ Defined in: [runtime/supervise/supervise.ts:93](https://github.com/tangle-networ
 
 > `readonly` `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [runtime/supervise/supervise.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L97)
+Defined in: [runtime/supervise/supervise.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L105)
 
 Restrict the run to this subset of models. When set, every configured model — the
  supervisor router model, the profile's model, and the backend's model — must be a member,
@@ -8416,7 +8489,7 @@ Defined in: [runtime/supervise/supervisor-agent.ts:70](https://github.com/tangle
 
 ##### makeWorkerAgent
 
-> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L72)
 
@@ -8495,17 +8568,34 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 `Promise`\<`string` \| `null` \| `undefined`\>
 
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry)
+
+Defined in: [runtime/supervise/supervisor-agent.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L98)
+
+Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`.
+
+##### analyzeOnSettle?
+
+> `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
+
+Defined in: [runtime/supervise/supervisor-agent.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L101)
+
+Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
+ (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`.
+
 ##### maxTurns?
 
 > `readonly` `optional` **maxTurns?**: `number`
 
-Defined in: [runtime/supervise/supervisor-agent.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L97)
+Defined in: [runtime/supervise/supervisor-agent.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L102)
 
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Defined in: [runtime/supervise/supervisor-agent.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L101)
+Defined in: [runtime/supervise/supervisor-agent.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L106)
 
 Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
  distills its coordination transcript to a compact progress note once it exceeds the threshold,
@@ -12109,6 +12199,24 @@ Every message on the one typed pipe. UP (child→parent): question / settled / f
 
 ***
 
+### MakeWorkerAgent
+
+> **MakeWorkerAgent** = (`profile`) => [`Agent`](#agent)\<`unknown`, `unknown`\>
+
+Defined in: [mcp/tools/coordination.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L92)
+
+#### Parameters
+
+##### profile
+
+`unknown`
+
+#### Returns
+
+[`Agent`](#agent)\<`unknown`, `unknown`\>
+
+***
+
 ### InProcessOnPrompt
 
 > **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
@@ -15394,7 +15502,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 > **driverAgent**(`opts`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L157)
+Defined in: [runtime/supervise/coordination-driver.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L165)
 
 Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
 `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -15415,7 +15523,7 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
 
-Defined in: [runtime/supervise/coordination-driver.ts:356](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L356)
+Defined in: [runtime/supervise/coordination-driver.ts:373](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L373)
 
 Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's
  output (settled `done` AND `valid` — its deliverable check passed). Returns undefined when no
@@ -15463,7 +15571,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### makeWorkerAgent
 
-[`MakeWorkerAgent`](mcp.md#makeworkeragent)
+[`MakeWorkerAgent`](#makeworkeragent)
 
 ###### perWorker
 
@@ -15486,7 +15594,7 @@ Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this
 
 ###### analysts?
 
-[`AnalystRegistry`](mcp.md#analystregistry)
+[`AnalystRegistry`](#analystregistry)
 
 Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle.
 
@@ -15806,7 +15914,7 @@ Fail loud on a `down` settlement: only a `done` child is an iteration.
 
 ### workerFromBackend()
 
-> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](mcp.md#makeworkeragent)
+> **workerFromBackend**(`backend`, `deliverable?`): [`MakeWorkerAgent`](#makeworkeragent)
 
 Defined in: [runtime/supervise/supervise.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L26)
 
@@ -15826,7 +15934,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 #### Returns
 
-[`MakeWorkerAgent`](mcp.md#makeworkeragent)
+[`MakeWorkerAgent`](#makeworkeragent)
 
 ***
 
@@ -15834,7 +15942,7 @@ Build the worker seam from a backend (WHERE workers run) + an optional completio
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](#supervisedresult)\<`unknown`\>\>
 
-Defined in: [runtime/supervise/supervise.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L108)
+Defined in: [runtime/supervise/supervise.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L116)
 
 #### Parameters
 
@@ -15860,7 +15968,7 @@ Defined in: [runtime/supervise/supervise.ts:108](https://github.com/tangle-netwo
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent)\<`unknown`, `unknown`\>
 
-Defined in: [runtime/supervise/supervisor-agent.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L104)
+Defined in: [runtime/supervise/supervisor-agent.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L109)
 
 #### Parameters
 

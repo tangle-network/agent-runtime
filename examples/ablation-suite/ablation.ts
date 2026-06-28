@@ -143,6 +143,7 @@ export async function runAblation(opts: {
     // a DISJOINT train slice (offset past the held-out window so train ∩ holdout = ∅), freeze the winner,
     // and use it for this arm's driverSteer runs. Off → the baseline standing prompt drives the loop.
     let driverPrompt = baselineDriverPrompt
+    let gepaUsd = 0
     if (arm.knobs.optimize === 'gepa') {
       const opt = await optimizeDriverPrompt({
         surface: opts.environment,
@@ -156,6 +157,7 @@ export async function runAblation(opts: {
           : {}),
       })
       driverPrompt = opt.systemPrompt
+      gepaUsd = opt.usd // the TRAIN-side GEPA cost, counted into this arm's $ (the fair-cost invariant)
       console.log(
         `ablation: arm "${arm.name}" GEPA driver-prompt ${opt.shipped ? 'SHIPPED' : 'kept-baseline'} (train lift ${(100 * opt.lift).toFixed(0)}pp)`,
       )
@@ -164,7 +166,7 @@ export async function runAblation(opts: {
     let resolved = 0
     let ti = 0
     let to = 0
-    let usd = 0
+    let usd = gepaUsd // seed with the TRAIN-side GEPA optimization cost so the arm's $ is honest
     let ms = 0
     let shots = 0
     let comps = 0
@@ -174,8 +176,8 @@ export async function runAblation(opts: {
         if (driverSteer) {
           // The driver-steered path: the supervisor brain spawns + steers a graded worker on a conserved
           // pool, with the analyst up-leg on. `selfImprovingSupervisor` reports the deployable outcome +
-          // its real conserved spend ($), but NOT a per-token/latency breakdown — so the token/latency
-          // columns are UNCAPTURED (left 0, not a real zero) for this arm; resolve and $ are real.
+          // the FULL conserved spend (driver inference + all worker work: $, tokens, latency). `shots`
+          // stays 0 — a multi-worker supervised run has no single refine-shot count (N/A, not a real zero).
           const sup = await selfImprovingSupervisor({
             surface: opts.environment,
             task: t,
@@ -191,8 +193,11 @@ export async function runAblation(opts: {
               budget: arm.knobs.budget,
             },
             budget: {
-              maxIterations: arm.knobs.budget,
-              maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(1, arm.knobs.budget),
+              // Pool for the driver's turns PLUS several worker spawns (each reserves ~innerTurns+2
+              // iterations) so the analyst up-leg can drive a spawn-refine loop, not stall after one
+              // worker. The autopsy measures the real cost; this is intentionally not equal-k.
+              maxIterations: arm.knobs.budget * ((opts.worker.innerTurns ?? 6) + 2) + 16,
+              maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
             },
             analyze: true,
             router: supervisorRouter,
@@ -200,6 +205,9 @@ export async function runAblation(opts: {
           if (sup.resolved) resolved++
           perTask.push(sup.resolved ? 1 : 0)
           usd += sup.usd
+          ti += sup.tokensIn
+          to += sup.tokensOut
+          ms += sup.ms
         } else {
           const r = await runAgentic({
             surface: opts.environment,

@@ -17,7 +17,7 @@ import {
   type SupervisorProfile,
   supervise,
 } from '@tangle-network/agent-runtime/loops'
-import { surfaceWorkerSeam, type SurfaceWorkerOut } from './surface-worker'
+import { type SurfaceWorkerOut, surfaceWorkerSeam } from './surface-worker'
 
 export interface SelfImprovingSupervisorOptions {
   /** The agentic surface the worker acts on (grading + task generation live here). */
@@ -56,18 +56,30 @@ function progressAnalyst() {
         area: 'progress',
       },
     ],
-    run: async (_kindId: string, trace: unknown) => ({
-      summary: `worker produced: ${String(trace).slice(0, 400)}`,
-    }),
+    run: async (_kindId: string, trace: unknown) => {
+      // `trace` is the worker's settled blob — a SurfaceWorkerOut object. `String(obj)` yields the
+      // useless literal '[object Object]', so read the real fields into the driver's next-steer context.
+      const w = (trace ?? {}) as Partial<SurfaceWorkerOut>
+      const summary =
+        typeof w === 'object' && w !== null && 'resolved' in w
+          ? `worker ${w.resolved ? 'RESOLVED' : 'did NOT resolve'} — score ${(100 * (w.score ?? 0)).toFixed(0)}%, ${w.shots ?? '?'} shot(s)${w.summary ? `: ${w.summary}` : ''}`
+          : `worker produced: ${JSON.stringify(trace).slice(0, 400)}`
+      return { summary }
+    },
   }
 }
 
 /** Run the driver-steered supervisor over one graded task and report the deployable outcome:
  *  `resolved` (a winner delivered), `score` ([0,1] from the completion verdict), and `usd` (the real
  *  conserved spend — paid even on a no-winner). */
-export async function selfImprovingSupervisor(
-  opts: SelfImprovingSupervisorOptions,
-): Promise<{ resolved: boolean; score: number; usd: number }> {
+export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptions): Promise<{
+  resolved: boolean
+  score: number
+  usd: number
+  tokensIn: number
+  tokensOut: number
+  ms: number
+}> {
   const seam = surfaceWorkerSeam({
     surface: opts.surface,
     task: opts.task,
@@ -76,10 +88,17 @@ export async function selfImprovingSupervisor(
 
   const profile: SupervisorProfile = { name: 'driver', systemPrompt: opts.driverPrompt }
 
+  // Size the per-worker reservation so MULTIPLE workers fit the conserved pool. The default reserves
+  // the WHOLE iteration pool per worker (supervise.defaultPerWorker forwards budget.maxIterations
+  // unchanged), so only one worker ever spawns — which would defeat the spawn-a-refined-worker steering
+  // the analyst up-leg exists to drive. A small per-worker iteration slice lets the driver re-spawn.
+  const perWorkerIters = (opts.worker.innerTurns ?? 6) + 2
+
   const result = await supervise(profile, opts.task, {
     makeWorkerAgent: seam.makeWorkerAgent,
     deliverable: seam.deliverable,
     budget: opts.budget,
+    perWorker: { maxIterations: perWorkerIters, maxTokens: opts.worker.maxTokens ?? 4000 },
     router: {
       routerBaseUrl: opts.router.baseUrl,
       routerKey: opts.router.apiKey,
@@ -95,5 +114,15 @@ export async function selfImprovingSupervisor(
   const out = result.kind === 'winner' ? (result.out as SurfaceWorkerOut | undefined) : undefined
   const resolved = out?.resolved ?? false
   const score = out?.score ?? 0
-  return { resolved, score, usd: result.spentTotal.usd }
+  // Report the FULL conserved spend (driver inference + all worker work) so the cost-aware ablation has
+  // real token + latency columns for this arm, not fake zeros.
+  const sp = result.spentTotal
+  return {
+    resolved,
+    score,
+    usd: sp.usd,
+    tokensIn: sp.tokens.input,
+    tokensOut: sp.tokens.output,
+    ms: sp.ms,
+  }
 }

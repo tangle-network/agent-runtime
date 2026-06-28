@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 381 exports.
+Import from `@tangle-network/agent-runtime/loops` — 383 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -487,6 +487,7 @@ Import from `@tangle-network/agent-runtime/loops` — 381 exports.
 | `AgentTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
+| `AnalystRegistry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnytimeReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnytimeStrategySummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnytimeTaskCurve` | interface | anytimeReport — time-to-satisfactory-output metrics, derived entirely from the |
@@ -702,6 +703,7 @@ Import from `@tangle-network/agent-runtime/loops` — 381 exports.
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopTraceEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
+| `MakeWorkerAgent` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `MountRecorder` | type | Records a mounted resource into the run's provenance manifest. Passed to |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |

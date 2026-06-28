@@ -70,7 +70,7 @@ export async function optimizeDriverPrompt(opts: {
     innerTurns?: number
   }
   reflectionModel?: string
-}): Promise<{ systemPrompt: string; lift: number; shipped: boolean }> {
+}): Promise<{ systemPrompt: string; lift: number; shipped: boolean; usd: number }> {
   const { surface, worker } = opts
 
   // TRAIN scenarios — the disjoint training slice. `selfImprove` splits a held-out fraction off these
@@ -160,5 +160,8 @@ export async function optimizeDriverPrompt(opts: {
     systemPrompt,
     lift: result.lift,
     shipped: result.gateDecision === 'ship',
+    // The TRAIN-side optimization cost (baseline + every generation) — counted into the arm's $ so the
+    // cost-aware ablation never hides the price of GEPA behind the held-out run alone.
+    usd: result.totalCostUsd,
   }
 }
