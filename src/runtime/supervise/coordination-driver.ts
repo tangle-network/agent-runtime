@@ -28,6 +28,7 @@
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
+  type AnalystRegistry,
   coordinationVerbNames,
   createCoordinationTools,
   type MakeWorkerAgent,
@@ -57,6 +58,13 @@ export interface DriverAgentOptions {
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
+  /** The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
+   *  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings). */
+  readonly analysts?: AnalystRegistry
+  /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
+   *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
+   *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
+  readonly analyzeOnSettle?: ReadonlyArray<string>
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -199,6 +207,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         makeWorkerAgent: opts.makeWorkerAgent,
         perWorker: opts.perWorker,
         ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+        ...(opts.analysts ? { analysts: opts.analysts } : {}),
+        ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
       })
       const byName = new Map<string, McpToolDescriptor>(coord.tools.map((t) => [t.name, t]))
       const toolSpecs: ToolSpec[] = [

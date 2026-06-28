@@ -14,7 +14,7 @@
  * oracle (`finalizeBestDelivered` — the best DELIVERED child, never the driver's own prose).
  */
 import { ValidationError } from '../../errors'
-import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type { AnalystRegistry, MakeWorkerAgent } from '../../mcp/tools/coordination'
 import { type RouterConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { driverAgent, finalizeBestDelivered } from './coordination-driver'
@@ -94,6 +94,11 @@ export interface SupervisorAgentDeps {
     name: string,
     args: Record<string, unknown>,
   ) => Promise<string | null | undefined>
+  /** Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`. */
+  readonly analysts?: AnalystRegistry
+  /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
+   *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
+  readonly analyzeOnSettle?: ReadonlyArray<string>
   readonly maxTurns?: number
   /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
    *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
@@ -129,6 +134,8 @@ export function supervisorAgent(
       ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
       ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
       ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
+      ...(deps.analysts ? { analysts: deps.analysts } : {}),
+      ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
       ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
       ...(deps.compaction ? { compaction: deps.compaction } : {}),
     })
@@ -150,6 +157,8 @@ export function supervisorAgent(
         makeWorkerAgent: deps.makeWorkerAgent,
         perWorker: deps.perWorker,
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
+        ...(deps.analysts ? { analysts: deps.analysts } : {}),
+        ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
       })
       try {
         await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })

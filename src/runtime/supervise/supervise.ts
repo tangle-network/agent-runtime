@@ -9,7 +9,7 @@
  */
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
-import type { MakeWorkerAgent } from '../../mcp/tools/coordination'
+import type { AnalystRegistry, MakeWorkerAgent } from '../../mcp/tools/coordination'
 import type { RouterConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -79,6 +79,14 @@ export interface SuperviseOptions {
    *  flight. The conserved pool bounds TOTAL work; this bounds SIMULTANEOUS work (live boxes/
    *  sandboxes a real fleet runs at once). Omit/`<= 0` = no cap (the pool stays the only fence). */
   readonly maxLiveWorkers?: number
+  /** Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
+   *  (the driver receives settled worker outputs, no analyst findings). */
+  readonly analysts?: AnalystRegistry
+  /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each re-enters as a `finding`
+   *  the driver pulls (`await_event`) and composes its next steer from. The self-improving UP-leg,
+   *  threaded to the driver at this level (propagate to sub-drivers via a recursive `makeWorkerAgent`).
+   *  Omit/empty = status quo (no analyst feed). Requires `analysts`. */
+  readonly analyzeOnSettle?: ReadonlyArray<string>
   /** Worker output store. Defaults to in-memory. */
   readonly blobs?: ResultBlobStore
   readonly maxDepth?: number
@@ -140,6 +148,8 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     ...(opts.driveHarness ? { driveHarness: opts.driveHarness } : {}),
     ...(opts.extraTools ? { extraTools: opts.extraTools } : {}),
     ...(opts.executeExtraTool ? { executeExtraTool: opts.executeExtraTool } : {}),
+    ...(opts.analysts ? { analysts: opts.analysts } : {}),
+    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     ...(opts.compaction ? { compaction: opts.compaction } : {}),
   })
