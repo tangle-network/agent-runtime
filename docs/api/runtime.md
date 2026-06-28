@@ -8140,7 +8140,7 @@ Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-netw
 
 ### ProviderSeam
 
-Defined in: [runtime/supervise/runtime.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L154)
+Defined in: [runtime/supervise/runtime.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L193)
 
 Generic environment provider executor config. External packages implement
  `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
@@ -8230,13 +8230,13 @@ Defined in: [runtime/environment-provider.ts:273](https://github.com/tangle-netw
 
 > **provider**: `string` \| `AgentEnvironmentProvider`
 
-Defined in: [runtime/supervise/runtime.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L155)
+Defined in: [runtime/supervise/runtime.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L194)
 
 ##### registry?
 
 > `optional` **registry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
 
-Defined in: [runtime/supervise/runtime.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L156)
+Defined in: [runtime/supervise/runtime.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L195)
 
 ***
 
@@ -9643,11 +9643,21 @@ Defined in: [runtime/supervise/worktree-cli-executor.ts:69](https://github.com/t
 
 Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 min.
 
+##### checkOutputCap?
+
+> `optional` **checkOutputCap?**: `number`
+
+Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
+
+**`Experimental`**
+
+Cap on each check's captured output. Default 16k.
+
 ##### runGit?
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L73)
 
 **`Experimental`**
 
@@ -9657,7 +9667,7 @@ Test seam — inject a git runner so unit tests drive the worktree helpers witho
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L73)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L75)
 
 **`Experimental`**
 
@@ -9695,7 +9705,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L76)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L78)
 
 **`Experimental`**
 
@@ -9706,7 +9716,7 @@ Test seam — inject the verification-command runner so unit tests script test/t
 
 > `optional` **budgetExempt?**: `boolean`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L83)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L85)
 
 **`Experimental`**
 
@@ -12900,7 +12910,7 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **ExecutorConfig** = `object` & `RouterSeam` \| `object` & `RouterToolsSeam` \| `object` & `BridgeSeam` \| `object` & `CliSeam` \| `object` & `CliWorktreeSeam` \| `object` & [`ProviderSeam`](#providerseam) \| `object` & `SandboxSeam`
 
-Defined in: [runtime/supervise/runtime.ts:1154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1154)
+Defined in: [runtime/supervise/runtime.ts:1396](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1396)
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
@@ -13337,7 +13347,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 > `const` **cliWorktreeExecutor**: `ExecutorFactory`\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1129)
+Defined in: [runtime/supervise/runtime.ts:1360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1360)
 
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
@@ -15811,7 +15821,7 @@ state between runs), so two runs never cross-contaminate their journals/blobs.
 
 > **createExecutor**(`config`): `ExecutorFactory`\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1171)
+Defined in: [runtime/supervise/runtime.ts:1413](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1413)
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
@@ -15836,7 +15846,7 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 > **createExecutorRegistry**(): `ExecutorRegistry`
 
-Defined in: [runtime/supervise/runtime.ts:1217](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1217)
+Defined in: [runtime/supervise/runtime.ts:1459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1459)
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
@@ -16154,7 +16164,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 > **createWorktreeCliExecutor**(`options`): [`Executor`](#executor)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L95)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L97)
 
 **`Experimental`**
 
