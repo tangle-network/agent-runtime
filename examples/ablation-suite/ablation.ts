@@ -32,8 +32,23 @@ import { selfImprovingSupervisor } from './self-improving-supervisor'
 /** The baseline driver/steerer standing instruction — the compose-next-prompt the GEPA pass mutates
  *  (its `baselinePrompt`) and the prompt the supervisor runs with when `optimize` is off. Kept terse:
  *  GEPA earns the lift, this is only the floor. */
-const baselineDriverPrompt =
-  'You are a driver coordinating one worker on a coding task. Read the worker’s settled output and the analyst finding, then steer the next attempt: name the concrete next action, require the worker to verify the change took, and only stop once every required check passes.'
+const baselineDriverPrompt = [
+  'You coordinate workers fixing ONE real bug. Your leverage over a single agent is making each attempt',
+  'DIFFERENT and TARGETED, so the search covers ground that repeating one approach never will.',
+  '',
+  'Spawn ONE worker at a time, each with a SPECIFIC strategy in its brief, then await its settle and read',
+  'the analyst finding. If it did NOT resolve, spawn the next worker with a DISTINCT strategy you have not',
+  'tried — vary the HYPOTHESIS about where the bug is and how to fix it:',
+  '- attempt 1: fix the most direct location the issue implies.',
+  '- attempt 2: the root cause is likely UPSTREAM (a helper, base class, shared util) — look broader than',
+  '  the obvious file.',
+  '- attempt 3: the code is almost right but mishandles an EDGE CASE (empty/None/nested/boundary) — find',
+  '  and fix that specific case.',
+  '- later attempts: target a different module entirely, or combine what prior briefs implied.',
+  '',
+  'Every brief must be concrete and DISTINCT from prior ones — never "try again". Stop the instant a worker',
+  'delivers (analyst reports resolved). Do not solve the bug yourself; propose diverse, targeted attempts.',
+].join('\n')
 
 export interface AblationKnobs {
   /** WIRED → strategy: single=`refine` (iterate one artifact), fanout=`sample` (N parallel, pick best),
@@ -151,7 +166,10 @@ export async function runAblation(opts: {
         trainOffset: opts.holdoutOffset + opts.holdoutN,
         trainN: opts.holdoutN,
         baselinePrompt: baselineDriverPrompt,
-        worker: opts.worker,
+        // Match the DEPLOYMENT regime: the same per-worker refine budget AND the same supervisor brain
+        // the held-out arm runs with — else the prompt is tuned against a different model/compute.
+        worker: { ...opts.worker, budget: arm.knobs.budget },
+        supervisorRouter,
         ...(opts.supervisor?.reflectionModel !== undefined
           ? { reflectionModel: opts.supervisor.reflectionModel }
           : {}),

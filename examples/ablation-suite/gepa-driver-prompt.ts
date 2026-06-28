@@ -1,23 +1,19 @@
 /**
- * gepa-driver-prompt — GEPA-optimize the driver's compose-next-prompt on TRAIN, executable-graded,
- * frozen, held-out-certified, and return the winner.
+ * gepa-driver-prompt — GEPA-optimize the REAL supervisor driver prompt (the proposer) on TRAIN,
+ * executable-graded by the ACTUAL supervised resolve, frozen, held-out-certified, and return the winner.
  *
  * This is the `optimize: 'gepa'` knob from the ablation board (ablation.ts), wired over the real
  * substrate: agent-eval's `selfImprove` (the held-out-gated closed loop) driven by `gepaProposer`
- * (the reflective prompt mutator). It is NOT `improve()` — `improve()` writes the winner back into an
- * `AgentProfile` field, but the steerer prompt (what the driver composes the next round's instruction
- * from) is not a profile field. So we call `selfImprove` directly with the steerer string as the
- * `baselineSurface` the proposer mutates.
+ * (the reflective prompt mutator). The surface under improvement is the driver/proposer standing
+ * prompt that `supervise()` runs as its brain — the string `selfImprovingSupervisor` threads in as
+ * `driverPrompt`. So each candidate IS a candidate driver prompt, and its fitness IS the resolve it
+ * earns when it actually drives a supervised run over the surface.
  *
- * The grading is EXECUTABLE, never an LLM judge: each candidate steerer runs a real `refine` rollout
- * over the surface (its harness-verified `resolved`/`score`), and the `JudgeConfig` reads those
- * outcomes straight off the artifact. A candidate's fitness IS the resolve it actually earned on the
- * environment's own check — there is no model in the scoring loop to flatter it.
- *
- * The candidate steerer reaches the run through `refine`'s built-in analyst steerer
- * (`AgenticOptions.analystInstruction`): the closest in-strategy proxy for "the driver's
- * compose-next-prompt", since `refine`'s between-shot analyst IS the thing that composes the next
- * instruction from the trajectory. GEPA tunes that instruction; the held-out gate certifies it.
+ * The grading is EXECUTABLE, never an LLM judge: each candidate driver prompt runs a real supervised
+ * rollout via `selfImprovingSupervisor` (its harness-verified `resolved`/`score` come from the
+ * surface's own completion oracle), and the `JudgeConfig` reads those outcomes straight off the
+ * returned artifact. A candidate's fitness IS the resolve it actually earned on the environment's own
+ * check — there is no model in the scoring loop to flatter it.
  */
 
 import {
@@ -28,18 +24,23 @@ import {
   type Scenario,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
-import {
-  type AgenticRunResult,
-  type AgenticSurface,
-  type AgenticTask,
-  refine,
-  runAgentic,
-} from '@tangle-network/agent-runtime/loops'
+import type { AgenticSurface, AgenticTask } from '@tangle-network/agent-runtime/loops'
+import { selfImprovingSupervisor } from './self-improving-supervisor'
 
 /** One TRAIN scenario: the coding task carried as the scenario's domain payload. The agent reads
- *  `scenario.task` to run the rollout; the judge reads the artifact the rollout produced. */
+ *  `scenario.task` to run the supervised rollout; the judge reads the artifact the rollout produced. */
 interface DriverPromptScenario extends Scenario {
   task: AgenticTask
+}
+
+/** The deployable outcome of one supervised candidate run — exactly what `selfImprovingSupervisor`
+ *  returns. The judge scores on `resolved`/`score`; the `usd` rides through so it is never lost. */
+interface SupervisedOutcome {
+  resolved: boolean
+  score: number
+  usd: number
+  tokensIn: number
+  tokensOut: number
 }
 
 /** The default reflection model — a model the Tangle router actually serves. The substrate default
@@ -47,13 +48,13 @@ interface DriverPromptScenario extends Scenario {
  *  reflection call; callers should pass their own, but this keeps the zero-config path live. */
 const defaultReflectionModel = 'gemini-2.5-pro'
 
-/** The mutation levers offered to the reflective proposer — what a steerer-prompt rewrite may change.
- *  These orient the model toward the kinds of edits that move a compose-next-prompt's effectiveness. */
-const steererMutationPrimitives = [
-  'sharpen what the reviewer must check on the trajectory before recommending an action',
-  'make the recommended next actions more concrete and tool-grounded',
-  'add an explicit verify-it-took step after each change',
-  'tighten the COMPLETE / continue decision so it stops only when every required change is verified',
+/** The mutation levers offered to the reflective proposer — what a driver-prompt rewrite may change.
+ *  These orient the model toward the kinds of edits that move a supervisor brain's effectiveness. */
+const driverMutationPrimitives = [
+  'sharpen what the driver must verify on a settled worker before it stops or re-spawns',
+  'make the next-spawn instruction the driver composes more concrete and tool-grounded',
+  'add an explicit verify-it-took step the driver must confirm before declaring done',
+  'tighten the stop / re-spawn decision so it settles only when every required change is verified',
 ]
 
 export async function optimizeDriverPrompt(opts: {
@@ -68,10 +69,25 @@ export async function optimizeDriverPrompt(opts: {
     model: string
     maxTokens?: number
     innerTurns?: number
+    /** Refine-shot budget per worker — MUST match the deployment arm's budget, or the prompt is tuned
+     *  against a different per-attempt compute than it serves with. */
+    budget?: number
   }
+  /** The supervisor brain's router substrate for each candidate's supervised run (the driver's own
+   *  inference). Defaults to the worker's router + model when omitted. */
+  supervisorRouter?: { baseUrl: string; apiKey: string; model: string }
   reflectionModel?: string
 }): Promise<{ systemPrompt: string; lift: number; shipped: boolean; usd: number }> {
   const { surface, worker } = opts
+
+  // The supervisor brain's router: each candidate prompt drives a real supervised run, so it needs an
+  // inference substrate. Default to the worker's router + model — the driver and worker share compute
+  // unless the caller separates them.
+  const supervisorRouter = opts.supervisorRouter ?? {
+    baseUrl: worker.routerBaseUrl,
+    apiKey: worker.routerKey,
+    model: worker.model,
+  }
 
   // TRAIN scenarios — the disjoint training slice. `selfImprove` splits a held-out fraction off these
   // for the gate, so the winner is certified on tasks the proposer never optimized against.
@@ -82,44 +98,59 @@ export async function optimizeDriverPrompt(opts: {
     task,
   }))
 
-  // The agent under improvement: it receives the CURRENT candidate steerer (the surface string) and
-  // runs a real `refine` rollout with that steerer as the analyst instruction. The returned artifact
-  // is the harness-verified `AgenticRunResult` — `resolved`/`score` come from `surface.score`, not a
-  // self-report, so the candidate cannot fabricate a win.
+  // The agent under improvement: it receives the CURRENT candidate driver prompt (the surface string)
+  // and runs a REAL supervised rollout with that prompt as the supervisor brain's standing instruction.
+  // The returned artifact is the harness-verified deployable outcome — `resolved`/`score` come from the
+  // surface's completion oracle, not a self-report, so the candidate cannot fabricate a win.
   const agent = async (
     candidate: MutableSurface,
     scenario: DriverPromptScenario,
-    _ctx: DispatchContext,
-  ): Promise<AgenticRunResult> => {
-    // The candidate is the steerer prompt. A `CodeSurface` is not a prompt — this loop only optimizes
-    // the string steerer, so a non-string candidate is a wiring error that must fail loud.
+    ctx: DispatchContext,
+  ): Promise<SupervisedOutcome> => {
+    // The candidate is the driver prompt. A `CodeSurface` is not a prompt — this loop only optimizes the
+    // string driver prompt, so a non-string candidate is a wiring error that must fail loud.
     if (typeof candidate !== 'string') {
       throw new Error(
-        `optimizeDriverPrompt: candidate surface is a CodeSurface, not a steerer prompt — this loop optimizes the string steerer only`,
+        `optimizeDriverPrompt: candidate surface is a CodeSurface, not a driver prompt — this loop optimizes the string driver prompt only`,
       )
     }
-    return runAgentic({
+    const sup = await selfImprovingSupervisor({
       surface,
       task: scenario.task,
-      strategy: refine,
-      budget: opts.worker.innerTurns ? Math.max(2, Math.ceil(opts.worker.innerTurns / 2)) : 2,
-      routerBaseUrl: worker.routerBaseUrl,
-      routerKey: worker.routerKey,
-      model: worker.model,
-      // The candidate steerer drives the run via refine's built-in between-shot analyst.
-      analystInstruction: candidate,
-      ...(worker.maxTokens !== undefined ? { maxTokens: worker.maxTokens } : {}),
-      ...(worker.innerTurns !== undefined ? { innerTurns: worker.innerTurns } : {}),
+      driverPrompt: candidate,
+      worker,
+      // A small conserved pool: enough for the driver's turns plus several worker spawns so the analyst
+      // up-leg can drive a spawn-refine loop, sized off the worker's inner-loop bounds.
+      budget: {
+        maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
+        maxTokens: (worker.maxTokens ?? 4000) * 6,
+      },
+      analyze: true,
+      router: supervisorRouter,
     })
+    // Report the supervised run's REAL spend to the campaign cost meter — the substrate intercepts no
+    // LLM call, so without this the cell reads {cost:0, tokens:0} and the backend-integrity guard
+    // (expectUsage:'assert') aborts the whole optimization on the first cell as a stub.
+    ctx.cost.observe(sup.usd, 'supervised-run')
+    ctx.cost.observeTokens({ input: sup.tokensIn, output: sup.tokensOut })
+    return {
+      resolved: sup.resolved,
+      score: sup.score,
+      usd: sup.usd,
+      tokensIn: sup.tokensIn,
+      tokensOut: sup.tokensOut,
+    }
   }
 
-  // The EXECUTABLE judge — no LLM in the scoring loop. Composite = the artifact's harness-verified
-  // resolve fraction; the `resolved` dimension is the binary deployable pass. A thrown judge would be
-  // recorded as a failed cell, so we read defensively-shaped numeric fields and never throw on shape.
-  const judge: JudgeConfig<AgenticRunResult, DriverPromptScenario> = {
-    name: 'surface-resolve',
+  // The EXECUTABLE judge — no LLM in the scoring loop. Composite = the supervised run's harness-verified
+  // score; the `resolved` dimension is the binary deployable pass. Reads straight off the artifact.
+  const judge: JudgeConfig<SupervisedOutcome, DriverPromptScenario> = {
+    name: 'supervised-resolve',
     dimensions: [
-      { key: 'resolved', description: 'the surface verifier passed every check (1) or not (0)' },
+      {
+        key: 'resolved',
+        description: 'the surface oracle confirmed a delivered winner (1) or not (0)',
+      },
       { key: 'score', description: 'the surface verifier pass fraction in [0,1]' },
     ],
     score: ({ artifact }) => ({
@@ -134,7 +165,7 @@ export async function optimizeDriverPrompt(opts: {
 
   const reflectionModel = opts.reflectionModel ?? defaultReflectionModel
 
-  const result = await selfImprove<DriverPromptScenario, AgenticRunResult>({
+  const result = await selfImprove<DriverPromptScenario, SupervisedOutcome>({
     agent,
     scenarios,
     judge,
@@ -143,15 +174,15 @@ export async function optimizeDriverPrompt(opts: {
       llm: { baseUrl: worker.routerBaseUrl, apiKey: worker.routerKey },
       model: reflectionModel,
       target:
-        'the driver compose-next-prompt (the between-shot steerer that turns the trajectory into the next instruction)',
-      mutationPrimitives: steererMutationPrimitives,
+        'the supervisor driver prompt (the standing brain instruction that spawns + steers workers)',
+      mutationPrimitives: driverMutationPrimitives,
     }),
     // One generation, two candidates, a third of TRAIN held out for the gate — the cheap proof shape;
     // raise generations/populationSize for a deeper search once the cheap run is green.
     budget: { generations: 1, populationSize: 2, holdoutFraction: 0.34 },
   })
 
-  // The winner surface is the promoted steerer. A `CodeSurface` winner is impossible here (the
+  // The winner surface is the promoted driver prompt. A `CodeSurface` winner is impossible here (the
   // baseline + every mutation is a string), but guard the type so the return stays a clean string.
   const winner = result.winner.surface
   const systemPrompt = typeof winner === 'string' ? winner : opts.baselinePrompt
