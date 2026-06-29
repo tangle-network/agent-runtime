@@ -712,7 +712,7 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `RunPersonified` | type | The composed run signature. |
-| `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent — `string` so a BYO executor |
+| `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |

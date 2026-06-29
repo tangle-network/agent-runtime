@@ -13041,8 +13041,8 @@ conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage
 
 Defined in: [runtime/supervise/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L137)
 
-The runtime tag of a `Executor` impl. Open by intent — `string` so a BYO
-executor names its own runtime; the built-ins use these literals.
+The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
+External executors can register additional runtime strings without widening this type.
 
 ***
 
