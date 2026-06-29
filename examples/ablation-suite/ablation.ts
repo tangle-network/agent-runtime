@@ -87,7 +87,8 @@ export interface ArmResult {
   name: string
   knobs: AblationKnobs
   n: number
-  resolve: number // mean resolved (0..1) on the held-out set
+  resolve: number // mean resolved (0..1) on the held-out set — binary all-tests-pass
+  scoreMean: number // mean pass-FRACTION [0,1] — the gradient when a task is not fully solved
   tokensIn: number
   tokensOut: number
   costUsd: number
@@ -97,8 +98,11 @@ export interface ArmResult {
   /** Per-tool invocation counts across the arm (populated when the environment is wrapped in
    *  `countingSurface`); undefined when tool counting is not wired for that run. */
   toolCalls?: Record<string, number>
-  /** Per-task resolved (0/1), task-aligned across arms — the paired vector for significance. */
+  /** Per-task resolved (0/1), task-aligned across arms — the paired vector for binary significance. */
   perTask: number[]
+  /** Per-task pass-FRACTION [0,1], task-aligned — the paired vector for score significance (use this when
+   *  the task is hard enough that binary resolve is mostly 0). */
+  perTaskScore: number[]
 }
 
 export async function runAblation(opts: {
@@ -187,6 +191,7 @@ export async function runAblation(opts: {
     }
 
     let resolved = 0
+    let scoreSum = 0
     let ti = 0
     let to = 0
     let usd = gepaUsd // seed with the TRAIN-side GEPA optimization cost so the arm's $ is honest
@@ -194,6 +199,7 @@ export async function runAblation(opts: {
     let shots = 0
     let comps = 0
     const perTask: number[] = []
+    const perTaskScore: number[] = []
     counter.resetToolCounts()
     for (const t of tasks) {
       try {
@@ -227,7 +233,9 @@ export async function runAblation(opts: {
             router: supervisorRouter,
           })
           if (sup.resolved) resolved++
+          scoreSum += sup.score
           perTask.push(sup.resolved ? 1 : 0)
+          perTaskScore.push(sup.score)
           usd += sup.usd
           ti += sup.tokensIn
           to += sup.tokensOut
@@ -246,7 +254,9 @@ export async function runAblation(opts: {
             ...(opts.worker.innerTurns !== undefined ? { innerTurns: opts.worker.innerTurns } : {}),
           })
           if (r.resolved) resolved++
+          scoreSum += r.score
           perTask.push(r.resolved ? 1 : 0)
+          perTaskScore.push(r.score)
           ti += r.tokens.input
           to += r.tokens.output
           usd += r.usd
@@ -262,6 +272,7 @@ export async function runAblation(opts: {
           `ablation: arm "${arm.name}" task "${t.id}" failed (counted unresolved): ${msg}`,
         )
         perTask.push(0)
+        perTaskScore.push(0)
       }
     }
     const n = tasks.length
@@ -270,6 +281,7 @@ export async function runAblation(opts: {
       knobs: arm.knobs,
       n,
       resolve: resolved / n,
+      scoreMean: scoreSum / n,
       tokensIn: ti,
       tokensOut: to,
       costUsd: usd,
@@ -278,6 +290,7 @@ export async function runAblation(opts: {
       completionsMean: comps / n,
       toolCalls: { ...counter.toolCounts },
       perTask,
+      perTaskScore,
     }
     results.push(res)
     opts.onArm?.(res)
@@ -296,6 +309,7 @@ export function printAutopsy(results: ArmResult[]): void {
     pad('arm', 15) +
       pad('topology', 13) +
       pad('resolve', 11) +
+      pad('score', 7) +
       pad('tok_in', 9) +
       pad('tok_out', 9) +
       pad('calls', 7) +
@@ -318,6 +332,7 @@ export function printAutopsy(results: ArmResult[]): void {
       pad(r.name, 15) +
         pad(r.knobs.topology, 13) +
         pad(`${(100 * r.resolve).toFixed(0)}% ${k}/${r.n}`, 11) +
+        pad(r.scoreMean.toFixed(2), 7) +
         pad(String(Math.round(r.tokensIn)), 9) +
         pad(String(Math.round(r.tokensOut)), 9) +
         pad(r.completionsMean.toFixed(1), 7) +
