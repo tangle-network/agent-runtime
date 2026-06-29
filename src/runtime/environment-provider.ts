@@ -506,6 +506,7 @@ function environmentAsSandboxInstance(
       return {
         response: resultFromEvents(events, text).content,
         success: true,
+        status: 'success',
         durationMs: 0,
         ...(usage ? { usage } : {}),
       }
@@ -908,6 +909,7 @@ function promptResultFromAgentTurnResult(result: AgentTurnResult): PromptResult 
   return {
     response: result.text,
     success: result.success,
+    status: result.success ? 'success' : 'failed',
     durationMs: 0,
     ...(result.error ? { error: result.error } : {}),
     ...(result.usage ? { usage: result.usage } : {}),

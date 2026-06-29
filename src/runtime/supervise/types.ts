@@ -132,8 +132,8 @@ export type UsageEvent =
   | { kind: 'cost'; usd: number }
   | { kind: 'iteration' }
 
-/** The runtime tag of a `Executor` impl. Open by intent — `string` so a BYO executor
- *  names its own runtime; the built-ins use these literals. */
+/** The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
+ * External executors can register additional runtime strings without widening this type. */
 export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 
 // ── Executor resolution (OPEN registry, not a switch) ─────────────────────────

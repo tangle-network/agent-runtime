@@ -282,7 +282,7 @@ Defined in: [runtime/environment-provider.ts:269](https://github.com/tangle-netw
 
 ##### runtime?
 
-> `optional` **runtime?**: `Runtime`
+> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-3)
 
 Defined in: [runtime/environment-provider.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L270)
 
@@ -442,7 +442,7 @@ Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
 
 ### providerAsExecutor()
 
-> **providerAsExecutor**(`provider`, `options?`): `ExecutorFactory`\<`unknown`\>
+> **providerAsExecutor**(`provider`, `options?`): [`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>
 
 Defined in: [runtime/environment-provider.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L278)
 
@@ -462,4 +462,4 @@ Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
 
 #### Returns
 
-`ExecutorFactory`\<`unknown`\>
+[`ExecutorFactory`](../runtime.md#executorfactory)\<`unknown`\>

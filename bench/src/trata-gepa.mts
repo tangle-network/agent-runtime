@@ -367,7 +367,7 @@ async function main(): Promise<void> {
       apiKey: routerKey,
       model: reflectModel,
     },
-    driverTarget:
+    proposerTarget:
       'a FINANCIAL ANALYST SYSTEM INSTRUCTION: the directive given to an agent that produces an investment memo from embedded earnings call transcripts, SEC filings, financial statements, and investor presentations. ' +
       'The memo is scored by a rubric with 4-6 analytical themes, each requiring 2-4 specific analytical moves (quantitative claims, strategic conclusions, peer comparisons, or explicit calculations). ' +
       'A theme is "hit" only when the agent makes the SPECIFIC move — not just gestures at the theme. ' +

@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 383 exports.
+Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -547,6 +547,7 @@ Import from `@tangle-network/agent-runtime/loops` — 383 exports.
 | `ExecResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
 | `ExecutorContext` | interface | Construction context handed to a `ExecutorFactory` — the seams a built-in needs |
+| `ExecutorRegistry` | interface | The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default |
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
@@ -695,6 +696,7 @@ Import from `@tangle-network/agent-runtime/loops` — 383 exports.
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutorConfig` | type | Config for {@link createExecutor}: the backend is DATA — the cost dial a profile, |
+| `ExecutorFactory` | type | Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not |
 | `Fanout` | type | `fanout(items, opts)` — build the fanout combinator over a static item list. |
 | `FanoutWinnerSelector` | type | A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the |
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |
@@ -710,6 +712,7 @@ Import from `@tangle-network/agent-runtime/loops` — 383 exports.
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `RunPersonified` | type | The composed run signature. |
+| `Runtime` | type | The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name. |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
 | `SteeringDecision` | type | Terminal-or-continue decision shared by all three steering drivers. The |

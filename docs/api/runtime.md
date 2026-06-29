@@ -1748,7 +1748,7 @@ thread the seams onto each spawn. Exactly one is required — fail loud if neith
 
 ##### registry?
 
-> `readonly` `optional` **registry?**: `ExecutorRegistry`
+> `readonly` `optional` **registry?**: [`ExecutorRegistry`](#executorregistry)
 
 Defined in: [runtime/personify/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L120)
 
@@ -8132,7 +8132,7 @@ Defined in: [runtime/supervise/run-context.ts:48](https://github.com/tangle-netw
 
 ##### executors
 
-> `readonly` **executors**: `ExecutorRegistry`
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
 Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L49)
 
@@ -8166,7 +8166,7 @@ Defined in: [runtime/environment-provider.ts:269](https://github.com/tangle-netw
 
 ##### runtime?
 
-> `optional` **runtime?**: `Runtime`
+> `optional` **runtime?**: [`Runtime`](#runtime-3)
 
 Defined in: [runtime/environment-provider.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L270)
 
@@ -8786,7 +8786,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: `Runtime`
+> `readonly` **runtime**: [`Runtime`](#runtime-3)
 
 Defined in: [runtime/supervise/types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L72)
 
@@ -9020,6 +9020,74 @@ Defined in: [runtime/supervise/types.ts:171](https://github.com/tangle-network/a
 Defined in: [runtime/supervise/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L173)
 
 Opaque seams the registry threads through; a built-in narrows what it needs.
+
+***
+
+### ExecutorRegistry
+
+Defined in: [runtime/supervise/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L182)
+
+The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
+registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
+register more runtimes by name. NOT a closed switch — registration is the extension
+point, mirroring the open `Executor` interface.
+
+#### Methods
+
+##### register()
+
+> **register**\<`Out`\>(`runtime`, `factory`): `void`
+
+Defined in: [runtime/supervise/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L184)
+
+Register a factory for a named runtime. Throws on a duplicate name (fail loud).
+
+###### Type Parameters
+
+###### Out
+
+`Out`
+
+###### Parameters
+
+###### runtime
+
+[`Runtime`](#runtime-3)
+
+###### factory
+
+[`ExecutorFactory`](#executorfactory)\<`Out`\>
+
+###### Returns
+
+`void`
+
+##### resolve()
+
+> **resolve**\<`Out`\>(`spec`): \{ `succeeded`: `true`; `value`: [`ExecutorFactory`](#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
+
+Defined in: [runtime/supervise/types.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L191)
+
+Resolve a spec to a factory. Precedence: a BYO `spec.executor` → a trivial factory
+returning it; else `harness === null` → the `'router'` factory; else a registered
+factory for the harness-derived runtime. Returns a typed outcome — the caller
+inspects `succeeded` before `value` (no silent fallback).
+
+###### Type Parameters
+
+###### Out
+
+`Out`
+
+###### Parameters
+
+###### spec
+
+[`AgentSpec`](#agentspec)
+
+###### Returns
+
+\{ `succeeded`: `true`; `value`: [`ExecutorFactory`](#executorfactory)\<`Out`\>; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
 
 ***
 
@@ -9424,7 +9492,7 @@ Result payload store backing `outRef` rehydration.
 
 ##### executors
 
-> `readonly` **executors**: `ExecutorRegistry`
+> `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
 Defined in: [runtime/supervise/types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L442)
 
@@ -12967,6 +13035,49 @@ conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage
 
 ***
 
+### Runtime
+
+> **Runtime** = `"router"` \| `"inline"` \| `"sandbox"` \| `"cli"` \| `string` & `object`
+
+Defined in: [runtime/supervise/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L137)
+
+The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
+External executors can register additional runtime strings without widening this type.
+
+***
+
+### ExecutorFactory
+
+> **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor)\<`Out`\>
+
+Defined in: [runtime/supervise/types.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L165)
+
+Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
+shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
+user supply construction args without pre-instantiating.
+
+#### Type Parameters
+
+##### Out
+
+`Out`
+
+#### Parameters
+
+##### spec
+
+[`AgentSpec`](#agentspec)
+
+##### ctx
+
+[`ExecutorContext`](#executorcontext)
+
+#### Returns
+
+[`Executor`](#executor)\<`Out`\>
+
+***
+
 ### Settled
 
 > **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: `Handle`\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: `Handle`\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `seq`: `number`; \}
@@ -13345,7 +13456,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 ### cliWorktreeExecutor
 
-> `const` **cliWorktreeExecutor**: `ExecutorFactory`\<`unknown`\>
+> `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
 Defined in: [runtime/supervise/runtime.ts:1360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1360)
 
@@ -13622,7 +13733,7 @@ run once on the prompt, emit the terminal result event, tear down.
 
 ##### factory
 
-`ExecutorFactory`\<`unknown`\>
+[`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
 #### Returns
 
@@ -15819,7 +15930,7 @@ state between runs), so two runs never cross-contaminate their journals/blobs.
 
 ### createExecutor()
 
-> **createExecutor**(`config`): `ExecutorFactory`\<`unknown`\>
+> **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
 Defined in: [runtime/supervise/runtime.ts:1413](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1413)
 
@@ -15838,13 +15949,13 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 #### Returns
 
-`ExecutorFactory`\<`unknown`\>
+[`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
 ***
 
 ### createExecutorRegistry()
 
-> **createExecutorRegistry**(): `ExecutorRegistry`
+> **createExecutorRegistry**(): [`ExecutorRegistry`](#executorregistry)
 
 Defined in: [runtime/supervise/runtime.ts:1459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1459)
 
@@ -15860,7 +15971,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 #### Returns
 
-`ExecutorRegistry`
+[`ExecutorRegistry`](#executorregistry)
 
 ***
 
