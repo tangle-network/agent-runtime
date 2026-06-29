@@ -1,0 +1,22 @@
+[
+  {
+    "description": "What are the Notes when the Method is decision?",
+    "label": ["Women +60kg Bronze"],
+    "table": {
+      "table_name": "Jiu-Jitsu Championships Results",
+      "table_info": {
+        "columns": [
+          { "name": "Result", "type": "TEXT" },
+          { "name": "Opponent", "type": "TEXT" },
+          { "name": "Method", "type": "TEXT" },
+          { "name": "Event", "type": "TEXT" },
+          { "name": "Notes", "type": "TEXT" }
+        ],
+        "rows": [
+          ["Win", "Rosangela Conceicao", "Decision", "2009 ADCC Submission Wrestling World Championships", "Women +60kg Bronze"],
+          ["Loss", "Penny Thomas", "Points (-2 x -1)", "2009 ADCC Submission Wrestling World Championships", "Women +60kg Semifinal"]
+        ]
+      }
+    }
+  }
+]

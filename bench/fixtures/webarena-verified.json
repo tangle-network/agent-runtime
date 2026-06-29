@@ -1,0 +1,20 @@
+[
+  {
+    "sites": ["shopping_admin"],
+    "task_id": 0,
+    "intent_template_id": 279,
+    "start_urls": ["__SHOPPING_ADMIN__"],
+    "intent": "Get the top-1 best-selling product name(s) in 2022",
+    "revision": 2,
+    "eval": [
+      {
+        "evaluator": "AgentResponseEvaluator",
+        "expected": {
+          "task_type": "retrieve",
+          "status": "SUCCESS",
+          "retrieved_data": ["Quest Lumaflex Band"]
+        }
+      }
+    ]
+  }
+]

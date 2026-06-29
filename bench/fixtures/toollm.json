@@ -1,0 +1,28 @@
+[
+  {
+    "query_id": 1,
+    "query": "Verify API health by calling the Checkhealth endpoint, then retrieve the list of projects using the Projects endpoint.",
+    "api_list": [
+      {
+        "category_name": "Logistics",
+        "tool_name": "SQUAKE",
+        "api_name": "Checkhealth",
+        "required_parameters": [],
+        "optional_parameters": [],
+        "method": "GET"
+      },
+      {
+        "category_name": "Logistics",
+        "tool_name": "SQUAKE",
+        "api_name": "Projects",
+        "required_parameters": [],
+        "optional_parameters": [],
+        "method": "GET"
+      }
+    ],
+    "relevant APIs": [
+      ["SQUAKE", "Checkhealth"],
+      ["SQUAKE", "Projects"]
+    ]
+  }
+]
