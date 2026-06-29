@@ -70,21 +70,25 @@ test('AgentBench DBBench fixture mode loads and exact-label judge scores determi
   })
 })
 
-test('ToolLLM loads tasks but refuses nondeterministic ToolEval scoring', async () => {
+test('ToolLLM scores only deterministic API-selection labels and rejects unlabeled rows', async () => {
   await withEnv({ TOOLLM_FIXTURES: '1', TOOLBENCH_DIR: undefined }, async () => {
     const adapter = createToolLlmAdapter()
     await adapter.preflight()
     const [task] = await adapter.loadTasks({ limit: 1 })
     assert.equal(task.id, '1')
-    await assert.rejects(() => adapter.judge(task, 'anything'), /scoring refused/)
+    const gold = await adapter.goldArtifact(task)
+    assert.match(gold ?? '', /Checkhealth/)
+    assert.equal((await adapter.judge(task, '')).score, 0)
+    assert.equal((await adapter.judge(task, gold ?? '')).score, 1)
+    assert.equal((await adapter.judge(task, '{"api_calls":[{"tool_name":"SQUAKE","api_name":"Checkhealth"}]}')).score, 0.5)
   })
 
   const dir = await mkdtemp(join(tmpdir(), 'toollm-'))
   try {
     const query = join(dir, 'queries.json')
-    await writeFile(query, '[]')
+    await writeFile(query, JSON.stringify([{ query_id: 1, query: 'Call a tool.', api_list: [] }]))
     await withEnv({ TOOLLM_FIXTURES: undefined, TOOLBENCH_DIR: dir, TOOLLM_QUERY_FILE: query }, async () => {
-      await assert.rejects(() => createToolLlmAdapter().preflight(), /LLM-judged/)
+      await assert.rejects(() => createToolLlmAdapter().preflight(), /deterministic API-selection labels missing/)
     })
   } finally {
     await rm(dir, { recursive: true, force: true })

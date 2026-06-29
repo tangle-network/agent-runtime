@@ -2,9 +2,9 @@
  * ToolLLM/ToolBench adapter.
  *
  * ToolBench task loading is useful for breadth, but the official ToolEval pass
- * rate evaluator is LLM-based and stochastic. Under this repo's deterministic
- * judge rule, this adapter intentionally refuses to score until a deterministic
- * ToolLLM subset with executable labels is supplied.
+ * rate evaluator is LLM-based and stochastic. This adapter therefore scores
+ * only ToolBench's deterministic API-selection labels (`relevant APIs`). It
+ * never records a full ToolEval pass-rate score.
  */
 
 import { readFile } from 'node:fs/promises'
@@ -36,8 +36,8 @@ interface ToolBenchRow {
 interface ToolBenchMeta {
   queryId: string
   apiList: ToolApi[]
-  relevantApis?: Array<[string, string]>
-  deterministicJudge: false
+  relevantApis: Array<[string, string]>
+  deterministicJudge: 'api-selection'
 }
 
 const toolbenchDir = (): string | undefined => process.env.TOOLBENCH_DIR
@@ -56,11 +56,12 @@ export const toollmOutput: OutputAdapter<string> = {
 }
 
 function rowToTask(row: ToolBenchRow): BenchTask {
+  const relevantApis = normalizeApiPairs(row['relevant APIs'] ?? [])
   const meta: ToolBenchMeta = {
     queryId: String(row.query_id),
     apiList: row.api_list ?? [],
-    relevantApis: row['relevant APIs'],
-    deterministicJudge: false,
+    relevantApis,
+    deterministicJudge: 'api-selection',
   }
   return {
     id: String(row.query_id),
@@ -71,9 +72,44 @@ function rowToTask(row: ToolBenchRow): BenchTask {
       `Query: ${row.query}`,
       '',
       `Available APIs: ${JSON.stringify(row.api_list ?? [], null, 2)}`,
+      '',
+      'Return the APIs you used as JSON: {"api_calls":[{"tool_name":"...","api_name":"..."}]}.',
     ].join('\n'),
     metadata: meta as unknown as Record<string, unknown>,
   }
+}
+
+function normalizeApiPart(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function apiKey(pair: readonly [string, string]): string {
+  return `${normalizeApiPart(pair[0])}.${normalizeApiPart(pair[1])}`
+}
+
+function normalizeApiPairs(value: unknown): Array<[string, string]> {
+  if (!Array.isArray(value)) return []
+  const out: Array<[string, string]> = []
+  for (const item of value) {
+    if (Array.isArray(item) && typeof item[0] === 'string' && typeof item[1] === 'string') {
+      out.push([item[0], item[1]])
+    } else if (
+      item && typeof item === 'object'
+      && typeof (item as { tool_name?: unknown }).tool_name === 'string'
+      && typeof (item as { api_name?: unknown }).api_name === 'string'
+    ) {
+      out.push([(item as { tool_name: string }).tool_name, (item as { api_name: string }).api_name])
+    }
+  }
+  return out
+}
+
+function readMeta(task: BenchTask): ToolBenchMeta {
+  const md = task.metadata
+  if (!md || !Array.isArray(md.relevantApis)) {
+    throw new Error(`ToolLLM task ${task.id} missing metadata — loadTasks did not populate deterministic API-selection labels`)
+  }
+  return md as unknown as ToolBenchMeta
 }
 
 function selectRows(rows: ToolBenchRow[], opts: LoadOptions): BenchTask[] {
@@ -88,10 +124,86 @@ function selectRows(rows: ToolBenchRow[], opts: LoadOptions): BenchTask[] {
   return tasks
 }
 
+function assertDeterministicSubset(tasks: readonly BenchTask[], source: string): void {
+  const missing = tasks.filter((task) => readMeta(task).relevantApis.length === 0).map((task) => task.id)
+  if (missing.length > 0) {
+    throw new Error(
+      `ToolLLM deterministic API-selection labels missing for ${missing.length}/${tasks.length} task(s) from ${source}: ${missing.slice(0, 5).join(', ')}. ` +
+        'Use a ToolBench query file that includes "relevant APIs" labels, or do not score ToolLLM in agent-bench.',
+    )
+  }
+}
+
 async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   const rows = JSON.parse(await readFile(FIXTURES, 'utf8')) as ToolBenchRow[]
   console.warn(`[toollm] TOOLLM_FIXTURES=1 — loading ${rows.length} adapter fixtures`)
-  return selectRows(rows, opts)
+  const tasks = selectRows(rows, opts)
+  assertDeterministicSubset(tasks, FIXTURES)
+  return tasks
+}
+
+async function loadOfficialTasks(dir: string, opts: LoadOptions): Promise<BenchTask[]> {
+  const source = queryFile(dir)
+  const tasks = selectRows(JSON.parse(await readFile(source, 'utf8')) as ToolBenchRow[], opts)
+  assertDeterministicSubset(tasks, source)
+  return tasks
+}
+
+function extractJsonBlock(text: string): unknown {
+  const fences = [...text.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)]
+  const raw = (fences.at(-1)?.[1] ?? text).trim()
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+}
+
+function extractCalledApis(text: string, expected: readonly [string, string][]): Array<[string, string]> {
+  const parsed = extractJsonBlock(text)
+  if (parsed && typeof parsed === 'object') {
+    const raw = parsed as Record<string, unknown>
+    const fromApiCalls = normalizeApiPairs(raw.api_calls)
+    if (fromApiCalls.length > 0) return fromApiCalls
+    const fromCalls = normalizeApiPairs(raw.calls)
+    if (fromCalls.length > 0) return fromCalls
+  }
+
+  const lower = text.toLowerCase()
+  return expected.filter(([tool, api]) => {
+    const toolNeedle = normalizeApiPart(tool)
+    const apiNeedle = normalizeApiPart(api)
+    const compactText = lower.replace(/[^a-z0-9]+/g, '')
+    return compactText.includes(`${toolNeedle}${apiNeedle}`) || (lower.includes(tool.toLowerCase()) && lower.includes(api.toLowerCase()))
+  })
+}
+
+function scoreApiSelection(task: BenchTask, artifact: string): BenchScore {
+  const meta = readMeta(task)
+  if (meta.relevantApis.length === 0) {
+    throw new Error(`ToolLLM task ${task.id} has no deterministic API-selection labels; refusing to score`)
+  }
+  const expected = new Set(meta.relevantApis.map(apiKey))
+  const calledPairs = extractCalledApis(artifact, meta.relevantApis)
+  const called = new Set(calledPairs.map(apiKey))
+  const truePositives = [...called].filter((key) => expected.has(key)).length
+  const precision = called.size === 0 ? 0 : truePositives / called.size
+  const recall = truePositives / expected.size
+  const score = expected.size === 0 ? 0 : recall
+  const resolved = recall === 1 && precision === 1
+  return {
+    resolved,
+    score,
+    detail: JSON.stringify({
+      scoring: 'api-selection-only',
+      queryId: meta.queryId,
+      expected: meta.relevantApis,
+      called: calledPairs,
+      precision,
+      recall,
+      fullToolEvalScore: null,
+    }),
+  }
 }
 
 export function createToolLlmAdapter(): BenchmarkAdapter {
@@ -107,25 +219,26 @@ export function createToolLlmAdapter(): BenchmarkAdapter {
       if (!dir) {
         throw new Error('TOOLBENCH_DIR is required. Fix: clone https://github.com/OpenBMB/ToolBench and set TOOLBENCH_DIR=/path/to/ToolBench.')
       }
-      await readFile(queryFile(dir), 'utf8')
-      throw new Error(
-        'ToolLLM official ToolEval is LLM-judged, not deterministic. This adapter can load tasks, but scoring is intentionally disabled until TOOLLM_DETERMINISTIC_SUBSET supplies executable labels.',
-      )
+      await loadOfficialTasks(dir, { limit: 1 })
     },
 
     async loadTasks(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const dir = toolbenchDir()
       if (!dir) throw new Error('TOOLBENCH_DIR is required to load ToolLLM tasks')
-      return selectRows(JSON.parse(await readFile(queryFile(dir), 'utf8')) as ToolBenchRow[], opts)
+      return loadOfficialTasks(dir, opts)
     },
 
-    async goldArtifact() {
-      return undefined
+    async goldArtifact(task: BenchTask) {
+      const meta = readMeta(task)
+      if (meta.relevantApis.length === 0) return undefined
+      return JSON.stringify({
+        api_calls: meta.relevantApis.map(([tool_name, api_name]) => ({ tool_name, api_name })),
+      }, null, 2)
     },
 
-    async judge(): Promise<BenchScore> {
-      throw new Error('ToolLLM scoring refused: official ToolEval is LLM-judged/stochastic; provide a deterministic executable subset before recording scores.')
+    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+      return scoreApiSelection(task, artifact)
     },
   }
 }
