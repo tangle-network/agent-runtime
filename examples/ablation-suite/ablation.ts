@@ -27,6 +27,7 @@ import {
   sampleThenRefine,
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
+import { countingSurface } from './counting-surface'
 import { optimizeDriverPrompt } from './gepa-driver-prompt'
 import { ralph } from './ralph-strategy'
 import { selfImprovingSupervisor } from './self-improving-supervisor'
@@ -143,6 +144,10 @@ export async function runAblation(opts: {
     apiKey: opts.supervisor?.routerKey ?? opts.worker.routerKey,
     model: opts.supervisor?.model ?? opts.worker.model,
   }
+  // Wrap the env ONCE so every arm's per-tool call counts are captured (reset per arm below). The GEPA
+  // train pass deliberately uses the raw `opts.environment` so its disjoint-slice calls are NOT counted
+  // into the held-out arm's tally.
+  const counter = countingSurface(opts.environment)
   const results: ArmResult[] = []
   for (const arm of arms) {
     for (const u of unwiredKnobs) {
@@ -189,6 +194,7 @@ export async function runAblation(opts: {
     let shots = 0
     let comps = 0
     const perTask: number[] = []
+    counter.resetToolCounts()
     for (const t of tasks) {
       try {
         if (driverSteer) {
@@ -197,7 +203,7 @@ export async function runAblation(opts: {
           // the FULL conserved spend (driver inference + all worker work: $, tokens, latency). `shots`
           // stays 0 — a multi-worker supervised run has no single refine-shot count (N/A, not a real zero).
           const sup = await selfImprovingSupervisor({
-            surface: opts.environment,
+            surface: counter,
             task: t,
             driverPrompt,
             worker: {
@@ -229,7 +235,7 @@ export async function runAblation(opts: {
           comps += sup.completions
         } else {
           const r = await runAgentic({
-            surface: opts.environment,
+            surface: counter,
             task: t,
             strategy: topologyStrategy[arm.knobs.topology],
             budget: arm.knobs.budget,
@@ -270,6 +276,7 @@ export async function runAblation(opts: {
       latencyMs: ms,
       shotsMean: shots / n,
       completionsMean: comps / n,
+      toolCalls: { ...counter.toolCounts },
       perTask,
     }
     results.push(res)
