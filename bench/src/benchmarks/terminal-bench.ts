@@ -6,9 +6,10 @@
  * our ScriptAgent), then the task's own verifier scores the resulting state.
  * Fully deterministic — no LLM judge, no self-authored score.
  *
- * Requires: the bench `.venv` with `terminal-bench` installed + a running Docker
- * daemon (per-task images are built on first run). loadTasks caches the dataset
- * from the Terminal-Bench registry on first run.
+ * Requires: an isolated bench `.venv-terminal-bench` with `terminal-bench`
+ * installed + a running Docker daemon (per-task images are built on first run).
+ * Override with TERMINAL_BENCH_VENV. loadTasks caches the dataset from the
+ * Terminal-Bench registry on first run.
  *
  * Process/Docker/report plumbing is shared via ./_harness; this file owns the
  * Terminal-Bench-specific pieces: the Dataset enumeration, the ScriptAgent replay
@@ -24,11 +25,16 @@ import {
   runVenvPython,
   safeRunId,
   stageFile,
-  venvBin,
+  venvPythonAt,
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
-const TB = venvBin('tb')
+// Terminal-Bench imports LiteLLM/Pydantic-2 APIs, while AppWorld pins Pydantic 1.
+// Keep it out of the shared bench .venv. Resolved at call-time so tests/runs can
+// override the env without reloading this module.
+const terminalBenchVenvDir = (): string => process.env.TERMINAL_BENCH_VENV ?? '.venv-terminal-bench'
+const terminalBenchPython = (): string => venvPythonAt(terminalBenchVenvDir())
+const terminalBenchBin = (): string => join(benchRoot, terminalBenchVenvDir(), 'bin', 'tb')
 
 // Pinned dataset: the 0.1.1 core set is patched for terminal-bench >=0.2.4 (the
 // installed CLI) and is the published launch task set. name==version is what `tb
@@ -90,7 +96,12 @@ for task_dir in ds:
     })
 print(json.dumps(out))
 `
-  const stdout = await runVenvPython(script, [ids ? JSON.stringify(ids) : '', limit !== null ? String(limit) : ''])
+  const stdout = await runVenvPython(
+    script,
+    [ids ? JSON.stringify(ids) : '', limit !== null ? String(limit) : ''],
+    0,
+    terminalBenchPython(),
+  )
   return JSON.parse(stdout) as TbTaskRow[]
 }
 
@@ -102,8 +113,12 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
       await preflightVenvImports({
         modules: ['terminal_bench'],
         requireDocker: true,
+        python: terminalBenchPython(),
         fix:
-          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install terminal-bench ; ` +
+          `Fix: (1) python3 -m venv bench/${terminalBenchVenvDir()} && ` +
+          `bench/${terminalBenchVenvDir()}/bin/pip install terminal-bench ` +
+          `(an ISOLATED venv — Terminal-Bench/LiteLLM require Pydantic 2 while AppWorld pins Pydantic 1; ` +
+          `override the dir with TERMINAL_BENCH_VENV) ; ` +
           `(2) ensure the Docker daemon is running (the judge builds per-task images on first run). ` +
           `The ${DATASET_REF} dataset is cached from the Terminal-Bench registry on first loadTasks.`,
       })
@@ -146,7 +161,7 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
       const runId = safeRunId('bench', `${task.id}-${Date.now()}`)
       return runStagedJudge({
         tmpPrefix: 'tbench-',
-        bin: TB,
+        bin: terminalBenchBin(),
         cwd: () => benchRoot,
         async stage(dir) {
           await stageFile(join(dir, 'attempt.sh'), artifact)
