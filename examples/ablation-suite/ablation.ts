@@ -27,33 +27,28 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
 import { optimizeDriverPrompt } from './gepa-driver-prompt'
+import { ralph } from './ralph-strategy'
 import { selfImprovingSupervisor } from './self-improving-supervisor'
 
 /** The baseline driver/steerer standing instruction — the compose-next-prompt the GEPA pass mutates
  *  (its `baselinePrompt`) and the prompt the supervisor runs with when `optimize` is off. Kept terse:
  *  GEPA earns the lift, this is only the floor. */
 const baselineDriverPrompt = [
-  'You coordinate workers fixing ONE real bug. Your leverage over a single agent is making each attempt',
-  'DIFFERENT and TARGETED, so the search covers ground that repeating one approach never will.',
+  'You coordinate workers solving ONE coding task. Each worker reads the tests, writes the solution, calls',
+  'run_tests itself, and fixes the failing tests until they pass. Your job is to ADD attempts — never to push',
+  'a worker off a correct approach toward a worse one.',
   '',
-  'Spawn ONE worker at a time, each with a SPECIFIC strategy in its brief, then await its settle and read',
-  'the analyst finding. If it did NOT resolve, spawn the next worker with a DISTINCT strategy you have not',
-  'tried — vary the HYPOTHESIS about where the bug is and how to fix it:',
-  '- attempt 1: fix the most direct location the issue implies.',
-  '- attempt 2: the root cause is likely UPSTREAM (a helper, base class, shared util) — look broader than',
-  '  the obvious file.',
-  '- attempt 3: the code is almost right but mishandles an EDGE CASE (empty/None/nested/boundary) — find',
-  '  and fix that specific case.',
-  '- later attempts: target a different module entirely, or combine what prior briefs implied.',
-  '',
-  'Every brief must be concrete and DISTINCT from prior ones — never "try again". Stop the instant a worker',
-  'delivers (analyst reports resolved). Do not solve the bug yourself; propose diverse, targeted attempts.',
+  'Spawn a worker and let it solve the task THOROUGHLY using run_tests to see exactly what fails and fix it.',
+  'When it settles WITHOUT all tests passing, read the analyst finding and spawn a FRESH worker (clean context)',
+  'to solve it again — tell it to run_tests, see which cases fail, and fix exactly those. A fresh start often',
+  'clears a stall a tired context cannot. Keep each brief HELPFUL and concrete (what still fails), never',
+  '"try a different approach". Stop the instant a worker passes every test. Do not solve the task yourself.',
 ].join('\n')
 
 export interface AblationKnobs {
   /** WIRED → strategy: single=`refine` (iterate one artifact), fanout=`sample` (N parallel, pick best),
    *  fanout-refine=`sampleThenRefine`. The coordination shape. */
-  topology: 'single' | 'fanout' | 'fanout-refine'
+  topology: 'single' | 'fanout' | 'fanout-refine' | 'ralph'
   /** WIRED → equal-compute unit (refine: max shots; fanout: rollout width). */
   budget: number
   // ── DECLARED knobs — fail loud until wired (each over a named substrate primitive) ──
@@ -73,6 +68,7 @@ const topologyStrategy: Record<AblationKnobs['topology'], Strategy> = {
   single: refine,
   fanout: sample,
   'fanout-refine': sampleThenRefine,
+  ralph,
 }
 
 /** Fail loud on a set-but-unwired knob — the house rule (no silent no-op). Names the primitive to wire. */

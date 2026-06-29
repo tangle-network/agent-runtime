@@ -98,6 +98,9 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
     makeWorkerAgent: seam.makeWorkerAgent,
     deliverable: seam.deliverable,
     budget: opts.budget,
+    // Serialize workers: with a persistent (shared) workspace, concurrent workers race on the same file
+    // and corrupt it; serial is also exactly what build-on-progress needs (worker N+1 CONTINUES worker N).
+    maxLiveWorkers: 1,
     perWorker: { maxIterations: perWorkerIters, maxTokens: opts.worker.maxTokens ?? 4000 },
     router: {
       routerBaseUrl: opts.router.baseUrl,
