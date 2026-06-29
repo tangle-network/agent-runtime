@@ -1,0 +1,22 @@
+[
+  {
+    "task_id": 1,
+    "instructions": "Using the payment files, answer this calibration task with the exact integer 42.",
+    "all_golds_by_task": [
+      {
+        "kind": "number",
+        "value": 42.0
+      }
+    ]
+  },
+  {
+    "task_id": 2,
+    "instructions": "Using the payment files, answer this calibration task with the card scheme nexpay.",
+    "all_golds_by_task": [
+      {
+        "kind": "scheme",
+        "value": "nexpay"
+      }
+    ]
+  }
+]

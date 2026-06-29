@@ -11,6 +11,7 @@ import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createCommit0Adapter } from './benchmarks/commit0'
+import { createDabstepAdapter } from './benchmarks/dabstep'
 import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
@@ -32,6 +33,7 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   // delegates to the benchmark's own harness and fails loud when it/Docker is absent.
   'aec-bench': createAecBenchAdapter,
   commit0: createCommit0Adapter,
+  dabstep: createDabstepAdapter,
   programbench: createProgrambenchAdapter,
   appworld: createAppWorldAdapter,
   // AppWorld's native interactive protocol — the worker is the in-engine ReAct

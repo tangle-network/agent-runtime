@@ -2,7 +2,7 @@
   "name": "@tangle-network/agent-bench",
   "version": "0.1.0",
   "type": "module",
-  "description": "The unified benchmark suite for agent-runtime agents: 18 adapters (commit0, enterpriseops-gym, trata-hedge, finsearchcomp, swe-bench, humaneval, …) behind one resolveAdapter registry, each with a real deterministic judge. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
+  "description": "The unified benchmark suite for agent-runtime agents: 19 adapters (commit0, enterpriseops-gym, trata-hedge, finsearchcomp, dabstep, swe-bench, humaneval, …) behind one resolveAdapter registry, each with a real deterministic judge. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@tangle-network/agent-eval": "^0.100.0",
-    "@tangle-network/agent-runtime": "^0.78.0",
+    "@tangle-network/agent-runtime": "^0.79.3",
     "@tangle-network/sandbox": "^0.9.3"
   },
   "devDependencies": {
@@ -27,6 +27,10 @@
   },
   "files": [
     "src",
+    "fixtures",
+    "scripts",
+    "tb_agents/*.py",
+    "steerers",
     "README.md"
   ],
   "publishConfig": {

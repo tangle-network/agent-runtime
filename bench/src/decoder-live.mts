@@ -47,7 +47,7 @@ async function main(): Promise<number> {
       },
       profile: { name: 'decoder-live' },
     },
-  } as never)) as Record<string, (...a: never[]) => unknown> & { id?: string }
+  } as never)) as unknown as Record<string, (...a: never[]) => unknown> & { id?: string }
 
   try {
     console.error('[live] box', box.id, '— waiting for running…')

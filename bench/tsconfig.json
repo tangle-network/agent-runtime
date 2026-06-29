@@ -10,7 +10,11 @@
     "skipLibCheck": true,
     "types": ["node"],
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@tangle-network/agent-runtime/loops": ["../src/runtime/index.ts"],
+      "@tangle-network/sandbox": ["../node_modules/@tangle-network/sandbox"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.mts"],
   "exclude": ["src/authored"]
