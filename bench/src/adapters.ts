@@ -6,6 +6,7 @@
  */
 
 import { createAecBenchAdapter } from './benchmarks/aec-bench'
+import { createAgentBenchAdapter } from './benchmarks/agentbench'
 import { createAppWorldAdapter, createAppWorldReactAdapter } from './benchmarks/appworld'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
@@ -21,8 +22,11 @@ import { createMind2WebAdapter } from './benchmarks/mind2web'
 import { createProgrambenchAdapter } from './benchmarks/programbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
+import { createTau2BenchAdapter } from './benchmarks/tau2-bench'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
+import { createToolLlmAdapter } from './benchmarks/toollm'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
+import { createWebArenaVerifiedAdapter } from './benchmarks/webarena-verified'
 import type { BenchmarkAdapter } from './benchmarks/types'
 
 export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
@@ -35,6 +39,10 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   commit0: createCommit0Adapter,
   dabstep: createDabstepAdapter,
   programbench: createProgrambenchAdapter,
+  'webarena-verified': createWebArenaVerifiedAdapter,
+  'tau2-bench': createTau2BenchAdapter,
+  agentbench: createAgentBenchAdapter,
+  toollm: createToolLlmAdapter,
   appworld: createAppWorldAdapter,
   // AppWorld's native interactive protocol — the worker is the in-engine ReAct
   // episode (execution feedback every turn), the mode published baselines use.

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "retail-fixture-0",
+    "domain": "retail",
+    "user_scenario": {
+      "persona": "A customer contacting support.",
+      "instructions": "Ask the agent to check an order status and follow the retail policy."
+    },
+    "description": {
+      "purpose": "Fixture row for adapter plumbing only."
+    },
+    "evaluation_criteria": {
+      "reward_basis": ["DB", "COMMUNICATE"]
+    }
+  }
+]
