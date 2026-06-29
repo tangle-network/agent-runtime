@@ -79,6 +79,8 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
   tokensIn: number
   tokensOut: number
   ms: number
+  /** Total conserved-pool iterations = the driver+worker LLM rounds this supervised run actually spent. */
+  completions: number
 }> {
   const seam = surfaceWorkerSeam({
     surface: opts.surface,
@@ -127,5 +129,6 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
     tokensIn: sp.tokens.input,
     tokensOut: sp.tokens.output,
     ms: sp.ms,
+    completions: sp.iterations,
   }
 }

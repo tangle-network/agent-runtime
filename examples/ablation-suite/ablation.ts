@@ -11,9 +11,10 @@
  * (the supervisor brain spawns + steers a graded worker, analyst up-leg on — via `selfImprovingSupervisor`)
  * and `optimize:'gepa'` (GEPA-tune the driver's compose-prompt on a DISJOINT train slice, freeze, then
  * drive — via `optimizeDriverPrompt`; implies `driverSteer`). STILL DECLARED + FAIL LOUD: `halo`,
- * `persistentArtifact` (no silent no-op — each names its substrate primitive in the throw). Note: the
- * driverSteer/optimize arms report real resolve + $ but NOT a per-token/latency breakdown (uncaptured,
- * not a real zero). Validate on the cheap contamination-proof task, THEN point `environment`/`tasks` at SWE-bench.
+ * `persistentArtifact` (no silent no-op — each names its substrate primitive in the throw). EVERY arm now
+ * reports the full column set — resolve, tokens in/out, LLM calls (completions), refine-shots, $, latency —
+ * and per-tool call counts when the environment is wrapped in `countingSurface`. Validate on the cheap
+ * contamination-proof task, THEN point `environment`/`tasks` at a real library or SWE-bench.
  */
 import { pairedBootstrap } from '@tangle-network/agent-eval'
 import {
@@ -92,6 +93,9 @@ export interface ArmResult {
   latencyMs: number
   shotsMean: number
   completionsMean: number
+  /** Per-tool invocation counts across the arm (populated when the environment is wrapped in
+   *  `countingSurface`); undefined when tool counting is not wired for that run. */
+  toolCalls?: Record<string, number>
   /** Per-task resolved (0/1), task-aligned across arms — the paired vector for significance. */
   perTask: number[]
 }
@@ -222,6 +226,7 @@ export async function runAblation(opts: {
           ti += sup.tokensIn
           to += sup.tokensOut
           ms += sup.ms
+          comps += sup.completions
         } else {
           const r = await runAgentic({
             surface: opts.environment,
@@ -277,39 +282,53 @@ export async function runAblation(opts: {
 export function printAutopsy(results: ArmResult[]): void {
   const base = results[0]
   const pad = (s: string, n: number) => s.padEnd(n)
-  console.log(`\n═══ ABLATION AUTOPSY (n=${base?.n} held-out, one-knob-delta vs baseline) ═══`)
   console.log(
-    pad('arm', 16) +
-      pad('topology', 14) +
-      pad('resolve', 9) +
-      pad('$', 9) +
-      pad('lat(s)', 8) +
+    `\n═══ ABLATION AUTOPSY (n=${base?.n} held-out, one-knob-delta vs baseline) — ALL metrics ═══`,
+  )
+  console.log(
+    pad('arm', 15) +
+      pad('topology', 13) +
+      pad('resolve', 11) +
+      pad('tok_in', 9) +
+      pad('tok_out', 9) +
+      pad('calls', 7) +
       pad('shots', 7) +
-      pad('Δresolve [95% CI]', 24) +
-      'Δ$',
+      pad('$tot', 9) +
+      pad('$/task', 8) +
+      pad('lat/task', 9) +
+      'Δresolve [95% CI]',
   )
   for (const r of results) {
-    const dC = base ? r.costUsd - base.costUsd : 0
+    const k = Math.round(r.resolve * r.n)
     // Significance: paired bootstrap of this arm's per-task resolve vs baseline's (task-aligned).
-    let lift = '+0pp'
+    let lift = '— (baseline)'
     if (base && r !== base) {
       const b = pairedBootstrap(base.perTask, r.perTask, { confidence: 0.95, statistic: 'mean' })
-      const sig = b.low > 0 || b.high < 0 ? '✓' : '·' // CI excludes 0 ⇒ real
+      const sig = b.low > 0 || b.high < 0 ? '✓SIG' : '·ns'
       lift = `${b.mean >= 0 ? '+' : ''}${(100 * b.mean).toFixed(0)}pp [${(100 * b.low).toFixed(0)},${(100 * b.high).toFixed(0)}] ${sig}`
     }
     console.log(
-      pad(r.name, 16) +
-        pad(r.knobs.topology, 14) +
-        pad(`${(100 * r.resolve).toFixed(0)}%`, 9) +
-        pad(`$${r.costUsd.toFixed(4)}`, 9) +
-        pad((r.latencyMs / 1000).toFixed(0), 8) +
+      pad(r.name, 15) +
+        pad(r.knobs.topology, 13) +
+        pad(`${(100 * r.resolve).toFixed(0)}% ${k}/${r.n}`, 11) +
+        pad(String(Math.round(r.tokensIn)), 9) +
+        pad(String(Math.round(r.tokensOut)), 9) +
+        pad(r.completionsMean.toFixed(1), 7) +
         pad(r.shotsMean.toFixed(1), 7) +
-        pad(lift, 24) +
-        `${dC >= 0 ? '+' : ''}$${dC.toFixed(4)}`,
+        pad(`$${r.costUsd.toFixed(3)}`, 9) +
+        pad(`$${(r.costUsd / Math.max(1, r.n)).toFixed(3)}`, 8) +
+        pad(`${(r.latencyMs / 1000 / Math.max(1, r.n)).toFixed(0)}s`, 9) +
+        lift,
     )
+    if (r.toolCalls && Object.keys(r.toolCalls).length > 0)
+      console.log(
+        `${pad('', 15)}tools: ${Object.entries(r.toolCalls)
+          .map(([t, c]) => `${t}=${c}`)
+          .join('  ')}`,
+      )
   }
   console.log(
-    '\n>>> Read it cost-aware: ✓ = CI excludes 0 (real lift). A +resolve that costs +$$ or is not ✓ may be worse than baseline. The point is to see what HELPS vs what just BURNS.',
+    '\n>>> All captured columns shown. ✓SIG = paired-bootstrap CI excludes 0 (real lift). tok_in/out + calls = per-arm totals across the held-out set; shots = mean refine-shots (N/A for a multi-worker driver). Read cost-aware: +resolve at +$$ may still lose.',
   )
 }
 
