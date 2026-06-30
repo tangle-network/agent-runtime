@@ -2,29 +2,23 @@
  * benchmark-matrix — rank a MATRIX of agent cells (harness × model × persona) across a SUBSET of the
  * external benchmark registry, in one `runBenchmarks` call.
  *
- * This is the registry counterpart to `webcode-matrix` (which ranks profiles on one custom suite via
- * `runProfileMatrix`). Here the scenarios come from `@tangle-network/agent-bench`'s 23-adapter registry
+ * The registry counterpart to the runtime's `examples/webcode-matrix` (which ranks profiles on one
+ * custom suite via `runProfileMatrix`). Here the scenarios come from the 23-adapter registry
  * (swe-bench, terminal-bench, humaneval, dabstep, …), each with its OWN deterministic judge — so the
  * number is the benchmark's, not a self-authored score. Pick any subset of benchmarks and any set of
  * cells; the harness rides the in-box `backend.type`, the model rides the cell, the persona rides the
- * profile. A company at any level of the stack expresses its question as just these two arrays.
+ * profile. A consumer at any level of the stack expresses its question as just these two arrays.
  *
  * Run it:
  *   # offline demo (no creds): a stub adapter + stub shot prove the matrix end to end
- *   tsx examples/benchmark-matrix/benchmark-matrix.ts
+ *   tsx bench/src/examples/benchmark-matrix.mts
  *
  *   # live: real benchmarks × real harnesses, scored by each adapter's judge
  *   TANGLE_API_KEY=... BENCHMARKS=humaneval CELLS=opencode/glm-4.6,codex/gpt-5 \
- *     tsx examples/benchmark-matrix/benchmark-matrix.ts
+ *     tsx bench/src/examples/benchmark-matrix.mts
  */
-
-import type { BenchmarkAdapter, BenchScore, BenchTask } from '../../bench/src/benchmarks/types'
-import {
-  type BenchCell,
-  type BenchShot,
-  printBenchmarksReport,
-  runBenchmarks,
-} from '../../bench/src/run-benchmarks'
+import type { BenchmarkAdapter, BenchScore, BenchTask } from '../benchmarks/types'
+import { type BenchCell, type BenchShot, printBenchmarksReport, runBenchmarks } from '../run-benchmarks'
 
 /** The matrix: three cells spanning harnesses, models, and transports. */
 const cells: BenchCell[] = [
@@ -47,9 +41,7 @@ async function live(): Promise<void> {
     n: Number(process.env.N ?? 10),
     concurrency: Number(process.env.CONCURRENCY ?? 4),
     onResult: (r) =>
-      console.log(
-        `  [${r.ok ? (r.resolved ? 'PASS' : 'fail') : 'ERR '}] ${r.benchmark} ${r.cell} ${r.taskId}`,
-      ),
+      console.log(`  [${r.ok ? (r.resolved ? 'PASS' : 'fail') : 'ERR '}] ${r.benchmark} ${r.cell} ${r.taskId}`),
   })
   console.log(`\n=== live: ${report.benchmarks.join(', ')} × ${report.cells.length} cells ===`)
   console.log(printBenchmarksReport(report))
@@ -78,7 +70,7 @@ async function demo(): Promise<void> {
     'demo-research': stub('demo-research', 8),
   }
 
-  // Cell ability: opencode/glm solves ~88%, codex/gpt ~62%, router ~38% — deterministic by id hash.
+  // Cell ability: opencode/glm solves the most, router the least — deterministic by task index.
   const ability: Record<string, number> = {
     'opencode/glm-4.6': 0.88,
     'codex/gpt-5': 0.62,

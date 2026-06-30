@@ -50,6 +50,20 @@ TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini pnpm tsx src/examples/math-demo.mts
 - **the worker** → the model (`worker.model`)
 - **the strategy** → `defineStrategy` (or drop to `runAgentic` / the Supervisor for novel topologies)
 
+## Rank a MATRIX of agents across benchmarks — `benchmark-matrix.mts`
+
+Where `strategy-demo`/`math-demo` compare *strategies* on **one** task domain, `benchmark-matrix.mts`
+compares **agent cells** (harness × model × persona) across a **subset of the 23-adapter registry**,
+each scored by its own judge — the "which harness/model wins on which benchmark" leaderboard, via one
+`runBenchmarks` call. It runs offline (a stub adapter + shot, no creds) and live (`TANGLE_API_KEY`).
+
+```bash
+# offline demo
+pnpm tsx src/examples/benchmark-matrix.mts
+# live
+TANGLE_API_KEY=... BENCHMARKS=humaneval CELLS=opencode/glm-4.6,codex/gpt-5 pnpm tsx src/examples/benchmark-matrix.mts
+```
+
 ## Where the real results live
 
 On a trivial task all strategies tie. The differences (e.g. refine/adaptiveRefine beating

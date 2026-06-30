@@ -129,8 +129,6 @@ export interface RunBenchmarksReport {
   readonly unavailable: ReadonlyArray<{ readonly benchmark: string; readonly reason: string }>
 }
 
-const randomSuffix = (i: number): string => (i + 1).toString(36).padStart(3, '0')
-
 /** Last assistant text across the common event shapes (delta accumulation, then a terminal
  *  `result`/`done`/`agent` snapshot). The structured-deliverable case is handled by the adapter's
  *  own `output.parse`; this is the research/QA fallback. */
@@ -166,12 +164,15 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, routerBaseUrl, 
   })
   const harness = cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
   const profile: AgentProfile = cell.profile ?? { name: cell.label, metadata: { backendType: harness } }
+  // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
+  // name and runId must not collide.
+  const uniq = Math.random().toString(36).slice(2, 8)
   const agentRun: AgentRunSpec<string> = {
     profile,
     name: cell.label,
     taskToPrompt: () => '',
     sandboxOverrides: {
-      name: `bench-${adapter.name}-${task.id}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 56),
+      name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
       backend: { type: harness as never, model: { provider: 'openai', model: cell.model, baseUrl: routerBaseUrl } },
     },
@@ -184,7 +185,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, routerBaseUrl, 
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
   const run = await openSandboxRun(
     client,
-    { agentRun, signal: controller.signal, runId: `bench:${adapter.name}:${task.id}`, scenarioId: task.id },
+    { agentRun, signal: controller.signal, runId: `bench:${adapter.name}:${task.id}:${uniq}`, scenarioId: task.id },
     deliverable,
   )
   try {
