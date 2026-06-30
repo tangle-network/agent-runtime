@@ -3982,7 +3982,7 @@ Defined in: [mcp/tools/coordination.ts:97](https://github.com/tangle-network/age
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-10)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-12)
 
 Defined in: [mcp/tools/coordination.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L98)
 

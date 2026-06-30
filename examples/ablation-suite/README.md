@@ -25,4 +25,4 @@ Knobs (env): `ARMS=cal` (regime check — continuous only), `EVAL=verkit` (the r
 
 ## Files
 
-`ablation.ts` (the knob-board + autopsy) · `long-coding-env.ts` / `long-coding-env-lite.ts` (synthetic oscillation evals) · `verkit-env.ts` (real-library reconstruction) · `ralph-strategy.ts` · `self-improving-supervisor.ts` + `surface-worker.ts` (the supervisor seam + `failuresAnalyst`) · `persistent-surface.ts` · `counting-surface.ts` (per-tool counts).
+`ablation.ts` (the knob-board + autopsy) · `long-coding-env.ts` / `long-coding-env-lite.ts` (synthetic oscillation evals) · `verkit-env.ts` (real-library reconstruction) · `ralph-strategy.ts` · `persistent-surface.ts` · `counting-surface.ts` (per-tool counts). The supervisor arm calls **`superviseSurface`** + **`failuresAnalyst`** — the core capability ("`supervise()` over a graded surface"), no example wrapper.

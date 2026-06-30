@@ -33,6 +33,7 @@ This table is judgment-only: it maps an intent to the ONE primitive to reach for
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
 | **Just run a supervisor to a goal (one call, scaffolding defaulted)** — START HERE | `supervise(profile, task, { budget, backend? })` — `/loops` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for the lower-level run-verbs below before you need a specific counterparty |
+| **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })` — `/loops` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a genome through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })` — `/loops` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
 | Loop a worker over one evolving artifact, K rounds, stop-when-good | `loopUntil(seed, spec)` as the `shape` — `/loops` | a `while(!done){runWorker();decide()}` hand-loop or "multi-attempt refine driver" |
 | Run a worker agent under test conversing with a **simulated-user persona**, K rounds, worker-only metered | `runPersonaConversation({ worker, persona, backendFor, systemPromptOf })` — root `.` (also `/loops`) | a hand-rolled per-agent `dispatchWithSurface` bridge / eval-dispatch loop |

@@ -8,7 +8,7 @@
  *
  * STATUS — honest: the framework + the cost autopsy are real; knobs are wired incrementally. WIRED:
  * `topology` (single/fanout/fanout-refine = refine/sample/sampleThenRefine) + `budget`; `driverSteer`
- * (the supervisor brain spawns + steers a graded worker, analyst up-leg on — via `selfImprovingSupervisor`)
+ * (the supervisor brain spawns + steers a graded worker, analyst up-leg on — via `superviseSurface`)
  * and `optimize:'gepa'` (GEPA-tune the driver's compose-prompt on a DISJOINT train slice, freeze, then
  * drive — via `optimizeDriverPrompt`; implies `driverSteer`). STILL DECLARED + FAIL LOUD: `halo`,
  * `persistentArtifact` (no silent no-op — each names its substrate primitive in the throw). EVERY arm now
@@ -20,17 +20,18 @@ import { pairedBootstrap } from '@tangle-network/agent-eval'
 import {
   type AgenticSurface,
   type AgenticTask,
+  failuresAnalyst,
   refine,
   runAgentic,
   type Strategy,
   sample,
   sampleThenRefine,
+  superviseSurface,
 } from '@tangle-network/agent-runtime/loops'
 import { codingEnv, codingTasks } from '../self-improving-coder/self-improving-coder'
 import { countingSurface } from './counting-surface'
 import { optimizeDriverPrompt } from './gepa-driver-prompt'
 import { ralph } from './ralph-strategy'
-import { selfImprovingSupervisor } from './self-improving-supervisor'
 
 /** The baseline driver/steerer standing instruction — the compose-next-prompt the GEPA pass mutates
  *  (its `baselinePrompt`) and the prompt the supervisor runs with when `optimize` is off. Kept terse:
@@ -206,13 +207,11 @@ export async function runAblation(opts: {
       try {
         if (driverSteer) {
           // The driver-steered path: the supervisor brain spawns + steers a graded worker on a conserved
-          // pool, with the analyst up-leg on. `selfImprovingSupervisor` reports the deployable outcome +
+          // pool, with the analyst up-leg on. `superviseSurface` reports the deployable outcome +
           // the FULL conserved spend (driver inference + all worker work: $, tokens, latency). `shots`
           // stays 0 — a multi-worker supervised run has no single refine-shot count (N/A, not a real zero).
-          const sup = await selfImprovingSupervisor({
+          const sup = await superviseSurface({ name: 'driver', systemPrompt: driverPrompt }, t, {
             surface: counter,
-            task: t,
-            driverPrompt,
             worker: {
               routerBaseUrl: opts.worker.routerBaseUrl,
               routerKey: opts.worker.routerKey,
@@ -225,13 +224,17 @@ export async function runAblation(opts: {
             },
             budget: {
               // Pool for the driver's turns PLUS several worker spawns (each reserves ~innerTurns+2
-              // iterations) so the analyst up-leg can drive a spawn-refine loop, not stall after one
-              // worker. The autopsy measures the real cost; this is intentionally not equal-k.
+              // iterations) so the spawn-targeted-worker loop runs, not stall after one. The autopsy
+              // measures the real cost; this is intentionally not equal-k.
               maxIterations: arm.knobs.budget * ((opts.worker.innerTurns ?? 6) + 2) + 16,
               maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
             },
-            analyze: true,
-            router: supervisorRouter,
+            router: {
+              routerBaseUrl: supervisorRouter.baseUrl,
+              routerKey: supervisorRouter.apiKey,
+              model: supervisorRouter.model,
+            },
+            analysts: failuresAnalyst(),
           })
           if (sup.resolved) resolved++
           scoreSum += sup.score

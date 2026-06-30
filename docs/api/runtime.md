@@ -1625,7 +1625,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-10)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/analyst.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L78)
 
@@ -1931,7 +1931,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 ##### perChild
 
-> `readonly` **perChild**: [`Budget`](#budget-10)
+> `readonly` **perChild**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/types.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L155)
 
@@ -2165,7 +2165,7 @@ Defined in: [runtime/personify/types.ts:226](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-10)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L227)
 
@@ -6991,9 +6991,222 @@ budget: refine→max shots; sample→rollout width.
 
 ##### rootBudget?
 
-> `optional` **rootBudget?**: [`Budget`](#budget-10)
+> `optional` **rootBudget?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/strategy.ts:1026](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1026)
+
+***
+
+### SurfaceWorkerOut
+
+Defined in: [runtime/supervise-surface.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L34)
+
+What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is
+ the surface check's pass/fail (settled ⟺ resolved); `score` is the partial-credit fraction; `failing`
+ carries the tests this worker left red (so the analyst can target them).
+
+#### Properties
+
+##### resolved
+
+> `readonly` **resolved**: `boolean`
+
+Defined in: [runtime/supervise-surface.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L35)
+
+##### score
+
+> `readonly` **score**: `number`
+
+Defined in: [runtime/supervise-surface.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L36)
+
+##### shots
+
+> `readonly` **shots**: `number`
+
+Defined in: [runtime/supervise-surface.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L37)
+
+##### summary
+
+> `readonly` **summary**: `string`
+
+Defined in: [runtime/supervise-surface.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L38)
+
+##### failing?
+
+> `readonly` `optional` **failing?**: readonly `string`[]
+
+Defined in: [runtime/supervise-surface.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L39)
+
+***
+
+### SurfaceWorkerConfig
+
+Defined in: [runtime/supervise-surface.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L102)
+
+How a worker runs the surface task (its router substrate + per-attempt bounds).
+
+#### Properties
+
+##### routerBaseUrl
+
+> `readonly` **routerBaseUrl**: `string`
+
+Defined in: [runtime/supervise-surface.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L103)
+
+##### routerKey
+
+> `readonly` **routerKey**: `string`
+
+Defined in: [runtime/supervise-surface.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L104)
+
+##### model
+
+> `readonly` **model**: `string`
+
+Defined in: [runtime/supervise-surface.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L105)
+
+##### maxTokens?
+
+> `readonly` `optional` **maxTokens?**: `number`
+
+Defined in: [runtime/supervise-surface.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L106)
+
+##### innerTurns?
+
+> `readonly` `optional` **innerTurns?**: `number`
+
+Defined in: [runtime/supervise-surface.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L107)
+
+##### budget?
+
+> `readonly` `optional` **budget?**: `number`
+
+Defined in: [runtime/supervise-surface.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L109)
+
+Refine-shot budget for ONE worker attempt (max steered shots). Default 1.
+
+***
+
+### SuperviseSurfaceOptions
+
+Defined in: [runtime/supervise-surface.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L168)
+
+#### Properties
+
+##### surface
+
+> `readonly` **surface**: [`AgenticSurface`](#agenticsurface)
+
+Defined in: [runtime/supervise-surface.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L170)
+
+The graded surface workers solve (open/tools/call/score/close).
+
+##### worker
+
+> `readonly` **worker**: [`SurfaceWorkerConfig`](#surfaceworkerconfig)
+
+Defined in: [runtime/supervise-surface.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L172)
+
+Where/how each worker runs the surface task.
+
+##### budget?
+
+> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
+
+Defined in: [runtime/supervise-surface.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L175)
+
+The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
+ bounds for a handful of worker spawns — raise it to let the driver try more.
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+
+Defined in: [runtime/supervise-surface.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L178)
+
+The driver brain's router substrate (its own inference). Default: the worker's router + model — the
+ driver and workers share one router unless you separate them (e.g. a stronger driver model).
+
+##### analysts?
+
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](#analystregistry) \| `null`
+
+Defined in: [runtime/supervise-surface.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L182)
+
+The self-improvement lens fed to the driver on each settled worker. Default `failuresAnalyst()`
+ (target the still-failing tests). Pass a custom registry to change it, or `null` to turn the
+ within-run self-improvement OFF (the driver sees raw settled outputs).
+
+##### strategy?
+
+> `readonly` `optional` **strategy?**: [`Strategy`](#strategy-3)
+
+Defined in: [runtime/supervise-surface.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L184)
+
+The strategy each worker runs over the surface. Default `refine` (iterate-with-feedback).
+
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Defined in: [runtime/supervise-surface.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L187)
+
+Max workers live at once. Default 1 (serial — required when workers share a persistent artifact, so
+ they continue each other instead of racing the file).
+
+***
+
+### SuperviseSurfaceResult
+
+Defined in: [runtime/supervise-surface.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L191)
+
+The deployable outcome of a supervised surface run.
+
+#### Properties
+
+##### resolved
+
+> `readonly` **resolved**: `boolean`
+
+Defined in: [runtime/supervise-surface.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L192)
+
+##### score
+
+> `readonly` **score**: `number`
+
+Defined in: [runtime/supervise-surface.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L193)
+
+##### usd
+
+> `readonly` **usd**: `number`
+
+Defined in: [runtime/supervise-surface.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L194)
+
+##### tokensIn
+
+> `readonly` **tokensIn**: `number`
+
+Defined in: [runtime/supervise-surface.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L195)
+
+##### tokensOut
+
+> `readonly` **tokensOut**: `number`
+
+Defined in: [runtime/supervise-surface.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L196)
+
+##### ms
+
+> `readonly` **ms**: `number`
+
+Defined in: [runtime/supervise-surface.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L197)
+
+##### completions
+
+> `readonly` **completions**: `number`
+
+Defined in: [runtime/supervise-surface.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L199)
+
+Total conserved-pool iterations = the driver + worker LLM rounds the run actually spent.
 
 ***
 
@@ -7207,7 +7420,7 @@ caller inspects `ok` before `ticket`.
 
 ###### b
 
-[`Budget`](#budget-10)
+[`Budget`](#budget-12)
 
 ###### Returns
 
@@ -7395,7 +7608,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-10)
+> `readonly` **perWorker**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/coordination-driver.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L57)
 
@@ -7658,7 +7871,7 @@ WHERE the authored workers run — the worker-execution backend (`router-tools` 
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`Budget`](#budget-10)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/delegate.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L48)
 
@@ -8340,7 +8553,7 @@ Defined in: [runtime/supervise/supervise.ts:46](https://github.com/tangle-networ
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-10)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
 
@@ -8430,7 +8643,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](#budget-10)
+> `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
 
@@ -8589,7 +8802,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-10)
+> `readonly` **perWorker**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
 
@@ -9552,7 +9765,7 @@ Defined in: [runtime/supervise/types.ts:432](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-10)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/types.ts:434](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L434)
 
@@ -13536,7 +13749,7 @@ Defined in: [runtime/supervise/authoring.ts:138](https://github.com/tangle-netwo
 
 ### defaultDelegateBudget
 
-> `const` **defaultDelegateBudget**: [`Budget`](#budget-10)
+> `const` **defaultDelegateBudget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/delegate.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L34)
 
@@ -15527,6 +15740,52 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 ***
 
+### failuresAnalyst()
+
+> **failuresAnalyst**(): [`AnalystRegistry`](#analystregistry)
+
+Defined in: [runtime/supervise-surface.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L76)
+
+The default self-improvement LENS — authored content, not a code path. On each settled worker it hands
+ the driver the still-FAILING tests (not just a score), so the next spawn targets the persistently-hard
+ cases. Swap `analysts` to change what the driver improves from — that's the one knob.
+
+#### Returns
+
+[`AnalystRegistry`](#analystregistry)
+
+***
+
+### superviseSurface()
+
+> **superviseSurface**(`profile`, `task`, `opts`): `Promise`\<[`SuperviseSurfaceResult`](#supervisesurfaceresult)\>
+
+Defined in: [runtime/supervise-surface.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L205)
+
+Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and
+ report the deployable outcome + the full conserved spend. This is `supervise()` configured for surfaces
+ — there is no other entrypoint to learn.
+
+#### Parameters
+
+##### profile
+
+[`SupervisorProfile`](#supervisorprofile)
+
+##### task
+
+[`AgenticTask`](#agentictask)
+
+##### opts
+
+[`SuperviseSurfaceOptions`](#supervisesurfaceoptions)
+
+#### Returns
+
+`Promise`\<[`SuperviseSurfaceResult`](#supervisesurfaceresult)\>
+
+***
+
 ### asAuthoredProfile()
 
 > **asAuthoredProfile**(`raw`): [`AuthoredProfile`](#authoredprofile) \| `null`
@@ -15710,7 +15969,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 ##### root
 
-[`Budget`](#budget-10)
+[`Budget`](#budget-12)
 
 ##### now?
 
@@ -15832,7 +16091,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### perWorker
 
-[`Budget`](#budget-10)
+[`Budget`](#budget-12)
 
 ###### maxLiveWorkers?
 
