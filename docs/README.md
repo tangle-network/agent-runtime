@@ -1,6 +1,15 @@
 # agent-runtime — documentation index
 
-The map of every doc and the order to read them. Two tracks: **Architecture** (what the system is and where it's going) and **Reference** (how to use the package). On any *architecture* conflict, [`architecture.md`](./architecture.md) wins.
+The map of every doc. **Start here** if you're new; the deeper tracks follow.
+
+## Start here
+
+1. [The README](../README.md) — what the package is + the three things you do with it.
+2. [concepts.md](./concepts.md) — the mental model (chat turns, tasks, runs) in plain terms.
+3. [canonical-api.md](./canonical-api.md) — find the right primitive: "I want to ___ → use ___".
+4. [../examples/](../examples) — copy a runnable example near your task.
+
+**Building something specific?** Go straight to [canonical-api.md](./canonical-api.md) and the matching example. **Going deep on the design?** The Architecture track below — on any architecture conflict, [`architecture.md`](./architecture.md) wins.
 
 ## Architecture track
 

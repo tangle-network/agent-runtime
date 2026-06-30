@@ -69,9 +69,24 @@ const { profile, shipped, lift } = await improve(baseProfile, findings, {
 - **Improvement is gated.** A change ships only after it beats the current agent on fresh tasks no tuning step ever saw, with a statistical test — not a single lucky run.
 - **The grader is honest.** Whatever gives feedback never sees the answer key, and scores are recomputed from the attempts actually run — an agent can't fabricate its own win.
 
+## Examples
+
+Runnable, grouped by what they show — copy the one nearest your task:
+
+| Do this | Example |
+|---|---|
+| Run a product chat turn | [`chat-handler`](./examples/chat-handler) |
+| Drive a team of agents to a goal | [`supervise`](./examples/supervise) · [`recursive-supervisor`](./examples/recursive-supervisor) |
+| Benchmark strategies on your own domain | [`coding-benchmark`](./examples/coding-benchmark) |
+| Benchmark **harnesses × models** over a real task suite | [`webcode-matrix`](./examples/webcode-matrix) |
+| Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
+| Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
+
+All 27 live in [`examples/`](./examples).
+
 ## Where to go next
 
+- New here? [`docs/concepts.md`](./docs/concepts.md) — the mental model in plain terms.
+- [`docs/canonical-api.md`](./docs/canonical-api.md) — find the primitive: "I want to ___ → use ___".
 - [`docs/architecture.md`](./docs/architecture.md) — the design, end to end.
-- [`docs/canonical-api.md`](./docs/canonical-api.md) — every primitive, with signatures.
 - [`bench/HARNESS.md`](./bench/HARNESS.md) — the experiment harness and how to run a benchmark.
-- [`examples/`](./examples) — runnable examples, including a multi-agent coordination eval and a harness×model matrix benchmark.
