@@ -1,8 +1,9 @@
 /**
  * The gate — run the open binding question THROUGH the recursive runtime.
  *
- * The bench unifier (`run-benchmarks.ts`) drives `runLoop`. This module drives the recursive atom
- * instead: a `Persona` + the generic `fanout` combinator over the budget-conserving `Supervisor`,
+ * The bench unifier (`run-benchmarks.ts`) ranks a matrix of cells via per-cell `openSandboxRun`.
+ * This module drives the recursive atom instead: a `Persona` + the generic `fanout` combinator over
+ * the budget-conserving `Supervisor`,
  * so the diverse-strategy-vs-blind gate is measured through the same recursive atom every
  * personified loop uses — not a bespoke harness.
  *

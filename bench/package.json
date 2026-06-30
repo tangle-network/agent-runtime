@@ -13,6 +13,7 @@
   "scripts": {
     "gate": "tsx src/corpus-replay.mts corpus/finsearch.jsonl --selector",
     "gate-cli": "tsx src/gate-cli.mts",
+    "run-benchmarks": "tsx src/run-benchmarks-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "terminal-compare": "tsx src/terminal-compare.ts"
   },
