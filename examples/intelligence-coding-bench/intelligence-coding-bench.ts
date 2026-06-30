@@ -39,9 +39,9 @@ import {
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
 import {
+  loadWebCodeTasks,
   type WebCodeTask,
   profiles as webcodeGrid,
-  tasks as webcodeTasks,
 } from '../webcode-matrix/webcode-matrix'
 
 const routerBaseUrl = process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1'
@@ -115,8 +115,16 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
       },
       { kind: 'events', fromEvents: () => ({ passed: false }) },
     )
-    await run.start(task.prompt)
-    const res = await run.box.exec?.(task.testCmd)
+    const solutionFile = task.solutionFiles[0] ?? 'Solution.txt'
+    await run.start(
+      `${task.taskDescription}\n\n— Write your solution to \`solution/${solutionFile}\`. Use web_search for the post-${task.releaseTag} API; make every test pass.`,
+    )
+    // Grade with Exa's exact test_patch (pytest), score on exit — the same execution-truth grader as
+    // webcode-matrix; here every cell is also traced + billed by the intelligence layers above.
+    await run.box.fs.mkdir('tests', { recursive: true })
+    await run.box.fs.mkdir('solution', { recursive: true })
+    await run.box.fs.write('tests/test_solution.py', task.testPatch)
+    const res = await run.box.exec?.('python3 -m pytest tests/ -q')
     await otel?.flush()
 
     const report = waterfall.report()
@@ -134,6 +142,9 @@ export async function runIntelligenceCodingBench(client: SandboxClient): Promise
   // LAYER 1 — the BOUNDARY: every cell runs under `withTangleIntelligence` — traced + billed, effort-gated.
   // `effort: 'off'` clamps intelligence spend to 0 (the provable passthrough floor) while still running.
   const smartCell = withTangleIntelligence(instrumentedCell(client), { project, effort })
+  const webcodeTasks = loadWebCodeTasks(
+    process.env.LIMIT ? { limit: Number(process.env.LIMIT) } : {},
+  )
 
   console.log(`intelligence-coding-bench · effort=${effort} · project=${project}`)
   console.log(`${'harness·model'.padEnd(30)}${'task'.padEnd(14)}result  cost     wall\n`)

@@ -787,6 +787,220 @@ Defined in: [runtime/audit-intent.ts:62](https://github.com/tangle-network/agent
 
 ***
 
+### LeaderboardOptions
+
+Defined in: [runtime/benchmark-report.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L31)
+
+#### Properties
+
+##### title?
+
+> `readonly` `optional` **title?**: `string`
+
+Defined in: [runtime/benchmark-report.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L32)
+
+##### scoreOf?
+
+> `readonly` `optional` **scoreOf?**: `ScoreOf`
+
+Defined in: [runtime/benchmark-report.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L33)
+
+##### profileKeyOf?
+
+> `readonly` `optional` **profileKeyOf?**: `ProfileKeyOf`
+
+Defined in: [runtime/benchmark-report.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L34)
+
+##### groupOf?
+
+> `readonly` `optional` **groupOf?**: `GroupOf`
+
+Defined in: [runtime/benchmark-report.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L35)
+
+##### axisScoresOf?
+
+> `readonly` `optional` **axisScoresOf?**: `AxisScoresOf`
+
+Defined in: [runtime/benchmark-report.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L36)
+
+##### labelOf?
+
+> `readonly` `optional` **labelOf?**: (`profileKey`) => `string`
+
+Defined in: [runtime/benchmark-report.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L38)
+
+Display label for a profile key (default: the key itself).
+
+###### Parameters
+
+###### profileKey
+
+`string`
+
+###### Returns
+
+`string`
+
+##### meta?
+
+> `readonly` `optional` **meta?**: `Record`\<`string`, `string`\>
+
+Defined in: [runtime/benchmark-report.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L40)
+
+Commit SHA / dataset / dates surfaced in the provenance block.
+
+***
+
+### LeaderboardRow
+
+Defined in: [runtime/benchmark-report.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L44)
+
+One leaderboard row — a harness×model profile, every measured column.
+
+#### Properties
+
+##### profileKey
+
+> `readonly` **profileKey**: `string`
+
+Defined in: [runtime/benchmark-report.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L45)
+
+##### label
+
+> `readonly` **label**: `string`
+
+Defined in: [runtime/benchmark-report.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L46)
+
+##### model
+
+> `readonly` **model**: `string`
+
+Defined in: [runtime/benchmark-report.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L47)
+
+##### n
+
+> `readonly` **n**: `number`
+
+Defined in: [runtime/benchmark-report.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L48)
+
+##### meanScore
+
+> `readonly` **meanScore**: `number`
+
+Defined in: [runtime/benchmark-report.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L49)
+
+##### solveRate
+
+> `readonly` **solveRate**: `number`
+
+Defined in: [runtime/benchmark-report.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L51)
+
+Fraction of records scoring ≥ 0.999 — the binary "fully solved" rate.
+
+##### perAxis
+
+> `readonly` **perAxis**: `Record`\<`string`, `number`\>
+
+Defined in: [runtime/benchmark-report.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L53)
+
+axis → mean score for this profile (blank in render when the profile never ran that axis).
+
+##### costUsd
+
+> `readonly` **costUsd**: `number`
+
+Defined in: [runtime/benchmark-report.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L54)
+
+##### tokensIn
+
+> `readonly` **tokensIn**: `number`
+
+Defined in: [runtime/benchmark-report.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L55)
+
+##### tokensOut
+
+> `readonly` **tokensOut**: `number`
+
+Defined in: [runtime/benchmark-report.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L56)
+
+##### latencyP50Ms
+
+> `readonly` **latencyP50Ms**: `number`
+
+Defined in: [runtime/benchmark-report.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L57)
+
+##### latencyP90Ms
+
+> `readonly` **latencyP90Ms**: `number`
+
+Defined in: [runtime/benchmark-report.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L58)
+
+***
+
+### Leaderboard
+
+Defined in: [runtime/benchmark-report.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L61)
+
+#### Properties
+
+##### title
+
+> `readonly` **title**: `string`
+
+Defined in: [runtime/benchmark-report.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L62)
+
+##### axes
+
+> `readonly` **axes**: readonly `string`[]
+
+Defined in: [runtime/benchmark-report.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L64)
+
+Column order — scenario groups (default) or dimension keys (`axisScoresOf`).
+
+##### profiles
+
+> `readonly` **profiles**: readonly [`LeaderboardRow`](#leaderboardrow)[]
+
+Defined in: [runtime/benchmark-report.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L66)
+
+Rows ranked by `meanScore` desc (ties → lower cost, then label).
+
+##### meta
+
+> `readonly` **meta**: `Record`\<`string`, `string`\>
+
+Defined in: [runtime/benchmark-report.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L67)
+
+##### provenance
+
+> `readonly` **provenance**: `object`
+
+Defined in: [runtime/benchmark-report.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L69)
+
+Provenance counts — the denominators every honest report leads with.
+
+###### records
+
+> `readonly` **records**: `number`
+
+###### profiles
+
+> `readonly` **profiles**: `number`
+
+###### axes
+
+> `readonly` **axes**: `number`
+
+###### models
+
+> `readonly` **models**: readonly `string`[]
+
+###### totalCostUsd
+
+> `readonly` **totalCostUsd**: `number`
+
+***
+
 ### CompletionEvidence
 
 Defined in: [runtime/completion.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L29)
@@ -6829,7 +7043,7 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`model`](#model-6)
+[`AgenticOptions`](#agenticoptions).[`model`](#model-7)
 
 ##### complete?
 
@@ -13869,6 +14083,93 @@ Defined in: [runtime/audit-intent.ts:108](https://github.com/tangle-network/agen
 #### Returns
 
 `Promise`\<[`IntentAudit`](#intentaudit)\>
+
+***
+
+### leaderboard()
+
+> **leaderboard**(`records`, `opts?`): [`Leaderboard`](#leaderboard)
+
+Defined in: [runtime/benchmark-report.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L108)
+
+Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic.
+
+#### Parameters
+
+##### records
+
+readonly `RunRecord`[]
+
+##### opts?
+
+[`LeaderboardOptions`](#leaderboardoptions) = `{}`
+
+#### Returns
+
+[`Leaderboard`](#leaderboard)
+
+***
+
+### renderLeaderboardMarkdown()
+
+> **renderLeaderboardMarkdown**(`report`): `string`
+
+Defined in: [runtime/benchmark-report.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L202)
+
+Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
+ matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure.
+
+#### Parameters
+
+##### report
+
+[`Leaderboard`](#leaderboard)
+
+#### Returns
+
+`string`
+
+***
+
+### renderLeaderboardSvg()
+
+> **renderLeaderboardSvg**(`report`): `string`
+
+Defined in: [runtime/benchmark-report.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L254)
+
+Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps,
+ embeddable anywhere (README, HTML page, hosted leaderboard).
+
+#### Parameters
+
+##### report
+
+[`Leaderboard`](#leaderboard)
+
+#### Returns
+
+`string`
+
+***
+
+### renderLeaderboardHtml()
+
+> **renderLeaderboardHtml**(`report`): `string`
+
+Defined in: [runtime/benchmark-report.ts:325](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/benchmark-report.ts#L325)
+
+Render a self-contained HTML leaderboard page (the hosted surface): the SVG charts + the full Markdown
+ matrix as a table. Single file, no assets, opens in any browser.
+
+#### Parameters
+
+##### report
+
+[`Leaderboard`](#leaderboard)
+
+#### Returns
+
+`string`
 
 ***
 
