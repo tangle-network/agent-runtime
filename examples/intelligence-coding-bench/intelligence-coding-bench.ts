@@ -93,11 +93,13 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
       sandboxOverrides: {
-        // Only the WebCode search creds — never router/model credentials into the box.
+        // ONE key: TANGLE_API_KEY auths the sandbox, the model router, AND router-backed web_search.
         env: {
           TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa',
-          ...(process.env.EXA_API_KEY ? { EXA_API_KEY: process.env.EXA_API_KEY } : {}),
+          ...(process.env.TANGLE_API_KEY ? { TANGLE_API_KEY: process.env.TANGLE_API_KEY } : {}),
         },
+        // The multi-language toolchain (python+pytest + Go/Py/TS/Java/C++), same as commit0/clbench.
+        environment: 'universal',
         backend: {
           type: harness as BackendType,
           model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
@@ -124,6 +126,7 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
     await run.box.fs.mkdir('tests', { recursive: true })
     await run.box.fs.mkdir('solution', { recursive: true })
     await run.box.fs.write('tests/test_solution.py', task.testPatch)
+    await run.box.exec?.('python3 -m pip install -q pytest 2>/dev/null || true')
     const res = await run.box.exec?.('python3 -m pytest tests/ -q')
     await otel?.flush()
 

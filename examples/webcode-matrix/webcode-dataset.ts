@@ -29,6 +29,9 @@ export interface WebCodeTask extends Scenario {
   readonly solutionFiles: readonly string[]
   /** The per-task toolchain Dockerfile (the image Exa grades in). */
   readonly dockerfile?: string
+  /** The base image parsed from the Dockerfile's `FROM` (e.g. `swift:6.1-bookworm`) — the per-task
+   *  toolchain for tier-2/3 grading (see README). `undefined` when no Dockerfile ships. */
+  readonly baseImage?: string
   /** Required-knowledge citations (the post-Aug-2025 API the agent must web-search). */
   readonly citations: ReadonlyArray<{ url?: string; required_knowledge?: string }>
 }
@@ -72,6 +75,8 @@ export function loadWebCodeTasks(opts: { limit?: number } = {}): WebCodeTask[] {
     .map((l) => JSON.parse(l) as RawWebCodeRow)
   const tasks = rows.map((r): WebCodeTask => {
     const m = r.metadata ?? {}
+    // The base toolchain image is the Dockerfile's first `FROM` (e.g. `swift:6.1-bookworm`).
+    const baseImage = m.dockerfile ? /^\s*FROM\s+(\S+)/im.exec(m.dockerfile)?.[1] : undefined
     return {
       id: r.id,
       kind: 'webcode',
@@ -83,6 +88,7 @@ export function loadWebCodeTasks(opts: { limit?: number } = {}): WebCodeTask[] {
       testPatch: r.test_patch,
       solutionFiles: m.solution_files ?? [],
       ...(m.dockerfile ? { dockerfile: m.dockerfile } : {}),
+      ...(baseImage ? { baseImage } : {}),
       citations: m.citations ?? [],
     }
   })

@@ -70,11 +70,17 @@ function webcodeDispatch(
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
       sandboxOverrides: {
-        // EXA_API_KEY + the search-provider pin are the only creds WebCode adds (never router/model creds).
+        // ONE key: TANGLE_API_KEY auths the sandbox, the model router, AND router-backed web_search
+        // (provider selected by TANGLE_SEARCH_DEFAULT_PROVIDER; no separate Exa key). The agent searches
+        // the post-cutoff API via the harness's web_search, served through the Tangle router.
         env: {
           TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa',
-          ...(process.env.EXA_API_KEY ? { EXA_API_KEY: process.env.EXA_API_KEY } : {}),
+          ...(process.env.TANGLE_API_KEY ? { TANGLE_API_KEY: process.env.TANGLE_API_KEY } : {}),
         },
+        // The toolchain: `universal` is the multi-language Nix stack (python+pytest + Go/Py/TS/Java/C++),
+        // the same default the commit0/clbench gates use. Exotic per-task toolchains (Swift/Elixir/…) ship
+        // their own image in `task.baseImage` — see the README's grading tiers.
+        environment: 'universal',
         backend: {
           type: harness as BackendType,
           model: { provider: 'openai-compat', model, baseUrl: routerBaseUrl },
@@ -88,12 +94,13 @@ function webcodeDispatch(
     )
     await run.start(prompt)
 
-    // Grade with Exa's EXACT test_patch: drop it into the box as the test suite, run pytest, score on exit.
-    // (Full fidelity grades inside the task's own `task.dockerfile` toolchain image; where the sandbox runs
-    // a different base, a missing toolchain surfaces as a failing test — never a fake pass.)
+    // Grade with Exa's EXACT test_patch: drop it into the box, ensure pytest, run it, score on exit. A
+    // missing language toolchain (an exotic per-task image not provisioned) surfaces as a failing test —
+    // never a fake pass.
     await run.box.fs.mkdir('tests', { recursive: true })
     await run.box.fs.mkdir('solution', { recursive: true })
     await run.box.fs.write('tests/test_solution.py', task.testPatch)
+    await run.box.exec?.('python3 -m pip install -q pytest 2>/dev/null || true')
     const res = await run.box.exec?.('python3 -m pytest tests/ -q')
     return { passed: (res?.exitCode ?? 1) === 0 }
   }
