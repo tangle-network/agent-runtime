@@ -17,3 +17,20 @@ export type {
   BenchTask,
   LoadOptions,
 } from './benchmarks/types'
+
+/**
+ * The unifier: run a subset of the registry over a matrix of agent cells (harness × model ×
+ * persona), each scored by the benchmark's own judge, and rank them.
+ *
+ *   import { runBenchmarks, printBenchmarksReport } from '@tangle-network/agent-bench'
+ */
+export {
+  runBenchmarks,
+  printBenchmarksReport,
+  type BenchCell,
+  type BenchShot,
+  type BenchCellTaskResult,
+  type BenchLeaderboardRow,
+  type RunBenchmarksOptions,
+  type RunBenchmarksReport,
+} from './run-benchmarks'
