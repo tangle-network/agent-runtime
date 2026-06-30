@@ -503,12 +503,15 @@ function environmentAsSandboxInstance(
           `providerAsSandboxClient(${environment.provider}): prompt ended without a terminal result/done/status event`,
         )
       }
-      return {
-        response: resultFromEvents(events, text).content,
-        success: true,
-        durationMs: 0,
-        ...(usage ? { usage } : {}),
-      }
+      return promptResultCompat(
+        {
+          response: resultFromEvents(events, text).content,
+          success: true,
+          durationMs: 0,
+          ...(usage ? { usage } : {}),
+        },
+        'success',
+      )
     },
     ...(environment.dispatch
       ? {
@@ -904,14 +907,35 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+type PromptResultCompatInput = {
+  response?: string
+  success: boolean
+  error?: string
+  traceId?: string
+  durationMs: number
+  usage?: PromptResult['usage']
+}
+
+function promptResultCompat(
+  input: PromptResultCompatInput,
+  status: 'success' | 'failed',
+): PromptResult {
+  // sandbox 0.8 omitted `status`; sandbox 0.9 requires it. Emit it at runtime
+  // while keeping this adapter type-checkable across the supported peer range.
+  return { ...input, status } as unknown as PromptResult
+}
+
 function promptResultFromAgentTurnResult(result: AgentTurnResult): PromptResult {
-  return {
-    response: result.text,
-    success: result.success,
-    durationMs: 0,
-    ...(result.error ? { error: result.error } : {}),
-    ...(result.usage ? { usage: result.usage } : {}),
-  }
+  return promptResultCompat(
+    {
+      response: result.text,
+      success: result.success,
+      durationMs: 0,
+      ...(result.error ? { error: result.error } : {}),
+      ...(result.usage ? { usage: result.usage } : {}),
+    },
+    result.success ? 'success' : 'failed',
+  )
 }
 
 function agentTurnResultFromPromptResult(result: PromptResult): AgentTurnResult {
