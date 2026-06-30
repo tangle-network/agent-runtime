@@ -302,7 +302,7 @@ function pytestPassed(dir: string): { passed: number; total: number } {
   try {
     out = execFileSync(
       'python3',
-      ['-m', 'pytest', '-q', '--tb=no', '-p', 'no:cacheprovider', 'test_calc.py'],
+      ['-m', 'pytest', '-q', '--tb=no', '--color=no', '-p', 'no:cacheprovider', 'test_calc.py'],
       {
         cwd: dir,
         encoding: 'utf8',
@@ -317,6 +317,37 @@ function pytestPassed(dir: string): { passed: number; total: number } {
   const failed =
     Number(out.match(/(\d+) failed/)?.[1] ?? 0) + Number(out.match(/(\d+) error/)?.[1] ?? 0)
   return { passed, total: passed + failed }
+}
+
+/** A worker-facing test report: the pass count + the NAMES of the failing tests, so the agent (and the
+ *  supervisor's next worker) can target what is actually broken instead of guessing blind. */
+function runTestsReport(dir: string): string {
+  let out = ''
+  try {
+    out = execFileSync(
+      'python3',
+      [
+        '-m',
+        'pytest',
+        '-q',
+        '--tb=no',
+        '--color=no',
+        '-rf',
+        '-p',
+        'no:cacheprovider',
+        'test_calc.py',
+      ],
+      { cwd: dir, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+  } catch (e) {
+    out = (e as { stdout?: string }).stdout ?? ''
+  }
+  const passed = Number(out.match(/(\d+) passed/)?.[1] ?? 0)
+  const failed =
+    Number(out.match(/(\d+) failed/)?.[1] ?? 0) + Number(out.match(/(\d+) error/)?.[1] ?? 0)
+  const failing = [...out.matchAll(/FAILED \S*::(\S+)/g)].map((m) => m[1])
+  const head = `${passed}/${passed + failed} tests passed.`
+  return failing.length ? `${head} FAILING: ${failing.join(', ')}` : head
 }
 
 export const hardCodingEnv: AgenticSurface = {
@@ -366,8 +397,15 @@ export const hardCodingEnv: AgenticSurface = {
           },
         },
       },
-      // NO run_tests: the agent cannot iterate-until-green. It must implement correctly from READING the
-      // tests, which is where the real headroom (and the value of the STRATEGY) lives.
+      {
+        type: 'function',
+        function: {
+          name: 'run_tests',
+          description:
+            'Run the test suite; returns how many passed and the NAMES of the failing tests. Use it to see what is still broken and fix exactly that.',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
     ] satisfies AgenticTool[]
   },
   async call(handle, name, args) {
@@ -394,6 +432,7 @@ export const hardCodingEnv: AgenticSurface = {
         return `ERROR: ${(e as Error).message}`
       }
     }
+    if (name === 'run_tests') return runTestsReport(ws.dir)
     return `ERROR: unknown tool ${name}`
   },
   async score(_task, handle): Promise<SurfaceScore> {
@@ -422,12 +461,12 @@ export const hardCodingTasks = async (offset: number, n: number): Promise<Agenti
         'You are a Python engineer. calc.py must implement a STACK/PRECEDENCE-based integer expression ' +
         'evaluator. Its EXACT dialect is defined ONLY by test_calc.py: the number base (decimal or 0x-hex), ' +
         'the integer-division operator glyph, the rounding rule for negative quotients (floor toward -inf vs ' +
-        'truncate toward zero), and the EXACT error string. You CANNOT run the tests — read every assertion ' +
-        '(precedence, left-associativity, unary minus, nested parens, division-by-zero, malformed input) and ' +
-        'implement evaluate() + the CalcError exception correctly in ONE pass. Do not edit test_calc.py.',
+        'truncate toward zero), and the EXACT error string. WORKFLOW: read test_calc.py, write calc.py, then ' +
+        'call run_tests to see what passed and which tests FAIL, and fix exactly those — iterate until all pass. ' +
+        'Get precedence, associativity, unary minus, nested parens, division-by-zero, and malformed input right. ' +
+        'Do not edit test_calc.py.',
       userPrompt:
-        'Read test_calc.py to learn the exact dialect, then write a correct calc.py. You cannot run the ' +
-        'tests — reason through precedence, associativity, unary minus, division rounding, and every error case.',
+        'Read test_calc.py, implement calc.py, then run_tests and fix the failing tests until every test passes.',
       meta: { seed },
     } satisfies AgenticTask
   })

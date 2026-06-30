@@ -1,5 +1,7 @@
 # The eval substrate — north star, methodology, and building discipline
 
+> **In plain terms:** This doc explains what we're really building here: a fair, trustworthy testing system that answers "for this kind of task, which combination of AI agent setup, model, and provider actually works best?" — backed by real test runs, not vendor marketing claims. It's written for developers working on this repo, so everyone shares one mental model before touching the benchmark code. The single most important idea: we're building the *thing that measures*, not any one benchmark result — and reporting honest answers (even unflattering ties) is the whole point, because that honesty is what makes the numbers worth believing.
+
 ## The bigger goal (read this first, repeat it often)
 
 **We are building the neutral measurement substrate for AI agents: the system that can answer, with execution-grounded evidence, "which (harness × model × provider × strategy) combination is actually best for task-class X" — cheaply, for any axis, on demand.**

@@ -1,15 +1,19 @@
 /**
- * self-improving-supervisor — the one-call DX recipe for the driver-steered supervisor over a graded
- * task. It composes three already-built seams instead of hand-wiring a loop:
+ * selfImprovingSupervisor — NOT a separate primitive: it is `supervise()` configured for a graded coding
+ * surface. The ONE entrypoint is `supervise(profile, task, opts)`; this recipe just wires the pieces a
+ * coding task needs and picks the analyst lens:
  *
- *   surfaceWorkerSeam   → WHERE the worker runs + the completion oracle that makes "settled ⟺ delivered"
- *   supervise()         → the LLM driver brain that spawns + steers the worker on a conserved budget
- *   analysts/onSettle   → the self-improving UP-leg: when a worker settles, an analyst reads its output
- *                          and re-enters a short `finding` the driver composes its next steer from
+ *   surfaceWorkerSeam   → WHERE the worker runs + the completion oracle ("settled ⟺ delivered")
+ *   supervise()         → the LLM driver brain that spawns + steers workers on a conserved budget
+ *   failuresAnalyst     → the SELF-IMPROVEMENT, as AUTHORED CONTENT (not a code path): on each settled
+ *                          worker it hands the driver the still-failing tests, so the next spawn targets
+ *                          the persistently-hard cases. "Self-improving" lives in this lens — swap the
+ *                          analyst to change what the driver learns from.
  *
- * `analyze` is the one knob that flips the up-leg on: off → the driver sees raw settled outputs; on →
- * the driver also receives a one-line analyst read of each settled worker (the steer firewall stays in
- * the analyst registry — the analyst summarizes, it never decides the verdict).
+ * Two timescales, one entrypoint each. WITHIN a run, the driver self-improves its briefs from the analyst
+ * (here). ACROSS runs, wrap this call in `improve()`/`selfImprove` to optimize the driver PROFILE on a
+ * held-out set (gepa-driver-prompt.ts) — separate by design, because one task has no held-out set to
+ * certify generalization. `analyze` flips the within-run up-leg on/off (off → the driver sees raw outputs).
  */
 import {
   type AgenticSurface,
@@ -43,28 +47,34 @@ export interface SelfImprovingSupervisorOptions {
   readonly router: { readonly baseUrl: string; readonly apiKey: string; readonly model: string }
 }
 
-/** The minimal one-lens registry used only when `analyze` is on: a single `progress` lens that reads
- *  the worker's settled output and hands the driver a short summary (the up-leg). It declares its kind
- *  so `analyzeOnSettle:['progress']` resolves, and its `run` returns the `{ summary }` read. The shape
- *  is validated structurally against `supervise`'s `analysts` option at the call site. */
-function progressAnalyst() {
+/** The self-improvement LENS — authored content, not a primitive. This is the whole "self-improving" in
+ *  `selfImprovingSupervisor`: `supervise()` already fires an analyst on each settled worker (`analyzeOnSettle`);
+ *  this lens decides WHAT the driver learns from it. It hands the driver the worker's still-FAILING tests
+ *  (not just a score), so the next spawn can target the persistently-hard cases — real-time, within-run
+ *  self-improvement. Swap this function to change what the driver improves from; that's the one knob. */
+export function failuresAnalyst() {
   return {
     kinds: [
       {
-        id: 'progress',
-        description: "Summarize the worker's settled output for the driver's next steer.",
+        id: 'failures',
+        description: "Surface the worker's still-failing tests so the driver targets them next.",
         area: 'progress',
       },
     ],
     run: async (_kindId: string, trace: unknown) => {
-      // `trace` is the worker's settled blob — a SurfaceWorkerOut object. `String(obj)` yields the
-      // useless literal '[object Object]', so read the real fields into the driver's next-steer context.
+      // `trace` is the worker's settled blob — a SurfaceWorkerOut. Read its real fields (String(obj) is
+      // the useless '[object Object]') and lead with the failing-test list, the targetable signal.
       const w = (trace ?? {}) as Partial<SurfaceWorkerOut>
-      const summary =
-        typeof w === 'object' && w !== null && 'resolved' in w
-          ? `worker ${w.resolved ? 'RESOLVED' : 'did NOT resolve'} — score ${(100 * (w.score ?? 0)).toFixed(0)}%, ${w.shots ?? '?'} shot(s)${w.summary ? `: ${w.summary}` : ''}`
-          : `worker produced: ${JSON.stringify(trace).slice(0, 400)}`
-      return { summary }
+      if (!(typeof w === 'object' && w !== null && 'resolved' in w))
+        return { summary: `worker produced: ${JSON.stringify(trace).slice(0, 300)}` }
+      if (w.resolved) return { summary: 'worker RESOLVED — every check passed; stop.' }
+      const failing = (w.failing ?? []) as readonly string[]
+      const head = `worker did NOT resolve — score ${(100 * (w.score ?? 0)).toFixed(0)}%, ${w.shots ?? '?'} shot(s)`
+      return {
+        summary: failing.length
+          ? `${head}. STILL FAILING (${failing.length}): ${failing.slice(0, 12).join(', ')}. Spawn the next worker to fix exactly these; if a test keeps failing across workers, give it concrete guidance about that case.`
+          : `${head}. (no failing-test list available this round)`,
+      }
     },
   }
 }
@@ -79,6 +89,8 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
   tokensIn: number
   tokensOut: number
   ms: number
+  /** Total conserved-pool iterations = the driver+worker LLM rounds this supervised run actually spent. */
+  completions: number
 }> {
   const seam = surfaceWorkerSeam({
     surface: opts.surface,
@@ -98,6 +110,9 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
     makeWorkerAgent: seam.makeWorkerAgent,
     deliverable: seam.deliverable,
     budget: opts.budget,
+    // Serialize workers: with a persistent (shared) workspace, concurrent workers race on the same file
+    // and corrupt it; serial is also exactly what build-on-progress needs (worker N+1 CONTINUES worker N).
+    maxLiveWorkers: 1,
     perWorker: { maxIterations: perWorkerIters, maxTokens: opts.worker.maxTokens ?? 4000 },
     router: {
       routerBaseUrl: opts.router.baseUrl,
@@ -105,7 +120,7 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
       model: opts.router.model,
     },
     ...(opts.analyze
-      ? { analysts: progressAnalyst(), analyzeOnSettle: ['progress'] as const }
+      ? { analysts: failuresAnalyst(), analyzeOnSettle: ['failures'] as const }
       : {}),
   })
 
@@ -124,5 +139,6 @@ export async function selfImprovingSupervisor(opts: SelfImprovingSupervisorOptio
     tokensIn: sp.tokens.input,
     tokensOut: sp.tokens.output,
     ms: sp.ms,
+    completions: sp.iterations,
   }
 }

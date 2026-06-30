@@ -1,9 +1,19 @@
 # The Continual Cross-Benchmark Learning Flywheel
 
-> **Canonical entry point is now [`architecture.md`](./architecture.md)** — the single spine
-> (recursive `Agent` atom · two timescales · benchmark-as-adapter · selector ≠ judge). Read it
-> first. This doc is the *deep-dive on the theory and moat*: the `(π,τ,J,D,O)` recursion and the
-> hard-won discipline. Where the two differ, the spine wins.
+> **In plain terms:** This is a design-rationale doc — it explains *why* this project is built
+> to get better the more it runs, not how to use the package day to day. It's for a developer
+> who wants the big-picture research bet before reading the code. The one idea to take home:
+> every test run saves a full record of what the agent did and how well it scored, and a
+> learning component studies *all* of those saved records to steer future runs better — so the
+> real asset is the growing library of run records plus the component trained on it, never any
+> single test result.
+
+> **Start with [`architecture.md`](./architecture.md)** — it's the main map of how the system
+> fits together: one recursive `Agent` building block, two speeds of improvement (fast within a
+> single run, slow across many runs), evals plugged in as adapters, and the rule that the
+> component choosing the best answer is never the one scoring it. This doc is the deeper dive
+> into the theory and the long-term competitive edge — the `(π,τ,J,D,O)` recursion and the
+> hard-won discipline behind it. Where the two disagree, `architecture.md` wins.
 
 > The core thesis of this project. There are **two loops, and the product is the outer one.**
 >
