@@ -93,11 +93,10 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
       sandboxOverrides: {
-        // ONE key: TANGLE_API_KEY auths the sandbox, the model router, AND router-backed web_search.
-        env: {
-          TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa',
-          ...(process.env.TANGLE_API_KEY ? { TANGLE_API_KEY: process.env.TANGLE_API_KEY } : {}),
-        },
+        // The box self-auths via its provisioned credential (the SANDBOX_API_KEY = your TANGLE_API_KEY) —
+        // do NOT pass a router/model key into the box (egress proxy rejects foreign creds). Search-provider
+        // pick only.
+        env: { TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa' },
         // The multi-language toolchain (python+pytest + Go/Py/TS/Java/C++), same as commit0/clbench.
         environment: 'universal',
         backend: {

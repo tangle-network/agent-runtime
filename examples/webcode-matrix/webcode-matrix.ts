@@ -13,7 +13,11 @@
  * `leaderboard` engine → a ranked board + the full profile×task matrix + SVG/HTML charts.
  *
  * Run it live (writes report.md / report.svg / report.html to RUN_DIR):
- *   EXA_API_KEY=…  SANDBOX_API_KEY=…  [LIMIT=3]  tsx examples/webcode-matrix/webcode-matrix.ts
+ *   SANDBOX_API_KEY=$TANGLE_API_KEY  [LIMIT=3]  tsx examples/webcode-matrix/webcode-matrix.ts
+ * ONE key: the SANDBOX_API_KEY the box is created with (your TANGLE_API_KEY) provisions the box's own
+ * model + search credential — nothing else is passed in. A live run therefore requires IN-BOX router
+ * inference to be enabled for that key; if it is not, the agent stream produces zero tokens and the
+ * backend-integrity guard correctly aborts the matrix as a stub (it never fakes a score).
  */
 import { writeFileSync } from 'node:fs'
 import type { JudgeConfig, ProfileDispatchFn } from '@tangle-network/agent-eval/campaign'
@@ -35,17 +39,26 @@ const routerBaseUrl = process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tool
 
 // ── Axis 1 — HARNESS × MODEL. Each row is one leaderboard profile. A model id MUST carry a snapshot date:
 //    `runProfileMatrix` rejects a bare alias (a record without the exact snapshot isn't reproducible).
+// Real router-served model ids (GET /v1/models). The harness is the in-box agent CLI; the model is the
+// LLM it runs, routed via openai-compat. Vary both for a real matrix; edit freely.
 const grid = [
-  { harness: 'claude-code', model: 'anthropic/claude-opus-4-8-2026-01-15' },
-  { harness: 'codex', model: 'openai/gpt-5-codex-2025-09-15' },
-  { harness: 'opencode', model: 'deepseek/deepseek-v4-pro-2025-12-01' },
-  { harness: 'gemini', model: 'google/gemini-2.5-pro-2025-06-17' },
+  { harness: 'claude-code', model: 'claude-sonnet-4-6' },
+  { harness: 'codex', model: 'openai/gpt-5' },
+  { harness: 'opencode', model: 'deepseek-v4-flash' },
+  { harness: 'gemini', model: 'gemini-2.5-pro' },
 ] as const
 
+// The eval RECORD pins a snapshot date for reproducibility (runProfileMatrix requires `name@YYYY-MM-DD`);
+// the router serves BARE ids, so the box CALL uses the bare id (metadata.model) while model.default carries
+// the dated id. Stamp the date you ran.
+const snapshot = process.env.MODEL_SNAPSHOT ?? '2026-06-30'
+
 export const profiles: AgentProfile[] = grid.map(({ harness, model }) => ({
-  name: `${harness}·${model.split('/')[1]}`,
-  // AgentProfile has no `harness` field — the harness is a SANDBOX backend, carried on metadata so the
-  // dispatch (and the leaderboard's profile key) can read it back. The model rides `model.default`.
+  name: `${harness}·${model.split('/').at(-1)}`,
+  // model.default = the dated id the eval records by; metadata.model = the BARE id the box calls (the
+  // router serves bare). AgentProfile has no `harness` field — it's a SANDBOX backend, on metadata so the
+  // dispatch + the leaderboard profile key can read it back.
+  model: { default: `${model}@${snapshot}` },
   metadata: { harness, model },
   systemPrompt:
     'Solve the task. The library API post-dates your training — use web_search to find the CURRENT ' +
@@ -70,13 +83,11 @@ function webcodeDispatch(
       name: profile.name ?? harness,
       taskToPrompt: (t) => t,
       sandboxOverrides: {
-        // ONE key: TANGLE_API_KEY auths the sandbox, the model router, AND router-backed web_search
-        // (provider selected by TANGLE_SEARCH_DEFAULT_PROVIDER; no separate Exa key). The agent searches
-        // the post-cutoff API via the harness's web_search, served through the Tangle router.
-        env: {
-          TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa',
-          ...(process.env.TANGLE_API_KEY ? { TANGLE_API_KEY: process.env.TANGLE_API_KEY } : {}),
-        },
+        // The box self-auths: its OWN provisioned credential (from the SANDBOX_API_KEY the client was
+        // created with — your TANGLE_API_KEY) covers the model router AND router-backed web_search. Do NOT
+        // pass a router/model key INTO the box — the egress proxy rejects foreign credentials (403, empty
+        // output). The only box env is the search-provider pick.
+        env: { TANGLE_SEARCH_DEFAULT_PROVIDER: 'exa' },
         // The toolchain: `universal` is the multi-language Nix stack (python+pytest + Go/Py/TS/Java/C++),
         // the same default the commit0/clbench gates use. Exotic per-task toolchains (Swift/Elixir/…) ship
         // their own image in `task.baseImage` — see the README's grading tiers.
