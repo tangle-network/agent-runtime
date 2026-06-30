@@ -168,14 +168,14 @@ function surfaceWorkerExecutor(
 export interface SuperviseSurfaceOptions {
   /** The graded surface workers solve (open/tools/call/score/close). */
   readonly surface: AgenticSurface
-  /** The single graded task to resolve. */
-  readonly task: AgenticTask
   /** Where/how each worker runs the surface task. */
   readonly worker: SurfaceWorkerConfig
-  /** The conserved compute pool for the whole supervised run. */
-  readonly budget: Budget
-  /** The driver brain's router substrate (its own inference). */
-  readonly router: RouterConfig
+  /** The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
+   *  bounds for a handful of worker spawns — raise it to let the driver try more. */
+  readonly budget?: Budget
+  /** The driver brain's router substrate (its own inference). Default: the worker's router + model — the
+   *  driver and workers share one router unless you separate them (e.g. a stronger driver model). */
+  readonly router?: RouterConfig
   /** The self-improvement lens fed to the driver on each settled worker. Default `failuresAnalyst()`
    *  (target the still-failing tests). Pass a custom registry to change it, or `null` to turn the
    *  within-run self-improvement OFF (the driver sees raw settled outputs). */
@@ -204,10 +204,23 @@ export interface SuperviseSurfaceResult {
  *  — there is no other entrypoint to learn. */
 export async function superviseSurface(
   profile: SupervisorProfile,
+  task: AgenticTask,
   opts: SuperviseSurfaceOptions,
 ): Promise<SuperviseSurfaceResult> {
   const strategy = opts.strategy ?? refine
   const innerTurns = opts.worker.innerTurns ?? 6
+  // Default the driver to the worker's router (one router unless separated) and the pool to a handful of
+  // worker spawns sized off the worker bounds — so the minimal call is
+  // `superviseSurface(profile, task, { surface, worker })`.
+  const router = opts.router ?? {
+    routerBaseUrl: opts.worker.routerBaseUrl,
+    routerKey: opts.worker.routerKey,
+    model: opts.worker.model,
+  }
+  const budget = opts.budget ?? {
+    maxIterations: (innerTurns + 2) * 5 + 16,
+    maxTokens: (opts.worker.maxTokens ?? 4000) * 8,
+  }
 
   // Every spawned worker is a BYO executor that runs the surface task; the deliverable is the completion
   // oracle (delivered ⟺ the surface check passed).
@@ -219,7 +232,7 @@ export async function superviseSurface(
       harness: null,
       executor: surfaceWorkerExecutor(
         opts.surface,
-        opts.task,
+        task,
         opts.worker,
         strategy,
       ) as Executor<unknown>,
@@ -229,7 +242,7 @@ export async function superviseSurface(
     }
   }
   const deliverable: DeliverableSpec<unknown> = {
-    describe: `resolve the surface task ${opts.task.id} (every required check passes)`,
+    describe: `resolve the surface task ${task.id} (every required check passes)`,
     check: (out) => (out as SurfaceWorkerOut | undefined)?.resolved === true,
   }
 
@@ -237,15 +250,15 @@ export async function superviseSurface(
   // declares on each settled worker.
   const analysts = opts.analysts === null ? undefined : (opts.analysts ?? failuresAnalyst())
 
-  const result = await supervise(profile, opts.task, {
+  const result = await supervise(profile, task, {
     makeWorkerAgent,
     deliverable,
-    budget: opts.budget,
+    budget,
     maxLiveWorkers: opts.maxLiveWorkers ?? 1,
     // A SMALL per-worker reservation so MULTIPLE workers fit the pool (the default reserves the whole pool
     // per worker → only one ever spawns, defeating the spawn-a-targeted-worker steering).
     perWorker: { maxIterations: innerTurns + 2, maxTokens: opts.worker.maxTokens ?? 4000 },
-    router: opts.router,
+    router,
     ...(analysts ? { analysts, analyzeOnSettle: analysts.kinds.map((k) => k.id) } : {}),
   })
 

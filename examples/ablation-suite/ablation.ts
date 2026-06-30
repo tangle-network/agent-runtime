@@ -210,38 +210,32 @@ export async function runAblation(opts: {
           // pool, with the analyst up-leg on. `superviseSurface` reports the deployable outcome +
           // the FULL conserved spend (driver inference + all worker work: $, tokens, latency). `shots`
           // stays 0 — a multi-worker supervised run has no single refine-shot count (N/A, not a real zero).
-          const sup = await superviseSurface(
-            { name: 'driver', systemPrompt: driverPrompt },
-            {
-              surface: counter,
-              task: t,
-              worker: {
-                routerBaseUrl: opts.worker.routerBaseUrl,
-                routerKey: opts.worker.routerKey,
-                model: opts.worker.model,
-                ...(opts.worker.maxTokens !== undefined
-                  ? { maxTokens: opts.worker.maxTokens }
-                  : {}),
-                ...(opts.worker.innerTurns !== undefined
-                  ? { innerTurns: opts.worker.innerTurns }
-                  : {}),
-                budget: arm.knobs.budget,
-              },
-              budget: {
-                // Pool for the driver's turns PLUS several worker spawns (each reserves ~innerTurns+2
-                // iterations) so the spawn-targeted-worker loop runs, not stall after one. The autopsy
-                // measures the real cost; this is intentionally not equal-k.
-                maxIterations: arm.knobs.budget * ((opts.worker.innerTurns ?? 6) + 2) + 16,
-                maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
-              },
-              router: {
-                routerBaseUrl: supervisorRouter.baseUrl,
-                routerKey: supervisorRouter.apiKey,
-                model: supervisorRouter.model,
-              },
-              analysts: failuresAnalyst(),
+          const sup = await superviseSurface({ name: 'driver', systemPrompt: driverPrompt }, t, {
+            surface: counter,
+            worker: {
+              routerBaseUrl: opts.worker.routerBaseUrl,
+              routerKey: opts.worker.routerKey,
+              model: opts.worker.model,
+              ...(opts.worker.maxTokens !== undefined ? { maxTokens: opts.worker.maxTokens } : {}),
+              ...(opts.worker.innerTurns !== undefined
+                ? { innerTurns: opts.worker.innerTurns }
+                : {}),
+              budget: arm.knobs.budget,
             },
-          )
+            budget: {
+              // Pool for the driver's turns PLUS several worker spawns (each reserves ~innerTurns+2
+              // iterations) so the spawn-targeted-worker loop runs, not stall after one. The autopsy
+              // measures the real cost; this is intentionally not equal-k.
+              maxIterations: arm.knobs.budget * ((opts.worker.innerTurns ?? 6) + 2) + 16,
+              maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
+            },
+            router: {
+              routerBaseUrl: supervisorRouter.baseUrl,
+              routerKey: supervisorRouter.apiKey,
+              model: supervisorRouter.model,
+            },
+            analysts: failuresAnalyst(),
+          })
           if (sup.resolved) resolved++
           scoreSum += sup.score
           perTask.push(sup.resolved ? 1 : 0)

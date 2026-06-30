@@ -7009,37 +7009,31 @@ Defined in: [runtime/supervise-surface.ts:170](https://github.com/tangle-network
 
 The graded surface workers solve (open/tools/call/score/close).
 
-##### task
-
-> `readonly` **task**: [`AgenticTask`](#agentictask)
-
-Defined in: [runtime/supervise-surface.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L172)
-
-The single graded task to resolve.
-
 ##### worker
 
 > `readonly` **worker**: [`SurfaceWorkerConfig`](#surfaceworkerconfig)
 
-Defined in: [runtime/supervise-surface.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L174)
+Defined in: [runtime/supervise-surface.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L172)
 
 Where/how each worker runs the surface task.
 
-##### budget
+##### budget?
 
-> `readonly` **budget**: [`Budget`](#budget-12)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/supervise-surface.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L176)
+Defined in: [runtime/supervise-surface.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L175)
 
-The conserved compute pool for the whole supervised run.
+The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
+ bounds for a handful of worker spawns — raise it to let the driver try more.
 
-##### router
+##### router?
 
-> `readonly` **router**: [`RouterConfig`](#routerconfig)
+> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
 
 Defined in: [runtime/supervise-surface.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L178)
 
-The driver brain's router substrate (its own inference).
+The driver brain's router substrate (its own inference). Default: the worker's router + model — the
+ driver and workers share one router unless you separate them (e.g. a stronger driver model).
 
 ##### analysts?
 
@@ -15628,7 +15622,7 @@ The default self-improvement LENS — authored content, not a code path. On each
 
 ### superviseSurface()
 
-> **superviseSurface**(`profile`, `opts`): `Promise`\<[`SuperviseSurfaceResult`](#supervisesurfaceresult)\>
+> **superviseSurface**(`profile`, `task`, `opts`): `Promise`\<[`SuperviseSurfaceResult`](#supervisesurfaceresult)\>
 
 Defined in: [runtime/supervise-surface.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L205)
 
@@ -15641,6 +15635,10 @@ Drive a team of agents (spawned + steered by `profile`) to solve a graded `Agent
 ##### profile
 
 [`SupervisorProfile`](#supervisorprofile)
+
+##### task
+
+[`AgenticTask`](#agentictask)
 
 ##### opts
 

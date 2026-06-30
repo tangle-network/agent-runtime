@@ -118,26 +118,22 @@ export async function optimizeDriverPrompt(opts: {
         `optimizeDriverPrompt: candidate surface is a CodeSurface, not a driver prompt — this loop optimizes the string driver prompt only`,
       )
     }
-    const sup = await superviseSurface(
-      { name: 'driver', systemPrompt: candidate },
-      {
-        surface,
-        task: scenario.task,
-        worker,
-        // A small conserved pool: enough for the driver's turns plus several worker spawns so the
-        // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
-        budget: {
-          maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
-          maxTokens: (worker.maxTokens ?? 4000) * 6,
-        },
-        router: {
-          routerBaseUrl: supervisorRouter.baseUrl,
-          routerKey: supervisorRouter.apiKey,
-          model: supervisorRouter.model,
-        },
-        analysts: failuresAnalyst(),
+    const sup = await superviseSurface({ name: 'driver', systemPrompt: candidate }, scenario.task, {
+      surface,
+      worker,
+      // A small conserved pool: enough for the driver's turns plus several worker spawns so the
+      // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
+      budget: {
+        maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
+        maxTokens: (worker.maxTokens ?? 4000) * 6,
       },
-    )
+      router: {
+        routerBaseUrl: supervisorRouter.baseUrl,
+        routerKey: supervisorRouter.apiKey,
+        model: supervisorRouter.model,
+      },
+      analysts: failuresAnalyst(),
+    })
     // Report the supervised run's REAL spend to the campaign cost meter — the substrate intercepts no
     // LLM call, so without this the cell reads {cost:0, tokens:0} and the backend-integrity guard
     // (expectUsage:'assert') aborts the whole optimization on the first cell as a stub.
