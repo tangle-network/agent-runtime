@@ -1,6 +1,8 @@
 # Architecture — The Spine
 
-> **One recursive agent tree. Every node makes a multi-objective decision. Two timescales — and the across-run policy curve is the product.**
+> **In plain terms:** This is the internal design document for agent-runtime — how the system works under the hood, written for developers who will build on or extend the package and want the big picture before reading code. The single most important idea: the whole system is made of one repeating building block — an agent that looks at its progress and the budget left, then picks the best next move (keep working, try several approaches at once, get a second opinion, run a check, or stop). That same block nests inside itself to form a tree, and the system is designed to get measurably better at those decisions the more it runs. Everything below explains that one block and how it improves.
+
+> **One agent pattern, repeated into a tree. Every node makes a decision that balances several goals at once. Two timescales run in parallel, and the slow one — the system getting better from run to run — is the real product.**
 >
 > Canonical as of **2026-06-05**. This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and

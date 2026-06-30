@@ -42,7 +42,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 
 | Doc | Role | Purpose |
 |---|---|---|
-| [simplification-plan.md](./simplification-plan.md) | **live tracker** | The in-flight simplification/rearchitecture: the converged design, the scratch list, the doc/module inventory, the workstreams + completion criteria. |
+| [simplification-plan.md](./research/simplification-plan.md) | **live tracker** | The in-flight simplification/rearchitecture: the converged design, the scratch list, the doc/module inventory, the workstreams + completion criteria. |
 | [research/README.md](./research/README.md) | research index | Forward-looking design threads + decision log. Not the canonical spine. |
 | [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results). |
 

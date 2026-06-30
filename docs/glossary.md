@@ -1,5 +1,7 @@
 # Glossary — the canonical vocabulary
 
+> **In plain terms:** This page is a dictionary of the exact words this codebase uses for the moving parts of running agents — driver, worker, iteration, rollout, and so on. It's for anyone reading or writing code in this package, especially newcomers who keep tripping over words that sound interchangeable but aren't. The one thing to take away: when two terms seem to mean the same thing, this page tells you which one to use, and every definition links to the real line of code so you can check it yourself.
+
 **Track:** reference · **Role:** canonical (terms). One definition per concept, grounded to `file:line`. When a term has drifted into synonyms, the **canonical** word is marked and the synonyms are listed as "avoid / say X instead". If code and this file disagree, the code wins — fix this file the same turn (the anti-staleness law, `CLAUDE.md`).
 
 Two substrates run the same "recursive agent decision" atom — the round-synchronous `runLoop` and the reactive `Scope`/`Supervisor`. Terms below note which substrate they belong to; several are shared.

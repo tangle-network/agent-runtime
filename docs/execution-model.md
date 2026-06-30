@@ -1,6 +1,8 @@
 # Execution model — the unified picture
 
-**Track:** architecture · **Role:** the picture (execution substrate). How work runs, what a driver vs a worker does, who gets which tools, and how a worker is spawned. Grounded to `file:line`; on conflict the code wins (fix this the same turn). Companion to [glossary.md](./glossary.md) (the terms) and [architecture.md](./architecture.md) (the spine).
+> **In plain terms:** This doc explains how the package actually runs an agent's work — the difference between a "driver" (the agent that decides what to do next and hands out subtasks) and a "worker" (the agent that carries out one subtask), which tools each one gets, and the steps that start a new worker. It's for developers reading or building on the package who want the mental model before they open the source. The one thing to remember: everything that runs work — a plain API call, a command-line coding agent, a full sandbox, or your own custom agent — plugs into the same small interface, so you learn one shape and it covers every case.
+
+**Track:** architecture · **Role:** the picture (how execution works). How work runs, what a driver vs a worker does, who gets which tools, and how a worker is spawned. Grounded to `file:line`; on conflict the code wins (fix this the same turn). Companion to [glossary.md](./glossary.md) (the terms) and [architecture.md](./architecture.md) (the overall design).
 
 ## 1. The unified thing — one port, four backends, two engines
 

@@ -145,3 +145,27 @@ export async function runWebCodeMatrix(client: SandboxClient, runDir: string, co
     reps: 1,
   })
 }
+
+// Run it live:  EXA_API_KEY=… SANDBOX_API_KEY=… tsx examples/webcode-matrix/webcode-matrix.ts
+// Needs: the sandbox service (SANDBOX_API_KEY), the harnesses you listed in `grid`, and EXA_API_KEY for
+// in-box web search. Prints the per-(harness×model) pass rate over the tasks.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const { SandboxClient } = (await import('@tangle-network/sandbox')) as {
+    SandboxClient: new (o: { apiKey: string; baseUrl: string }) => SandboxClient
+  }
+  const client = new SandboxClient({
+    apiKey: process.env.SANDBOX_API_KEY ?? '',
+    baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
+  })
+  const result = await runWebCodeMatrix(
+    client,
+    process.env.RUN_DIR ?? './runs/webcode',
+    process.env.GIT_SHA ?? 'local',
+  )
+  console.log(
+    `\nWebCode · ${grid.length} harness×model × ${tasks.length} tasks → ${result.records.length} cells\n`,
+  )
+  for (const [profileId, summary] of Object.entries(result.byProfile)) {
+    console.log(`  ${profileId.padEnd(28)} ${JSON.stringify(summary)}`)
+  }
+}

@@ -1,7 +1,16 @@
 # Concepts
 
-agent-runtime is a thin substrate. It owns five things and delegates the
-rest. Read this file once and the rest of the API falls into place.
+> **In plain terms:** This is the one-page mental model of agent-runtime —
+> read it first if you're meeting the package cold. agent-runtime is a small
+> shared foundation that handles the plumbing every AI agent needs — running a
+> task, streaming a chat reply, reconnecting a dropped connection, picking a
+> model — so you only write the parts unique to your agent. The one takeaway:
+> it owns a handful of reusable building blocks and leaves all the
+> domain-specific work — your tools, prompts, and scoring rules — to you.
+
+agent-runtime is a thin, shared foundation layer. It owns five things and
+delegates the rest. Read this file once and the rest of the API falls into
+place.
 
 ## The five layers
 
