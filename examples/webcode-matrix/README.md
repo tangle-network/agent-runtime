@@ -19,3 +19,7 @@ Prints the per-(harness×model) pass rate over the tasks. Edit `grid` to change 
 ## Why it's interesting
 
 WebCode isolates one thing: can an agent retrieve and apply knowledge it was never trained on? The matrix answers *which harness+model does it best* — the harness controls how the agent searches and iterates, the model controls how well it reasons over what it finds, and the hidden tests keep everyone honest.
+
+## Instrument it with the Intelligence SDK
+
+Want the cost, the per-tool waterfall, and the exported trace for each cell — and an effort knob that gates spend? [`intelligence-coding-bench`](../intelligence-coding-bench) imports this exact grid + task set and wraps every cell in the full Tangle Intelligence stack (`withTangleIntelligence` + `createWaterfallCollector` + `createOtelExporter`).
