@@ -59,6 +59,7 @@ purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver tha
 |---|---|---|
 | 8 | [`researcher-loop/`](./researcher-loop/) | You want the canonical `runLoop` + inline fanout driver, with a validator that hard-fails a namespace leak so the kernel prunes the bad candidate (needs the optional `@tangle-network/agent-knowledge` peer). |
 | 9 | [`ui-audit/`](./ui-audit/) | You want the smallest end-to-end `runLoop` over a real client (Playwright + stub judge), persisting findings. |
+| 9a | `agent-eval/examples/eval-fixtures-quickstart` | You want Vercel-style eval folders (`PROMPT.md` + `EVAL.ts`) to run through runtime's `runLoop`; pair `loadEvalFixtureScenarios()` with `loopCampaignDispatch()`. |
 | 9b | [`coding-benchmark/`](./coding-benchmark/) | You want a scientifically-rigorous coding benchmark across harnesses: `runProfileMatrix` over harness × baseline-profile × scenario, a one-line tool knob (websearch / webfetch / MCP), a held-out-test-execution anti-cheat (the agent is graded on hidden tests it never saw, so it can't hardcode), a secondary quality judge, and paired-bootstrap + Wilson + BH stats (offline by default; `--live` for real harness boxes). |
 
 ## Tier 3 — the production runtime, deeper

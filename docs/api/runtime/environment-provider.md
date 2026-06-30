@@ -390,7 +390,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 ### providerAsSandboxClient()
 
-> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-1)
+> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-2)
 
 Defined in: [runtime/environment-provider.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/environment-provider.ts#L178)
 
@@ -410,7 +410,7 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 #### Returns
 
-[`SandboxClient`](../runtime.md#sandboxclient-1)
+[`SandboxClient`](../runtime.md#sandboxclient-2)
 
 ***
 
@@ -428,7 +428,7 @@ Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
 
 ##### client
 
-[`SandboxClient`](../runtime.md#sandboxclient-1)
+[`SandboxClient`](../runtime.md#sandboxclient-2)
 
 ##### options?
 
