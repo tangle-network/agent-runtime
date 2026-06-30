@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 386 exports.
+Import from `@tangle-network/agent-runtime/loops` — 392 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -386,6 +386,7 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `dumbDriver` | function | `dumbDriver` — the pass/fail-only steering control. |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
+| `failuresAnalyst` | function | The default self-improvement LENS — authored content, not a code path. On each settled worker it hands |
 | `fanout` | function | `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved |
 | `finalizeBestDelivered` | function | Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's |
 | `flatWidenGate` | function | The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision |
@@ -440,6 +441,7 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
 | `supervise` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `superviseSurface` | function | Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and |
 | `supervisorAgent` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `supervisorInstructions` | function | The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
@@ -648,11 +650,15 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `StrategyEvolutionConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `StrategyResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SuperviseOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `SuperviseSurfaceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `SuperviseSurfaceResult` | interface | The deployable outcome of a supervised surface run. |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
 | `SupervisorAgentDeps` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SupervisorOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SupervisorProfile` | interface | The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain. |
 | `SurfaceScore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
+| `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `TraceSource` | interface | _(no summary — add a TSDoc line at the declaration)_ |

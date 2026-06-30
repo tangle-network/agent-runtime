@@ -5,12 +5,12 @@
  * This is the `optimize: 'gepa'` knob from the ablation board (ablation.ts), wired over the real
  * substrate: agent-eval's `selfImprove` (the held-out-gated closed loop) driven by `gepaProposer`
  * (the reflective prompt mutator). The surface under improvement is the driver/proposer standing
- * prompt that `supervise()` runs as its brain — the string `selfImprovingSupervisor` threads in as
- * `driverPrompt`. So each candidate IS a candidate driver prompt, and its fitness IS the resolve it
- * earns when it actually drives a supervised run over the surface.
+ * prompt that `supervise()` runs as its brain — each candidate string becomes the driver profile's
+ * `systemPrompt`. So each candidate IS a candidate driver prompt, and its fitness IS the resolve it
+ * earns when it actually drives a `superviseSurface` run over the surface.
  *
  * The grading is EXECUTABLE, never an LLM judge: each candidate driver prompt runs a real supervised
- * rollout via `selfImprovingSupervisor` (its harness-verified `resolved`/`score` come from the
+ * rollout via `superviseSurface` (its harness-verified `resolved`/`score` come from the
  * surface's own completion oracle), and the `JudgeConfig` reads those outcomes straight off the
  * returned artifact. A candidate's fitness IS the resolve it actually earned on the environment's own
  * check — there is no model in the scoring loop to flatter it.
@@ -24,8 +24,12 @@ import {
   type Scenario,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
-import type { AgenticSurface, AgenticTask } from '@tangle-network/agent-runtime/loops'
-import { selfImprovingSupervisor } from './self-improving-supervisor'
+import {
+  type AgenticSurface,
+  type AgenticTask,
+  failuresAnalyst,
+  superviseSurface,
+} from '@tangle-network/agent-runtime/loops'
 
 /** One TRAIN scenario: the coding task carried as the scenario's domain payload. The agent reads
  *  `scenario.task` to run the supervised rollout; the judge reads the artifact the rollout produced. */
@@ -33,7 +37,7 @@ interface DriverPromptScenario extends Scenario {
   task: AgenticTask
 }
 
-/** The deployable outcome of one supervised candidate run — exactly what `selfImprovingSupervisor`
+/** The deployable outcome of one supervised candidate run — exactly what `superviseSurface`
  *  returns. The judge scores on `resolved`/`score`; the `usd` rides through so it is never lost. */
 interface SupervisedOutcome {
   resolved: boolean
@@ -114,20 +118,26 @@ export async function optimizeDriverPrompt(opts: {
         `optimizeDriverPrompt: candidate surface is a CodeSurface, not a driver prompt — this loop optimizes the string driver prompt only`,
       )
     }
-    const sup = await selfImprovingSupervisor({
-      surface,
-      task: scenario.task,
-      driverPrompt: candidate,
-      worker,
-      // A small conserved pool: enough for the driver's turns plus several worker spawns so the analyst
-      // up-leg can drive a spawn-refine loop, sized off the worker's inner-loop bounds.
-      budget: {
-        maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
-        maxTokens: (worker.maxTokens ?? 4000) * 6,
+    const sup = await superviseSurface(
+      { name: 'driver', systemPrompt: candidate },
+      {
+        surface,
+        task: scenario.task,
+        worker,
+        // A small conserved pool: enough for the driver's turns plus several worker spawns so the
+        // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
+        budget: {
+          maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
+          maxTokens: (worker.maxTokens ?? 4000) * 6,
+        },
+        router: {
+          routerBaseUrl: supervisorRouter.baseUrl,
+          routerKey: supervisorRouter.apiKey,
+          model: supervisorRouter.model,
+        },
+        analysts: failuresAnalyst(),
       },
-      analyze: true,
-      router: supervisorRouter,
-    })
+    )
     // Report the supervised run's REAL spend to the campaign cost meter — the substrate intercepts no
     // LLM call, so without this the cell reads {cost:0, tokens:0} and the backend-integrity guard
     // (expectUsage:'assert') aborts the whole optimization on the first cell as a stub.
