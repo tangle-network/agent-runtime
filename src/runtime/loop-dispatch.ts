@@ -33,6 +33,7 @@ import type { AgentProfile } from '@tangle-network/agent-eval'
 import type {
   CampaignTraceWriter,
   DispatchContext,
+  DispatchFn,
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
@@ -92,6 +93,19 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
   ctx: DispatchContext,
 ): Promise<TArtifact> {
   const loopOptions = opts.toLoopOptions(scenario, profile)
+  return runLoopWithCampaignContext(opts, loopOptions, ctx)
+}
+
+async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
+  opts: {
+    sandboxClient: SandboxClient
+    toArtifact?: (result: LoopResult<Task, Output, Decision>) => TArtifact
+    forwardTrace?: boolean
+    costSource?: string
+  },
+  loopOptions: LoopOptionsForDispatch<Task, Output, Decision>,
+  ctx: DispatchContext,
+): Promise<TArtifact> {
   const result = await runLoop<Task, Output, Decision>({
     ...loopOptions,
     ctx: {
@@ -104,6 +118,37 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
   const toArtifact =
     opts.toArtifact ?? ((r: LoopResult<Task, Output, Decision>) => r.winner?.output as TArtifact)
   return toArtifact(result)
+}
+
+/** Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. */
+export interface LoopCampaignDispatchOptions<
+  Task,
+  Output,
+  Decision,
+  TScenario extends Scenario,
+  TArtifact,
+> {
+  /** Sandbox client used for every campaign cell's `runLoop`. */
+  sandboxClient: SandboxClient
+  /** Build the per-cell runLoop options from the campaign scenario. */
+  toLoopOptions: (scenario: TScenario) => LoopOptionsForDispatch<Task, Output, Decision>
+  /** Map the finished loop to the artifact the campaign judges score. */
+  toArtifact?: (result: LoopResult<Task, Output, Decision>) => TArtifact
+  /** Forward `loop.*` trace events into the campaign's scoped trace. Default true. */
+  forwardTrace?: boolean
+  /** Cost-meter source label for the loop's spend. Default `'loop'`. */
+  costSource?: string
+}
+
+/**
+ * Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for
+ * agent-eval fixture scenarios: load fixtures in `agent-eval/campaign`, build
+ * the runtime loop here, and keep cost + token + trace reporting automatic.
+ */
+export function loopCampaignDispatch<Task, Output, Decision, TScenario extends Scenario, TArtifact>(
+  opts: LoopCampaignDispatchOptions<Task, Output, Decision, TScenario, TArtifact>,
+): DispatchFn<TScenario, TArtifact> {
+  return (scenario, ctx) => runLoopWithCampaignContext(opts, opts.toLoopOptions(scenario), ctx)
 }
 
 /**

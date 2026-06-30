@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 386 exports.
+Import from `@tangle-network/agent-runtime/loops` — 388 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -396,6 +396,7 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `localShell` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `loopCampaignDispatch` | function | Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for |
 | `loopDispatch` | function | Adapter for `runProfileMatrix` (profile is an axis). Returns a |
 | `loopUntil` | function | `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into |
 | `makeFinding` | function | Convenience factory: produce a fully-formed AnalystFinding with the |
@@ -565,6 +566,7 @@ Import from `@tangle-network/agent-runtime/loops` — 386 exports.
 | `InProcessSandboxClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `IntentAudit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Iteration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
 | `LoopDecisionPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopDispatchOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopEndedPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |

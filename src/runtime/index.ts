@@ -120,8 +120,10 @@ export {
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
 export {
+  type LoopCampaignDispatchOptions,
   type LoopDispatchOptions,
   type LoopOptionsForDispatch,
+  loopCampaignDispatch,
   loopDispatch,
 } from './loop-dispatch'
 export {

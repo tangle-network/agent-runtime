@@ -8,6 +8,7 @@ import type {
 import { describe, expect, it } from 'vitest'
 import {
   type AgentRunSpec,
+  loopCampaignDispatch,
   loopDispatch,
   type OutputAdapter,
   type Validator,
@@ -108,6 +109,33 @@ function fakeDispatchContext(): {
 }
 
 describe('loopDispatch', () => {
+  it('bridges runLoop into a plain runCampaign DispatchFn for fixture-style scenarios', async () => {
+    const sandboxClient = stubClient([
+      { type: 'llm_call', data: { tokensIn: 120, tokensOut: 40, costUsd: 0.015, model: 'm' } },
+      { type: 'result', data: { attempt: 3 } },
+    ])
+    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
+      sandboxClient,
+      toLoopOptions: (scenario) => ({
+        driver: refineDriver<Task, Output>(),
+        agentRun: spec(),
+        output,
+        validator: passAlways,
+        task: { goal: `fixture:${scenario.id}` },
+        maxIterations: 1,
+      }),
+    })
+
+    const fake = fakeDispatchContext()
+    const artifact = await dispatch({ id: 'fixture-a', kind: 'eval-fixture' }, fake.ctx)
+
+    expect(artifact).toEqual({ attempt: 3 })
+    expect(fake.observed).toEqual([{ usd: 0.015, src: 'loop' }])
+    expect(fake.tokens).toEqual({ input: 120, output: 40 })
+    expect(fake.spans).toContain('loop.started')
+    expect(fake.spans).toContain('loop.ended')
+  })
+
   it('bridges runLoop into a ProfileDispatchFn: returns the winner artifact, reports usage, forwards trace', async () => {
     const sandboxClient = stubClient([
       { type: 'llm_call', data: { tokensIn: 150, tokensOut: 60, costUsd: 0.02, model: 'm' } },
