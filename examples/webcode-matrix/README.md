@@ -10,18 +10,28 @@ Exa open-sources the **dataset only**: *"No agent harness included — bring you
 
 The real 33-task dataset (MIT) is **fetched, not committed** (it carries secret-shaped test fixtures) — run [`data/fetch.sh`](./data/fetch.sh) first, or set `WEBCODE_DATASET`. See [`data/SOURCE.md`](./data/SOURCE.md) for provenance.
 
-> **Fidelity note.** Exa grades each task inside its own `dockerfile` toolchain image (Swift, Go, …). This example runs the grader in the harness's sandbox; where a task's toolchain isn't present, its tests fail — never a fake pass. Wiring the per-task image is the one remaining step to byte-for-byte parity.
+### Grading toolchain — three tiers (pick by fidelity need)
+
+Each task ships a Dockerfile pinning its toolchain (Swift 6.1, Go 1.23, …) plus python/pytest to run the grader. How the sandbox provides that toolchain:
+
+1. **`environment: 'universal'`** *(default here)* — one multi-language Nix stack (python+pytest + Go/Py/TS/Java/C++), the same default the `commit0`/`clbench` gates use. Zero per-task work; covers the common languages.
+2. **Per-task image** — exotic toolchains universal lacks (Swift/Elixir/Kotlin) ship their own base in `task.baseImage` (parsed from the task's `FROM`); pass it as `sandboxOverrides.image`. Already plumbed; no new code.
+3. **Pre-built per-task image** — for byte-exact parity with Exa's Dockerfile, pre-build each into a registry image and reference it by tag.
+
+A missing toolchain surfaces as a **failing test, never a fake pass**.
 
 ## Run it
 
 ```bash
 examples/webcode-matrix/data/fetch.sh   # one-time: download the 33-task dataset
 
-EXA_API_KEY=…           # in-box web search
-SANDBOX_API_KEY=…       # the sandbox service
+TANGLE_API_KEY=…        # ONE key — sandbox + model router + router-backed web_search
+SANDBOX_API_KEY=…       # the sandbox service (omit if your TANGLE_API_KEY also provisions sandboxes)
 LIMIT=3                 # optional: first N tasks for a cheap smoke (omit for all 33)
 tsx examples/webcode-matrix/webcode-matrix.ts
 ```
+
+Search is **router-backed** — the agent's `web_search` goes through the Tangle router on `TANGLE_API_KEY` (provider picked by `TANGLE_SEARCH_DEFAULT_PROVIDER`, default `exa`); no separate Exa key. `you`/`perplexity`/`tavily`/`parallel`/`brave` work the same way.
 
 Writes **`report.md` + `report.svg` + `report.html`** to `RUN_DIR` — a ranked leaderboard, the full profile×task score matrix, and embeddable charts. That rendering is the general [`leaderboard`](../../docs/canonical-api.md) engine (`@tangle-network/agent-runtime/loops`), which turns any `runProfileMatrix` result into the same report for **any** benchmark in any domain.
 
