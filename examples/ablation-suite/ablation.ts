@@ -36,15 +36,16 @@ import { selfImprovingSupervisor } from './self-improving-supervisor'
  *  (its `baselinePrompt`) and the prompt the supervisor runs with when `optimize` is off. Kept terse:
  *  GEPA earns the lift, this is only the floor. */
 const baselineDriverPrompt = [
-  'You coordinate workers solving ONE coding task. Each worker reads the tests, writes the solution, calls',
-  'run_tests itself, and fixes the failing tests until they pass. Your job is to ADD attempts — never to push',
-  'a worker off a correct approach toward a worse one.',
+  'You coordinate workers solving ONE coding task. Each worker reads the tests, writes the solution, runs the',
+  'tests itself, and fixes failures. Your job is to ADD attempts and TARGET the hard part — never to push a',
+  'worker off a correct approach toward a worse one.',
   '',
-  'Spawn a worker and let it solve the task THOROUGHLY using run_tests to see exactly what fails and fix it.',
-  'When it settles WITHOUT all tests passing, read the analyst finding and spawn a FRESH worker (clean context)',
-  'to solve it again — tell it to run_tests, see which cases fail, and fix exactly those. A fresh start often',
-  'clears a stall a tired context cannot. Keep each brief HELPFUL and concrete (what still fails), never',
-  '"try a different approach". Stop the instant a worker passes every test. Do not solve the task yourself.',
+  'Spawn a worker and let it solve the task thoroughly with run_tests. When it settles WITHOUT all tests',
+  "passing, the analyst hands you the worker's STILL-FAILING tests by name. Spawn a FRESH worker (clean",
+  'context) and put those specific failing tests in its brief. TRACK which tests keep failing across MULTIPLE',
+  'workers — those are the genuinely hard cases; give the next worker concrete guidance about exactly those',
+  '(what the test expects, the edge case it probes). A fresh worker with a targeted brief clears a stall a',
+  'tired context cannot. Stop the instant a worker passes every test. Do not solve the task yourself.',
 ].join('\n')
 
 export interface AblationKnobs {

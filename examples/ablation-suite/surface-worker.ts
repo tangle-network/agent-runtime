@@ -43,6 +43,41 @@ export interface SurfaceWorkerOut {
   readonly score: number
   readonly shots: number
   readonly summary: string
+  /** The tests this worker left FAILING (from its last run_tests), so the analyst can hand the driver a
+   *  targeted read — "still failing: X, Y" — not just a score. Empty when resolved or no run_tests tool. */
+  readonly failing?: readonly string[]
+}
+
+/** Wrap a surface so the worker's LAST `run_tests` output is remembered — the source of the failing-test
+ *  list the analyst surfaces to the driver. Transparent passthrough for every other call; local to the
+ *  seam (not a global wrapper), so it adds no surface-zoo concept. */
+function captureFailures(base: AgenticSurface): {
+  surface: AgenticSurface
+  failing: () => string[]
+} {
+  let lastReport = ''
+  const surface: AgenticSurface = {
+    name: base.name,
+    open: (t) => base.open(t),
+    tools: (t, h) => base.tools(t, h),
+    async call(h, name, args) {
+      const out = await base.call(h, name, args)
+      if (name === 'run_tests') lastReport = out
+      return out
+    },
+    score: (t, h) => base.score(t, h),
+    close: (h) => base.close(h),
+  }
+  const failing = () => {
+    const m = /FAILING:\s*(.+)/i.exec(lastReport)
+    return m
+      ? m[1]
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : []
+  }
+  return { surface, failing }
 }
 
 export interface SurfaceWorkerOptions {
@@ -78,8 +113,9 @@ function surfaceWorkerExecutor(opts: SurfaceWorkerOptions): Executor<SurfaceWork
             systemPrompt: `${task.systemPrompt ?? ''}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
           }
         : task
+      const cap = captureFailures(surface)
       const r = await runAgentic({
-        surface,
+        surface: cap.surface,
         task: attemptTask,
         strategy: refine,
         budget: worker.budget ?? 1,
@@ -89,6 +125,7 @@ function surfaceWorkerExecutor(opts: SurfaceWorkerOptions): Executor<SurfaceWork
         ...(worker.maxTokens !== undefined ? { maxTokens: worker.maxTokens } : {}),
         ...(worker.innerTurns !== undefined ? { innerTurns: worker.innerTurns } : {}),
       })
+      const failing = r.resolved ? [] : cap.failing()
       const out: SurfaceWorkerOut = {
         resolved: r.resolved,
         score: r.score,
@@ -96,6 +133,7 @@ function surfaceWorkerExecutor(opts: SurfaceWorkerOptions): Executor<SurfaceWork
         summary: `refine ${r.shots} shot(s) → ${(100 * r.score).toFixed(0)}% (${
           r.resolved ? 'resolved' : 'unresolved'
         })`,
+        failing,
       }
       const spent: Spend = {
         iterations: r.completions,
