@@ -1138,7 +1138,7 @@ tags, so set it when a demo's output reads on a meaningful sandbox id.
 
 ### LoopDispatchOptions
 
-Defined in: [runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L49)
+Defined in: [runtime/loop-dispatch.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L50)
 
 #### Type Parameters
 
@@ -1166,9 +1166,9 @@ Defined in: [runtime/loop-dispatch.ts:49](https://github.com/tangle-network/agen
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-1)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
 
-Defined in: [runtime/loop-dispatch.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L57)
+Defined in: [runtime/loop-dispatch.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L58)
 
 Sandbox client used for every cell's `runLoop`. Supplied once.
 
@@ -1176,7 +1176,7 @@ Sandbox client used for every cell's `runLoop`. Supplied once.
 
 > **toLoopOptions**: (`scenario`, `profile`) => [`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
 
-Defined in: [runtime/loop-dispatch.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L60)
+Defined in: [runtime/loop-dispatch.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L61)
 
 Build the per-cell runLoop options from the scenario (+ profile, when
  used with `runProfileMatrix`).
@@ -1199,7 +1199,7 @@ Build the per-cell runLoop options from the scenario (+ profile, when
 
 > `optional` **toArtifact?**: (`result`) => `TArtifact`
 
-Defined in: [runtime/loop-dispatch.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L68)
+Defined in: [runtime/loop-dispatch.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L69)
 
 Map the finished loop to the artifact the judges score. Default:
  `result.winner?.output`. A loop with no winner yields `undefined` (judges
@@ -1220,7 +1220,7 @@ Map the finished loop to the artifact the judges score. Default:
 
 > `optional` **forwardTrace?**: `boolean`
 
-Defined in: [runtime/loop-dispatch.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L71)
+Defined in: [runtime/loop-dispatch.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L72)
 
 Forward `loop.*` trace events into the campaign's scoped trace so loop
  spans correlate with the cell. Default true.
@@ -1229,7 +1229,99 @@ Forward `loop.*` trace events into the campaign's scoped trace so loop
 
 > `optional` **costSource?**: `string`
 
-Defined in: [runtime/loop-dispatch.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L73)
+Defined in: [runtime/loop-dispatch.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L74)
+
+Cost-meter source label for the loop's spend. Default `'loop'`.
+
+***
+
+### LoopCampaignDispatchOptions
+
+Defined in: [runtime/loop-dispatch.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L124)
+
+Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+##### Decision
+
+`Decision`
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### sandboxClient
+
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
+
+Defined in: [runtime/loop-dispatch.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L132)
+
+Sandbox client used for every campaign cell's `runLoop`.
+
+##### toLoopOptions
+
+> **toLoopOptions**: (`scenario`) => [`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
+
+Defined in: [runtime/loop-dispatch.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L134)
+
+Build the per-cell runLoop options from the campaign scenario.
+
+###### Parameters
+
+###### scenario
+
+`TScenario`
+
+###### Returns
+
+[`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
+
+##### toArtifact?
+
+> `optional` **toArtifact?**: (`result`) => `TArtifact`
+
+Defined in: [runtime/loop-dispatch.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L136)
+
+Map the finished loop to the artifact the campaign judges score.
+
+###### Parameters
+
+###### result
+
+[`LoopResult`](#loopresult)\<`Task`, `Output`, `Decision`\>
+
+###### Returns
+
+`TArtifact`
+
+##### forwardTrace?
+
+> `optional` **forwardTrace?**: `boolean`
+
+Defined in: [runtime/loop-dispatch.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L138)
+
+Forward `loop.*` trace events into the campaign's scoped trace. Default true.
+
+##### costSource?
+
+> `optional` **costSource?**: `string`
+
+Defined in: [runtime/loop-dispatch.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L140)
 
 Cost-meter source label for the loop's spend. Default `'loop'`.
 
@@ -11758,7 +11850,7 @@ Defined in: [runtime/types.ts:556](https://github.com/tangle-network/agent-runti
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-1)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
 
 Defined in: [runtime/types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L558)
 
@@ -12326,7 +12418,7 @@ async iterable for streaming. The callback may also write files into
 
 > **LoopOptionsForDispatch**\<`Task`, `Output`, `Decision`\> = `Omit`\<`RunLoopOptions`\<`Task`, `Output`, `Decision`\>, `"ctx"`\>
 
-Defined in: [runtime/loop-dispatch.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L44)
+Defined in: [runtime/loop-dispatch.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L45)
 
 runLoop options minus the `ctx` (loopDispatch builds the ctx).
 
@@ -13696,7 +13788,7 @@ Defined in: [runtime/harvest-corpus.ts:62](https://github.com/tangle-network/age
 
 ### inProcessSandboxClient()
 
-> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-1)
+> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-2)
 
 Defined in: [runtime/in-process-sandbox-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L98)
 
@@ -13715,13 +13807,13 @@ this function, so call sites stay cast-free.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
 
 ***
 
 ### inlineSandboxClient()
 
-> **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-1)
+> **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-2)
 
 Defined in: [runtime/inline-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/inline-sandbox-client.ts#L44)
 
@@ -13737,7 +13829,51 @@ run once on the prompt, emit the terminal result event, tear down.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
+
+***
+
+### loopCampaignDispatch()
+
+> **loopCampaignDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `DispatchFn`\<`TScenario`, `TArtifact`\>
+
+Defined in: [runtime/loop-dispatch.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L148)
+
+Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for
+agent-eval fixture scenarios: load fixtures in `agent-eval/campaign`, build
+the runtime loop here, and keep cost + token + trace reporting automatic.
+
+#### Type Parameters
+
+##### Task
+
+`Task`
+
+##### Output
+
+`Output`
+
+##### Decision
+
+`Decision`
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### opts
+
+[`LoopCampaignDispatchOptions`](#loopcampaigndispatchoptions)\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>
+
+#### Returns
+
+`DispatchFn`\<`TScenario`, `TArtifact`\>
 
 ***
 
@@ -13745,7 +13881,7 @@ run once on the prompt, emit the terminal result event, tear down.
 
 > **loopDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
-Defined in: [runtime/loop-dispatch.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L114)
+Defined in: [runtime/loop-dispatch.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L159)
 
 Adapter for `runProfileMatrix` (profile is an axis). Returns a
 `ProfileDispatchFn` that runs `runLoop` per (profile, scenario) cell and
@@ -14839,7 +14975,7 @@ Defined in: [runtime/sandbox-acquire.ts:68](https://github.com/tangle-network/ag
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
 
 ##### options
 
@@ -14872,7 +15008,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
 
 #### Returns
 
@@ -14971,7 +15107,7 @@ and the lineage stays a pure function of "what this platform can do".
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
 
 ##### capabilities
 
@@ -15023,7 +15159,7 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-1)
+[`SandboxClient`](#sandboxclient-2)
 
 ##### options
 
