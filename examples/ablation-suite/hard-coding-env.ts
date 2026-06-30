@@ -302,7 +302,7 @@ function pytestPassed(dir: string): { passed: number; total: number } {
   try {
     out = execFileSync(
       'python3',
-      ['-m', 'pytest', '-q', '--tb=no', '-p', 'no:cacheprovider', 'test_calc.py'],
+      ['-m', 'pytest', '-q', '--tb=no', '--color=no', '-p', 'no:cacheprovider', 'test_calc.py'],
       {
         cwd: dir,
         encoding: 'utf8',
@@ -326,7 +326,17 @@ function runTestsReport(dir: string): string {
   try {
     out = execFileSync(
       'python3',
-      ['-m', 'pytest', '-q', '--tb=no', '-rf', '-p', 'no:cacheprovider', 'test_calc.py'],
+      [
+        '-m',
+        'pytest',
+        '-q',
+        '--tb=no',
+        '--color=no',
+        '-rf',
+        '-p',
+        'no:cacheprovider',
+        'test_calc.py',
+      ],
       { cwd: dir, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] },
     )
   } catch (e) {

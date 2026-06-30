@@ -69,9 +69,9 @@ function captureFailures(base: AgenticSurface): {
     close: (h) => base.close(h),
   }
   const failing = () => {
-    const m = /FAILING:\s*(.+)/i.exec(lastReport)
-    return m
-      ? m[1]
+    const body = /FAILING:\s*(.+)/i.exec(lastReport)?.[1]
+    return body
+      ? body
           .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
