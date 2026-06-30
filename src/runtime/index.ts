@@ -59,6 +59,18 @@ export {
   defaultAuditorInstruction,
   type IntentAudit,
 } from './audit-intent'
+// The domain-agnostic benchmark report engine: a fleet of `RunRecord`s → a ranked leaderboard, the full
+// profile×axis score matrix, and embeddable SVG/HTML charts (the hosted-leaderboard surface). Reads only
+// the universal `RunRecord` currency, so it reports ANY benchmark in ANY domain.
+export {
+  type Leaderboard,
+  type LeaderboardOptions,
+  type LeaderboardRow,
+  leaderboard,
+  renderLeaderboardHtml,
+  renderLeaderboardMarkdown,
+  renderLeaderboardSvg,
+} from './benchmark-report'
 export {
   type CompletionAnalyst,
   type CompletionEvidence,

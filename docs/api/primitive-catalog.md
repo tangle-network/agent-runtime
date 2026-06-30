@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 394 exports.
+Import from `@tangle-network/agent-runtime/loops` — 401 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -396,6 +396,7 @@ Import from `@tangle-network/agent-runtime/loops` — 394 exports.
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is |
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
+| `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
 | `localShell` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `loopCampaignDispatch` | function | Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for |
 | `loopDispatch` | function | Adapter for `runProfileMatrix` (profile is an axis). Returns a |
@@ -419,6 +420,9 @@ Import from `@tangle-network/agent-runtime/loops` — 394 exports.
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
 | `renderCorpusToInstructions` | function | The learning-flywheel READ side. Queries the corpus through `filter`, renders the matching facts |
+| `renderLeaderboardHtml` | function | Render a self-contained HTML leaderboard page (the hosted surface): the SVG charts + the full Markdown |
+| `renderLeaderboardMarkdown` | function | Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis |
+| `renderLeaderboardSvg` | function | Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps, |
 | `renderReport` | function | Operator-facing report, split by who should act. The agent block is the |
 | `reportLoopUsage` | function | Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
@@ -568,6 +572,9 @@ Import from `@tangle-network/agent-runtime/loops` — 394 exports.
 | `InProcessSandboxClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `IntentAudit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Iteration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `Leaderboard` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `LeaderboardOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `LeaderboardRow` | interface | One leaderboard row — a harness×model profile, every measured column. |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
 | `LoopDecisionPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopDispatchOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
