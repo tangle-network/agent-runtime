@@ -36,7 +36,7 @@ const grid = [
   { harness: 'gemini', model: 'google/gemini-2.5-pro-2025-06-17' },
 ] as const
 
-const profiles: AgentProfile[] = grid.map(({ harness, model }) => ({
+export const profiles: AgentProfile[] = grid.map(({ harness, model }) => ({
   name: `${harness}·${model.split('/')[1]}`,
   // AgentProfile has no `harness` field — the harness is a SANDBOX backend, carried on metadata so the
   // dispatch can read it back. The model rides the standard `model.default`.
@@ -48,13 +48,13 @@ const profiles: AgentProfile[] = grid.map(({ harness, model }) => ({
 
 // ── Axis 2 — the WebCode TASKS. Each is a prompt + the repo + the hidden test command (the grader).
 //    Three representative tasks shown; the full 33-task dataset loads the same shape.
-interface WebCodeTask extends Scenario {
+export interface WebCodeTask extends Scenario {
   prompt: string
   lang: string
   repo: string
   testCmd: string
 }
-const tasks: WebCodeTask[] = [
+export const tasks: WebCodeTask[] = [
   {
     id: 'go-fiber-v3',
     kind: 'webcode',

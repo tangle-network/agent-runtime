@@ -79,10 +79,11 @@ Runnable, grouped by what they show — copy the one nearest your task:
 | Drive a team of agents to a goal | [`supervise`](./examples/supervise) · [`recursive-supervisor`](./examples/recursive-supervisor) |
 | Benchmark strategies on your own domain | [`coding-benchmark`](./examples/coding-benchmark) |
 | Benchmark **harnesses × models** over a real task suite | [`webcode-matrix`](./examples/webcode-matrix) |
+| Trace + bill + effort-gate a coding benchmark (the Intelligence SDK) | [`intelligence-coding-bench`](./examples/intelligence-coding-bench) |
 | Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 
-All 27 live in [`examples/`](./examples).
+All 28 live in [`examples/`](./examples).
 
 ## Where to go next
 
