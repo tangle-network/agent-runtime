@@ -80,7 +80,7 @@ Runnable, grouped by what they show — copy the one nearest your task:
 | Benchmark strategies on your own domain | [`coding-benchmark`](./examples/coding-benchmark) |
 | Benchmark **harnesses × models** over a real task suite (the real WebCode dataset) | [`webcode-matrix`](./examples/webcode-matrix) |
 | Render a **multi-profile leaderboard** — ranked board + score matrix + SVG/HTML charts, any domain | `leaderboard(records)` → `renderLeaderboardMarkdown` / `Svg` / `Html` |
-| Trace + bill + effort-gate a coding benchmark (the Intelligence SDK) | [`intelligence-coding-bench`](./examples/intelligence-coding-bench) |
+| Trace + bill + effort-gate the WebCode benchmark (the Intelligence SDK) | [`intelligence-webcode`](./examples/intelligence-webcode) |
 | Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 

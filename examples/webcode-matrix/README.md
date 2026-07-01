@@ -39,7 +39,7 @@ Writes **`report.md` + `report.svg` + `report.html`** to `RUN_DIR` — a ranked 
 
 - [`webcode-dataset.ts`](./webcode-dataset.ts) — `loadWebCodeTasks()` loads the real 33 tasks (prompt + `test_patch` + solution file + dockerfile).
 - [`webcode-matrix.ts`](./webcode-matrix.ts) — the harness×model grid, the dispatch (run → write solution → run Exa's grader), and the leaderboard render.
-- [`../intelligence-coding-bench`](../intelligence-coding-bench) — the same benchmark with the full Tangle Intelligence SDK (cost, per-tool waterfall, OTLP) on every cell.
+- [`../intelligence-webcode`](../intelligence-webcode) — the same benchmark with the full Tangle Intelligence SDK (cost, per-tool waterfall, OTLP) on every cell.
 
 ## Why it's interesting
 

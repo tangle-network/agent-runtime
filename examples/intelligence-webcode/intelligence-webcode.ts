@@ -1,5 +1,5 @@
 /**
- * intelligence-coding-bench — the WebCode harness×model coding benchmark (see ../webcode-matrix),
+ * intelligence-webcode — the WebCode harness×model benchmark (see ../webcode-matrix),
  * instrumented with the FULL Tangle Intelligence SDK. It reuses the EXACT benchmark next door — the same
  * harness×model grid and the same post-Aug-2025 WebCode tasks graded by hidden tests — and adds nothing
  * but the intelligence wiring. Per harness×model you get: did it pass, what it cost, the per-tool
@@ -19,8 +19,8 @@
  * here that emits per-tool spans). Same pattern instruments `runProfileMatrix`'s dispatch wholesale.
  *
  * Run:
- *   TANGLE_API_KEY=… SANDBOX_API_KEY=… EXA_API_KEY=… [EFFORT=standard] [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
- *     tsx examples/intelligence-coding-bench/intelligence-coding-bench.ts
+ *   SANDBOX_API_KEY=$TANGLE_API_KEY [EFFORT=standard] [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
+ *     tsx examples/intelligence-webcode/intelligence-webcode.ts
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -144,7 +144,7 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
 }
 
 /** Run the WebCode grid × tasks with the full intelligence stack on every cell. */
-export async function runIntelligenceCodingBench(client: SandboxClient): Promise<void> {
+export async function runIntelligenceWebcode(client: SandboxClient): Promise<void> {
   // LAYER 1 — the BOUNDARY: every cell runs under `withTangleIntelligence` — traced + billed, effort-gated.
   // `effort: 'off'` clamps intelligence spend to 0 (the provable passthrough floor) while still running.
   const smartCell = withTangleIntelligence(instrumentedCell(client), { project, effort })
@@ -152,7 +152,7 @@ export async function runIntelligenceCodingBench(client: SandboxClient): Promise
     process.env.LIMIT ? { limit: Number(process.env.LIMIT) } : {},
   )
 
-  console.log(`intelligence-coding-bench · effort=${effort} · project=${project}`)
+  console.log(`intelligence-webcode · effort=${effort} · project=${project}`)
   console.log(`${'harness·model'.padEnd(30)}${'task'.padEnd(14)}result  cost     wall\n`)
   let shownWaterfall = false
   for (const profile of webcodeGrid) {
@@ -181,5 +181,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     apiKey,
     baseUrl: process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools',
   })
-  await runIntelligenceCodingBench(client)
+  await runIntelligenceWebcode(client)
 }

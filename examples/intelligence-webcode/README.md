@@ -1,6 +1,8 @@
-# intelligence-coding-bench
+# intelligence-webcode
 
-The [WebCode harness×model coding benchmark](../webcode-matrix) — every cell wrapped in the **full Tangle Intelligence SDK**. Same grid, same hidden-test-graded tasks; this file adds nothing but the instrumentation, so per harness×model you see: **did it pass, what it cost, where the cost went, and the exported trace.**
+The [WebCode harness×model benchmark](../webcode-matrix) — every cell wrapped in the **full Tangle Intelligence SDK**. Same grid, same hidden-test-graded tasks; this file adds nothing but the instrumentation, so per harness×model you see: **did it pass, what it cost, where the cost went, and the exported trace.**
+
+> **Which benchmark is this?** It instruments **WebCode** — coding tasks whose discriminator is *web retrieval* (the API post-dates the model's training, so the agent must search for it). For general SWE-style coding (develop against visible tests, graded on a hidden suite), see [`../coding-benchmark`](../coding-benchmark) instead.
 
 ## The three layers (all on one cell)
 
@@ -15,8 +17,10 @@ The intelligence attaches at **two seams**: the boundary wraps the whole cell (`
 ## Run
 
 ```bash
-TANGLE_API_KEY=…  SANDBOX_API_KEY=…  EXA_API_KEY=…  [EFFORT=standard]  [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
-  tsx examples/intelligence-coding-bench/intelligence-coding-bench.ts
+examples/webcode-matrix/data/fetch.sh   # one-time: download the 33-task dataset
+
+SANDBOX_API_KEY=$TANGLE_API_KEY  [EFFORT=standard]  [OTEL_EXPORTER_OTLP_ENDPOINT=…] \
+  tsx examples/intelligence-webcode/intelligence-webcode.ts
 ```
 
 Prove the floor: run once with `EFFORT=standard`, once with `EFFORT=off` — same passes, zero intelligence spend on the second.
