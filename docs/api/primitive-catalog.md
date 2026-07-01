@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 401 exports.
+Import from `@tangle-network/agent-runtime/loops` — 406 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -406,6 +406,7 @@ Import from `@tangle-network/agent-runtime/loops` — 401 exports.
 | `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
 | `observe` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `openSandboxRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `pairwiseSignificance` | function | Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
 | `pickChampion` | function | The champion pick over a means table. 'score' takes the best mean score (ties → |
@@ -423,6 +424,7 @@ Import from `@tangle-network/agent-runtime/loops` — 401 exports.
 | `renderLeaderboardHtml` | function | Render a self-contained HTML leaderboard page (the hosted surface): the SVG charts + the full Markdown |
 | `renderLeaderboardMarkdown` | function | Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis |
 | `renderLeaderboardSvg` | function | Render a self-contained SVG: a ranked score bar chart on top, the profile×axis heatmap below. No deps, |
+| `renderPairwiseMarkdown` | function | Render the pairwise-significance table — every profile pair's paired delta, CI, and BH-corrected |
 | `renderReport` | function | Operator-facing report, split by who should act. The agent block is the |
 | `reportLoopUsage` | function | Forward a `LoopResult`'s aggregated cost + token usage into a campaign cost |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
@@ -571,6 +573,7 @@ Import from `@tangle-network/agent-runtime/loops` — 401 exports.
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
 | `InProcessSandboxClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `IntentAudit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `Interval` | interface | A 95%-by-default confidence interval. |
 | `Iteration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Leaderboard` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LeaderboardOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
@@ -603,6 +606,8 @@ Import from `@tangle-network/agent-runtime/loops` — 401 exports.
 | `ObserveOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `OpenSandboxRunOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
+| `PairwiseOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `PairwiseVerdict` | interface | One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. |
 | `PanelJudge` | interface | One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in |
 | `PanelSpec` | interface | `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its |
 | `PanelVerdict` | interface | One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no |

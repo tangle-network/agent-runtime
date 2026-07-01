@@ -32,14 +32,19 @@ import {
   runProfileMatrix,
 } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { SandboxClient } from '@tangle-network/agent-runtime/loops'
+import {
+  leaderboard,
+  pairwiseSignificance,
+  renderLeaderboardMarkdown,
+  renderPairwiseMarkdown,
+  type SandboxClient,
+} from '@tangle-network/agent-runtime/loops'
 import { codingDispatch } from './dispatch'
 import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
 import { csvParserSource, lruCacheSource } from './fixtures'
 import { type OfflineScript, offlineSandboxClient } from './offline-box'
 import { harnessProfiles, type ToolPreset } from './profiles'
 import { type CodingScenario, scenarios } from './scenarios'
-import { pairwiseStats, renderStats } from './stats'
 
 export interface BenchmarkOptions {
   live?: boolean
@@ -245,11 +250,32 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
     // Map the matrix's hashed profileId → the readable harness name for the leaderboard.
     const nameById = new Map(harnessProfiles.map((p) => [agentProfileId(p), p.name ?? 'unknown']))
     const nameOf = (id: string) => nameById.get(id) ?? id
-    const report = pairwiseStats(allRecords, nameOf)
+    // The ONE report engine — same as webcode-matrix. Records tag `searchScore` (no split); the profile
+    // key is the matrix's hashed id, labelled via nameOf. `stats` computes the Wilson + bootstrap CIs;
+    // `pairwiseSignificance` runs the paired, BH-corrected who-beat-whom test (power floor 6 at this n).
+    const keyOf = (r: { agentProfile?: { profileId?: string }; candidateId?: string }) =>
+      r.agentProfile?.profileId ?? r.candidateId ?? 'unknown'
+    const scoreOf = (r: { outcome: { searchScore?: number; holdoutScore?: number } }) =>
+      r.outcome.searchScore ?? r.outcome.holdoutScore ?? 0
+    const board = leaderboard(allRecords, {
+      title: 'Coding benchmark — harness leaderboard',
+      stats: true,
+      passThreshold: 0.6,
+      scoreOf,
+      profileKeyOf: keyOf,
+      labelOf: nameOf,
+    })
+    const pairs = pairwiseSignificance(allRecords, {
+      scoreOf,
+      profileKeyOf: keyOf,
+      labelOf: nameOf,
+      minPairs: 6,
+    })
 
     console.log(`\nrecords: ${allRecords.length}\n`)
-    console.log(renderStats(report))
-    return { records: allRecords.length, leaderboard: report.leaderboard.length }
+    console.log(renderLeaderboardMarkdown(board))
+    console.log(`\n${renderPairwiseMarkdown(pairs)}`)
+    return { records: allRecords.length, leaderboard: board.profiles.length }
   } finally {
     // The matrix writes its run artifacts under `runDir`; tear the temp tree down so
     // repeated runs don't leak `/tmp/coding-benchmark-*` directories.

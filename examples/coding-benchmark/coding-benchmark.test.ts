@@ -20,12 +20,12 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { assertNoHiddenLeak, type RunRecord } from '@tangle-network/agent-eval'
+import { leaderboard } from '@tangle-network/agent-runtime/loops'
 import { describe, expect, it } from 'vitest'
 import { main, offlineAgentScripts } from './benchmark'
 import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
 import { harnessProfiles } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields, scenarios } from './scenarios'
-import { pairwiseStats } from './stats'
 
 const execAsync = promisify(execCb)
 
@@ -229,29 +229,28 @@ describe('coding-benchmark (offline)', () => {
       ['b', 's1', 0.8],
       ['b', 's2', 0.5],
     ]
-    const nameOf = (id: string) => id
+    const keyOf = (r: RunRecord) => r.candidateId ?? 'x'
+    const scoreOf = (r: RunRecord) => r.outcome.searchScore ?? r.outcome.holdoutScore ?? 0
     const reps1 = base.map(([h, s, v]) => mk(h, s, v))
     const reps3 = base.flatMap(([h, s, v]) => [mk(h, s, v), mk(h, s, v), mk(h, s, v)])
 
-    const r1 = pairwiseStats(reps1, nameOf)
-    const r3 = pairwiseStats(reps3, nameOf)
+    const opts = { stats: true as const, passThreshold: 0.6, profileKeyOf: keyOf, scoreOf }
+    const r1 = leaderboard(reps1, opts)
+    const r3 = leaderboard(reps3, opts)
 
     for (const harness of ['a', 'b']) {
-      const row1 = r1.leaderboard.find((r) => r.harness === harness)
-      const row3 = r3.leaderboard.find((r) => r.harness === harness)
-      expect(row1).toBeDefined()
-      expect(row3).toBeDefined()
-      const r1Row = row1 as NonNullable<typeof row1>
-      const r3Row = row3 as NonNullable<typeof row3>
-      // Same honest n (= distinct scenarios), same mean, and the CI must NOT narrow.
-      expect(r3Row.n).toBe(r1Row.n)
-      expect(r3Row.meanComposite).toBeCloseTo(r1Row.meanComposite, 10)
-      const width1 = r1Row.ci.upper - r1Row.ci.lower
-      const width3 = r3Row.ci.upper - r3Row.ci.lower
+      const row1 = r1.profiles.find((r) => r.label === harness)!
+      const row3 = r3.profiles.find((r) => r.label === harness)!
+      expect(row1.scoreCi).toBeDefined()
+      expect(row3.scoreCi).toBeDefined()
+      // Same mean, and the CI must NOT narrow — collapsing reps to one mean per scenario is the honest n.
+      expect(row3.meanScore).toBeCloseTo(row1.meanScore, 10)
+      const width1 = row1.scoreCi!.upper - row1.scoreCi!.lower
+      const width3 = row3.scoreCi!.upper - row3.scoreCi!.lower
       expect(width3).toBeCloseTo(width1, 10)
       // The pass-rate Wilson interval likewise must not tighten.
-      const pw1 = r1Row.passCi.upper - r1Row.passCi.lower
-      const pw3 = r3Row.passCi.upper - r3Row.passCi.lower
+      const pw1 = row1.passCi!.upper - row1.passCi!.lower
+      const pw3 = row3.passCi!.upper - row3.passCi!.lower
       expect(pw3).toBeCloseTo(pw1, 10)
     }
   })

@@ -27,9 +27,11 @@ import {
   type AgentRunSpec,
   leaderboard,
   openSandboxRun,
+  pairwiseSignificance,
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
+  renderPairwiseMarkdown,
   type SandboxClient,
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
@@ -141,19 +143,23 @@ export async function runWebCodeMatrix(client: SandboxClient, runDir: string, co
     reps: 1,
   })
 
-  // The records ARE the universal currency — the domain-agnostic leaderboard engine renders them.
+  // The records ARE the universal currency — the domain-agnostic leaderboard engine renders them, with
+  // Wilson + bootstrap CIs (stats) and the paired, BH-corrected who-beat-whom table (pairwiseSignificance).
   const board = leaderboard(result.records, {
     title: 'WebCode — harness × model',
+    stats: true,
     meta: {
       dataset: 'exa-labs/benchmarks webcode e2e',
       tasks: String(tasks.length),
       commit: commitSha,
     },
   })
-  writeFileSync(`${runDir}/report.md`, renderLeaderboardMarkdown(board))
+  const pairs = pairwiseSignificance(result.records)
+  const md = `${renderLeaderboardMarkdown(board)}\n\n${renderPairwiseMarkdown(pairs)}`
+  writeFileSync(`${runDir}/report.md`, md)
   writeFileSync(`${runDir}/report.svg`, renderLeaderboardSvg(board))
   writeFileSync(`${runDir}/report.html`, renderLeaderboardHtml(board))
-  console.log(renderLeaderboardMarkdown(board))
+  console.log(md)
   console.log(`\nwrote report.md / report.svg / report.html → ${runDir}`)
   return { result, board }
 }
