@@ -121,7 +121,7 @@ pnpm tsx examples/recursive-supervisor/recursive-supervisor.ts
 pnpm tsx examples/driver-loop/driver-loop.ts                       # SEE THE FOLD (offline)
 TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts        # the one-call supervisor
 WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
-  pnpm tsx examples/supervisor-loop/run-bridge.ts                  # same supervisor, local cli-bridge backend
+  WORKER_BACKEND=bridge WORKER_MODEL=opencode/... pnpm tsx examples/supervisor-loop/run.ts  # one knob: bridge|sandbox
 TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts          # delegate(intent), one call
 
 # Tier 2 — the runLoop kernel

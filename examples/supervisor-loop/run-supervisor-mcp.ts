@@ -34,47 +34,13 @@ import {
   type Agent,
   createExecutorRegistry,
   createSupervisor,
-  type ExecutorConfig,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type Scope,
   serveCoordinationMcp,
   workerFromBackend,
 } from '@tangle-network/agent-runtime/loops'
-import { demoCheck, expectedAnswer } from './shared'
-
-/** Build the worker-leaf `ExecutorConfig` for the chosen backend. THIS is the swap seam: the
- *  `backend` field, plus the matching per-backend seam fields. Nothing downstream cares which
- *  one it is — `workerFromBackend` injects the seam and returns a uniform spawnable worker. */
-function workerBackend(): ExecutorConfig {
-  const backend = process.env.WORKER_BACKEND ?? 'bridge'
-  if (backend === 'sandbox') {
-    throw new Error(
-      'WORKER_BACKEND=sandbox needs a real SandboxClient (key + base URL). Construct it from\n' +
-        '  @tangle-network/sandbox and return { backend: "sandbox", sandboxClient } here — the\n' +
-        '  supervisor, MCP, spawn_agent, and the deployable check are identical to the bridge path.\n' +
-        'Run the proven path: WORKER_BACKEND=bridge WORKER_MODEL=opencode/zai-coding-plan/glm-5.1',
-    )
-  }
-  if (backend !== 'bridge') {
-    throw new Error(`WORKER_BACKEND must be "bridge" or "sandbox" (got ${JSON.stringify(backend)})`)
-  }
-  const model = process.env.WORKER_MODEL
-  if (!model) {
-    throw new Error(
-      'WORKER_BACKEND=bridge needs WORKER_MODEL=<harness>/<model> the bridge can serve,\n' +
-        '  e.g. WORKER_MODEL=opencode/zai-coding-plan/glm-5.1\n' +
-        'Start the bridge first: cd ~/code/cli-bridge && pnpm start  (→ http://127.0.0.1:3344)',
-    )
-  }
-  return {
-    backend: 'bridge',
-    bridgeUrl: process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344',
-    bridgeBearer: process.env.BRIDGE_BEARER ?? 'local',
-    model,
-    timeoutMs: 180_000,
-  }
-}
+import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 
 /** The supervisor's standing instructions — it delegates, it does not solve. */
 const supervisorTask =
@@ -109,7 +75,7 @@ async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const backend = workerBackend()
+  const backend = buildWorkerBackend()
   const blobs = new InMemoryResultBlobStore()
 
   console.log(
