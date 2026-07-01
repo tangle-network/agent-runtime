@@ -35,9 +35,9 @@ import type { DispatchContext, ProfileDispatchFn } from '@tangle-network/agent-e
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentRunSpec,
-  extractLlmCallEvent,
   openSandboxRun,
   type SandboxClient,
+  sumSandboxUsage,
 } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import {
@@ -143,8 +143,10 @@ export function codingDispatch(
         // Report usage so the integrity guard sees a real backend (not a stub).
         // `extractLlmCallEvent` reads usage off EVERY backend event shape — the live
         // sandbox's `done`/`result`/`llm_call` events all sum correctly here.
-        const usage = sumTokens(turn.events)
-        if (usage.input || usage.output) ctx.cost.observeTokens(usage)
+        const usage = sumSandboxUsage(turn.events)
+        if (usage.input || usage.output)
+          ctx.cost.observeTokens({ input: usage.input, output: usage.output })
+        if (usage.costUsd) ctx.cost.observe(usage.costUsd, 'sandbox-cell')
 
         // Dev checks (visible example tests), IN THE BOX, this round. These (and only
         // these) steer the next round — the firewall keeps the held-out suite + rubric
@@ -201,21 +203,4 @@ function blankReport(): RunArtifact['checks'] {
 function eventText(ev: SandboxEvent): string {
   const e = ev as { data?: { finalText?: string; text?: string; delta?: string } }
   return e.data?.finalText ?? e.data?.text ?? e.data?.delta ?? ''
-}
-
-/** Sum token usage across the turn's events into the `{ input, output }` shape
- *  `ctx.cost.observeTokens` expects, using the runtime's own metering extractor so
- *  EVERY backend event shape (`done`/`result`/`llm_call`/`usage`) is counted.
- *  `events` is the turn's real `SandboxEvent[]` — `extractLlmCallEvent` takes it directly. */
-function sumTokens(events: SandboxEvent[]): { input: number; output: number } {
-  let input = 0
-  let output = 0
-  for (const ev of events) {
-    const call = extractLlmCallEvent(ev, 'agent')
-    if (call) {
-      input += call.tokensIn ?? 0
-      output += call.tokensOut ?? 0
-    }
-  }
-  return { input, output }
 }

@@ -283,7 +283,7 @@ export {
   probeSandboxCapabilities,
   type SandboxCapabilities,
 } from './sandbox-capabilities'
-export { extractLlmCallEvent, mapSandboxEvent } from './sandbox-events'
+export { extractLlmCallEvent, mapSandboxEvent, sumSandboxUsage } from './sandbox-events'
 export {
   type CheckpointCapableBox,
   createSandboxLineage,
