@@ -242,10 +242,14 @@ export function createHumanEvalAdapter(): BenchmarkAdapter {
       return { resolved: pass === 1, score: pass, detail: pass === 1 ? 'tests passed' : 'tests failed' }
     },
     async goldArtifact(task: BenchTask) {
-      const sol = (task.metadata as HumanEvalMeta | undefined)?.canonicalSolution
-      // The canonical solution is the function BODY; the program header supplies the
-      // signature, so the body alone runs against check().
-      return sol ? sol : undefined
+      const m = task.metadata as HumanEvalMeta | undefined
+      const sol = m?.canonicalSolution
+      // Return the COMPLETE function (signature header + canonical body), i.e. what a
+      // real worker emits — NOT the body alone. The judge runs `extractCode`, whose
+      // unfenced fallback is `reply.trim()`; trimming a body-only string strips its
+      // leading indent and breaks it, so a body-only gold fails its own judge. A full
+      // def starts at column 0, trims safely, and self-verifies.
+      return sol ? `${m!.promptHeader}${sol}` : undefined
     },
   }
 }
