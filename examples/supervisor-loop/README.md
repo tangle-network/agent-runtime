@@ -8,8 +8,8 @@ see [`../supervise/`](../supervise/); the runners here add the per-backend worke
 
 | Runner | Worker backend | Command |
 |---|---|---|
-| `run-bridge.ts` | local cli-bridge (real harness CLI) | `WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts` |
-| `run-sandbox.ts` | a real cloud box | `TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run-sandbox.ts` |
+| `run.ts` | local cli-bridge (real harness CLI) | `WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run.ts` |
+| `run.ts` | a real cloud box | `WORKER_BACKEND=sandbox TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run.ts` |
 | `run-supervisor-mcp.ts` | `WORKER_BACKEND` (`bridge`\|`sandbox`) over the coordination MCP | `WORKER_BACKEND=bridge pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts` |
 
 ## Details
@@ -19,12 +19,16 @@ the offline-vs-real driver brain, and the one-call run-context boilerplate.
 
 ### Files
 
-- **`shared.ts`** — the demo fixtures the runners reuse: `demoGoal` + the deployable `demoCheck`
-  (the completion oracle), and `scriptedSupervisorChat` (a fixed `spawn → await → stop` brain so
-  the box/bridge wiring runs offline with no inference).
-- **`run-sandbox.ts`** — `supervise()` with `backend: 'sandbox'`. Each worker is a coding harness in a real box.
-- **`run-bridge.ts`** — `supervise()` with `backend: 'bridge'`. Each worker is a real harness CLI (claude-code / codex / opencode / kimi / gemini) fronted by the OpenAI-compatible bridge in `~/code/cli-bridge`. **The local path.**
-- **`run-supervisor-mcp.ts`** — the real MCP path (below): a harness agent IS the supervisor and calls `spawn_agent` natively over the coordination MCP.
+- **`shared.ts`** — the demo fixtures + the swap seam: `demoGoal` + the deployable `demoCheck` (the
+  completion oracle), `scriptedSupervisorChat` (a fixed `spawn → await → stop` brain so the wiring runs
+  offline with no inference), and the two functions that make the "one knob" real — **`buildWorkerBackend()`**
+  (returns the worker `ExecutorConfig` for `WORKER_BACKEND=bridge` or `sandbox`) and **`resolveSupervisorBrain()`**
+  (router brain if a key is present, else scripted).
+- **`run.ts`** — the plain `supervise()` runner. **One file, one knob:** `WORKER_BACKEND=bridge` runs workers
+  through the local cli-bridge (real harness CLIs — claude-code / codex / opencode / kimi / gemini); flip to
+  `WORKER_BACKEND=sandbox` and the *same* supervisor drives workers in real Tangle boxes.
+- **`run-supervisor-mcp.ts`** — the real MCP path (below): a harness agent IS the supervisor and calls
+  `spawn_agent` natively over the coordination MCP. Same `WORKER_BACKEND` knob (via `buildWorkerBackend`).
 
 ### Supervisor + coordinator MCP, workers on sandbox OR cli-bridge — swap `WORKER_BACKEND`, same code
 
@@ -59,7 +63,7 @@ WORKER_BACKEND=sandbox SANDBOX_BASE_URL=https://... TANGLE_API_KEY=sk-... \
   pnpm dlx tsx examples/supervisor-loop/run-supervisor-mcp.ts
 ```
 
-This is distinct from the `run-bridge.ts` / `run-sandbox.ts` runners below, which drive a
+This is distinct from the plain `run.ts` runner above, which drives a
 **scripted/router `ToolLoopChat` brain** through `supervise()`. `run-supervisor-mcp.ts` has no
 driver brain at all — the harness itself reasons the spawn → await → stop loop via the MCP.
 
@@ -71,8 +75,8 @@ resolves from `dist/`.
 | Backend | Command | Needs |
 |---|---|---|
 | **`router-tools`** | `TANGLE_API_KEY=sk-... pnpm tsx examples/supervise/supervise.ts` | `TANGLE_API_KEY`; optional `TANGLE_ROUTER_URL`, `MODEL` — the one-call entry (router brain + router-tools workers) |
-| **`sandbox`** | `TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run-sandbox.ts` | a real `SandboxClient` (key + base URL); optional `LOOP_HARNESS` (default `opencode`); driver defaults to router-brain, `DRIVER=scripted` for no driver inference |
-| **`bridge`** (local) | `WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts` | a running `~/code/cli-bridge` (base `http://127.0.0.1:3344`, no `/v1`, bearer optional/default `local`); `WORKER_MODEL` = `<harness>/<model>`. Override `BRIDGE_URL` / `BRIDGE_BEARER` if you started it with auth. Set `TANGLE_API_KEY` + `DRIVER_MODEL` for a real driver brain (else scripted) |
+| **`sandbox`** | `WORKER_BACKEND=sandbox TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... pnpm tsx examples/supervisor-loop/run.ts` | a real `SandboxClient` (key + base URL); optional `LOOP_HARNESS` (default `opencode`); driver defaults to router-brain, `DRIVER=scripted` for no driver inference |
+| **`bridge`** (local) | `WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run.ts` | a running `~/code/cli-bridge` (base `http://127.0.0.1:3344`, no `/v1`, bearer optional/default `local`); `WORKER_MODEL` = `<harness>/<model>`. Override `BRIDGE_URL` / `BRIDGE_BEARER` if you started it with auth. Set `TANGLE_API_KEY` + `DRIVER_MODEL` for a real driver brain (else scripted) |
 
 ### Test locally — the cli-bridge backend
 
@@ -84,7 +88,7 @@ box. Start it, then point a worker at it:
 cd ~/code/cli-bridge && pnpm install && pnpm install:harness -- opencode && pnpm start
 # → http://127.0.0.1:3344
 
-WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run-bridge.ts
+WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 pnpm tsx examples/supervisor-loop/run.ts
 ```
 
 The workflow is: **prove the supervisor topology against local harness CLIs (`bridge`), then
@@ -101,7 +105,7 @@ pnpm test tests/loops/coordination-driver.test.ts tests/supervisor-loop-example.
 The supervisor drives through an injected `ToolLoopChat` brain (one driver-LLM turn).
 `supervise(..., { router })` (or `examples/supervise/supervise.ts`) uses **`routerBrain(cfg)`**
 so the supervisor's turns are real router tool-calls and the brain decides the loop itself.
-`run-sandbox.ts`/`run-bridge.ts` default to a **scripted** brain (`scriptedSupervisorChat`, a
+`run.ts` defaults to a **scripted** brain (`scriptedSupervisorChat`, a
 fixed `spawn → await → stop` plan) so the box/bridge wiring is the only moving part — the same
 offline seam the unit tests use — and opt into `routerBrain` when a key is present. Same brain,
 different seam.

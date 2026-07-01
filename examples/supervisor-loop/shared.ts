@@ -7,7 +7,14 @@
  * these are only the per-example task + the offline brain it can be driven with.
  */
 
-import type { ToolLoopChat } from '@tangle-network/agent-runtime/loops'
+import {
+  type ExecutorConfig,
+  type SandboxClient as RuntimeSandboxClient,
+  routerBrain,
+  type ToolLoopChat,
+} from '@tangle-network/agent-runtime/loops'
+import type { BackendType } from '@tangle-network/sandbox'
+import { SandboxClient } from '@tangle-network/sandbox'
 
 /** The marker every runner asks its workers to emit; the check confirms it landed. */
 export const expectedAnswer = 'ANSWER=42'
@@ -84,4 +91,68 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
       })),
     })
   }
+}
+
+/**
+ * Build the worker-leaf `ExecutorConfig` for the chosen backend — THE one swap seam the supervisor-loop
+ * thesis is about. `WORKER_BACKEND=bridge` (default) runs workers through the local cli-bridge (real
+ * harness CLIs on your machine, no cloud); `WORKER_BACKEND=sandbox` runs them in real Tangle boxes.
+ * Nothing downstream cares which — `workerFromBackend` injects the seam and returns a uniform worker.
+ */
+export function buildWorkerBackend(): ExecutorConfig {
+  const backend = process.env.WORKER_BACKEND ?? 'bridge'
+  if (backend === 'sandbox') {
+    const apiKey = process.env.TANGLE_API_KEY
+    const baseUrl = process.env.SANDBOX_BASE_URL
+    if (!apiKey || !baseUrl) {
+      throw new Error(
+        'WORKER_BACKEND=sandbox needs a real sandbox client: set TANGLE_API_KEY + SANDBOX_BASE_URL.\n' +
+          '  No box? WORKER_BACKEND=bridge WORKER_MODEL=opencode/zai-coding-plan/glm-5.1 runs the SAME\n' +
+          '  supervisor against local harness CLIs (start the bridge: cd ~/code/cli-bridge && pnpm start).',
+      )
+    }
+    // The real Tangle client satisfies the runtime's `SandboxClient` port (it exposes `create(...)`).
+    const sandboxClient = new SandboxClient({ apiKey, baseUrl }) as unknown as RuntimeSandboxClient
+    const harness = (process.env.LOOP_HARNESS ?? 'opencode') as BackendType
+    return { backend: 'sandbox', harness, sandboxClient, maxIterations: 1 }
+  }
+  if (backend !== 'bridge') {
+    throw new Error(`WORKER_BACKEND must be "bridge" or "sandbox" (got ${JSON.stringify(backend)})`)
+  }
+  const model = process.env.WORKER_MODEL
+  if (!model) {
+    throw new Error(
+      'WORKER_BACKEND=bridge needs WORKER_MODEL=<harness>/<model> the bridge can serve,\n' +
+        '  e.g. WORKER_MODEL=opencode/zai-coding-plan/glm-5.1\n' +
+        '  Start the bridge first: cd ~/code/cli-bridge && pnpm start  (→ http://127.0.0.1:3344)',
+    )
+  }
+  return {
+    backend: 'bridge',
+    bridgeUrl: process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344',
+    bridgeBearer: process.env.BRIDGE_BEARER ?? 'local',
+    model,
+    timeoutMs: 180_000,
+  }
+}
+
+/** The supervisor BRAIN: the real router driver when a key + model are present, else the scripted $0
+ *  offline brain. (The brain is NEVER cli-bridge — full-agent harnesses don't return raw tool_calls.) */
+export function resolveSupervisorBrain(
+  workerCount: number,
+  labelPrefix: string,
+): { brain: ToolLoopChat; label: string } {
+  const routerKey = process.env.TANGLE_API_KEY
+  const driverModel = process.env.DRIVER_MODEL ?? process.env.LOOP_MODEL
+  if (process.env.DRIVER !== 'scripted' && routerKey && driverModel) {
+    return {
+      brain: routerBrain({
+        routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
+        routerKey,
+        model: driverModel,
+      }),
+      label: `router(${driverModel})`,
+    }
+  }
+  return { brain: scriptedSupervisorChat(workerCount, labelPrefix), label: 'scripted' }
 }
