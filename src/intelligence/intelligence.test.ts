@@ -161,8 +161,8 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     expect(result).toBe('hello')
     expect(calls.length).toBeGreaterThan(0)
     const attrs = attrsOf(calls[0]?.body)
-    expect(attrs['loop.project']).toBe('support-agent')
-    expect(attrs['loop.tangle.outcome.success']).toBe(true)
+    expect(attrs['project']).toBe('support-agent')
+    expect(attrs['tangle.outcome.success']).toBe(true)
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
   })
 
@@ -233,10 +233,10 @@ describe('billing classification — OFF proves inference-only', () => {
     })
     await client.flush()
     const attrs = attrsOf(calls[0]?.body)
-    expect(attrs['loop.tangle.effort.intelligence_off']).toBe(true)
-    expect(attrs['loop.tangle.usage.intelligence_usd']).toBe(0)
+    expect(attrs['tangle.effort.intelligence_off']).toBe(true)
+    expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
     // Inference is still billed — OFF is not "free", it is inference-only.
-    expect(attrs['loop.tangle.usage.inference_usd']).toBe(0.01)
+    expect(attrs['tangle.usage.inference_usd']).toBe(0.01)
   })
 
   it('a non-off tier preserves a reported intelligence split', async () => {
@@ -248,8 +248,8 @@ describe('billing classification — OFF proves inference-only', () => {
     })
     await client.flush()
     const attrs = attrsOf(calls[0]?.body)
-    expect(attrs['loop.tangle.effort.intelligence_off']).toBe(false)
-    expect(attrs['loop.tangle.usage.intelligence_usd']).toBe(0.03)
+    expect(attrs['tangle.effort.intelligence_off']).toBe(false)
+    expect(attrs['tangle.usage.intelligence_usd']).toBe(0.03)
   })
 })
 
