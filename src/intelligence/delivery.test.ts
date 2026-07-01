@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   type CertifiedProfile,
   composeCertifiedPrompt,
+  createCertifiedPromptSource,
   pullCertified,
   withCertifiedDelivery,
 } from './delivery'
@@ -226,5 +227,55 @@ describe('withCertifiedDelivery', () => {
       { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
     )
     await expect(agent(null)).rejects.toThrow('agent boom')
+  })
+})
+
+describe('createCertifiedPromptSource', () => {
+  const opts = { target: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test' }
+
+  it('compose pulls once, folds the certified additions, and caches within the window', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+    const first = await source.compose('BASE')
+    const second = await source.compose('BASE')
+    expect(first).toContain('## Certified guidance (Tangle Intelligence)')
+    expect(second).toBe(first)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(source.current()).toEqual(CERTIFIED)
+  })
+
+  it('fail-closed: a 404 leaves the base prompt unchanged and current() null', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}, 404)) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+    expect(await source.compose('BASE')).toBe('BASE')
+    expect(source.current()).toBeNull()
+  })
+
+  it('keeps the last-known profile when a later pull fails', async () => {
+    let calls = 0
+    const fetchImpl = vi.fn(async () => {
+      calls += 1
+      return calls === 1 ? jsonResponse(CERTIFIED) : jsonResponse({}, 500)
+    }) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl, refreshMs: 0 })
+    await source.refresh()
+    expect(source.current()).toEqual(CERTIFIED)
+    await source.refresh()
+    expect(source.current()).toEqual(CERTIFIED)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('coalesces concurrent refreshes into one pull', async () => {
+    let resolvePull: (r: Response) => void = () => {}
+    const fetchImpl = vi.fn(
+      () => new Promise<Response>((res) => (resolvePull = res)),
+    ) as unknown as typeof fetch
+    const source = createCertifiedPromptSource({ ...opts, fetchImpl })
+    const a = source.refresh()
+    const b = source.refresh()
+    resolvePull(jsonResponse(CERTIFIED))
+    await Promise.all([a, b])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(source.current()).toEqual(CERTIFIED)
   })
 })

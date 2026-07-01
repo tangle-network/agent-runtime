@@ -62,13 +62,20 @@ export type {
   AppliedIntelligence,
   CertifiedArtifact,
   CertifiedProfile,
+  CertifiedPromptSource,
+  CertifiedPromptSourceOptions,
   CertifiedPromptSurface,
   DeliveredAgent,
   DeliveryConfig,
   PullCertifiedOptions,
   PullOutcome,
 } from './delivery'
-export { composeCertifiedPrompt, pullCertified, withCertifiedDelivery } from './delivery'
+export {
+  composeCertifiedPrompt,
+  createCertifiedPromptSource,
+  pullCertified,
+  withCertifiedDelivery,
+} from './delivery'
 export type {
   CorpusAccess,
   EffortOverrides,
