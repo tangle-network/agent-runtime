@@ -1,9 +1,11 @@
 # researcher-loop
 
 `researcherProfile()` (from `@tangle-network/agent-knowledge/profiles`) +
-`runLoop()` + an inline fanout `Driver` — the primary, smallest example of the
-`runLoop` kernel. Two parallel researcher attempts answer the same question;
-the validator scores citation density + namespace scoping + per-item
+`runLoop()` + an inline fanout `Driver` — the `runLoop` kernel driving a **domain
+research profile**. (For the minimal, dependency-free `runLoop` example to read
+first, see [`driver-loop`](../driver-loop); this one adds the agent-knowledge
+research profile on top.) Two parallel researcher attempts answer the same
+question; the validator scores citation density + namespace scoping + per-item
 provenance; the kernel picks the highest-scoring valid winner.
 
 A **round** is one `plan → run workers → decide` cycle. This driver is
@@ -47,12 +49,17 @@ flowchart TD
 ## Run
 
 ```bash
+# 1. install the optional peer this example needs (it is NOT a dependency of the runtime):
+pnpm add -D @tangle-network/agent-knowledge
+# 2. run it:
 pnpm tsx examples/researcher-loop/researcher-loop.ts
 ```
 
-The `@tangle-network/agent-knowledge` peer dep ships in `node_modules`
-already; the example imports `researcherProfile` from
-`@tangle-network/agent-knowledge/profiles`.
+`@tangle-network/agent-knowledge` is an **optional peer** — the runtime never
+imports it (domain packages enter by injection, not dependency), so it is not in
+`node_modules` by default and this example is excluded from the repo's CI
+typecheck (`tsconfig.examples.json`). Install it as above; the example imports
+`researcherProfile` from `@tangle-network/agent-knowledge/profiles`.
 
 ## What it shows
 
