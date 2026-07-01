@@ -36,6 +36,7 @@ import {
   createWaterfallCollector,
   openSandboxRun,
   type SandboxClient,
+  sumSandboxUsage,
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
 import {
@@ -117,9 +118,12 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
       { kind: 'events', fromEvents: () => ({ passed: false }) },
     )
     const solutionFile = task.solutionFiles[0] ?? 'Solution.txt'
-    await run.start(
+    const turn = await run.start(
       `${task.taskDescription}\n\n— Write your solution to \`solution/${solutionFile}\`. Use web_search for the post-${task.releaseTag} API; make every test pass.`,
     )
+    // The honest run cost — summed off the turn's events by the ONE metering seam (the waterfall below is
+    // the per-tool breakdown demo; this is the authoritative total).
+    const usage = sumSandboxUsage(turn.events)
     // Grade with Exa's exact test_patch (pytest), score on exit — the same execution-truth grader as
     // webcode-matrix; here every cell is also traced + billed by the intelligence layers above.
     await run.box.fs.mkdir('tests', { recursive: true })
@@ -132,7 +136,7 @@ function instrumentedCell(client: SandboxClient): (input: CellInput) => Promise<
     const report = waterfall.report()
     return {
       passed: (res?.exitCode ?? 1) === 0,
-      usd: report.totalUsd,
+      usd: usage.costUsd || report.totalUsd,
       ms: report.totalMs,
       waterfall: waterfall.render({ maxRows: 8 }),
     }

@@ -15793,11 +15793,57 @@ RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 ***
 
+### sumSandboxUsage()
+
+> **sumSandboxUsage**(`events`, `agentRunName?`): `object`
+
+Defined in: [runtime/sandbox-events.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L90)
+
+Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
+`openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
+event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
+
+    const turn = await run.start(prompt)
+    const u = sumSandboxUsage(turn.events)
+    if (u.input || u.output) ctx.cost.observeTokens({ input: u.input, output: u.output })
+    if (u.costUsd) ctx.cost.observe(u.costUsd, 'sandbox-cell')
+
+Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
+matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
+
+#### Parameters
+
+##### events
+
+readonly `SandboxEvent`[]
+
+##### agentRunName?
+
+`string` = `'agent'`
+
+#### Returns
+
+`object`
+
+##### input
+
+> **input**: `number`
+
+##### output
+
+> **output**: `number`
+
+##### costUsd
+
+> **costUsd**: `number`
+
+***
+
 ### mapSandboxEvent()
 
 > **mapSandboxEvent**(`event`, `opts?`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [runtime/sandbox-events.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L123)
+Defined in: [runtime/sandbox-events.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L153)
 
 Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
 for runtimes that bridge a sandbox `streamPrompt` into the

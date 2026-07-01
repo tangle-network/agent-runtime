@@ -33,6 +33,7 @@ import {
   renderLeaderboardSvg,
   renderPairwiseMarkdown,
   type SandboxClient,
+  sumSandboxUsage,
 } from '@tangle-network/agent-runtime/loops'
 import type { BackendType } from '@tangle-network/sandbox'
 import { loadWebCodeTasks, type WebCodeTask } from './webcode-dataset'
@@ -74,7 +75,7 @@ export { loadWebCodeTasks, type WebCodeTask } from './webcode-dataset'
 function webcodeDispatch(
   client: SandboxClient,
 ): ProfileDispatchFn<WebCodeTask, { passed: boolean }> {
-  return async (profile, task) => {
+  return async (profile, task, ctx) => {
     const harness = String(profile.metadata?.harness ?? 'opencode')
     const model = String(profile.metadata?.model ?? 'openai/gpt-4.1-2025-04-14')
     const solutionFile = task.solutionFiles[0] ?? 'Solution.txt'
@@ -102,10 +103,16 @@ function webcodeDispatch(
     }
     const run = await openSandboxRun<{ passed: boolean }>(
       client,
-      { agentRun, scenarioId: task.id, signal: new AbortController().signal },
+      { agentRun, scenarioId: task.id, signal: ctx.signal },
       { kind: 'events', fromEvents: () => ({ passed: false }) },
     )
-    await run.start(prompt)
+    const turn = await run.start(prompt)
+    // Report the run's real usage so the backend-integrity guard sees a real backend (not a stub). The
+    // ONE metering seam — sums usage across every backend event shape.
+    const usage = sumSandboxUsage(turn.events)
+    if (usage.input || usage.output)
+      ctx.cost.observeTokens({ input: usage.input, output: usage.output })
+    if (usage.costUsd) ctx.cost.observe(usage.costUsd, 'webcode-cell')
 
     // Grade with Exa's EXACT test_patch: drop it into the box, ensure pytest, run it, score on exit. A
     // missing language toolchain (an exotic per-task image not provisioned) surfaces as a failing test —

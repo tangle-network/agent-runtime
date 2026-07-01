@@ -337,7 +337,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 406 exports.
+Import from `@tangle-network/agent-runtime/loops` — 407 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -447,6 +447,7 @@ Import from `@tangle-network/agent-runtime/loops` — 406 exports.
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
+| `sumSandboxUsage` | function | Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an |
 | `supervise` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `superviseSurface` | function | Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and |
 | `supervisorAgent` | function | _(no summary — add a TSDoc line at the declaration)_ |

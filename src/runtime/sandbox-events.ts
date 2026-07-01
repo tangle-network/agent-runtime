@@ -74,6 +74,36 @@ export function extractLlmCallEvent(
   return undefined
 }
 
+/**
+ * Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
+ * `openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
+ * event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
+ *
+ *     const turn = await run.start(prompt)
+ *     const u = sumSandboxUsage(turn.events)
+ *     if (u.input || u.output) ctx.cost.observeTokens({ input: u.input, output: u.output })
+ *     if (u.costUsd) ctx.cost.observe(u.costUsd, 'sandbox-cell')
+ *
+ * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
+ * matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
+ */
+export function sumSandboxUsage(
+  events: readonly SandboxEvent[],
+  agentRunName = 'agent',
+): { input: number; output: number; costUsd: number } {
+  let input = 0
+  let output = 0
+  let costUsd = 0
+  for (const ev of events) {
+    const call = extractLlmCallEvent(ev, agentRunName)
+    if (!call) continue
+    input += call.tokensIn ?? 0
+    output += call.tokensOut ?? 0
+    costUsd += call.costUsd ?? 0
+  }
+  return { input, output, costUsd }
+}
+
 function buildLlmCall(
   data: Record<string, unknown>,
   agentRunName: string,

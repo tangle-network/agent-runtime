@@ -1,6 +1,32 @@
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { extractLlmCallEvent, mapSandboxEvent } from '../../src/runtime/sandbox-events'
+import {
+  extractLlmCallEvent,
+  mapSandboxEvent,
+  sumSandboxUsage,
+} from '../../src/runtime/sandbox-events'
+
+describe('sumSandboxUsage — meter an openSandboxRun turn', () => {
+  it('sums tokens + cost across mixed backend event shapes, ignoring non-cost events', () => {
+    const events: SandboxEvent[] = [
+      { type: 'delta', data: { text: 'thinking' } } as SandboxEvent,
+      { type: 'llm_call', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } } as SandboxEvent,
+      {
+        type: 'done',
+        data: { tokenUsage: { inputTokens: 50, outputTokens: 20 }, totalCostUsd: 0.005 },
+      } as SandboxEvent,
+    ]
+    expect(sumSandboxUsage(events)).toEqual({ input: 150, output: 60, costUsd: 0.015 })
+  })
+
+  it('returns zeros for a stream with no cost-bearing events (the honest stub signal)', () => {
+    expect(sumSandboxUsage([{ type: 'delta', data: {} } as SandboxEvent])).toEqual({
+      input: 0,
+      output: 0,
+      costUsd: 0,
+    })
+  })
+})
 
 describe('mapSandboxEvent — SandboxEvent → RuntimeStreamEvent', () => {
   it('maps a text part to text_delta, preferring the incremental delta', () => {
