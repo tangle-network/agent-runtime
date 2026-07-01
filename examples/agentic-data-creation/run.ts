@@ -5,7 +5,7 @@
  * training examples from one grounding doc, and prints:
  *   1. each accepted example with its weak/strong solver scores and the gap,
  *   2. the CALIBRATION — does the gap metric actually separate? A plainly-generated (first-draft)
- *      example should show a SMALL gap; an agentic-loop-accepted one a LARGE gap (the paper's Table 1),
+ *      example should show a SMALL gap; an agentic-loop-accepted one a LARGE gap (the illustrative target),
  *   3. the cost ledger, split by role (challenger vs each solver) — composed, never hand-counted.
  *
  * Run:  pnpm tsx examples/agentic-data-creation/run.ts
@@ -55,9 +55,9 @@ async function main(): Promise<void> {
   const plain = mean(result.plainGaps)
   const agentic = mean(result.agenticGaps)
   console.log('\n— Calibration: does the gap metric discriminate? —')
-  console.log(`  plain   (first-draft examples)  mean gap = ${plain.toFixed(2)}   (paper ≈ 0.02)`)
+  console.log(`  plain   (first-draft examples)  mean gap = ${plain.toFixed(2)}   (target ≈ 0.02)`)
   console.log(
-    `  agentic (loop-accepted examples) mean gap = ${agentic.toFixed(2)}   (paper ≈ 0.31)`,
+    `  agentic (loop-accepted examples) mean gap = ${agentic.toFixed(2)}   (target ≈ 0.31)`,
   )
   const separates = Number.isFinite(plain) && Number.isFinite(agentic) && agentic - plain >= 0.15
   console.log(

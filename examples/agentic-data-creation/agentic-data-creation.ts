@@ -1,7 +1,7 @@
 /**
- * agentic-data-creation — the INNER loop of Autodata / Agentic Self-Instruct (Meta FAIR,
- * arXiv 2606.25996): an agent MANUFACTURES hard training examples from a grounding doc, and keeps
- * only the ones that DISCRIMINATE a strong solver from a weak one.
+ * agentic-data-creation — the INNER loop of AGENTIC SELF-INSTRUCT (the self-instruct pattern,
+ * Wang et al. 2022, taken agentic): an agent MANUFACTURES hard training examples from a grounding doc,
+ * and keeps only the ones that DISCRIMINATE a strong solver from a weak one.
  *
  * This file is the SUBJECT. The whole method is four roles + one accept rule, composed from
  * primitives this package already ships — nothing here re-implements a judge, a sampler, a cost
@@ -78,7 +78,7 @@ export interface AcceptDecision {
 // THE ONE NEW PIECE — the paper's discriminative reward, as a small Validator-shaped rule.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 //
-// Autodata keeps an example ONLY IF it separates a strong solver from a weak one: the strong
+// The accept rule keeps an example ONLY IF it separates a strong solver from a weak one: the strong
 // solver should mostly get it (>= minStrong), the weak solver should mostly miss it (< maxWeak),
 // and the margin between them (the "gap") must clear minGap. That is the whole objective — make
 // examples too hard for the weak solver — so the rule is the LITERAL accept criterion, never
@@ -340,7 +340,7 @@ export interface DataCreationResult {
 }
 
 /**
- * Run the Autodata inner loop: manufacture `target` discriminating examples from `doc`, refining
+ * Run the self-instruct inner loop: manufacture `target` discriminating examples from `doc`, refining
  * each via the challenger fold until it is accepted (or its retry budget runs out). Returns the
  * accepted set, the per-example gap for the accepted (agentic) AND the first-draft (plain) examples
  * for calibration, the corpus they accreted into, and the cost ledger.

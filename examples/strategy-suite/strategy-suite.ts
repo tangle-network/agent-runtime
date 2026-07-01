@@ -36,6 +36,12 @@ const task = counterTask('counter-to-5')
 // shot() = one worker attempt over the artifact; critique() = the firewalled
 // analyst reads the trace and returns a steer for the next shot.
 
+// An AUTHORED policy the built-ins DON'T have: never trust a single passing shot — require the solution
+// to pass TWICE IN A ROW before declaring done (a flake/luck guard). `refine` stops the instant a shot
+// passes; `doubleCheck` runs ONE more verification shot and only accepts if that also passes. On a
+// deterministic surface this is `refine` + one confirm shot; its real payoff is on a NON-deterministic
+// surface (real tools / flaky tests), where a lucky single pass is caught before it ships. That is the
+// point of `defineStrategy`: a stop-condition the library doesn't ship, in ~10 lines.
 const doubleCheck = defineStrategy(
   'doubleCheck',
   async ({ surface, task: t, budget, shot, critique }) => {
@@ -44,21 +50,30 @@ const doubleCheck = defineStrategy(
     let messages: Record<string, unknown>[] | undefined
     let steer: string | undefined
     let completions = 0
+    let consecutivePasses = 0
     try {
       for (let i = 0; i < budget; i += 1) {
         const out = await shot({ handle, messages, steer })
         if (!out) break
         completions += out.completions
         progression.push(out.score)
-        if (out.score >= 1) break
         messages = out.messages
+        if (out.score >= 1) {
+          consecutivePasses += 1
+          if (consecutivePasses >= 2) break // passed twice in a row → trust it, stop
+          steer = 'That passed. Run the checks ONE more time to confirm it is stable, not a fluke.'
+          continue
+        }
+        // A failing shot resets the streak — a single pass is never enough.
+        consecutivePasses = 0
         const findings = await critique(out.messages)
         completions += 1
         if (!findings) break
         steer = `Not done yet. ${findings}`
       }
+      const resolved = consecutivePasses >= 2
       const score = progression.length ? Math.max(...progression) : 0
-      return { score, resolved: score >= 1, completions, progression, shots: progression.length }
+      return { score, resolved, completions, progression, shots: progression.length }
     } finally {
       await surface.close(handle)
     }

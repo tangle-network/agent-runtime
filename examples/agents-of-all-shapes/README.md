@@ -20,7 +20,7 @@ No sandbox. No deploy. No server. The analysis runs **in-process**.
 
 ```bash
 # Verified QA path — in-process, no key, no infra:
-npx tsx examples/agents-of-all-shapes/run.ts
+pnpm tsx examples/agents-of-all-shapes/run.ts
 
 # CI verification (what proves it):
 pnpm test -- tests/agents-of-all-shapes.test.ts
