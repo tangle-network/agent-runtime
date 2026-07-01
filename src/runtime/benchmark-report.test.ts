@@ -2,9 +2,11 @@ import type { RunRecord } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import {
   leaderboard,
+  pairwiseSignificance,
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
+  renderPairwiseMarkdown,
 } from './benchmark-report'
 
 // A minimal RunRecord with the fields the reporter reads; the rest is filled to satisfy the type.
@@ -110,6 +112,56 @@ describe('leaderboard', () => {
     expect(html).toContain('<!doctype html>')
     expect(html).toContain('<svg')
     expect(html).toContain('claude-code·strong')
+  })
+
+  it('computes per-row CIs when opts.stats (Wilson + bootstrap), collapsing reps per scenario', () => {
+    // 3 scenarios × 2 reps each; reps collapse so the honest n is 3, not 6.
+    const recs: RunRecord[] = []
+    for (const s of ['t1', 't2', 't3']) {
+      for (let rep = 0; rep < 2; rep++)
+        recs.push(rec({ model: 'm', scenarioId: s, score: s === 't3' ? 0 : 1 }))
+    }
+    const report = leaderboard(recs, { stats: true, passThreshold: 0.999 })
+    const row = report.profiles[0]!
+    expect(row.scoreCi).toBeDefined()
+    expect(row.passCi).toBeDefined()
+    expect(row.scoreCi!.lower).toBeLessThanOrEqual(row.meanScore)
+    expect(row.scoreCi!.upper).toBeGreaterThanOrEqual(row.meanScore)
+    // 2 of 3 scenarios fully solved.
+    expect(row.solveRate).toBeCloseTo(2 / 3)
+    expect(renderLeaderboardMarkdown(report)).toContain('95% CI')
+  })
+
+  it('stats mode fails loud on a record missing scenarioId', () => {
+    const bad = [
+      { ...rec({ model: 'm', scenarioId: 'x', score: 1 }), scenarioId: undefined },
+    ] as RunRecord[]
+    expect(() => leaderboard(bad, { stats: true })).toThrow(/missing scenarioId/)
+  })
+
+  it('pairwiseSignificance compares profiles on shared scenarios (BH-corrected, power floor)', () => {
+    // Strong beats weak on every one of 20 shared scenarios → a clear, significant win.
+    const recs: RunRecord[] = []
+    for (let i = 0; i < 20; i++) {
+      recs.push(rec({ model: 'strong', harness: 'a', scenarioId: `s${i}`, score: 1 }))
+      recs.push(rec({ model: 'weak', harness: 'b', scenarioId: `s${i}`, score: 0 }))
+    }
+    const verdicts = pairwiseSignificance(recs, { minPairs: 12 })
+    expect(verdicts).toHaveLength(1)
+    const v = verdicts[0]!
+    expect(v.pairs).toBe(20)
+    expect(v.significant).toBe(true)
+    expect(renderPairwiseMarkdown(verdicts)).toContain('wins')
+  })
+
+  it('pairwiseSignificance suppresses the verdict below the paired-count floor', () => {
+    const recs: RunRecord[] = []
+    for (let i = 0; i < 4; i++) {
+      recs.push(rec({ model: 'strong', harness: 'a', scenarioId: `s${i}`, score: 1 }))
+      recs.push(rec({ model: 'weak', harness: 'b', scenarioId: `s${i}`, score: 0 }))
+    }
+    // Only 4 shared scenarios < the default floor of 12 → not significant regardless of p.
+    expect(pairwiseSignificance(recs)[0]!.significant).toBe(false)
   })
 
   it('leaves a never-run axis blank, never zero', () => {

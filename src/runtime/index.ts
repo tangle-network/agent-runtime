@@ -63,13 +63,18 @@ export {
 // profile×axis score matrix, and embeddable SVG/HTML charts (the hosted-leaderboard surface). Reads only
 // the universal `RunRecord` currency, so it reports ANY benchmark in ANY domain.
 export {
+  type Interval,
   type Leaderboard,
   type LeaderboardOptions,
   type LeaderboardRow,
   leaderboard,
+  type PairwiseOptions,
+  type PairwiseVerdict,
+  pairwiseSignificance,
   renderLeaderboardHtml,
   renderLeaderboardMarkdown,
   renderLeaderboardSvg,
+  renderPairwiseMarkdown,
 } from './benchmark-report'
 export {
   type CompletionAnalyst,

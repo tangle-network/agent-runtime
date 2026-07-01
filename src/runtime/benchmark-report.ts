@@ -14,7 +14,14 @@
  * score along judge dimensions or any custom decomposition instead. The reporter never invents a number:
  * a missing cell renders blank, never zero.
  */
-import type { RunRecord } from '@tangle-network/agent-eval'
+import {
+  benjaminiHochberg,
+  confidenceInterval,
+  pairedBootstrap,
+  pairedTTest,
+  type RunRecord,
+  wilson,
+} from '@tangle-network/agent-eval'
 
 /** Pull the headline score in [0,1] from a record. Default: the held-out split, else the search split,
  *  else a `composite`/`passed`/`score` entry in the raw bag. Override to score a domain differently. */
@@ -38,6 +45,18 @@ export interface LeaderboardOptions {
   readonly labelOf?: (profileKey: string) => string
   /** Commit SHA / dataset / dates surfaced in the provenance block. */
   readonly meta?: Record<string, string>
+  /** Compute per-row confidence intervals (bootstrap on score, Wilson on pass rate). Needs a
+   *  `scenarioId` on every record (reps are collapsed per scenario for the honest n). Default off. */
+  readonly stats?: boolean
+  /** A score ≥ this counts as a "pass" for the pass-rate proportion + its Wilson CI. Default 0.999
+   *  (fully solved). Lower it (e.g. 0.6) for a partial-credit domain. */
+  readonly passThreshold?: number
+}
+
+/** A 95%-by-default confidence interval. */
+export interface Interval {
+  readonly lower: number
+  readonly upper: number
 }
 
 /** One leaderboard row — a harness×model profile, every measured column. */
@@ -47,7 +66,7 @@ export interface LeaderboardRow {
   readonly model: string
   readonly n: number
   readonly meanScore: number
-  /** Fraction of records scoring ≥ 0.999 — the binary "fully solved" rate. */
+  /** Fraction of records scoring ≥ `passThreshold` (default 0.999) — the binary pass rate. */
   readonly solveRate: number
   /** axis → mean score for this profile (blank in render when the profile never ran that axis). */
   readonly perAxis: Record<string, number>
@@ -56,6 +75,11 @@ export interface LeaderboardRow {
   readonly tokensOut: number
   readonly latencyP50Ms: number
   readonly latencyP90Ms: number
+  /** Bootstrap CI on the mean score — present only when `opts.stats` is set. Computed over
+   *  per-scenario means (reps collapsed first), so identical reps can't fake a narrow interval. */
+  readonly scoreCi?: Interval
+  /** Wilson CI on the pass rate — present only when `opts.stats` is set. */
+  readonly passCi?: Interval
 }
 
 export interface Leaderboard {
@@ -102,6 +126,32 @@ function quantile(sorted: number[], q: number): number {
 
 function mean(xs: readonly number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length
+}
+
+/** Collapse reps to ONE mean score per scenario — the honest unit for a CI or a paired test. Reps
+ *  tighten the per-(profile, scenario) estimate but are NOT independent samples, so feeding raw reps into
+ *  a CI lets identical reps fake a narrower interval. Fails LOUD on a record missing `scenarioId`: an
+ *  empty-string fallback would silently merge distinct scenarios into one bucket. */
+function meanByScenario(records: readonly RunRecord[], scoreOf: ScoreOf): Map<string, number> {
+  const sums = new Map<string, { total: number; n: number }>()
+  for (const r of records) {
+    const s = scoreOf(r)
+    if (typeof s !== 'number') continue
+    const id = r.scenarioId
+    if (!id) {
+      throw new Error(
+        `benchmark-report: RunRecord (candidate ${r.candidateId ?? 'unknown'}) is missing scenarioId — ` +
+          'cannot pair or interval it honestly. Pass opts.stats only on a scenario-tagged corpus.',
+      )
+    }
+    const acc = sums.get(id) ?? { total: 0, n: 0 }
+    acc.total += s
+    acc.n += 1
+    sums.set(id, acc)
+  }
+  const out = new Map<string, number>()
+  for (const [id, acc] of sums) out.set(id, acc.n ? acc.total / acc.n : 0)
+  return out
 }
 
 /** Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. */
@@ -158,19 +208,34 @@ export function leaderboard(
     for (const [axis, b] of axisBuckets) perAxis[axis] = mean(b)
 
     const latencies = recs.map((r) => r.wallMs).sort((a, b) => a - b)
+    const pass = opts.passThreshold ?? 0.999
+    // Confidence intervals (opt-in) over per-scenario means — the honest n is #scenarios, not #reps.
+    let scoreCi: Interval | undefined
+    let passCi: Interval | undefined
+    if (opts.stats) {
+      const collapsed = [...meanByScenario(recs, scoreOf).values()]
+      if (collapsed.length > 0) {
+        const ci = confidenceInterval(collapsed, 0.95, { seed: 7 })
+        scoreCi = { lower: ci.lower, upper: ci.upper }
+        const w = wilson(collapsed.filter((s) => s >= pass).length, collapsed.length, 0.95)
+        passCi = { lower: w.lower, upper: w.upper }
+      }
+    }
     rows.push({
       profileKey,
       label: labelOf(profileKey),
       model: recs[0]?.model ?? profileKey,
       n: recs.length,
       meanScore: mean(scores),
-      solveRate: scores.length === 0 ? 0 : scores.filter((s) => s >= 0.999).length / scores.length,
+      solveRate: scores.length === 0 ? 0 : scores.filter((s) => s >= pass).length / scores.length,
       perAxis,
       costUsd: recs.reduce((a, r) => a + r.costUsd, 0),
       tokensIn: recs.reduce((a, r) => a + (r.tokenUsage?.input ?? 0), 0),
       tokensOut: recs.reduce((a, r) => a + (r.tokenUsage?.output ?? 0), 0),
       latencyP50Ms: quantile(latencies, 0.5),
       latencyP90Ms: quantile(latencies, 0.9),
+      ...(scoreCi ? { scoreCi } : {}),
+      ...(passCi ? { passCi } : {}),
     })
   }
 
@@ -195,7 +260,97 @@ export function leaderboard(
   }
 }
 
+/** One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. */
+export interface PairwiseVerdict {
+  readonly a: string
+  readonly b: string
+  /** Paired unit count (shared scenarios). The significance is suppressed below `minPairs`. */
+  readonly pairs: number
+  /** Median paired delta (b − a) and its bootstrap CI. */
+  readonly delta: number
+  readonly ciLow: number
+  readonly ciHigh: number
+  /** Paired-test p-value (before correction). */
+  readonly p: number
+  /** BH-significant across ALL pairs AND above the `minPairs` power floor. */
+  readonly significant: boolean
+}
+
+export interface PairwiseOptions {
+  readonly scoreOf?: ScoreOf
+  readonly profileKeyOf?: ProfileKeyOf
+  readonly labelOf?: (profileKey: string) => string
+  /** False-discovery rate for the Benjamini–Hochberg correction. Default 0.05. */
+  readonly fdr?: number
+  /** Below this many shared scenarios a paired test can't defensibly separate two profiles, so the
+   *  `significant` tag is suppressed regardless of p (small-n mirage protection). Default 12. */
+  readonly minPairs?: number
+}
+
+/** Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real
+ *  paired-test p-value, BH-corrected across all pairs. This is the honest "did A beat B" table the
+ *  leaderboard's point ranking cannot answer. Reuses the agent-eval statistics substrate. */
+export function pairwiseSignificance(
+  records: readonly RunRecord[],
+  opts: PairwiseOptions = {},
+): PairwiseVerdict[] {
+  const scoreOf = opts.scoreOf ?? defaultScoreOf
+  const profileKeyOf = opts.profileKeyOf ?? defaultProfileKeyOf
+  const labelOf = opts.labelOf ?? ((k: string) => k)
+  const minPairs = opts.minPairs ?? 12
+
+  const byProfile = new Map<string, RunRecord[]>()
+  for (const r of records) {
+    const k = profileKeyOf(r)
+    const b = byProfile.get(k)
+    if (b) b.push(r)
+    else byProfile.set(k, [r])
+  }
+  const keys = [...byProfile.keys()].sort()
+  const collapsed = new Map(keys.map((k) => [k, meanByScenario(byProfile.get(k) ?? [], scoreOf)]))
+
+  const raw: Array<Omit<PairwiseVerdict, 'significant'>> = []
+  for (let i = 0; i < keys.length; i += 1) {
+    for (let j = i + 1; j < keys.length; j += 1) {
+      const ka = keys[i] as string
+      const kb = keys[j] as string
+      const am = collapsed.get(ka) as Map<string, number>
+      const bm = collapsed.get(kb) as Map<string, number>
+      const aScores: number[] = []
+      const bScores: number[] = []
+      for (const sid of [...am.keys()].sort()) {
+        const bv = bm.get(sid)
+        if (bv !== undefined) {
+          aScores.push(am.get(sid) as number)
+          bScores.push(bv)
+        }
+      }
+      if (aScores.length === 0) continue
+      const boot = pairedBootstrap(aScores, bScores, { seed: 7, statistic: 'median' })
+      const p = pairedTTest(aScores, bScores).p
+      raw.push({
+        a: labelOf(ka),
+        b: labelOf(kb),
+        pairs: aScores.length,
+        delta: boot.median,
+        ciLow: boot.low,
+        ciHigh: boot.high,
+        p,
+      })
+    }
+  }
+  const { significant } = benjaminiHochberg(
+    raw.map((r) => r.p),
+    opts.fdr ?? 0.05,
+  )
+  return raw.map((r, i) => ({
+    ...r,
+    significant: (significant[i] ?? false) && r.pairs >= minPairs,
+  }))
+}
+
 const pct = (x: number): string => `${(100 * x).toFixed(1)}%`
+const ci = (iv: Interval | undefined): string => (iv ? ` [${pct(iv.lower)}, ${pct(iv.upper)}]` : '')
 
 /** Render the report as a publishable Markdown document: provenance → leaderboard → the full profile×axis
  *  matrix → cost/latency/token columns. Every axis is shown — a curated subset is a reporting failure. */
@@ -210,13 +365,15 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   for (const [k, v] of Object.entries(report.meta)) lines.push(`- **${k}:** ${v}`)
   if (Object.keys(report.meta).length) lines.push('')
 
-  // Leaderboard — the headline ranking with every measured column.
+  // Leaderboard — the headline ranking with every measured column (+ CIs when computed).
   lines.push('## Leaderboard', '')
-  lines.push('| # | Profile | Score | Solved | Runs | Cost | Tok in/out | p50 | p90 |')
+  lines.push(
+    '| # | Profile | Score (95% CI) | Solved (95% CI) | Runs | Cost | Tok in/out | p50 | p90 |',
+  )
   lines.push('|---|---|--:|--:|--:|--:|--:|--:|--:|')
   report.profiles.forEach((r, i) => {
     lines.push(
-      `| ${i + 1} | ${r.label} | ${pct(r.meanScore)} | ${pct(r.solveRate)} | ${r.n} | $${r.costUsd.toFixed(3)} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
+      `| ${i + 1} | ${r.label} | ${pct(r.meanScore)}${ci(r.scoreCi)} | ${pct(r.solveRate)}${ci(r.passCi)} | ${r.n} | $${r.costUsd.toFixed(3)} | ${r.tokensIn}/${r.tokensOut} | ${(r.latencyP50Ms / 1000).toFixed(1)}s | ${(r.latencyP90Ms / 1000).toFixed(1)}s |`,
     )
   })
   lines.push('')
@@ -234,6 +391,30 @@ export function renderLeaderboardMarkdown(report: Leaderboard): string {
   }
   lines.push('')
   lines.push('> `·` = the profile never ran that axis (blank, never zero).')
+  return lines.join('\n')
+}
+
+/** Render the pairwise-significance table — every profile pair's paired delta, CI, and BH-corrected
+ *  verdict. Feed it `pairwiseSignificance(records)`. This is the "did A really beat B" evidence the point
+ *  ranking cannot give. */
+export function renderPairwiseMarkdown(
+  verdicts: readonly PairwiseVerdict[],
+  title = 'Pairwise significance (paired, BH-corrected)',
+): string {
+  const lines: string[] = [`## ${title}`, '']
+  if (verdicts.length === 0) return lines.concat('_no comparable pairs_').join('\n')
+  lines.push('| A vs B | Δ(b−a) median | 95% CI | pairs | p | verdict |')
+  lines.push('|---|--:|--:|--:|--:|---|')
+  for (const v of verdicts) {
+    const verdict = v.significant ? `**${v.delta >= 0 ? v.b : v.a} wins**` : 'ns'
+    lines.push(
+      `| ${v.a} vs ${v.b} | ${v.delta >= 0 ? '+' : ''}${pct(v.delta)} | [${pct(v.ciLow)}, ${pct(v.ciHigh)}] | ${v.pairs} | ${v.p.toFixed(3)} | ${verdict} |`,
+    )
+  }
+  lines.push(
+    '',
+    '> `ns` = not significant after Benjamini–Hochberg (or below the paired-count floor).',
+  )
   return lines.join('\n')
 }
 
