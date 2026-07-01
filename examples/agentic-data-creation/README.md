@@ -1,12 +1,12 @@
 # agentic-data-creation
 
-**An agent manufactures its own hard training data.** This is the INNER loop of Autodata /
-Agentic Self-Instruct (Meta FAIR, arXiv 2606.25996): instead of hand-writing examples, an agent
+**An agent manufactures its own hard training data.** This is the INNER loop of **agentic
+self-instruct** (the self-instruct pattern, Wang et al. 2022, taken agentic): instead of hand-writing examples, an agent
 *writes* candidate {context, question, reference, rubric} examples from a grounding doc and keeps
 only the ones that are **hard for a weak solver but doable for a strong one**. The hard ones are
 exactly the examples worth training on.
 
-> This example builds only the paper's **data-creation** half (the inner loop). The RL-training
+> This example builds only the **data-creation** half (the inner loop). The RL-training
 > outer half needs a trainer this repo does not have, so it is out of scope here.
 
 Runs fully offline (scripted solvers + a mocked judge, no credentials):
@@ -47,7 +47,7 @@ flowchart TD
 ## The one new piece — `discriminativeAcceptRule`
 
 Everything else is composed from primitives this repo already ships. The genuinely new piece is the
-paper's reward, written as a small, Validator-shaped accept/reject:
+accept rule, written as a small, Validator-shaped accept/reject:
 
 ```ts
 discriminativeAcceptRule({ strongScore, weakScore, minStrong = 0.65, maxWeak = 0.5, minGap = 0.2 })
@@ -86,7 +86,7 @@ this before trusting it (the `calibrate-before-measure` discipline): it measures
 challenger's **first (un-refined) draft** — plain generation — and on the **loop-accepted** example,
 and shows the accept rule separates them. **Offline the solvers are scripted, so this proves the
 wiring + that the rule discriminates by construction — it is NOT an empirical reproduction of the
-paper's Table 1.** Reproducing Table 1 for real (the loop actually producing harder data) needs the
+illustrative target.** Reproducing that separation for real (the loop actually producing harder data) needs the
 live run below, with real two-tier solver models:
 
 ```
@@ -101,7 +101,7 @@ examples would be uninformative, and the loop would be optimizing noise.
 
 `offline-fixtures.ts` is the credentialless stand-in (the same pattern `examples/driver-loop` and
 `examples/self-improving-loop` use): deterministic scripted challenger/solvers and a **mocked judge
-transport** bound into a *real* `llmJudge` `JudgeConfig`, tuned to reproduce Table 1. The judge,
+transport** bound into a *real* `llmJudge` `JudgeConfig`, tuned to the illustrative target separation. The judge,
 sampler, fold, cost ledger, and corpus are all the real primitives — only the LLM responses are
 scripted. To run live, swap the mock transport for `createChatClient({ transport: 'router', apiKey })`
 (glm-5.2) and the scripted workers for real sandbox/cli-bridge clients; the loop is unchanged.

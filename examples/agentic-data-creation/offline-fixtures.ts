@@ -13,8 +13,9 @@
  *     [0,1] rubric score from (strength, difficulty) with a small per-sample jitter so the N× mean
  *     is a genuine average. LIVE mode (glm-5.2) instead reads the real answer text against the rubric.
  *
- * The scores are tuned to reproduce the paper's Table 1 separation: an EASY (plain) example barely
- * separates the two solvers (gap ≈ 0.02); a HARD (agentic) one separates them widely (gap ≈ 0.31).
+ * The scores are tuned to an ILLUSTRATIVE target separation: an EASY (plain) example barely separates
+ * the two solvers (gap ≈ 0.02); a HARD (agentic) one separates them widely (gap ≈ 0.31). These numbers are
+ * by construction here — a live run produces the real ones.
  */
 
 import { createChatClient, llmJudge } from '@tangle-network/agent-eval'
@@ -157,7 +158,7 @@ export function solverClient(strength: 'weak' | 'strong'): SandboxClient {
 // `llmJudge` builds the system+user messages, makes ONE chat() call, and parses the model's
 // `{ dimensions, notes }` JSON into a canonical [0,1] `JudgeScore` (real composite math). Offline,
 // the transport returns a scripted score from the answer's grade marker; live, a real model scores
-// the prose. Tuned so EASY → gap ≈ 0.02, HARD → gap ≈ 0.31 (the paper's Table 1).
+// the prose. Tuned so EASY → gap ≈ 0.02, HARD → gap ≈ 0.31 (illustrative targets, by construction).
 export function buildRubricJudge(): JudgeConfig<SolverArtifact> {
   const chat = createChatClient({
     transport: 'mock',

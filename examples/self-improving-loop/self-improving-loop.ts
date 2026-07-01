@@ -11,9 +11,8 @@
 //   5. apply mutation → new AgentProfile variant
 //   6. re-run multishot with v1 profile
 //   7. gate pairs v1 vs v0 per persona and ships only if the `pairedBootstrap` CI lower bound
-//      clears 0 — the production held-out gate's statistical core. NOTE the gate runs at n=3 here
-//      for a runnable demo; the production gate ALSO enforces a minimum-evidence floor this omits
-//      (see the ⚠️ at the gate, § 6). Never ship a real change on n=3.
+//      clears 0 — the production held-out gate's statistical core. (This demo gates at n=3 for a
+//      runnable example, BELOW the production floor — the one authoritative caveat is the ⚠️ at § 6.)
 //
 // The finding type and the gate statistic are the real substrate primitives (not a local one-off);
 // the analyst body, the proposer, and the LLM are scripted ONLY so the demo runs offline and

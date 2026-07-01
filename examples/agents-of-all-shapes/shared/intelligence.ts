@@ -17,6 +17,7 @@
 
 import { analyzeRuns, fromOtelSpans, type InsightReport } from '@tangle-network/agent-eval/contract'
 import type { TraceSpanEvent } from '@tangle-network/agent-eval/hosted'
+import { createOtelExporter } from '@tangle-network/agent-runtime'
 
 export type { InsightReport, TraceSpanEvent }
 
@@ -101,51 +102,33 @@ export interface ShipOptions {
   serviceName?: string
 }
 
-/** Optional hosted path: POST the same OTel spans to Tangle Intelligence's
- *  OTLP/HTTP ingest. Identical analysis runs server-side. */
+/** Optional hosted path: POST the same OTel spans to Tangle Intelligence's OTLP/HTTP ingest via the
+ *  runtime's OWN exporter — `createOtelExporter` builds the resourceSpans envelope, appends `/v1/traces`,
+ *  and batches the POST. No hand-rolled wire format; the same primitive the runtime uses in production. */
 export async function shipToTangleOtlp(spans: TraceSpanEvent[], opts: ShipOptions): Promise<void> {
-  const res = await fetch(`${opts.endpoint}/v1/traces`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: JSON.stringify({
-      resourceSpans: [
-        {
-          resource: {
-            attributes: [
-              {
-                key: 'service.name',
-                value: { stringValue: opts.serviceName ?? 'agents-of-all-shapes' },
-              },
-            ],
-          },
-          scopeSpans: [
-            {
-              scope: { name: 'agents-of-all-shapes' },
-              spans: spans.map((s) => ({
-                traceId: s.traceId,
-                spanId: s.spanId,
-                name: s.name,
-                startTimeUnixNano: String(s.startTimeUnixNano),
-                endTimeUnixNano: String(s.endTimeUnixNano),
-                attributes: Object.entries(s.attributes).map(([key, value]) => ({
-                  key,
-                  value:
-                    typeof value === 'number'
-                      ? { doubleValue: value }
-                      : { stringValue: String(value) },
-                })),
-                status: s.status,
-              })),
-            },
-          ],
-        },
-      ],
-    }),
+  const exporter = createOtelExporter({
+    endpoint: opts.endpoint,
+    headers: { authorization: `Bearer ${opts.apiKey}` },
+    serviceName: opts.serviceName ?? 'agents-of-all-shapes',
   })
-  if (!res.ok) {
-    throw new Error(`intelligence ingest failed: ${res.status} ${await res.text()}`)
+  if (!exporter) throw new Error('shipToTangleOtlp: no OTLP endpoint configured')
+  // OTLP status.code is numeric (UNSET=0, OK=1, ERROR=2); TraceSpanEvent carries the string enum.
+  const statusCode = { UNSET: 0, OK: 1, ERROR: 2 } as const
+  for (const s of spans) {
+    exporter.exportSpan({
+      traceId: s.traceId,
+      spanId: s.spanId,
+      name: s.name,
+      startTimeUnixNano: String(s.startTimeUnixNano),
+      endTimeUnixNano: String(s.endTimeUnixNano),
+      attributes: Object.entries(s.attributes).map(([key, value]) => ({
+        key,
+        value: typeof value === 'number' ? { doubleValue: value } : { stringValue: String(value) },
+      })),
+      ...(s.status
+        ? { status: { code: statusCode[s.status.code], message: s.status.message } }
+        : {}),
+    })
   }
+  await exporter.flush()
 }

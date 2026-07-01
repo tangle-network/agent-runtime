@@ -12,14 +12,17 @@ free.
 
 1. **Just run it** — `runBenchmark({ environment, tasks, worker })` compares
    strategies at equal budget and reports the paired lift.
-2. **Pick built-ins** — `sample` (N independent attempts, keep the
-   best-verifying), `refine` (attempt → critic reads the trace → steer the
-   next → repeat), `adaptiveRefine` (refine, but abandon-and-restart a line
-   that stops improving), `sampleThenRefine`.
-3. **Author your own** — `defineStrategy(name, body)`. A body composes two
-   steps — `shot()` (one worker attempt over the artifact) and `critique()`
-   (the firewalled analyst reads the trace → a steer) — with zero
-   Supervisor/Scope ceremony. The example authors `doubleCheck` inline.
+2. **Pick built-ins** — this run compares two: `sample` (N independent attempts, keep the
+   best-verifying) and `refine` (attempt → critic reads the trace → steer the next → repeat). Two more
+   ship and swap in the same way: `adaptiveRefine` (refine, but abandon-and-restart a line that stops
+   improving) and `sampleThenRefine`.
+3. **Author your own** — `defineStrategy(name, body)`. A body composes two steps — `shot()` (one worker
+   attempt over the artifact) and `critique()` (the firewalled analyst reads the trace → a steer) — with
+   zero Supervisor/Scope ceremony. The example authors **`doubleCheck`**: a policy the built-ins *don't*
+   have — it never trusts a single passing shot, requiring the solution to pass **twice in a row** before
+   it stops (a flake/luck guard). `refine` ships on the first pass; `doubleCheck` re-verifies once more.
+   The payoff is real on a non-deterministic surface (flaky tools/tests) — the whole point of authoring a
+   stop-condition the library doesn't ship, in ~10 lines.
 
 ## Run
 
