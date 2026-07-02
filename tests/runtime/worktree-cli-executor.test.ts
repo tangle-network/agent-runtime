@@ -1,7 +1,43 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { PassThrough, type Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// The bridge transport (`streamBridgeSession`) POSTs over the `node:http` core client,
+// not global `fetch`, so a slow local bridge isn't killed by undici's headers timeout.
+// Tests drive it by setting `bridgeHttpHandler` — the fake `request` reads the POST body,
+// hands the test the parsed payload, and streams back an SSE `IncomingMessage`.
+let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
+
+vi.mock('node:http', async () => {
+  const actual = await vi.importActual<typeof import('node:http')>('node:http')
+  return {
+    ...actual,
+    request: (
+      _url: unknown,
+      _opts: unknown,
+      cb: (res: Readable) => void,
+    ): { write: (b: string) => void; end: () => void; on: () => void; destroy: () => void } => {
+      let body = ''
+      return {
+        write: (chunk: string) => {
+          body += chunk
+        },
+        end: () => {
+          const payload = JSON.parse(body || '{}') as Record<string, unknown>
+          if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
+          const res = bridgeHttpHandler(payload) as Readable & { statusCode?: number }
+          res.statusCode = res.statusCode ?? 200
+          cb(res)
+        },
+        on: () => {},
+        destroy: () => {},
+      }
+    },
+  }
+})
+
 import { type RunLocalHarnessOptions, runLocalHarness } from '../../src/mcp/local-harness'
 import type { GitRunner } from '../../src/mcp/worktree'
 import { type AgentSpec, createExecutor } from '../../src/runtime'
@@ -57,7 +93,7 @@ const authoredProfile: AgentProfile = {
   model: { default: 'deepseek/deepseek-v4-flash' },
 }
 
-function bridgeSseResponse(content: string): Response {
+function bridgeSseResponse(content: string): Readable {
   const payload = [
     `data: ${JSON.stringify({
       choices: [{ delta: { content } }],
@@ -67,15 +103,9 @@ function bridgeSseResponse(content: string): Response {
     'data: [DONE]',
     '',
   ].join('\n')
-  return new Response(
-    new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(payload))
-        controller.close()
-      },
-    }),
-    { status: 200, headers: { 'content-type': 'text/event-stream' } },
-  )
+  const stream = new PassThrough()
+  stream.end(payload)
+  return stream
 }
 
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
@@ -101,7 +131,10 @@ function makeFakeChild(opts: { stdout?: string; exitCode?: number }): ChildProce
 }
 
 describe('createWorktreeCliExecutor', () => {
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    bridgeHttpHandler = null
+  })
 
   it('threads the authored systemPrompt + model into the harness invocation', async () => {
     const state = freshGitState()
@@ -339,13 +372,10 @@ describe('createWorktreeCliExecutor', () => {
       messages?: Array<{ role: string; content: string }>
     }> = []
     const checks: Array<{ command: string; cwd: string }> = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init?: RequestInit) => {
-        requests.push(JSON.parse(String(init?.body ?? '{}')))
-        return bridgeSseResponse('done from bridge')
-      }),
-    )
+    bridgeHttpHandler = (payload) => {
+      requests.push(payload as (typeof requests)[number])
+      return bridgeSseResponse('done from bridge')
+    }
 
     const factory = createExecutor({
       backend: 'cli-worktree',

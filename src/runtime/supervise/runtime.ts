@@ -25,6 +25,9 @@
 
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
+import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
@@ -864,8 +867,32 @@ function killWithGrace(
  *
  * Reports REAL usage when the bridge surfaces it, never a fabricated cost.
  */
+/** Resolve the bridge wire model for this spawn: a per-create `backend` override
+ *  (harness + model) wins over the seam default, encoded as `${harness}/${model}`.
+ *  Absent an override the seam `model` is used verbatim. */
+function bridgeCellModel(seamModel: string, ctx: ExecutorContext): string {
+  const create = ctx.seams.createOptions as
+    | { backend?: { type?: string; model?: { model?: string } } }
+    | undefined
+  const backend = create?.backend
+  const harness = backend?.type
+  const model = backend?.model?.model
+  if (!harness && !model) return seamModel
+  const h = harness ?? ''
+  const m = model ?? seamModel
+  if (!h) return m
+  return m.startsWith(`${h}/`) ? m : `${h}/${m}`
+}
+
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
-  const seam = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  // A per-create `backend` override (threaded by `inlineSandboxClient` as
+  // `seams.createOptions`) targets the bridge model per cell without a second
+  // client: `backend.type` is the harness, `backend.model.model` the model, and
+  // the wire id is `${harness}/${model}` (an already-`${harness}/`-prefixed model
+  // passes through). This is how ONE bridge `SandboxClient` drives every
+  // harness×model cell of a matrix — the seam `model` is the fixed default.
+  const seam = { ...base, model: bridgeCellModel(base.model, ctx) }
   if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
     throw new ValidationError(
       'bridgeExecutor: BridgeSeam.bridgeUrl + bridgeBearer + model required',
@@ -985,23 +1012,19 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       if (timer) clearTimeout(timer)
     }
 
-    let res: Response
+    let res: BridgeResponse
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${seam.bridgeBearer}`,
-          'x-session-id': args.sessionId,
-        },
-        body: JSON.stringify({
+      res = await bridgeStreamPost(url, {
+        bearer: seam.bridgeBearer,
+        sessionId: args.sessionId,
+        body: {
           model: seam.model,
           stream: true,
           session_id: args.sessionId,
           ...(seam.cwd ? { cwd: seam.cwd } : {}),
           ...(seam.agentProfile ? { agent_profile: seam.agentProfile } : {}),
           messages,
-        }),
+        },
         signal: turnController.signal,
       })
     } catch (e) {
@@ -1069,6 +1092,88 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     outRef: contentRef('bridge', { model: seam.model, session: args.sessionId, content: lastText }),
     out,
     spent,
+  })
+}
+
+/** The subset of `Response` `streamBridgeSession` consumes: status gate, an error
+ *  body reader, and a web `ReadableStream` the SSE parser drains. */
+interface BridgeResponse {
+  ok: boolean
+  status: number
+  text: () => Promise<string>
+  body: ReadableStream<Uint8Array> | null
+}
+
+interface BridgeStreamPostArgs {
+  bearer: string
+  sessionId: string
+  body: unknown
+  signal: AbortSignal
+}
+
+/**
+ * POST one streamed turn to the cli-bridge over the `node:http(s)` core client
+ * instead of global `fetch`. The bridge runs a harness CLI and streams SSE only
+ * once that harness starts producing — first byte routinely arrives >5 min into a
+ * heavy turn. `fetch` (undici) caps the wait for response headers at a fixed
+ * `headersTimeout` (~300s) that no per-request option or `AbortSignal` overrides,
+ * so it aborts a live-but-slow bridge with an opaque "Headers Timeout Error". The
+ * core client has no such cap; the turn's `AbortSignal` (external teardown, a
+ * forceful steer, or `seam.timeoutMs`) is the sole deadline. The response's
+ * `IncomingMessage` (a Node `Readable`) is adapted to a web `ReadableStream` so the
+ * shared `parseSseChatStream` consumes it unchanged.
+ */
+function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<BridgeResponse> {
+  const target = new URL(`${url.replace(/\/$/, '')}/v1/chat/completions`)
+  const payload = JSON.stringify(args.body)
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise<BridgeResponse>((resolve, reject) => {
+    if (args.signal.aborted) {
+      reject(new DOMException('bridgeExecutor: aborted before request', 'AbortError'))
+      return
+    }
+    const req = requestFn(
+      target,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${args.bearer}`,
+          'x-session-id': args.sessionId,
+          'content-length': Buffer.byteLength(payload),
+        },
+        // No header/body idle timeout: a slow bridge is a live bridge; the abort
+        // signal is the sole deadline.
+        timeout: 0,
+      },
+      (res) => {
+        const status = res.statusCode ?? 0
+        const ok = status >= 200 && status < 300
+        const body = Readable.toWeb(res) as ReadableStream<Uint8Array>
+        resolve({
+          ok,
+          status,
+          body,
+          text: async () => {
+            const chunks: Buffer[] = []
+            for await (const c of res) chunks.push(c as Buffer)
+            return Buffer.concat(chunks).toString('utf8')
+          },
+        })
+      },
+    )
+    const onAbort = (): void => {
+      req.destroy(new DOMException('bridgeExecutor: turn aborted', 'AbortError'))
+    }
+    if (args.signal.aborted) onAbort()
+    else args.signal.addEventListener('abort', onAbort, { once: true })
+    req.on('error', (e) => {
+      args.signal.removeEventListener('abort', onAbort)
+      reject(e)
+    })
+    req.on('close', () => args.signal.removeEventListener('abort', onAbort))
+    req.write(payload)
+    req.end()
   })
 }
 

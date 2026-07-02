@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.80.1` and `@tangle-network/agent-eval@0.100.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.81.0` and `@tangle-network/agent-eval@0.100.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -340,7 +340,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 409 exports.
+Import from `@tangle-network/agent-runtime/loops` — 407 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -356,7 +356,6 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
-| `cliBridgeSandboxClient` | function | A `SandboxClient` whose every prompt is one cli-bridge chat completion, metered |
 | `completionAuthorizes` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
 | `contentAddress` | function | Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a |
@@ -527,7 +526,6 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
 | `CheckpointRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CheckpointRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CliBridgeConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |

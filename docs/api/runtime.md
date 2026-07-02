@@ -1177,46 +1177,6 @@ Below this many shared scenarios a paired test can't defensibly separate two pro
 
 ***
 
-### CliBridgeConfig
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L32)
-
-#### Properties
-
-##### url?
-
-> `optional` **url?**: `string`
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L34)
-
-cli-bridge base URL. Defaults to `http://127.0.0.1:3355`.
-
-##### bearer
-
-> **bearer**: `string`
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L36)
-
-Bearer token the bridge requires (fail loud when empty).
-
-##### harness?
-
-> `optional` **harness?**: `string`
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L38)
-
-Default harness when a `create({ backend })` override does not set one.
-
-##### model?
-
-> `optional` **model?**: `string`
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L40)
-
-Default model when a `create({ backend })` override does not set one.
-
-***
-
 ### CompletionEvidence
 
 Defined in: [runtime/completion.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L29)
@@ -7274,7 +7234,7 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`model`](#model-8)
+[`AgenticOptions`](#agenticoptions).[`model`](#model-7)
 
 ##### complete?
 
@@ -8910,7 +8870,7 @@ Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-netw
 
 ### ProviderSeam
 
-Defined in: [runtime/supervise/runtime.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L193)
+Defined in: [runtime/supervise/runtime.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L196)
 
 Generic environment provider executor config. External packages implement
  `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
@@ -9000,13 +8960,13 @@ Defined in: [runtime/environment-provider.ts:273](https://github.com/tangle-netw
 
 > **provider**: `string` \| `AgentEnvironmentProvider`
 
-Defined in: [runtime/supervise/runtime.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L194)
+Defined in: [runtime/supervise/runtime.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L197)
 
 ##### registry?
 
 > `optional` **registry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
 
-Defined in: [runtime/supervise/runtime.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L195)
+Defined in: [runtime/supervise/runtime.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L198)
 
 ***
 
@@ -13763,7 +13723,7 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **ExecutorConfig** = `object` & `RouterSeam` \| `object` & `RouterToolsSeam` \| `object` & `BridgeSeam` \| `object` & `CliSeam` \| `object` & `CliWorktreeSeam` \| `object` & [`ProviderSeam`](#providerseam) \| `object` & `SandboxSeam`
 
-Defined in: [runtime/supervise/runtime.ts:1396](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1396)
+Defined in: [runtime/supervise/runtime.ts:1501](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1501)
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
@@ -14243,7 +14203,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 > `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1360)
+Defined in: [runtime/supervise/runtime.ts:1465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1465)
 
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
@@ -14488,28 +14448,6 @@ Render a self-contained HTML leaderboard page (the hosted surface): the SVG char
 #### Returns
 
 `string`
-
-***
-
-### cliBridgeSandboxClient()
-
-> **cliBridgeSandboxClient**(`cfg`): [`SandboxClient`](#sandboxclient-2)
-
-Defined in: [runtime/cli-bridge-sandbox-client.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L165)
-
-A `SandboxClient` whose every prompt is one cli-bridge chat completion, metered
-and driven by the shared `runLoop` kernel. Pass a fixed `harness`/`model`, or omit
-them and set the target per cell via `create({ backend: { type, model: { model } } })`.
-
-#### Parameters
-
-##### cfg
-
-[`CliBridgeConfig`](#clibridgeconfig)
-
-#### Returns
-
-[`SandboxClient`](#sandboxclient-2)
 
 ***
 
@@ -17025,7 +16963,7 @@ state between runs), so two runs never cross-contaminate their journals/blobs.
 
 > **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1413](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1413)
+Defined in: [runtime/supervise/runtime.ts:1518](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1518)
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
@@ -17050,7 +16988,7 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 > **createExecutorRegistry**(): [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/runtime.ts:1459](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1459)
+Defined in: [runtime/supervise/runtime.ts:1564](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1564)
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
