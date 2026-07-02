@@ -967,7 +967,6 @@ interface StreamBridgeArgs {
 async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
   const { seam, inbox } = args
   const started = Date.now()
-  const url = `${seam.bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`
   const external = mergeAbortSignals(args.signal, args.controller.signal)
   const tokens = zeroTokenUsage()
   let usd = 0
@@ -1014,7 +1013,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
 
     let res: BridgeResponse
     try {
-      res = await bridgeStreamPost(url, {
+      res = await bridgeStreamPost(seam.bridgeUrl, {
         bearer: seam.bridgeBearer,
         sessionId: args.sessionId,
         body: {
