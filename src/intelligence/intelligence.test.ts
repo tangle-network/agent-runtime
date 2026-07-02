@@ -161,7 +161,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     expect(result).toBe('hello')
     expect(calls.length).toBeGreaterThan(0)
     const attrs = attrsOf(calls[0]?.body)
-    expect(attrs['project']).toBe('support-agent')
+    expect(attrs.project).toBe('support-agent')
     expect(attrs['tangle.outcome.success']).toBe(true)
     expect(calls[0]?.headers.authorization).toBe(`Bearer ${apiKey}`)
   })
