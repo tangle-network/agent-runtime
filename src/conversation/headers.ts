@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Cross-gateway forwarding headers — the wire-level contract that makes
  * agent-to-agent communication composable across organizational boundaries.
@@ -13,6 +12,8 @@
  * rules so both sides agree.
  *
  * Full protocol: `docs/agent-bus-protocol.md`.
+ *
+ * @stable
  */
 
 /** Standard names — lowercased so Headers maps interop on every runtime. */

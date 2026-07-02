@@ -92,6 +92,7 @@ export interface BenchmarkStrategySummary {
   ms: number
 }
 
+/** Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. */
 export interface BenchmarkReport {
   n: number
   excluded: number

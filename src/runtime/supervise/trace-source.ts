@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `TraceSource` — the ONE substrate-agnostic source of a worker's tool-call trace. The online
  * detectors and the settle-time analyzers consume agent-eval `ToolSpan`s from here, regardless of
@@ -15,6 +14,8 @@
  *
  * This module imports NO substrate SDK — it decodes generic message parts / OpenAI tool-call shapes.
  * The sandbox wiring (`sandboxSessionTraceSource`) is the thin adapter that feeds box session parts in.
+ *
+ * @experimental
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'

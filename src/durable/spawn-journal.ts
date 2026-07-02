@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Event-sourced spawn journal for the recursive execution atom (build steps 3 + 7).
  *
@@ -17,6 +16,8 @@
  * each settlement — NOT wall-clock. `replaySpawnTree` sorts strictly by `seq` before
  * touching the blob store, so the order in which rehydration `get`s resolve can never
  * reorder the replayed `Settled[]`; the result is identical regardless of blob latency.
+ *
+ * @experimental
  */
 
 import { createHash } from 'node:crypto'

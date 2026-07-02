@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `delegate_ui_audit` MCP tool — async kickoff for UI audit runs. Validates
  * the input, computes an idempotency key over the canonical fields, hands
@@ -13,6 +12,8 @@
  * remote browser). agent-runtime ships the in-process client under
  * `./profiles` so consumers who want the canonical setup can wire it
  * with a few lines.
+ *
+ * @experimental
  */
 
 import path from 'node:path'

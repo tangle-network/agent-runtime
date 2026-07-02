@@ -113,6 +113,7 @@ function defaultPerWorker(budget: Budget): Budget {
   }
 }
 
+/** One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. */
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.

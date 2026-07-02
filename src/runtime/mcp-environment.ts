@@ -91,6 +91,7 @@ function sanitizeSchema(s: unknown): Record<string, unknown> {
   return { type: 'object', properties: {} }
 }
 
+/** Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. */
 export function createMcpEnvironment(opts: McpEnvironmentOptions): Environment {
   const endpoints = new Map<string, McpEndpoint>()
   const maxChars = opts.maxResultChars ?? 1500

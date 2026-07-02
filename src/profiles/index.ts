@@ -1,9 +1,10 @@
 /**
- * @experimental
  *
  * Authored `AgentProfile` presets (the §1.5 author-the-profile DATA) for common agent roles, each
  * with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
  * invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
+ *
+ * @experimental
  */
 
 // The judge-agnostic UI-audit workspace I/O helpers (persist a `UiFinding[]` to a

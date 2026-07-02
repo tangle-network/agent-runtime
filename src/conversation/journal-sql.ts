@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Durable conversation journal backed by any SQL store. Adapter-agnostic by
  * design: callers wire a `SqlAdapter` against their driver of choice (D1,
@@ -33,6 +32,8 @@
  *   }
  *   const journal = new SqlConversationJournal(pg)
  *   await journal.migrate()
+ *
+ * @stable
  */
 
 import type { ConversationJournal, ConversationJournalEntry } from './journal'

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The worktree-CLI leaf executor — a supervisor-authored `AgentProfile` driving a local
  * coding-harness CLI (claude / codex / opencode) on its OWN git worktree, surfaced as the open
@@ -19,6 +18,8 @@
  * explicit, documented `budgetExempt` option rather than a buried hardcode: set it `false` ONLY for
  * a harness that genuinely surfaces real token/usd usage to meter into the pool — otherwise the
  * executor would meter a fabricated zero, which the no-silent-zeros rule forbids.
+ *
+ * @experimental
  */
 
 import { randomUUID } from 'node:crypto'

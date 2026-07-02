@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The completion-oracle: **settled ⟺ DELIVERED.**
  *
@@ -18,6 +17,8 @@
  * The check is a DEPLOYABLE oracle — a test command, a state verifier, the commit0 judge —
  * read off the child's output, never the model judging itself. A throwing check is
  * fail-closed (not delivered), never a crash.
+ *
+ * @experimental
  */
 
 import type { DefaultVerdict, Executor, ExecutorResult, UsageEvent } from './types'

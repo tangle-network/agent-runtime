@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Tangle Intelligence SDK — the Observe + Mode-0 product layer.
  *
@@ -20,6 +19,8 @@
  * is a LATER phase and is NOT built here. This wrapper only Observes and passes
  * through; there is no abort path, so the only fail-soft surface is the
  * telemetry export.
+ *
+ * @experimental
  */
 
 import {

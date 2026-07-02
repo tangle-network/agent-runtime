@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Driven-loop substrate — type surface.
  *
@@ -9,6 +8,8 @@
  * accounting, concurrency, abort propagation, cost aggregation, and trace
  * emission; the driver owns topology (plan + decide); the validator owns
  * output scoring; the output adapter owns event-stream → typed-output decode.
+ *
+ * @experimental
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
@@ -552,7 +553,11 @@ export interface LoopTeardownFailedPayload {
   reason: string
 }
 
-/** @experimental */
+/**
+ * Execution context for `runLoop`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
+ *
+ * @experimental
+ */
 export interface ExecCtx {
   /** Sandbox SDK client — the kernel calls `.create()` per iteration. */
   sandboxClient: SandboxClient

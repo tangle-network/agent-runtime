@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Analyst-on-scope (G1) — the analyze→findings→steer wire over the reactive `Scope`.
  *
@@ -16,6 +15,8 @@
  * drains its settlement, then enforces the firewall on the way out — a judge-derived finding
  * ABORTS, it is never filtered. Fail loud: a down analyst, a non-array result, or a tainted finding
  * throws; there is no silent empty-findings path that would let a combinator steer on nothing.
+ *
+ * @experimental
  */
 
 import type { AnalystFinding, AnalystRunInputs } from '@tangle-network/agent-eval'

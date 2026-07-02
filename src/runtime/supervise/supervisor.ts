@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The `Supervisor` impl (KEYSTONE, build step 5).
  *
@@ -31,6 +30,8 @@
  * winner `Out`. The supervisor content-addresses that `Out` for its replay `outRef`, reads
  * `spentTotal` off the journal (`settled` child work + `metered` driver inference), and wraps
  * it as a typed `winner` — it does not re-rank children behind the driver's back.
+ *
+ * @experimental
  */
 
 import { contentAddress } from '../../durable/spawn-journal'

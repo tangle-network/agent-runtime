@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Delegation executors — the layer between MCP delegates and the sandbox
  * substrate. Each executor exposes a {@link SandboxClient} the kernel
@@ -16,6 +15,8 @@
  *   in the caller's existing fleet so worker diffs land directly on the
  *   caller's filesystem (the fleet's shared workspace). Selected when the
  *   parent sandbox passes `TANGLE_FLEET_ID` into the MCP server's env.
+ *
+ * @experimental
  */
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'

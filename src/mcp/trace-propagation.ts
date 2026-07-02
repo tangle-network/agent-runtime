@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Trace context propagation for MCP subprocess.
  *
@@ -15,6 +14,8 @@
  *
  * When these env vars are absent, the MCP generates a fresh trace root —
  * the server operates standalone without trace joining.
+ *
+ * @experimental
  */
 
 import type { OtelExporter } from '../otel-export'

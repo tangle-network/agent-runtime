@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * EffortPolicy — pure data, no execution. Resolves a named tier into a flat
  * settings object the Intelligence wrapper reads to decide WHICH intelligence
@@ -12,6 +11,8 @@
  * fanout:1, loops:false, intelligenceBudgetUsd:0). At OFF the wrapper runs the
  * agent as pure passthrough and only intelligence-class usage can prove to be
  * zero — there is nothing to spawn.
+ *
+ * @experimental
  */
 
 /** The named effort tiers, lowest to highest. `'off'` is the honest floor

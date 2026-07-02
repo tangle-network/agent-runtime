@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Detached delegation turns over the sandbox SDK's `driveTurn` primitive.
  *
@@ -31,6 +30,8 @@
  * under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
  * streaming `runLoop` path — N concurrent sessions cannot be expressed as one
  * resume key, and winner selection needs every candidate.
+ *
+ * @experimental
  */
 
 import type { SandboxEvent } from '@tangle-network/sandbox'

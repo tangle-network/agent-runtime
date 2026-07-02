@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `delegate` MCP tool — the ONE generic delegation verb, the agent-facing front door to
  * `delegate()` / `supervise()`. The agent hands it an INTENT (what it wants done); a default
@@ -13,6 +12,8 @@
  * The supervisor's substrate (its brain `router`, the worker `backend`, the completion `deliverable`)
  * is INJECTED at server construction — never an agent-supplied arg. The agent supplies only the
  * intent (+ an optional per-call `model` / `runId`).
+ *
+ * @experimental
  */
 
 import type { RouterConfig } from '../../runtime/router-client'

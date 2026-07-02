@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `driverAgent` — the driver's BRAIN.
  *
@@ -23,6 +22,8 @@
  *    sandboxed harness drives the verbs as MCP tools. The same seam every tool-loop uses.
  *  - `systemPrompt` — the driver's stance (the agent-eval worker-driver prompt / the prompt
  *    generator). Injected, never hardcoded — the prompt is a pluggable role.
+ *
+ * @experimental
  */
 
 import { ValidationError } from '../../errors'

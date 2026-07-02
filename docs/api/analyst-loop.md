@@ -828,7 +828,7 @@ Forwarded verbatim from `AnalystRegistry.runStream`.
 
 > **iterationsToTraceStore**\<`Task`, `Output`\>(`iterations`, `budgets?`): `TraceAnalysisStore`
 
-Defined in: [analyst-loop/iterations-to-trace-store.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/iterations-to-trace-store.ts#L213)
+Defined in: [analyst-loop/iterations-to-trace-store.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/analyst-loop/iterations-to-trace-store.ts#L214)
 
 Build an in-memory `TraceAnalysisStore` over a loop round's iterations. Fail-loud on an
 empty round — there is nothing for an analyst to read, and a silent empty store would

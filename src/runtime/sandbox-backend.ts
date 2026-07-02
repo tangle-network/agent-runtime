@@ -1,10 +1,11 @@
 /**
- * @experimental
  *
  * Backend-options assembly shared by the loop kernel's `createSandboxForSpec`
  * and the sandbox planner's box creation, so the worker box and the planner box
  * boot identically. Builds the options only — the acquire path (cold-start
  * recovery) lives in the kernel, the planner calls `client.create` directly.
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

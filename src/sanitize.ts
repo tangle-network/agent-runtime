@@ -1,10 +1,11 @@
 /**
- * @stable
  *
  * Sanitization for runtime telemetry. The rule: nothing user-controlled leaks
  * unless the caller opts in with a `RuntimeTelemetryOptions` flag. This is the
  * envelope that ends up in `agent_run.metadata.runtimeEvents` on every
  * consumer, so the default must be safe.
+ *
+ * @stable
  */
 
 import type {
@@ -545,7 +546,6 @@ export function createRuntimeEventCollector<
 }
 
 /**
- * @stable
  *
  * Streaming-event counterpart of `createRuntimeEventCollector`. Pass each
  * event yielded by `runAgentTaskStream` through `onEvent` and read the
@@ -553,6 +553,8 @@ export function createRuntimeEventCollector<
  * flags apply. Kept distinct from `createRuntimeEventCollector` because the
  * stream and non-stream event shapes overlap on `type` literals — dispatching
  * on `type` alone would misroute events.
+ *
+ * @stable
  */
 export function createRuntimeStreamEventCollector(
   options: RuntimeTelemetryOptions = {},

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * UI judge seam — consumer-supplied vision LLM hook the in-process
  * auditor client invokes to identify findings from captured screenshots.
@@ -21,6 +20,8 @@
  *   - Treat any exception thrown by the judge as the iteration's failure —
  *     do not swallow LLM errors. Per agent-runtime's fail-loud doctrine,
  *     surfacing the error to the kernel beats producing a silent zero.
+ *
+ * @experimental
  */
 
 import type { UiFinding, UiLens } from './substrate'

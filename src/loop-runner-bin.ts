@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 /**
- * @experimental
  *
  * `agent-runtime-loop` — the schedulable entrypoint for the configured
  * delegated loop-runner. A cron job / routine / Makefile target invokes:
@@ -12,6 +11,8 @@
  * export a `DelegatedLoopRegistry`, or a `() => DelegatedLoopRegistry | Promise<…>`.
  * The bin runs the selected mode, prints the `DelegatedLoopResult` as JSON, and
  * exits 0 on `ok`, 1 on a recorded failure, 2 on a usage/config error.
+ *
+ * @experimental
  */
 
 import {
@@ -39,11 +40,12 @@ export interface LoopRunnerCliResult {
 }
 
 /**
- * @experimental
  *
  * Pure CLI core (no process / argv / IO) so it's unit-testable: validate the
  * mode, load the registry, dispatch, map to an exit code (0 ok / 1 failed /
  * 2 usage). Exported for embedding in custom runners + tests.
+ *
+ * @experimental
  */
 export async function runLoopRunnerCli(args: LoopRunnerCliArgs): Promise<LoopRunnerCliResult> {
   if (!isDelegatedLoopMode(args.mode)) {

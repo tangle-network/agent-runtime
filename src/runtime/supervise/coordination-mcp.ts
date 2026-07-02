@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Serve the coordination verbs (spawn_agent / await_event / observe_agent / steer_agent / stop)
  * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
@@ -16,6 +15,8 @@
  * Transport: JSON-RPC over HTTP POST (the MCP streamable-HTTP shape — `application/json` for a
  * single response). The server is created INSIDE an agent's `act(task, scope)` so it fronts that
  * agent's live scope; tear it down when the act returns.
+ *
+ * @experimental
  */
 
 import { createServer, type Server } from 'node:http'

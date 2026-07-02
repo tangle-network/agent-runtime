@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runLoop`
  * against a `SandboxClient` + a caller-supplied (or minimal model-only default) worker profile, to a
@@ -16,6 +15,8 @@
  * none is passed, a minimal model-only default profile is materialized in `./detached-coder` — no
  * hardcoded skills or tools. For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`
  * (author one `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`).
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -105,13 +106,14 @@ export interface CoderReview {
 }
 
 /**
- * @experimental
  *
  * Optional adversarial reviewer over a coder candidate that already passed
  * mechanical validation (tests/typecheck/forbidden/diff/no-op/secrets). Folded
  * from the ai-trading-blueprint delegation MCP: a candidate is only eligible to
  * win if the reviewer approves it. The reviewer is the consumer's seam — an LLM
  * judge, a `pnpm review` command, anything returning a `CoderReview`.
+ *
+ * @experimental
  */
 export type CoderReviewer = (
   output: CoderOutput,

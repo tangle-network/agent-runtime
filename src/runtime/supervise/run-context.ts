@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `createInMemoryRunContext` — the one-call bundle of the in-memory stores a
  * `createSupervisor().run(root, task, opts)` needs: a fresh `InMemorySpawnJournal`
@@ -21,6 +20,8 @@
  * The spread shape matches `SupervisorOpts` exactly, so the call site reads:
  *   const run = createInMemoryRunContext()
  *   await createSupervisor().run(root, task, { budget, runId, ...run })
+ *
+ * @experimental
  */
 
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'

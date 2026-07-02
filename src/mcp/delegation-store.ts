@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Persistence port for the MCP delegation queue.
  *
@@ -12,6 +11,8 @@
  * Records MUST be JSON-safe — `FileDelegationStore` round-trips them
  * through `JSON.stringify`/`JSON.parse`, so a `Date`, `Map`, or function
  * smuggled into `args`/`result` would corrupt the journal.
+ *
+ * @experimental
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'

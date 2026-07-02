@@ -136,6 +136,7 @@ const findingsSchema = {
   },
 } as const
 
+/** The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. */
 export async function observe(input: ObserveInput, opts: ObserveOptions): Promise<Observation> {
   const traceSummary = summarizeTrace(input.trace, opts.maxTraceLines ?? 80)
   const res = await opts.chat.chat(

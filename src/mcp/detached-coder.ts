@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Sandbox-session coder decode layer. The sandbox-session delegate (`./delegates`) and the
  * cross-restart resume driver run the in-box harness over a `SandboxClient` and need to
@@ -14,6 +13,8 @@
  *      projected onto `CoderOutput`; and
  *   2. an LLM-emitted JSON block (`{ branch, patch, testResult, typecheckResult, diffStats }`),
  *      lifted onto `data.result` or scanned out of the assistant transcript (any harness shape).
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

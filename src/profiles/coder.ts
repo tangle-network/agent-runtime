@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `CoderTask` + `coderTaskToPrompt` — the per-task DATA + pure formatter for code-modification tasks
  * (§1.5: the system authors profiles; there is no hardcoded coder profile constant). A domain
@@ -7,6 +6,8 @@
  * (`createWorktreeCliExecutor`) or a fanout (`worktreeFanout`); "is it delivered" is a
  * `DeliverableSpec` (`patchDelivered`), not a bundled validator. This formatter renders a `CoderTask`
  * into the per-task instruction that profile receives.
+ *
+ * @experimental
  */
 
 const DEFAULT_MAX_DIFF_LINES = 400

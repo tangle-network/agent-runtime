@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Git worktree helpers for the in-process delegation executor. Each
  * delegation runs in its own worktree so multiple parallel harness
@@ -13,6 +12,8 @@
  * (via a `runGit` helper). Stays narrow on purpose: no commits, no rebases.
  * Diff capture stages all changes (`git add -A`) into the ephemeral worktree's
  * index so created (untracked) files appear in the `--cached` diff.
+ *
+ * @experimental
  */
 
 import { spawn } from 'node:child_process'

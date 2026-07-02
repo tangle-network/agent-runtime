@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `improve` — the ONE public, surface-pluggable RSI verb.
  *
@@ -22,6 +21,8 @@
  *
  * Everything else (`scenarios`, `judge`, `agent`, `budget`, `llm`) passes
  * straight through to `selfImprove`.
+ *
+ * @experimental
  */
 
 import { gepaProposer, skillOptProposer } from '@tangle-network/agent-eval/campaign'

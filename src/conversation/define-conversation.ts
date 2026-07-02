@@ -1,10 +1,11 @@
 /**
- * @stable
  *
  * Declarative constructor for a multi-agent `Conversation`. Validates inputs
  * fail-loud at definition time (duplicate participant names, alternate order
  * with ≠2 participants, non-positive `maxTurns`) so misconfiguration is caught
  * before `runConversation` is called and not buried inside a streaming run.
+ *
+ * @stable
  */
 
 import { ValidationError } from '../errors'

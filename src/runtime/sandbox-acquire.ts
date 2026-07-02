@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `acquireSandbox` — cold-start-resilient sandbox acquisition. Eliminates the
  * "create timed out at the proxy" failure mode conceptually by DECOUPLING "the
@@ -23,6 +22,8 @@
  * but never reaches `running` (abort, terminal status, budget) is torn down
  * before the failure propagates, so an abort storm during cold start does not
  * leak live sandboxes.
+ *
+ * @experimental
  */
 
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
@@ -64,7 +65,11 @@ interface PollableClient extends SandboxClient {
   get?: (id: string) => Promise<SandboxInstance | null>
 }
 
-/** @experimental */
+/**
+ * Cold-start-resilient sandbox acquisition: create by name, observe readiness from the sandbox's own status (not the create call), and re-attach after gateway timeouts.
+ *
+ * @experimental
+ */
 export async function acquireSandbox(
   client: SandboxClient,
   options: CreateSandboxOptions,

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The Capability-Delivery Manifest — the unified, future-proof structure for
  * delivering ONE certified unit of agent power = `{ interface, binding }`.
@@ -23,6 +22,8 @@
  * Layering: this depends DOWN on `@tangle-network/sandbox` (the SDK
  * `AgentProfileMcpServer` shape the mcp binding lowers to) and on the runtime's
  * own `ToolSpec`. It never imports agent-eval and never reaches upward.
+ *
+ * @experimental
  */
 
 import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'

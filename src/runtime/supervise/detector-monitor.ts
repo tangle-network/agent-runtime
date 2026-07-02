@@ -1,11 +1,12 @@
 /**
- * @experimental
  *
  * The ONLINE analyst: watch a `TraceSource` and fold each tool span through agent-eval's published
  * streaming detector kernel (`repeatedActionDetector`/`errorStreakDetector` — the SAME kernel the
  * control loop folds), firing `onSignal` the moment a worker loops or error-storms. Substrate-
  * agnostic: it consumes spans from any source (owned router/bridge loop OR a sandbox box session),
  * never the raw tool seam. Detection logic + the failure taxonomy live in agent-eval; not reimplemented.
+ *
+ * @experimental
  */
 
 import {

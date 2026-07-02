@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Pure readiness-decision helper. Maps a `KnowledgeReadinessReport` from
  * `@tangle-network/agent-eval` to a three-state branch (`ready` / `blocked` /
@@ -9,6 +8,8 @@
  * agent-eval; callers tightening or loosening this should keep it consistent
  * across all entry points for the same product so the UI / metrics agree on
  * what "caveat" means.
+ *
+ * @stable
  */
 
 import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'
@@ -18,7 +19,11 @@ import type { KnowledgeReadinessDecision } from './types'
 
 const DEFAULT_MINIMUM_READINESS_SCORE = 0.7
 
-/** @stable */
+/**
+ * Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on.
+ *
+ * @stable
+ */
 export function decideKnowledgeReadiness(
   report: KnowledgeReadinessReport,
   options: { minimumScore?: number } = {},

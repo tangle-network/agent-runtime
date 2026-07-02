@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Stdio JSON-RPC MCP server exposing the delegation tools to sandbox
  * coding-harness agents (claude-code, codex, opencode, ...): the generic
@@ -17,6 +16,8 @@
  * one request; each response is one line. `tools/list` and `tools/call`
  * mirror the MCP 2024-11-05 spec; we do not pull in
  * `@modelcontextprotocol/sdk` to keep the dependency footprint zero.
+ *
+ * @experimental
  */
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
@@ -146,7 +147,11 @@ const PROTOCOL_VERSION = '2024-11-05'
 const DEFAULT_SERVER_NAME = 'agent-runtime-mcp'
 const DEFAULT_SERVER_VERSION = '0.22.0'
 
-/** @experimental */
+/**
+ * Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_feedback`, `delegation_status`, `delegation_history`, optional `delegate_ui_audit`) to sandbox coding-harness agents.
+ *
+ * @experimental
+ */
 export function createMcpServer(options: McpServerOptions = {}): McpServer {
   const queue =
     options.queue ??

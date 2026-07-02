@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `ui-auditor` profile — vision-driven UI audit iteration preset for
  * `runLoop`. See `profile.ts` for the entry point.
@@ -7,6 +6,8 @@
  * The in-process Playwright + judge client lives in `in-process-client.ts`
  * under the optional `./ui-auditor` subpath export so consumers that only
  * want the profile types do not pay the Playwright peer dep.
+ *
+ * @experimental
  */
 
 export type {

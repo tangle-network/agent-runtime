@@ -59,6 +59,7 @@ export interface HarvestReport {
   failures: HarvestFailure[]
 }
 
+/** Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. */
 export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<HarvestReport> {
   const concurrency = Math.max(1, opts.concurrency ?? 4)
   const report: HarvestReport = { runsObserved: 0, findings: 0, learned: 0, failures: [] }

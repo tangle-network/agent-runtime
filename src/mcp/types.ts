@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * MCP delegation tool surface — the typed inputs/outputs the product agent
  * sees over the wire. These types are the contract; the JSON schemas under
@@ -10,6 +9,8 @@
  * `completed` | `failed` | `cancelled`. `delegate_feedback` +
  * `delegation_history` are synchronous reads / writes against the local
  * task queue + feedback store.
+ *
+ * @experimental
  */
 
 import type { CoderTask } from '../profiles/coder'

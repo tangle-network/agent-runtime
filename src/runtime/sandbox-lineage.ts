@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `SandboxLineage` — the backend-blind owner of box + session handles for a
  * single `runLoop` invocation. It exists so `run-loop.ts` never references a
@@ -30,6 +29,8 @@
  * in `run-loop.ts`; the lineage only hands back the live `streamPrompt` iterable
  * so the kernel keeps ownership of event collection, cost accounting, and trace
  * emission.
+ *
+ * @experimental
  */
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'

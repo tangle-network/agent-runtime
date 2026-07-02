@@ -1,9 +1,10 @@
 /**
- * @experimental
  *
  * `delegation_history` MCP tool — synchronous read of past delegations.
  * The agent uses this for self-introspection — "have I delegated this
  * kind of task before? did it work?" — and calibration.
+ *
+ * @experimental
  */
 
 import type {

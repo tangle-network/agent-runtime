@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Completion / satisfiability — the OTHER output of the pluggable analyst (the steer output
  * is `AnalystFinding[]` via the `analyze` hook; this is the "is it done?" output via the
@@ -20,6 +19,8 @@
  *     unguessable + attributable, so it can't be spuriously emitted or confused with content.
  *   - deterministic check (compile/test/citation/proof): `deterministicCompletion(check)` —
  *     a verifier over the output, never the judge verdict (selector ≠ judge holds).
+ *
+ * @experimental
  */
 
 import type { Iteration } from './types'
@@ -59,6 +60,7 @@ export interface CompletionPolicy {
   minConfidence?: number
 }
 
+/** Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. */
 export function completionAuthorizes(v: CompletionVerdict, policy?: CompletionPolicy): boolean {
   if (!v?.done) return false
   if (v.determinism === 'deterministic') return true

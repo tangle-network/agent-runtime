@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Per-lens guidance the auditor inlines into its system prompt for an
  * iteration. Each entry is a self-contained brief — the same content the
@@ -9,6 +8,8 @@
  * Briefs are deliberately concrete: they enumerate the SIGNALS to look for
  * and the cross-lens distinctions to respect, so the judge files fewer
  * pile-on findings under generic labels.
+ *
+ * @experimental
  */
 
 import type { UiLens } from './substrate'

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Feedback persistence surface for the MCP layer.
  *
@@ -12,6 +11,8 @@
  * Feedback events are append-only: every rating is a new event with a
  * fresh id, even when the same delegation is rated multiple times. The
  * caller decides how to roll up scores downstream.
+ *
+ * @experimental
  */
 
 import type { DelegateFeedbackArgs, DelegationFeedbackSnapshot } from './types'

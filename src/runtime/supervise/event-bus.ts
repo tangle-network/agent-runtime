@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The child→parent message bus: the ONE pipe carrying every message a worker, sub-driver, or
  * analyst sends up to the driver — settled outputs, questions, and trace-analyst findings. It
@@ -20,6 +19,8 @@
  * the SAME publish/pull/subscribe surface backed by a durable mailbox on the parent's box (children
  * POST events with at-least-once retry; payloads are blob refs so the event stays small). Consumers
  * depend only on this interface, so distribution is a transport swap, never an architecture change.
+ *
+ * @experimental
  */
 
 /** Every bus event is a discriminated union member keyed by `type`. */
@@ -71,6 +72,7 @@ export interface EventBus<E extends BusEvent> {
   stats(): BusStats
 }
 
+/** Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. */
 export function createEventBus<E extends BusEvent>(now: () => number = Date.now): EventBus<E> {
   const queue: BusRecord<E>[] = []
   const log: BusRecord<E>[] = []

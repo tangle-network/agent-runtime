@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Compact loop-trace tee for the delegation journal.
  *
@@ -14,6 +13,8 @@
  * Payload discipline: a record's trace is hard-capped (spans + serialized
  * bytes). Past the cap the OLDEST spans are dropped and the record carries a
  * `traceTruncated: true` marker — truncation is never silent.
+ *
+ * @experimental
  */
 
 import { buildLoopSpanNodes } from '../otel-export'

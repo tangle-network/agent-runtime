@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Recursive execution atom — the FROZEN type surface (the keystone contract).
  *
@@ -22,6 +21,8 @@
  * Layering: substrate types (`DefaultVerdict`) come from `@tangle-network/agent-eval`;
  * runtime-shaped types (everything else) live here. Pure types/interfaces only — this
  * module typechecks standalone and is imported by every keystone impl.
+ *
+ * @experimental
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'

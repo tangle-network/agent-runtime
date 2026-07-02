@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `createInProcessUiAuditClient` — a `SandboxClient` that drives a
  * Playwright browser in-process and delegates finding identification to a
@@ -21,6 +20,8 @@
  * Concurrency: each iteration's prompt carries a self-describing task
  * envelope (see `prompt.ts`), so concurrent fanout iterations do not race
  * over per-client side state.
+ *
+ * @experimental
  */
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'

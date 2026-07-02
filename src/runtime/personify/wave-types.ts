@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The RSI-wave type surface — the FROZEN contracts the wave's Core + Compose build to.
  *
@@ -30,6 +29,8 @@
  * Layering: imports ONLY keystone runtime types (`../supervise/types`), persona types
  * (`./types`), the substrate `AnalystFinding`/`AgentProfile`, and the durable-store interfaces.
  * Pure types/interfaces — this module typechecks standalone, owns no impl, invents no engine.
+ *
+ * @experimental
  */
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'

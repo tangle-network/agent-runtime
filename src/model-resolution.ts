@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Chat-model resolution + catalog validation — the shared primitive every
  * product chat handler needs and was, until now, hand-rolling. Lifts the
@@ -12,6 +11,8 @@
  * sharing the catalog fetch, the malformed-id guard, and the fail-closed
  * admission rule. No React, no `process.env` assumption — `env` is an
  * explicit narrow record so this runs unchanged in Node and in Workers.
+ *
+ * @stable
  */
 
 /**

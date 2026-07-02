@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Auditor validator — scores a single iteration's findings for actionability
  * and gates the iteration result. The kernel uses `valid` + `score` for
@@ -24,6 +23,8 @@
  * An iteration with zero findings scores 0.5 by convention — neither a
  * confident pass nor a hard failure (the judge might just have nothing to
  * say on this lens). The driver decides what to do with it.
+ *
+ * @experimental
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'

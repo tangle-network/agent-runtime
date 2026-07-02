@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * UI auditor task + output shapes — what one iteration of the audit loop
  * does and what it returns.
@@ -8,6 +7,8 @@
  * decides which iterations to plan (lens-cycling, route-cycling,
  * refine-on-low-yield, etc.); the iteration itself captures screenshots
  * and asks a vision judge to identify findings under that lens.
+ *
+ * @experimental
  */
 
 import type { UiFinding, UiLens } from './substrate'

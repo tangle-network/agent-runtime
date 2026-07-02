@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 /**
- * @experimental
  *
  * `agent-runtime-mcp` — stdio MCP server entry point.
  *
@@ -36,6 +35,8 @@
  *   AGENT_RUNTIME_DELEGATION_RETAIN_TERMINAL
  *                                    optional — positive integer cap on retained
  *                                    terminal records. Unset = keep forever.
+ *
+ * @experimental
  */
 
 import type { SandboxClient } from '../runtime'

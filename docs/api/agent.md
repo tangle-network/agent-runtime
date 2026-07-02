@@ -1568,7 +1568,9 @@ the call site.
 
 > **createSurfaceImprovementAdapter**(`opts`): [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](#surfaceimprovementedit)\>
 
-Defined in: [agent/improvement-adapter.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L129)
+Defined in: [agent/improvement-adapter.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L130)
+
+The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR.
 
 #### Parameters
 
@@ -1729,7 +1731,9 @@ it's the whole point.
 
 > **validateSurfaces**(`surfaces`, `repoRoot`): readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
-Defined in: [agent/surfaces.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L197)
+Defined in: [agent/surfaces.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L198)
+
+Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits.
 
 #### Parameters
 
@@ -1751,7 +1755,7 @@ readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
 > **renderSurfaceIssues**(`issues`, `repoRoot`): `string`
 
-Defined in: [agent/surfaces.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L245)
+Defined in: [agent/surfaces.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L246)
 
 #### Parameters
 

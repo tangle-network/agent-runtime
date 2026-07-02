@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `patchDelivered` — the mechanical patch gate as a generic `DeliverableSpec` over the worktree-CLI
  * artifact. It is one construction of a `DeliverableSpec` (a plain `check(artifact) => boolean`
@@ -17,6 +16,8 @@
  * (the executor's `testCmd`/`typecheckCmd` were omitted) the corresponding signal is treated as
  * passed UNLESS `require` lists it — so a gate that demands a tests-pass on an artifact that never
  * ran tests fails closed (the honest outcome) rather than passing on a missing signal.
+ *
+ * @experimental
  */
 
 import type { DeliverableSpec } from './completion-gate'

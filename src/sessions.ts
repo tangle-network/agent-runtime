@@ -1,10 +1,11 @@
 /**
- * @stable
  *
  * Session helpers + an in-memory `RuntimeSessionStore` implementation suitable
  * for tests, scratch processes, and per-request scratch storage in serverless
  * runtimes. Durable stores (D1, postgres, Durable Objects) implement the same
  * interface from `./types`.
+ *
+ * @stable
  */
 
 import type { RuntimeSession, RuntimeSessionStore, RuntimeStreamEvent } from './types'

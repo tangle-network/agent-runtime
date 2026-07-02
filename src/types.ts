@@ -1,11 +1,12 @@
 /**
- * @stable
  *
  * Core task, session, adapter, and stream-event types for the runtime.
  *
  * This module owns the public shape of every cross-cutting record (`TaskSpec`,
  * `RuntimeSession`, `RuntimeStreamEvent`). Everything else in the runtime
  * imports from here so type-level changes ripple in one place.
+ *
+ * @stable
  */
 
 import type {
@@ -193,7 +194,6 @@ export type AgentRuntimeEventSink<
 > = (event: AgentRuntimeEvent<TState, TAction, TActionResult, TEval>) => Promise<void> | void
 
 /**
- * @stable
  *
  * Typed transport / backend failure detail. Carried on `backend_error` and
  * `final` events when the backend's stream throws or the upstream HTTP call
@@ -206,6 +206,8 @@ export type AgentRuntimeEventSink<
  * misconfigured proxy never bloats event payloads or logs. Consumers needing
  * the full body should inspect the underlying `BackendTransportError.body`
  * via a custom `mapEvent` or backend wrapper.
+ *
+ * @stable
  */
 export interface BackendErrorDetail {
   /**
@@ -222,7 +224,6 @@ export interface BackendErrorDetail {
 }
 
 /**
- * @stable
  *
  * OpenAI Chat Completions tool descriptor. The shape mirrors the
  * `/v1/chat/completions` `tools[]` parameter so callers can pass tool
@@ -235,6 +236,8 @@ export interface BackendErrorDetail {
  * MCP `tools/list` at config time and project the result into this shape. The
  * runtime intentionally does NOT depend on `@modelcontextprotocol/sdk` —
  * keeping the backend transport thin lets domain repos own MCP plumbing.
+ *
+ * @stable
  */
 export interface OpenAIChatTool {
   type: 'function'
@@ -246,12 +249,13 @@ export interface OpenAIChatTool {
 }
 
 /**
- * @stable
  *
  * `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI
  * spec: `'auto'` (default — model decides), `'none'` (disable tool calling
  * for this turn), `'required'` (force a tool call), or a specific function
  * pin `{ type: 'function', function: { name } }`.
+ *
+ * @stable
  */
 export type OpenAIChatToolChoice =
   | 'auto'
@@ -260,11 +264,12 @@ export type OpenAIChatToolChoice =
   | { type: 'function'; function: { name: string } }
 
 /**
- * @stable
  *
  * `response_format` parameter for OpenAI-compatible chat endpoints. Use
  * `json_object` when the caller needs syntactically valid JSON, or
  * `json_schema` when the upstream provider supports schema-constrained JSON.
+ *
+ * @stable
  */
 export type OpenAIChatResponseFormat =
   | { type: 'text' }

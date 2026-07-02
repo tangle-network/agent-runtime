@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The supervisor's intelligence is AUTHORING the agents it spawns — not pressing buttons.
  *
@@ -11,6 +10,8 @@
  *
  * The skill is the single OPTIMIZABLE surface: edit it → the supervisor designs better agents.
  * That is the self-improvement lever (the prompt/skill lever), not the execution plumbing.
+ *
+ * @experimental
  */
 
 import { type AnalystFinding, computeFindingId, makeFinding } from '@tangle-network/agent-eval'

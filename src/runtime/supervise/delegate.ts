@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `delegate` — the one generic delegation verb. You hand it an INTENT (what you want done) and it
  * hands that intent to a default AUTHORING supervisor: a router-brained supervisor whose standing
@@ -16,6 +15,8 @@
  * caller on BOTH paths — a `winner` carries the delivered worker's spend, a `no-winner` carries the
  * spend incurred before it failed. That cost channel means a `delegate()` caller always learns what
  * the delegation actually spent.
+ *
+ * @experimental
  */
 
 import { ConfigError } from '../../errors'

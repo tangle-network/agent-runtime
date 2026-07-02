@@ -28,6 +28,21 @@
 // Wired into `pnpm run docs:api` (runs after TypeDoc) and gated by
 // scripts/check-docs-freshness.mjs (regenerates + diffs — a new live export absent from
 // the committed catalog is a RED BUILD). Never hand-edit docs/api/primitive-catalog.md.
+//
+// Row policy — every VISIBLE table row must be informative:
+//   - Documented entries (any kind) get a table row.
+//   - Undocumented interface/type entries collapse into one per-section
+//     "Undocumented supporting types" paragraph (names stay backticked, so they remain
+//     greppable and the freshness gate still proves their existence).
+//   - Undocumented function/class/const entries keep a visible blank row AND are counted
+//     against `maxUndocumentedCallables` below — a RATCHET: the ceiling is the current
+//     count, so new callables must ship with a TSDoc summary and the number only falls.
+//     After backfilling summaries, lower the constant to the new count.
+//
+// TSDoc position rule the extractor imposes: the summary line goes BEFORE any block tag.
+// A doc block whose first content line is `@experimental`/`@stable` reads as ALL tag
+// content to the TS compiler — getDocumentationComment returns empty and the catalog row
+// renders blank. Tags go at the END of the block.
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -250,6 +265,16 @@ const bySpecifier = new Map()
 for (let i = 0; i < allModules.length; i++) bySpecifier.set(allModules[i].specifier, extracted[i])
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Ratchet: undocumented callables may only DECREASE. Undocumented interface/type
+// entries collapse out of the table (see renderSection), but a blank function/class/
+// const row is a reach-for primitive with no summary — visible shame, capped here.
+// The ceiling is the exact current count; when a backfill lowers the real number,
+// lower the constant to match. Exceeding it (a new undocumented callable) exits 1.
+
+const maxUndocumentedCallables = 108
+const ratchetKinds = new Set(['function', 'class', 'const'])
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Render.
 
 const kindRank = { function: 0, const: 1, class: 2, interface: 3, type: 4, enum: 5, value: 6 }
@@ -265,6 +290,10 @@ function entriesFor(mod) {
 function renderSection(mod, importLabel) {
   const entries = entriesFor(mod)
   if (!entries.length) return ''
+  // Undocumented interface/type entries collapse into a compact paragraph below the
+  // table; everything else (documented entries + undocumented callables) stays a row.
+  const collapsed = entries.filter((e) => !e.summary && (e.kind === 'interface' || e.kind === 'type'))
+  const rows = entries.filter((e) => !collapsed.includes(e))
   const lines = [
     `### ${mod.label}`,
     '',
@@ -273,9 +302,17 @@ function renderSection(mod, importLabel) {
     '| Symbol | Kind | Summary |',
     '|---|---|---|',
   ]
-  for (const e of entries) {
+  for (const e of rows) {
     lines.push(
       `| \`${e.name}\` | ${e.kind} | ${e.summary || '_(no summary — add a TSDoc line at the declaration)_'} |`,
+    )
+  }
+  if (collapsed.length) {
+    lines.push('')
+    lines.push(
+      `**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): ${collapsed
+        .map((e) => `\`${e.name}\``)
+        .join(', ')}.`,
     )
   }
   lines.push('')
@@ -284,6 +321,22 @@ function renderSection(mod, importLabel) {
 
 const importLabelOf = (basePackage, subpath) =>
   subpath === '.' ? basePackage : `${basePackage}/${subpath.replace(/^\.\//, '')}`
+
+const undocumentedCallables = []
+for (const mod of allModules) {
+  for (const e of entriesFor(mod)) {
+    if (!e.summary && ratchetKinds.has(e.kind)) undocumentedCallables.push(`${e.name} (${e.kind}, ${mod.specifier})`)
+  }
+}
+if (undocumentedCallables.length > maxUndocumentedCallables) {
+  console.error(
+    `primitive-catalog: ${undocumentedCallables.length} undocumented function/class/const exports exceed the ` +
+      `ratchet ceiling of ${maxUndocumentedCallables}. Add a TSDoc summary line at each new declaration ` +
+      '(summary BEFORE any @tag — a tag-first block reads as blank). Undocumented callables:\n  ' +
+      undocumentedCallables.join('\n  '),
+  )
+  process.exit(1)
+}
 
 const out = []
 out.push('<!--')
@@ -345,5 +398,6 @@ const total =
 console.error(
   `primitive-catalog: wrote docs/api/primitive-catalog.md — ${ownModules.length} own subpaths + ` +
     `${substrateModules.length} substrate surfaces, ${total} catalogued symbols ` +
-    `(agent-runtime@${pkg.version}, agent-eval@${substrateVersion}).`,
+    `(agent-runtime@${pkg.version}, agent-eval@${substrateVersion}); ` +
+    `${undocumentedCallables.length}/${maxUndocumentedCallables} undocumented callables (ratchet).`,
 )

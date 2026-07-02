@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
  * delegation tools to sandbox coding-harness agents: the generic `delegate`
@@ -11,6 +10,8 @@
  * Mount the server inside a product agent's sandbox via
  * `agent-runtime-mcp` (the bin) or wire it into a custom Node entry
  * point with `createMcpServer({ ... })`.
+ *
+ * @experimental
  */
 
 export type { DetectExecutorArgs } from './bin-helpers'

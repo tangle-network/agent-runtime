@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The personify layer — the "act like X" knob on top of the recursive keystone.
  *
@@ -23,6 +22,8 @@
  * substrate `AgentProfile`/`BackendType`. It typechecks standalone — no impl, no engine.
  * Extensibility is structural: `Persona` carries an open `extensions` bag so a later
  * world-model / memory field is additive (a new optional key), never a breaking change.
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

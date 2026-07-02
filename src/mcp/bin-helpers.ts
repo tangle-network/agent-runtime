@@ -1,9 +1,10 @@
 /**
- * @experimental
  *
  * Helpers extracted from `bin.ts` so the env-detection + executor-selection
  * logic is unit-testable without spawning a subprocess. The bin imports from
  * here; tests import from here directly.
+ *
+ * @experimental
  */
 
 import type { SandboxClient } from '../runtime'

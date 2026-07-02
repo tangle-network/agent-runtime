@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Per-call resilience policy for participant backends: deadline, retry with
  * backoff, and a circuit breaker. Each policy is applied *around* a single
@@ -11,6 +10,8 @@
  * leaking sockets. Retries replay the same logical turn (same `turnId`) so
  * any caching gateway can dedupe. Circuit breakers are *per participant*: A's
  * failures don't open B's breaker.
+ *
+ * @stable
  */
 
 /** Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. */

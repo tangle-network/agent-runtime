@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Redaction for Intelligence trace export. The trace carries the customer's
  * real input/output; before any of it leaves the process it passes through a
@@ -10,6 +9,8 @@
  * This is intentionally narrower than `src/sanitize.ts` (which redacts the
  * runtime's *event envelope* field-by-field): here the value is opaque
  * customer payload, so the scrub is value-shaped, not schema-shaped.
+ *
+ * @experimental
  */
 
 /** A redactor maps an arbitrary trace value to a safe-to-export value. Pure;

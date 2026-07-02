@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * The two top-level entry points:
  *
@@ -10,6 +9,8 @@
  * Both gate the run on `KnowledgeReadinessReport` from `agent-eval`, emit the
  * same lifecycle event vocabulary (under different shapes — see `types.ts`),
  * and route session lifecycle through a pluggable `RuntimeSessionStore`.
+ *
+ * @stable
  */
 
 import {
@@ -79,7 +80,11 @@ import type {
   RuntimeStreamEvent,
 } from './types'
 
-/** @stable */
+/**
+ * Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable.
+ *
+ * @stable
+ */
 export async function runAgentTask<
   TState,
   TAction,
@@ -193,7 +198,11 @@ export async function runAgentTask<
   }
 }
 
-/** @stable */
+/**
+ * Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen.
+ *
+ * @stable
+ */
 export async function* runAgentTaskStream<TInput extends AgentBackendInput = AgentBackendInput>(
   options: RunAgentTaskStreamOptions<TInput>,
 ): AsyncIterable<RuntimeStreamEvent> {

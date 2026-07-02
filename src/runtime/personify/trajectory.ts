@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Trajectory trace + cost ledger — the post-hoc tree reconstructor (§4 of `wave-types`).
  *
@@ -20,6 +19,8 @@
  * CROSS-run analogue the pool cannot reach — proving equal compute before any win is claimed.
  *
  * Pure over the journal/blobs — no live agent calls; safe to run on a finished run's log.
+ *
+ * @experimental
  */
 
 import type {

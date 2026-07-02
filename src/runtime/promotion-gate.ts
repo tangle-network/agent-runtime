@@ -60,6 +60,7 @@ export interface PromotionVerdict {
   latency?: { mean: number; median: number; low: number; high: number }
 }
 
+/** Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`. */
 export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const mode = opts.mode ?? 'superiority'
   if (opts.candidate === opts.incumbent) {

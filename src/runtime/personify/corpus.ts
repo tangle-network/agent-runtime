@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The cross-run corpus (G2) — the learning-flywheel's durable accreted-fact store.
  *
@@ -14,6 +13,8 @@
  * the same `id`. Malformed records — a structurally-invalid `CorpusRecord` from disk or a caller —
  * fail loud (the validator throws), since a corpus that silently accepts garbage would poison
  * every downstream run that reads it back.
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

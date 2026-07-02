@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * UI-audit issue writer — pure I/O. Takes a workspace dir + `UiFinding[]`
  * and emits:
@@ -14,6 +13,8 @@
  * The writer is deterministic, idempotent for `appendFindings()`, and
  * never invokes an LLM. It assigns the next monotonic id to a finding the
  * caller did not pre-id.
+ *
+ * @experimental
  */
 
 import { promises as fs } from 'node:fs'

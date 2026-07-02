@@ -708,10 +708,12 @@ export interface Strategy {
   ): Agent<unknown, Outcome<unknown>>
 }
 
+/** Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). */
 export const sample: Strategy = {
   name: 'sample',
   driver: (surface, task, opts, budget) => breadthStrategy(surface, task, opts, { width: budget }),
 }
+/** Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). */
 export const refine: Strategy = {
   name: 'refine',
   driver: (surface, task, opts, budget) => depthStrategy(surface, task, opts, { maxShots: budget }),

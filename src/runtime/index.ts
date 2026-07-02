@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Driven-loop substrate. `runLoop` orchestrates around the sandbox SDK; it
  * does not invent its own notion of "what an agent is". Each iteration is
@@ -7,6 +6,8 @@
  * call. The driver owns topology; the validator owns scoring; the output
  * adapter owns event-stream decode; the kernel owns iteration accounting,
  * concurrency, abort, cost aggregation, and trace emission.
+ *
+ * @experimental
  */
 
 // The analyst-finding factory + id helper from the substrate, re-surfaced here so a host that builds

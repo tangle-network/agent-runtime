@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `runLoop` — the topology-agnostic kernel built atop the sandbox SDK.
  *
@@ -21,6 +20,8 @@
  * emission. The kernel does NOT own: what the agent runs (sandbox SDK +
  * profile), how outputs are decoded (output adapter), how outputs are
  * scored (validator), or topology (driver).
+ *
+ * @experimental
  */
 
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
@@ -134,7 +135,11 @@ export interface RunLoopOptions<Task, Output, Decision> {
   lineage?: LoopLineageOptions
 }
 
-/** @experimental */
+/**
+ * The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sandboxes (bounded concurrency), parses + validates each output, and folds results through `driver.decide`.
+ *
+ * @experimental
+ */
 export async function runLoop<Task, Output, Decision>(
   options: RunLoopOptions<Task, Output, Decision>,
 ): Promise<LoopResult<Task, Output, Decision>> {

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Subprocess wrappers for the local coding-harness CLIs installed in the
  * sandbox image (claude-code, codex, opencode). Used by the in-process
@@ -14,6 +13,8 @@
  *   - capture stdout/stderr
  *   - support cancellation via AbortSignal
  *   - enforce a wall-clock timeout
+ *
+ * @experimental
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'

@@ -361,6 +361,7 @@ function renameStrategy(orig: Strategy, unique: string): Strategy {
   }
 }
 
+/** Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. */
 export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promise<EvolutionReport> {
   const budget = cfg.budget ?? 3
   const concurrency = cfg.concurrency ?? 3
