@@ -59,7 +59,7 @@ interface OtlpExport {
   resourceSpans: OtlpResourceSpans[]
 }
 
-const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.81.0' }
+const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.81.1' }
 
 /**
  * Current (non-deprecated) OpenTelemetry GenAI semantic-convention keys.

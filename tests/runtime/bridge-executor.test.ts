@@ -9,12 +9,14 @@ import { createExecutor, inlineSandboxClient } from '../../src/runtime'
 // `headersTimeout` — unoverridable by any option or AbortSignal — would kill a
 // live-but-slow bridge. Tests drive that transport by setting `bridgeHttpHandler`.
 let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
+let lastBridgeUrl: URL | null = null
 
 vi.mock('node:http', async () => {
   const actual = await vi.importActual<typeof import('node:http')>('node:http')
   return {
     ...actual,
-    request: (_url: unknown, _opts: unknown, cb: (res: Readable) => void) => {
+    request: (url: URL, _opts: unknown, cb: (res: Readable) => void) => {
+      lastBridgeUrl = url
       let body = ''
       return {
         write: (chunk: string) => {
@@ -87,6 +89,7 @@ async function runOnce(
 describe('bridgeExecutor over node:http', () => {
   afterEach(() => {
     bridgeHttpHandler = null
+    lastBridgeUrl = null
   })
 
   it('streams a completion and meters the reported usage', async () => {
@@ -104,6 +107,10 @@ describe('bridgeExecutor over node:http', () => {
     expect(seen[0]?.stream).toBe(true)
     const msgs = seen[0]?.messages as Array<{ role: string; content: string }>
     expect(msgs.some((m) => m.content.includes('compute the return'))).toBe(true)
+    // The bridge base URL is turned into the endpoint EXACTLY once — no doubled
+    // `/v1/chat/completions` from a caller that already built the full path.
+    expect(lastBridgeUrl?.pathname).toBe('/v1/chat/completions')
+    expect(lastBridgeUrl?.host).toBe('bridge.test')
   })
 
   it('a per-create backend override targets the cell model as harness/model', async () => {

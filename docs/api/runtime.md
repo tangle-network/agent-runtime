@@ -13723,7 +13723,7 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 > **ExecutorConfig** = `object` & `RouterSeam` \| `object` & `RouterToolsSeam` \| `object` & `BridgeSeam` \| `object` & `CliSeam` \| `object` & `CliWorktreeSeam` \| `object` & [`ProviderSeam`](#providerseam) \| `object` & `SandboxSeam`
 
-Defined in: [runtime/supervise/runtime.ts:1501](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1501)
+Defined in: [runtime/supervise/runtime.ts:1500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1500)
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
@@ -14203,7 +14203,7 @@ The conserved pool a `delegate()` call applies when the caller does not pass its
 
 > `const` **cliWorktreeExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1465](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1465)
+Defined in: [runtime/supervise/runtime.ts:1464](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1464)
 
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
@@ -16963,7 +16963,7 @@ state between runs), so two runs never cross-contaminate their journals/blobs.
 
 > **createExecutor**(`config`): [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-Defined in: [runtime/supervise/runtime.ts:1518](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1518)
+Defined in: [runtime/supervise/runtime.ts:1517](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1517)
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
@@ -16988,7 +16988,7 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 > **createExecutorRegistry**(): [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/runtime.ts:1564](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1564)
+Defined in: [runtime/supervise/runtime.ts:1563](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/runtime.ts#L1563)
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
