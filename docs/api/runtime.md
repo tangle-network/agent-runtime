@@ -1556,7 +1556,7 @@ Defined in: [runtime/loop-dispatch.ts:50](https://github.com/tangle-network/agen
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
 Defined in: [runtime/loop-dispatch.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L58)
 
@@ -1657,7 +1657,7 @@ Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` 
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
 Defined in: [runtime/loop-dispatch.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L132)
 
@@ -4448,6 +4448,80 @@ Defined in: [runtime/report-usage.ts:26](https://github.com/tangle-network/agent
 ###### Returns
 
 `void`
+
+***
+
+### ResolveSandboxClientOptions
+
+Defined in: [runtime/resolve-sandbox-client.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L26)
+
+#### Properties
+
+##### backend
+
+> **backend**: `"router"` \| `"sandbox"` \| `"bridge"`
+
+Defined in: [runtime/resolve-sandbox-client.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L28)
+
+The execution transport for the driven loop.
+
+##### sandboxClient?
+
+> `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-3)
+
+Defined in: [runtime/resolve-sandbox-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L30)
+
+`sandbox` backend: the caller's real Sandbox-backed client. Required for that backend.
+
+##### bridge?
+
+> `optional` **bridge?**: `object`
+
+Defined in: [runtime/resolve-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L32)
+
+`bridge` backend: local cli-bridge transport. `bearer` + `model` required.
+
+###### url?
+
+> `optional` **url?**: `string`
+
+cli-bridge base URL. Defaults to `http://127.0.0.1:3355`.
+
+###### bearer
+
+> **bearer**: `string`
+
+###### model
+
+> **model**: `string`
+
+Bridge model id, doubling as the harness selector (e.g. `claude-code/sonnet`).
+
+###### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Per-turn deadline (ms).
+
+##### router?
+
+> `optional` **router?**: `object`
+
+Defined in: [runtime/resolve-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L42)
+
+`router` backend: router chat-completion transport. All three fields required.
+
+###### baseUrl
+
+> **baseUrl**: `string`
+
+###### key
+
+> **key**: `string`
+
+###### model
+
+> **model**: `string`
 
 ***
 
@@ -12503,7 +12577,7 @@ Defined in: [runtime/types.ts:556](https://github.com/tangle-network/agent-runti
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-3)
 
 Defined in: [runtime/types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L558)
 
@@ -14580,7 +14654,7 @@ Defined in: [runtime/harvest-corpus.ts:62](https://github.com/tangle-network/age
 
 ### inProcessSandboxClient()
 
-> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-2)
+> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-3)
 
 Defined in: [runtime/in-process-sandbox-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L98)
 
@@ -14599,13 +14673,13 @@ this function, so call sites stay cast-free.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 ***
 
 ### inlineSandboxClient()
 
-> **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-2)
+> **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-3)
 
 Defined in: [runtime/inline-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/inline-sandbox-client.ts#L44)
 
@@ -14621,7 +14695,7 @@ run once on the prompt, emit the terminal result event, tear down.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 ***
 
@@ -15462,6 +15536,28 @@ defaults to `'loop'`.
 
 ***
 
+### resolveSandboxClient()
+
+> **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-3)
+
+Defined in: [runtime/resolve-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L54)
+
+Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core
+that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
+`createExecutor`/`inlineSandboxClient` branch in each product.
+
+#### Parameters
+
+##### opts
+
+[`ResolveSandboxClientOptions`](#resolvesandboxclientoptions)
+
+#### Returns
+
+[`SandboxClient`](#sandboxclient-3)
+
+***
+
 ### routerChatWithUsage()
 
 > **routerChatWithUsage**(`cfg`, `messages`, `opts?`): `Promise`\<[`RouterChatResult`](#routerchatresult)\>
@@ -15778,7 +15874,7 @@ Defined in: [runtime/sandbox-acquire.ts:68](https://github.com/tangle-network/ag
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 ##### options
 
@@ -15811,7 +15907,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 #### Returns
 
@@ -15956,7 +16052,7 @@ and the lineage stays a pure function of "what this platform can do".
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 ##### capabilities
 
@@ -16008,7 +16104,7 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-2)
+[`SandboxClient`](#sandboxclient-3)
 
 ##### options
 

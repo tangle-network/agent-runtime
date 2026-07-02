@@ -250,6 +250,11 @@ export {
   promotionGate,
 } from './promotion-gate'
 export { reportLoopUsage, type UsageSink } from './report-usage'
+// The product-facing backend selector: one call picks sandbox/bridge/router transport.
+export {
+  type ResolveSandboxClientOptions,
+  resolveSandboxClient,
+} from './resolve-sandbox-client'
 // The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
 // with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
 // router's tool-calling as the canonical `ToolLoopChat` seam a `driverAgent` drives

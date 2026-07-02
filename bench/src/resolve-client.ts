@@ -19,7 +19,12 @@
  * Centralizing it here means a new entrypoint gets the full off-box/in-box matrix for free and
  * the mapping can't drift between callers.
  */
-import { createExecutor, inlineSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/loops'
+import {
+  createExecutor,
+  inlineSandboxClient,
+  resolveSandboxClient,
+  type SandboxClient,
+} from '@tangle-network/agent-runtime/loops'
 import { Sandbox } from '@tangle-network/sandbox'
 import { makeSearchExecutor, webSearchTool } from './search-tool'
 
@@ -59,17 +64,14 @@ export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClie
     return inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
   }
   if (backend === 'bridge') {
+    // bench's bearer fallback (`?? routerKey`) resolves first, then the shared
+    // resolver core wires the bridge seam — no re-implemented createExecutor branch.
     const bridgeBearer = opts.bridgeBearer ?? routerKey
     if (!bridgeBearer) throw new Error("resolveBenchClient: backend 'bridge' needs bridgeBearer or routerKey")
-    return inlineSandboxClient(
-      createExecutor({
-        backend: 'bridge',
-        bridgeUrl: opts.bridgeUrl ?? 'http://127.0.0.1:3355',
-        bridgeBearer,
-        model,
-        timeoutMs: opts.timeoutMs,
-      }),
-    )
+    return resolveSandboxClient({
+      backend: 'bridge',
+      bridge: { url: opts.bridgeUrl, bearer: bridgeBearer, model, timeoutMs: opts.timeoutMs },
+    })
   }
   return new Sandbox({
     baseUrl: opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
