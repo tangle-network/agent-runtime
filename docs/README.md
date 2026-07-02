@@ -9,9 +9,9 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 3. [canonical-api.md](./canonical-api.md) — find the right primitive: "I want to ___ → use ___".
 4. [../examples/](../examples) — copy a runnable example near your task.
 
-**Building something specific?** Go straight to [canonical-api.md](./canonical-api.md) and the matching example. **Going deep on the design?** The Architecture track below — on any architecture conflict, [`architecture.md`](./architecture.md) wins.
+**Building something specific?** Go straight to [canonical-api.md](./canonical-api.md) and the matching example — that's all you need to *use* the package. The tracks below are for **understanding or extending the internals** (design, RSI research, benchmark harness); skip them if you're just building.
 
-## Architecture track
+## Architecture & research track — *not required to use the package*
 
 | # | Doc | Role | Purpose |
 |---|---|---|---|

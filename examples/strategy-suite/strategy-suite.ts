@@ -168,6 +168,14 @@ async function main(): Promise<void> {
     ...(routerKey ? {} : { complete: offlineComplete }),
   }
   console.log(routerKey ? 'worker: live Tangle router\n' : 'worker: offline (injected transport)\n')
+  if (!routerKey) {
+    console.log(
+      'NOTE: the offline transport solves the counter on the first shot, so all three strategies\n' +
+        'tie at 100% by construction — this run proves the WIRING (equal budget, own-check scoring),\n' +
+        'not that the strategies differ. Set TANGLE_API_KEY to see sample vs refine vs doubleCheck\n' +
+        'separate on a task where iterate-with-critique actually beats best-of-N.\n',
+    )
+  }
 
   printBenchmarkReport(
     await runBenchmark({
