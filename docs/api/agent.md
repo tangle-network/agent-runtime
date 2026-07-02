@@ -1191,7 +1191,7 @@ Canonical agent profile — the same one the prod chat turn uses.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-2)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
 Defined in: [agent/sandbox-act.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L51)
 

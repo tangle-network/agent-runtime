@@ -1514,7 +1514,7 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 
 ### createInProcessUiAuditClient()
 
-> **createInProcessUiAuditClient**(`options`): [`SandboxClient`](runtime.md#sandboxclient-2) & `object`
+> **createInProcessUiAuditClient**(`options`): [`SandboxClient`](runtime.md#sandboxclient-3) & `object`
 
 Defined in: [profiles/ui-auditor/in-process-client.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L189)
 
