@@ -44,14 +44,21 @@ async function settle(
 export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxClient {
   let seq = 0
   return {
-    async create(_options?: CreateSandboxOptions): Promise<SandboxInstance> {
+    async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const id = `inline-${seq++}`
+      // The `create(options)` backend override is threaded to the factory through
+      // the `ExecutorContext.seams` channel (the designed opaque-seam extension
+      // point), so a BYO executor that varies per-cell — e.g. the cli-bridge
+      // executor reading its harness/model off `backend.type`/`backend.model.model`
+      // — sees the same per-create config a real sandbox executor gets, without a
+      // second client per cell.
+      const createOptions = options
       return {
         id,
         async *streamPrompt(message: string): AsyncGenerator<SandboxEvent> {
           const controller = new AbortController()
           const spec: AgentSpec = { profile: { name: id }, harness: null }
-          const exec = factory(spec, { signal: controller.signal, seams: {} })
+          const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
           try {
             const artifact = await settle(exec, message, controller.signal)
             const out = artifact.out as { content?: string } | undefined
