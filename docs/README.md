@@ -33,7 +33,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability for resumable conversations + supervisor trees. |
-| [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | The Intelligence SDK reference — the `/intelligence` subpath (observe, effort tiers, certified delivery). |
+| [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | Observe + OFF billing floor + effort tiers + certified delivery + capability resolver — the `/intelligence` subpath. Designed-not-shipped verbs fenced at the tail. |
 | [BUILDING.md](./BUILDING.md) | process | Building discipline: goal first, cheapest decisive proof, verification rules. |
 | [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes. |
 | [MAINTAINING.md](./MAINTAINING.md) | process | How the generated API reference + the docs-freshness gate stay honest. |

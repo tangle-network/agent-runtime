@@ -528,7 +528,7 @@ const conceptWhitelist = new Set([
 ])
 const proseResolvable = new Set([...sourceUniverse, ...substrateUniverse, ...conceptWhitelist])
 
-const curatedDocs = ['canonical-api.md', 'concepts.md', 'architecture.md']
+const curatedDocs = ['canonical-api.md', 'concepts.md', 'architecture.md', 'intelligence-sdk.md']
 for (const docName of curatedDocs) {
   const p = join(repoRoot, 'docs', docName)
   if (!existsSync(p)) continue
