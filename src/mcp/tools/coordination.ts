@@ -135,6 +135,15 @@ export interface CoordinationTools {
    *  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
    *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
+  /**
+   * Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
+   * as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
+   * calls this once its brain loop ends, so a delivered child the brain never awaited still
+   * reaches `finalizeBestDelivered` — a gate-verified delivery must never be lost to the
+   * driver's pull discipline. Analyst-on-settle hooks do NOT fire here (the driver has stopped;
+   * nobody is left to read a finding, and analysts spend real compute). Returns the count.
+   */
+  drainResolved(): Promise<number>
 }
 
 /** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
@@ -260,6 +269,20 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       }
     }
     return true
+  }
+
+  // Post-loop drain: every ALREADY-settled, unpulled child enters the ledger + audit trail. No
+  // analyst-on-settle here — the driver has stopped, so a finding has no reader and an analyst
+  // spawn would spend real compute for nothing.
+  const drainResolved = async (): Promise<number> => {
+    let drained = 0
+    for (;;) {
+      const s = await opts.scope.nextResolved()
+      if (!s) return drained
+      const w = recordSettled(s)
+      await bus.publish({ type: 'settled', worker: w })
+      drained += 1
+    }
   }
 
   // The down-leg: record a parent→child message on the bus for the audit trail (history +
@@ -694,5 +717,6 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     stopReason: () => reason,
     settled: () => ledger,
     questions: () => questions,
+    drainResolved,
   }
 }

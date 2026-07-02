@@ -103,6 +103,10 @@ interface LiveChild {
   readonly settled: Promise<PreSeqSettled>
   /** Synchronous mirror of `settled`'s value once it has resolved (else `undefined`). */
   resolved?: PreSeqSettled
+  /** True once the EXECUTOR's own work is finished (artifact read or throw caught) — from then
+   *  on `settled` resolves without further executor progress (only persistence/teardown), so a
+   *  non-blocking drain may await it without waiting on live work. */
+  executorDone: boolean
   /** True once `next()` has yielded this child's settlement. */
   delivered: boolean
   /** The executor's out-of-band inbox, captured at spawn — backs `scope.send`. */
@@ -277,6 +281,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         spent: zeroSpend(),
         settled: undefined as unknown as Promise<PreSeqSettled>,
         delivered: false,
+        executorDone: false,
         ...(executor.deliver ? { deliver: executor.deliver.bind(executor) } : {}),
       }
       children.set(id, live)
@@ -368,6 +373,23 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
+  async function nextResolved(): Promise<Settled<Out> | null> {
+    // Same exactly-once delivery as `next()`, but never awaits a RUNNING executor. A child
+    // whose executor has finished (`executorDone`) may still be mid-persistence — awaiting its
+    // `settled` promise there completes in bounded bookkeeping time, never on live work.
+    for (;;) {
+      const candidates = [...children.values()].filter((c) => !c.delivered)
+      const pick =
+        candidates.find((c) => c.resolved !== undefined) ?? candidates.find((c) => c.executorDone)
+      if (!pick) return null
+      const settlement = await pick.settled
+      if (pick.delivered) continue // lost the race with a concurrent cursor — pick again
+      pick.delivered = true
+      const seq = cursorSeq++
+      return finalizeSettlement<Out>(pick, settlement, seq, args, now)
+    }
+  }
+
   function send(nodeId: NodeId, msg: unknown): boolean {
     const child = children.get(nodeId)
     // Deliver only to a child that is still LIVE (not yet yielded by the cursor) and whose executor
@@ -413,6 +435,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   return {
     spawn,
     next,
+    nextResolved,
     send,
     signal: args.signal,
     meter,
@@ -597,6 +620,9 @@ async function runChild<C>(
       artifact = terminal
       reconcileOnce(terminal.spent)
     }
+    // Executor work is complete; everything below is persistence/teardown. From here `settled`
+    // resolves without further executor progress — the non-blocking drain keys on this.
+    live.executorDone = true
 
     // A driver child's OWN-inference subtree total — re-homed by the parent on EVERY settle exit
     // (done, aborted, crash) so the journal always matches what the pool already debited.
@@ -625,6 +651,9 @@ async function runChild<C>(
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
   } catch (err) {
+    // A thrown executor has also finished its own work — only the down-record persistence
+    // remains, so the non-blocking drain may await this child too.
+    live.executorDone = true
     // Reconcile the (likely partial) spend so the reservation is refunded even on a throw.
     reconcileOnce(live.spent)
     await teardownSafe(executor, 'brutalKill')

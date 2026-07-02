@@ -176,6 +176,90 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     expect(root_tree.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
   })
 
+  it('a delivered child the brain never awaited still wins (post-loop drain feeds finalize)', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+
+    const worker = workerLeaf('w', {
+      out: { answer: 42 },
+      tokens: { input: 10, output: 5 },
+      iterations: 1,
+      score: 0.9,
+    })
+    const makeAgent = (_p: unknown): Agent<unknown, unknown> => worker
+
+    // Scripted driver LLM: spawns a worker then STOPS — it never calls await_event, the exact
+    // pull-discipline failure a live LLM brain exhibits. The worker still delivers; losing it
+    // to an empty ledger was the bug.
+    const chat = scriptedBrain([
+      {
+        toolCalls: [
+          { name: 'spawn_agent', arguments: { profile: { kind: 'worker' }, task: 'go' } },
+        ],
+      },
+      { content: 'spawned; stopping without awaiting' },
+    ])
+
+    const root = driverAgent(driverOpts('root', chat, makeAgent))
+    const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-unawaited',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+  })
+
+  it('one delivered child wins even when siblings the brain spawned went down (drain skips the failures)', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+
+    const good = workerLeaf('good', {
+      out: { answer: 'READY' },
+      tokens: { input: 8, output: 4 },
+      iterations: 1,
+      score: 1,
+    })
+    // Alternate good/failing on each spawn_agent dispatch — the brain fans out three workers,
+    // two of which crash (down), and stops without awaiting any of them.
+    let spawn = 0
+    const makeAgent = (_p: unknown): Agent<unknown, unknown> =>
+      spawn++ === 0 ? good : hangingWorkerLeaf(`bad-${spawn}`)
+
+    const chat = scriptedBrain([
+      {
+        toolCalls: [
+          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
+          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
+        ],
+      },
+      // Await once so the two hanging workers are torn down at run end, but the brain stops
+      // before pulling the good one — the drain must still surface it.
+      { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+      { content: 'stopping' },
+    ])
+
+    const root = driverAgent({ ...driverOpts('root', chat, makeAgent), maxTurns: 4 })
+    const result = await createSupervisor<unknown, unknown>().run(root, 'solve it', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'cd-mixed',
+      journal,
+      blobs: SHARED_BLOBS,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 'READY' })
+  })
+
   it('a driver AGENT spawns a driver AGENT spawns a worker (the brain composes with 2a recursion)', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()

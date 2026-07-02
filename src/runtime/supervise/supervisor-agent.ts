@@ -162,6 +162,9 @@ export function supervisorAgent(
       })
       try {
         await driveHarness({ profile, task, scope, coordinationMcpUrl: mcp.url })
+        // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
+        // awaited must still reach the finalize ledger.
+        await mcp.drainResolved()
         // The deliverable is the best DELIVERED child, never the harness's own output (Foreman 0/18).
         return await finalizeBestDelivered(mcp.settled(), deps.blobs)
       } finally {
