@@ -33,27 +33,44 @@ async function main(): Promise<void> {
     {
       name: 'supervisor',
       harness: null, // router brain (the supervisor reasons spawn/await/stop over the router's tool-calling)
+      // This demo overrides the shipped `defaultSupervisorPrompt` on purpose: the default tells a
+      // supervisor to do SMALL work itself, but this supervisor has no work tools and the completion
+      // oracle only credits a DELIVERED child — so we force the delegation path the example teaches.
+      // Real supervisors with work tools want the default (do-small-work-yourself / spawn-when-large).
       systemPrompt:
-        'You are a supervisor. Spawn a worker with spawn_agent to produce the required output, ' +
-        'await it with await_event, and stop once a worker delivered. Do not answer the task yourself.',
+        'You are a supervisor. Produce the deliverable by delegating:\n' +
+        '1. Call spawn_agent with a worker profile and the task.\n' +
+        '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +
+        'worker is still running, or its result is lost.\n' +
+        '3. Once a worker has delivered, call stop.\n' +
+        "Do not answer the task yourself — only a spawned worker's output counts as delivered.",
     },
     'Produce the exact line: READY',
     {
       budget: { maxIterations: 50, maxTokens: 500_000, maxUsd: 0.5 },
       router: { routerBaseUrl, routerKey, model }, // the supervisor's own brain
       backend, // where the workers run
-      // The completion oracle: "delivered" means a real check passed against the worker's
-      // output, not the supervisor's say-so. Always pass one in production.
+      // The completion oracle: "delivered" means a real check passed against the worker's OUTPUT,
+      // not the supervisor's say-so. A `router-tools` worker settles `{ content: string }`, so read
+      // the field — `String(out)` would stringify the wrapper to `[object Object]` and never match.
       deliverable: {
-        // `check` receives the backend-typed output — router-tools settles { content: string },
-        // a coding backend settles a patch artifact. Read the field, don't String() the object.
         check: (out) => String((out as { content?: unknown })?.content ?? out).includes('READY'),
         describe: 'output is READY',
       },
     },
   )
 
-  console.log(result.kind === 'winner' ? '[OK] delivered' : `[--] no winner (${result.kind})`)
+  // Report the real outcome: the delivered output on a win, or the typed reason + spend on a
+  // no-winner, so a failure explains itself instead of printing a bare "no winner".
+  if (result.kind === 'winner') {
+    console.log(`[OK] delivered: ${JSON.stringify(result.out)}`)
+  } else {
+    const { tokens } = result.spentTotal
+    console.log(
+      `[--] no winner (${result.reason}) — ${result.downCount} child(ren) down, ` +
+        `spent ${tokens.input + tokens.output} tokens / $${result.spentTotal.usd.toFixed(4)}`,
+    )
+  }
 }
 
 main().catch((err) => {
