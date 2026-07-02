@@ -21,8 +21,8 @@ capture-integrity, or eval/prod parity).
 
 ## Load order — point at source, never freeze snippets
 
-This skill carries **no API snippets**. The barrel MOVES (`./loops` is a
-back-compat alias of `./runtime`), the agent-eval pin drifts, and signatures get
+This skill carries **no API snippets**. The barrel MOVES (`./loops` is the
+runtime barrel), the agent-eval pin drifts, and signatures get
 corrected in place. Freezing a snippet here guarantees rot. Instead, read, in
 order, and re-verify against source:
 
@@ -32,9 +32,8 @@ order, and re-verify against source:
    two-substrate map. Every signature there was read from source.
 2. **`grep` the export barrel** — `grep -nE 'export (function|const|type)' src/runtime/index.ts`
    (and `src/agent/index.ts`, `src/improvement/index.ts`, `src/mcp/index.ts`,
-   `src/intelligence/index.ts`) for the live names + subpaths. `./loops` and
-   `./runtime` resolve to the SAME barrel (`package.json` maps both to
-   `src/runtime/index.ts`).
+   `src/intelligence/index.ts`) for the live names + subpaths. `./loops` is the
+   runtime barrel (`package.json` maps it to `src/runtime/index.ts`).
 3. **`bench/HARNESS.md`** — the experiment-harness map: commands, the
    `rollout → corpus → selector → CI → gate` flow, and the `ADAPTERS` registry
    (a harness-local export, `bench/src/adapters.ts`, not a package export).
@@ -54,8 +53,8 @@ profile and letting the substrate materialize it into harness shapes —
 self-verification, iteration, and audit are profile levers (hooks/skills/
 subagents), never glue code.
 
-`AgentProfile` is now owned by `@tangle-network/agent-interface` (the `/runtime`
-barrel still re-exports the sandbox alias for back-compat), which also owns
+`AgentProfile` is owned by `@tangle-network/agent-interface` (the `/loops`
+barrel re-exports the sandbox alias as a one-stop import), which also owns
 `HarnessType` + `ReasoningEffort` and a capability layer
 (`harnessSupportsModel` / `reasoningEffortsFor`) — so harness/model/reasoning
 compatibility is a queryable contract, not an assumption.
@@ -70,29 +69,32 @@ don't hand-declare a harness list — expand one base profile across
 
 | Altitude — I want to… | Use | Source |
 |---|---|---|
-| **Define a genome** (who the agent is + what it can do, ONE surface) | `AgentProfile` (runnable) / `AgentSurfaces` (the editable-coordinate map) — `/runtime`, `/agent` | canonical-api §3.2 |
-| **Define the personified-run record** (model+prompt+tools+role+seams) | `definePersona(input)` — `/runtime` | canonical-api §3.1 |
-| **Run a genome driver⟷worker, end-to-end** | `runPersonified({ persona, shape, task, budget })` — `/runtime` | canonical-api §3.1 |
-| **Loop a worker over one evolving artifact, K rounds, stop-when-good** | `loopUntil(seed, spec)` as the `shape` — `/runtime` | canonical-api §3.1 |
-| **Best-of-N / parallel-research at equal compute** | `fanout(items, opts)` — `/runtime` | canonical-api §3.1 |
-| **Produce-then-gate / multi-judge quorum / fixed chain** | `verify` / `panel` / `pipeline` — `/runtime` | canonical-api §3.1 |
+| **Define a genome** (who the agent is + what it can do, ONE surface) | `AgentProfile` (runnable) / `AgentSurfaces` (the editable-coordinate map) — `/loops`, `/agent` | canonical-api §3.2 |
+| **Define the personified-run record** (model+prompt+tools+role+seams) | `definePersona(input)` — `/loops` | canonical-api §3.1 |
+| **Run a genome driver⟷worker, end-to-end** | `runPersonified({ persona, shape, task, budget })` — `/loops` | canonical-api §3.1 |
+| **Loop a worker over one evolving artifact, K rounds, stop-when-good** | `loopUntil(seed, spec)` as the `shape` — `/loops` | canonical-api §3.1 |
+| **Best-of-N / parallel-research at equal compute** | `fanout(items, opts)` — `/loops` | canonical-api §3.1 |
+| **Produce-then-gate / multi-judge quorum / fixed chain** | `verify` / `panel` / `pipeline` — `/loops` | canonical-api §3.1 |
 | **Run depth-vs-breadth (or a custom strategy) over a stateful tool domain** | `runAgentic({ surface, task, mode\|strategy, budget })` — `/loops` | canonical-api §3.3 |
 | **Author a new topology/strategy compactly** | `defineStrategy(name, body)` w/ `ctx.shot()`+`ctx.critique()` — `/loops` | canonical-api §3.3 |
 | **Add a stateful tool-using domain** | implement `AgenticSurface` (5 hooks) — `/loops` | canonical-api §3.3 |
+| **Drive a team of agents over a graded `AgenticSurface` task** (workers settle on its check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })` — `/loops` | canonical-api §2 |
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
+| **Benchmark report: multi-profile × multi-axis leaderboard** (ranked board + score matrix + SVG/HTML charts, any `RunRecord[]`) | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml` — `/loops` | canonical-api §2 |
+| **Meter one `openSandboxRun` cell's token/cost usage** | `sumSandboxUsage(events)` — `/loops` | canonical-api §2 |
 | **Sweep harness × model as an eval axis** (turn one base profile into the full harness × model set) | `expandProfileAxes({ base, harnesses, models })` over `CODING_HARNESSES` → `runProfileMatrix(...)`, pivot with `groupRunsByAgentProfileCell` — `agent-eval` root — NOT a hand-declared `HARNESSES` list | agent-eval root (verify vs source) |
 | **Benchmark: add/run an external benchmark from the harness** | `ADAPTERS`/`resolveAdapter(key)` + a bench gate (`*-gate.mts`) over `openSandboxRun` + `sandboxAgentRun` (`bench/src/sandbox-run.ts`) | canonical-api §3.3 |
-| **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/runtime` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
-| **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/runtime` | canonical-api §3.1 |
-| **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — `/improvement` | canonical-api §3.4 |
+| **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/loops` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
+| **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/loops` | canonical-api §3.1 |
+| **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — root `.` | canonical-api §3.4 |
 | **Optimize a PROMPT/config surface** (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | canonical-api §3.4 |
 | **Gate: ship/hold a candidate** (campaign ctx) | `defaultProductionGate` / `heldOutGate` / `composeGate` — `agent-eval/contract` | canonical-api §3.4 |
-| **Gate: ship/hold from a `BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/runtime` | canonical-api §3.4 |
-| **Run the full multi-generation flywheel + certify** | `runStrategyEvolution(config)` — `/runtime` | canonical-api §3.4 |
-| **Compose the prod sandbox profile** (eval/prod parity) | `composeProductionAgentProfile(base, opts)` — `/mcp` | canonical-api §3.2 |
-| **Observe a run** (cost/time waterfall, live tree, OTLP) | `createWaterfallCollector` / `createOtelExporter` via `composeRuntimeHooks(...)` — root; `createTopologyView` / `renderTopologyTree` — `/topology` | canonical-api §3.5 |
+| **Gate: ship/hold from a `BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/loops` | canonical-api §3.4 |
+| **Run the full multi-generation flywheel + certify** | `runStrategyEvolution(config)` — `/loops` | canonical-api §3.4 |
+| **Observe a run** (cost/time waterfall, OTLP) | `createWaterfallCollector()` — `/loops`; `createOtelExporter` attached via `composeRuntimeHooks(...)` — root `.` | canonical-api §2 |
 | **State any A/B claim** | `pairedLift` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | canonical-api §3.5 |
-| **Observe/ship with billing-boundary** | `withTangleIntelligence(agent, { project, effort })` — `/intelligence` | canonical-api §7 (now live on main — verify) |
+| **Observe/ship with billing-boundary** | `withTangleIntelligence(agent, { project, effort })` — `/intelligence` | canonical-api §2 |
+| **Pull the certified profile from the Intelligence plane** (pull-by-default delivery: fold the gate-certified prompt onto the base surface) | `pullCertified` / `withCertifiedDelivery` / `composeCertifiedPrompt` — `/intelligence` | `src/intelligence/delivery.ts` |
 
 ## Do-NOT-reinvent — the traps this skill exists to stop
 
@@ -161,8 +163,21 @@ One line wraps any agent with trace + billing boundary:
 off|eco|standard|thorough|max` (`'off'` is the provable passthrough floor —
 intelligence spend clamped to 0). It builds on `createOtelExporter` +
 `loopEventToOtelSpan` — don't hand-roll a trace-wrapper or effort/tier config.
-Verify the live subpath against `src/intelligence/index.ts` (canonical-api §7's
-"branch-only" note is stale — it landed on main).
+Verify the live subpath against `src/intelligence/index.ts`.
+
+Two operational facts every consumer must know:
+
+- **Export is a silent no-op without an endpoint.** The export leg only ships
+  when `INTELLIGENCE_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_ENDPOINT`) is set —
+  e.g. `https://intelligence.tangle.tools/v1/otlp`; absent, spans are dropped
+  best-effort with no error. The client's `doctor().exportConfigured` is the
+  check that export will actually ship.
+- **Delivery pulls the certified profile from the plane.** `pullCertified` /
+  `withCertifiedDelivery` hit
+  `GET {TANGLE_INTELLIGENCE_URL|https://intelligence.tangle.tools}/v1/profiles/:target/composed`
+  with `Bearer TANGLE_API_KEY`; `withCertifiedDelivery` folds the certified
+  prompt onto the base surface, refreshes at most every 5 minutes, and is
+  fail-closed — a failed pull runs the agent on its base surface.
 
 ## Final check
 

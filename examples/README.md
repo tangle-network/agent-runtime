@@ -91,14 +91,14 @@ purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver tha
 | 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | You want to wrap any agent with `withTangleIntelligence` and ship one trace per call (best-effort; off = passthrough). |
 | 20b | [`intelligence-webcode/`](./intelligence-webcode/) | You want the full Intelligence SDK (billing boundary + effort tiers, per-tool cost waterfall, OTLP export) on **every cell of a real benchmark** — the WebCode harness×model matrix, instrumented. Needs a sandbox key. |
 | 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | You want proof that any framework's traces converge on one OTel contract → one `InsightReport` (the CI-tested example). |
-| 22 | [`product-eval/`](./product-eval/) | You want user-sim product evals: a persona over a multi-round conversation via `runPersonaConversation`, then score the transcript (`maxTurns` is a ceiling, not a target). Needs `TANGLE_API_KEY`; offline via a `backendFor` override. |
+| 22 | [`product-eval/`](./product-eval/) | You want user-sim product evals: a persona over a multi-round conversation via `runPersonaConversation`, then score the transcript (`maxTurns` is a ceiling, not a target). Needs `TANGLE_API_KEY` (the engine takes a `backendFor` override, but this example wires the live router). |
 | 23 | [`agentic-data-creation/`](./agentic-data-creation/) | You want the **Autodata inner loop**: an agent manufactures HARD training examples from a doc and keeps only the ones that DISCRIMINATE a strong solver from a weak one. Composes the fold (`runLoop`+refine driver), N× sampling (`runLoop`+fanout driver), `llmJudge`, `CostLedger`, and `Corpus`; the one new piece is `discriminativeAcceptRule`. Shows the calibration (plain gap ≈ 0.02 vs agentic ≈ 0.31). Offline. |
 
 ## Conventions
 
 - Examples are synthetic unless noted. `strategy-evolution`, `product-eval`, `supervise`, and
-  `delegate` need `TANGLE_API_KEY` (`strategy-suite` and `product-eval` also run offline — the
-  former on an in-process mock router, the latter via a `backendFor` override); `stream-backends`'
+  `delegate` need `TANGLE_API_KEY` (`strategy-suite` also runs offline on an in-process mock
+  router); `stream-backends`'
   OpenAI section needs `OPENAI_API_KEY` (the rest runs offline); `mcp-delegation` needs `pnpm build` first so the local
   MCP bin exists; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
   Everything else runs fully offline.
