@@ -28,7 +28,17 @@ export interface RouterConfig {
 }
 
 export interface RouterChatResult {
+  /** The final answer, with any inline `<think>...</think>` block stripped into `reasoning`. */
   content: string
+  /**
+   * Thinking-model reasoning, when the provider surfaced it — either as a separate
+   * `reasoning`/`reasoning_content` message field (OpenRouter style) or inlined into
+   * `content` as a `<think>` block (Groq style). Undefined for non-thinking models.
+   * Downstream parsers that match single-token answers must read `content`, which is
+   * clean either way; before this split, Groq-style inlining made the same model look
+   * broken on one provider and fine on another.
+   */
+  reasoning?: string
   /** REAL usage, or undefined when the provider reported none. */
   usage?: { input: number; output: number }
   /** Derived from usage via `estimateCost` when the model is priced; else undefined. */
@@ -38,7 +48,20 @@ export interface RouterChatResult {
 export async function routerChatWithUsage(
   cfg: RouterConfig,
   messages: Array<{ role: string; content: string }>,
-  opts?: { temperature?: number; signal?: AbortSignal; maxTokens?: number },
+  opts?: {
+    temperature?: number
+    signal?: AbortSignal
+    maxTokens?: number
+    /**
+     * Reasoning control for thinking models, forwarded as `reasoning_effort`.
+     * 'none' is the load-bearing value: binary/single-token decisions (routing,
+     * gating) on a thinking model otherwise burn the whole token budget inside
+     * the think block — on slow backends (CPU-local) that turns into a client
+     * timeout, not just waste. Providers that ignore the field are handled by
+     * the reasoning/content split in `parseChatResult`.
+     */
+    reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
+  },
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
   const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
@@ -50,6 +73,7 @@ export async function routerChatWithUsage(
     messages,
     temperature,
     max_tokens: opts?.maxTokens ?? 8192,
+    ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   })
   // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
   // determinism, so the fetch-specific transient-retry/temperature-handling below does not apply.
@@ -88,7 +112,9 @@ export async function routerChatWithUsage(
 
 function parseChatResult(json: unknown, model: string): RouterChatResult {
   const data = json as {
-    choices?: Array<{ message?: { content?: string } }>
+    choices?: Array<{
+      message?: { content?: string; reasoning?: string; reasoning_content?: string }
+    }>
     usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
   const u = data.usage
@@ -98,11 +124,42 @@ function parseChatResult(json: unknown, model: string): RouterChatResult {
       : undefined
   const costUsd =
     usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
+  const msg = data.choices?.[0]?.message
+  const { content, reasoning } = splitReasoning(
+    msg?.content ?? '',
+    msg?.reasoning ?? msg?.reasoning_content,
+  )
   return {
-    content: data.choices?.[0]?.message?.content ?? '',
+    content,
+    ...(reasoning ? { reasoning } : {}),
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
   }
+}
+
+/**
+ * Normalize the two ways providers surface thinking-model reasoning into one shape:
+ * a separate field (OpenRouter: `reasoning`, DeepSeek/Kimi: `reasoning_content`) or a
+ * `<think>...</think>` block inlined at the head of `content` (Groq, some local runtimes).
+ * An UNCLOSED `<think>` (the model hit max_tokens mid-thought) yields empty content and
+ * everything as reasoning — which is honest: no final answer was emitted.
+ */
+function splitReasoning(
+  rawContent: string,
+  fieldReasoning: string | undefined,
+): { content: string; reasoning?: string } {
+  const open = rawContent.indexOf('<think>')
+  if (open !== -1) {
+    const close = rawContent.indexOf('</think>', open)
+    const inline = close !== -1 ? rawContent.slice(open + 7, close) : rawContent.slice(open + 7)
+    const rest =
+      close !== -1
+        ? rawContent.slice(0, open) + rawContent.slice(close + 8)
+        : rawContent.slice(0, open)
+    const reasoning = [fieldReasoning, inline.trim()].filter(Boolean).join('\n')
+    return { content: rest.trim(), ...(reasoning ? { reasoning } : {}) }
+  }
+  return { content: rawContent, ...(fieldReasoning ? { reasoning: fieldReasoning } : {}) }
 }
 
 /** A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest). */
