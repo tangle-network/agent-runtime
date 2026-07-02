@@ -87,3 +87,82 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(fetchSpy).toHaveBeenCalledOnce()
   })
 })
+
+describe('reasoning-aware parsing and reasoning_effort forwarding', () => {
+  const cfg = (complete: (body: Record<string, unknown>) => Promise<unknown>) => ({
+    routerBaseUrl: 'http://router.test/v1',
+    routerKey: 'k',
+    model: 'qwen/qwen3-32b',
+    complete,
+  })
+
+  it('forwards reasoningEffort as reasoning_effort, omits it when unset', async () => {
+    const seen: Record<string, unknown>[] = []
+    const complete = async (body: Record<string, unknown>) => {
+      seen.push(body)
+      return { choices: [{ message: { content: 'ABSTAIN' } }] }
+    }
+    await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }], {
+      reasoningEffort: 'none',
+    })
+    await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }])
+    expect(seen[0]?.reasoning_effort).toBe('none')
+    expect('reasoning_effort' in (seen[1] ?? {})).toBe(false)
+  })
+
+  it('splits OpenRouter-style separate reasoning field from content', async () => {
+    const complete = async () => ({
+      choices: [{ message: { content: 'ABSTAIN', reasoning: 'taskFamilyMatches is false...' } }],
+    })
+    const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }])
+    expect(res.content).toBe('ABSTAIN')
+    expect(res.reasoning).toBe('taskFamilyMatches is false...')
+  })
+
+  it('strips Groq-style inline <think> block out of content into reasoning', async () => {
+    // Before the split, a single-token parser reading content saw the reasoning prose
+    // (which quotes both option tokens) and misread the decision — the same model
+    // looked broken on Groq and fine on OpenRouter.
+    const complete = async () => ({
+      choices: [
+        {
+          message: {
+            content:
+              '<think>\nShould I EXECUTE_AUDIT? taskFamilyMatches is false, so no.\n</think>\n\nABSTAIN',
+          },
+        },
+      ],
+    })
+    const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }])
+    expect(res.content).toBe('ABSTAIN')
+    expect(res.reasoning).toContain('taskFamilyMatches is false')
+  })
+
+  it('unclosed <think> (budget exhausted mid-thought) yields empty content, all reasoning', async () => {
+    const complete = async () => ({
+      choices: [{ message: { content: '<think>\nstill thinking about the features' } }],
+    })
+    const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }])
+    expect(res.content).toBe('')
+    expect(res.reasoning).toContain('still thinking')
+  })
+
+  it('reasoning_content (DeepSeek/Kimi field name) is honored', async () => {
+    const complete = async () => ({
+      choices: [{ message: { content: 'EXECUTE_AUDIT', reasoning_content: 'all four true' } }],
+    })
+    const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'route' }])
+    expect(res.content).toBe('EXECUTE_AUDIT')
+    expect(res.reasoning).toBe('all four true')
+  })
+
+  it('non-thinking responses are unchanged (no reasoning key)', async () => {
+    const complete = async () => ({
+      choices: [{ message: { content: 'pong' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    })
+    const res = await routerChatWithUsage(cfg(complete), [{ role: 'user', content: 'hi' }])
+    expect(res.content).toBe('pong')
+    expect('reasoning' in res).toBe(false)
+  })
+})
