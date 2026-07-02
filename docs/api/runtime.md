@@ -4453,7 +4453,7 @@ Defined in: [runtime/report-usage.ts:26](https://github.com/tangle-network/agent
 
 ### ResolveSandboxClientOptions
 
-Defined in: runtime/resolve-sandbox-client.ts:25
+Defined in: [runtime/resolve-sandbox-client.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L26)
 
 #### Properties
 
@@ -4461,7 +4461,7 @@ Defined in: runtime/resolve-sandbox-client.ts:25
 
 > **backend**: `"router"` \| `"sandbox"` \| `"bridge"`
 
-Defined in: runtime/resolve-sandbox-client.ts:27
+Defined in: [runtime/resolve-sandbox-client.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L28)
 
 The execution transport for the driven loop.
 
@@ -4469,7 +4469,7 @@ The execution transport for the driven loop.
 
 > `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-3)
 
-Defined in: runtime/resolve-sandbox-client.ts:29
+Defined in: [runtime/resolve-sandbox-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L30)
 
 `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend.
 
@@ -4477,7 +4477,7 @@ Defined in: runtime/resolve-sandbox-client.ts:29
 
 > `optional` **bridge?**: `object`
 
-Defined in: runtime/resolve-sandbox-client.ts:31
+Defined in: [runtime/resolve-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L32)
 
 `bridge` backend: local cli-bridge transport. `bearer` + `model` required.
 
@@ -4507,7 +4507,7 @@ Per-turn deadline (ms).
 
 > `optional` **router?**: `object`
 
-Defined in: runtime/resolve-sandbox-client.ts:41
+Defined in: [runtime/resolve-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L42)
 
 `router` backend: router chat-completion transport. All three fields required.
 
@@ -15540,7 +15540,7 @@ defaults to `'loop'`.
 
 > **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: runtime/resolve-sandbox-client.ts:53
+Defined in: [runtime/resolve-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/resolve-sandbox-client.ts#L54)
 
 Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core
 that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
