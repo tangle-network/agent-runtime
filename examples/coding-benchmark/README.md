@@ -85,9 +85,9 @@ Scoring runs in strict order, cheapest and most objective first — an `agent-ev
 - **Default: 1** — `singleCodeJudge`, built from `llmJudge` (one model call). Cheap, for the leaderboard sweep.
 - **`--ensemble`: 3** — `ensembleCodeJudge`, built from `ensembleJudge`, three **cross-family**, snapshot-dated models (deepseek + openai + google). `crossFamily: true` rejects a same-family panel at construction, so the ensemble is genuinely independent **live**. The panel sees the **same full context** (code + check results + held-out pass rate + rubric note) the single judge does. Use it only for a ship/no-ship claim. (Offline, all three share the mock transport — see the offline note above.)
 
-## How the stats are real (`stats.ts`)
+## How the stats are real
 
-Every number is one `agent-eval` primitive call — **no hand-rolled statistics and no fake p-values**:
+Every number comes from the shared `leaderboard()` + `pairwiseSignificance` engine (`/loops`, over `agent-eval`'s statistics primitives) — **no hand-rolled statistics and no fake p-values**:
 
 - per-harness **mean composite + bootstrap CI** (`confidenceInterval`)
 - per-harness **pass-rate + Wilson binomial CI** (`wilson`) — the correct interval for a proportion
@@ -109,8 +109,7 @@ The leaderboard labels are the readable harness names, not the matrix's internal
 | `dispatch.ts` | renders one matrix cell: persistent box + multi-round refine + held-out grading behind the firewall (`assertNoHiddenLeak` + `gradeOnHidden`) + token metering. **The firewall lives here.** |
 | `offline-box.ts` | an in-process `SandboxClient` so the whole thing runs with no creds |
 | `fixtures.ts` | the real `csv-parser` / `lru-cache` offline solution source (kept out of `benchmark.ts` so the one rate-limiter cheat/real teaching pair stays readable) |
-| `stats.ts` | leaderboard + `pairedTTest` / `pairedBootstrap` / `benjaminiHochberg` / `confidenceInterval` / `wilson`, with the small-n SIGNIFICANT-suppression guard |
-| `benchmark.ts` | the entrypoint: build the axes, hand the matrix the dispatch + judges, run, print stats |
+| `benchmark.ts` | the entrypoint: build the axes, hand the matrix the dispatch + judges, run, then print `leaderboard()` + `pairwiseSignificance` (the shared stats engine — CIs, Wilson, paired-bootstrap, BH, with the small-n SIGNIFICANT-suppression guard) |
 | `coding-benchmark.test.ts` | offline smoke — the matrix produces `harnesses × scenarios × reps` records; a hardcode-the-visible cheat fails the held-out suite while the real solution passes (by execution); the held-out test is never seeded during the turn (firewall); reps don't narrow the CI |
 
 ## Primitives composed

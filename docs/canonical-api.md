@@ -10,6 +10,13 @@
 
 ## 1. Mental model — the spine
 
+> **Legend** — the five words the spine sentence leans on, in plain terms:
+> - **genome** — an `AgentProfile`: the whole agent as data (prompt + skills + tools + mcp + knowledge/memory).
+> - **driver ⟷ worker** — one agent (the driver) spawns and steers other agents (workers) and reads their output; both are the same atom playing different roles.
+> - **conserved budget pool** — one shared compute budget split across workers, so two different topologies cost the same and a comparison is fair.
+> - **combinator** — a reusable topology shape (`loopUntil` = depth/refine, `fanout` = breadth/sample) you compose instead of hand-writing a loop.
+> - **holdout** — fresh problems held back from tuning, so a measured win can't be memorization.
+
 A **genome** (an `AgentProfile`: `systemPrompt + skills + tools + mcp + knowledge + memory + rag` — one combined surface) is run as a **driver⟷worker conversation** (`runPersonified` composing a combinator like `loopUntil`/`fanout` over the keystone `Supervisor` — K rounds spent against one persistent, journaled, resumable artifact on a *conserved budget pool* so equal-compute holds by construction) over a **benchmark** (the `ADAPTERS` registry driven by `runGate` over the Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic`), then **optimized by a gated loop** (`selfImprove`/`runImprovementLoop` + `gepaProposer`, certified by `defaultProductionGate`/`heldOutGate`/`promotionGate`, or the full multi-generation `runStrategyEvolution`) that evolves the genome and **certifies wins on a frozen holdout** — never on the training composite. The selector is never the judge; observation attaches to the *loop* via `RuntimeHooks`, never to the portable genome.
 
 Two substrates implement the same recursive-atom over the one `Executor` port and share `defaultSelectWinner` — a deliberate pair, **do not invent a third**: the **reactive** `Supervisor`/`Scope` + personify combinators (the agent-driver; equal-k by construction via the conserved budget pool — prefer for NEW recursive/keystone work) and the round-synchronous **`runLoop`** kernel (the leaf; what most sandbox benches drive today). `inlineSandboxClient` adapts any non-box `Executor` into a `SandboxClient` for `runLoop`, and `settledToIteration` bridges reactive `Settled`s into the kernel's `Iteration`, so the two interoperate without forking selection or metering.
@@ -85,16 +92,16 @@ This table is judgment-only: it maps an intent to the ONE primitive to reach for
 
 For the full export inventory (every primitive, its import path, its summary — generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the genome→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
 
-## 2.1 Which front door do I use? — the four public verbs, file:line-anchored
+## 2.1 Which front door do I use? — the four public verbs
 
-§2 maps a fine-grained intent to a primitive; this is the coarse router one level up. Pick a front door by **what you hand in**. Each bottoms out at ONE function (anchored to source); the §2 rows above carry each one's "do NOT build" twin. The `file:line` here is accurate at this commit but is *not* the never-stale reference — the generated `docs/api/` pages are; the freshness gate only asserts these files exist.
+§2 maps a fine-grained intent to a primitive; this is the coarse router one level up. Pick a front door by **what you hand in**. Each bottoms out at ONE function; the §2 rows above carry each one's "do NOT build" twin. Exact per-symbol signatures + line anchors live in the generated `docs/api/` pages (never stale); the file paths below are what the freshness gate protects.
 
 | You hand in… | Front door | Bottoms out at | What it is |
 |---|---|---|---|
-| a **string intent** ("fix the failing auth test") — you don't care HOW | the `delegate` tool | `delegate(intent, opts)` — `src/runtime/supervise/delegate.ts:88` (MCP handler `createDelegateHandler`, `src/mcp/tools/delegate.ts:139`) | a default authoring supervisor decomposes the intent and writes the worker profile per sub-task; synchronous, returns the delivered output + `spentTotal`. The ONE delegation path. |
-| an **authored supervisor `AgentProfile`** + a task | `supervise(profile, task, opts)` | `src/runtime/supervise/supervise.ts:102` | the one-call LLM-brain driver over the keystone `Supervisor`, scaffolding defaulted. START HERE when you wrote the driver. |
-| a **deterministic shot grammar** over a stateful tool domain | `runAgentic(opts)` | `src/runtime/strategy.ts:1030` | runs a `Strategy` (depth/breadth/custom) through the `Supervisor` — programmatic, no LLM picking the shape. |
-| a **deterministic topology combinator** (`loopUntil`/`fanout`/`verify`/`panel`/`pipeline`) over a persona | `runPersonified(options)` | `src/runtime/personify/persona.ts:131` | composes a persona + a `CombinatorShape` over the `Supervisor` — programmatic. |
+| a **string intent** ("fix the failing auth test") — you don't care HOW | the `delegate` tool | `delegate(intent, opts)` — `src/runtime/supervise/delegate.ts` (MCP handler `createDelegateHandler`, `src/mcp/tools/delegate.ts`) | a default authoring supervisor decomposes the intent and writes the worker profile per sub-task; synchronous, returns the delivered output + `spentTotal`. The ONE delegation path. |
+| an **authored supervisor `AgentProfile`** + a task | `supervise(profile, task, opts)` | `src/runtime/supervise/supervise.ts` | the one-call LLM-brain driver over the keystone `Supervisor`, scaffolding defaulted. START HERE when you wrote the driver. |
+| a **deterministic shot grammar** over a stateful tool domain | `runAgentic(opts)` | `src/runtime/strategy.ts` | runs a `Strategy` (depth/breadth/custom) through the `Supervisor` — programmatic, no LLM picking the shape. |
+| a **deterministic topology combinator** (`loopUntil`/`fanout`/`verify`/`panel`/`pipeline`) over a persona | `runPersonified(options)` | `src/runtime/personify/persona.ts` | composes a persona + a `CombinatorShape` over the `Supervisor` — programmatic. |
 
 Rule of thumb: `delegate` = "I don't care how"; `supervise` = "I authored the driver"; `runAgentic`/`runPersonified` = "I want a deterministic topology, no LLM choosing the shape." All four run over the one `Executor` port on the conserved budget pool, so equal-compute holds by construction.
 

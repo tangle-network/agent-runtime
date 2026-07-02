@@ -143,11 +143,9 @@ Domain policy. Models. Tools. Connectors. UI. Prompts. Rubrics. Those
 live in your vertical. The runtime is reusable across many kinds of
 agents because nothing in this list is baked into it.
 
-## Reading order for a new consumer
+## Next
 
-1. `examples/knowledge-gating/` — the smallest end-to-end.
-2. `examples/stream-backends/` — what streaming looks like.
-3. `examples/chat-handler/` — `handleChatTurn` — the centerpiece chat handler.
-4. `examples/runtime-run/` — the production-run row + cost ledger.
-5. `examples/recursive-supervisor/` — pipe one runtime's stream into a reviewer agent.
-6. The `README.md` entry-point table — model resolution + every other primitive, one row each.
+Run the one example that shows the core move — a driver reading a worker's
+output and composing the next step from it: `pnpm tsx examples/driver-loop/driver-loop.ts`
+(offline, no creds). Then the [examples map](../examples/README.md) and
+[canonical-api.md](./canonical-api.md) — "I want to ___ → use ___".

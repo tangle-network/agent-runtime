@@ -8,6 +8,12 @@ One loop, used three ways. Domain behavior (models, tools, knowledge) plugs in a
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox
 ```
 
+**See it run in 30 seconds** (offline, no keys) — the one move everything else builds on, a driver reading a worker's output and composing the next step from it:
+
+```bash
+pnpm tsx examples/driver-loop/driver-loop.ts
+```
+
 ## What you do with it
 
 | You want to… | Call |
