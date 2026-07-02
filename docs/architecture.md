@@ -4,67 +4,19 @@
 
 > **One agent pattern, repeated into a tree. Every node makes a decision that balances several goals at once. Two timescales run in parallel, and the slow one — the system getting better from run to run — is the real product.**
 >
-> Canonical as of **2026-06-05**. This doc is the single spine that unifies
+> This doc is the single spine that unifies
 > `docs/learning-flywheel.md` (the theory + the moat) and
 > `@tangle-network/agent-eval` `docs/design/self-improvement-engine.md` (the
-> optimization-time engine). Where this conflicts with an older doc, **this
-> wins**; the older docs are being consolidated into this spine (§12). If you are
-> an agent in another repo building a new benchmark: **read §1, §6, §9 — you only
-> write an adapter, never a new loop.**
+> optimization-time engine). Where this conflicts with another doc, **this
+> wins**. If you are an agent in another repo building a new benchmark: **read
+> §1, §6, §9 — you only write an adapter, never a new loop.**
 >
-> **Status (verified against `origin/main`, 2026-06-10).** The *product core* is real:
-> the recursive agent tree (`src/runtime/supervise/` — `Agent.act` in a `Scope`,
-> `scope.spawn`, settle, journal→replay/resume), the sandbox seam (`SandboxClient` +
-> the sandbox `Executor`, injectable/swappable), the trace observer (`observe()`,
-> `src/runtime/observe.ts`), the corpus + external judge, and the lifecycle hook stream
-> (`runtime-hooks`). The canonical "drive an agent" path is the **agent-driver**: an
-> `AgentProfile` driving another `AgentProfile` via `createCoordinationTools`
-> (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runLoop` KERNEL
-> (`src/runtime/run-loop.ts`) stays as **one execution backend**, not the center. The
-> **canonical optimization surface is the published loops suite** —
-> `@tangle-network/agent-runtime/loops` (a build alias; the source lives in
-> `src/runtime/`, there is no `src/loops/` directory): `Environment`/`Strategy`/
-> `defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark` (`run-benchmark.ts`),
-> `createVerifierEnvironment`/`createMcpEnvironment`, `harvestCorpus`,
-> `authorStrategy` (`strategy-author.ts`), `auditIntent`, and `promotionGate`
-> (`promotion-gate.ts`). The coherence analysis is in
-> [architecture-interpretations.md](./architecture-interpretations.md); the
-> dependency-ordered build + cleanup is in [roadmap-rsi.md](./roadmap-rsi.md); the
-> empirics are §11; the live evidence map + portfolio is
-> [docs/research/optimization-space.md](./research/optimization-space.md). Doc map:
-> [docs/README.md](./README.md).
-
----
-
-## 0. Why this doc exists (the moment, captured)
-
-Two things forced this doc:
-
-1. **The vision was real but smeared.** The architecture below was already
-   designed — most completely in agent-eval's `self-improvement-engine.md`
-   ("`propose()` … recursively agentic", "a loop whose step contains a loop", the
-   LLM↔sandbox cost dial) and theorized in `learning-flywheel.md` (the
-   `(π,τ,J,D,O)` recursion, the cross-run flywheel). But it was spread across
-   ~6 documents at two different timescales with the term **"driver↔worker loop"
-   overloaded**, so agents (and the lead) lost the thread.
-2. **The benchmark never ran the real thing.** The FinSearchComp experiment drove
-   the inner `runLoop` with a **dumb static planner** (inject the prior
-   answer + a fixed "verify and revise" directive) and **never invoked ANALYZE →
-   PROPOSE** — the trace-analysts and the recursively-agentic driver. All the
-   intelligence lived in the *optimization* layer, pointed at surface-improvement
-   PRs, and was never wired to the *inference-time* loop on a benchmark. The
-   agent-driver over the `Scope`/`Supervisor` is the path that wires that
-   intelligence to the inference-time loop.
-
-**Decisions locked this session** (the moment):
-- The atom is **one recursive `Agent` node** (not two types).
-- **Selector ≠ Judge** — selection is a first-class, deployable, learnable role;
-  the judge is external, write-only, eval-only.
-- **Scaffold-to-SOTA first**, then GEPA the prompts, then the learned controller.
-- The **moat is cross-benchmark transfer + recursive self-improvement**, anchored
-  by the external judge — the scaffold itself is table-stakes.
-- **Heavy/experimental driver work runs in a sandbox/worktree** so the repo stays
-  clean ("auto-research").
+> **Live status and every measured number live in `.evolve/current.json` and the
+> memory ledger — this doc is timeless mechanism.** The coherence stress-test + the
+> Gate-A definition: [architecture-interpretations.md](./architecture-interpretations.md);
+> the dependency-ordered build plan: [roadmap-rsi.md](./roadmap-rsi.md); the evidence
+> map + portfolio: [docs/research/optimization-space.md](./research/optimization-space.md).
+> Doc map: [docs/README.md](./README.md).
 
 ---
 
@@ -168,9 +120,7 @@ record; the hook stream is its live projection (both agree).
 
 ## 2. Two timescales, one machinery (the unification)
 
-The same `Agent` loop runs at two timescales. This is the unification the old
-docs lacked — they described the optimization timescale and we accidentally ran a
-crippled version of the inference timescale.
+The same `Agent` loop runs at two timescales.
 
 | | **Inference-time** (per task) | **Optimization-time** (across scenarios) |
 |---|---|---|
@@ -186,21 +136,15 @@ settings: `act→Program` is an ephemeral inference-steer **or** a persisted
 surface candidate. **The gap we must close: run the ANALYZE→PROPOSE intelligence
 at inference-time, on benchmarks** — not only at optimization-time.
 
-**Which curve is success (read this before you read the gate numbers in §11).** The
-inference-time column makes the **solution** climb within a run; the optimization-time
-column makes the **decision policy** climb across runs — and *that across-run slope is
-the success criterion*. Concretely (**Gate B**, defined in
-[learning-flywheel.md](./learning-flywheel.md)): across repeated runs on a persistent,
-checkable task family, the deployed policy's verifier-graded multi-objective score
-improves run-over-run at matched per-run compute, the only changed variable is that the
-policy learned from the accumulated corpus, it survives a frozen-policy control, and it
-is significant at adequate n under a deployable checker. The within-run question — *does
-a trace-fed driver beat a blind same-compute baseline under a non-oracle selector at
-equal compute* (**Gate A**) — is a **separate, narrower diagnostic** that only decides
-whether the within-run adaptive layer is worth building; a failed Gate A deletes
-within-run steering, never the corpus+policy product. The §11 equal-k selection numbers
-are Gate-A diagnostics — they are **not** a verdict on Gate B, which the harness has not
-yet run.
+**Which curve is success.** The inference-time column makes the **solution** climb
+within a run; the optimization-time column makes the **decision policy** climb across
+runs — and *that across-run slope is the success criterion* (**Gate B**, defined in
+[learning-flywheel.md](./learning-flywheel.md)). The within-run question — *does a
+trace-fed driver beat a blind same-compute baseline under a non-oracle selector at equal
+compute* (**Gate A**, defined in
+[architecture-interpretations.md §5](./architecture-interpretations.md)) — is a separate,
+narrower diagnostic; a failed Gate A deletes within-run steering, never the corpus+policy
+product. Live results for both gates: `.evolve/current.json` + the memory ledger.
 
 ---
 
@@ -234,9 +178,8 @@ says is the *necessary* ingredient (§10).
 
 **The firewall (observations, never verdicts):** a steer may report what the
 agent *did* (cite a span/event/artifact); it may **not** carry the judge's
-verdict. Provenance — not evidence presence — is the discriminator
-(`derived_from_judge` + `assertNoJudgeVerdict`). Same detector may inform both a
-judge and a steer only behind this firewall.
+verdict. Provenance — not evidence presence — is the discriminator. Drawn, with
+the enforcing code, in §13.3 (`assertTraceDerivedFindings`).
 
 ---
 
@@ -251,12 +194,10 @@ by its own deployable checker (tests · clock · scanner · cost meter), with th
 write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
 Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
 `adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
-the optimizer can trade objectives honestly. **Measured (2026-06-09):** prompt search
-over the analyst is flat — a 3-generation GEPA run over the `observe()` analyst prompt
-ended in an exact frozen-holdout tie with the default prompt (§11). The analyst-prompt
-coordinate is retired; the live outer-loop lever is **program/strategy space**
-(`defineStrategy` + `authorStrategy`), per
-[docs/research/optimization-space.md](./research/optimization-space.md).
+the optimizer can trade objectives honestly. The analyst-prompt coordinate measured
+flat; the live outer-loop lever is **program/strategy space** (`defineStrategy` +
+`authorStrategy`) — see
+[docs/research/optimization-space.md](./research/optimization-space.md) and the ledger.
 
 ---
 
@@ -334,9 +275,8 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
    bench** (EnterpriseOps-Gym / commit0 / swe-bench) — a domain that can exhibit depth.
    FinSearchComp is a **negative control only** (its LLM judge is non-deployable and its
    one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
-   result is bench-specific, not domain-general). **Status: TIE at power (POWER-16,
-   2026-06-13)** — the n=16 "+16.4pp cleared" signal collapsed to depth−breadth +4.7pp
-   CI [−1.9, +11.4] at n=48; at most a small effect, not a cleared keystone (§11).
+   result is bench-specific, not domain-general). Status: see the ledger
+   (`.evolve/current.json`).
 2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
    beats compute-matched random.
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
@@ -347,7 +287,7 @@ Each rung must beat compute-matched random before the next is funded.
 
 ---
 
-## 10. What the literature says (grounding, captured 2026-06-03)
+## 10. What the literature says (grounding)
 
 - **Intrinsic self-refine DEGRADES** on hard tasks — Huang 2023 (ICLR'24, GSM8K
   −2pp / HotpotQA −2.5pp under self-correction), Kamoi 2024 (TACL: *no* fair-
@@ -368,120 +308,36 @@ sequential steer used sparingly.
 
 ---
 
-## 11. Empirical status (the moment, captured)
+## 11. Empirical status — lives in the ledger
 
-**FinSearchComp rung-0** (n=40, 20 T2 + 20 T3, gpt-5, verified-deterministic
-judge, 0 infra-excluded):
+Every measured number — the FinSearchComp rung-0 arms, the Gate-A
+clear-then-retraction under the POWER-16 rule, the GEPA-over-analyst-prompt null,
+the selector results, and the SOTA comparison tables — lives in
+`.evolve/current.json` (the live science state) and the memory ledger. This doc
+keeps only the two distilled findings that are mechanism, not state:
 
-- blind 37.5% → **random@3 60.0%** → refineHand@3 50.0% → refineGepa@3 45.0%.
-- more-compute (random − blind) = **+22.5pp** [CI +7.5,+40.0], p=0.008 — robust.
-- steering (refineX − random) **negative** on every slice; refineGepa −15pp
-  [−27.5,−2.5] p=0.032 but **does not survive BH** across the 2 arms (q≈0.064).
+**The domain-boundary law:** within-run steering is **negative on stateless
+retrieval** (FinSearchComp rung-0), **null-to-negative on stateless codegen**
+(HumanEval steer gate null at equal k; exec-grounded self-repair −17.1pp,
+CI [−26.8, −7.3]), and **positive on stateful agentic domains** with a correctable
+middle band, scored keep-best (EOPS). The boundary variable is state + the
+inability to cheaply resample.
 
-> `random@k` / `refineHand@k` / `refineGepa@k` are **condition labels for strategy runs**
-> recorded in the corpus (the controller column), not importable symbols. `refineGepa@k`
-> names "the refine strategy steered by a GEPA-authored prompt, k attempts."
-
-**Caveats that change the meaning:**
-- This tested the **dumb static planner** (§0.2), NOT the trace-fed intelligent
-  driver. The honest statement is *"answer-anchored intrinsic refine loses, as
-  the literature predicts"* — **the real driver is UNTESTED.**
-- `random@3 = 60%` is **pass@3 with the judge selecting** = an **oracle upper
-  bound**. The deployable number (vote/verifier-select, no oracle) is unmeasured
-  and lower. The +22.5pp is partly oracle-inflated.
-
-So rung-0 is **not** "steering is futile" — it is "the toy loses, and we have not
-yet run the machine we built."
-
-**Gate A — RETRACTED to a TIE at power (POWER-16, 2026-06-13).** The headline
-+16.4pp depth>breadth result did **not** replicate when powered. On the canonical
-loop — the `Scope`/`Supervisor` substrate + the `observe()` analyst + `defineStrategy`
-(`src/runtime/strategy.ts`), **not** the `runLoop` path — the
-original signal was depth-steered continuation beating breadth (blind best-of-K) at
-equal compute under keep-best checkpoint scoring: **+16.4pp, CI [+5.3, +29.8], 6 wins
-/ 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice). At n=48
-(4 gym lanes, depth verified firing, both arms best-checkpoint) this collapsed to
-**depth−breadth = +4.7pp, CI [−1.9, +11.4] — a TIE** (and +4.1pp, CI [−1.6, +10.2]
-at n=72). The n=16 number was an underpowered overestimate (a 6/0 streak); depth>breadth
-is at most a *small* effect (~5pp, would need n≈96–200 to confirm), not a cleared
-keystone. Per the pre-registered POWER-16 rule the program pivoted **off** this anchor;
-see `.evolve/current.json` (the live science ledger). Method note retained: both arms
-must be scored with the same selection policy (keep-best) — scoring the depth arm on
-final state only silently biases against it.
-
-**The domain-boundary law (supersedes any "steering loses everywhere" reading of the
-rung-0 block above):** within-run steering is **negative on stateless retrieval**
-(FinSearchComp rung-0), **null-to-negative on stateless codegen** (HumanEval steer
-gate null at equal k, 2026-06-08; exec-grounded self-repair −17.1pp, CI [−26.8, −7.3]),
-and **positive on stateful agentic domains** with a correctable middle band, scored
-keep-best (EOPS). The boundary variable is state + the inability to cheaply resample.
-
-**GEPA over the analyst prompt — NULL (2026-06-09).** A 3-generation prompt search +
-frozen holdout tied the default `observe()` analyst exactly; the search winner's
-+12.6pp was holdout-overfit. The analyst-prompt coordinate is measured flat; the live
-lever is program/strategy space (`defineStrategy`/`authorStrategy`). The full evidence
-map + ranked portfolio: [docs/research/optimization-space.md](./research/optimization-space.md).
-
-**The SOTA bar (where we actually stand — captured 2026-06-03):**
-- **FinSearchComp** (primary): frontier **Grok-4(web) 68.9%** (T1 87.3 / T2 68.1 / T3 51.2),
-  **GPT-5-Thinking(web) 63.9%**, Gemini-2.5-Pro 42.6%; human expert ~75%. Our gated-refine 60% is
-  the **oracle pass@3** (judge-selected) — ≈ Gemini-tier and **~9pp under frontier**; the deployable
-  (no-oracle) number is lower. Real headroom remains; **we are not at SOTA.**
-- **SWE-bench Verified** is a **judge fixture only** here (oracle headroom ≈ 0) — not a loop SOTA target.
-- **Honesty law:** our loop is **not a new method class** — sequential-refine = Reflexion / CRITIC /
-  FLARE; fanout-vote = self-consistency / best-of-N-with-verifier. We benchmark *against* those and
-  claim no novelty for the scaffold; the moat is transfer (§8).
-
----
-
-## 12. Consolidation map — doc roles + the shared atoms
-
-| Doc | Role going forward |
-|---|---|
-| **`docs/architecture.md` (this)** | **canonical spine** — the atom, timescales, cohesion law, moat, build order |
-| `docs/learning-flywheel.md` | theory/moat/discipline + the `(π,τ,J,D,O)` recursion → folds into §1, §5, §7, §8; reduce to a deep-dive or a pointer |
-| agent-eval `self-improvement-engine.md` | the **optimization-timescale engine** (Phases 1–5, `propose()`, the generator cost dial) — §2/§3 point here as the implementation; keep, reconcile vocabulary to this spine |
-| agent-eval `loop-taxonomy.md`, `self-improvement-{roadmap,protocol}.md`, `product-self-improvement-loop.md`, `primitives-integration-spec` | **retire/merge** into this spine + the engine doc — they carry the duplicate "Driver exists at two layers (trips people up)" confusion that this spine resolves |
-
-**Vocabulary law (ends the overload):** "driver" and "worker" are **roles of one
-`Agent`**; "driver↔worker loop" must always be qualified by **timescale**
-(inference vs optimization). A benchmark is an **adapter**. The thing that picks
-the answer is the **selector** (not the judge).
-
-### Shared atoms (the cohesion law)
-
-The atom is **shared, not forked**: the inner `for(round 1..k){ shot → judge → decide →
-carry-forward }` lives in **one** loop atom, the bounded-concurrency drain in **one** pool
-atom, and every steer directive in **one** surface — `runRefineLoop`, `runPool`,
-`directives.ts`, and the corpus are the shared atoms a benchmark plugs into.
-
-1. ✅ **`runRefineLoop<Artifact, Ctx>`** (the loop atom): one execution-agnostic loop —
-   `{rounds, setup, prompt, runShot, judge?, decide?, teardown}`, the worker an opaque `runShot`.
-   **All six refine workers** (research / sandbox-research / SWE-refine / cad / blender / build123d)
-   run it — **zero hand-rolled `for(round)` loops**. Both carry-forward channels (execution context
-   + prompt) are first-class.
-2. ✅ **`runPool<T, R>`** (the pool atom): one generic bounded-concurrency pool. **The surviving batch
-   runners** (`batch-blind` / `batch-oracle` / `batch-compare` / `terminal-compare`)
-   use it — **zero hand-rolled `Promise.all` drains**.
-3. ✅ **`directives.ts`** (the steer surface): every refine directive + authoring system prompt lives
-   here; **zero worker-owned prompt text**. Task framing lives in the benchmark adapters.
-4. ✅ **Delete `analyze-paired.mts`** — dead, superseded by `corpus-report.mts` (durable corpus + BH-FDR).
-5. **CANONICAL LAW (everyone follows):** a worker is an opaque **substrate plug** (`runShot`); the
-   **loop** (`runRefineLoop`), the **pool** (`runPool`), the **steer** (`directives.ts`), and the
-   **corpus** are first-class and shared; **a new benchmark is just an adapter** (loader + worker
-   profile + judge + SOTA). Do not fork a `*-loop.ts` or a `Promise.all` drain — extend the atom.
-6. ⏳ **Open follow-ups:** the analyst→driver channel lives on the agent-driver — the
-   parent `AgentProfile` reads `observe()` findings and steers its child via
-   `createCoordinationTools` over the `Scope`/`Supervisor`; a `/run-benchmark-loop`
-   skill encoding the adapter recipe.
+**Honesty law:** our loop is **not a new method class** — sequential-refine =
+Reflexion / CRITIC / FLARE; fanout-vote = self-consistency /
+best-of-N-with-verifier. We benchmark *against* those and claim no novelty for
+the scaffold; the moat is transfer (§8).
 
 ---
 
 ## 13. The system, drawn
 
-> The picture book for the spine above. Every diagram is grounded in `src/runtime/` with
-> `file:line` anchors. If a diagram disagrees with the code, the **code wins** — fix the
-> diagram in the same change.
+> The picture book for the spine above. Every node is an **`AgentProfile`**; the shape
+> is recursive; trace analysis flows **up** the tree after every rollout;
+> self-improvement is the tree **rewriting profiles**. Every diagram is grounded in
+> `src/runtime/` with `file:line` anchors, and each claim is tagged **REAL** (built +
+> tested) or **designed, not built**. If a diagram disagrees with the code, the
+> **code wins** — fix the diagram in the same change.
 
 ### 13.1 The atom — `act` over a `Scope` (§1, drawn)
 
@@ -524,33 +380,66 @@ Two facts make this the whole game:
 - `next()` is the *only* way to observe a child, so a driver reacts to **settlements**,
   never reaches inside a child.
 
-Three more edges are **designed, not built** — the question/command hierarchy (`ask` up,
-`notify` up, `override` down) that lets a deep agent surface a question and a higher agent
-countermand a decision. See **§13.7**.
+The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up
+and `answer_question` down (`src/mcp/tools/coordination.ts:159-160`), priority-queued on
+the event bus; salience filtering and the cross-box durable mailbox are not. See **§13.6**.
 
-### 13.2 The recursion — drivers of drivers, same atom all the way down
-
-A spawned child is an `Agent`. If its `act` calls `scope.spawn`, it's a driver too, with
-its **own sub-scope** (depth+1, bounded by `maxDepth` + the *same* pool). Recursion isn't
-a feature — it's the absence of a base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
+### 13.2 The tree — drivers of drivers, one recursive atom
 
 ```
-   Supervisor.run(rootAgent, task)
-        │  act(task, scope₀)            depth 0   ── a DRIVER
-        │
-        ├─ spawn ─▶ planner   act(τ, scope₁)      depth 1   ── itself a DRIVER
-        │              ├─ spawn ─▶ subtask  act(…) depth 2  ── a LEAF (returns directly)
-        │              └─ spawn ─▶ subtask  act(…) depth 2  ── a LEAF
-        │
-        └─ spawn ─▶ coder     act(τ, —)            depth 1   ── a LEAF: a sandbox coding-harness,
-                                                                opaque + self-parallelizing internally
-   budget: ONE conserved pool reserved across the whole tree → equal-compute holds at EVERY depth
+            ┌──────────────────────────────────────────────┐
+            │  SUPERVISOR   = an AgentProfile               │   depth 0
+            │  • can work a task itself                     │
+            │  • breaks the task down (its own prompt)      │
+            │  • AUTHORS the AgentProfile of each child     │
+            │    it spawns (prompt / tools / mcp / skills)  │
+            └───────────────┬──────────────────────────────┘
+                            │ spawn(child = a profile it wrote)
+        ┌───────────────────┼────────────────────────┐
+        ▼                   ▼                         ▼
+  ┌───────────┐      ┌────────────────┐        ┌───────────┐
+  │ DRIVER    │      │ SUB-SUPERVISOR │        │ WORKER    │   depth 1
+  │ = profile │      │ = profile      │        │ = profile │
+  │ works a   │      │ spawns anything│        │ works a   │
+  │ task AND  │      │ (recurses —    │        │ task      │
+  │ drives    │      │  same atom)    │        │ (a LEAF)  │
+  │ workers   │      └──────┬─────────┘        └───────────┘
+  └────┬──────┘             ▼
+       ▼            (driver | sub-supervisor | worker)*        depth 2 …
+   ┌───────┐
+   │WORKER*│        Three roles, ONE atom: an Agent node that
+   └───────┘        `act(task, scope)`s — it may settle a result
+                    (leaf) OR spawn children (driver/supervisor).
+
+   budget: ONE conserved pool reserved across the whole tree
+           → equal-compute holds at EVERY depth (`supervise/budget.ts`)
 ```
 
-The leaf at the bottom is where a real coding harness runs — the `runLoop` kernel
-(`run-loop.ts`) is composed as one leaf execution backend. Everything above it is the same
-`act`/`Scope` atom. The whole tree is observable as one lifecycle stream
-(`scope.spawn`/settle → `agent.spawn`/`agent.child`).
+- **REAL** — one recursive `Agent` node, not two types: `Agent.act(task, scope)` in
+  `src/runtime/supervise/types.ts:49`. The roles are the *same* atom; a node is a
+  "driver" only because its tools spawn children. A child whose `act` calls
+  `scope.spawn` is a driver too, with its **own sub-scope** (depth+1, bounded by
+  `maxDepth` + the *same* pool) — recursion isn't a feature, it's the absence of a
+  base case (`supervise/supervisor.ts`, `supervise/scope.ts`).
+- **REAL** — the **leaf** at the bottom is where a real coding harness runs, opaque and
+  self-parallelizing internally; the `runLoop` kernel (`src/runtime/run-loop.ts`) is
+  composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
+  atom, observable as one lifecycle stream (`scope.spawn`/settle →
+  `agent.spawn`/`agent.child`).
+- **REAL** — every node materializes in its backend (sandbox / cli-bridge / router /
+  worktree-cli) via the one backend-as-data factory `createExecutor({ backend })`
+  (`src/runtime/supervise/runtime.ts:1517`). The profile says what it is; the executor
+  says where it runs.
+- **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1,
+  and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full
+  AgentProfiles for its children*. The coordination toolbox `spawn_agent` carries the
+  child profile (`src/mcp/tools/coordination.ts`).
+- The in-process driver brain is `driverAgent`
+  (`supervise/coordination-driver.ts`) running the owned tool-loop executor
+  `routerToolsInlineExecutor` (`supervise/runtime.ts`). A driver/supervisor's brain is
+  driven from its `AgentProfile` (tools = the coordination verbs); inferring the brain
+  entirely from the profile so a driver is *just* a profile with zero special cases is
+  not yet wired end-to-end.
 
 ### 13.3 The within-run self-improvement loop (§1's agent-driver, drawn)
 
@@ -620,23 +509,7 @@ and **across runs**.
 The move language is `Agent.act(task, scope)` over a `Scope`: `fanout` = N × `scope.spawn`,
 `refine`/`steer` = `scope.send`, `select` = `defaultSelectWinner`, `stop` = `act` returns.
 
-### 13.5 The two timescales — one shape, two loops (§2, drawn)
-
-```
-   FAST  (within a run)          τ₀ → diagnose → τ₁ → … → τ*           ← the driver round (§13.3)
-                                  status: domain-bounded — see `.evolve/current.json` for the live ledger.
-
-   SLOW  (across runs)            τ always enters as  δ ⊕ τ            ← the learning flywheel
-                                  δ = directive GEPA-distilled from past failures.
-                                  status: UNTESTED at the gate (diverse@k vs blind@k at equal compute).
-```
-
-The binding empirical question: **does any non-blind topology beat blind compute at EQUAL
-k, under a deployable non-oracle selector, on a domain with a correctable middle band?** The
-live answer — which domains cleared it, which coordinates measured flat — lives in
-`.evolve/current.json` and the memory ledger (§11 carries the captured numbers).
-
-### 13.6 Analysts are just Agents → ensembles come for free (§4, drawn)
+### 13.5 Analysts are just Agents → ensembles come for free (§4, drawn)
 
 An analyst is **not a new type** — it is `Agent<unknown, AnalystFinding[]>` the driver
 spawns over a child's trace (`src/runtime/personify/analyst.ts`; `createScopeAnalyst` at
@@ -666,75 +539,37 @@ atom — no new primitive**:
   findings by the lift they produce. Ensembles-of-ensembles = a driver-analyst that itself
   spawns sub-analysts.
 
-**When to build it (discipline):** the *concept* is free (it falls out of the atom), so it
-is not overkill. But standing up the 50–100-question machinery speculatively **is**
-mechanism-ahead-of-gate. The cheap, decisive version is the gate-relevant one: a maximally
-comprehensive analyst is the **strongest possible test of "can *any* diagnosis help"** — if
-even it can't beat blind at equal compute, the within-run-steer family is dead for real; if
-it can, that's the signal. Build it as the gate experiment, not as a standing feature.
+**When to build it (discipline):** the *concept* is free (it falls out of the atom), but
+standing up the 50–100-question machinery speculatively is mechanism-ahead-of-gate —
+build the comprehensive analyst as the gate experiment (the strongest test of "can *any*
+diagnosis help"), not as a standing feature.
 
-### 13.7 The command hierarchy — `ask` / `notify` / `override` (DESIGNED)
+### 13.6 The command hierarchy — partially built
 
-> **Status: designed, not built.** Implementation is gated on the verifier-grounded gate
-> result + the PI/chat repo defining the human-handler contract. This section nails the
-> *interface* so both repos build to the same seam.
+A leaf *raises* a question; each parent is a *handler* that either **discharges** it
+(answers from its own tools/knowledge/directive) or **re-raises** it one level up; the
+human is the **top handler**. Local autonomy + global override — a command hierarchy,
+not agent-to-agent messaging.
 
-The escalation model is **not** agent-to-agent messaging (don't reach for A2A / a bus) —
-it's a **resumable effect with handlers** (à la LangGraph `interrupt()` / algebraic-effect
-handlers / OTP supervisor-escalation). A leaf *raises* a question; each parent is a
-*handler* that either **discharges** it (answers from its own tools/knowledge/directive) or
-**re-raises** it one level up; the human (the PI agent) is the **top handler**. It turns the
-tree from "escalate-on-stuck" into a real **command hierarchy: local autonomy + global
-override.**
+**Built** (`src/mcp/tools/coordination.ts`, `src/runtime/supervise/event-bus.ts`,
+`src/runtime/supervise/inbox.ts`):
+- `ask_parent` up + `answer_question` down (`src/mcp/tools/coordination.ts:159-160`) —
+  a blocking question rides the ONE typed pipe, **priority-queued** ahead of queued
+  settles/findings (the event bus); the answer routes down to the child's inbox.
+- `steer_worker` — the down-leg for any live worker (instruction / correction /
+  continuation); queued messages flush at step boundaries AND before the worker may
+  settle; a forceful `steer_worker({interrupt:true})` aborts the in-flight turn (the
+  inbox).
+- `notify` up — every settle/decision is teed upward on the lifecycle hook stream.
 
-Three edges complete the atom — two already exist:
+**Not built:** the **salience tag** on decisions (so the top doesn't drown), the
+cross-box durable mailbox (§13.9), budget-pause-while-awaiting.
 
-| Edge | Direction | Blocking? | Notes |
-|---|---|---|---|
-| `ask` | **up** | yes | child can't proceed without the answer; **terminates** at the first handler who answers. The one genuinely-new edge (or a 3rd `Settled` kind `{question}` — see below). |
-| `notify` | **up** | **no** | every steering decision is teed upward, **salience-filtered**, so an ancestor with higher-order knowledge can countermand it. **This is the lifecycle hook stream** (`agent.decision`/`agent.answer`) — already shipped. |
-| `override` | **down** | — | the ancestor's countermand. **This is `scope.send`** — already shipped; the same edge carries the answer *and* the override. |
-
-```
-   PI agent (human handler)            ◀── answer ── "use prod — this is an incident"
-        │ override ▼        ▲ notify (non-blocking, salience-filtered)
-   root supervisor   ── sees D1's answer; has higher-order context → overrides D1
-        │ override ▼        ▲ notify
-   driver D1         ── answers W IMMEDIATELY (no waiting), tees the decision up; later re-steers W
-        │ send ▼            ▲ ask (BLOCKING — W needs the answer)
-   worker W (leaf)   ── raises "prod or staging?" + WHY (its reasoning + D1's decision context)
-```
-
-**The non-negotiable: optimistic + asynchronous, never synchronous approval.** If D1 had to
-*wait* for the root's blessing (and the root for its parent), every local decision
-serializes through the root and drowns the top. So D1 answers W now, tees the decision up,
-and an ancestor's override is a **later, higher-authority `send` that supersedes** — a
-compensating correction, not a pre-approval gate. (W is re-steerable mid-flight; that's what
-`send` is for.)
-
-**Command is one level deep.** The root overrides **D1** (its direct report); **D1**
-reconciles and re-steers **W**. No skip-level reach-around → no two agents steering the same
-child → the hierarchy stays coherent + auditable, and D1 can reconcile the override against
-state the root can't see. Corrections **compose down** the chain exactly as questions
-**compose up** it — and escalation falls out of the recursion (a driver `ask`s on *its*
-scope), so there is no "driver-of-driver" special case.
-
-**Block vs. settle-and-resume** (the real engineering fork, because human latency is
-minutes–hours):
-- live-block (`await scope.ask`): child stays alive, blocked — fine for in-process/cheap leaves.
-- settle-as-question + resume: child returns `{kind:'question'}` (frees its sandbox box),
-  the parent handles it, the answer **resumes the child from its checkpoint** — reuses the
-  shipped `sandbox-lineage` session-continuity. The `Executor` picks the mode, the same way
-  it abstracts run modes — which is why this is a small feature, not a subsystem.
-
-**What's new vs. already there:** new = the `ask` edge (+ a `question` settlement kind), a
-**salience tag** on decisions (so the top doesn't drown), and **path-routed `send`** (so an
-override reaches a deep node — node ids are already the path). Reused = `send`
-(answer/override), the hook stream (notify), the lineage (resume), the recursion
-(escalation), the MCP-steer pattern (the cross-sandbox wire — **MCP elicitation** is the
-standard for it), and the topology viewer (a node "awaiting answer" is just a visible
-state). The **answer-or-escalate policy lives in the agent's `act`/directive, not the
-kernel.**
+**Command is one level deep.** An ancestor overrides its **direct report**, which
+reconciles and re-steers its own children. No skip-level reach-around → no two agents
+steering the same child → the hierarchy stays coherent + auditable. Corrections
+**compose down** the chain exactly as questions **compose up** it — escalation falls
+out of the recursion, so there is no "driver-of-driver" special case.
 
 **Two disciplines:**
 1. **Budget pauses while awaiting a human** — a blocked node isn't computing; treat
@@ -744,62 +579,7 @@ kernel.**
    gated experiments** (it would confound equal-k and the no-oracle selector rule). It is a
    *production* feature, not a gate-eval one.
 
----
-
-## 14. The tree, the up-flow, and where improvement comes from
-
-> One picture of the whole system. Every node is an **`AgentProfile`**. The shape is
-> recursive. Trace analysis flows **up** the tree after every rollout. Self-improvement is
-> the tree **rewriting profiles**. Everything is one data structure, durable by design.
->
-> Each claim is tagged **REAL** (built + tested, `file:line`) or **designed, not built**.
-
-### 14.1 The tree — one recursive atom
-
-```
-            ┌──────────────────────────────────────────────┐
-            │  SUPERVISOR   = an AgentProfile               │
-            │  • can work a task itself                     │
-            │  • breaks the task down (its own prompt)      │
-            │  • AUTHORS the AgentProfile of each child     │
-            │    it spawns (prompt / tools / mcp / skills)  │
-            └───────────────┬──────────────────────────────┘
-                            │ spawn(child = a profile it wrote)
-        ┌───────────────────┼────────────────────────┐
-        ▼                   ▼                         ▼
-  ┌───────────┐      ┌────────────────┐        ┌───────────┐
-  │ DRIVER    │      │ SUB-SUPERVISOR │        │ WORKER    │
-  │ = profile │      │ = profile      │        │ = profile │
-  │ works a   │      │ spawns anything│        │ works a   │
-  │ task AND  │      │ (recurses —    │        │ task      │
-  │ drives    │      │  same atom)    │        │           │
-  │ workers   │      └──────┬─────────┘        └───────────┘
-  └────┬──────┘             ▼
-       ▼            (driver | sub-supervisor | worker)*
-   ┌───────┐
-   │WORKER*│        Three roles, ONE atom: an Agent node that
-   └───────┘        `act(task, scope)`s — it may settle a result
-                    (leaf) OR spawn children (driver/supervisor).
-```
-
-- **REAL** — one recursive `Agent` node, not two types: `Agent.act(task, scope)` in
-  `supervise/types.ts:51`. The roles (worker/driver/supervisor) are the *same* atom; a node
-  is a "driver" only because its tools spawn children.
-- **REAL** — every node materializes in its backend (sandbox / cli-bridge / router /
-  worktree-cli) via the one backend-as-data factory `createExecutor({ backend })`
-  (`supervise/runtime.ts:1137`). The profile says what it is; the executor says where it runs.
-- **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1, and
-  `canonical-api.md` §1.5): a supervisor's intelligence is *writing full AgentProfiles for
-  its children*. The coordination toolbox `spawn_agent` carries the child profile
-  (`mcp/tools/coordination.ts`).
-- The in-process driver brain is `driverAgent`
-  (`supervise/coordination-driver.ts`) running the owned tool-loop executor
-  `routerToolsInlineExecutor` (`supervise/runtime.ts`). A driver/supervisor's brain is
-  driven from its `AgentProfile` (tools = the coordination verbs); inferring the brain
-  entirely from the profile so a driver is *just* a profile with zero special cases is not
-  yet wired end-to-end.
-
-### 14.2 The up-flow — trace analysis after every rollout, flowing up like a tree
+### 13.7 The up-flow — trace analysis after every rollout, flowing up like a tree
 
 ```
    worker rollout settles ─[analyst]→ finding ─┐
@@ -831,7 +611,7 @@ kernel.**
   settle) is not yet uniform. The atom supports it; the wiring should be made uniform so
   "ANY LAYER, ANY SUBLOOP" is literally one rule.
 
-### 14.3 Where self-improvement comes from — the tree rewriting profiles
+### 13.8 Where self-improvement comes from — the tree rewriting profiles
 
 The AgentProfile changes at **three timescales** (the §2 two-timescale frame, expanded — the
 within-run column splits into in-flight and across-round).
@@ -853,7 +633,7 @@ within-run column splits into in-flight and across-round).
      REAL: the improvement loop (improvement/), gated by promotion/heldout gates
 ```
 
-- **The self-improvement comes from the analyst findings that flow up** (§14.2): they are
+- **The self-improvement comes from the analyst findings that flow up** (§13.7): they are
   the signal that steers (①), mines skills (②), and drives the next-generation authoring
   (③). We both improve existing skills and create new ones, and we modify the AgentProfile
   both in-flight (as a steer) and after-flight (as injected skills, and as a re-authored
@@ -865,7 +645,7 @@ within-run column splits into in-flight and across-round).
   with the three timescales as internal composition — so "are we improving skills in the
   loop?" has one place to look — is not yet wired.
 
-### 14.4 Durability — by design, not yet end-to-end
+### 13.9 Durability — by design, not yet end-to-end
 
 ```
   same box   : in-process queue   ── REAL (tested)
@@ -880,9 +660,9 @@ within-run column splits into in-flight and across-round).
   is real and tested, the cross-box transport is the thin unbuilt part, so the up-flow can
   survive across distributed boxes and restarts.
 
-### 14.5 The one-line model
+### 13.10 The one-line model
 
 **A recursive tree of AgentProfiles, materialized in their backends, where every rollout's
 trace-analysis flows up one typed pipe, and that analysis is what rewrites the profiles — as
 an in-flight steer, as injected skills, and as a re-authored genome — durably.** Every
-clause of that sentence is one primitive with one name (§13–§14 name them).
+clause of that sentence is one primitive with one name (§13 names them).

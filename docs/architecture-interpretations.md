@@ -2,7 +2,7 @@
 
 Companion to [architecture.md](./architecture.md) (the spine) and [learning-flywheel.md](./learning-flywheel.md) (the moat thesis). Where `architecture.md` states *what the system is meant to be*, this doc stress-tests *whether it coheres* — by reading the same atom through five independent lenses, including an adversarial one, and recording where each framing holds and where it breaks. The five lenses converge on one diagnosis and one decision gate; that convergence is the point.
 
-`Status`: two of this doc's load-bearing claims have since been resolved. (1) The analyst→driver diagnosis the lenses hinge on lives on the **agent-driver**: a parent `AgentProfile` reads `observe()` findings and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. (2) **Gate A (§5) has been run** on that `Scope`/`Supervisor` + `observe()` substrate — it cleared at n=16 (EOPS itsm: depth +16.4pp CI [+5.3, +29.8]) but **retracted to a TIE at power** (POWER-16, depth−breadth +4.7pp CI [−1.9, +11.4] at n=48; see §5). The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
+`Status`: both of this doc's load-bearing gaps have since been resolved — the analyst→driver edge is live on the **agent-driver** (a parent `AgentProfile` reads `observe()` findings and steers its child via `createCoordinationTools` over the `Scope`/`Supervisor`), and **Gate A (§5) has been run**: cleared at small n, then retracted to a tie at power (numbers: `.evolve/current.json` + the memory ledger). The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
 
 ---
 
@@ -62,11 +62,10 @@ Two structural facts as of the original audit, with their current status:
    score alone. Honest status: the steer path is live on the Supervisor substrate (§5).
 2. The selector ranked with the **judge's score** — an oracle. The deployable, no-oracle
    selector has since been **built and measured**: a **verifier-grounded** selector is
-   positive on a deployable-checker domain (HumanEval, n=50, k=4: verifier-pick captures
-   the full oracle ceiling; verifier − self-consistency **+12.0pp CI [+4, +22]**,
-   BH-significant; random@k − blind +18.0pp CI [+8, +30]), while answer-agreement
-   selectors are negative (finsearch −8.2pp n=51; aec −9.4pp n=16). The selector needs a
-   runnable checker, not answer-vote.
+   positive on a deployable-checker domain (HumanEval: verifier-pick captures the full
+   oracle ceiling and beats self-consistency, BH-significant), while answer-agreement
+   selectors are negative (finsearch, aec). The selector needs a runnable checker, not
+   answer-vote. Numbers: `.evolve/current.json` + the memory ledger.
 
 The discipline that the architecture leans on — *selector ≠ judge*, judge write-only — is exactly what keeps the outer loop from optimising toward its own grader. The temptation to wire the judge into ranking (it is the cheapest, strongest selector) is the thing the design must resist; the moat depends on resisting it.
 
@@ -185,17 +184,15 @@ Build the adaptive driver **only if** this comes back positive:
 
 Until `refine@k-with-findings > random@k at equal compute under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
 
-**Measured: cleared at n=16, then RETRACTED to a TIE at power (POWER-16).** On
+**Measured: cleared at small n, then RETRACTED to a TIE at power (POWER-16).** On
 EnterpriseOps-Gym itsm, depth-steered continuation (analyst-fed, `observe()`) beat blind
-breadth at equal compute under keep-best checkpoint scoring at **+16.4pp CI [+5.3, +29.8],
-6 wins / 0 losses, n=16**, deepseek-v4-pro (replicated +8.3pp on a disjoint slice) — but
-at n=48 this collapsed to depth−breadth **+4.7pp CI [−1.9, +11.4], a tie**, so the program
-pivoted off this anchor (architecture.md §11). The gate ran on the `Scope`/`Supervisor` +
-`defineStrategy` substrate (`src/runtime/strategy.ts`). The boundary still holds:
-**negative on stateless retrieval** (FinSearchComp),
-**null-to-negative on stateless codegen** (HumanEval steer null at equal k;
-exec-grounded repair −17.1pp), **positive on stateful agentic domains** with a
-correctable middle band scored keep-best (EOPS).
+breadth at equal compute under keep-best checkpoint scoring — but the effect collapsed
+to a tie when powered, and the program pivoted off this anchor (numbers:
+`.evolve/current.json` + the memory ledger). The gate ran on the `Scope`/`Supervisor` +
+`defineStrategy` substrate (`src/runtime/strategy.ts`). The domain-boundary law held:
+**negative on stateless retrieval** (FinSearchComp), **null-to-negative on stateless
+codegen** (HumanEval), **positive on stateful agentic domains** with a correctable
+middle band scored keep-best (EOPS).
 
 **Gate A ≠ project success.** Gate A is the inner GO/NO-GO for *one* component (the within-run driver). The product-success gate is **Gate B** — a positive cross-run score-vs-run slope under a frozen-controller control ([learning-flywheel.md](./learning-flywheel.md)), which is currently **UNMEASURED** (cf. the zero cross-benchmark-transfer admission, §6). A failed Gate A deletes within-run steering; it never bears on Gate B.
 
