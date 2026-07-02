@@ -1,3 +1,5 @@
+> Track: Archive · Status: the agent-runtime portion SHIPPED — external benchmark adapters (`5e2e81a0`) + DABStep (`5d610e78`) are on main, and `runBenchmarks` (the registry subset sweep, plan step 2) landed as #420 (`bench/src/run-benchmarks.ts`, `run-benchmarks-cli.mts`, `run-benchmarks-report.ts`). Plan steps 3–5 (agent-lab external-bench/product adapters; tax/legal/gtm folds) are cross-repo work owned by those repos — the agent-lab branches named below no longer exist. The living map of this repo's bench surface is `bench/HARNESS.md`.
+
 # Benchmark matrix consolidation
 
 How to run any subset of `{harnesses × models × personas × scenarios × external-benchmarks}` and rank the cells, using the existing library primitives — and the plan to fold the per-product matrices onto them.

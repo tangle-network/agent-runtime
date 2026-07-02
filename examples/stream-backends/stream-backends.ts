@@ -104,6 +104,14 @@ async function drainToSse(
 }
 
 async function main() {
+  console.log(
+    'stream-backends — three transports, one drain: every backend below lands on the same',
+  )
+  console.log(
+    'RuntimeStreamEvent -> SSE serialization. Sections: readiness SSE, iterable (offline),',
+  )
+  console.log('sandbox (offline), openai-compatible (skipped unless OPENAI_API_KEY is set).\n')
+
   // Readiness SSE — the one-off event a route writes when a task is gated on
   // missing knowledge (see examples/knowledge-gating for the gate itself).
   const requirements: KnowledgeRequirement[] = [
