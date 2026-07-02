@@ -24,8 +24,8 @@ async function supportAgent(input: { question: string }): Promise<{ answer: stri
   return { answer: `You asked: ${input.question}. Here is a helpful reply.` }
 }
 
-/** Dig the intelligence-usd attribute out of an OTLP payload. The exporter emits it loop-prefixed as
- *  `loop.tangle.usage.intelligence_usd`, with the value under `doubleValue` or (for 0) `intValue: "0"` —
+/** Dig the intelligence-usd attribute out of an OTLP payload. The exporter emits the verbatim key
+ *  `tangle.usage.intelligence_usd`, with the value under `doubleValue` or (for 0) `intValue: "0"` —
  *  so we suffix-match the key and coerce either numeric form. Walks the whole tree, robust to nesting. */
 function intelligenceUsd(otlpPayload: unknown): number | undefined {
   let found: number | undefined

@@ -177,6 +177,70 @@ export function composeCertifiedPrompt(base: string, certified: CertifiedProfile
   return `${base.trim()}\n\n## Certified guidance (Tangle Intelligence)\n\n${parts.join('\n\n')}`
 }
 
+/** A cached, self-refreshing source of a target's certified prompt additions —
+ *  the prompt-only delivery lane for callers that assemble their OWN system
+ *  prompt (product chat routes) rather than wrapping an agent fn. Same
+ *  fail-closed semantics as {@link withCertifiedDelivery}: pulls at most every
+ *  `refreshMs`, coalesces concurrent pulls, keeps the last-known profile on a
+ *  failed/404 pull, never throws, never blocks past the pull timeout. */
+export interface CertifiedPromptSource {
+  /** Refresh (window-respecting) then fold the certified additions into a
+   *  base system prompt. Returns `base` unchanged when nothing is promoted. */
+  compose(base: string): Promise<string>
+  /** The certified profile currently in effect (`null` = none pulled yet). */
+  current(): CertifiedProfile | null
+  /** Pull now if the refresh window has elapsed; coalesced and fail-closed. */
+  refresh(): Promise<void>
+}
+
+/** Options for {@link createCertifiedPromptSource} — the pull coordinates plus
+ *  the refresh cadence. */
+export interface CertifiedPromptSourceOptions extends PullCertifiedOptions {
+  /** Min interval between certified-profile pulls. Default 5m. */
+  refreshMs?: number
+}
+
+/**
+ * Create the cached certified-prompt source — the ONE module-scope-cache +
+ * coalesced-refresh + keep-last-known implementation. Product wiring uses this
+ * rather than hand-rolling the same lines around `pullCertified`, and
+ * {@link withCertifiedDelivery} is built on it.
+ */
+export function createCertifiedPromptSource(
+  opts: CertifiedPromptSourceOptions,
+): CertifiedPromptSource {
+  const refreshMs = opts.refreshMs ?? defaultRefreshMs
+  let certified: CertifiedProfile | null = null
+  let lastPullAt = 0
+  let inflight: Promise<void> | null = null
+
+  async function refresh(): Promise<void> {
+    if (Date.now() - lastPullAt < refreshMs) return
+    if (inflight) return inflight
+    inflight = (async () => {
+      const outcome = await pullCertified(opts)
+      lastPullAt = Date.now()
+      // Only replace the cache on a real pull; a 404/error keeps the last-known
+      // certified profile (or null) — fail-closed, never wipe a good surface.
+      if (outcome.succeeded) certified = outcome.value
+    })()
+    try {
+      await inflight
+    } finally {
+      inflight = null
+    }
+  }
+
+  return {
+    refresh,
+    current: () => certified,
+    async compose(base: string): Promise<string> {
+      await refresh()
+      return composeCertifiedPrompt(base, certified)
+    },
+  }
+}
+
 /** What the delivery wrapper hands the agent each run. */
 export interface AppliedIntelligence {
   /** The certified profile in effect (null when none promoted / pull failed —
@@ -218,37 +282,18 @@ export function withCertifiedDelivery<I, O>(
   config: DeliveryConfig,
 ): ((input: I) => Promise<O>) & { refresh(): Promise<void> } {
   const client = createIntelligenceClient(config)
-  const target = config.target ?? config.project
-  const refreshMs = config.refreshMs ?? defaultRefreshMs
-  let certified: CertifiedProfile | null = null
-  let lastPullAt = 0
-  let inflight: Promise<void> | null = null
-
-  async function refresh(): Promise<void> {
-    if (Date.now() - lastPullAt < refreshMs) return
-    if (inflight) return inflight
-    inflight = (async () => {
-      const outcome = await pullCertified({
-        target,
-        apiKey: config.apiKey,
-        baseUrl: config.baseUrl,
-        timeoutMs: config.timeoutMs,
-        fetchImpl: config.fetchImpl,
-      })
-      lastPullAt = Date.now()
-      // Only replace the cache on a real pull; a 404/error keeps the last-known
-      // certified profile (or null) — fail-closed, never wipe a good surface.
-      if (outcome.succeeded) certified = outcome.value
-    })()
-    try {
-      await inflight
-    } finally {
-      inflight = null
-    }
-  }
+  const source = createCertifiedPromptSource({
+    target: config.target ?? config.project,
+    ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
+    ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+    ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.fetchImpl !== undefined ? { fetchImpl: config.fetchImpl } : {}),
+    ...(config.refreshMs !== undefined ? { refreshMs: config.refreshMs } : {}),
+  })
 
   const wrapped = (async (input: I): Promise<O> => {
-    await refresh()
+    await source.refresh()
+    const certified = source.current()
     const applied: AppliedIntelligence = {
       certified,
       composePrompt: (base: string) => composeCertifiedPrompt(base, certified),
@@ -262,6 +307,6 @@ export function withCertifiedDelivery<I, O>(
       },
     )
   }) as ((input: I) => Promise<O>) & { refresh(): Promise<void> }
-  wrapped.refresh = refresh
+  wrapped.refresh = source.refresh
   return wrapped
 }

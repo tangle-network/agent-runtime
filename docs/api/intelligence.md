@@ -606,6 +606,10 @@ Defined in: [intelligence/delivery.ts:58](https://github.com/tangle-network/agen
 
 Defined in: [intelligence/delivery.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L67)
 
+#### Extended by
+
+- [`CertifiedPromptSourceOptions`](#certifiedpromptsourceoptions)
+
 #### Properties
 
 ##### target
@@ -667,9 +671,167 @@ Abort the pull after this many ms so a hung plane never blocks the caller.
 
 ***
 
+### CertifiedPromptSource
+
+Defined in: [intelligence/delivery.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L186)
+
+A cached, self-refreshing source of a target's certified prompt additions —
+ the prompt-only delivery lane for callers that assemble their OWN system
+ prompt (product chat routes) rather than wrapping an agent fn. Same
+ fail-closed semantics as [withCertifiedDelivery](#withcertifieddelivery): pulls at most every
+ `refreshMs`, coalesces concurrent pulls, keeps the last-known profile on a
+ failed/404 pull, never throws, never blocks past the pull timeout.
+
+#### Methods
+
+##### compose()
+
+> **compose**(`base`): `Promise`\<`string`\>
+
+Defined in: [intelligence/delivery.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L189)
+
+Refresh (window-respecting) then fold the certified additions into a
+ base system prompt. Returns `base` unchanged when nothing is promoted.
+
+###### Parameters
+
+###### base
+
+`string`
+
+###### Returns
+
+`Promise`\<`string`\>
+
+##### current()
+
+> **current**(): [`CertifiedProfile`](#certifiedprofile) \| `null`
+
+Defined in: [intelligence/delivery.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L191)
+
+The certified profile currently in effect (`null` = none pulled yet).
+
+###### Returns
+
+[`CertifiedProfile`](#certifiedprofile) \| `null`
+
+##### refresh()
+
+> **refresh**(): `Promise`\<`void`\>
+
+Defined in: [intelligence/delivery.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L193)
+
+Pull now if the refresh window has elapsed; coalesced and fail-closed.
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### CertifiedPromptSourceOptions
+
+Defined in: [intelligence/delivery.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L198)
+
+Options for [createCertifiedPromptSource](#createcertifiedpromptsource) — the pull coordinates plus
+ the refresh cadence.
+
+#### Extends
+
+- [`PullCertifiedOptions`](#pullcertifiedoptions)
+
+#### Properties
+
+##### target
+
+> **target**: `string`
+
+Defined in: [intelligence/delivery.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L69)
+
+The agent target certified artifacts are promoted under.
+
+###### Inherited from
+
+[`PullCertifiedOptions`](#pullcertifiedoptions).[`target`](#target-2)
+
+##### apiKey?
+
+> `optional` **apiKey?**: `string`
+
+Defined in: [intelligence/delivery.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L71)
+
+Bearer key. Defaults to `process.env.TANGLE_API_KEY`.
+
+###### Inherited from
+
+[`PullCertifiedOptions`](#pullcertifiedoptions).[`apiKey`](#apikey)
+
+##### baseUrl?
+
+> `optional` **baseUrl?**: `string`
+
+Defined in: [intelligence/delivery.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L74)
+
+Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
+ `https://intelligence.tangle.tools`.
+
+###### Inherited from
+
+[`PullCertifiedOptions`](#pullcertifiedoptions).[`baseUrl`](#baseurl)
+
+##### fetchImpl?
+
+> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
+
+Defined in: [intelligence/delivery.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L76)
+
+fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch.
+
+###### Parameters
+
+###### input
+
+`string` \| `URL` \| `Request`
+
+###### init?
+
+`RequestInit`
+
+###### Returns
+
+`Promise`\<`Response`\>
+
+###### Inherited from
+
+[`PullCertifiedOptions`](#pullcertifiedoptions).[`fetchImpl`](#fetchimpl)
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [intelligence/delivery.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L80)
+
+Abort the pull after this many ms so a hung plane never blocks the caller.
+ Default 10000. The timeout surfaces as a normal fail-closed `succeeded:
+ false` (the agent runs on its base surface).
+
+###### Inherited from
+
+[`PullCertifiedOptions`](#pullcertifiedoptions).[`timeoutMs`](#timeoutms)
+
+##### refreshMs?
+
+> `optional` **refreshMs?**: `number`
+
+Defined in: [intelligence/delivery.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L200)
+
+Min interval between certified-profile pulls. Default 5m.
+
+***
+
 ### AppliedIntelligence
 
-Defined in: [intelligence/delivery.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L181)
+Defined in: [intelligence/delivery.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L245)
 
 What the delivery wrapper hands the agent each run.
 
@@ -679,7 +841,7 @@ What the delivery wrapper hands the agent each run.
 
 > **certified**: [`CertifiedProfile`](#certifiedprofile) \| `null`
 
-Defined in: [intelligence/delivery.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L184)
+Defined in: [intelligence/delivery.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L248)
 
 The certified profile in effect (null when none promoted / pull failed —
  fail-closed: the agent runs on its base surface).
@@ -690,7 +852,7 @@ The certified profile in effect (null when none promoted / pull failed —
 
 > **composePrompt**(`base`): `string`
 
-Defined in: [intelligence/delivery.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L186)
+Defined in: [intelligence/delivery.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L250)
 
 Fold the certified prompt surface into a base system prompt.
 
@@ -708,7 +870,7 @@ Fold the certified prompt surface into a base system prompt.
 
 ### DeliveryConfig
 
-Defined in: [intelligence/delivery.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L194)
+Defined in: [intelligence/delivery.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L258)
 
 Delivery config = the Observe config plus the pull target + refresh cadence.
 
@@ -722,7 +884,7 @@ Delivery config = the Observe config plus the pull target + refresh cadence.
 
 > `optional` **target?**: `string`
 
-Defined in: [intelligence/delivery.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L196)
+Defined in: [intelligence/delivery.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L260)
 
 Pull target. Defaults to `project`.
 
@@ -730,7 +892,7 @@ Pull target. Defaults to `project`.
 
 > `optional` **baseUrl?**: `string`
 
-Defined in: [intelligence/delivery.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L199)
+Defined in: [intelligence/delivery.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L263)
 
 Plane base URL for the pull (NOT the OTLP `endpoint`). Defaults to
  `TANGLE_INTELLIGENCE_URL` then `https://intelligence.tangle.tools`.
@@ -739,7 +901,7 @@ Plane base URL for the pull (NOT the OTLP `endpoint`). Defaults to
 
 > `optional` **refreshMs?**: `number`
 
-Defined in: [intelligence/delivery.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L201)
+Defined in: [intelligence/delivery.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L265)
 
 Min interval between certified-profile pulls. Default 5m.
 
@@ -747,7 +909,7 @@ Min interval between certified-profile pulls. Default 5m.
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [intelligence/delivery.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L203)
+Defined in: [intelligence/delivery.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L267)
 
 Per-pull timeout in ms (fail-closed on a hung plane). Default 10000.
 
@@ -755,7 +917,7 @@ Per-pull timeout in ms (fail-closed on a hung plane). Default 10000.
 
 > `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
 
-Defined in: [intelligence/delivery.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L205)
+Defined in: [intelligence/delivery.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L269)
 
 fetch impl for the pull (tests). Defaults to global fetch.
 
@@ -777,7 +939,7 @@ fetch impl for the pull (tests). Defaults to global fetch.
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L124)
+Defined in: [intelligence/index.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L131)
 
 Stable project id — the tenant dimension every trace is tagged with.
 
@@ -789,19 +951,19 @@ Stable project id — the tenant dimension every trace is tagged with.
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [intelligence/index.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L126)
+Defined in: [intelligence/index.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L133)
 
 Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`apiKey`](#apikey-2)
+[`IntelligenceConfig`](#intelligenceconfig).[`apiKey`](#apikey-3)
 
 ##### effort?
 
 > `optional` **effort?**: [`EffortTier`](#efforttier) \| \{ `tier`: [`EffortTier`](#efforttier); `overrides?`: `Partial`\<[`EffortSettings`](#effortsettings)\>; \}
 
-Defined in: [intelligence/index.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L128)
+Defined in: [intelligence/index.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L135)
 
 Effort tier (default `'standard'`) plus optional per-field overrides.
 
@@ -813,7 +975,7 @@ Effort tier (default `'standard'`) plus optional per-field overrides.
 
 > `optional` **endpoint?**: `string`
 
-Defined in: [intelligence/index.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L135)
+Defined in: [intelligence/index.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L142)
 
 OTLP ingest base. The underlying exporter appends `/v1/traces`, so point
 this at the OTLP route (e.g. `https://intelligence.tangle.tools/v1/otlp`).
@@ -828,7 +990,7 @@ omitted; absent all three, export is a no-op (best-effort by construction).
 
 > `optional` **redact?**: `false` \| [`Redactor`](#redactor)
 
-Defined in: [intelligence/index.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L141)
+Defined in: [intelligence/index.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L148)
 
 Redaction hook run over every exported input/output. A function replaces
 the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -842,7 +1004,7 @@ sanitized upstream); omitted ⇒ the built-in `defaultRedactor`.
 
 > `optional` **surfaces?**: `string`[]
 
-Defined in: [intelligence/index.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L143)
+Defined in: [intelligence/index.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L150)
 
 Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
@@ -854,7 +1016,7 @@ Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
 > `optional` **checks?**: `string`[]
 
-Defined in: [intelligence/index.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L145)
+Defined in: [intelligence/index.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L152)
 
 Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
@@ -866,7 +1028,7 @@ Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
 > `optional` **repo?**: [`RepoConfig`](#repoconfig)
 
-Defined in: [intelligence/index.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L147)
+Defined in: [intelligence/index.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L154)
 
 Repo access a later PR mode would need. Recorded for `doctor()` only.
 
@@ -990,7 +1152,7 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ### UsageSplit
 
-Defined in: [intelligence/index.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L103)
+Defined in: [intelligence/index.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L110)
 
 The per-class cost split carried by every trace and outcome. `off` ⇒
 `intelligenceUsd: 0` by construction — there is no intelligence spawn to
@@ -1002,7 +1164,7 @@ bill. This is a classification on the trace, NOT a budget-pool split.
 
 > **inferenceUsd**: `number`
 
-Defined in: [intelligence/index.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L105)
+Defined in: [intelligence/index.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L112)
 
 Base-stream (model) spend in USD.
 
@@ -1010,7 +1172,7 @@ Base-stream (model) spend in USD.
 
 > **intelligenceUsd**: `number`
 
-Defined in: [intelligence/index.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L107)
+Defined in: [intelligence/index.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L114)
 
 Intelligence-spawn spend in USD. Provably `0` at the OFF tier.
 
@@ -1018,7 +1180,7 @@ Intelligence-spawn spend in USD. Provably `0` at the OFF tier.
 
 ### RepoConfig
 
-Defined in: [intelligence/index.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L113)
+Defined in: [intelligence/index.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L120)
 
 Repo coordinates a product may declare for the (later) Gated-PR mode. The
  Observe slice only records their PRESENCE for `doctor()`; it never touches
@@ -1030,25 +1192,25 @@ Repo coordinates a product may declare for the (later) Gated-PR mode. The
 
 > **owner**: `string`
 
-Defined in: [intelligence/index.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L114)
+Defined in: [intelligence/index.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L121)
 
 ##### name
 
 > **name**: `string`
 
-Defined in: [intelligence/index.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L115)
+Defined in: [intelligence/index.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L122)
 
 ##### baseBranch
 
 > **baseBranch**: `string`
 
-Defined in: [intelligence/index.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L116)
+Defined in: [intelligence/index.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L123)
 
 ***
 
 ### IntelligenceConfig
 
-Defined in: [intelligence/index.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L122)
+Defined in: [intelligence/index.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L129)
 
 Client configuration. `project` + `apiKey` are the Observe minimum; the
  rest tune effort, endpoint, redaction, and (for `doctor()` readiness)
@@ -1064,7 +1226,7 @@ Client configuration. `project` + `apiKey` are the Observe minimum; the
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L124)
+Defined in: [intelligence/index.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L131)
 
 Stable project id — the tenant dimension every trace is tagged with.
 
@@ -1072,7 +1234,7 @@ Stable project id — the tenant dimension every trace is tagged with.
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [intelligence/index.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L126)
+Defined in: [intelligence/index.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L133)
 
 Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
@@ -1080,7 +1242,7 @@ Bearer key for the Intelligence ingest. Reads `TANGLE_API_KEY` when omitted.
 
 > `optional` **effort?**: [`EffortTier`](#efforttier) \| \{ `tier`: [`EffortTier`](#efforttier); `overrides?`: `Partial`\<[`EffortSettings`](#effortsettings)\>; \}
 
-Defined in: [intelligence/index.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L128)
+Defined in: [intelligence/index.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L135)
 
 Effort tier (default `'standard'`) plus optional per-field overrides.
 
@@ -1088,7 +1250,7 @@ Effort tier (default `'standard'`) plus optional per-field overrides.
 
 > `optional` **endpoint?**: `string`
 
-Defined in: [intelligence/index.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L135)
+Defined in: [intelligence/index.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L142)
 
 OTLP ingest base. The underlying exporter appends `/v1/traces`, so point
 this at the OTLP route (e.g. `https://intelligence.tangle.tools/v1/otlp`).
@@ -1099,7 +1261,7 @@ omitted; absent all three, export is a no-op (best-effort by construction).
 
 > `optional` **redact?**: `false` \| [`Redactor`](#redactor)
 
-Defined in: [intelligence/index.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L141)
+Defined in: [intelligence/index.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L148)
 
 Redaction hook run over every exported input/output. A function replaces
 the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -1109,7 +1271,7 @@ sanitized upstream); omitted ⇒ the built-in `defaultRedactor`.
 
 > `optional` **surfaces?**: `string`[]
 
-Defined in: [intelligence/index.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L143)
+Defined in: [intelligence/index.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L150)
 
 Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
@@ -1117,7 +1279,7 @@ Mutable surfaces a later PR mode would edit. Recorded for `doctor()` only.
 
 > `optional` **checks?**: `string`[]
 
-Defined in: [intelligence/index.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L145)
+Defined in: [intelligence/index.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L152)
 
 Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
@@ -1125,7 +1287,7 @@ Verification checks a later PR mode would gate on. Recorded for `doctor()` only.
 
 > `optional` **repo?**: [`RepoConfig`](#repoconfig)
 
-Defined in: [intelligence/index.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L147)
+Defined in: [intelligence/index.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L154)
 
 Repo access a later PR mode would need. Recorded for `doctor()` only.
 
@@ -1133,7 +1295,7 @@ Repo access a later PR mode would need. Recorded for `doctor()` only.
 
 ### TraceMeta
 
-Defined in: [intelligence/index.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L151)
+Defined in: [intelligence/index.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L158)
 
 Metadata describing one traced run. `runId`/`traceId` default to fresh ids.
 
@@ -1143,7 +1305,7 @@ Metadata describing one traced run. `runId`/`traceId` default to fresh ids.
 
 > `optional` **input?**: `unknown`
 
-Defined in: [intelligence/index.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L153)
+Defined in: [intelligence/index.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L160)
 
 The run's input — exported through the redactor.
 
@@ -1151,7 +1313,7 @@ The run's input — exported through the redactor.
 
 > `optional` **runId?**: `string`
 
-Defined in: [intelligence/index.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L155)
+Defined in: [intelligence/index.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L162)
 
 Stable run id. Defaults to a fresh id.
 
@@ -1159,7 +1321,7 @@ Stable run id. Defaults to a fresh id.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [intelligence/index.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L157)
+Defined in: [intelligence/index.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L164)
 
 32-hex trace id. Defaults to a fresh id.
 
@@ -1167,7 +1329,7 @@ Defined in: [intelligence/index.ts:157](https://github.com/tangle-network/agent-
 
 > `optional` **model?**: `string`
 
-Defined in: [intelligence/index.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L159)
+Defined in: [intelligence/index.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L166)
 
 Model id, when known — stamped on the span.
 
@@ -1175,7 +1337,7 @@ Model id, when known — stamped on the span.
 
 > `optional` **provider?**: `string`
 
-Defined in: [intelligence/index.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L161)
+Defined in: [intelligence/index.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L168)
 
 Provider name, when known — stamped on the span.
 
@@ -1183,7 +1345,7 @@ Provider name, when known — stamped on the span.
 
 > `optional` **labels?**: `Record`\<`string`, `string` \| `number` \| `boolean`\>
 
-Defined in: [intelligence/index.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L163)
+Defined in: [intelligence/index.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L170)
 
 Arbitrary extra labels (string/number/boolean) stamped on the span.
 
@@ -1191,7 +1353,7 @@ Arbitrary extra labels (string/number/boolean) stamped on the span.
 
 ### TraceHandle
 
-Defined in: [intelligence/index.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L172)
+Defined in: [intelligence/index.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L179)
 
 The trace handle a `traceRun` body records into. `recordOutput` captures the
 agent's result (redacted on export); `recordOutcome` captures the scored
@@ -1204,7 +1366,7 @@ an un-recorded run still exports a span with whatever was set.
 
 > **recordOutput**(`output`): `void`
 
-Defined in: [intelligence/index.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L174)
+Defined in: [intelligence/index.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L181)
 
 Capture the run's output. Exported through the redactor.
 
@@ -1222,7 +1384,7 @@ Capture the run's output. Exported through the redactor.
 
 > **recordOutcome**(`outcome`): `void`
 
-Defined in: [intelligence/index.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L181)
+Defined in: [intelligence/index.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L188)
 
 Capture the run's outcome. `usage` defaults to inference-only
 (`intelligenceUsd: 0`) — the OFF baseline; an intelligence-enabled run
@@ -1257,7 +1419,7 @@ treated as pure inference.
 
 ### RecordTraceMeta
 
-Defined in: [intelligence/index.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L190)
+Defined in: [intelligence/index.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L197)
 
 Metadata for [IntelligenceClient.recordTrace](#recordtrace).
 
@@ -1267,7 +1429,7 @@ Metadata for [IntelligenceClient.recordTrace](#recordtrace).
 
 > `optional` **traceId?**: `string`
 
-Defined in: [intelligence/index.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L192)
+Defined in: [intelligence/index.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L199)
 
 32-hex trace id to anchor every span to. Defaults to a fresh id.
 
@@ -1275,7 +1437,7 @@ Defined in: [intelligence/index.ts:192](https://github.com/tangle-network/agent-
 
 > `optional` **rootParentSpanId?**: `string`
 
-Defined in: [intelligence/index.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L195)
+Defined in: [intelligence/index.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L202)
 
 Span id of an enclosing span the loop root should parent under (e.g. a
  `traceRun` span). Omitted ⇒ the loop root is the trace root.
@@ -1284,7 +1446,7 @@ Span id of an enclosing span the loop root should parent under (e.g. a
 
 ### TraceOutcome
 
-Defined in: [intelligence/index.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L200)
+Defined in: [intelligence/index.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L207)
 
 The resolved outcome of one traced run, surfaced on the export span and
  available to the caller for downstream billing assertions.
@@ -1295,25 +1457,25 @@ The resolved outcome of one traced run, surfaced on the export span and
 
 > **runId**: `string`
 
-Defined in: [intelligence/index.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L201)
+Defined in: [intelligence/index.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L208)
 
 ##### traceId
 
 > **traceId**: `string`
 
-Defined in: [intelligence/index.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L202)
+Defined in: [intelligence/index.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L209)
 
 ##### project
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L203)
+Defined in: [intelligence/index.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L210)
 
 ##### effort
 
 > **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L205)
+Defined in: [intelligence/index.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L212)
 
 The resolved effort settings this run executed under.
 
@@ -1321,7 +1483,7 @@ The resolved effort settings this run executed under.
 
 > **intelligenceOff**: `boolean`
 
-Defined in: [intelligence/index.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L207)
+Defined in: [intelligence/index.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L214)
 
 True when this run ran as pure passthrough (the OFF floor).
 
@@ -1329,19 +1491,19 @@ True when this run ran as pure passthrough (the OFF floor).
 
 > `optional` **success?**: `boolean`
 
-Defined in: [intelligence/index.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L208)
+Defined in: [intelligence/index.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L215)
 
 ##### score?
 
 > `optional` **score?**: `number`
 
-Defined in: [intelligence/index.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L209)
+Defined in: [intelligence/index.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L216)
 
 ##### usage
 
 > **usage**: [`UsageSplit`](#usagesplit)
 
-Defined in: [intelligence/index.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L211)
+Defined in: [intelligence/index.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L218)
 
 Per-class billing split. `intelligenceUsd` is `0` at the OFF tier.
 
@@ -1349,7 +1511,7 @@ Per-class billing split. `intelligenceUsd` is `0` at the OFF tier.
 
 ### IntelligenceClient
 
-Defined in: [intelligence/index.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L215)
+Defined in: [intelligence/index.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L222)
 
 The Observe-mode Intelligence client.
 
@@ -1359,7 +1521,7 @@ The Observe-mode Intelligence client.
 
 > `readonly` **project**: `string`
 
-Defined in: [intelligence/index.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L217)
+Defined in: [intelligence/index.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L224)
 
 The resolved project id.
 
@@ -1367,7 +1529,7 @@ The resolved project id.
 
 > `readonly` **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L219)
+Defined in: [intelligence/index.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L226)
 
 The resolved effort settings.
 
@@ -1377,7 +1539,7 @@ The resolved effort settings.
 
 > **traceRun**\<`T`\>(`meta`, `fn`): `Promise`\<`T`\>
 
-Defined in: [intelligence/index.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L225)
+Defined in: [intelligence/index.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L232)
 
 Run `fn` under a trace, export one span best-effort, and return whatever
 `fn` returns. Telemetry-export failures are swallowed; an error THROWN by
@@ -1407,7 +1569,7 @@ Run `fn` under a trace, export one span best-effort, and return whatever
 
 > **recordTrace**(`events`, `meta?`): `string`
 
-Defined in: [intelligence/index.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L235)
+Defined in: [intelligence/index.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L242)
 
 Export a run's full loop topology — the ordered `LoopTraceEvent` stream a
 `runLoop`/`Supervisor` run emits — as a nested OTLP span tree (loop → round →
@@ -1435,7 +1597,7 @@ readonly [`LoopTraceEvent`](runtime.md#looptraceevent)[]
 
 > **doctor**(): [`DoctorReport`](#doctorreport)
 
-Defined in: [intelligence/index.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L241)
+Defined in: [intelligence/index.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L248)
 
 Network-free readiness report: which adoption modes are reachable given
 this config. Observe is always reachable; Recommend needs outcomes; PR
@@ -1449,7 +1611,7 @@ needs checks + surfaces + repo.
 
 > **flush**(): `Promise`\<`void`\>
 
-Defined in: [intelligence/index.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L243)
+Defined in: [intelligence/index.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L250)
 
 Flush any pending export spans. Best-effort; resolves even if export fails.
 
@@ -1461,7 +1623,7 @@ Flush any pending export spans. Best-effort; resolves even if export fails.
 
 ### ModeReadiness
 
-Defined in: [intelligence/index.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L247)
+Defined in: [intelligence/index.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L254)
 
 One mode's readiness verdict.
 
@@ -1471,13 +1633,13 @@ One mode's readiness verdict.
 
 > **ready**: `boolean`
 
-Defined in: [intelligence/index.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L248)
+Defined in: [intelligence/index.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L255)
 
 ##### missing
 
 > **missing**: `string`[]
 
-Defined in: [intelligence/index.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L250)
+Defined in: [intelligence/index.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L257)
 
 Inputs this mode still needs, when not ready. Empty when ready.
 
@@ -1485,7 +1647,7 @@ Inputs this mode still needs, when not ready. Empty when ready.
 
 ### DoctorReport
 
-Defined in: [intelligence/index.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L254)
+Defined in: [intelligence/index.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L261)
 
 The `doctor()` readiness report — Mode-readiness without any network call.
 
@@ -1495,19 +1657,19 @@ The `doctor()` readiness report — Mode-readiness without any network call.
 
 > **project**: `string`
 
-Defined in: [intelligence/index.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L255)
+Defined in: [intelligence/index.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L262)
 
 ##### effort
 
 > **effort**: [`EffortSettings`](#effortsettings)
 
-Defined in: [intelligence/index.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L256)
+Defined in: [intelligence/index.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L263)
 
 ##### exportConfigured
 
 > **exportConfigured**: `boolean`
 
-Defined in: [intelligence/index.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L258)
+Defined in: [intelligence/index.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L265)
 
 True when an OTLP endpoint is configured (export will actually ship).
 
@@ -1515,7 +1677,7 @@ True when an OTLP endpoint is configured (export will actually ship).
 
 > **modes**: `object`
 
-Defined in: [intelligence/index.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L259)
+Defined in: [intelligence/index.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L266)
 
 ###### observe
 
@@ -1831,7 +1993,7 @@ Typed outcome for the pull — inspect `succeeded` before `value`. A 404
 
 > **DeliveredAgent**\<`I`, `O`\> = (`input`, `applied`) => `Promise`\<`O`\>
 
-Defined in: [intelligence/delivery.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L191)
+Defined in: [intelligence/delivery.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L255)
 
 An agent wrapped by [withCertifiedDelivery](#withcertifieddelivery): receives the input plus
  the certified intelligence delivered for this run.
@@ -1900,7 +2062,7 @@ Per-field overrides applied on top of a tier preset. Any subset of the
 
 > **UsageClass** = `"inference"` \| `"intelligence"`
 
-Defined in: [intelligence/index.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L96)
+Defined in: [intelligence/index.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L103)
 
 Usage class for billing. Base-stream tokens bill `'inference'`; every
  intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The
@@ -1912,7 +2074,7 @@ Usage class for billing. Base-stream tokens bill `'inference'`; every
 
 > **Agent**\<`TInput`, `TOutput`\> = (`input`) => `Promise`\<`TOutput`\>
 
-Defined in: [intelligence/index.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L512)
+Defined in: [intelligence/index.ts:519](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L519)
 
 A generic agent: one async input → output. The shape `withTangleIntelligence`
  preserves exactly.
@@ -1943,7 +2105,7 @@ A generic agent: one async input → output. The shape `withTangleIntelligence`
 
 > **ClientOrConfig** = [`IntelligenceClient`](#intelligenceclient) \| [`IntelligenceConfig`](#intelligenceconfig)
 
-Defined in: [intelligence/index.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L515)
+Defined in: [intelligence/index.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L522)
 
 Either a built client or the config to build one.
 
@@ -2060,11 +2222,34 @@ usable certified content.
 
 ***
 
+### createCertifiedPromptSource()
+
+> **createCertifiedPromptSource**(`opts`): [`CertifiedPromptSource`](#certifiedpromptsource)
+
+Defined in: [intelligence/delivery.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L209)
+
+Create the cached certified-prompt source — the ONE module-scope-cache +
+coalesced-refresh + keep-last-known implementation. Product wiring uses this
+rather than hand-rolling the same lines around `pullCertified`, and
+[withCertifiedDelivery](#withcertifieddelivery) is built on it.
+
+#### Parameters
+
+##### opts
+
+[`CertifiedPromptSourceOptions`](#certifiedpromptsourceoptions)
+
+#### Returns
+
+[`CertifiedPromptSource`](#certifiedpromptsource)
+
+***
+
 ### withCertifiedDelivery()
 
 > **withCertifiedDelivery**\<`I`, `O`\>(`agent`, `config`): (`input`) => `Promise`\<`O`\> & `object`
 
-Defined in: [intelligence/delivery.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L216)
+Defined in: [intelligence/delivery.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/delivery.ts#L280)
 
 Wrap an agent so it (a) Observes each run via the shipped Observe client and
 (b) RECEIVES the tenant's certified artifacts pulled from the deployed plane.
@@ -2187,7 +2372,7 @@ compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
 
 > **createIntelligenceClient**(`config`): [`IntelligenceClient`](#intelligenceclient)
 
-Defined in: [intelligence/index.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L323)
+Defined in: [intelligence/index.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L330)
 
 Create an Observe-mode Intelligence client. Resolves effort, endpoint, and
 redactor up front; the exporter is built lazily and is `undefined` when no
@@ -2210,7 +2395,7 @@ construction).
 
 > **withTangleIntelligence**\<`TInput`, `TOutput`\>(`agent`, `clientOrConfig`): [`Agent`](#agent)\<`TInput`, `TOutput`\>
 
-Defined in: [intelligence/index.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L530)
+Defined in: [intelligence/index.ts:537](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/index.ts#L537)
 
 Wrap a generic `agent` with best-effort Observe-mode tracing, returning the
 SAME shape. Each call runs the agent under a trace and exports one span; an

@@ -270,7 +270,7 @@ Import from `@tangle-network/agent-runtime/agent` — 33 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -278,6 +278,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 | `composeCertifiedProfile` | function | Compose a certified profile into a uniform `ResolvedSurface`. Additive over |
 | `composeCertifiedProfileFromWire` | function | Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via |
 | `composeCertifiedPrompt` | function | Fold the certified prompt surface (and any certified prompt-folding artifacts: |
+| `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, endpoint, and |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
@@ -294,6 +295,8 @@ Import from `@tangle-network/agent-runtime/intelligence` — 60 exports.
 | `CertifiedArtifact` | interface | A promoted, certified artifact (one entry in the composed profile). |
 | `CertifiedCapability` | interface | One certified unit of agent power. |
 | `CertifiedProfile` | interface | The composed certified profile — exactly the shape the plane's |
+| `CertifiedPromptSource` | interface | A cached, self-refreshing source of a target's certified prompt additions — |
+| `CertifiedPromptSourceOptions` | interface | Options for {@link createCertifiedPromptSource} — the pull coordinates plus |
 | `CertifiedPromptSurface` | interface | The active promoted prompt surface for a target. |
 | `CertProvenance` | interface | The certify lane's held-out lift travelling WITH delivery. The shipped |
 | `CredentialRef` | interface | A named secret a binding requires — declared, never carried. |
