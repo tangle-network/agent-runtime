@@ -124,6 +124,7 @@ the gate + measurement tools:
   corpus-replay.mts  --selector: selector@k vs random@k vs oracle@k over a corpus (THE offline gate)
   corpus-report.mts  paired-bootstrap CI + Benjamini-Hochberg over corpora
   gate-cli.mts  the recursive diverse-vs-blind gate through `runGate` (Supervisor)
+  run-benchmarks-cli.mts  runBenchmarks: any subset of the ADAPTERS registry × model/harness cells, one combined ranked report (#420)
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
   terminal-compare.ts  Terminal-Bench compare (own main)
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):

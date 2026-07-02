@@ -1,26 +1,23 @@
 # agent-runtime examples
 
-A learning path. Read the examples in order — each one adds a single concept on top of the last.
-The fastest way to feel the package is to read **ONE** example: [`driver-loop/`](./driver-loop/)
-(below), which shows the move every supervisor is built on.
+Start by reading ONE example: [`driver-loop/`](./driver-loop/) — the move every supervisor is built on.
+The catalog below is a learning path for when you want more: each example adds a single concept on top of the last.
 
 Every example imports from `@tangle-network/agent-runtime` (the surface consumers use), not from
 relative paths, and they are typechecked by `pnpm run typecheck:examples` — except `researcher-loop`,
 which needs the optional `@tangle-network/agent-knowledge` peer that agent-runtime doesn't depend on
 and CI doesn't install, so it is excluded from that typecheck (run it with `agent-knowledge` installed).
 
-## Quickstart — run these three (≈5 min, two run offline)
-
-Get the feel before reading the full map. In order:
+## Quickstart — the golden path (≈5 min; the first two are $0, offline)
 
 ```bash
-pnpm tsx examples/driver-loop/driver-loop.ts                  # SEE THE FOLD — offline, no creds
-TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # one-call supervisor over real workers
-pnpm tsx examples/improve/improve.ts                          # the gated self-improvement verb — offline
+pnpm tsx examples/driver-loop/driver-loop.ts                  # 1. SEE THE FOLD — offline, no creds
+pnpm tsx examples/improve/improve.ts                          # 2. the gated self-improvement verb — offline
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one-call supervisor over real workers (router key)
 ```
 
-`driver-loop` is the one move everything else is built on; `supervise` is the one-call product entry;
-`improve` is the one self-improvement verb. The full learning path is below.
+`driver-loop` is the one move everything else is built on; `improve` is the one self-improvement
+verb; `supervise` is the one-call product entry. The full learning path is below.
 
 ## Vocabulary
 
@@ -93,6 +90,12 @@ purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver tha
 | 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | You want proof that any framework's traces converge on one OTel contract → one `InsightReport` (the CI-tested example). |
 | 22 | [`product-eval/`](./product-eval/) | You want user-sim product evals: a persona over a multi-round conversation via `runPersonaConversation`, then score the transcript (`maxTurns` is a ceiling, not a target). Needs `TANGLE_API_KEY` (the engine takes a `backendFor` override, but this example wires the live router). |
 | 23 | [`agentic-data-creation/`](./agentic-data-creation/) | You want the **Autodata inner loop**: an agent manufactures HARD training examples from a doc and keeps only the ones that DISCRIMINATE a strong solver from a weak one. Composes the fold (`runLoop`+refine driver), N× sampling (`runLoop`+fanout driver), `llmJudge`, `CostLedger`, and `Corpus`; the one new piece is `discriminativeAcceptRule`. Shows the calibration (plain gap ≈ 0.02 vs agentic ≈ 0.31). Offline. |
+
+## Research harnesses (not on the learning path)
+
+| Example | Use this when… |
+|---|---|
+| [`ablation-suite/`](./ablation-suite/) | You want the coordination-vs-raw-compute ablation (continuous vs ralph vs supervisor, cost-aware, paired-bootstrap Δ) — the suite behind the supervisor +20.8pp result. Needs `TANGLE_API_KEY`; run `ARMS=cal` first (its README explains why). |
 
 ## Conventions
 

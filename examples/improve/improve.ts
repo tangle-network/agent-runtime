@@ -95,6 +95,9 @@ async function main(): Promise<void> {
     // A perfect +1.0 lift at this n/reps clears the default held-out gate.
     budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
   })
+  console.log(
+    'improve() — proposed a new "prompt" surface from the analyst findings, measured it on held-out scenarios, and shipped only because the gate cleared (offline: scripted proposer, deterministic judge):',
+  )
   console.log(`shipped: ${out.shipped}  lift: ${out.lift.toFixed(3)}  gate: ${out.gateDecision}`)
   console.log(`prompt after: ${out.profile.prompt?.systemPrompt}`)
 }

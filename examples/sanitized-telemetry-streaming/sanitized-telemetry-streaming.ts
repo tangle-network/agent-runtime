@@ -8,7 +8,7 @@
  *   uris are dropped by default
  * - shows the opt-in path for privileged diagnostics via
  *   `RuntimeTelemetryOptions` flags
- * - prints the streaming summary at the end
+ * - prints each run's summary first, then its sanitized event wall
  *
  * Note on `task.intent`: this is fixed metadata that flows through
  * sanitized telemetry by default. NEVER set it to user input — use a
@@ -103,7 +103,9 @@ async function drain(label: string, collector: RuntimeStreamEventCollector): Pro
   })) {
     collector.onEvent(event as RuntimeStreamEvent)
   }
-  console.log(`--- ${label} stream events ---`)
+  console.log(`--- ${label}: summary ---`)
+  console.log(collector.summary())
+  console.log(`--- ${label}: sanitized events ---`)
   for (const e of collector.events) console.log(JSON.stringify(e))
 }
 
@@ -112,8 +114,6 @@ async function main() {
   // uris are all stripped — the safe-by-default state any telemetry sink gets.
   const safe = createRuntimeStreamEventCollector()
   await drain('safe (default redaction)', safe)
-  console.log('\n--- safe summary ---')
-  console.log(safe.summary())
 
   // ── 2. Opt-in verbose: a privileged operator triaging an incident turns on the
   // exact fields they need; everything they did NOT opt into stays redacted.
