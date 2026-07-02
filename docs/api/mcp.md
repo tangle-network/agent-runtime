@@ -4145,6 +4145,23 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 `Promise`\<`void`\>
 
+##### drainResolved()
+
+> **drainResolved**(): `Promise`\<`number`\>
+
+Defined in: [mcp/tools/coordination.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L146)
+
+Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
+as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
+calls this once its brain loop ends, so a delivered child the brain never awaited still
+reaches `finalizeBestDelivered` — a gate-verified delivery must never be lost to the
+driver's pull discipline. Analyst-on-settle hooks do NOT fire here (the driver has stopped;
+nobody is left to read a finding, and analysts spend real compute). Returns the count.
+
+###### Returns
+
+`Promise`\<`number`\>
+
 ***
 
 ### DelegateArgs
@@ -7334,7 +7351,7 @@ passed in because replay-safe paths must not read `Date.now`.
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
 
-Defined in: [mcp/tools/coordination.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L160)
+Defined in: [mcp/tools/coordination.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L169)
 
 Build the driver's MCP tools over a live scope.
 

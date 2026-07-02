@@ -295,6 +295,13 @@ export interface Scope<Out> {
    *  `null` when the live set is empty. */
   next(): Promise<Settled<Out> | null>
   /**
+   * Non-blocking twin of `next()`: deliver an ALREADY-settled, undelivered child, or `null`
+   * when none is ready — never awaits a live child. The driver's post-loop drain reads this so
+   * a child that settled while the driver was busy (or after it stopped pulling) still reaches
+   * the finalize ledger instead of being silently lost.
+   */
+  nextResolved(): Promise<Settled<Out> | null>
+  /**
    * Steer a RUNNING child out-of-band — deliver a message to its executor's inbox (the driver's
    * `send` verb: next-instruction, interrupt, or resume). Returns `true` if the message was
    * delivered to a live child whose executor accepts delivery, `false` otherwise (unknown id,
