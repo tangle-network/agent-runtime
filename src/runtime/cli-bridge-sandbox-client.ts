@@ -19,6 +19,8 @@
  * (an already-`${harness}/`-prefixed model passes through unchanged). Bridge
  * inference is free, so `spent.usd = 0`.
  */
+import { request as httpRequest } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import type { BackendType, CreateSandboxOptions } from '@tangle-network/sandbox'
 import { inlineSandboxClient } from './inline-sandbox-client'
 import type { ExecutorFactory, ExecutorResult } from './supervise/types'
@@ -73,31 +75,86 @@ interface ChatCompletion {
   error?: { message?: string }
 }
 
-async function bridgePost(
+/**
+ * POST one chat completion to the bridge. Uses the `node:http(s)` core client
+ * rather than global `fetch` ON PURPOSE: the bridge runs a harness CLI to
+ * completion and returns headers + body only when that finishes — routinely
+ * >5 min on a heavy agent turn. `fetch` (undici) caps the wait for the first
+ * response header at a fixed `headersTimeout` (~300s) that no per-request option
+ * or `AbortSignal` overrides, so it aborts a live-but-slow bridge with an opaque
+ * "Headers Timeout Error". The core client has no such cap; the ONLY bound is the
+ * `AbortSignal` below (`BRIDGE_TIMEOUT_MS`), which we honor explicitly.
+ */
+function bridgePost(
   url: string,
   bearer: string,
   bridgeModel: string,
   prompt: string,
   signal: AbortSignal,
 ): Promise<{ content: string; input: number; output: number }> {
-  const res = await fetch(`${url}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${bearer}` },
-    body: JSON.stringify({ model: bridgeModel, messages: [{ role: 'user', content: prompt }] }),
-    signal,
-  })
-  if (!res.ok) {
-    throw new Error(
-      `cli-bridge ${bridgeModel}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`,
+  const target = new URL(`${url.replace(/\/$/, '')}/v1/chat/completions`)
+  const body = JSON.stringify({ model: bridgeModel, messages: [{ role: 'user', content: prompt }] })
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error(`cli-bridge ${bridgeModel}: aborted before request`))
+      return
+    }
+    const req = requestFn(
+      target,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bearer}`,
+          'content-length': Buffer.byteLength(body),
+        },
+        // No header/body idle timeout: a slow bridge is a live bridge; the abort
+        // signal is the sole deadline.
+        timeout: 0,
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (c: Buffer) => chunks.push(c))
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8')
+          const status = res.statusCode ?? 0
+          if (status < 200 || status >= 300) {
+            reject(new Error(`cli-bridge ${bridgeModel}: HTTP ${status} ${text.slice(0, 300)}`))
+            return
+          }
+          let j: ChatCompletion
+          try {
+            j = JSON.parse(text) as ChatCompletion
+          } catch {
+            reject(new Error(`cli-bridge ${bridgeModel}: non-JSON body ${text.slice(0, 300)}`))
+            return
+          }
+          if (j.error) {
+            reject(new Error(`cli-bridge ${bridgeModel}: ${j.error.message}`))
+            return
+          }
+          resolve({
+            content: j.choices?.[0]?.message?.content ?? '',
+            input: j.usage?.prompt_tokens ?? 0,
+            output: j.usage?.completion_tokens ?? 0,
+          })
+        })
+      },
     )
-  }
-  const j = (await res.json()) as ChatCompletion
-  if (j.error) throw new Error(`cli-bridge ${bridgeModel}: ${j.error.message}`)
-  return {
-    content: j.choices?.[0]?.message?.content ?? '',
-    input: j.usage?.prompt_tokens ?? 0,
-    output: j.usage?.completion_tokens ?? 0,
-  }
+    const onAbort = (): void => {
+      req.destroy(
+        new Error(
+          `cli-bridge ${bridgeModel}: aborted (${BRIDGE_TIMEOUT_MS}ms deadline or upstream cancel)`,
+        ),
+      )
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    req.on('error', (e) => reject(new Error(`cli-bridge ${bridgeModel}: ${e.message}`)))
+    req.on('close', () => signal.removeEventListener('abort', onAbort))
+    req.write(body)
+    req.end()
+  })
 }
 
 /**
