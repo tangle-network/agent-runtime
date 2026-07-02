@@ -28,6 +28,8 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
+**The vocabulary law (ends the overload):** "driver" and "worker" are roles of one `Agent`, so "driver↔worker loop" must always be qualified by **timescale** — inference (within a run) vs optimization (across runs). A benchmark is an **adapter**; the thing that picks the answer is the **selector**, never the judge.
+
 ## Topology (how the shape grows — by LLM decision, not a fixed script)
 
 The shape grows by LLM decision through the **coordination toolbox** over a live `Scope`: the driver `AgentProfile` calls `spawn_agent` (branch), `await_event` (react), `steer_agent` (interrupt), `stop` — and `runAgentic`/`defineStrategy` package the common depth/breadth shapes on the Supervisor.
