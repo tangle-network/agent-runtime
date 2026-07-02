@@ -59,6 +59,14 @@ barrel re-exports the sandbox alias as a one-stop import), which also owns
 (`harnessSupportsModel` / `reasoningEffortsFor`) — so harness/model/reasoning
 compatibility is a queryable contract, not an assumption.
 
+Harness is a RUN-layer coordinate, not part of the portable genome: it rides on
+agent-runtime's `AgentSpec { profile, harness }`. To sweep it as an eval axis,
+don't hand-declare a harness list — expand one base profile across
+`CODING_HARNESSES` with `expandProfileAxes` (agent-eval), run with
+`runProfileMatrix`, and pivot results by the stamped `AgentProfileCell`
+(`groupRunsByAgentProfileCell`); incompatible `(harness, model)` pairs drop via
+`harnessSupportsModel`.
+
 | Altitude — I want to… | Use | Source |
 |---|---|---|
 | **Define a genome** (who the agent is + what it can do, ONE surface) | `AgentProfile` (runnable) / `AgentSurfaces` (the editable-coordinate map) — `/loops`, `/agent` | canonical-api §3.2 |
@@ -74,6 +82,7 @@ compatibility is a queryable contract, not an assumption.
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
 | **Benchmark report: multi-profile × multi-axis leaderboard** (ranked board + score matrix + SVG/HTML charts, any `RunRecord[]`) | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml` — `/loops` | canonical-api §2 |
 | **Meter one `openSandboxRun` cell's token/cost usage** | `sumSandboxUsage(events)` — `/loops` | canonical-api §2 |
+| **Sweep harness × model as an eval axis** (turn one base profile into the full harness × model set) | `expandProfileAxes({ base, harnesses, models })` over `CODING_HARNESSES` → `runProfileMatrix(...)`, pivot with `groupRunsByAgentProfileCell` — `agent-eval` root — NOT a hand-declared `HARNESSES` list | agent-eval root (verify vs source) |
 | **Benchmark: add/run an external benchmark from the harness** | `ADAPTERS`/`resolveAdapter(key)` + a bench gate (`*-gate.mts`) over `openSandboxRun` + `sandboxAgentRun` (`bench/src/sandbox-run.ts`) | canonical-api §3.3 |
 | **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/loops` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
 | **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/loops` | canonical-api §3.1 |
@@ -114,6 +123,12 @@ holds the load-bearing invariant the parallel breaks:
   sum of spans IS the billed run cost; a parallel tally drifts).
 - your own bootstrap loop / PRNG per gate **≈** `pairedLift` / `promotionGate`
   (seeded, identical run-to-run; never report a point lift without `low/high/pairs`).
+- a per-product `HARNESSES` / `HarnessBackend` list + a metadata-harness reader
+  **≈** `CODING_HARNESSES` + `expandProfileAxes` (the one canonical harness list;
+  incompatible `(harness, model)` pairs drop via `harnessSupportsModel`) and the
+  `AgentProfileCell` stamped by `runProfileMatrix`, pivoted via
+  `groupRunsByAgentProfileCell` — never bake the harness into the model id so the
+  same model can run under multiple harnesses.
 
 ## End-to-end recipe
 

@@ -59,7 +59,7 @@ interface OtlpExport {
   resourceSpans: OtlpResourceSpans[]
 }
 
-const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.33.0' }
+const SCOPE = { name: '@tangle-network/agent-runtime', version: '0.79.3' }
 
 /**
  * Current (non-deprecated) OpenTelemetry GenAI semantic-convention keys.
@@ -189,6 +189,35 @@ export function loopEventToOtelSpan(
     startTimeUnixNano: ts,
     endTimeUnixNano: ts,
     attributes: toAttributes(attrs),
+    status: { code: 1 },
+  }
+}
+
+/**
+ * Build a single flat OtelSpan whose attribute keys are emitted VERBATIM — no
+ * `loop.` namespace. Use for non-loop spans (e.g. the intelligence per-run
+ * span) whose keys ARE the downstream contract (`gen_ai.request.model`,
+ * `tangle.sessionId`) and are exact-matched by readers. `loopEventToOtelSpan`
+ * namespaces payload keys because loop payload fields are free-form; do not
+ * reuse it for spans with contract keys.
+ */
+export function flatOtelSpan(
+  name: string,
+  attributes: Record<string, string | number | boolean>,
+  traceId: string,
+  timestampMs: number,
+  parentSpanId?: string,
+): OtelSpan {
+  const ts = msToNs(timestampMs)
+  return {
+    traceId: padTraceId(traceId),
+    spanId: generateSpanId(),
+    parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
+    name,
+    kind: 1,
+    startTimeUnixNano: ts,
+    endTimeUnixNano: ts,
+    attributes: toAttributes(attributes),
     status: { code: 1 },
   }
 }

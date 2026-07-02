@@ -25,7 +25,7 @@
 import {
   buildLoopOtelSpans,
   createOtelExporter,
-  loopEventToOtelSpan,
+  flatOtelSpan,
   type OtelExporter,
 } from '../otel-export'
 import type { LoopTraceEvent } from '../runtime/types'
@@ -62,13 +62,20 @@ export type {
   AppliedIntelligence,
   CertifiedArtifact,
   CertifiedProfile,
+  CertifiedPromptSource,
+  CertifiedPromptSourceOptions,
   CertifiedPromptSurface,
   DeliveredAgent,
   DeliveryConfig,
   PullCertifiedOptions,
   PullOutcome,
 } from './delivery'
-export { composeCertifiedPrompt, pullCertified, withCertifiedDelivery } from './delivery'
+export {
+  composeCertifiedPrompt,
+  createCertifiedPromptSource,
+  pullCertified,
+  withCertifiedDelivery,
+} from './delivery'
 export type {
   CorpusAccess,
   EffortOverrides,
@@ -368,15 +375,15 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
     if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
     try {
+      // Flat span with VERBATIM attribute keys — the plane's session/model/
+      // cost readers exact-match `tangle.sessionId` / `gen_ai.request.model`,
+      // so the loop-namespacing builder must not be used here.
       ex.exportSpan(
-        loopEventToOtelSpan(
-          {
-            kind: 'tangle.intelligence.run',
-            runId: outcome.runId,
-            timestamp: Date.now(),
-            payload: labels,
-          },
+        flatOtelSpan(
+          'tangle.intelligence.run',
+          { 'tangle.runId': outcome.runId, ...labels },
           outcome.traceId,
+          Date.now(),
         ),
       )
     } catch {
