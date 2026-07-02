@@ -333,6 +333,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             deadlinePassed(scope, now),
         },
       })
+      // Drain every already-settled child the brain never pulled — a gate-verified delivery must
+      // never be lost to the driver's pull discipline (e.g. a brain that spawned and stopped
+      // without awaiting). Non-blocking: live children are the supervisor's to tear down.
+      await coord.drainResolved()
       // The driver's deliverable is the best DELIVERED child (the completion-oracle), never its own
       // prose — a driver cannot self-declare done (Foreman 0/18). No delivered child → undefined.
       return finalize(coord, opts.blobs)

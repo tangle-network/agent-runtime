@@ -44,7 +44,12 @@ async function main(): Promise<void> {
       backend, // where the workers run
       // The completion oracle: "delivered" means a real check passed against the worker's
       // output, not the supervisor's say-so. Always pass one in production.
-      deliverable: { check: (out) => String(out).includes('READY'), describe: 'output is READY' },
+      deliverable: {
+        // `check` receives the backend-typed output — router-tools settles { content: string },
+        // a coding backend settles a patch artifact. Read the field, don't String() the object.
+        check: (out) => String((out as { content?: unknown })?.content ?? out).includes('READY'),
+        describe: 'output is READY',
+      },
     },
   )
 

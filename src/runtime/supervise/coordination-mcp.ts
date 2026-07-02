@@ -36,6 +36,9 @@ export interface CoordinationMcpHandle {
   readonly port: number
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<{ status: string; score?: number; valid?: boolean; outRef?: string }>
+  /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
+   *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
+  drainResolved: CoordinationTools['drainResolved']
   isStopped(): boolean
   /** The full ordered bus-event log — observability audit + replay trail. */
   history: CoordinationTools['history']
@@ -128,6 +131,7 @@ export async function serveCoordinationMcp(opts: {
     url: `http://${host}:${port}/mcp`,
     port,
     settled: () => coord.settled(),
+    drainResolved: () => coord.drainResolved(),
     isStopped: () => coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
