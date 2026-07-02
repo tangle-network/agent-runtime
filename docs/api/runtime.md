@@ -1177,6 +1177,46 @@ Below this many shared scenarios a paired test can't defensibly separate two pro
 
 ***
 
+### CliBridgeConfig
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L30)
+
+#### Properties
+
+##### url?
+
+> `optional` **url?**: `string`
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L32)
+
+cli-bridge base URL. Defaults to `http://127.0.0.1:3355`.
+
+##### bearer
+
+> **bearer**: `string`
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L34)
+
+Bearer token the bridge requires (fail loud when empty).
+
+##### harness?
+
+> `optional` **harness?**: `string`
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L36)
+
+Default harness when a `create({ backend })` override does not set one.
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L38)
+
+Default model when a `create({ backend })` override does not set one.
+
+***
+
 ### CompletionEvidence
 
 Defined in: [runtime/completion.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/completion.ts#L29)
@@ -7234,7 +7274,7 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`model`](#model-7)
+[`AgenticOptions`](#agenticoptions).[`model`](#model-8)
 
 ##### complete?
 
@@ -14448,6 +14488,28 @@ Render a self-contained HTML leaderboard page (the hosted surface): the SVG char
 #### Returns
 
 `string`
+
+***
+
+### cliBridgeSandboxClient()
+
+> **cliBridgeSandboxClient**(`cfg`): [`SandboxClient`](#sandboxclient-2)
+
+Defined in: [runtime/cli-bridge-sandbox-client.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/cli-bridge-sandbox-client.ts#L108)
+
+A `SandboxClient` whose every prompt is one cli-bridge chat completion, metered
+and driven by the shared `runLoop` kernel. Pass a fixed `harness`/`model`, or omit
+them and set the target per cell via `create({ backend: { type, model: { model } } })`.
+
+#### Parameters
+
+##### cfg
+
+[`CliBridgeConfig`](#clibridgeconfig)
+
+#### Returns
+
+[`SandboxClient`](#sandboxclient-2)
 
 ***
 

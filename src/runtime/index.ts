@@ -76,6 +76,8 @@ export {
   renderLeaderboardSvg,
   renderPairwiseMarkdown,
 } from './benchmark-report'
+// The local cli-bridge (harness CLI as an OpenAI-compatible endpoint) as a SandboxClient.
+export { type CliBridgeConfig, cliBridgeSandboxClient } from './cli-bridge-sandbox-client'
 export {
   type CompletionAnalyst,
   type CompletionEvidence,
