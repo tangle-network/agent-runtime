@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The conserved budget reservation pool — the invariant the whole instrument
  * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of three
@@ -17,6 +16,8 @@
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
  * unknown reconcile) so a child can never refund twice.
+ *
+ * @experimental
  */
 
 import { addTokenUsage, zeroTokenUsage } from '../util'

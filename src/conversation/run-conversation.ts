@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Conversation orchestrator. Drives N participants in turn through their own
  * `AgentExecutionBackend`s, aggregating per-turn text + usage, enforcing
@@ -27,6 +26,8 @@
  * Credit cap is enforced *between turns*, not mid-stream: a turn that
  * overshoots the cap completes, the cap then halts the conversation before
  * the next turn.
+ *
+ * @stable
  */
 
 import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'
@@ -79,6 +80,7 @@ export async function runConversation(
   return result
 }
 
+/** Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. */
 export async function* runConversationStream(
   conversation: Conversation,
   options: RunConversationOptions,

@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Public types for multi-agent conversations. A `Conversation` is two-or-more
  * participants taking turns through their own `AgentExecutionBackend`s, driven
@@ -9,6 +8,8 @@
  * in-process iterable, local cli-bridge, sandbox, router, or a remote
  * agent-gateway — so the same `runConversation` call drives same-machine,
  * same-cloud, and cross-cloud orchestration without code change.
+ *
+ * @stable
  */
 
 import type { AgentExecutionBackend } from '../types'

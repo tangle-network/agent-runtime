@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `runDelegatedLoop` — the configured delegated loop-runner.
  *
@@ -18,6 +17,8 @@
  * mode routing, timing, fail-loud on an unregistered mode, and a uniform result
  * shape; each mode's engine is a pre-configured runner in the registry (build it
  * with the factories below, or inject your own / a stub).
+ *
+ * @experimental
  */
 
 import type { Scenario } from '@tangle-network/agent-eval/campaign'
@@ -79,12 +80,13 @@ export interface RunDelegatedLoopOptions {
 }
 
 /**
- * @experimental
  *
  * Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no
  * runner is registered for the mode — a routine pointed at an unwired mode is a
  * config bug, not a silent no-op. A runner that throws is captured as
  * `{ ok: false }` so unattended runs record the failure rather than crash.
+ *
+ * @experimental
  */
 export async function runDelegatedLoop<T = unknown>(
   mode: DelegatedLoopMode,
@@ -144,7 +146,6 @@ export interface WorktreeLoopRunnerOptions {
 }
 
 /**
- * @experimental
  *
  * `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a
  * `worktreeFanout` (N `createWorktreeCliExecutor` leaves, each `gateOnDeliverable`) through
@@ -155,6 +156,8 @@ export interface WorktreeLoopRunnerOptions {
  * the winner is the shared valid-only selector (NOT `defaultSelectWinner`, whose non-valid fallback
  * would surface an ungated patch). Equal-k holds by the conserved budget pool. Returns the winning
  * patch artifact, or throws when no candidate is delivered (fail loud, never a vacuous done).
+ *
+ * @experimental
  */
 export function worktreeLoopRunner(
   options: WorktreeLoopRunnerOptions,
@@ -234,12 +237,14 @@ export interface ResearchLoopRunnerOptions {
 }
 
 /**
- * @experimental `research` mode — research-in-a-loop with valid-only KB growth.
+ * `research` mode — research-in-a-loop with valid-only KB growth.
  *
  * Each round: research → gate every candidate (fail-closed; passage MUST be in
  * the source) → accept the clean ones → re-research the vetoed ones next round,
  * up to `maxRounds`. Vetoed facts in the final round are RETURNED (escalate,
  * never silently dropped) so the caller audits vs retries.
+ *
+ * @experimental
  */
 export function researchLoopRunner(
   o: ResearchLoopRunnerOptions,
@@ -267,14 +272,22 @@ export function researchLoopRunner(
   }
 }
 
-/** @experimental `self-improve` mode — agent-eval's one-call closed loop (held-out gated). */
+/**
+ * `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated).
+ *
+ * @experimental
+ */
 export function selfImproveLoopRunner<TScenario extends Scenario, TArtifact>(
   options: SelfImproveOptions<TScenario, TArtifact>,
 ): DelegatedLoopRunner<SelfImproveResult<TScenario, TArtifact>> {
   return async () => selfImprove<TScenario, TArtifact>(options)
 }
 
-/** @experimental `audit` mode — analyst loop over captured trace/run data. */
+/**
+ * `audit` mode — analyst loop over captured trace/run data.
+ *
+ * @experimental
+ */
 export function auditLoopRunner<TProposal = unknown, TEdit = unknown>(
   options: RunAnalystLoopOpts,
 ): DelegatedLoopRunner<RunAnalystLoopResult<TProposal, TEdit>> {

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `delegate_feedback` MCP tool — synchronous record of agent / user /
  * downstream-judge feedback on a delegation, artifact, or outcome.
@@ -8,6 +7,8 @@
  * When `refersTo.kind === 'delegation'`, the snapshot is also attached
  * to the matching queue record so `delegation_history` surfaces it
  * inline without a join.
+ *
+ * @experimental
  */
 
 import type { FeedbackStore } from '../feedback-store'

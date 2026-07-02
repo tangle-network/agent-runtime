@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `agenticGenerator` — the full-agentic `CandidateGenerator`: the
  * `shots=N, sandbox=on` setting of the one `improvementDriver`. It runs a real
@@ -29,6 +28,8 @@
  * false`), never shipped — if you configured a verifier, a non-passing tree is
  * not a candidate. With no verifier the legacy behavior holds: first dirty shot
  * is the candidate.
+ *
+ * @experimental
  */
 
 import { spawnSync } from 'node:child_process'
@@ -68,6 +69,7 @@ export interface AgenticGeneratorOptions {
   isDirty?: (worktreePath: string) => boolean
 }
 
+/** Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. */
 export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateGenerator {
   const harness = opts.harness ?? 'claude'
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt

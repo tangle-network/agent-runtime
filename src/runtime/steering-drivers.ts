@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Leak-free steering drivers — the non-LLM controls for the driven loop.
  *
@@ -40,6 +39,8 @@
  * They consume nothing the loop kernel does not already give `plan()`/`decide()`
  * — `runLoop` requires no change. A benchmark picks a driver by name and the
  * kernel does the rest.
+ *
+ * @experimental
  */
 
 import type { Driver, Iteration } from './types'

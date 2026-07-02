@@ -15,6 +15,7 @@ export interface Workspace {
   head(): Promise<string>
 }
 
+/** Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). */
 export function localShell(): Shell {
   return async (args, cwd) => {
     const { execFile } = await import('node:child_process')
@@ -43,6 +44,7 @@ export interface GitWorkspaceOptions {
   readonly noHooks?: boolean
 }
 
+/** A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. */
 export function gitWorkspace(opts: GitWorkspaceOptions): Workspace {
   const shell = opts.shell ?? localShell()
   const branch = opts.branch ?? 'main'

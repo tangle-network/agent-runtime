@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The generic combinator library — the content-free act-bodies the wave's §1 contract froze.
  *
@@ -19,6 +18,8 @@
  * Two fail-loud invariants every combinator honors: a child the conserved pool cannot admit is a
  * CONCRETE blocker (never an eager over-fan, never a silent drop), and a `blocked` outcome always
  * names at least one blocker (a shape that cannot finish MUST say why — `blocked([])` throws).
+ *
+ * @experimental
  */
 
 import { ValidationError } from '../../errors'

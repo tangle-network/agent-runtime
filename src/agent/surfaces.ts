@@ -194,6 +194,7 @@ export interface SurfaceValidationIssue {
   reason: 'missing' | 'not-directory' | 'not-file'
 }
 
+/** Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. */
 export function validateSurfaces(
   surfaces: AgentSurfaces,
   repoRoot: string,

@@ -106,6 +106,7 @@ export interface SupervisorAgentDeps {
   readonly compaction?: ToolLoopCompactionOptions
 }
 
+/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
 export function supervisorAgent(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps,

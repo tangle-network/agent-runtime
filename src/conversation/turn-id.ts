@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Deterministic turn identifier. Stable across retries of the same logical
  * turn so backends (and any caching gateway in between) can dedupe on it.
@@ -9,6 +8,8 @@
  * Shape: `${runId}.t${index}.${speakerSlug}` — readable in logs, sortable by
  * turn index, attributable to a speaker. Slugify keeps the speaker portion
  * URL-safe so it can ride in HTTP headers without escaping.
+ *
+ * @stable
  */
 
 export function turnId(runId: string, index: number, speaker: string): string {

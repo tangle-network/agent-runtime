@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The trace-analyst KIND directory — the operator's lenses, as composable DATA.
  *
@@ -13,6 +12,8 @@
  * A kind here is a lightweight lens (`Check`); it is a deliberate SUBSET of agent-eval's full
  * `TraceAnalystKindSpec`, so a kind that needs the heavy agentic actor (sub-agent recursion, tools,
  * goldens) upgrades to `createTraceAnalystKind` without changing this directory's surface.
+ *
+ * @experimental
  */
 
 import {

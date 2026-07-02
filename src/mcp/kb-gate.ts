@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `createKbGate` — the valid-only knowledge-base growth gate, distilled from
  * physim's KB-research subsystem. A research-in-a-loop delegate (or any KB
@@ -18,6 +17,8 @@
  * without importing it. The remediation policy (correct-on-veto vs
  * escalate-as-unverified) is the caller's — this returns the verdict; it never
  * drops a fact silently.
+ *
+ * @experimental
  */
 
 /** @experimental A fact proposed for the KB, with its grounding. */
@@ -128,11 +129,12 @@ function builtinJudges(minPassageChars: number, selfArtifactKinds: string[]): Fa
 }
 
 /**
- * @experimental
  *
  * Build a fail-closed KB gate. The returned function runs the built-in floor
  * (passage-non-empty → passage-present → value-in-passage → no-circular-citation)
  * then any consumer judges, returning on the first veto.
+ *
+ * @experimental
  */
 export function createKbGate(
   options: CreateKbGateOptions = {},

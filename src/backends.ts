@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Backend factories for `runAgentTaskStream`. Three shapes ship in core:
  *
@@ -10,6 +9,8 @@
  * Adapters stay thin: domain repos own auth, model selection, and the concrete
  * tool surface. The factories handle session creation, stream normalization,
  * and graceful end-of-stream signalling.
+ *
+ * @stable
  */
 
 import { BackendTransportError } from './errors'
@@ -170,7 +171,6 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * @stable
  *
  * OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
  * `POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
@@ -202,6 +202,8 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * `final.error` onto their `RunRecord.error` — silently treating an empty
  * `finalText` as "agent produced nothing" hides credit exhaustion, auth
  * failure, and upstream outages.
+ *
+ * @stable
  */
 export function createOpenAICompatibleBackend<
   TInput extends AgentBackendInput = AgentBackendInput,

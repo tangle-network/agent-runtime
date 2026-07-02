@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `worktreeFanout` — the GENERIC coding combinator: a `fanout` of N supervisor-authored harness
  * profiles, each on its OWN worktree-CLI leaf, each `gateOnDeliverable(deliverable)`, winner via the
@@ -11,6 +10,8 @@
  * worktree-CLI executor + the injected deliverable + the diff-size selector) into the generic
  * combinator's `itemSpec`/`selectWinner` seams. Nothing here re-implements selection, gating, or
  * fanout — it composes the existing primitives.
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

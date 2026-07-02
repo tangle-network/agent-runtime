@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
  * `Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
@@ -13,6 +12,8 @@
  *     of a wrong path mid-task instead of waiting for it to finish the step.
  *
  * `deliver` never throws — a malformed message is ignored, per the `Executor.deliver` contract.
+ *
+ * @experimental
  */
 
 export interface InboxMessage {
@@ -52,6 +53,7 @@ function parseDown(msg: unknown): InboxMessage | undefined {
   return undefined
 }
 
+/** Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. */
 export function createInbox(): Inbox {
   const pending: InboxMessage[] = []
   let live: AbortController | null = null

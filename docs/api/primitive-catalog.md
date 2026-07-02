@@ -19,9 +19,9 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `agenticGenerator` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `agenticGenerator` | function | Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
-| `auditLoopRunner` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
@@ -29,46 +29,46 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `commandVerifier` | function | A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other |
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
-| `createConversationBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
 | `createIterableBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createOpenAICompatibleBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
 | `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
 | `createRuntimeEventCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createRuntimeStreamEventCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createRuntimeStreamEventCollector` | function | Streaming-event counterpart of `createRuntimeEventCollector`. Pass each |
 | `createSandboxPromptBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
-| `decideKnowledgeReadiness` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `defineConversation` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
+| `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
 | `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
 | `exportEvalRuns` | function | Ship self-improvement eval-run events to Tangle Intelligence. Unlike the |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
-| `improvementDriver` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `improvementDriver` | function | The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. |
 | `isDelegatedLoopMode` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
 | `loopEventToOtelSpan` | function | Convert a LoopTraceEvent into an OtelSpan for export. |
 | `makePerAttemptSignal` | function | Build a per-attempt AbortSignal linked to the parent signal AND fired when |
 | `mcpBuildPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `mcpServeVerifier` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `mcpToolsForRuntimeMcp` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `mcpToolsForRuntimeMcpSubset` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
+| `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
 | `notifyRuntimeDecisionPoint` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `notifyRuntimeHookEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `parseLoopRunnerArgv` | function | Parse `--mode X --config Y` from an argv tail (`process.argv.slice(2)`). |
 | `readDepth` | function | Read the depth counter off an inbound request. Missing → 0 (caller is the |
 | `readinessServerSentEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `reflectiveGenerator` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `researchLoopRunner` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `reflectiveGenerator` | function | Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edits via the improvement adapter and apply them as one coherent candidate. |
+| `researchLoopRunner` | function | `research` mode — research-in-a-loop with valid-only KB growth. |
 | `resolveChatModel` | function | Resolve a chat model by precedence: the first candidate carrying a |
 | `resolveRouterBaseUrl` | function | Resolve the router base URL from env, normalised — no trailing `/v1` or `/`. |
-| `runAgentTask` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runAgentTaskStream` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runConversation` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runConversationStream` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runDelegatedLoop` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runLoopRunnerCli` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `runAgentTask` | function | Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable. |
+| `runAgentTaskStream` | function | Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen. |
+| `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
+| `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
+| `runDelegatedLoop` | function | Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no |
+| `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
 | `runtimeStreamServerSentEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
@@ -76,15 +76,15 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `sanitizeAgentRuntimeEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `sanitizeKnowledgeReadinessReport` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `sanitizeRuntimeStreamEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `selfImproveLoopRunner` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `selfImproveLoopRunner` | function | `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated). |
 | `sleep` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `slugifySpeaker` | function | Reduce a speaker name to ASCII alphanumerics + dashes. Preserves enough |
-| `startRuntimeRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
 | `toolBuildPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `turnId` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
-| `worktreeLoopRunner` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
 | `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
 | `DEFAULT_ROUTER_BASE_URL` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
@@ -92,7 +92,7 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
 | `AgentEvalError` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `BackendTransportError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
 | `CircuitOpenError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `ConfigError` | class | Configuration missing or malformed (`HOME` unset, required image not supplied, env var absent). |
@@ -102,131 +102,46 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `InMemoryRuntimeSessionStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `JudgeError` | class | A judge call failed in a way that's not retryable: schema parse failure, bad rubric, conflicting dimensions. |
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
-| `PlannerError` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeRunStateError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `PlannerError` | class | The dynamic-loop planner returned an unusable topology move — the LLM emitted |
+| `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
-| `AgentAdapter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentBackendContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentBackendInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentExecutionBackend` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgenticGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentKnowledgeProvider` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTaskContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTaskRunResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTaskSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BackendCallPolicy` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BackendErrorDetail` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
 | `CandidateGenerator` | interface | The byte-producing seam — the ONE thing that differs between the cheap |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
-| `ChatTurnHooks` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
 | `ChatTurnProducer` | interface | The live side of a turn — what the product's `produce` hook returns. |
-| `ChatTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CircuitBreakerConfig` | interface | Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`. |
-| `ControlBudget` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ControlEvalResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ControlRunResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ControlStep` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `Conversation` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationDriveState` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationJournal` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationJournalEntry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationParticipant` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationPolicy` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationTurn` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ConversationJournalEntry` | interface | Durable conversation transcript — survives a driver process crash mid-run. |
 | `D1DatabaseLike` | interface | Structural type matching the surface of `D1Database` we depend on, so the |
-| `D1StmtLike` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DataAcquisitionPlan` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegatedLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvalRunEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvalRunGeneration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvalRunsExportConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvalRunsExportResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `HaltContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `HaltSignal` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ImprovementDriverOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ImproveOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ImproveResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `KnowledgeReadinessReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `KnowledgeRequirement` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopRunnerCliArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopRunnerCliResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopSpanNode` | interface | Sink-neutral node in a reconstructed loop span tree. The root node's |
 | `McpServeSpec` | interface | `mcpServeVerifier` — the intrinsic verifier for a built MCP server: the |
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
-| `OpenAIChatTool` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `OtelAttribute` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `OtelExportConfig` | interface | OTEL span exporter — streams LoopTraceEvents to an OTLP/HTTP collector. |
-| `OtelExporter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `OtelSpan` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PersonaConversationResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ReflectiveGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ResearchLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ResearchLoopRunnerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ResolvedChatModel` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ReflectiveGeneratorOptions` | interface | `reflectiveGenerator` — the cheap, no-sandbox `CandidateGenerator`. It drafts |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
-| `RunChatTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunConversationOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunDelegatedLoopOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunPersonaConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunPersonaConversationOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
-| `RuntimeDecisionEvidenceRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeDecisionPoint` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeEventCollector` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeHookContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeHookErrorContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeHookEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
-| `RuntimeRunHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeRunPersistenceAdapter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeRunRow` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeSessionStore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeStreamEventCollector` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeTelemetryOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunToolLoopOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SanitizedKnowledgeReadinessReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
-| `StreamToolLoopOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ToolLoopAssistantToolCall` | interface | One OpenAI-shaped tool-call entry carried on an assistant message. |
 | `ToolLoopCall` | interface | Bounded turn-level tool-dispatch loop. |
-| `ToolLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. `feedback` (compiler errors, |
-| `VetoedFact` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WorktreeLoopRunnerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
-| `AgentRuntimeEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentRuntimeEventSink` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTaskStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthSource` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `ControlDecision` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConversationStreamEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegatedLoopMode` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegatedLoopRegistry` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegatedLoopRunner` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `ForwardHeaderName` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `HaltPredicate` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `HaltReason` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `ImproveSurface` | type | The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law |
-| `OpenAIChatResponseFormat` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `OpenAIChatToolChoice` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `OpenAIChatResponseFormat` | type | `response_format` parameter for OpenAI-compatible chat endpoints. Use |
+| `OpenAIChatToolChoice` | type | `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI |
 | `PersonaDriver` | type | A persona that drives the conversation: either a full driver `AgentProfile` |
 | `PropagatedHeaders` | type | Header bag carried through `AgentBackendContext.propagatedHeaders` so |
 | `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
-| `RuntimeDecisionKind` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeHookPhase` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeHookTarget` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `RuntimeStreamEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `StreamToolLoopYield` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
 | `ToolCallOutcome` | type | Outcome of one tool dispatch — structurally compatible with a hub/integration |
-| `ToolLoopEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `ToolLoopMessage` | type | A message in the running conversation the loop sends to `streamTurn`. |
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
-| `TurnOrder` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `ToolLoopEvent`, `TurnOrder`.
 
 ### Vertical agent — manifest + improvement adapter
 
@@ -236,37 +151,25 @@ Import from `@tangle-network/agent-runtime/agent` — 33 exports.
 |---|---|---|
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
-| `createSurfaceImprovementAdapter` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createSurfaceImprovementAdapter` | function | The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. |
 | `createSurfaceKnowledgeAdapter` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
 | `measureOutcome` | function | Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the |
 | `renderSurfaceIssues` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `resolveSubjectPath` | function | Resolve a parsed `FindingSubject` to the file path the substrate |
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
-| `validateSurfaces` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
 | `AgentManifestError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
-| `AgentRubric` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentRunContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentRunInvocation` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentRuntime` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
-| `AnalystConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AutoApplyPolicy` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CreateSandboxActOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CreateSurfaceImprovementAdapterOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CreateSurfaceKnowledgeAdapterOpts` | interface | Substrate-default `KnowledgeAdapter` — wraps agent-knowledge's |
-| `DraftPatchInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DraftPatchOutput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `JudgeConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `KnowledgeAdapterDeps` | interface | Build the adapter. We accept the agent-knowledge functions as DI so |
 | `OutcomeMeasurement` | interface | `OutcomeMeasurement` — the missing metric that turns the analyst |
-| `OutcomeMeasurementOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ResolvedSurface` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RubricDimension` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SurfaceImprovementEdit` | interface | Substrate-default `ImprovementAdapter` — surfaces-driven, LLM-drafted |
 | `SurfaceLifecycle` | interface | One profile surface's artifact-lifecycle wiring — the declarative config a |
 | `SurfaceValidationIssue` | interface | Validate that every declared surface exists on disk under `repoRoot`. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `AutoApplyPolicy`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
@@ -309,7 +212,6 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 | `IntelligenceConfig` | interface | Client configuration. `project` + `apiKey` are the Observe minimum; the |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
-| `PullCertifiedOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
 | `ResolveCtx` | interface | Per-call, per-tenant context the resolver reads. Everything that touches the |
@@ -338,42 +240,44 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PullCertifiedOptions`.
+
 ### Recursive atom + loop kernel (alias of ./runtime)
 
 Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `acquireSandbox` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `acquireSandbox` | function | Cold-start-resilient sandbox acquisition: create by name, observe readiness from the sandbox's own status (not the create call), and re-attach after gateway timeouts. |
 | `analyzeTrace` | function | Collect the source's spans and run the agent-eval batch analyzers over them under one `runId`. |
 | `anytimeReport` | function | Derive anytime metrics from waterfall spans. `targets` are the satisficing score |
 | `asAuthoredProfile` | function | Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
-| `auditIntent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `auditIntent` | function | The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. |
 | `authoredWorker` | function | Build a worker AGENT from a profile the supervisor authored: the authored `systemPrompt` + |
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
-| `completionAuthorizes` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
 | `contentAddress` | function | Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a |
 | `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
 | `createBudgetPool` | function | Create a conserved reservation pool from a root `Budget`. `now()` is injected so the |
-| `createEventBus` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createEventBus` | function | Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. |
 | `createExecutor` | function | The single built-in executor factory. Picks a leaf backend by data (`config.backend`), |
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
-| `createInbox` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createInbox` | function | Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle. |
 | `createInMemoryRunContext` | function | Build a fresh in-memory run context. Every call returns NEW stores (no shared global |
-| `createMcpEnvironment` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
-| `createScope` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
-| `createSupervisor` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createVerifierEnvironment` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createSupervisor` | function | The `Supervisor` impl (KEYSTONE, build step 5). |
+| `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
 | `createWaterfallCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
@@ -394,21 +298,21 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `finalizeBestDelivered` | function | Keep-best finalize under the completion-oracle: return the highest-scoring DELIVERED child's |
 | `flatWidenGate` | function | The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision |
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
-| `gitWorkspace` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `harvestCorpus` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
+| `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runLoop`. The factory is |
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `jjWorkspace` | function | A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote). |
 | `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
-| `localShell` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
 | `loopCampaignDispatch` | function | Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for |
 | `loopDispatch` | function | Adapter for `runProfileMatrix` (profile is an axis). Returns a |
 | `loopUntil` | function | `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into |
 | `makeFinding` | function | Convenience factory: produce a fully-formed AnalystFinding with the |
 | `mapSandboxEvent` | function | Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary, |
 | `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
-| `observe` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `openSandboxRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `observe` | function | The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. |
+| `openSandboxRun` | function | Open a sandbox run. Harness-agnostic: the harness lives in |
 | `pairwiseSignificance` | function | Compare EVERY profile pair on the scenarios they both ran — paired-bootstrap effect + CI, a real |
 | `panel` | function | `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements, |
 | `patchDelivered` | function | Build the `DeliverableSpec<WorktreePatchArtifact>`: `check(artifact)` runs the shared mechanical |
@@ -417,7 +321,7 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
 | `probeSandboxCapabilities` | function | Probe (and memoize per client) what the loop may rely on. A client without a |
 | `profileRichnessFinding` | function | Turn a {@link ProfileRichness} verdict into a bus-routable `AnalystFinding` (area `profile-quality`). |
-| `promotionGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `promotionGate` | function | Statistical promotion decision over a holdout benchmark: a seeded paired bootstrap (`heldoutSignificance`) whose CI lower bound must clear `deltaThreshold`. |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
@@ -434,14 +338,14 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `resolveSandboxClient` | function | Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core |
 | `routerBrain` | function | The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's |
 | `routerChatWithTools` | function | A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape |
-| `routerChatWithUsage` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `routerChatWithUsage` | function | One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). |
 | `routerToolLoop` | function | The tool-using router backend: a real agentic loop OVER the Tangle router (which |
 | `runAgentic` | function | Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. |
 | `runBenchmark` | function | Run the requested strategies over the tasks, scored by the Environment's own check. |
 | `runInWorkspace` | function | Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back |
-| `runLoop` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `runLoop` | function | The round-synchronous loop kernel: each round `driver.plan()` fans N tasks to sandboxes (bounded concurrency), parses + validates each output, and folds results through `driver.decide`. |
 | `runPersonified` | function | Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape |
-| `runStrategyEvolution` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `runStrategyEvolution` | function | Multi-generation strategy search: author candidates from tournament losses, play them against the incumbent at equal budget, promote via `promotionGate` on an untouched holdout slice. |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `selectChampion` | function | Search-side champion selection over a tournament report. |
@@ -452,9 +356,9 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
 | `sumSandboxUsage` | function | Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an |
-| `supervise` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `supervise` | function | One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. |
 | `superviseSurface` | function | Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and |
-| `supervisorAgent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `supervisorAgent` | function | Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. |
 | `supervisorInstructions` | function | The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
@@ -463,15 +367,15 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
-| `assertTraceDerivedFindings` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `assertTraceDerivedFindings` | const | Analyst-on-scope (G1) — the analyze→findings→steer wire over the reactive `Scope`. |
 | `builtinShapes` | const | The default registry `runPersonified` resolves a shape name against. Empty by construction — |
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
 | `defaultAuditorInstruction` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
 | `defaultProfileRichnessThresholds` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `refine` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `sample` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
+| `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `FileCorpus` | class | JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole |
@@ -479,63 +383,32 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `InMemoryResultBlobStore` | class | In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied |
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
-| `SandboxRunAbortError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
 | `Agent` | interface | One self-similar atom. A leaf is an `Agent` that never calls `scope.spawn`; a driver |
-| `AgentEnvironment` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentCapabilities` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentProvider` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
-| `AgentEnvironmentQuery` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgenticOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgenticRunResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgenticSurface` | interface | A stateful, checkable environment an agent operates over with tools. Open behind one interface. |
 | `AgenticTask` | interface | The general agentic primitive — sequential (depth) and parallel (breadth) over a shared, |
-| `AgenticTool` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentProfile` | interface | Public provider-neutral agent profile contract. |
 | `AgentRunSpec` | interface | Sandbox-SDK-shaped agent specification. |
-| `AgentSession` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentSessionRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentSpec` | interface | `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the |
-| `AgentTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
-| `AnalystRegistry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AnytimeReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AnytimeStrategySummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnytimeTaskCurve` | interface | anytimeReport — time-to-satisfactory-output metrics, derived entirely from the |
-| `ArtifactHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AuditIntentInput` | interface | auditIntent — the route-rigor analyst: is this trajectory even going the RIGHT WAY? |
-| `AuditIntentOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthoredHarness` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AuthoredProfile` | interface | What the supervisor AUTHORS per sub-task — a worker recipe (a partial `AgentProfile`). |
-| `AuthoredStrategy` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthorStrategyOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `BenchmarkCell` | interface | One strategy's outcome on one task — the per-task cell an optimizer consumes. |
-| `BenchmarkConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BenchmarkLift` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BenchmarkReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BenchmarkStrategySummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BenchmarkTaskRow` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
 | `Budget` | interface | A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. |
-| `BudgetPool` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `BusEvent` | interface | Every bus event is a discriminated union member keyed by `type`. |
 | `BusRecord` | interface | A published event stamped for ordering and observability. `seq` is the monotonic publish index; |
-| `BusStats` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ChampionPick` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
-| `CheckpointRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CheckpointRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
 | `CompletionVerdict` | interface | The "is it done?" verdict an analyst returns to the parent. |
-| `CoordinationMcpHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `CoordinationMcpHandle` | interface | Serve the coordination verbs (spawn_agent / await_event / observe_agent / steer_agent / stop) |
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
 | `CorpusRecord` | interface | One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from |
-| `CreateAgentEnvironmentInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CreateSandboxOptions` | interface | Configuration for creating a new sandbox. |
 | `CreateScopeAnalystOptions` | interface | The analyst run an `Agent<unknown, AnalystFinding[]>` performs over the children settled so far. |
 | `CriuCapableClient` | interface | Narrowed view of the optional CRIU probe. The loop-side `SandboxClient` |
@@ -543,22 +416,13 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `DefinePersonaInput` | interface | The minimal input to build a `Persona`. Mirrors `Persona` but lets the builder default |
 | `DelegateOptions` | interface | Inputs to {@link delegate}. The intent is the first positional arg; everything here is optional |
 | `DeliverableSpec` | interface | The deployable completion oracle passed to {@link gateOnDeliverable}: a `check` that |
-| `Driver` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DriverAgentOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `DriverAgentOptions` | interface | `driverAgent` — the driver's BRAIN. |
 | `DumbDriverOptions` | interface | Options for {@link dumbDriver}. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
 | `EqualKVerdict` | interface | The equal-k-on-cost verdict: whether every arm spent within `tolerance` of the others on the |
-| `EventBus` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvolutionArchiveNode` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `EvolutionAuthor` | interface | runStrategyEvolution — the multi-generation strategy search: per generation the system |
-| `EvolutionBandInfo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvolutionCandidate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvolutionGeneration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvolutionReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecCtx` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `ExecCtx` | interface | Execution context for `runLoop`: the sandbox client the kernel creates boxes through, plus optional runtime hooks. |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
 | `ExecutorContext` | interface | Construction context handed to a `ExecutorFactory` — the seams a built-in needs |
 | `ExecutorRegistry` | interface | The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default |
@@ -566,82 +430,46 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
 | `ForkCapableBox` | interface | Loop-side widening of the box's optional fork method. |
-| `ForkRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `GitWorkspaceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `HarvestCorpusOptions` | interface | harvestCorpus — production traces → corpus, the G2 bridge (the playbook's step 6). |
-| `HarvestFailure` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `HarvestReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `Inbox` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `InboxMessage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `InboxMessage` | interface | The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
-| `InProcessSandboxClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `IntentAudit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Interval` | interface | A 95%-by-default confidence interval. |
-| `Iteration` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `Leaderboard` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LeaderboardOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LeaderboardRow` | interface | One leaderboard row — a harness×model profile, every measured column. |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
-| `LoopDecisionPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopDispatchOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopEndedPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
-| `LoopIterationEndedPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopIterationStartedPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopLineageOptions` | interface | Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags |
-| `LoopPlanDescription` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopPlanPayload` | interface | Emitted once per `plan()` round, immediately after the driver plans. Carries |
-| `LoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopSandboxPlacement` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopStartedPayload` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopTeardownFailedPayload` | interface | Emitted when a box's `delete()` throws or times out during teardown — the |
 | `LoopTokenUsage` | interface | LLM token usage. Structurally matches agent-eval's `RunTokenUsage` / |
-| `LoopTraceEmitter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopUntilSpec` | interface | `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step` |
 | `LoopUntilState` | interface | The accumulated state `loopUntil` threads across rounds — the running candidate + the round |
-| `LoopWinner` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
-| `McpEnvironmentOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
 | `NaiveDriverOptions` | interface | Options for {@link naiveDriver}. |
-| `Observation` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ObserveInput` | interface | The third-person observer — the connective tissue that closes the loop. |
-| `ObserveOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `OpenSandboxRunOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
-| `PairwiseOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `PairwiseVerdict` | interface | One profile pair compared on the scenarios they BOTH ran — the "who actually beat whom" verdict. |
 | `PanelJudge` | interface | One judge in a panel — a labeled persona-derived judge child. Content (the rubric) lives in |
 | `PanelSpec` | interface | `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its |
 | `PanelVerdict` | interface | One judge child's settled verdict, surfaced to the write-only `merge`. `down` judges carry no |
-| `PatchDeliverableOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Persona` | interface | The "act like X" record. A thin composition over the keystone's `AgentSpec`: it pairs the |
 | `PersonaContext` | interface | The persona context blob — who the loop is acting as. Open by intent: a persona names its |
 | `PersonaExecutors` | interface | How a persona supplies executor resolution. Either a pre-built registry (factories already |
 | `PipelineStage` | interface | `pipeline(stages)` — sequential composition: each stage's `Outcome.deliverable` feeds the next |
-| `PlacementInfo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProfileRichness` | interface | Per-field verdict on one authored profile — the raw material the bench renders + scores. |
 | `ProfileRichnessThresholds` | interface | Thresholds below which a system prompt is treated as a thin stub. Tunable per call. |
-| `PromotionGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PromotionVerdict` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
-| `PublishOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |
 | `ResolveSandboxClientOptions` | interface | The product-facing backend selector: one call picks the execution transport a |
-| `ResourceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
-| `RouterChatResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RouterChatToolsResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RouterConfig` | interface | The one router chat client: direct OpenAI-compatible completions through the |
 | `RouterToolCall` | interface | A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest). |
-| `RouterToolLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunAgenticOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |
@@ -650,7 +478,6 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
-| `SandboxRun` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
 | `ScopeAnalyst` | interface | The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook |
 | `ScopeAnalyzeInput` | interface | Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far. |
@@ -662,62 +489,40 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
 | `ShapeRegistry` | interface | The open shape registry — the extension point that makes a new loop-shape ONE file + one |
 | `ShotPersona` | interface | A role for one shot — multi-agent loops (researcher + engineer, a panel of k |
-| `ShotSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd |
 | `SteerContext` | interface | How a combinator's `act` consumes findings to steer — the SINGLE firewalled steer surface a |
 | `Strategy` | interface | A Strategy is HOW you spend the compute budget to beat the Environment's check — it |
 | `StrategyCtx` | interface | What a strategy body composes with: the artifact lifecycle, the budget, and the two steps. |
-| `StrategyEvolutionConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `StrategyResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SuperviseOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SuperviseSurfaceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SuperviseSurfaceResult` | interface | The deployable outcome of a supervised surface run. |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
-| `SupervisorAgentDeps` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SupervisorOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SupervisorProfile` | interface | The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain. |
-| `SurfaceScore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
-| `ToolSpec` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `TraceSource` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `TrajectoryAnalysis` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `TrajectoryAnalysis` | interface | The SETTLE-time analyst: when a worker finishes, collect its tool spans from a `TraceSource` and run |
 | `TrajectoryNode` | interface | One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the |
 | `TrajectoryReport` | interface | The whole reconstructed trajectory — the realized tree + its root-rolled-up total. The |
 | `TrajectoryReportOptions` | interface | `trajectoryReport(journal, blobs, root, { withOutputs? })` — reconstruct the whole tree with |
 | `TreeView` | interface | The live tree — what `scope.view` / `RootHandle.view()` materialize for a viewer. |
-| `TurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `TurnResult` | interface | One finished turn over the artifact. A failed FS read is surfaced in `readError` |
 | `UsageSink` | interface | The slice of an agent-eval campaign `DispatchContext.cost` this needs. |
-| `ValidationCtx` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `Validator` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `VerifierEnvironmentOptions` | interface | createVerifierEnvironment — ANY checkable task as an `Environment`, no tool surface |
 | `VerifySpec` | interface | `verify({ implement, verifier })` — the 2-node sequential gate: an IMPLEMENT child produces a |
-| `WatchTraceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WaterfallCollector` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WaterfallReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `WatchTraceOptions` | interface | The ONLINE analyst: watch a `TraceSource` and fold each tool span through agent-eval's published |
 | `WaterfallSpan` | interface | createWaterfallCollector — 100% trajectory observability from the lifecycle stream: |
 | `WidenGate` | interface | The progressive-widening gate (MCTS-PW). Decides whether a settled child is |
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |
-| `Workspace` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WorkspaceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WorkspaceRun` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WorktreeCliExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
-| `WorktreeFanoutOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
-| `AgentEnvironmentStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
-| `AgentSessionStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `ApplyContinuation` | type | Fold a steering string into the caller's Task shape, producing the Task for |
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |
-| `ChampionPolicy` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `CombinatorShape` | type | A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act` |
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `DefinePersona` | type | Builds a frozen `Persona`, failing loud on the executors-supplied invariant (neither a |
-| `Deliverable` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `Deliverable` | type | How a typed deliverable `Out` is materialized from a finished turn. |
 | `DriveHarness` | type | How to run a sandboxed harness as the DRIVER, with the coordination verbs mounted — the substrate |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
@@ -729,9 +534,7 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
 | `LoopOptionsForDispatch` | type | runLoop options minus the `ctx` (loopDispatch builds the ctx). |
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
-| `LoopTraceEvent` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
-| `MakeWorkerAgent` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `MountRecorder` | type | Records a mounted resource into the run's provenance manifest. Passed to |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |
@@ -751,8 +554,9 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `Widen` | type | `widen(spec)` — build the streaming progressive-widening combinator. |
 | `WidenDecision` | type | A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate` |
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
-| `WorkspaceCommit` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `McpEnvironmentOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StrategyEvolutionConfig`, `StrategyResult`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
@@ -765,33 +569,14 @@ Import from `@tangle-network/agent-runtime/environment-provider` — 32 exports.
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
-| `AgentEnvironment` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentCapabilities` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentProvider` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentEnvironmentProviderRegistry` | interface | In-memory registry for named `AgentEnvironmentProvider` instances. |
-| `AgentEnvironmentQuery` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentEnvironmentSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentSession` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentSessionRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTurnInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AgentTurnResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CheckpointRef` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CheckpointRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CreateAgentEnvironmentInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ForkRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PlacementInfo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
-| `ResourceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
-| `WorkspaceRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
-| `AgentEnvironmentStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
-| `AgentSessionStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `ExecRequest`, `ExecResult`, `ForkRequest`, `PlacementInfo`, `ResourceRequest`, `WorkspaceRequest`, `AgentEnvironmentStatus`, `AgentSessionStatus`.
 
 ### Analyst loop — trace findings on a running loop
 
@@ -806,14 +591,10 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 | `AutoApplyPolicy` | interface | Tunable safety rails for auto-apply. |
 | `FindingsStoreLike` | interface | Narrowed shape we accept for `FindingsStore`. |
 | `ImprovementAdapter` | interface | Improvement-side bridge — proposes / applies prompt + tool + scaffolding edits. |
-| `ImprovementEditBatch` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ImprovementReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `KnowledgeAdapter` | interface | Knowledge-side bridge — consumers wire `proposeFromFindings` from agent-knowledge. |
-| `KnowledgeProposalBatch` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `KnowledgeReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunAnalystLoopOpts` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunAnalystLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AnalystLoopEvent` | type | Events emitted by `runAnalystLoop` via `opts.onEvent`. UIs and |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `ImprovementEditBatch`, `ImprovementReport`, `KnowledgeProposalBatch`, `KnowledgeReport`, `RunAnalystLoopOpts`, `RunAnalystLoopResult`.
 
 ### Artifact lifecycle — generate → measure → promote → compose
 
@@ -843,32 +624,23 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 | `ArtifactRegistry` | class | A typed, in-memory registry of `ProfileArtifact`s with stable ids. |
 | `ArtifactPayloads` | interface | The payload for each `ArtifactKind`. The shapes are the SAME types the |
 | `ArtifactQuery` | interface | Filter for `list`. Omit a field to leave that dimension unconstrained. |
-| `BuildableGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `BuiltCandidate` | interface | The result of building ONE candidate in its own worktree. A build either |
 | `CandidateGenerator` | interface | Produces fresh, UNMEASURED candidate artifacts for ONE profile surface. |
 | `CandidateOutcome` | interface | The per-candidate record of what the loop decided and why. |
 | `ComposeProfileOptions` | interface | `composeProfile` — fold the top-k active artifacts back into a profile. |
 | `DedupeOptions` | interface | `dedupeArtifacts` — retire the redundant half of a non-stacking pair. |
-| `DedupeResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DriftCheck` | interface | Per-artifact record of what the re-measure found and decided. |
 | `DriftWatchOptions` | interface | `driftWatch` — the scheduled re-measure that DEMOTES decayed artifacts. |
-| `DriftWatchResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `EvalResult` | interface | The result of running an eval over ONE profile: a composite score and the cost |
 | `GenerateContext` | interface | The read-only context a generator sees when proposing candidates. It is the |
-| `HeldOutPromotionGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `MarginalLift` | interface | The marginal lift of one artifact: the with/without ablation. |
-| `MeasureMarginalLiftOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `PairStackCheck` | interface | The stacking verdict for one pair of active artifacts. |
-| `ProductionPromptGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProfileArtifact` | interface | A discrete, individually-promotable piece of an agent profile. |
 | `PromotionGate` | interface | Decides whether ONE measured candidate is promoted. The lifecycle calls this |
 | `PromotionVerdict` | interface | The verdict a gate returns for one candidate. |
 | `PromptDraft` | interface | A proposed prompt instruction line plus the WHY behind it. The `rationale` |
-| `PromptGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RunLifecycleOptions` | interface | `runLifecycle` — the ONE closed-loop orchestrator: generate → measure → |
-| `RunLifecycleResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SkillDraft` | interface | A distilled skill draft: a name + the `SKILL.md` body. |
-| `SkillGeneratorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `WorktreeBuildOptions` | interface | `worktreeBuildCandidate` — the PRODUCTION `BuildCandidate`: one fan-out leaf |
 | `ArtifactInput` | type | The input to `register` — everything on `ProfileArtifact` except the |
 | `ArtifactKind` | type | The profile levers an artifact can target. One-to-one with the §1.5 profile |
@@ -880,6 +652,8 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 | `EvalRunner` | type | Scores a profile. The caller wires this to whatever eval they run — a |
 | `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
 | `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`.
 
 ### Built-in agent profiles
 
@@ -900,36 +674,20 @@ Import from `@tangle-network/agent-runtime/profiles` — 43 exports.
 | `readAuditRegistry` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `registerCaptures` | function | Record screenshots taken for a route in the registry, without filing a |
 | `summarizeRegistry` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `uiAuditorProfile` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `uiAuditorProfile` | function | Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs. |
 | `writeAuditIndex` | function | Regenerate `<workspace>/index.md` from registry.json. |
 | `LENS_BRIEFS` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `SHARED_AUDITOR_RULES` | const | _(no summary — add a TSDoc line at the declaration)_ |
 | `UI_FINDING_SEVERITIES` | const | Frozen severity tuple, ordered worst → least bad for sort/report. |
 | `UI_LENSES` | const | Frozen tuple of lenses for validation + iteration. |
-| `AppendFindingsResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuditIndex` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuditRegistry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuditRegistryCapture` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BrowserContextHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BrowserHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CoderTask` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `InProcessUiAuditClientOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PageHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RegisterCapturesOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `UiAuditCapture` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `UiAuditCaptureRequest` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `UiAuditorProfileOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiAuditOutput` | interface | Output of one iteration. `findings` is the headline payload; `captures` |
 | `UiAuditTask` | interface | One iteration's task: audit a single (lens × route) pair, capturing the |
-| `UiAuditViewport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiFinding` | interface | A single UI audit finding — the unit of work a contributor can act on. |
 | `UiFindingScreenshot` | interface | Pointer to a screenshot referenced by a finding (workspace-relative path). |
-| `UiJudgeInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `UiJudgeOutput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `UiJudgeTokenUsage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiFindingSeverity` | type | Severity scale. |
-| `UiJudge` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiLens` | type | Canonical audit lenses. Each lens scopes a finding to a single class of |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AppendFindingsResult`, `AuditIndex`, `AuditRegistry`, `AuditRegistryCapture`, `BrowserContextHandle`, `BrowserHandle`, `CoderTask`, `InProcessUiAuditClientOptions`, `PageHandle`, `RegisterCapturesOptions`, `UiAuditCapture`, `UiAuditCaptureRequest`, `UiAuditorProfileOptions`, `UiAuditViewport`, `UiJudgeInput`, `UiJudgeOutput`, `UiJudgeTokenUsage`, `UiJudge`.
 
 ### Platform glue
 
@@ -941,22 +699,13 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 | `PlatformAuthError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `PlatformHubClient` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `PlatformHubError` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthorizeUrlOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CatalogResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConnectionHealth` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ConnectionHealthResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExchangeCodeResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ExecInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `HealthCheck` | interface | Last-known health for a connection, derived from the connection row. |
-| `MintTokenInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `MintTokenResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `PlatformAuthClientOptions` | interface | Server-side client for the Tangle platform's cross-site SSO bridge. |
 | `PlatformCatalogProvider` | interface | A connectable provider in the catalog (`/v1/hub/providers`). |
 | `PlatformConnection` | interface | A live integration connection, as returned by `/v1/hub/connections`. |
 | `PlatformHubClientOptions` | interface | Server-side client for the Tangle platform's integration hub |
-| `PlatformHubStatus` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `StartAuthInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `StartAuthResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
 
 ### MCP servers — delegate / coordination / detached-session
 
@@ -980,8 +729,8 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `createFleetWorkspaceExecutor` | function | Build an executor that resolves each delegated iteration to an existing |
 | `createInProcessExecutor` | function | Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()` |
 | `createInProcessTransport` | function | In-process pair of `Readable` + `Writable` streams suitable for driving |
-| `createKbGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createMcpServer` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createKbGate` | function | Build a fail-closed KB gate. The returned function runs the built-in floor |
+| `createMcpServer` | function | Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_feedback`, `delegation_status`, `delegation_history`, optional `delegate_ui_audit`) to sandbox coding-harness agents. |
 | `createPropagatingTraceEmitter` | function | Create a LoopTraceEmitter that: |
 | `createSiblingSandboxExecutor` | function | Wrap a raw sandbox SDK client so the kernel emits |
 | `createWorktree` | function | _(no summary — add a TSDoc line at the declaration)_ |
@@ -993,8 +742,8 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `hashIdempotencyInput` | function | Best-effort stable hash for use as `idempotencyKey`. Not cryptographic; |
 | `liftFindings` | function | Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps `finding_id`/ |
 | `makeCheckRunner` | function | Build a `run_analyst` runner over a kind directory. |
-| `mcpToolsForRuntimeMcp` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `mcpToolsForRuntimeMcpSubset` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
+| `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
 | `parseDetachedSessionRef` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
 | `removeWorktree` | function | _(no summary — add a TSDoc line at the declaration)_ |
@@ -1033,107 +782,33 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `FileDelegationStore` | class | JSON-file persistence for the delegation queue. Each write serializes |
 | `InMemoryDelegationStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `InMemoryFeedbackStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `AnalystRegistry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CappedDelegationTrace` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
-| `CheckRunnerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CoderReview` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
-| `CoordinationToolsOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CreateKbGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CreateWorktreeOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
-| `DelegateCodeArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegateCodeConfig` | interface | Minimal `CoderTask` overrides exposed over the MCP wire. The full |
-| `DelegateCodeResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateFeedbackArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateFeedbackResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateHandlerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateResearchArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateResearchConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateResearchResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateRunCtx` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateUiAuditArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateUiAuditConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegateUiAuditResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegateUiAuditRoute` | interface | Optional per-route capture spec the agent surfaces over the wire. |
-| `DelegationError` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationExecutor` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationFeedbackSnapshot` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationHistoryArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationHistoryEntry` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationHistoryResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationProgress` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegationRecord` | interface | Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) — |
-| `DelegationResumeContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegationResumeDriver` | interface | Re-attaches restored in-flight records to their detached runs. The queue |
-| `DelegationRunContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationStatusArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationStatusResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationStore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationTaskQueueOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DelegationTraceCaps` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegationTraceCollector` | interface | Per-delegation trace collector. Buffers `LoopTraceEvent`s per runId |
 | `DelegationTraceSpan` | interface | One span of a delegation's compact trace. Flat (parent linkage by id), all |
-| `DetachedSessionDelegateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DetachedSessionRefParts` | interface | Decoded `DelegationRecord.detachedSessionRef`. `sandboxId` is absent between |
-| `DetachedTurn` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DetachedTurnResumeDriverOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DetectExecutorArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DiffOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `DiffResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
-| `FactCandidate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FactJudge` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FactJudgeVerdict` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FeedbackEvent` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FeedbackRating` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FeedbackRefersTo` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FeedbackStore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FileDelegationStoreOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
-| `FleetWorkspaceExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `InProcessExecutorDescribePlacement` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `InProcessExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `JsonRpcMessage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `JsonRpcResponse` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `KbGateResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LocalHarnessResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `McpServer` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `McpServerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `McpToolDescriptor` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `McpTransport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `Question` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `QuestionRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RemoveWorktreeOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ResearchOutputShape` | interface | Loose shape of a research output over the wire — the substrate cannot |
-| `RunDetachedTurnOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunLocalHarnessOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SettleDetachedCoderTurnOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SettledWorker` | interface | A worker the driver has drained via `await_event`. |
-| `SiblingSandboxExecutorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SubmitInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SubmitOutput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `TraceContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+| `TraceContext` | interface | Trace context propagation for MCP subprocess. |
 | `UiAuditorDelegationOutput` | interface | Wire-shape of a completed UI-audit delegation. The `findings` array |
-| `WorktreeHandle` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CoderDelegate` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `CoderReviewer` | type | _(no summary — add a TSDoc line at the declaration)_ |
+| `CoderReviewer` | type | Optional adversarial reviewer over a coder candidate that already passed |
 | `CoordinationEvent` | type | Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for |
 | `DelegateResult` | type | The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or |
-| `DelegationProfile` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `DelegationResultPayload` | type | Polymorphic `result` field: `CoderOutput` when the underlying profile |
 | `DelegationResumeTick` | type | One observation of a detached run, mapped 1:1 from a single-tick driver |
-| `DelegationStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `DetachedWinnerSelection` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `DriveTurnTick` | type | Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6). |
 | `GitRunner` | type | Pluggable git runner (sync) — replaceable in tests. |
 | `LocalHarness` | type | Local coding harness available inside the sandbox. |
-| `MakeWorkerAgent` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `QuestionDecision` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `QuestionPolicy` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `ResearchSource` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CheckRunnerOptions`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DetectExecutorArgs`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `JsonRpcMessage`, `JsonRpcResponse`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `McpToolDescriptor`, `McpTransport`, `Question`, `QuestionRecord`, `RemoveWorktreeOptions`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `SubmitInput`, `SubmitOutput`, `WorktreeHandle`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionPolicy`, `ResearchSource`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 
@@ -1171,10 +846,9 @@ Import from `@tangle-network/agent-eval` — 30 exports.
 | `adversarialJudge` | const | Adversarial judge — red-teams agent responses. |
 | `codeExecutionJudge` | const | Code execution judge — evaluates whether code blocks are valid and runnable. |
 | `coherenceJudge` | const | Coherence judge — evaluates multi-turn consistency and progression. |
-| `CalibrationResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ContinuousCalibrationResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `JudgeConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CachedJudge` | type | The wrapped judge: same `JudgeConfig` seam, plus hit/miss observability. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`, `JudgeConfig`.
 
 ### AUTHENTICITY — is-this-real / anti-Goodhart gate
 
@@ -1187,15 +861,10 @@ Import from `@tangle-network/agent-eval/authenticity` — 14 exports.
 | `scoreAuthenticity` | function | Deterministic authenticity scan of produced files. Pure — same files in, |
 | `scoreAuthenticityNuance` | function | LLM nuance scoring — judges the "looks real but is hollow" axis structure |
 | `scoreRealnessBlended` | function | Score realness using the cheapest sufficient signal: trust the deterministic |
-| `AuthenticityNuance` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthenticityResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AuthenticitySignals` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BlendedRealness` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProducedFile` | interface | Authenticity — "is this real, or convincing BS?" |
-| `RealnessGate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RealnessJudgment` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CompleteFn` | type | A minimal completion fn — inject your model caller (router/tcloud). Keeps |
-| `RealnessBand` | type | _(no summary — add a TSDoc line at the declaration)_ |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthenticityNuance`, `AuthenticityResult`, `AuthenticitySignals`, `BlendedRealness`, `RealnessGate`, `RealnessJudgment`, `RealnessBand`.
 
 ### VERIFICATION — multi-layer verifier + semantic grading
 
@@ -1209,10 +878,10 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 | `verifyCompletion` | function | Verify whether a run completed the task. `checkCorrectness` is injected — |
 | `verifyManifest` | function | Verify that a signed manifest has not been tampered with. |
 | `MultiLayerVerifier` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `Finding` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `VerificationReport` | interface | Extends the substrate verdict spine: `valid` = `allPass` and `score` = |
-| `VerifyOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LayerStatus` | type | Multi-layer verifier — ordered pipeline of verification layers. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `Finding`, `VerifyOptions`.
 
 ### STATISTICS — significance, intervals, effect size
 
@@ -1251,24 +920,11 @@ Import from `@tangle-network/agent-eval` — 49 exports.
 | `wilcoxonSignedRank` | function | Wilcoxon signed-rank test — paired non-parametric alternative. |
 | `wilson` | function | Wilson score interval for a binomial proportion. Correct at small n and near |
 | `normalizeScores` | const | Identity: dimensions already follow "higher = better" by prompt convention |
-| `BootstrapOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BootstrapResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CorpusAgreementOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CorpusAgreementPerDimension` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CorpusAgreementReport` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CorpusScoreRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EProcess` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EProcessOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EProcessState` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EProcessStep` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `McNemarResult` | interface | Result of a McNemar paired-binary significance test. |
-| `PairedBootstrapOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PairedBootstrapResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProportionInterval` | interface | A binomial proportion estimate with a confidence interval. |
 | `RiskDifferenceResult` | interface | A paired binary effect size (treatment rate − control rate) with a CI. |
-| `WeightedCompositeInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `WeightedCompositeResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CliffsMagnitude` | type | _(no summary — add a TSDoc line at the declaration)_ |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
@@ -1344,131 +1000,60 @@ Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
 | `SkillPatchParseError` | class | Parse + validate the patch response. Throws `SkillPatchParseError` when the |
 | `WorktreeAdapterError` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `AcceptedEdit` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AceProposerOptions` | interface | `aceProposer` — Agentic Context Engineering: an APPEND-MOSTLY curator, the |
 | `AnalystArtifact` | interface | The analyst's output for one scenario — the artifact the judge scores. |
 | `AnalystScenario` | interface | A labeled trace scenario: a FIXED trace corpus plus the failure modes a |
-| `ApplySkillPatchResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `AxisEvidence` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BuildAnalystSurfaceDispatchOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BuildEvidenceVectorOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `BuildLoopProvenanceArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CampaignAggregates` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CampaignArtifactWriter` | interface | Scoped artifact writer — `write(path, content)` lands under |
-| `CampaignBreakdown` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `CampaignCellResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CampaignCostMeter` | interface | Cell-scoped cost meter. NOTHING is captured automatically — |
-| `CampaignResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `CampaignStorage` | interface | `CampaignStorage` — the filesystem seam `runCampaign` writes through |
 | `CampaignTraceWriter` | interface | Scoped trace writer handed to each dispatch — every span |
 | `CodeSurface` | interface | A tier-4 code surface — a candidate change to the agent's |
-| `CompareProposersOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DefaultProductionGateOptions` | interface | `defaultProductionGate` — composes the substrate's existing safety |
-| `DimensionRegression` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `DispatchContext` | interface | Context handed to every dispatch invocation. Scoped — every |
-| `EmitLoopProvenanceArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EmitLoopProvenanceResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `EvidenceVector` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `EvolutionaryProposerOptions` | interface | `evolutionaryProposer` — adapts a stateless `Mutator` (population mutation: |
-| `FailureModeRecallJudgeOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoAttributionSignals` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `FapoEntryConfig` | interface | FAPO reviewed-escalation policy. This is an orchestration layer over |
-| `FapoFailureCluster` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoProposerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoReviewInput` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoReviewIssue` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoReviewResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `FapoScopeContract` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `FsLabeledScenarioStoreOptions` | interface | Filesystem `LabeledScenarioStore` adapter. The default capture sink for |
 | `Gate` | interface | Composable promotion gate. |
-| `GateContext` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `GateResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `GenerationCandidate` | interface | One scored candidate surface in a generation. `dimensions` + `scenarios` |
-| `GenerationRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `GepaProposerConstraints` | interface | `gepaProposer` — a reflective `SurfaceProposer` for prompt-tier surfaces. |
-| `GepaProposerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `GitWorktreeAdapterOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `HaloProposerOptions` | interface | `haloProposer` — wraps the REAL halo-engine (Inference.net's hierarchical |
 | `HeldOutGateOptions` | interface | Thin Gate adapter — exposes delta-threshold-on-holdout as a composable |
-| `HeldoutSignificance` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `HeldoutSignificanceOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `JudgeAggregate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `JudgeConfig` | interface | Pluggable dimensional scorer. `score` is the contract: |
-| `JudgeDimension` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `JudgeScore` | interface | The canonical judge verdict shape — one declaration, shared by campaign |
-| `LabeledScenarioRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LabeledScenarioSampleArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LabeledScenarioStore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
-| `LlmJudgeOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopProvenanceBackend` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `LoopProvenanceCandidate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `LoopProvenanceRecord` | interface | The durable provenance record. Aligns to the hosted `EvalRunEvent` path but |
 | `MemoryCurationProposerOptions` | interface | `memoryCurationProposer` — a CURATOR `SurfaceProposer`, the complement to the |
 | `Mutator` | interface | Stateless surface mutation — given findings + current |
 | `OpenAutoPrOptions` | interface | `openAutoPr` — thin shell-out helper for the `runImprovementLoop` preset's |
-| `OpenAutoPrResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `OptimizerConfig` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `OptimizerEntryConfig` | interface | Shared corpus + transport for the three built-in optimizer entries. |
 | `PairedHoldout` | interface | Statistical held-out promotion machinery — the trustworthy core the |
-| `ParameterCandidate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ParameterChange` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ParameterSweepProposerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ParetoParent` | interface | A non-dominated parent on the GEPA Pareto frontier — a |
-| `ParetoSignificanceGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `PlaybackContext` | interface | Dispatch context plus the profile under test (which cheap model, etc.). |
 | `PlaybackDriver` | interface | Drives the real product through a story and returns the runtime event stream |
 | `PlaybackStep` | interface | One step of a user story — what the user does. The driver interprets |
-| `ProfileSummary` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `PromotionObjective` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProposeContext` | interface | Everything a proposer may read to plan the next |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
-| `ProposePatchesArgs` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ProposerComparison` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ProposerEntry` | interface | What an optimizer produced: the surface it promoted + what it cost to get |
-| `ProposerPairwise` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ProposerScore` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RejectedEdit` | interface | A patch that was tried and not accepted — fed back to the model so it does |
 | `RunCampaignOptions` | interface | `runCampaign` — Pass A substrate primitive. ONE function that orchestrates |
 | `RunEvalOptions` | interface | `runEval` — the simplest preset over `runCampaign`. No optimizer, no |
-| `RunImprovementLoopResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunOptimizationResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunProfileMatrixOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunProfileMatrixResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `RunSkillOptOptions` | interface | `runSkillOpt` — the SkillOpt epoch hill-climb (Microsoft, arXiv:2605.23904). |
-| `RunSkillOptResult` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `Scenario` | interface | Stable identifier + kind tag for any scenario. Consumers |
-| `ScenarioAggregate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ScenarioRollup` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `ScoreboardRenderOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `ScoreboardRow` | interface | One row of the launch scoreboard — story × requirement → PASS/FAIL. |
 | `ScoreboardSummary` | interface | Launch-readiness headline counts rolled up from the per-requirement rows. |
-| `SequentialDecideFn` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SequentialDecideOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SequentialObservation` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SequentialPairedGate` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SequentialPairedGateOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SessionScript` | interface | One session within a multi-session journey. Dispatch is |
-| `SkillOptEpochRecord` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SkillOptEvidence` | interface | Evidence the optimizer reflects on: where the current surface is weakest. |
-| `SkillOptProposer` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `SkillOptProposerOptions` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SkillPatch` | interface | A named, attributable bundle of ops the optimizer proposes as one edit. |
-| `SkillPatchRejection` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `SurfaceProposer` | interface | A surface-improvement strategy. Given the current best |
 | `TraceAnalystProposerOptions` | interface | `traceAnalystProposer` — wraps agent-eval's OWN trace-analyst engine |
-| `TraceSpan` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `UserStory` | interface | A user story = a runnable product journey plus the requirements that define |
 | `UserStoryVerdict` | interface | A scored user story — the completion verdict plus its human title. |
 | `Worktree` | interface | VCS-pluggable worktree adapter. One improvement = one worktree, PR-like |
-| `WorktreeAdapter` | interface | _(no summary — add a TSDoc line at the declaration)_ |
 | `AxisVerdict` | type | Per-axis verdict from the good-direction paired bootstrap. |
 | `CampaignTokenUsage` | type | Token usage accumulated for a cell. Aliased to the canonical `RunTokenUsage` |
 | `DispatchFn` | type | One function: scenario + ctx → artifact. Dispatcher chooses |
 | `FapoOptimizationLevel` | type | FAPO (Fully Autonomous Prompt Optimization) is an orchestration policy, not |
 | `GateDecision` | type | Five-valued verdict taxonomy (MOSS-paper alignment). |
-| `JsonPrimitive` | type | _(no summary — add a TSDoc line at the declaration)_ |
-| `JsonValue` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `LabeledScenarioSource` | type | Source tag — required on every store write. Used by the |
 | `LabelTrust` | type | How much a label can be trusted to evaluate against — the gold-admission |
 | `LlmJudgeDimension` | type | A rubric dimension as a bare key or the full `{ key, description }` shape. A |
@@ -1477,11 +1062,11 @@ Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 | `OptimizationProposer` | type | Optional vocabulary alias. The loop is the optimizer; this object is the |
 | `ProfileDispatchFn` | type | Dispatch for one cell: render `profile` against `scenario`, returning the |
 | `PromotionPolicy` | type | A promotion strategy: a pure function from the evidence vector to a verdict. |
-| `RedactionStatus` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `RunImprovementLoopOptions` | type | `runImprovementLoop` — the gated-promotion shell around the improvement |
-| `RunOptimizationOptions` | type | _(no summary — add a TSDoc line at the declaration)_ |
 | `SequentialDecision` | type | Anytime-valid sequential promotion gate — an e-process (betting |
 | `SkillPatchOp` | type | A single bounded edit against a skill surface. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcceptedEdit`, `ApplySkillPatchResult`, `AxisEvidence`, `BuildAnalystSurfaceDispatchOptions`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CompareProposersOptions`, `DimensionRegression`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvidenceVector`, `FailureModeRecallJudgeOptions`, `FapoAttributionSignals`, `FapoFailureCluster`, `FapoProposerOptions`, `FapoReviewInput`, `FapoReviewIssue`, `FapoReviewResult`, `FapoScopeContract`, `GateContext`, `GateResult`, `GenerationRecord`, `GepaProposerOptions`, `GitWorktreeAdapterOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `OpenAutoPrResult`, `OptimizerConfig`, `ParameterCandidate`, `ParameterChange`, `ParameterSweepProposerOptions`, `ParetoSignificanceGateOptions`, `ProfileSummary`, `PromotionObjective`, `ProposePatchesArgs`, `ProposerComparison`, `ProposerPairwise`, `ProposerScore`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunSkillOptResult`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SkillOptEpochRecord`, `SkillOptProposer`, `SkillOptProposerOptions`, `SkillPatchRejection`, `TraceSpan`, `WorktreeAdapter`, `JsonPrimitive`, `JsonValue`, `RedactionStatus`, `RunOptimizationOptions`.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 
@@ -1492,5 +1077,5 @@ Import from `@tangle-network/agent-eval` — 5 exports.
 | `extractUsage` | function | Pull `{ input, output, cached? }` from a parsed chat-completions response |
 | `extractUsageFromResponse` | function | Extract usage from an HTTP `Response` without consuming the caller's body: |
 | `extractUsageFromSse` | function | Sum token usage across an SSE response body. Each `data:` line is parsed and |
-| `LlmUsage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
-| `RunTokenUsage` | interface | _(no summary — add a TSDoc line at the declaration)_ |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `LlmUsage`, `RunTokenUsage`.

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The ONE worktree-harness execution core. The physical act — run a supervisor-authored
  * `AgentProfile` on a local coding-harness CLI (claude / codex / opencode) against a fresh git
@@ -17,6 +16,8 @@
  * → the configured test/typecheck commands in the live worktree → return the result + a `cleanup`
  * the caller invokes at its own teardown point. A throw cleans up before propagating, so a failed
  * run never leaks a worktree.
+ *
+ * @experimental
  */
 
 import { spawn } from 'node:child_process'

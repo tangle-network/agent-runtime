@@ -1,8 +1,9 @@
 /**
- * @experimental
  *
  * Internal loop-kernel utilities shared across the kernel, drivers, and the
  * sandbox-acquire layer. Not part of the public barrel surface.
+ *
+ * @experimental
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Sandbox-event stream → UiAuditOutput decoder. The custom auditor
  * `SandboxClient` emits events of the form:
@@ -12,6 +11,8 @@
  *
  * Other event types are tolerated and ignored. The adapter is pure: it
  * folds an already-collected event array into a UiAuditOutput.
+ *
+ * @experimental
  */
 
 import type { SandboxEvent } from '@tangle-network/sandbox'

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The loop-shape registry — the OPEN, content-free extension point for the personify layer.
  *
@@ -13,6 +12,8 @@
  * `verify`/`widen`) take spec arguments, so they are not bare zero-arg factories — a caller that
  * wants name-resolution registers its own COMPOSED shape (a combinator already applied to its
  * spec) on a registry instance. The registry carries SHAPE only; the domain lives on the persona.
+ *
+ * @experimental
  */
 
 import { ValidationError } from '../../errors'

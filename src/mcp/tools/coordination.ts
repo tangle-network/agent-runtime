@@ -1,10 +1,11 @@
 /**
- * @experimental
  *
  * MCP binding for a live `Scope`. A sandbox driver gets the same small verbs
  * the in-process driver has: spawn, observe, await, steer, ask/answer, analyze,
  * and stop. Settled outputs remain Scope artifacts; product code can project
  * them into any UI/report envelope it needs.
+ *
+ * @experimental
  */
 
 import type {

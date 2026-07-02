@@ -40,22 +40,24 @@ import type { AgentRunSpec, SandboxClient } from './types'
 import { isAbortError, randomSuffix, sleep } from './util'
 
 /**
- * @experimental
  * How a typed deliverable `Out` is materialized from a finished turn.
  * - `events`   — pure parse over the event array (identical to `OutputAdapter`).
  * - `artifact` — read a file off the box AFTER the turn drains, then map it (+ the
  *                events). For diffs/codebases/documents that don't fit the chat
  *                stream. `path` relative ⇒ workspace root; absolute ⇒ container FS.
+ *
+ * @experimental
  */
 export type Deliverable<Out> =
   | { kind: 'events'; fromEvents: (events: SandboxEvent[]) => Out }
   | { kind: 'artifact'; path: string; fromArtifact: (raw: string, events: SandboxEvent[]) => Out }
 
 /**
- * @experimental
  * One finished turn over the artifact. A failed FS read is surfaced in `readError`
  * (never masked as an empty deliverable) so a caller distinguishes "agent produced
  * nothing" from a transport/FS fault.
+ *
+ * @experimental
  */
 export interface TurnResult<Out> {
   out: Out
@@ -64,7 +66,6 @@ export interface TurnResult<Out> {
 }
 
 /**
- * @experimental
  * Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained
  * BEFORE the abort fired (and any in-progress `readError`) so an aborted run is
  * DIAGNOSABLE — the caller can tell never-started (`events: []`) from looped
@@ -72,6 +73,8 @@ export interface TurnResult<Out> {
  *
  * `name === 'AbortError'`, so existing `err.name === 'AbortError'` callers (the
  * loop kernel, scope, supervise runtime) keep matching it unchanged.
+ *
+ * @experimental
  */
 export class SandboxRunAbortError extends Error {
   override readonly name = 'AbortError'
@@ -119,10 +122,11 @@ export interface OpenSandboxRunOptions {
 }
 
 /**
- * @experimental
  * Open a sandbox run. Harness-agnostic: the harness lives in
  * `options.agentRun.sandboxOverrides.backend.type`, so opencode/codex/claude-code/
  * kimi-code all flow through this one entrypoint with identical env/auth wiring.
+ *
+ * @experimental
  */
 export async function openSandboxRun<Out>(
   client: SandboxClient,

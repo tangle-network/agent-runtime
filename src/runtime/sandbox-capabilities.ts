@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Capability probe for the loop kernel's backend-blind lineage seams. The
  * kernel must NEVER ask "is this Docker or Firecracker?"; it asks "can this
@@ -11,6 +10,8 @@
  * Invariant: a client with no `criuStatus` method (the loop's test fakes, the
  * raw SDK before it grew the probe) reports `canFork = false`. The seam is
  * fail-CLOSED — never assume forking works, only enable it on a positive probe.
+ *
+ * @experimental
  */
 
 import type { SandboxClient } from './types'

@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is
  * an addressable "single agent" whose internal behavior is an N-party
@@ -11,6 +10,8 @@
  * callers see one `text_delta` per inner turn (the turn's full text), tagged
  * with `[speaker] ` prefix so the outer transcript stays attributable. The
  * conversation's `conversation_end` halt reason rides on a `final` event.
+ *
+ * @stable
  */
 
 import { newRuntimeSession, nowIso } from '../sessions'

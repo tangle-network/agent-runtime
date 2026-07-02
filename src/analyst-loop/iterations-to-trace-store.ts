@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The read seam that closes the autonomous loop: project a round's `Iteration[]`
  * (each carrying its raw `SandboxEvent[]`) into an in-memory `TraceAnalysisStore`, the
@@ -12,6 +11,8 @@
  * steers on. Projection is best-effort over the FLAT SandboxEvent shape (no per-event
  * lineage yet — that's the richer-trace gap); it never fabricates — an errored iteration
  * surfaces a real ERROR span carrying the real message.
+ *
+ * @experimental
  */
 
 import {

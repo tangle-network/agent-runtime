@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The recursive driver-executor — the seam that lets a SPAWNED child be a DRIVER, so
  * agents drive agents drive agents over the one keystone atom.
@@ -35,6 +34,8 @@
  * Layering: pure keystone composition. It reuses the scope's `NestedScopeSeam` + the shared
  * `SpawnJournal`; it builds NO new budget, journal, or selection logic. The recursion rides
  * the existing atom.
+ *
+ * @experimental
  */
 
 import { ValidationError } from '../../errors'

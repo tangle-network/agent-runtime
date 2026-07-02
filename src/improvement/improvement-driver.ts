@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `improvementDriver` — the ONE reflective/agentic improvement proposer for
  * agent-eval's improvement loop. It implements `SurfaceProposer` and owns
@@ -17,6 +16,8 @@
  * Both emit changes into a worktree the driver finalizes into a
  * `CodeSurface{ worktreeRef }` the loop measures on the holdout. See
  * agent-eval's `docs/design/self-improvement-engine.md`.
+ *
+ * @experimental
  */
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
@@ -57,6 +58,7 @@ export interface ImprovementDriverOptions {
   baseRef?: string
 }
 
+/** The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. */
 export function improvementDriver(opts: ImprovementDriverOptions): SurfaceProposer<AnalystFinding> {
   const baseRef = opts.baseRef ?? 'main'
 

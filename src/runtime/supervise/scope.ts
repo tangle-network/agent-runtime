@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The reactive `Scope` impl (KEYSTONE, build step 4 + the step-8 adapter).
  *
@@ -22,6 +21,8 @@
  * The settle path is the only writer of journal `settled` events; the spawn path the only
  * writer of `spawned` events. The result blob is `put` BEFORE the journal `settled` record
  * references its `outRef`, so a crash can never leave a journaled ref with no blob.
+ *
+ * @experimental
  */
 
 import { contentAddress } from '../../durable/spawn-journal'
@@ -189,6 +190,7 @@ function makeNestedScopeSeam(args: ScopeArgs, childNodeId: NodeId): NestedScopeS
   }
 }
 
+/** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
   // Two distinct monotonic counters in two namespaces:

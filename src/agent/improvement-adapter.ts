@@ -126,6 +126,7 @@ const DEFAULT_CREATE_KINDS: ReadonlyArray<FindingSubject['kind']> = [
   'new-tool',
 ]
 
+/** The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. */
 export function createSurfaceImprovementAdapter(
   opts: CreateSurfaceImprovementAdapterOpts,
 ): ImprovementAdapter<SurfaceImprovementEdit> {

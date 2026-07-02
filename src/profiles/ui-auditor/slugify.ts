@@ -1,11 +1,12 @@
 /**
- * @experimental
  *
  * Shared slug helper used by both the in-process auditor client (for
  * screenshot filenames) and the issue writer (for issue Markdown
  * filenames). Lowercases, normalizes, strips non-alphanumeric, trims
  * dashes, caps at 80 chars. Throws when the result is empty so callers
  * never silently write to a name-less filename.
+ *
+ * @experimental
  */
 
 /** @experimental */

@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * In-process delegation executor — when `agent-runtime-mcp` runs inside a sandbox whose image
  * carries the local coding-harness CLIs (claude / codex / opencode), delegations spawn the harness
@@ -14,6 +13,8 @@
  * patch artifact) on the `result` event. The sandbox-session decode layer
  * (`./detached-coder`) projects that artifact onto `CoderOutput`; the generic `Scope` path settles
  * the artifact directly. The §1.5 payload (systemPrompt + model) reaches the harness inside the core.
+ *
+ * @experimental
  */
 
 import { randomUUID } from 'node:crypto'

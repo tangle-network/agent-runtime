@@ -64,6 +64,7 @@ const submitTool: AgenticTool = {
   },
 }
 
+/** Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. */
 export function createVerifierEnvironment(opts: VerifierEnvironmentOptions): Environment {
   if (opts.extraTools?.length && !opts.callExtra) {
     throw new Error(`${opts.name}: extraTools requires callExtra`)

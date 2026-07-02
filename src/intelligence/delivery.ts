@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Tangle Intelligence — the DELIVERY half of the loop (pull-by-default).
  *
@@ -22,6 +21,8 @@
  *     async (input, applied) => myAgent(input, { systemPrompt: applied.composePrompt(BASE) }),
  *     { project: 'support-agent', target: 'support-agent' },
  *   )
+ *
+ * @experimental
  */
 
 import { createIntelligenceClient, type IntelligenceConfig } from './index'

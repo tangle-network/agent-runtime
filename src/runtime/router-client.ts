@@ -45,6 +45,7 @@ export interface RouterChatResult {
   costUsd?: number
 }
 
+/** One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). */
 export async function routerChatWithUsage(
   cfg: RouterConfig,
   messages: Array<{ role: string; content: string }>,

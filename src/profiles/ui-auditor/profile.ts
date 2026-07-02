@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `uiAuditorProfile` — preset for vision-driven UI audit iterations.
  *
@@ -8,6 +7,8 @@
  * vision-capable judge driving a browser. The loop kernel still iterates
  * `client.create() → box.streamPrompt() → box.delete()`; the client/box pair are provided by
  * `createInProcessUiAuditClient` (in `./in-process-client.ts`) or a consumer-supplied `SandboxClient`.
+ *
+ * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -37,7 +38,11 @@ export interface UiAuditorProfileOptions {
   task?: UiAuditTask
 }
 
-/** @experimental */
+/**
+ * Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
+ *
+ * @experimental
+ */
 export function uiAuditorProfile(options: UiAuditorProfileOptions = {}): {
   profile: AgentProfile
   taskToPrompt: (task: UiAuditTask) => string

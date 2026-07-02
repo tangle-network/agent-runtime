@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * `agent-runtime/src/audit` — pure I/O helpers for UI-audit workspaces.
  *
@@ -8,6 +7,8 @@
  * can persist a workspace, regardless of whether the findings came from
  * the in-process auditor client, a sandbox-SDK harness, or a hand-curated
  * import.
+ *
+ * @experimental
  */
 
 export type {

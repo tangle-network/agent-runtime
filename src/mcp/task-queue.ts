@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * State machine for async MCP delegations:
  *
@@ -23,6 +22,8 @@
  * stay queryable, in-flight records either re-attach through the
  * `resumeDelegate` seam (when they carry a `detachedSessionRef`) or fail
  * loud with a driver-restart error so `delegation_status` tells the truth.
+ *
+ * @experimental
  */
 
 import { ValidationError } from '../errors'

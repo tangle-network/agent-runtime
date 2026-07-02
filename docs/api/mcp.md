@@ -10,7 +10,7 @@
 
 ### DelegationStateCorruptError
 
-Defined in: [mcp/delegation-store.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L54)
+Defined in: [mcp/delegation-store.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L55)
 
 **`Experimental`**
 
@@ -31,7 +31,7 @@ which archives the corrupt file and starts fresh.
 
 > **new DelegationStateCorruptError**(`message`, `options?`): [`DelegationStateCorruptError`](#delegationstatecorrupterror)
 
-Defined in: [mcp/delegation-store.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L55)
+Defined in: [mcp/delegation-store.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L56)
 
 **`Experimental`**
 
@@ -59,7 +59,7 @@ Defined in: [mcp/delegation-store.ts:55](https://github.com/tangle-network/agent
 
 ### DelegationPersistenceError
 
-Defined in: [mcp/delegation-store.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L68)
+Defined in: [mcp/delegation-store.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L69)
 
 **`Experimental`**
 
@@ -78,7 +78,7 @@ silently demote durable mode to in-memory mode.
 
 > **new DelegationPersistenceError**(`message`, `options?`): [`DelegationPersistenceError`](#delegationpersistenceerror)
 
-Defined in: [mcp/delegation-store.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L69)
+Defined in: [mcp/delegation-store.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L70)
 
 **`Experimental`**
 
@@ -106,7 +106,7 @@ Defined in: [mcp/delegation-store.ts:69](https://github.com/tangle-network/agent
 
 ### InMemoryDelegationStore
 
-Defined in: [mcp/delegation-store.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L75)
+Defined in: [mcp/delegation-store.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L76)
 
 **`Experimental`**
 
@@ -132,7 +132,7 @@ Defined in: [mcp/delegation-store.ts:75](https://github.com/tangle-network/agent
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
 
-Defined in: [mcp/delegation-store.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L78)
+Defined in: [mcp/delegation-store.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L79)
 
 **`Experimental`**
 
@@ -153,7 +153,7 @@ file is an empty store; an unparseable one throws
 
 > **upsert**(`record`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L82)
+Defined in: [mcp/delegation-store.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L83)
 
 **`Experimental`**
 
@@ -177,7 +177,7 @@ Insert or replace the record keyed by `record.taskId`.
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
 
-Defined in: [mcp/delegation-store.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L86)
+Defined in: [mcp/delegation-store.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L87)
 
 **`Experimental`**
 
@@ -204,7 +204,7 @@ processes without holding the full record set.
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L93)
+Defined in: [mcp/delegation-store.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L94)
 
 **`Experimental`**
 
@@ -228,7 +228,7 @@ readonly `string`[]
 
 ### FileDelegationStore
 
-Defined in: [mcp/delegation-store.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L130)
+Defined in: [mcp/delegation-store.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L131)
 
 **`Experimental`**
 
@@ -252,7 +252,7 @@ and corruption-detectable without a database dependency.
 
 > **new FileDelegationStore**(`options`): [`FileDelegationStore`](#filedelegationstore)
 
-Defined in: [mcp/delegation-store.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L138)
+Defined in: [mcp/delegation-store.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L139)
 
 **`Experimental`**
 
@@ -272,7 +272,7 @@ Defined in: [mcp/delegation-store.ts:138](https://github.com/tangle-network/agen
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
 
-Defined in: [mcp/delegation-store.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L143)
+Defined in: [mcp/delegation-store.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L144)
 
 **`Experimental`**
 
@@ -293,7 +293,7 @@ file is an empty store; an unparseable one throws
 
 > **upsert**(`record`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L180)
+Defined in: [mcp/delegation-store.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L181)
 
 **`Experimental`**
 
@@ -317,7 +317,7 @@ Insert or replace the record keyed by `record.taskId`.
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
 
-Defined in: [mcp/delegation-store.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L186)
+Defined in: [mcp/delegation-store.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L187)
 
 **`Experimental`**
 
@@ -344,7 +344,7 @@ processes without holding the full record set.
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L194)
+Defined in: [mcp/delegation-store.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L195)
 
 **`Experimental`**
 
@@ -368,7 +368,7 @@ readonly `string`[]
 
 ### InMemoryFeedbackStore
 
-Defined in: [mcp/feedback-store.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L41)
+Defined in: [mcp/feedback-store.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L42)
 
 **`Experimental`**
 
@@ -394,7 +394,7 @@ Defined in: [mcp/feedback-store.ts:41](https://github.com/tangle-network/agent-r
 
 > **put**(`event`): `Promise`\<`void`\>
 
-Defined in: [mcp/feedback-store.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L44)
+Defined in: [mcp/feedback-store.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L45)
 
 **`Experimental`**
 
@@ -418,7 +418,7 @@ Append a new event. Never dedupes — every rating is its own event.
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
 
-Defined in: [mcp/feedback-store.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L48)
+Defined in: [mcp/feedback-store.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L49)
 
 **`Experimental`**
 
@@ -449,7 +449,7 @@ across all namespaces. Returns events in insertion order.
 
 ### DelegationTaskQueue
 
-Defined in: [mcp/task-queue.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L242)
+Defined in: [mcp/task-queue.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L243)
 
 **`Experimental`**
 
@@ -459,7 +459,7 @@ Defined in: [mcp/task-queue.ts:242](https://github.com/tangle-network/agent-runt
 
 > **new DelegationTaskQueue**(`options?`): [`DelegationTaskQueue`](#delegationtaskqueue)
 
-Defined in: [mcp/task-queue.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L256)
+Defined in: [mcp/task-queue.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L257)
 
 **`Experimental`**
 
@@ -479,7 +479,7 @@ Defined in: [mcp/task-queue.ts:256](https://github.com/tangle-network/agent-runt
 
 > `static` **restore**(`options?`): `Promise`\<[`DelegationTaskQueue`](#delegationtaskqueue)\>
 
-Defined in: [mcp/task-queue.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L292)
+Defined in: [mcp/task-queue.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L293)
 
 **`Experimental`**
 
@@ -509,7 +509,7 @@ The retention cap applies to the loaded set as well.
 
 > **submit**\<`Args`\>(`input`): [`SubmitOutput`](#submitoutput)
 
-Defined in: [mcp/task-queue.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L305)
+Defined in: [mcp/task-queue.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L306)
 
 **`Experimental`**
 
@@ -538,7 +538,7 @@ the queue does not accept work it cannot journal.
 
 > **status**(`taskId`, `opts?`): [`DelegationStatusResult`](#delegationstatusresult) \| `undefined`
 
-Defined in: [mcp/task-queue.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L355)
+Defined in: [mcp/task-queue.ts:356](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L356)
 
 **`Experimental`**
 
@@ -567,7 +567,7 @@ default so status polls stay light.
 
 > **cancel**(`taskId`): `boolean`
 
-Defined in: [mcp/task-queue.ts:368](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L368)
+Defined in: [mcp/task-queue.ts:369](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L369)
 
 **`Experimental`**
 
@@ -591,7 +591,7 @@ UI on `running` forever.
 
 > **attachFeedback**(`taskId`, `snapshot`): `boolean`
 
-Defined in: [mcp/task-queue.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L388)
+Defined in: [mcp/task-queue.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L389)
 
 **`Experimental`**
 
@@ -618,7 +618,7 @@ kinds are not queue-bound).
 
 > **history**(`args?`): [`DelegationHistoryEntry`](#delegationhistoryentry)[]
 
-Defined in: [mcp/task-queue.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L400)
+Defined in: [mcp/task-queue.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L401)
 
 **`Experimental`**
 
@@ -639,7 +639,7 @@ Query the recorded delegations. Returns entries newest-first (by
 
 > **flush**(): `Promise`\<`void`\>
 
-Defined in: [mcp/task-queue.ts:419](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L419)
+Defined in: [mcp/task-queue.ts:420](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L420)
 
 **`Experimental`**
 
@@ -655,7 +655,7 @@ handing the store's backing file to another process.
 
 > **inflightCount**(): `number`
 
-Defined in: [mcp/task-queue.ts:435](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L435)
+Defined in: [mcp/task-queue.ts:436](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L436)
 
 **`Experimental`**
 
@@ -669,7 +669,7 @@ Test-only — number of in-flight (non-terminal) records.
 
 ### DetectExecutorArgs
 
-Defined in: [mcp/bin-helpers.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L20)
+Defined in: [mcp/bin-helpers.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L21)
 
 **`Experimental`**
 
@@ -679,7 +679,7 @@ Defined in: [mcp/bin-helpers.ts:20](https://github.com/tangle-network/agent-runt
 
 > **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [mcp/bin-helpers.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L21)
+Defined in: [mcp/bin-helpers.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L22)
 
 **`Experimental`**
 
@@ -687,7 +687,7 @@ Defined in: [mcp/bin-helpers.ts:21](https://github.com/tangle-network/agent-runt
 
 > `optional` **env?**: `Record`\<`string`, `string` \| `undefined`\>
 
-Defined in: [mcp/bin-helpers.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L23)
+Defined in: [mcp/bin-helpers.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L24)
 
 **`Experimental`**
 
@@ -697,7 +697,7 @@ Raw env (defaults to `process.env`). Pass an explicit map for tests.
 
 > `optional` **resolveFleet?**: (`client`, `fleetId`) => `Promise`\<[`FleetHandle`](#fleethandle)\>
 
-Defined in: [mcp/bin-helpers.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L29)
+Defined in: [mcp/bin-helpers.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L30)
 
 **`Experimental`**
 
@@ -723,7 +723,7 @@ shape against the structural `FleetHandle` contract.
 
 ### DelegateRunCtx
 
-Defined in: [mcp/delegates.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L56)
+Defined in: [mcp/delegates.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L57)
 
 **`Experimental`**
 
@@ -733,7 +733,7 @@ Defined in: [mcp/delegates.ts:56](https://github.com/tangle-network/agent-runtim
 
 > **signal**: `AbortSignal`
 
-Defined in: [mcp/delegates.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L57)
+Defined in: [mcp/delegates.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L58)
 
 **`Experimental`**
 
@@ -741,7 +741,7 @@ Defined in: [mcp/delegates.ts:57](https://github.com/tangle-network/agent-runtim
 
 > `optional` **detachedSessionRef?**: `string`
 
-Defined in: [mcp/delegates.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L65)
+Defined in: [mcp/delegates.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L66)
 
 **`Experimental`**
 
@@ -754,7 +754,7 @@ onto the `driveTurn` tick path instead of holding a stream.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
 
-Defined in: [mcp/delegates.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L74)
+Defined in: [mcp/delegates.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L75)
 
 **`Experimental`**
 
@@ -769,7 +769,7 @@ the same stream.
 
 > **report**(`progress`): `void`
 
-Defined in: [mcp/delegates.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L58)
+Defined in: [mcp/delegates.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L59)
 
 **`Experimental`**
 
@@ -787,7 +787,7 @@ Defined in: [mcp/delegates.ts:58](https://github.com/tangle-network/agent-runtim
 
 > `optional` **updateDetachedSessionRef**(`ref`): `void`
 
-Defined in: [mcp/delegates.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L67)
+Defined in: [mcp/delegates.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L68)
 
 **`Experimental`**
 
@@ -807,7 +807,7 @@ Rebind the record's resume key (e.g. once the sandbox id is known).
 
 ### CoderReview
 
-Defined in: [mcp/delegates.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L97)
+Defined in: [mcp/delegates.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L98)
 
 **`Experimental`**
 
@@ -819,7 +819,7 @@ Structured review verdict over a coder candidate.
 
 > **approved**: `boolean`
 
-Defined in: [mcp/delegates.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L99)
+Defined in: [mcp/delegates.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L100)
 
 **`Experimental`**
 
@@ -829,7 +829,7 @@ Gate: only approved candidates are eligible to win.
 
 > **recommendation**: `"ship"` \| `"approve-with-nits"` \| `"changes-requested"` \| `"reject"`
 
-Defined in: [mcp/delegates.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L101)
+Defined in: [mcp/delegates.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L102)
 
 **`Experimental`**
 
@@ -839,7 +839,7 @@ Reviewer's recommendation — surfaced in traces.
 
 > **readiness**: `number`
 
-Defined in: [mcp/delegates.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L103)
+Defined in: [mcp/delegates.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L104)
 
 **`Experimental`**
 
@@ -849,7 +849,7 @@ Readiness 0..1, used by the `highest-readiness` winner-selection strategy.
 
 > `optional` **notes?**: `string`
 
-Defined in: [mcp/delegates.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L104)
+Defined in: [mcp/delegates.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L105)
 
 **`Experimental`**
 
@@ -857,7 +857,7 @@ Defined in: [mcp/delegates.ts:104](https://github.com/tangle-network/agent-runti
 
 ### DetachedSessionDelegateOptions
 
-Defined in: [mcp/delegates.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L136)
+Defined in: [mcp/delegates.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L138)
 
 **`Experimental`**
 
@@ -867,7 +867,7 @@ Defined in: [mcp/delegates.ts:136](https://github.com/tangle-network/agent-runti
 
 > `optional` **executor?**: [`DelegationExecutor`](#delegationexecutor)
 
-Defined in: [mcp/delegates.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L143)
+Defined in: [mcp/delegates.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L145)
 
 **`Experimental`**
 
@@ -880,7 +880,7 @@ one or the other, not both.
 
 > `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [mcp/delegates.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L148)
+Defined in: [mcp/delegates.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L150)
 
 **`Experimental`**
 
@@ -891,7 +891,7 @@ Convenience shorthand for sibling placement. Equivalent to
 
 > `optional` **workerProfile?**: `AgentProfile`
 
-Defined in: [mcp/delegates.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L156)
+Defined in: [mcp/delegates.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L158)
 
 **`Experimental`**
 
@@ -905,7 +905,7 @@ profile is used.
 
 > `optional` **harness?**: `string`
 
-Defined in: [mcp/delegates.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L158)
+Defined in: [mcp/delegates.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L160)
 
 **`Experimental`**
 
@@ -915,7 +915,7 @@ Backend harness for the single-coder path (sets `metadata.backendType`). Default
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/delegates.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L160)
+Defined in: [mcp/delegates.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L162)
 
 **`Experimental`**
 
@@ -925,7 +925,7 @@ Model override for the single-coder path.
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: [mcp/delegates.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L166)
+Defined in: [mcp/delegates.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L168)
 
 **`Experimental`**
 
@@ -937,7 +937,7 @@ harness runs under this stance. Omit to keep the profile's own prompt.
 
 > `optional` **fanoutHarnesses?**: `string`[]
 
-Defined in: [mcp/delegates.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L168)
+Defined in: [mcp/delegates.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L170)
 
 **`Experimental`**
 
@@ -947,7 +947,7 @@ Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when vari
 
 > `optional` **fanoutModels?**: (`string` \| `undefined`)[]
 
-Defined in: [mcp/delegates.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L170)
+Defined in: [mcp/delegates.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L172)
 
 **`Experimental`**
 
@@ -957,7 +957,7 @@ Optional per-harness model override for `variants > 1`.
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [mcp/delegates.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L172)
+Defined in: [mcp/delegates.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L174)
 
 **`Experimental`**
 
@@ -967,7 +967,7 @@ Hard cap on the kernel's per-batch concurrency. Default 4.
 
 > `optional` **reviewer?**: [`CoderReviewer`](#coderreviewer)
 
-Defined in: [mcp/delegates.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L179)
+Defined in: [mcp/delegates.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L181)
 
 **`Experimental`**
 
@@ -980,7 +980,7 @@ but wrong/unsafe" class the deterministic validator can't see.
 
 > `optional` **winnerSelection?**: [`DetachedWinnerSelection`](#detachedwinnerselection)
 
-Defined in: [mcp/delegates.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L181)
+Defined in: [mcp/delegates.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L183)
 
 **`Experimental`**
 
@@ -990,7 +990,7 @@ Winner-selection strategy among eligible candidates. Default `highest-score`.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
 
-Defined in: [mcp/delegates.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L193)
+Defined in: [mcp/delegates.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L195)
 
 **`Experimental`**
 
@@ -1008,7 +1008,7 @@ event stream for them so this emitter observes detached work too.
 
 > `optional` **detachedTickIntervalMs?**: `number`
 
-Defined in: [mcp/delegates.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L195)
+Defined in: [mcp/delegates.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L197)
 
 **`Experimental`**
 
@@ -1018,7 +1018,7 @@ Tick cadence (ms) for the detached single-variant path. Default 5000.
 
 > `optional` **detachedWallCapMs?**: `number`
 
-Defined in: [mcp/delegates.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L197)
+Defined in: [mcp/delegates.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L199)
 
 **`Experimental`**
 
@@ -1028,7 +1028,7 @@ Wall-clock cap (ms) forwarded to `driveTurn` for detached turns.
 
 ### SettleDetachedCoderTurnOptions
 
-Defined in: [mcp/delegates.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L438)
+Defined in: [mcp/delegates.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L440)
 
 **`Experimental`**
 
@@ -1038,7 +1038,7 @@ Defined in: [mcp/delegates.ts:438](https://github.com/tangle-network/agent-runti
 
 > **task**: [`CoderTask`](profiles.md#codertask)
 
-Defined in: [mcp/delegates.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L439)
+Defined in: [mcp/delegates.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L441)
 
 **`Experimental`**
 
@@ -1046,7 +1046,7 @@ Defined in: [mcp/delegates.ts:439](https://github.com/tangle-network/agent-runti
 
 > **sessionId**: `string`
 
-Defined in: [mcp/delegates.ts:441](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L441)
+Defined in: [mcp/delegates.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L443)
 
 **`Experimental`**
 
@@ -1056,7 +1056,7 @@ Session id of the detached turn — used as the synthesized event id.
 
 > **signal**: `AbortSignal`
 
-Defined in: [mcp/delegates.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L442)
+Defined in: [mcp/delegates.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L444)
 
 **`Experimental`**
 
@@ -1064,7 +1064,7 @@ Defined in: [mcp/delegates.ts:442](https://github.com/tangle-network/agent-runti
 
 > `optional` **harness?**: `string`
 
-Defined in: [mcp/delegates.ts:443](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L443)
+Defined in: [mcp/delegates.ts:445](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L445)
 
 **`Experimental`**
 
@@ -1072,7 +1072,7 @@ Defined in: [mcp/delegates.ts:443](https://github.com/tangle-network/agent-runti
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/delegates.ts:444](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L444)
+Defined in: [mcp/delegates.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L446)
 
 **`Experimental`**
 
@@ -1080,7 +1080,7 @@ Defined in: [mcp/delegates.ts:444](https://github.com/tangle-network/agent-runti
 
 > `optional` **reviewer?**: [`CoderReviewer`](#coderreviewer)
 
-Defined in: [mcp/delegates.ts:446](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L446)
+Defined in: [mcp/delegates.ts:448](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L448)
 
 **`Experimental`**
 
@@ -1090,7 +1090,7 @@ Same gate as the streaming path: an unapproved candidate cannot win.
 
 ### DelegationStore
 
-Defined in: [mcp/delegation-store.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L23)
+Defined in: [mcp/delegation-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L24)
 
 **`Experimental`**
 
@@ -1100,7 +1100,7 @@ Defined in: [mcp/delegation-store.ts:23](https://github.com/tangle-network/agent
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
 
-Defined in: [mcp/delegation-store.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L30)
+Defined in: [mcp/delegation-store.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L31)
 
 **`Experimental`**
 
@@ -1117,7 +1117,7 @@ file is an empty store; an unparseable one throws
 
 > **upsert**(`record`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L32)
+Defined in: [mcp/delegation-store.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L33)
 
 **`Experimental`**
 
@@ -1137,7 +1137,7 @@ Insert or replace the record keyed by `record.taskId`.
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
 
-Defined in: [mcp/delegation-store.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L39)
+Defined in: [mcp/delegation-store.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L40)
 
 **`Experimental`**
 
@@ -1160,7 +1160,7 @@ processes without holding the full record set.
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
 
-Defined in: [mcp/delegation-store.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L41)
+Defined in: [mcp/delegation-store.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L42)
 
 **`Experimental`**
 
@@ -1180,7 +1180,7 @@ readonly `string`[]
 
 ### FileDelegationStoreOptions
 
-Defined in: [mcp/delegation-store.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L99)
+Defined in: [mcp/delegation-store.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L100)
 
 **`Experimental`**
 
@@ -1190,7 +1190,7 @@ Defined in: [mcp/delegation-store.ts:99](https://github.com/tangle-network/agent
 
 > **filePath**: `string`
 
-Defined in: [mcp/delegation-store.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L101)
+Defined in: [mcp/delegation-store.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L102)
 
 **`Experimental`**
 
@@ -1200,7 +1200,7 @@ Absolute path of the JSON state file. Parent directories are created on first wr
 
 > `optional` **recoverCorrupt?**: `boolean`
 
-Defined in: [mcp/delegation-store.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L107)
+Defined in: [mcp/delegation-store.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-store.ts#L108)
 
 **`Experimental`**
 
@@ -1212,7 +1212,7 @@ throwing `DelegationStateCorruptError`. Default false.
 
 ### DelegationTraceSpan
 
-Defined in: [mcp/delegation-trace.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L31)
+Defined in: [mcp/delegation-trace.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L32)
 
 **`Experimental`**
 
@@ -1228,7 +1228,7 @@ them, so a consumer can re-export journal traces losslessly.
 
 > **spanId**: `string`
 
-Defined in: [mcp/delegation-trace.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L32)
+Defined in: [mcp/delegation-trace.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L33)
 
 **`Experimental`**
 
@@ -1236,7 +1236,7 @@ Defined in: [mcp/delegation-trace.ts:32](https://github.com/tangle-network/agent
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [mcp/delegation-trace.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L34)
+Defined in: [mcp/delegation-trace.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L35)
 
 **`Experimental`**
 
@@ -1246,7 +1246,7 @@ Absent on the tree root.
 
 > **name**: `string`
 
-Defined in: [mcp/delegation-trace.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L36)
+Defined in: [mcp/delegation-trace.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L37)
 
 **`Experimental`**
 
@@ -1256,7 +1256,7 @@ Defined in: [mcp/delegation-trace.ts:36](https://github.com/tangle-network/agent
 
 > **kind**: `"loop"` \| `"round"` \| `"branch"`
 
-Defined in: [mcp/delegation-trace.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L38)
+Defined in: [mcp/delegation-trace.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L39)
 
 **`Experimental`**
 
@@ -1266,7 +1266,7 @@ Topology level: loop root, plan round, or iteration branch.
 
 > **startMs**: `number`
 
-Defined in: [mcp/delegation-trace.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L39)
+Defined in: [mcp/delegation-trace.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L40)
 
 **`Experimental`**
 
@@ -1274,7 +1274,7 @@ Defined in: [mcp/delegation-trace.ts:39](https://github.com/tangle-network/agent
 
 > **endMs**: `number`
 
-Defined in: [mcp/delegation-trace.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L40)
+Defined in: [mcp/delegation-trace.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L41)
 
 **`Experimental`**
 
@@ -1282,7 +1282,7 @@ Defined in: [mcp/delegation-trace.ts:40](https://github.com/tangle-network/agent
 
 > `optional` **meta?**: `Record`\<`string`, `string` \| `number` \| `boolean`\>
 
-Defined in: [mcp/delegation-trace.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L41)
+Defined in: [mcp/delegation-trace.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L42)
 
 **`Experimental`**
 
@@ -1290,7 +1290,7 @@ Defined in: [mcp/delegation-trace.ts:41](https://github.com/tangle-network/agent
 
 ### DelegationTraceCaps
 
-Defined in: [mcp/delegation-trace.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L51)
+Defined in: [mcp/delegation-trace.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L52)
 
 **`Experimental`**
 
@@ -1300,7 +1300,7 @@ Defined in: [mcp/delegation-trace.ts:51](https://github.com/tangle-network/agent
 
 > `optional` **maxSpans?**: `number`
 
-Defined in: [mcp/delegation-trace.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L53)
+Defined in: [mcp/delegation-trace.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L54)
 
 **`Experimental`**
 
@@ -1310,7 +1310,7 @@ Default [DELEGATION\_TRACE\_MAX\_SPANS](#delegation_trace_max_spans).
 
 > `optional` **maxBytes?**: `number`
 
-Defined in: [mcp/delegation-trace.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L56)
+Defined in: [mcp/delegation-trace.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L57)
 
 **`Experimental`**
 
@@ -1321,7 +1321,7 @@ Default [DELEGATION\_TRACE\_MAX\_BYTES](#delegation_trace_max_bytes). Approximat
 
 ### CappedDelegationTrace
 
-Defined in: [mcp/delegation-trace.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L60)
+Defined in: [mcp/delegation-trace.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L61)
 
 **`Experimental`**
 
@@ -1331,7 +1331,7 @@ Defined in: [mcp/delegation-trace.ts:60](https://github.com/tangle-network/agent
 
 > **trace**: [`DelegationTraceSpan`](#delegationtracespan)[]
 
-Defined in: [mcp/delegation-trace.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L61)
+Defined in: [mcp/delegation-trace.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L62)
 
 **`Experimental`**
 
@@ -1339,7 +1339,7 @@ Defined in: [mcp/delegation-trace.ts:61](https://github.com/tangle-network/agent
 
 > **truncated**: `boolean`
 
-Defined in: [mcp/delegation-trace.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L63)
+Defined in: [mcp/delegation-trace.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L64)
 
 **`Experimental`**
 
@@ -1349,7 +1349,7 @@ True when oldest spans were dropped to honor the caps.
 
 ### DelegationTraceCollector
 
-Defined in: [mcp/delegation-trace.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L123)
+Defined in: [mcp/delegation-trace.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L124)
 
 **`Experimental`**
 
@@ -1365,7 +1365,7 @@ journal, unlike the OTEL path which drops it.
 
 > **emitter**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
 
-Defined in: [mcp/delegation-trace.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L124)
+Defined in: [mcp/delegation-trace.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L125)
 
 **`Experimental`**
 
@@ -1375,7 +1375,7 @@ Defined in: [mcp/delegation-trace.ts:124](https://github.com/tangle-network/agen
 
 > **settle**(): `void`
 
-Defined in: [mcp/delegation-trace.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L126)
+Defined in: [mcp/delegation-trace.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L127)
 
 **`Experimental`**
 
@@ -1389,7 +1389,7 @@ Flush buffered events of runs that never reached `loop.ended`.
 
 ### DriveTurnCapableBox
 
-Defined in: [mcp/detached-turn.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L67)
+Defined in: [mcp/detached-turn.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L68)
 
 **`Experimental`**
 
@@ -1405,7 +1405,7 @@ is invoked on abort so the remote run actually stops.
 
 > **driveTurn**(`message`, `opts`): `Promise`\<[`DriveTurnTick`](#driveturntick)\>
 
-Defined in: [mcp/detached-turn.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L68)
+Defined in: [mcp/detached-turn.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L69)
 
 **`Experimental`**
 
@@ -1437,7 +1437,7 @@ Defined in: [mcp/detached-turn.ts:68](https://github.com/tangle-network/agent-ru
 
 > `optional` **\_sessionCancel**(`id`): `Promise`\<`void`\>
 
-Defined in: [mcp/detached-turn.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L72)
+Defined in: [mcp/detached-turn.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L73)
 
 **`Experimental`**
 
@@ -1455,7 +1455,7 @@ Defined in: [mcp/detached-turn.ts:72](https://github.com/tangle-network/agent-ru
 
 ### DetachedSessionRefParts
 
-Defined in: [mcp/detached-turn.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L83)
+Defined in: [mcp/detached-turn.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L84)
 
 **`Experimental`**
 
@@ -1470,7 +1470,7 @@ loud rather than dispatching onto a guessed box.
 
 > **sessionId**: `string`
 
-Defined in: [mcp/detached-turn.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L84)
+Defined in: [mcp/detached-turn.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L85)
 
 **`Experimental`**
 
@@ -1478,7 +1478,7 @@ Defined in: [mcp/detached-turn.ts:84](https://github.com/tangle-network/agent-ru
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [mcp/detached-turn.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L85)
+Defined in: [mcp/detached-turn.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L86)
 
 **`Experimental`**
 
@@ -1486,7 +1486,7 @@ Defined in: [mcp/detached-turn.ts:85](https://github.com/tangle-network/agent-ru
 
 ### DetachedTurn
 
-Defined in: [mcp/detached-turn.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L135)
+Defined in: [mcp/detached-turn.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L136)
 
 **`Experimental`**
 
@@ -1498,7 +1498,7 @@ The terminal payload of a finished detached turn.
 
 > **text**: `string`
 
-Defined in: [mcp/detached-turn.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L137)
+Defined in: [mcp/detached-turn.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L138)
 
 **`Experimental`**
 
@@ -1508,7 +1508,7 @@ Final assistant text.
 
 > **result**: `Record`\<`string`, `unknown`\>
 
-Defined in: [mcp/detached-turn.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L139)
+Defined in: [mcp/detached-turn.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L140)
 
 **`Experimental`**
 
@@ -1518,7 +1518,7 @@ The SDK's cached AgentExecutionResult-shape record for the turn.
 
 ### RunDetachedTurnOptions
 
-Defined in: [mcp/detached-turn.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L166)
+Defined in: [mcp/detached-turn.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L167)
 
 **`Experimental`**
 
@@ -1528,7 +1528,7 @@ Defined in: [mcp/detached-turn.ts:166](https://github.com/tangle-network/agent-r
 
 > **client**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [mcp/detached-turn.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L168)
+Defined in: [mcp/detached-turn.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L169)
 
 **`Experimental`**
 
@@ -1538,7 +1538,7 @@ Sandbox client used to acquire the box (the delegate's executor client).
 
 > **spec**: [`AgentRunSpec`](runtime.md#agentrunspec)\<`unknown`\>
 
-Defined in: [mcp/detached-turn.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L170)
+Defined in: [mcp/detached-turn.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L171)
 
 **`Experimental`**
 
@@ -1548,7 +1548,7 @@ Profile + overrides for box acquisition — same spec the streaming path uses.
 
 > **prompt**: `string`
 
-Defined in: [mcp/detached-turn.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L172)
+Defined in: [mcp/detached-turn.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L173)
 
 **`Experimental`**
 
@@ -1558,7 +1558,7 @@ The full turn prompt; consumed by `driveTurn`'s dispatch leg.
 
 > **sessionId**: `string`
 
-Defined in: [mcp/detached-turn.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L174)
+Defined in: [mcp/detached-turn.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L175)
 
 **`Experimental`**
 
@@ -1568,7 +1568,7 @@ Deterministic resume key, minted at submit time (`parseDetachedSessionRef(ref).s
 
 > **signal**: `AbortSignal`
 
-Defined in: [mcp/detached-turn.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L181)
+Defined in: [mcp/detached-turn.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L182)
 
 **`Experimental`**
 
@@ -1576,7 +1576,7 @@ Defined in: [mcp/detached-turn.ts:181](https://github.com/tangle-network/agent-r
 
 > `optional` **tickIntervalMs?**: `number`
 
-Defined in: [mcp/detached-turn.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L184)
+Defined in: [mcp/detached-turn.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L185)
 
 **`Experimental`**
 
@@ -1586,7 +1586,7 @@ Delay between `running` ticks (ms). Default 5000.
 
 > `optional` **wallCapMs?**: `number`
 
-Defined in: [mcp/detached-turn.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L186)
+Defined in: [mcp/detached-turn.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L187)
 
 **`Experimental`**
 
@@ -1596,7 +1596,7 @@ Wall-clock cap forwarded to `driveTurn` — the SDK cancels and fails a session 
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
 
-Defined in: [mcp/detached-turn.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L196)
+Defined in: [mcp/detached-turn.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L197)
 
 **`Experimental`**
 
@@ -1612,7 +1612,7 @@ this driver tag.
 
 > `optional` **placement?**: `"sibling"` \| `"fleet"`
 
-Defined in: [mcp/detached-turn.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L198)
+Defined in: [mcp/detached-turn.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L199)
 
 **`Experimental`**
 
@@ -1624,7 +1624,7 @@ Physical placement stamped on the synthesized dispatch event. Default `'sibling'
 
 > **bindSandbox**(`sandboxId`): `void`
 
-Defined in: [mcp/detached-turn.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L180)
+Defined in: [mcp/detached-turn.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L181)
 
 **`Experimental`**
 
@@ -1646,7 +1646,7 @@ a restart can resolve the box again.
 
 > **report**(`progress`): `void`
 
-Defined in: [mcp/detached-turn.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L182)
+Defined in: [mcp/detached-turn.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L183)
 
 **`Experimental`**
 
@@ -1664,7 +1664,7 @@ Defined in: [mcp/detached-turn.ts:182](https://github.com/tangle-network/agent-r
 
 ### DetachedTurnResumeDriverOptions
 
-Defined in: [mcp/detached-turn.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L365)
+Defined in: [mcp/detached-turn.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L366)
 
 **`Experimental`**
 
@@ -1674,7 +1674,7 @@ Defined in: [mcp/detached-turn.ts:365](https://github.com/tangle-network/agent-r
 
 > `optional` **intervalMs?**: `number`
 
-Defined in: [mcp/detached-turn.ts:390](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L390)
+Defined in: [mcp/detached-turn.ts:391](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L391)
 
 **`Experimental`**
 
@@ -1684,7 +1684,7 @@ Delay between `running` ticks (ms). Default 5000.
 
 > `optional` **wallCapMs?**: `number`
 
-Defined in: [mcp/detached-turn.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L392)
+Defined in: [mcp/detached-turn.ts:393](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L393)
 
 **`Experimental`**
 
@@ -1696,7 +1696,7 @@ Wall-clock cap forwarded to `driveTurn` on every tick.
 
 > **resolveSandbox**(`sandboxId`): `Promise`\<[`DriveTurnCapableBox`](#driveturncapablebox)\>
 
-Defined in: [mcp/detached-turn.ts:371](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L371)
+Defined in: [mcp/detached-turn.ts:372](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L372)
 
 **`Experimental`**
 
@@ -1718,7 +1718,7 @@ a thrown tick settles the record as failed, which is the truth.
 
 > **buildMessage**(`record`): `string`
 
-Defined in: [mcp/detached-turn.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L378)
+Defined in: [mcp/detached-turn.ts:379](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L379)
 
 **`Experimental`**
 
@@ -1741,7 +1741,7 @@ prompt the delegate would have sent.
 
 > **settleOutput**(`turn`, `record`, `ctx`): `CoderOutput` \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape) \| `Promise`\<`CoderOutput` \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape)\>
 
-Defined in: [mcp/detached-turn.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L384)
+Defined in: [mcp/detached-turn.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L385)
 
 **`Experimental`**
 
@@ -1773,7 +1773,7 @@ profile's gate — the queue settles the record as failed with that error.
 
 ### DelegationExecutor
 
-Defined in: [mcp/executor.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L25)
+Defined in: [mcp/executor.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L26)
 
 **`Experimental`**
 
@@ -1783,7 +1783,7 @@ Defined in: [mcp/executor.ts:25](https://github.com/tangle-network/agent-runtime
 
 > `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [mcp/executor.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L27)
+Defined in: [mcp/executor.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L28)
 
 **`Experimental`**
 
@@ -1793,7 +1793,7 @@ Sandbox client the kernel calls. Returned with `describePlacement` set.
 
 > `readonly` `optional` **placement?**: `"sibling"` \| `"fleet"` \| `"in-process"`
 
-Defined in: [mcp/executor.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L37)
+Defined in: [mcp/executor.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L38)
 
 **`Experimental`**
 
@@ -1809,7 +1809,7 @@ absent means "unknown" and detached dispatch is not enabled for it.
 
 > **describe**(): `string`
 
-Defined in: [mcp/executor.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L29)
+Defined in: [mcp/executor.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L30)
 
 **`Experimental`**
 
@@ -1823,7 +1823,7 @@ Best-effort one-liner used in stderr boot logs and diagnostics.
 
 ### SiblingSandboxExecutorOptions
 
-Defined in: [mcp/executor.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L41)
+Defined in: [mcp/executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L42)
 
 **`Experimental`**
 
@@ -1833,7 +1833,7 @@ Defined in: [mcp/executor.ts:41](https://github.com/tangle-network/agent-runtime
 
 > **client**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [mcp/executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L42)
+Defined in: [mcp/executor.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L43)
 
 **`Experimental`**
 
@@ -1841,7 +1841,7 @@ Defined in: [mcp/executor.ts:42](https://github.com/tangle-network/agent-runtime
 
 ### FleetHandle
 
-Defined in: [mcp/executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L82)
+Defined in: [mcp/executor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L83)
 
 **`Experimental`**
 
@@ -1855,7 +1855,7 @@ sandbox SDK.
 
 > `readonly` **fleetId**: `string`
 
-Defined in: [mcp/executor.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L83)
+Defined in: [mcp/executor.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L84)
 
 **`Experimental`**
 
@@ -1863,7 +1863,7 @@ Defined in: [mcp/executor.ts:83](https://github.com/tangle-network/agent-runtime
 
 > `readonly` **ids**: readonly `string`[]
 
-Defined in: [mcp/executor.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L85)
+Defined in: [mcp/executor.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L86)
 
 **`Experimental`**
 
@@ -1875,7 +1875,7 @@ Machine ids in dispatch-eligible order. The executor round-robins.
 
 > **sandbox**(`machineId`): `Promise`\<`SandboxInstance`\>
 
-Defined in: [mcp/executor.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L89)
+Defined in: [mcp/executor.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L90)
 
 **`Experimental`**
 
@@ -1897,7 +1897,7 @@ every other fleet machine's filesystem too.
 
 ### FleetWorkspaceExecutorOptions
 
-Defined in: [mcp/executor.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L93)
+Defined in: [mcp/executor.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L94)
 
 **`Experimental`**
 
@@ -1907,7 +1907,7 @@ Defined in: [mcp/executor.ts:93](https://github.com/tangle-network/agent-runtime
 
 > **fleet**: [`FleetHandle`](#fleethandle)
 
-Defined in: [mcp/executor.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L94)
+Defined in: [mcp/executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L95)
 
 **`Experimental`**
 
@@ -1915,7 +1915,7 @@ Defined in: [mcp/executor.ts:94](https://github.com/tangle-network/agent-runtime
 
 > `optional` **selectMachine?**: (`call`) => `string`
 
-Defined in: [mcp/executor.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L100)
+Defined in: [mcp/executor.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L101)
 
 **`Experimental`**
 
@@ -1943,7 +1943,7 @@ readonly `string`[]
 
 > `optional` **excludeMachineIds?**: readonly `string`[]
 
-Defined in: [mcp/executor.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L105)
+Defined in: [mcp/executor.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L106)
 
 **`Experimental`**
 
@@ -1954,7 +1954,7 @@ machineId so workers don't compete with the orchestrator on the same VM.
 
 ### FeedbackEvent
 
-Defined in: [mcp/feedback-store.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L20)
+Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L21)
 
 **`Experimental`**
 
@@ -1964,7 +1964,7 @@ Defined in: [mcp/feedback-store.ts:20](https://github.com/tangle-network/agent-r
 
 > **id**: `string`
 
-Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L21)
+Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L22)
 
 **`Experimental`**
 
@@ -1972,7 +1972,7 @@ Defined in: [mcp/feedback-store.ts:21](https://github.com/tangle-network/agent-r
 
 > **refersTo**: [`FeedbackRefersTo`](#feedbackrefersto)
 
-Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L22)
+Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L23)
 
 **`Experimental`**
 
@@ -1980,7 +1980,7 @@ Defined in: [mcp/feedback-store.ts:22](https://github.com/tangle-network/agent-r
 
 > **rating**: [`FeedbackRating`](#feedbackrating)
 
-Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L23)
+Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L24)
 
 **`Experimental`**
 
@@ -1988,7 +1988,7 @@ Defined in: [mcp/feedback-store.ts:23](https://github.com/tangle-network/agent-r
 
 > **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
-Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L24)
+Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L25)
 
 **`Experimental`**
 
@@ -1996,7 +1996,7 @@ Defined in: [mcp/feedback-store.ts:24](https://github.com/tangle-network/agent-r
 
 > **capturedAt**: `string`
 
-Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L25)
+Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L26)
 
 **`Experimental`**
 
@@ -2004,7 +2004,7 @@ Defined in: [mcp/feedback-store.ts:25](https://github.com/tangle-network/agent-r
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L26)
+Defined in: [mcp/feedback-store.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L27)
 
 **`Experimental`**
 
@@ -2012,7 +2012,7 @@ Defined in: [mcp/feedback-store.ts:26](https://github.com/tangle-network/agent-r
 
 ### FeedbackStore
 
-Defined in: [mcp/feedback-store.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L30)
+Defined in: [mcp/feedback-store.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L31)
 
 **`Experimental`**
 
@@ -2022,7 +2022,7 @@ Defined in: [mcp/feedback-store.ts:30](https://github.com/tangle-network/agent-r
 
 > **put**(`event`): `Promise`\<`void`\>
 
-Defined in: [mcp/feedback-store.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L32)
+Defined in: [mcp/feedback-store.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L33)
 
 **`Experimental`**
 
@@ -2042,7 +2042,7 @@ Append a new event. Never dedupes — every rating is its own event.
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
 
-Defined in: [mcp/feedback-store.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L37)
+Defined in: [mcp/feedback-store.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L38)
 
 **`Experimental`**
 
@@ -2069,7 +2069,7 @@ across all namespaces. Returns events in insertion order.
 
 ### InProcessExecutorOptions
 
-Defined in: [mcp/in-process-executor.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L33)
+Defined in: [mcp/in-process-executor.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L34)
 
 **`Experimental`**
 
@@ -2079,7 +2079,7 @@ Defined in: [mcp/in-process-executor.ts:33](https://github.com/tangle-network/ag
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/in-process-executor.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L35)
+Defined in: [mcp/in-process-executor.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L36)
 
 **`Experimental`**
 
@@ -2089,7 +2089,7 @@ Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.a
 
 > `optional` **harnesses?**: readonly [`LocalHarness`](#localharness)[]
 
-Defined in: [mcp/in-process-executor.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L37)
+Defined in: [mcp/in-process-executor.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L38)
 
 **`Experimental`**
 
@@ -2099,7 +2099,7 @@ Harnesses to round-robin across `create()` calls. One entry = no fanout. Default
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [mcp/in-process-executor.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L39)
+Defined in: [mcp/in-process-executor.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L40)
 
 **`Experimental`**
 
@@ -2109,7 +2109,7 @@ Optional per-delegation test command run in the worktree after the harness exits
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [mcp/in-process-executor.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L41)
+Defined in: [mcp/in-process-executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L42)
 
 **`Experimental`**
 
@@ -2119,7 +2119,7 @@ Optional per-delegation typecheck command. Same shape as `testCmd`.
 
 > `optional` **harnessTimeoutMs?**: `number`
 
-Defined in: [mcp/in-process-executor.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L43)
+Defined in: [mcp/in-process-executor.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L44)
 
 **`Experimental`**
 
@@ -2129,7 +2129,7 @@ Wall-clock cap per harness subprocess (ms). Default 5min.
 
 > `optional` **postCheckTimeoutMs?**: `number`
 
-Defined in: [mcp/in-process-executor.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L45)
+Defined in: [mcp/in-process-executor.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L46)
 
 **`Experimental`**
 
@@ -2139,7 +2139,7 @@ Wall-clock cap per test/typecheck subprocess (ms). Default 2min.
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/in-process-executor.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L47)
+Defined in: [mcp/in-process-executor.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L48)
 
 **`Experimental`**
 
@@ -2149,7 +2149,7 @@ Test seam — override the git runner used by the worktree helpers.
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
 
-Defined in: [mcp/in-process-executor.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L49)
+Defined in: [mcp/in-process-executor.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L50)
 
 **`Experimental`**
 
@@ -2187,7 +2187,7 @@ Does NOT throw when:
 
 > `optional` **runPostCheck?**: (`cmd`, `cwd`, `signal?`) => `Promise`\<\{ `exitCode`: `number`; `stdout`: `string`; `stderr`: `string`; \}\>
 
-Defined in: [mcp/in-process-executor.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L52)
+Defined in: [mcp/in-process-executor.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L53)
 
 **`Experimental`**
 
@@ -2216,7 +2216,7 @@ Test seam — override the post-check runner (defaults to a `sh -c` spawn). A th
 
 ### InProcessExecutorDescribePlacement
 
-Defined in: [mcp/in-process-executor.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L60)
+Defined in: [mcp/in-process-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L61)
 
 **`Experimental`**
 
@@ -2230,7 +2230,7 @@ Defined in: [mcp/in-process-executor.ts:60](https://github.com/tangle-network/ag
 
 > `optional` **worktreePath?**: `string`
 
-Defined in: [mcp/in-process-executor.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L62)
+Defined in: [mcp/in-process-executor.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L63)
 
 **`Experimental`**
 
@@ -2240,7 +2240,7 @@ Worktree path in the parent sandbox's filesystem (set so traces correlate to on-
 
 > `optional` **harness?**: [`LocalHarness`](#localharness)
 
-Defined in: [mcp/in-process-executor.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L64)
+Defined in: [mcp/in-process-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L65)
 
 **`Experimental`**
 
@@ -2250,7 +2250,7 @@ Which harness handled this delegation.
 
 > **kind**: `"sibling"` \| `"fleet"`
 
-Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L399)
+Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
 
 **`Experimental`**
 
@@ -2262,7 +2262,7 @@ Defined in: [runtime/types.ts:399](https://github.com/tangle-network/agent-runti
 
 > `optional` **sandboxId?**: `string`
 
-Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L400)
+Defined in: [runtime/types.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L401)
 
 **`Experimental`**
 
@@ -2274,7 +2274,7 @@ Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runti
 
 > `optional` **fleetId?**: `string`
 
-Defined in: [runtime/types.ts:401](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L401)
+Defined in: [runtime/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L402)
 
 **`Experimental`**
 
@@ -2286,7 +2286,7 @@ Defined in: [runtime/types.ts:401](https://github.com/tangle-network/agent-runti
 
 > `optional` **machineId?**: `string`
 
-Defined in: [runtime/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L402)
+Defined in: [runtime/types.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L403)
 
 **`Experimental`**
 
@@ -2298,7 +2298,7 @@ Defined in: [runtime/types.ts:402](https://github.com/tangle-network/agent-runti
 
 ### FactCandidate
 
-Defined in: [mcp/kb-gate.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L24)
+Defined in: [mcp/kb-gate.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L25)
 
 **`Experimental`**
 
@@ -2310,7 +2310,7 @@ A fact proposed for the KB, with its grounding.
 
 > **claim**: `string`
 
-Defined in: [mcp/kb-gate.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L26)
+Defined in: [mcp/kb-gate.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L27)
 
 **`Experimental`**
 
@@ -2320,7 +2320,7 @@ The atomic claim text.
 
 > `optional` **value?**: `string` \| `number`
 
-Defined in: [mcp/kb-gate.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L28)
+Defined in: [mcp/kb-gate.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L29)
 
 **`Experimental`**
 
@@ -2330,7 +2330,7 @@ Optional extracted value (number or string) the claim asserts.
 
 > **verbatimPassage**: `string`
 
-Defined in: [mcp/kb-gate.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L30)
+Defined in: [mcp/kb-gate.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L31)
 
 **`Experimental`**
 
@@ -2340,7 +2340,7 @@ Verbatim span lifted from the source that backs the claim.
 
 > **sourceText**: `string`
 
-Defined in: [mcp/kb-gate.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L32)
+Defined in: [mcp/kb-gate.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L33)
 
 **`Experimental`**
 
@@ -2350,7 +2350,7 @@ The raw source text the passage must be grounded in.
 
 > `optional` **citation?**: `string`
 
-Defined in: [mcp/kb-gate.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L34)
+Defined in: [mcp/kb-gate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L35)
 
 **`Experimental`**
 
@@ -2360,7 +2360,7 @@ Where the fact claims to come from — checked for circular/self citations.
 
 ### FactJudgeVerdict
 
-Defined in: [mcp/kb-gate.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L38)
+Defined in: [mcp/kb-gate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L39)
 
 **`Experimental`**
 
@@ -2370,7 +2370,7 @@ Defined in: [mcp/kb-gate.ts:38](https://github.com/tangle-network/agent-runtime/
 
 > **accept**: `boolean`
 
-Defined in: [mcp/kb-gate.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L39)
+Defined in: [mcp/kb-gate.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L40)
 
 **`Experimental`**
 
@@ -2378,7 +2378,7 @@ Defined in: [mcp/kb-gate.ts:39](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **reason?**: `string`
 
-Defined in: [mcp/kb-gate.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L40)
+Defined in: [mcp/kb-gate.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L41)
 
 **`Experimental`**
 
@@ -2386,7 +2386,7 @@ Defined in: [mcp/kb-gate.ts:40](https://github.com/tangle-network/agent-runtime/
 
 ### FactJudge
 
-Defined in: [mcp/kb-gate.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L45)
+Defined in: [mcp/kb-gate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L46)
 
 **`Experimental`**
 
@@ -2399,7 +2399,7 @@ A pluggable fact validator. Throw is NOT allowed — return a
 
 > **name**: `string`
 
-Defined in: [mcp/kb-gate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L46)
+Defined in: [mcp/kb-gate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L47)
 
 **`Experimental`**
 
@@ -2409,7 +2409,7 @@ Defined in: [mcp/kb-gate.ts:46](https://github.com/tangle-network/agent-runtime/
 
 > **judge**(`candidate`): [`FactJudgeVerdict`](#factjudgeverdict) \| `Promise`\<[`FactJudgeVerdict`](#factjudgeverdict)\>
 
-Defined in: [mcp/kb-gate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L47)
+Defined in: [mcp/kb-gate.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L48)
 
 **`Experimental`**
 
@@ -2427,7 +2427,7 @@ Defined in: [mcp/kb-gate.ts:47](https://github.com/tangle-network/agent-runtime/
 
 ### KbGateResult
 
-Defined in: [mcp/kb-gate.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L51)
+Defined in: [mcp/kb-gate.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L52)
 
 **`Experimental`**
 
@@ -2437,7 +2437,7 @@ Defined in: [mcp/kb-gate.ts:51](https://github.com/tangle-network/agent-runtime/
 
 > **accepted**: `boolean`
 
-Defined in: [mcp/kb-gate.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L52)
+Defined in: [mcp/kb-gate.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L53)
 
 **`Experimental`**
 
@@ -2445,7 +2445,7 @@ Defined in: [mcp/kb-gate.ts:52](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **vetoedBy?**: `string`
 
-Defined in: [mcp/kb-gate.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L54)
+Defined in: [mcp/kb-gate.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L55)
 
 **`Experimental`**
 
@@ -2455,7 +2455,7 @@ Name of the judge that vetoed; undefined when accepted.
 
 > `optional` **reason?**: `string`
 
-Defined in: [mcp/kb-gate.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L55)
+Defined in: [mcp/kb-gate.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L56)
 
 **`Experimental`**
 
@@ -2463,7 +2463,7 @@ Defined in: [mcp/kb-gate.ts:55](https://github.com/tangle-network/agent-runtime/
 
 ### CreateKbGateOptions
 
-Defined in: [mcp/kb-gate.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L59)
+Defined in: [mcp/kb-gate.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L60)
 
 **`Experimental`**
 
@@ -2473,7 +2473,7 @@ Defined in: [mcp/kb-gate.ts:59](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **judges?**: [`FactJudge`](#factjudge)[]
 
-Defined in: [mcp/kb-gate.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L61)
+Defined in: [mcp/kb-gate.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L62)
 
 **`Experimental`**
 
@@ -2483,7 +2483,7 @@ Extra judges appended after the built-in floor (e.g. an LLM judge).
 
 > `optional` **minPassageChars?**: `number`
 
-Defined in: [mcp/kb-gate.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L63)
+Defined in: [mcp/kb-gate.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L64)
 
 **`Experimental`**
 
@@ -2493,7 +2493,7 @@ Minimum verbatim-passage length. Default 12 — kills empty/stub passages.
 
 > `optional` **selfArtifactKinds?**: `string`[]
 
-Defined in: [mcp/kb-gate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L70)
+Defined in: [mcp/kb-gate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L71)
 
 **`Experimental`**
 
@@ -2506,7 +2506,7 @@ Default `[]` (no circular check unless the consumer declares its kinds).
 
 ### RunLocalHarnessOptions
 
-Defined in: [mcp/local-harness.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L107)
+Defined in: [mcp/local-harness.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L108)
 
 **`Experimental`**
 
@@ -2516,7 +2516,7 @@ Defined in: [mcp/local-harness.ts:107](https://github.com/tangle-network/agent-r
 
 > **harness**: [`LocalHarness`](#localharness)
 
-Defined in: [mcp/local-harness.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L108)
+Defined in: [mcp/local-harness.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L109)
 
 **`Experimental`**
 
@@ -2524,7 +2524,7 @@ Defined in: [mcp/local-harness.ts:108](https://github.com/tangle-network/agent-r
 
 > **cwd**: `string`
 
-Defined in: [mcp/local-harness.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L110)
+Defined in: [mcp/local-harness.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L111)
 
 **`Experimental`**
 
@@ -2534,7 +2534,7 @@ Working directory for the subprocess (typically a worktree path).
 
 > **taskPrompt**: `string`
 
-Defined in: [mcp/local-harness.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L112)
+Defined in: [mcp/local-harness.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L113)
 
 **`Experimental`**
 
@@ -2544,7 +2544,7 @@ Prompt forwarded as the harness CLI's task argument.
 
 > `optional` **invocation?**: `object`
 
-Defined in: [mcp/local-harness.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L120)
+Defined in: [mcp/local-harness.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L121)
 
 **`Experimental`**
 
@@ -2566,7 +2566,7 @@ is used unchanged.
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [mcp/local-harness.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L122)
+Defined in: [mcp/local-harness.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L123)
 
 **`Experimental`**
 
@@ -2576,7 +2576,7 @@ Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [mcp/local-harness.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L124)
+Defined in: [mcp/local-harness.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L125)
 
 **`Experimental`**
 
@@ -2586,7 +2586,7 @@ Caller cancellation. SIGTERM is sent on abort.
 
 > `optional` **env?**: `ProcessEnv`
 
-Defined in: [mcp/local-harness.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L126)
+Defined in: [mcp/local-harness.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L127)
 
 **`Experimental`**
 
@@ -2596,7 +2596,7 @@ Override env (defaults to inheriting from the parent).
 
 > `optional` **spawn?**: (`command`, `args`, `opts`) => `ChildProcess`
 
-Defined in: [mcp/local-harness.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L131)
+Defined in: [mcp/local-harness.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L132)
 
 **`Experimental`**
 
@@ -2635,7 +2635,7 @@ readonly `string`[]
 
 ### LocalHarnessResult
 
-Defined in: [mcp/local-harness.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L143)
+Defined in: [mcp/local-harness.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L144)
 
 **`Experimental`**
 
@@ -2645,7 +2645,7 @@ Defined in: [mcp/local-harness.ts:143](https://github.com/tangle-network/agent-r
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [mcp/local-harness.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L145)
+Defined in: [mcp/local-harness.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L146)
 
 **`Experimental`**
 
@@ -2655,7 +2655,7 @@ OS exit code. `null` when killed before exit.
 
 > **stdout**: `string`
 
-Defined in: [mcp/local-harness.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L147)
+Defined in: [mcp/local-harness.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L148)
 
 **`Experimental`**
 
@@ -2665,7 +2665,7 @@ Concatenated stdout.
 
 > **stderr**: `string`
 
-Defined in: [mcp/local-harness.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L149)
+Defined in: [mcp/local-harness.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L150)
 
 **`Experimental`**
 
@@ -2675,7 +2675,7 @@ Concatenated stderr.
 
 > **killedBySignal**: `Signals` \| `null`
 
-Defined in: [mcp/local-harness.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L151)
+Defined in: [mcp/local-harness.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L152)
 
 **`Experimental`**
 
@@ -2685,7 +2685,7 @@ Set when the process exited via signal (timeout / abort).
 
 > **durationMs**: `number`
 
-Defined in: [mcp/local-harness.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L153)
+Defined in: [mcp/local-harness.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L154)
 
 **`Experimental`**
 
@@ -2695,7 +2695,7 @@ Wall-clock duration ms (spawn → exit).
 
 > **timedOut**: `boolean`
 
-Defined in: [mcp/local-harness.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L155)
+Defined in: [mcp/local-harness.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L156)
 
 **`Experimental`**
 
@@ -2705,7 +2705,7 @@ Set when timeoutMs elapsed before exit.
 
 ### McpServerOptions
 
-Defined in: [mcp/server.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L62)
+Defined in: [mcp/server.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L63)
 
 **`Experimental`**
 
@@ -2715,7 +2715,7 @@ Defined in: [mcp/server.ts:62](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **delegateSupervisor?**: [`DelegateHandlerOptions`](#delegatehandleroptions)
 
-Defined in: [mcp/server.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L69)
+Defined in: [mcp/server.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L70)
 
 **`Experimental`**
 
@@ -2728,7 +2728,7 @@ wire here.
 
 > `optional` **uiAuditorDelegate?**: [`UiAuditorDelegate`](#uiauditordelegate)
 
-Defined in: [mcp/server.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L76)
+Defined in: [mcp/server.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L77)
 
 **`Experimental`**
 
@@ -2741,7 +2741,7 @@ canonical in-process choice is `createInProcessUiAuditClient` from
 
 > `optional` **feedbackStore?**: [`FeedbackStore`](#feedbackstore)
 
-Defined in: [mcp/server.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L78)
+Defined in: [mcp/server.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L79)
 
 **`Experimental`**
 
@@ -2751,7 +2751,7 @@ Override the default in-memory feedback store.
 
 > `optional` **queue?**: [`DelegationTaskQueue`](#delegationtaskqueue)
 
-Defined in: [mcp/server.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L80)
+Defined in: [mcp/server.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L81)
 
 **`Experimental`**
 
@@ -2761,7 +2761,7 @@ Override the default in-memory task queue.
 
 > `optional` **extraTools?**: [`McpToolDescriptor`](#mcptooldescriptor)[]
 
-Defined in: [mcp/server.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L86)
+Defined in: [mcp/server.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L87)
 
 **`Experimental`**
 
@@ -2773,7 +2773,7 @@ duplicate name throws so delegation tools cannot be shadowed silently.
 
 > `optional` **traceContext?**: [`TraceContext`](#tracecontext-2)
 
-Defined in: [mcp/server.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L92)
+Defined in: [mcp/server.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L93)
 
 **`Experimental`**
 
@@ -2785,7 +2785,7 @@ pass `traceContext` to that queue's constructor instead.
 
 > `optional` **serverName?**: `string`
 
-Defined in: [mcp/server.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L94)
+Defined in: [mcp/server.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L95)
 
 **`Experimental`**
 
@@ -2795,7 +2795,7 @@ Server display name surfaced via `initialize`. Default `'agent-runtime-mcp'`.
 
 > `optional` **serverVersion?**: `string`
 
-Defined in: [mcp/server.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L96)
+Defined in: [mcp/server.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L97)
 
 **`Experimental`**
 
@@ -2805,7 +2805,7 @@ Server version surfaced via `initialize`. Default = the package version baked at
 
 ### McpToolDescriptor
 
-Defined in: [mcp/server.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L100)
+Defined in: [mcp/server.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L101)
 
 **`Experimental`**
 
@@ -2815,7 +2815,7 @@ Defined in: [mcp/server.ts:100](https://github.com/tangle-network/agent-runtime/
 
 > **name**: `string`
 
-Defined in: [mcp/server.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L101)
+Defined in: [mcp/server.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L102)
 
 **`Experimental`**
 
@@ -2823,7 +2823,7 @@ Defined in: [mcp/server.ts:101](https://github.com/tangle-network/agent-runtime/
 
 > **description**: `string`
 
-Defined in: [mcp/server.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L102)
+Defined in: [mcp/server.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L103)
 
 **`Experimental`**
 
@@ -2831,7 +2831,7 @@ Defined in: [mcp/server.ts:102](https://github.com/tangle-network/agent-runtime/
 
 > **inputSchema**: `Record`\<`string`, `unknown`\>
 
-Defined in: [mcp/server.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L103)
+Defined in: [mcp/server.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L104)
 
 **`Experimental`**
 
@@ -2839,7 +2839,7 @@ Defined in: [mcp/server.ts:103](https://github.com/tangle-network/agent-runtime/
 
 > **handler**: (`raw`) => `Promise`\<`unknown`\>
 
-Defined in: [mcp/server.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L104)
+Defined in: [mcp/server.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L105)
 
 **`Experimental`**
 
@@ -2857,7 +2857,7 @@ Defined in: [mcp/server.ts:104](https://github.com/tangle-network/agent-runtime/
 
 ### McpServer
 
-Defined in: [mcp/server.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L108)
+Defined in: [mcp/server.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L109)
 
 **`Experimental`**
 
@@ -2867,7 +2867,7 @@ Defined in: [mcp/server.ts:108](https://github.com/tangle-network/agent-runtime/
 
 > `readonly` **tools**: `ReadonlyMap`\<`string`, [`McpToolDescriptor`](#mcptooldescriptor)\>
 
-Defined in: [mcp/server.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L110)
+Defined in: [mcp/server.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L111)
 
 **`Experimental`**
 
@@ -2877,7 +2877,7 @@ Tools currently registered (depend on which delegates were wired).
 
 > `readonly` **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
 
-Defined in: [mcp/server.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L112)
+Defined in: [mcp/server.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L113)
 
 **`Experimental`**
 
@@ -2887,7 +2887,7 @@ The underlying queue — exposed so tests can introspect it.
 
 > `readonly` **feedbackStore**: [`FeedbackStore`](#feedbackstore)
 
-Defined in: [mcp/server.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L114)
+Defined in: [mcp/server.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L115)
 
 **`Experimental`**
 
@@ -2899,7 +2899,7 @@ The feedback store — exposed for the same reason.
 
 > **handle**(`message`): `Promise`\<[`JsonRpcResponse`](#jsonrpcresponse) \| `null`\>
 
-Defined in: [mcp/server.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L116)
+Defined in: [mcp/server.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L117)
 
 **`Experimental`**
 
@@ -2919,7 +2919,7 @@ Handle a single parsed JSON-RPC message. Returns the response object (or `null` 
 
 > **serve**(`transport?`): `Promise`\<`void`\>
 
-Defined in: [mcp/server.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L118)
+Defined in: [mcp/server.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L119)
 
 **`Experimental`**
 
@@ -2939,7 +2939,7 @@ Drive the server on a stdio-shaped transport until `stop()` is called.
 
 > **stop**(): `void`
 
-Defined in: [mcp/server.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L120)
+Defined in: [mcp/server.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L121)
 
 **`Experimental`**
 
@@ -2953,7 +2953,7 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ### McpTransport
 
-Defined in: [mcp/server.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L124)
+Defined in: [mcp/server.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L125)
 
 **`Experimental`**
 
@@ -2963,7 +2963,7 @@ Defined in: [mcp/server.ts:124](https://github.com/tangle-network/agent-runtime/
 
 > **input**: `ReadableStream`
 
-Defined in: [mcp/server.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L125)
+Defined in: [mcp/server.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L126)
 
 **`Experimental`**
 
@@ -2971,7 +2971,7 @@ Defined in: [mcp/server.ts:125](https://github.com/tangle-network/agent-runtime/
 
 > **output**: `WritableStream`
 
-Defined in: [mcp/server.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L126)
+Defined in: [mcp/server.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L127)
 
 **`Experimental`**
 
@@ -2979,7 +2979,7 @@ Defined in: [mcp/server.ts:126](https://github.com/tangle-network/agent-runtime/
 
 ### JsonRpcMessage
 
-Defined in: [mcp/server.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L130)
+Defined in: [mcp/server.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L131)
 
 **`Experimental`**
 
@@ -2989,7 +2989,7 @@ Defined in: [mcp/server.ts:130](https://github.com/tangle-network/agent-runtime/
 
 > **jsonrpc**: `"2.0"`
 
-Defined in: [mcp/server.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L131)
+Defined in: [mcp/server.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L132)
 
 **`Experimental`**
 
@@ -2997,7 +2997,7 @@ Defined in: [mcp/server.ts:131](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **id?**: `string` \| `number` \| `null`
 
-Defined in: [mcp/server.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L132)
+Defined in: [mcp/server.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L133)
 
 **`Experimental`**
 
@@ -3005,7 +3005,7 @@ Defined in: [mcp/server.ts:132](https://github.com/tangle-network/agent-runtime/
 
 > **method**: `string`
 
-Defined in: [mcp/server.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L133)
+Defined in: [mcp/server.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L134)
 
 **`Experimental`**
 
@@ -3013,7 +3013,7 @@ Defined in: [mcp/server.ts:133](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **params?**: `unknown`
 
-Defined in: [mcp/server.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L134)
+Defined in: [mcp/server.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L135)
 
 **`Experimental`**
 
@@ -3021,7 +3021,7 @@ Defined in: [mcp/server.ts:134](https://github.com/tangle-network/agent-runtime/
 
 ### JsonRpcResponse
 
-Defined in: [mcp/server.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L138)
+Defined in: [mcp/server.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L139)
 
 **`Experimental`**
 
@@ -3031,7 +3031,7 @@ Defined in: [mcp/server.ts:138](https://github.com/tangle-network/agent-runtime/
 
 > **jsonrpc**: `"2.0"`
 
-Defined in: [mcp/server.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L139)
+Defined in: [mcp/server.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L140)
 
 **`Experimental`**
 
@@ -3039,7 +3039,7 @@ Defined in: [mcp/server.ts:139](https://github.com/tangle-network/agent-runtime/
 
 > **id**: `string` \| `number` \| `null`
 
-Defined in: [mcp/server.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L140)
+Defined in: [mcp/server.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L141)
 
 **`Experimental`**
 
@@ -3047,7 +3047,7 @@ Defined in: [mcp/server.ts:140](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **result?**: `unknown`
 
-Defined in: [mcp/server.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L141)
+Defined in: [mcp/server.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L142)
 
 **`Experimental`**
 
@@ -3055,7 +3055,7 @@ Defined in: [mcp/server.ts:141](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **error?**: `object`
 
-Defined in: [mcp/server.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L142)
+Defined in: [mcp/server.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L143)
 
 **`Experimental`**
 
@@ -3075,7 +3075,7 @@ Defined in: [mcp/server.ts:142](https://github.com/tangle-network/agent-runtime/
 
 ### DelegationRecord
 
-Defined in: [mcp/task-queue.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L65)
+Defined in: [mcp/task-queue.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L66)
 
 **`Experimental`**
 
@@ -3088,7 +3088,7 @@ persistent stores round-trip records through `JSON.stringify`.
 
 > **taskId**: `string`
 
-Defined in: [mcp/task-queue.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L66)
+Defined in: [mcp/task-queue.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L67)
 
 **`Experimental`**
 
@@ -3096,7 +3096,7 @@ Defined in: [mcp/task-queue.ts:66](https://github.com/tangle-network/agent-runti
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
 
-Defined in: [mcp/task-queue.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L67)
+Defined in: [mcp/task-queue.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L68)
 
 **`Experimental`**
 
@@ -3104,7 +3104,7 @@ Defined in: [mcp/task-queue.ts:67](https://github.com/tangle-network/agent-runti
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/task-queue.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L68)
+Defined in: [mcp/task-queue.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L69)
 
 **`Experimental`**
 
@@ -3112,7 +3112,7 @@ Defined in: [mcp/task-queue.ts:68](https://github.com/tangle-network/agent-runti
 
 > **args**: `AnyDelegateArgs`
 
-Defined in: [mcp/task-queue.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L69)
+Defined in: [mcp/task-queue.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L70)
 
 **`Experimental`**
 
@@ -3120,7 +3120,7 @@ Defined in: [mcp/task-queue.ts:69](https://github.com/tangle-network/agent-runti
 
 > **status**: [`DelegationStatus`](#delegationstatus)
 
-Defined in: [mcp/task-queue.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L70)
+Defined in: [mcp/task-queue.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L71)
 
 **`Experimental`**
 
@@ -3128,7 +3128,7 @@ Defined in: [mcp/task-queue.ts:70](https://github.com/tangle-network/agent-runti
 
 > `optional` **progress?**: [`DelegationProgress`](#delegationprogress)
 
-Defined in: [mcp/task-queue.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L71)
+Defined in: [mcp/task-queue.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L72)
 
 **`Experimental`**
 
@@ -3136,7 +3136,7 @@ Defined in: [mcp/task-queue.ts:71](https://github.com/tangle-network/agent-runti
 
 > `optional` **result?**: [`DelegationResultPayload`](#delegationresultpayload)
 
-Defined in: [mcp/task-queue.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L72)
+Defined in: [mcp/task-queue.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L73)
 
 **`Experimental`**
 
@@ -3144,7 +3144,7 @@ Defined in: [mcp/task-queue.ts:72](https://github.com/tangle-network/agent-runti
 
 > `optional` **error?**: [`DelegationError`](#delegationerror)
 
-Defined in: [mcp/task-queue.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L73)
+Defined in: [mcp/task-queue.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L74)
 
 **`Experimental`**
 
@@ -3152,7 +3152,7 @@ Defined in: [mcp/task-queue.ts:73](https://github.com/tangle-network/agent-runti
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [mcp/task-queue.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L74)
+Defined in: [mcp/task-queue.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L75)
 
 **`Experimental`**
 
@@ -3160,7 +3160,7 @@ Defined in: [mcp/task-queue.ts:74](https://github.com/tangle-network/agent-runti
 
 > **startedAt**: `string`
 
-Defined in: [mcp/task-queue.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L75)
+Defined in: [mcp/task-queue.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L76)
 
 **`Experimental`**
 
@@ -3168,7 +3168,7 @@ Defined in: [mcp/task-queue.ts:75](https://github.com/tangle-network/agent-runti
 
 > `optional` **completedAt?**: `string`
 
-Defined in: [mcp/task-queue.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L76)
+Defined in: [mcp/task-queue.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L77)
 
 **`Experimental`**
 
@@ -3176,7 +3176,7 @@ Defined in: [mcp/task-queue.ts:76](https://github.com/tangle-network/agent-runti
 
 > `optional` **idempotencyKey?**: `string`
 
-Defined in: [mcp/task-queue.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L78)
+Defined in: [mcp/task-queue.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L79)
 
 **`Experimental`**
 
@@ -3186,7 +3186,7 @@ Sha-prefix hash of the canonical input — used for idempotency lookup.
 
 > `optional` **detachedSessionRef?**: `string`
 
-Defined in: [mcp/task-queue.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L85)
+Defined in: [mcp/task-queue.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L86)
 
 **`Experimental`**
 
@@ -3199,7 +3199,7 @@ restart settles the record as failed.
 
 > **feedback**: [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)[]
 
-Defined in: [mcp/task-queue.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L87)
+Defined in: [mcp/task-queue.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L88)
 
 **`Experimental`**
 
@@ -3209,7 +3209,7 @@ Feedback events keyed by this delegation's taskId.
 
 > `optional` **trace?**: [`DelegationTraceSpan`](#delegationtracespan)[]
 
-Defined in: [mcp/task-queue.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L94)
+Defined in: [mcp/task-queue.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L95)
 
 **`Experimental`**
 
@@ -3222,7 +3222,7 @@ via `capDelegationTrace` — see `traceTruncated`.
 
 > `optional` **traceTruncated?**: `true`
 
-Defined in: [mcp/task-queue.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L96)
+Defined in: [mcp/task-queue.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L97)
 
 **`Experimental`**
 
@@ -3232,7 +3232,7 @@ Present when oldest trace spans were dropped to honor the trace caps.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [mcp/task-queue.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L103)
+Defined in: [mcp/task-queue.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L104)
 
 **`Experimental`**
 
@@ -3245,7 +3245,7 @@ without parsing spans. Restored records keep their persisted identity.
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [mcp/task-queue.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L105)
+Defined in: [mcp/task-queue.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L106)
 
 **`Experimental`**
 
@@ -3255,7 +3255,7 @@ Caller span that dispatched the delegation, when one was inherited.
 
 ### SubmitInput
 
-Defined in: [mcp/task-queue.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L109)
+Defined in: [mcp/task-queue.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L110)
 
 **`Experimental`**
 
@@ -3271,7 +3271,7 @@ Defined in: [mcp/task-queue.ts:109](https://github.com/tangle-network/agent-runt
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
 
-Defined in: [mcp/task-queue.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L110)
+Defined in: [mcp/task-queue.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L111)
 
 **`Experimental`**
 
@@ -3279,7 +3279,7 @@ Defined in: [mcp/task-queue.ts:110](https://github.com/tangle-network/agent-runt
 
 > **args**: `Args`
 
-Defined in: [mcp/task-queue.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L111)
+Defined in: [mcp/task-queue.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L112)
 
 **`Experimental`**
 
@@ -3287,7 +3287,7 @@ Defined in: [mcp/task-queue.ts:111](https://github.com/tangle-network/agent-runt
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/task-queue.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L112)
+Defined in: [mcp/task-queue.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L113)
 
 **`Experimental`**
 
@@ -3295,7 +3295,7 @@ Defined in: [mcp/task-queue.ts:112](https://github.com/tangle-network/agent-runt
 
 > `optional` **idempotencyKey?**: `string`
 
-Defined in: [mcp/task-queue.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L113)
+Defined in: [mcp/task-queue.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L114)
 
 **`Experimental`**
 
@@ -3303,7 +3303,7 @@ Defined in: [mcp/task-queue.ts:113](https://github.com/tangle-network/agent-runt
 
 > `optional` **detachedSessionRef?**: `string`
 
-Defined in: [mcp/task-queue.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L120)
+Defined in: [mcp/task-queue.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L121)
 
 **`Experimental`**
 
@@ -3316,7 +3316,7 @@ hands it to the `resumeDelegate` seam instead of failing the record.
 
 > **run**: (`ctx`) => `Promise`\<`CoderOutput` \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape)\>
 
-Defined in: [mcp/task-queue.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L127)
+Defined in: [mcp/task-queue.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L128)
 
 **`Experimental`**
 
@@ -3339,7 +3339,7 @@ queue wraps it with the profile tag.
 
 ### DelegationRunContext
 
-Defined in: [mcp/task-queue.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L131)
+Defined in: [mcp/task-queue.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L132)
 
 **`Experimental`**
 
@@ -3351,7 +3351,7 @@ Context handed to a `SubmitInput.run` function.
 
 > **signal**: `AbortSignal`
 
-Defined in: [mcp/task-queue.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L132)
+Defined in: [mcp/task-queue.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L133)
 
 **`Experimental`**
 
@@ -3359,7 +3359,7 @@ Defined in: [mcp/task-queue.ts:132](https://github.com/tangle-network/agent-runt
 
 > `optional` **detachedSessionRef?**: `string`
 
-Defined in: [mcp/task-queue.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L135)
+Defined in: [mcp/task-queue.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L136)
 
 **`Experimental`**
 
@@ -3369,7 +3369,7 @@ The `detachedSessionRef` recorded at submit, when one was supplied.
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
 
-Defined in: [mcp/task-queue.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L153)
+Defined in: [mcp/task-queue.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L154)
 
 **`Experimental`**
 
@@ -3387,7 +3387,7 @@ contexts stay source-compatible.
 
 > **report**(`progress`): `void`
 
-Defined in: [mcp/task-queue.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L133)
+Defined in: [mcp/task-queue.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L134)
 
 **`Experimental`**
 
@@ -3405,7 +3405,7 @@ Defined in: [mcp/task-queue.ts:133](https://github.com/tangle-network/agent-runt
 
 > **updateDetachedSessionRef**(`ref`): `void`
 
-Defined in: [mcp/task-queue.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L143)
+Defined in: [mcp/task-queue.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L144)
 
 **`Experimental`**
 
@@ -3429,7 +3429,7 @@ ref — erasing the resume key would silently make the record unresumable.
 
 ### SubmitOutput
 
-Defined in: [mcp/task-queue.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L157)
+Defined in: [mcp/task-queue.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L158)
 
 **`Experimental`**
 
@@ -3439,7 +3439,7 @@ Defined in: [mcp/task-queue.ts:157](https://github.com/tangle-network/agent-runt
 
 > **taskId**: `string`
 
-Defined in: [mcp/task-queue.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L158)
+Defined in: [mcp/task-queue.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L159)
 
 **`Experimental`**
 
@@ -3447,7 +3447,7 @@ Defined in: [mcp/task-queue.ts:158](https://github.com/tangle-network/agent-runt
 
 > **reused**: `boolean`
 
-Defined in: [mcp/task-queue.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L160)
+Defined in: [mcp/task-queue.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L161)
 
 **`Experimental`**
 
@@ -3457,7 +3457,7 @@ True when a prior matching `idempotencyKey` returned an existing record.
 
 ### DelegationResumeContext
 
-Defined in: [mcp/task-queue.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L177)
+Defined in: [mcp/task-queue.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L178)
 
 **`Experimental`**
 
@@ -3467,7 +3467,7 @@ Defined in: [mcp/task-queue.ts:177](https://github.com/tangle-network/agent-runt
 
 > **signal**: `AbortSignal`
 
-Defined in: [mcp/task-queue.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L179)
+Defined in: [mcp/task-queue.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L180)
 
 **`Experimental`**
 
@@ -3479,7 +3479,7 @@ Fired by `cancel(taskId)`; the driver should stop the remote run when it can.
 
 > **report**(`progress`): `void`
 
-Defined in: [mcp/task-queue.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L180)
+Defined in: [mcp/task-queue.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L181)
 
 **`Experimental`**
 
@@ -3497,7 +3497,7 @@ Defined in: [mcp/task-queue.ts:180](https://github.com/tangle-network/agent-runt
 
 ### DelegationResumeDriver
 
-Defined in: [mcp/task-queue.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L193)
+Defined in: [mcp/task-queue.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L194)
 
 **`Experimental`**
 
@@ -3514,7 +3514,7 @@ terminal and are not retried.
 
 > `optional` **intervalMs?**: `number`
 
-Defined in: [mcp/task-queue.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L199)
+Defined in: [mcp/task-queue.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L200)
 
 **`Experimental`**
 
@@ -3526,7 +3526,7 @@ Delay between `running` ticks, in milliseconds. Default 5000.
 
 > **tick**(`task`, `ctx`): `Promise`\<[`DelegationResumeTick`](#delegationresumetick)\>
 
-Defined in: [mcp/task-queue.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L194)
+Defined in: [mcp/task-queue.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L195)
 
 **`Experimental`**
 
@@ -3554,7 +3554,7 @@ Defined in: [mcp/task-queue.ts:194](https://github.com/tangle-network/agent-runt
 
 ### DelegationTaskQueueOptions
 
-Defined in: [mcp/task-queue.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L203)
+Defined in: [mcp/task-queue.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L204)
 
 **`Experimental`**
 
@@ -3564,7 +3564,7 @@ Defined in: [mcp/task-queue.ts:203](https://github.com/tangle-network/agent-runt
 
 > `optional` **generateId?**: () => `string`
 
-Defined in: [mcp/task-queue.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L205)
+Defined in: [mcp/task-queue.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L206)
 
 **`Experimental`**
 
@@ -3578,7 +3578,7 @@ ID generator override; default `randomTaskId`.
 
 > `optional` **now?**: () => `string`
 
-Defined in: [mcp/task-queue.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L207)
+Defined in: [mcp/task-queue.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L208)
 
 **`Experimental`**
 
@@ -3592,7 +3592,7 @@ Clock override; default `() => new Date().toISOString()`.
 
 > `optional` **store?**: [`DelegationStore`](#delegationstore)
 
-Defined in: [mcp/task-queue.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L215)
+Defined in: [mcp/task-queue.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L216)
 
 **`Experimental`**
 
@@ -3606,7 +3606,7 @@ constructing with `new` never loads prior state.
 
 > `optional` **resumeDelegate?**: [`DelegationResumeDriver`](#delegationresumedriver)
 
-Defined in: [mcp/task-queue.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L217)
+Defined in: [mcp/task-queue.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L218)
 
 **`Experimental`**
 
@@ -3616,7 +3616,7 @@ Resume seam for restored in-flight records that carry a `detachedSessionRef`.
 
 > `optional` **maxTerminalRecords?**: `number`
 
-Defined in: [mcp/task-queue.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L223)
+Defined in: [mcp/task-queue.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L224)
 
 **`Experimental`**
 
@@ -3628,7 +3628,7 @@ store once the cap is exceeded. Default unbounded.
 
 > `optional` **onPersistError?**: (`error`) => `void`
 
-Defined in: [mcp/task-queue.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L230)
+Defined in: [mcp/task-queue.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L231)
 
 **`Experimental`**
 
@@ -3651,7 +3651,7 @@ degrading durable mode to memory-only would lie to the caller.
 
 > `optional` **traceContext?**: [`TraceContext`](#tracecontext-2)
 
-Defined in: [mcp/task-queue.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L238)
+Defined in: [mcp/task-queue.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L239)
 
 **`Experimental`**
 
@@ -3665,7 +3665,7 @@ they were persisted with.
 
 ### Check
 
-Defined in: [mcp/tools/checks.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L82)
+Defined in: [mcp/tools/checks.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L83)
 
 One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is
  upgradeable to the full agentic factory; `lookFor` is the lens question the actor applies.
@@ -3676,19 +3676,19 @@ One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKind
 
 > `readonly` **id**: `string`
 
-Defined in: [mcp/tools/checks.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L83)
+Defined in: [mcp/tools/checks.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L84)
 
 ##### description
 
 > `readonly` **description**: `string`
 
-Defined in: [mcp/tools/checks.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L84)
+Defined in: [mcp/tools/checks.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L85)
 
 ##### area
 
 > `readonly` **area**: `string`
 
-Defined in: [mcp/tools/checks.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L86)
+Defined in: [mcp/tools/checks.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L87)
 
 Coarse classification stamped on every finding this kind emits (the renderer groups by it).
 
@@ -3696,13 +3696,13 @@ Coarse classification stamped on every finding this kind emits (the renderer gro
 
 > `readonly` **version**: `string`
 
-Defined in: [mcp/tools/checks.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L87)
+Defined in: [mcp/tools/checks.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L88)
 
 ##### lookFor
 
 > `readonly` **lookFor**: `string`
 
-Defined in: [mcp/tools/checks.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L89)
+Defined in: [mcp/tools/checks.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L90)
 
 The lens — what this analyst looks for in the trace.
 
@@ -3710,7 +3710,7 @@ The lens — what this analyst looks for in the trace.
 
 ### CheckRunnerOptions
 
-Defined in: [mcp/tools/checks.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L209)
+Defined in: [mcp/tools/checks.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L210)
 
 #### Properties
 
@@ -3718,25 +3718,25 @@ Defined in: [mcp/tools/checks.ts:209](https://github.com/tangle-network/agent-ru
 
 > **routerBaseUrl**: `string`
 
-Defined in: [mcp/tools/checks.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L210)
+Defined in: [mcp/tools/checks.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L211)
 
 ##### routerKey
 
 > **routerKey**: `string`
 
-Defined in: [mcp/tools/checks.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L211)
+Defined in: [mcp/tools/checks.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L212)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: [mcp/tools/checks.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L212)
+Defined in: [mcp/tools/checks.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L213)
 
 ##### chat?
 
 > `optional` **chat?**: (`system`, `user`) => `Promise`\<`string`\>
 
-Defined in: [mcp/tools/checks.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L214)
+Defined in: [mcp/tools/checks.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L215)
 
 Test/override seam — replace the LLM call. Default: a router chat completion.
 
@@ -3758,7 +3758,7 @@ Test/override seam — replace the LLM call. Default: a router chat completion.
 
 ### SettledWorker
 
-Defined in: [mcp/tools/coordination.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L21)
+Defined in: [mcp/tools/coordination.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L22)
 
 A worker the driver has drained via `await_event`.
 
@@ -3768,43 +3768,43 @@ A worker the driver has drained via `await_event`.
 
 > `readonly` **id**: `string`
 
-Defined in: [mcp/tools/coordination.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L22)
+Defined in: [mcp/tools/coordination.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L23)
 
 ##### status
 
 > `readonly` **status**: `"done"` \| `"down"`
 
-Defined in: [mcp/tools/coordination.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L23)
+Defined in: [mcp/tools/coordination.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L24)
 
 ##### score?
 
 > `readonly` `optional` **score?**: `number`
 
-Defined in: [mcp/tools/coordination.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L24)
+Defined in: [mcp/tools/coordination.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L25)
 
 ##### valid?
 
 > `readonly` `optional` **valid?**: `boolean`
 
-Defined in: [mcp/tools/coordination.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L25)
+Defined in: [mcp/tools/coordination.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L26)
 
 ##### outRef?
 
 > `readonly` `optional` **outRef?**: `string`
 
-Defined in: [mcp/tools/coordination.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L26)
+Defined in: [mcp/tools/coordination.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L27)
 
 ##### reason?
 
 > `readonly` `optional` **reason?**: `string`
 
-Defined in: [mcp/tools/coordination.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L27)
+Defined in: [mcp/tools/coordination.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L28)
 
 ***
 
 ### Question
 
-Defined in: [mcp/tools/coordination.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L38)
+Defined in: [mcp/tools/coordination.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L39)
 
 #### Extended by
 
@@ -3816,49 +3816,49 @@ Defined in: [mcp/tools/coordination.ts:38](https://github.com/tangle-network/age
 
 > `readonly` **id**: `string`
 
-Defined in: [mcp/tools/coordination.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L39)
+Defined in: [mcp/tools/coordination.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L40)
 
 ##### from
 
 > `readonly` **from**: `string`
 
-Defined in: [mcp/tools/coordination.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L40)
+Defined in: [mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
 
 ##### level
 
 > `readonly` **level**: `QuestionLevel`
 
-Defined in: [mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
+Defined in: [mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
 
 ##### question
 
 > `readonly` **question**: `string`
 
-Defined in: [mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
+Defined in: [mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
 
 ##### reason
 
 > `readonly` **reason**: `string`
 
-Defined in: [mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
+Defined in: [mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
 
 ##### urgency
 
 > `readonly` **urgency**: `QuestionUrgency`
 
-Defined in: [mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
+Defined in: [mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
 
 ##### options?
 
 > `readonly` `optional` **options?**: readonly `QuestionOption`[]
 
-Defined in: [mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
+Defined in: [mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
 
 ***
 
 ### QuestionRecord
 
-Defined in: [mcp/tools/coordination.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L53)
+Defined in: [mcp/tools/coordination.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L54)
 
 #### Extends
 
@@ -3870,7 +3870,7 @@ Defined in: [mcp/tools/coordination.ts:53](https://github.com/tangle-network/age
 
 > `readonly` **id**: `string`
 
-Defined in: [mcp/tools/coordination.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L39)
+Defined in: [mcp/tools/coordination.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L40)
 
 ###### Inherited from
 
@@ -3880,7 +3880,7 @@ Defined in: [mcp/tools/coordination.ts:39](https://github.com/tangle-network/age
 
 > `readonly` **from**: `string`
 
-Defined in: [mcp/tools/coordination.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L40)
+Defined in: [mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
 
 ###### Inherited from
 
@@ -3890,7 +3890,7 @@ Defined in: [mcp/tools/coordination.ts:40](https://github.com/tangle-network/age
 
 > `readonly` **level**: `QuestionLevel`
 
-Defined in: [mcp/tools/coordination.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L41)
+Defined in: [mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
 
 ###### Inherited from
 
@@ -3900,7 +3900,7 @@ Defined in: [mcp/tools/coordination.ts:41](https://github.com/tangle-network/age
 
 > `readonly` **question**: `string`
 
-Defined in: [mcp/tools/coordination.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L42)
+Defined in: [mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
 
 ###### Inherited from
 
@@ -3910,7 +3910,7 @@ Defined in: [mcp/tools/coordination.ts:42](https://github.com/tangle-network/age
 
 > `readonly` **reason**: `string`
 
-Defined in: [mcp/tools/coordination.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L43)
+Defined in: [mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
 
 ###### Inherited from
 
@@ -3920,7 +3920,7 @@ Defined in: [mcp/tools/coordination.ts:43](https://github.com/tangle-network/age
 
 > `readonly` **urgency**: `QuestionUrgency`
 
-Defined in: [mcp/tools/coordination.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L44)
+Defined in: [mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
 
 ###### Inherited from
 
@@ -3930,7 +3930,7 @@ Defined in: [mcp/tools/coordination.ts:44](https://github.com/tangle-network/age
 
 > `readonly` `optional` **options?**: readonly `QuestionOption`[]
 
-Defined in: [mcp/tools/coordination.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L45)
+Defined in: [mcp/tools/coordination.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L46)
 
 ###### Inherited from
 
@@ -3940,25 +3940,25 @@ Defined in: [mcp/tools/coordination.ts:45](https://github.com/tangle-network/age
 
 > `readonly` **status**: `"open"` \| `"answered"` \| `"deferred"` \| `"escalated"`
 
-Defined in: [mcp/tools/coordination.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L54)
+Defined in: [mcp/tools/coordination.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L55)
 
 ##### decision?
 
 > `readonly` `optional` **decision?**: [`QuestionDecision`](#questiondecision)
 
-Defined in: [mcp/tools/coordination.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L55)
+Defined in: [mcp/tools/coordination.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L56)
 
 ##### openedAt
 
 > `readonly` **openedAt**: `number`
 
-Defined in: [mcp/tools/coordination.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L56)
+Defined in: [mcp/tools/coordination.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L57)
 
 ***
 
 ### CoordinationToolsOptions
 
-Defined in: [mcp/tools/coordination.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L94)
+Defined in: [mcp/tools/coordination.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L95)
 
 #### Properties
 
@@ -3966,37 +3966,37 @@ Defined in: [mcp/tools/coordination.ts:94](https://github.com/tangle-network/age
 
 > `readonly` **scope**: [`Scope`](runtime.md#scope-1)\<`unknown`\>
 
-Defined in: [mcp/tools/coordination.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L95)
+Defined in: [mcp/tools/coordination.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L96)
 
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](runtime.md#resultblobstore)
 
-Defined in: [mcp/tools/coordination.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L96)
+Defined in: [mcp/tools/coordination.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L97)
 
 ##### makeWorkerAgent
 
 > `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-Defined in: [mcp/tools/coordination.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L97)
+Defined in: [mcp/tools/coordination.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L98)
 
 ##### perWorker
 
 > `readonly` **perWorker**: [`Budget`](runtime.md#budget-12)
 
-Defined in: [mcp/tools/coordination.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L98)
+Defined in: [mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
 
 ##### analysts?
 
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](runtime.md#analystregistry)
 
-Defined in: [mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
+Defined in: [mcp/tools/coordination.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L100)
 
 ##### onEvent?
 
 > `readonly` `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [mcp/tools/coordination.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L100)
+Defined in: [mcp/tools/coordination.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L101)
 
 ###### Parameters
 
@@ -4012,13 +4012,13 @@ Defined in: [mcp/tools/coordination.ts:100](https://github.com/tangle-network/ag
 
 > `readonly` `optional` **questionPolicy?**: [`QuestionPolicy`](#questionpolicy)
 
-Defined in: [mcp/tools/coordination.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L101)
+Defined in: [mcp/tools/coordination.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L102)
 
 ##### analyzeOnSettle?
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly `string`[]
 
-Defined in: [mcp/tools/coordination.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L106)
+Defined in: [mcp/tools/coordination.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L107)
 
 Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-on-settle
  hook). Each result is published as a `finding` event on the bus — pass-through to subscribers
@@ -4029,7 +4029,7 @@ Analyst kind ids to run AUTOMATICALLY when a worker settles `done` (the analyst-
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Defined in: [mcp/tools/coordination.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L112)
+Defined in: [mcp/tools/coordination.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L113)
 
 Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
@@ -4041,7 +4041,7 @@ Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. 
 
 ### CoordinationTools
 
-Defined in: [mcp/tools/coordination.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L122)
+Defined in: [mcp/tools/coordination.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L123)
 
 The supervisor-side toolbox returned by [createCoordinationTools](#createcoordinationtools): the MCP tool
 descriptors a driver `AgentProfile` calls to spawn, steer, observe, and settle workers
@@ -4055,7 +4055,7 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 
 > `readonly` **tools**: [`McpToolDescriptor`](#mcptooldescriptor)[]
 
-Defined in: [mcp/tools/coordination.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L123)
+Defined in: [mcp/tools/coordination.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L124)
 
 #### Methods
 
@@ -4063,7 +4063,7 @@ Defined in: [mcp/tools/coordination.ts:123](https://github.com/tangle-network/ag
 
 > **isStopped**(): `boolean`
 
-Defined in: [mcp/tools/coordination.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L124)
+Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L125)
 
 ###### Returns
 
@@ -4073,7 +4073,7 @@ Defined in: [mcp/tools/coordination.ts:124](https://github.com/tangle-network/ag
 
 > **stopReason**(): `string` \| `undefined`
 
-Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L125)
+Defined in: [mcp/tools/coordination.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L126)
 
 ###### Returns
 
@@ -4083,7 +4083,7 @@ Defined in: [mcp/tools/coordination.ts:125](https://github.com/tangle-network/ag
 
 > **settled**(): readonly [`SettledWorker`](#settledworker)[]
 
-Defined in: [mcp/tools/coordination.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L126)
+Defined in: [mcp/tools/coordination.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L127)
 
 ###### Returns
 
@@ -4093,7 +4093,7 @@ readonly [`SettledWorker`](#settledworker)[]
 
 > **questions**(): readonly [`QuestionRecord`](#questionrecord)[]
 
-Defined in: [mcp/tools/coordination.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L127)
+Defined in: [mcp/tools/coordination.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L128)
 
 ###### Returns
 
@@ -4103,7 +4103,7 @@ readonly [`QuestionRecord`](#questionrecord)[]
 
 > **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
-Defined in: [mcp/tools/coordination.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L131)
+Defined in: [mcp/tools/coordination.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L132)
 
 The full ordered log of every bus event — UP (settled / question / finding) and DOWN
  (steer / answer) — the observability audit + replay trail. Each record carries seq,
@@ -4117,7 +4117,7 @@ readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#c
 
 > **stats**(): [`BusStats`](runtime.md#busstats)
 
-Defined in: [mcp/tools/coordination.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L133)
+Defined in: [mcp/tools/coordination.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L134)
 
 Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
@@ -4129,7 +4129,7 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards.
 
 > **raiseFinding**(`finding`): `Promise`\<`void`\>
 
-Defined in: [mcp/tools/coordination.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L137)
+Defined in: [mcp/tools/coordination.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L138)
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
@@ -4149,7 +4149,7 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 > **drainResolved**(): `Promise`\<`number`\>
 
-Defined in: [mcp/tools/coordination.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L146)
+Defined in: [mcp/tools/coordination.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L147)
 
 Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
 as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
@@ -4166,7 +4166,7 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 
 ### DelegateArgs
 
-Defined in: [mcp/tools/delegate.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L67)
+Defined in: [mcp/tools/delegate.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L68)
 
 Parsed `delegate` tool arguments.
 
@@ -4176,25 +4176,25 @@ Parsed `delegate` tool arguments.
 
 > **intent**: `string`
 
-Defined in: [mcp/tools/delegate.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L68)
+Defined in: [mcp/tools/delegate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L69)
 
 ##### model?
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L69)
+Defined in: [mcp/tools/delegate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L70)
 
 ##### runId?
 
 > `optional` **runId?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L70)
+Defined in: [mcp/tools/delegate.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L71)
 
 ***
 
 ### DelegateHandlerOptions
 
-Defined in: [mcp/tools/delegate.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L102)
+Defined in: [mcp/tools/delegate.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L103)
 
 **`Experimental`**
 
@@ -4204,7 +4204,7 @@ Defined in: [mcp/tools/delegate.ts:102](https://github.com/tangle-network/agent-
 
 > **router**: [`RouterConfig`](runtime.md#routerconfig)
 
-Defined in: [mcp/tools/delegate.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L104)
+Defined in: [mcp/tools/delegate.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L105)
 
 **`Experimental`**
 
@@ -4214,7 +4214,7 @@ The supervisor brain's router substrate (REQUIRED — the default supervisor is 
 
 > **backend**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-Defined in: [mcp/tools/delegate.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L106)
+Defined in: [mcp/tools/delegate.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L107)
 
 **`Experimental`**
 
@@ -4224,7 +4224,7 @@ WHERE the authored workers run. Required for `supervise()` to spawn anything.
 
 > `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
 
-Defined in: [mcp/tools/delegate.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L108)
+Defined in: [mcp/tools/delegate.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L109)
 
 **`Experimental`**
 
@@ -4234,7 +4234,7 @@ The completion oracle the authored workers settle against (settled ⟺ delivered
 
 > `optional` **model?**: `string`
 
-Defined in: [mcp/tools/delegate.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L110)
+Defined in: [mcp/tools/delegate.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L111)
 
 **`Experimental`**
 
@@ -4244,7 +4244,7 @@ Default supervisor brain model when a call omits `model`.
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [mcp/tools/delegate.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L112)
+Defined in: [mcp/tools/delegate.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L113)
 
 **`Experimental`**
 
@@ -4254,7 +4254,7 @@ Restrict the run to this subset of models.
 
 ### TraceContext
 
-Defined in: [mcp/trace-propagation.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L24)
+Defined in: [mcp/trace-propagation.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L25)
 
 #### Properties
 
@@ -4262,7 +4262,7 @@ Defined in: [mcp/trace-propagation.ts:24](https://github.com/tangle-network/agen
 
 > **traceId**: `string`
 
-Defined in: [mcp/trace-propagation.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L26)
+Defined in: [mcp/trace-propagation.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L27)
 
 Trace id inherited from the parent process, or a fresh one.
 
@@ -4270,7 +4270,7 @@ Trace id inherited from the parent process, or a fresh one.
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [mcp/trace-propagation.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L28)
+Defined in: [mcp/trace-propagation.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L29)
 
 Parent span id from the delegation that launched this MCP server.
 
@@ -4278,7 +4278,7 @@ Parent span id from the delegation that launched this MCP server.
 
 ### DelegateCodeConfig
 
-Defined in: [mcp/types.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L34)
+Defined in: [mcp/types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L35)
 
 **`Experimental`**
 
@@ -4293,7 +4293,7 @@ validator behavior.
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [mcp/types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L35)
+Defined in: [mcp/types.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L36)
 
 **`Experimental`**
 
@@ -4301,7 +4301,7 @@ Defined in: [mcp/types.ts:35](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [mcp/types.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L36)
+Defined in: [mcp/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L37)
 
 **`Experimental`**
 
@@ -4309,7 +4309,7 @@ Defined in: [mcp/types.ts:36](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [mcp/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L37)
+Defined in: [mcp/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L38)
 
 **`Experimental`**
 
@@ -4317,7 +4317,7 @@ Defined in: [mcp/types.ts:37](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [mcp/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L38)
+Defined in: [mcp/types.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L39)
 
 **`Experimental`**
 
@@ -4325,7 +4325,7 @@ Defined in: [mcp/types.ts:38](https://github.com/tangle-network/agent-runtime/bl
 
 ### DelegateCodeArgs
 
-Defined in: [mcp/types.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L42)
+Defined in: [mcp/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L43)
 
 **`Experimental`**
 
@@ -4335,7 +4335,7 @@ Defined in: [mcp/types.ts:42](https://github.com/tangle-network/agent-runtime/bl
 
 > **goal**: `string`
 
-Defined in: [mcp/types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L44)
+Defined in: [mcp/types.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L45)
 
 **`Experimental`**
 
@@ -4345,7 +4345,7 @@ Natural-language description of what the coder must accomplish.
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/types.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L46)
+Defined in: [mcp/types.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L47)
 
 **`Experimental`**
 
@@ -4355,7 +4355,7 @@ Absolute path inside the sandbox where the repo lives.
 
 > `optional` **contextHint?**: `string`
 
-Defined in: [mcp/types.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L48)
+Defined in: [mcp/types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L49)
 
 **`Experimental`**
 
@@ -4365,7 +4365,7 @@ Optional free-form context the agent surfaces in the prompt prelude.
 
 > `optional` **variants?**: `number`
 
-Defined in: [mcp/types.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L54)
+Defined in: [mcp/types.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L55)
 
 **`Experimental`**
 
@@ -4377,7 +4377,7 @@ passing patch. Default 1.
 
 > `optional` **config?**: [`DelegateCodeConfig`](#delegatecodeconfig)
 
-Defined in: [mcp/types.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L56)
+Defined in: [mcp/types.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L57)
 
 **`Experimental`**
 
@@ -4387,7 +4387,7 @@ Validator + prompt overrides the agent knows for this repo.
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/types.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L58)
+Defined in: [mcp/types.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L59)
 
 **`Experimental`**
 
@@ -4397,7 +4397,7 @@ Multi-tenant scope (customer-id, workspace-id).
 
 ### DelegateCodeResult
 
-Defined in: [mcp/types.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L62)
+Defined in: [mcp/types.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L63)
 
 **`Experimental`**
 
@@ -4407,7 +4407,7 @@ Defined in: [mcp/types.ts:62](https://github.com/tangle-network/agent-runtime/bl
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L63)
+Defined in: [mcp/types.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L64)
 
 **`Experimental`**
 
@@ -4415,7 +4415,7 @@ Defined in: [mcp/types.ts:63](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **estimatedDurationMs?**: `number`
 
-Defined in: [mcp/types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L65)
+Defined in: [mcp/types.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L66)
 
 **`Experimental`**
 
@@ -4425,7 +4425,7 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ### DelegateResearchConfig
 
-Defined in: [mcp/types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L72)
+Defined in: [mcp/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L73)
 
 **`Experimental`**
 
@@ -4435,7 +4435,7 @@ Defined in: [mcp/types.ts:72](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **recencyWindow?**: `object`
 
-Defined in: [mcp/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L73)
+Defined in: [mcp/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L74)
 
 **`Experimental`**
 
@@ -4451,7 +4451,7 @@ Defined in: [mcp/types.ts:73](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **maxItems?**: `number`
 
-Defined in: [mcp/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L74)
+Defined in: [mcp/types.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L75)
 
 **`Experimental`**
 
@@ -4459,7 +4459,7 @@ Defined in: [mcp/types.ts:74](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **minConfidence?**: `number`
 
-Defined in: [mcp/types.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L75)
+Defined in: [mcp/types.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L76)
 
 **`Experimental`**
 
@@ -4467,7 +4467,7 @@ Defined in: [mcp/types.ts:75](https://github.com/tangle-network/agent-runtime/bl
 
 ### DelegateResearchArgs
 
-Defined in: [mcp/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L79)
+Defined in: [mcp/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L80)
 
 **`Experimental`**
 
@@ -4477,7 +4477,7 @@ Defined in: [mcp/types.ts:79](https://github.com/tangle-network/agent-runtime/bl
 
 > **question**: `string`
 
-Defined in: [mcp/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L80)
+Defined in: [mcp/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L81)
 
 **`Experimental`**
 
@@ -4485,7 +4485,7 @@ Defined in: [mcp/types.ts:80](https://github.com/tangle-network/agent-runtime/bl
 
 > **namespace**: `string`
 
-Defined in: [mcp/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L81)
+Defined in: [mcp/types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L82)
 
 **`Experimental`**
 
@@ -4493,7 +4493,7 @@ Defined in: [mcp/types.ts:81](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **scope?**: `string`
 
-Defined in: [mcp/types.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L82)
+Defined in: [mcp/types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L83)
 
 **`Experimental`**
 
@@ -4501,7 +4501,7 @@ Defined in: [mcp/types.ts:82](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **sources?**: [`ResearchSource`](#researchsource)[]
 
-Defined in: [mcp/types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L83)
+Defined in: [mcp/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L84)
 
 **`Experimental`**
 
@@ -4509,7 +4509,7 @@ Defined in: [mcp/types.ts:83](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **variants?**: `number`
 
-Defined in: [mcp/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L84)
+Defined in: [mcp/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L85)
 
 **`Experimental`**
 
@@ -4517,7 +4517,7 @@ Defined in: [mcp/types.ts:84](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **config?**: [`DelegateResearchConfig`](#delegateresearchconfig)
 
-Defined in: [mcp/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L85)
+Defined in: [mcp/types.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L86)
 
 **`Experimental`**
 
@@ -4525,7 +4525,7 @@ Defined in: [mcp/types.ts:85](https://github.com/tangle-network/agent-runtime/bl
 
 ### DelegateResearchResult
 
-Defined in: [mcp/types.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L89)
+Defined in: [mcp/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L90)
 
 **`Experimental`**
 
@@ -4535,7 +4535,7 @@ Defined in: [mcp/types.ts:89](https://github.com/tangle-network/agent-runtime/bl
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L90)
+Defined in: [mcp/types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L91)
 
 **`Experimental`**
 
@@ -4543,7 +4543,7 @@ Defined in: [mcp/types.ts:90](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **estimatedDurationMs?**: `number`
 
-Defined in: [mcp/types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L91)
+Defined in: [mcp/types.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L92)
 
 **`Experimental`**
 
@@ -4551,7 +4551,7 @@ Defined in: [mcp/types.ts:91](https://github.com/tangle-network/agent-runtime/bl
 
 ### FeedbackRefersTo
 
-Defined in: [mcp/types.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L95)
+Defined in: [mcp/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L96)
 
 **`Experimental`**
 
@@ -4561,7 +4561,7 @@ Defined in: [mcp/types.ts:95](https://github.com/tangle-network/agent-runtime/bl
 
 > **kind**: `"artifact"` \| `"delegation"` \| `"outcome"`
 
-Defined in: [mcp/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L96)
+Defined in: [mcp/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L97)
 
 **`Experimental`**
 
@@ -4569,7 +4569,7 @@ Defined in: [mcp/types.ts:96](https://github.com/tangle-network/agent-runtime/bl
 
 > **ref**: `string`
 
-Defined in: [mcp/types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L98)
+Defined in: [mcp/types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L99)
 
 **`Experimental`**
 
@@ -4579,7 +4579,7 @@ For `'delegation'`, this is the taskId.
 
 ### FeedbackRating
 
-Defined in: [mcp/types.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L102)
+Defined in: [mcp/types.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L103)
 
 **`Experimental`**
 
@@ -4589,7 +4589,7 @@ Defined in: [mcp/types.ts:102](https://github.com/tangle-network/agent-runtime/b
 
 > **score**: `number`
 
-Defined in: [mcp/types.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L104)
+Defined in: [mcp/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L105)
 
 **`Experimental`**
 
@@ -4599,7 +4599,7 @@ Defined in: [mcp/types.ts:104](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **label?**: `"good"` \| `"bad"` \| `"neutral"` \| `"mixed"`
 
-Defined in: [mcp/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L105)
+Defined in: [mcp/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L106)
 
 **`Experimental`**
 
@@ -4607,7 +4607,7 @@ Defined in: [mcp/types.ts:105](https://github.com/tangle-network/agent-runtime/b
 
 > **notes**: `string`
 
-Defined in: [mcp/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L106)
+Defined in: [mcp/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L107)
 
 **`Experimental`**
 
@@ -4615,7 +4615,7 @@ Defined in: [mcp/types.ts:106](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegateFeedbackArgs
 
-Defined in: [mcp/types.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L110)
+Defined in: [mcp/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L111)
 
 **`Experimental`**
 
@@ -4625,7 +4625,7 @@ Defined in: [mcp/types.ts:110](https://github.com/tangle-network/agent-runtime/b
 
 > **refersTo**: [`FeedbackRefersTo`](#feedbackrefersto)
 
-Defined in: [mcp/types.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L111)
+Defined in: [mcp/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L112)
 
 **`Experimental`**
 
@@ -4633,7 +4633,7 @@ Defined in: [mcp/types.ts:111](https://github.com/tangle-network/agent-runtime/b
 
 > **rating**: [`FeedbackRating`](#feedbackrating)
 
-Defined in: [mcp/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L112)
+Defined in: [mcp/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L113)
 
 **`Experimental`**
 
@@ -4641,7 +4641,7 @@ Defined in: [mcp/types.ts:112](https://github.com/tangle-network/agent-runtime/b
 
 > **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
-Defined in: [mcp/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L113)
+Defined in: [mcp/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L114)
 
 **`Experimental`**
 
@@ -4649,7 +4649,7 @@ Defined in: [mcp/types.ts:113](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **capturedAt?**: `string`
 
-Defined in: [mcp/types.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L115)
+Defined in: [mcp/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L116)
 
 **`Experimental`**
 
@@ -4659,7 +4659,7 @@ ISO timestamp; defaults to server clock when omitted.
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L116)
+Defined in: [mcp/types.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L117)
 
 **`Experimental`**
 
@@ -4667,7 +4667,7 @@ Defined in: [mcp/types.ts:116](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegateFeedbackResult
 
-Defined in: [mcp/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L120)
+Defined in: [mcp/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L121)
 
 **`Experimental`**
 
@@ -4677,7 +4677,7 @@ Defined in: [mcp/types.ts:120](https://github.com/tangle-network/agent-runtime/b
 
 > **recorded**: `true`
 
-Defined in: [mcp/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L121)
+Defined in: [mcp/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L122)
 
 **`Experimental`**
 
@@ -4685,7 +4685,7 @@ Defined in: [mcp/types.ts:121](https://github.com/tangle-network/agent-runtime/b
 
 > **id**: `string`
 
-Defined in: [mcp/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L122)
+Defined in: [mcp/types.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L123)
 
 **`Experimental`**
 
@@ -4693,7 +4693,7 @@ Defined in: [mcp/types.ts:122](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegationStatusArgs
 
-Defined in: [mcp/types.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L126)
+Defined in: [mcp/types.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L127)
 
 **`Experimental`**
 
@@ -4703,7 +4703,7 @@ Defined in: [mcp/types.ts:126](https://github.com/tangle-network/agent-runtime/b
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L127)
+Defined in: [mcp/types.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L128)
 
 **`Experimental`**
 
@@ -4711,7 +4711,7 @@ Defined in: [mcp/types.ts:127](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **includeTrace?**: `boolean`
 
-Defined in: [mcp/types.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L134)
+Defined in: [mcp/types.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L135)
 
 **`Experimental`**
 
@@ -4724,7 +4724,7 @@ cost) rather than just the state machine.
 
 ### DelegationProgress
 
-Defined in: [mcp/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L138)
+Defined in: [mcp/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L139)
 
 **`Experimental`**
 
@@ -4734,7 +4734,7 @@ Defined in: [mcp/types.ts:138](https://github.com/tangle-network/agent-runtime/b
 
 > **iteration**: `number`
 
-Defined in: [mcp/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L139)
+Defined in: [mcp/types.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L140)
 
 **`Experimental`**
 
@@ -4742,7 +4742,7 @@ Defined in: [mcp/types.ts:139](https://github.com/tangle-network/agent-runtime/b
 
 > **phase**: `string`
 
-Defined in: [mcp/types.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L140)
+Defined in: [mcp/types.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L141)
 
 **`Experimental`**
 
@@ -4750,7 +4750,7 @@ Defined in: [mcp/types.ts:140](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegationError
 
-Defined in: [mcp/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L144)
+Defined in: [mcp/types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L145)
 
 **`Experimental`**
 
@@ -4760,7 +4760,7 @@ Defined in: [mcp/types.ts:144](https://github.com/tangle-network/agent-runtime/b
 
 > **message**: `string`
 
-Defined in: [mcp/types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L145)
+Defined in: [mcp/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L146)
 
 **`Experimental`**
 
@@ -4768,7 +4768,7 @@ Defined in: [mcp/types.ts:145](https://github.com/tangle-network/agent-runtime/b
 
 > **kind**: `string`
 
-Defined in: [mcp/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L146)
+Defined in: [mcp/types.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L147)
 
 **`Experimental`**
 
@@ -4776,7 +4776,7 @@ Defined in: [mcp/types.ts:146](https://github.com/tangle-network/agent-runtime/b
 
 ### UiAuditorDelegationOutput
 
-Defined in: [mcp/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L170)
+Defined in: [mcp/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L171)
 
 **`Experimental`**
 
@@ -4792,7 +4792,7 @@ relative path to the regenerated index.md.
 
 > **workspaceDir**: `string`
 
-Defined in: [mcp/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L171)
+Defined in: [mcp/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L172)
 
 **`Experimental`**
 
@@ -4800,7 +4800,7 @@ Defined in: [mcp/types.ts:171](https://github.com/tangle-network/agent-runtime/b
 
 > **indexFile**: `string`
 
-Defined in: [mcp/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L172)
+Defined in: [mcp/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L173)
 
 **`Experimental`**
 
@@ -4808,7 +4808,7 @@ Defined in: [mcp/types.ts:172](https://github.com/tangle-network/agent-runtime/b
 
 > **findings**: [`UiFinding`](profiles.md#uifinding)[]
 
-Defined in: [mcp/types.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L173)
+Defined in: [mcp/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L174)
 
 **`Experimental`**
 
@@ -4816,7 +4816,7 @@ Defined in: [mcp/types.ts:173](https://github.com/tangle-network/agent-runtime/b
 
 > **iterations**: `number`
 
-Defined in: [mcp/types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L175)
+Defined in: [mcp/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L176)
 
 **`Experimental`**
 
@@ -4826,7 +4826,7 @@ Total iterations the loop ran for this delegation.
 
 ### DelegateUiAuditRoute
 
-Defined in: [mcp/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L182)
+Defined in: [mcp/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L183)
 
 Optional per-route capture spec the agent surfaces over the wire.
 
@@ -4836,7 +4836,7 @@ Optional per-route capture spec the agent surfaces over the wire.
 
 > **name**: `string`
 
-Defined in: [mcp/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L184)
+Defined in: [mcp/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L185)
 
 Stable route name (used in screenshot filenames + finding metadata).
 
@@ -4844,7 +4844,7 @@ Stable route name (used in screenshot filenames + finding metadata).
 
 > **url**: `string`
 
-Defined in: [mcp/types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L186)
+Defined in: [mcp/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L187)
 
 Fully-qualified URL.
 
@@ -4852,7 +4852,7 @@ Fully-qualified URL.
 
 > `optional` **viewports?**: readonly `object`[]
 
-Defined in: [mcp/types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L188)
+Defined in: [mcp/types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L189)
 
 Viewports to capture at. Defaults to `[{ width: 1280, height: 800 }]`.
 
@@ -4860,7 +4860,7 @@ Viewports to capture at. Defaults to `[{ width: 1280, height: 800 }]`.
 
 > `optional` **fullPage?**: `boolean`
 
-Defined in: [mcp/types.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L190)
+Defined in: [mcp/types.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L191)
 
 Default false. Full-page captures for the broad lenses.
 
@@ -4868,7 +4868,7 @@ Default false. Full-page captures for the broad lenses.
 
 > `optional` **waitFor?**: `string`
 
-Defined in: [mcp/types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L192)
+Defined in: [mcp/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L193)
 
 Selector to wait for before capture.
 
@@ -4876,7 +4876,7 @@ Selector to wait for before capture.
 
 ### DelegateUiAuditConfig
 
-Defined in: [mcp/types.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L196)
+Defined in: [mcp/types.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L197)
 
 **`Experimental`**
 
@@ -4886,7 +4886,7 @@ Defined in: [mcp/types.ts:196](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **lenses?**: `UiAuditLensFilter`
 
-Defined in: [mcp/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L201)
+Defined in: [mcp/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L202)
 
 **`Experimental`**
 
@@ -4897,7 +4897,7 @@ preserved — the driver iterates lens-by-lens.
 
 > `optional` **maxIterations?**: `number`
 
-Defined in: [mcp/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L203)
+Defined in: [mcp/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L204)
 
 **`Experimental`**
 
@@ -4907,7 +4907,7 @@ Maximum total iterations across all (lens × route) pairs. Default 33 (11 lenses
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [mcp/types.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L205)
+Defined in: [mcp/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L206)
 
 **`Experimental`**
 
@@ -4917,7 +4917,7 @@ Maximum concurrent iterations within a single plan() round. Default 2.
 
 > `optional` **productContext?**: `string`
 
-Defined in: [mcp/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L207)
+Defined in: [mcp/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L208)
 
 **`Experimental`**
 
@@ -4927,7 +4927,7 @@ Free-form product context surfaced to the judge.
 
 ### DelegateUiAuditArgs
 
-Defined in: [mcp/types.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L211)
+Defined in: [mcp/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L212)
 
 **`Experimental`**
 
@@ -4937,7 +4937,7 @@ Defined in: [mcp/types.ts:211](https://github.com/tangle-network/agent-runtime/b
 
 > **workspaceDir**: `string`
 
-Defined in: [mcp/types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L213)
+Defined in: [mcp/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L214)
 
 **`Experimental`**
 
@@ -4947,7 +4947,7 @@ Workspace root for the audit (absolute path).
 
 > **routes**: readonly [`DelegateUiAuditRoute`](#delegateuiauditroute)[]
 
-Defined in: [mcp/types.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L215)
+Defined in: [mcp/types.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L216)
 
 **`Experimental`**
 
@@ -4957,7 +4957,7 @@ Routes to audit. Must be non-empty.
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/types.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L217)
+Defined in: [mcp/types.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L218)
 
 **`Experimental`**
 
@@ -4967,7 +4967,7 @@ Multi-tenant scope.
 
 > `optional` **config?**: [`DelegateUiAuditConfig`](#delegateuiauditconfig)
 
-Defined in: [mcp/types.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L218)
+Defined in: [mcp/types.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L219)
 
 **`Experimental`**
 
@@ -4975,7 +4975,7 @@ Defined in: [mcp/types.ts:218](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegateUiAuditResult
 
-Defined in: [mcp/types.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L222)
+Defined in: [mcp/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L223)
 
 **`Experimental`**
 
@@ -4985,7 +4985,7 @@ Defined in: [mcp/types.ts:222](https://github.com/tangle-network/agent-runtime/b
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L223)
+Defined in: [mcp/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L224)
 
 **`Experimental`**
 
@@ -4993,7 +4993,7 @@ Defined in: [mcp/types.ts:223](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **estimatedDurationMs?**: `number`
 
-Defined in: [mcp/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L224)
+Defined in: [mcp/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L225)
 
 **`Experimental`**
 
@@ -5001,7 +5001,7 @@ Defined in: [mcp/types.ts:224](https://github.com/tangle-network/agent-runtime/b
 
 ### ResearchOutputShape
 
-Defined in: [mcp/types.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L234)
+Defined in: [mcp/types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L235)
 
 **`Experimental`**
 
@@ -5020,7 +5020,7 @@ a dependency cycle, so the MCP layer treats it structurally.
 
 > **items**: `unknown`[]
 
-Defined in: [mcp/types.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L235)
+Defined in: [mcp/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L236)
 
 **`Experimental`**
 
@@ -5028,7 +5028,7 @@ Defined in: [mcp/types.ts:235](https://github.com/tangle-network/agent-runtime/b
 
 > **citations**: `unknown`[]
 
-Defined in: [mcp/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L236)
+Defined in: [mcp/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L237)
 
 **`Experimental`**
 
@@ -5036,7 +5036,7 @@ Defined in: [mcp/types.ts:236](https://github.com/tangle-network/agent-runtime/b
 
 > **proposedWrites**: `unknown`[]
 
-Defined in: [mcp/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L237)
+Defined in: [mcp/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L238)
 
 **`Experimental`**
 
@@ -5044,7 +5044,7 @@ Defined in: [mcp/types.ts:237](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **gaps?**: `string`[]
 
-Defined in: [mcp/types.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L238)
+Defined in: [mcp/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L239)
 
 **`Experimental`**
 
@@ -5052,7 +5052,7 @@ Defined in: [mcp/types.ts:238](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **notes?**: `string`
 
-Defined in: [mcp/types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L239)
+Defined in: [mcp/types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L240)
 
 **`Experimental`**
 
@@ -5060,7 +5060,7 @@ Defined in: [mcp/types.ts:239](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegationStatusResult
 
-Defined in: [mcp/types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L244)
+Defined in: [mcp/types.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L245)
 
 **`Experimental`**
 
@@ -5070,7 +5070,7 @@ Defined in: [mcp/types.ts:244](https://github.com/tangle-network/agent-runtime/b
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L245)
+Defined in: [mcp/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L246)
 
 **`Experimental`**
 
@@ -5078,7 +5078,7 @@ Defined in: [mcp/types.ts:245](https://github.com/tangle-network/agent-runtime/b
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
 
-Defined in: [mcp/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L246)
+Defined in: [mcp/types.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L247)
 
 **`Experimental`**
 
@@ -5086,7 +5086,7 @@ Defined in: [mcp/types.ts:246](https://github.com/tangle-network/agent-runtime/b
 
 > **status**: [`DelegationStatus`](#delegationstatus)
 
-Defined in: [mcp/types.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L247)
+Defined in: [mcp/types.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L248)
 
 **`Experimental`**
 
@@ -5094,7 +5094,7 @@ Defined in: [mcp/types.ts:247](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **progress?**: [`DelegationProgress`](#delegationprogress)
 
-Defined in: [mcp/types.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L248)
+Defined in: [mcp/types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L249)
 
 **`Experimental`**
 
@@ -5102,7 +5102,7 @@ Defined in: [mcp/types.ts:248](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **result?**: [`DelegationResultPayload`](#delegationresultpayload)
 
-Defined in: [mcp/types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L249)
+Defined in: [mcp/types.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L250)
 
 **`Experimental`**
 
@@ -5110,7 +5110,7 @@ Defined in: [mcp/types.ts:249](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **error?**: [`DelegationError`](#delegationerror)
 
-Defined in: [mcp/types.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L250)
+Defined in: [mcp/types.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L251)
 
 **`Experimental`**
 
@@ -5118,7 +5118,7 @@ Defined in: [mcp/types.ts:250](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [mcp/types.ts:251](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L251)
+Defined in: [mcp/types.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L252)
 
 **`Experimental`**
 
@@ -5126,7 +5126,7 @@ Defined in: [mcp/types.ts:251](https://github.com/tangle-network/agent-runtime/b
 
 > **startedAt**: `string`
 
-Defined in: [mcp/types.ts:252](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L252)
+Defined in: [mcp/types.ts:253](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L253)
 
 **`Experimental`**
 
@@ -5134,7 +5134,7 @@ Defined in: [mcp/types.ts:252](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **completedAt?**: `string`
 
-Defined in: [mcp/types.ts:253](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L253)
+Defined in: [mcp/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L254)
 
 **`Experimental`**
 
@@ -5142,7 +5142,7 @@ Defined in: [mcp/types.ts:253](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **trace?**: [`DelegationTraceSpan`](#delegationtracespan)[]
 
-Defined in: [mcp/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L255)
+Defined in: [mcp/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L256)
 
 **`Experimental`**
 
@@ -5152,7 +5152,7 @@ Compact loop-trace span tree; present only when `includeTrace: true` was passed 
 
 > `optional` **traceTruncated?**: `true`
 
-Defined in: [mcp/types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L257)
+Defined in: [mcp/types.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L258)
 
 **`Experimental`**
 
@@ -5162,7 +5162,7 @@ Present when oldest trace spans were dropped to honor the trace caps.
 
 > `optional` **traceId?**: `string`
 
-Defined in: [mcp/types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L259)
+Defined in: [mcp/types.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L260)
 
 **`Experimental`**
 
@@ -5172,7 +5172,7 @@ Inherited trace identity recorded at submit — join key into the caller's trace
 
 > `optional` **parentSpanId?**: `string`
 
-Defined in: [mcp/types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L261)
+Defined in: [mcp/types.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L262)
 
 **`Experimental`**
 
@@ -5182,7 +5182,7 @@ Caller span that dispatched the delegation, when one was inherited.
 
 ### DelegationHistoryArgs
 
-Defined in: [mcp/types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L265)
+Defined in: [mcp/types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L266)
 
 **`Experimental`**
 
@@ -5192,7 +5192,7 @@ Defined in: [mcp/types.ts:265](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L266)
+Defined in: [mcp/types.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L267)
 
 **`Experimental`**
 
@@ -5200,7 +5200,7 @@ Defined in: [mcp/types.ts:266](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **profile?**: [`DelegationProfile`](#delegationprofile)
 
-Defined in: [mcp/types.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L267)
+Defined in: [mcp/types.ts:268](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L268)
 
 **`Experimental`**
 
@@ -5208,7 +5208,7 @@ Defined in: [mcp/types.ts:267](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **since?**: `string`
 
-Defined in: [mcp/types.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L269)
+Defined in: [mcp/types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L270)
 
 **`Experimental`**
 
@@ -5218,7 +5218,7 @@ ISO date — only delegations started at-or-after `since` are returned.
 
 > `optional` **limit?**: `number`
 
-Defined in: [mcp/types.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L271)
+Defined in: [mcp/types.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L272)
 
 **`Experimental`**
 
@@ -5228,7 +5228,7 @@ Default 50. Hard cap 500.
 
 ### DelegationFeedbackSnapshot
 
-Defined in: [mcp/types.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L275)
+Defined in: [mcp/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L276)
 
 **`Experimental`**
 
@@ -5238,7 +5238,7 @@ Defined in: [mcp/types.ts:275](https://github.com/tangle-network/agent-runtime/b
 
 > **id**: `string`
 
-Defined in: [mcp/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L276)
+Defined in: [mcp/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L277)
 
 **`Experimental`**
 
@@ -5246,7 +5246,7 @@ Defined in: [mcp/types.ts:276](https://github.com/tangle-network/agent-runtime/b
 
 > **score**: `number`
 
-Defined in: [mcp/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L277)
+Defined in: [mcp/types.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L278)
 
 **`Experimental`**
 
@@ -5254,7 +5254,7 @@ Defined in: [mcp/types.ts:277](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **label?**: `"good"` \| `"bad"` \| `"neutral"` \| `"mixed"`
 
-Defined in: [mcp/types.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L278)
+Defined in: [mcp/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L279)
 
 **`Experimental`**
 
@@ -5262,7 +5262,7 @@ Defined in: [mcp/types.ts:278](https://github.com/tangle-network/agent-runtime/b
 
 > **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
 
-Defined in: [mcp/types.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L279)
+Defined in: [mcp/types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L280)
 
 **`Experimental`**
 
@@ -5270,7 +5270,7 @@ Defined in: [mcp/types.ts:279](https://github.com/tangle-network/agent-runtime/b
 
 > **notes**: `string`
 
-Defined in: [mcp/types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L280)
+Defined in: [mcp/types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L281)
 
 **`Experimental`**
 
@@ -5278,7 +5278,7 @@ Defined in: [mcp/types.ts:280](https://github.com/tangle-network/agent-runtime/b
 
 > **capturedAt**: `string`
 
-Defined in: [mcp/types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L281)
+Defined in: [mcp/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L282)
 
 **`Experimental`**
 
@@ -5286,7 +5286,7 @@ Defined in: [mcp/types.ts:281](https://github.com/tangle-network/agent-runtime/b
 
 ### DelegationHistoryEntry
 
-Defined in: [mcp/types.ts:285](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L285)
+Defined in: [mcp/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L286)
 
 **`Experimental`**
 
@@ -5296,7 +5296,7 @@ Defined in: [mcp/types.ts:285](https://github.com/tangle-network/agent-runtime/b
 
 > **taskId**: `string`
 
-Defined in: [mcp/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L286)
+Defined in: [mcp/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L287)
 
 **`Experimental`**
 
@@ -5304,7 +5304,7 @@ Defined in: [mcp/types.ts:286](https://github.com/tangle-network/agent-runtime/b
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
 
-Defined in: [mcp/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L287)
+Defined in: [mcp/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L288)
 
 **`Experimental`**
 
@@ -5312,7 +5312,7 @@ Defined in: [mcp/types.ts:287](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **namespace?**: `string`
 
-Defined in: [mcp/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L288)
+Defined in: [mcp/types.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L289)
 
 **`Experimental`**
 
@@ -5320,7 +5320,7 @@ Defined in: [mcp/types.ts:288](https://github.com/tangle-network/agent-runtime/b
 
 > **args**: [`DelegateCodeArgs`](#delegatecodeargs) \| [`DelegateUiAuditArgs`](#delegateuiauditargs) \| [`DelegateResearchArgs`](#delegateresearchargs)
 
-Defined in: [mcp/types.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L289)
+Defined in: [mcp/types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L290)
 
 **`Experimental`**
 
@@ -5328,7 +5328,7 @@ Defined in: [mcp/types.ts:289](https://github.com/tangle-network/agent-runtime/b
 
 > **status**: [`DelegationStatus`](#delegationstatus)
 
-Defined in: [mcp/types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L290)
+Defined in: [mcp/types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L291)
 
 **`Experimental`**
 
@@ -5336,7 +5336,7 @@ Defined in: [mcp/types.ts:290](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **feedback?**: [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)[]
 
-Defined in: [mcp/types.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L291)
+Defined in: [mcp/types.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L292)
 
 **`Experimental`**
 
@@ -5344,7 +5344,7 @@ Defined in: [mcp/types.ts:291](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [mcp/types.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L292)
+Defined in: [mcp/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L293)
 
 **`Experimental`**
 
@@ -5352,7 +5352,7 @@ Defined in: [mcp/types.ts:292](https://github.com/tangle-network/agent-runtime/b
 
 > **startedAt**: `string`
 
-Defined in: [mcp/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L293)
+Defined in: [mcp/types.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L294)
 
 **`Experimental`**
 
@@ -5360,7 +5360,7 @@ Defined in: [mcp/types.ts:293](https://github.com/tangle-network/agent-runtime/b
 
 > `optional` **completedAt?**: `string`
 
-Defined in: [mcp/types.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L294)
+Defined in: [mcp/types.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L295)
 
 **`Experimental`**
 
@@ -5368,7 +5368,7 @@ Defined in: [mcp/types.ts:294](https://github.com/tangle-network/agent-runtime/b
 
 > **hasTrace**: `boolean`
 
-Defined in: [mcp/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L300)
+Defined in: [mcp/types.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L301)
 
 **`Experimental`**
 
@@ -5380,7 +5380,7 @@ light by design — fetch the spans via
 
 > `optional` **traceId?**: `string`
 
-Defined in: [mcp/types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L302)
+Defined in: [mcp/types.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L303)
 
 **`Experimental`**
 
@@ -5390,7 +5390,7 @@ Inherited trace identity recorded at submit — join key into the caller's trace
 
 ### DelegationHistoryResult
 
-Defined in: [mcp/types.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L306)
+Defined in: [mcp/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L307)
 
 **`Experimental`**
 
@@ -5400,7 +5400,7 @@ Defined in: [mcp/types.ts:306](https://github.com/tangle-network/agent-runtime/b
 
 > **delegations**: [`DelegationHistoryEntry`](#delegationhistoryentry)[]
 
-Defined in: [mcp/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L307)
+Defined in: [mcp/types.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L308)
 
 **`Experimental`**
 
@@ -5408,7 +5408,7 @@ Defined in: [mcp/types.ts:307](https://github.com/tangle-network/agent-runtime/b
 
 ### WorktreeHandle
 
-Defined in: [mcp/worktree.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L21)
+Defined in: [mcp/worktree.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L22)
 
 **`Experimental`**
 
@@ -5418,7 +5418,7 @@ Defined in: [mcp/worktree.ts:21](https://github.com/tangle-network/agent-runtime
 
 > **path**: `string`
 
-Defined in: [mcp/worktree.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L23)
+Defined in: [mcp/worktree.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L24)
 
 **`Experimental`**
 
@@ -5428,7 +5428,7 @@ Absolute path to the worktree directory.
 
 > **baseSha**: `string`
 
-Defined in: [mcp/worktree.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L25)
+Defined in: [mcp/worktree.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L26)
 
 **`Experimental`**
 
@@ -5438,7 +5438,7 @@ SHA the worktree was created at.
 
 > **branch**: `string`
 
-Defined in: [mcp/worktree.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L27)
+Defined in: [mcp/worktree.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L28)
 
 **`Experimental`**
 
@@ -5448,7 +5448,7 @@ Branch name created for this worktree (typically `delegate/<runId>`).
 
 ### CreateWorktreeOptions
 
-Defined in: [mcp/worktree.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L31)
+Defined in: [mcp/worktree.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L32)
 
 **`Experimental`**
 
@@ -5458,7 +5458,7 @@ Defined in: [mcp/worktree.ts:31](https://github.com/tangle-network/agent-runtime
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/worktree.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L33)
+Defined in: [mcp/worktree.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L34)
 
 **`Experimental`**
 
@@ -5468,7 +5468,7 @@ Absolute path to the main git checkout.
 
 > **runId**: `string`
 
-Defined in: [mcp/worktree.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L35)
+Defined in: [mcp/worktree.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L36)
 
 **`Experimental`**
 
@@ -5478,7 +5478,7 @@ Unique id for the worktree path + branch. Use the delegation run id.
 
 > `optional` **variantsDir?**: `string`
 
-Defined in: [mcp/worktree.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L37)
+Defined in: [mcp/worktree.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L38)
 
 **`Experimental`**
 
@@ -5488,7 +5488,7 @@ Parent directory the worktree lives under. Defaults to `.agent-worktrees`.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [mcp/worktree.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L39)
+Defined in: [mcp/worktree.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L40)
 
 **`Experimental`**
 
@@ -5498,7 +5498,7 @@ Override the base ref (default `HEAD`).
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L41)
+Defined in: [mcp/worktree.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L42)
 
 **`Experimental`**
 
@@ -5508,7 +5508,7 @@ Test seam — inject a custom git runner.
 
 ### DiffOptions
 
-Defined in: [mcp/worktree.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L45)
+Defined in: [mcp/worktree.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L46)
 
 **`Experimental`**
 
@@ -5518,7 +5518,7 @@ Defined in: [mcp/worktree.ts:45](https://github.com/tangle-network/agent-runtime
 
 > **worktree**: [`WorktreeHandle`](#worktreehandle)
 
-Defined in: [mcp/worktree.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L47)
+Defined in: [mcp/worktree.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L48)
 
 **`Experimental`**
 
@@ -5528,7 +5528,7 @@ Worktree to diff.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [mcp/worktree.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L49)
+Defined in: [mcp/worktree.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L50)
 
 **`Experimental`**
 
@@ -5538,7 +5538,7 @@ What to compare against. Default `worktree.baseSha`.
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L51)
+Defined in: [mcp/worktree.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L52)
 
 **`Experimental`**
 
@@ -5548,7 +5548,7 @@ Test seam.
 
 ### DiffResult
 
-Defined in: [mcp/worktree.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L55)
+Defined in: [mcp/worktree.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L56)
 
 **`Experimental`**
 
@@ -5558,7 +5558,7 @@ Defined in: [mcp/worktree.ts:55](https://github.com/tangle-network/agent-runtime
 
 > **patch**: `string`
 
-Defined in: [mcp/worktree.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L56)
+Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L57)
 
 **`Experimental`**
 
@@ -5566,7 +5566,7 @@ Defined in: [mcp/worktree.ts:56](https://github.com/tangle-network/agent-runtime
 
 > **stats**: `object`
 
-Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L57)
+Defined in: [mcp/worktree.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L58)
 
 **`Experimental`**
 
@@ -5586,7 +5586,7 @@ Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime
 
 ### RemoveWorktreeOptions
 
-Defined in: [mcp/worktree.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L65)
+Defined in: [mcp/worktree.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L66)
 
 **`Experimental`**
 
@@ -5596,7 +5596,7 @@ Defined in: [mcp/worktree.ts:65](https://github.com/tangle-network/agent-runtime
 
 > **worktree**: [`WorktreeHandle`](#worktreehandle)
 
-Defined in: [mcp/worktree.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L66)
+Defined in: [mcp/worktree.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L67)
 
 **`Experimental`**
 
@@ -5604,7 +5604,7 @@ Defined in: [mcp/worktree.ts:66](https://github.com/tangle-network/agent-runtime
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/worktree.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L67)
+Defined in: [mcp/worktree.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L68)
 
 **`Experimental`**
 
@@ -5612,7 +5612,7 @@ Defined in: [mcp/worktree.ts:67](https://github.com/tangle-network/agent-runtime
 
 > `optional` **force?**: `boolean`
 
-Defined in: [mcp/worktree.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L69)
+Defined in: [mcp/worktree.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L70)
 
 **`Experimental`**
 
@@ -5622,7 +5622,7 @@ Force removal even if dirty (default true; the loser of a fanout has uncommitted
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L71)
+Defined in: [mcp/worktree.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L72)
 
 **`Experimental`**
 
@@ -5634,7 +5634,7 @@ Test seam.
 
 > **CoderDelegate** = (`args`, `ctx`) => `Promise`\<`CoderOutput`\>
 
-Defined in: [mcp/delegates.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L80)
+Defined in: [mcp/delegates.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L81)
 
 **`Experimental`**
 
@@ -5662,7 +5662,7 @@ The coder delegate closure — given the coder args + run context, drives the
 
 > **UiAuditorDelegate** = (`args`, `ctx`) => `Promise`\<[`UiAuditorDelegationOutput`](#uiauditordelegationoutput)\>
 
-Defined in: [mcp/delegates.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L91)
+Defined in: [mcp/delegates.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L92)
 
 **`Experimental`**
 
@@ -5692,7 +5692,7 @@ model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
 
 > **CoderReviewer** = (`output`, `task`, `ctx`) => `Promise`\<[`CoderReview`](#coderreview)\> \| [`CoderReview`](#coderreview)
 
-Defined in: [mcp/delegates.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L116)
+Defined in: [mcp/delegates.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L118)
 
 **`Experimental`**
 
@@ -5728,7 +5728,7 @@ judge, a `pnpm review` command, anything returning a `CoderReview`.
 
 > **DetachedWinnerSelection** = `"highest-score"` \| `"smallest-diff"` \| `"highest-readiness"` \| `"first-approved"`
 
-Defined in: [mcp/delegates.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L129)
+Defined in: [mcp/delegates.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L131)
 
 **`Experimental`**
 
@@ -5744,7 +5744,7 @@ reviewer-only strategy this path keeps that the generic selector does not expres
 
 > **DriveTurnTick** = \{ `state`: `"completed"`; `text`: `string`; `result`: `Record`\<`string`, `unknown`\>; \} \| \{ `state`: `"running"`; `startedAt?`: `Date`; `elapsedMs?`: `number`; \} \| \{ `state`: `"failed"`; `error`: `string`; \}
 
-Defined in: [mcp/detached-turn.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L53)
+Defined in: [mcp/detached-turn.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L54)
 
 **`Experimental`**
 
@@ -5758,7 +5758,7 @@ SDK contract — re-invoking with the same ids returns the same outcome.
 
 > **LocalHarness** = `"claude"` \| `"codex"` \| `"opencode"`
 
-Defined in: [mcp/local-harness.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L23)
+Defined in: [mcp/local-harness.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L24)
 
 Local coding harness available inside the sandbox.
 
@@ -5768,7 +5768,7 @@ Local coding harness available inside the sandbox.
 
 > **DelegationResumeTick** = \{ `state`: `"running"`; \} \| \{ `state`: `"completed"`; `output`: [`DelegationResultPayload`](#delegationresultpayload)\[`"output"`\]; `costUsd?`: `number`; \} \| \{ `state`: `"failed"`; `error`: [`DelegationError`](#delegationerror); \}
 
-Defined in: [mcp/task-queue.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L171)
+Defined in: [mcp/task-queue.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L172)
 
 **`Experimental`**
 
@@ -5783,7 +5783,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 > **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: `"parent"` \| `"user"` \| `string`; `reason`: `string`; \}
 
-Defined in: [mcp/tools/coordination.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L48)
+Defined in: [mcp/tools/coordination.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L49)
 
 ***
 
@@ -5791,7 +5791,7 @@ Defined in: [mcp/tools/coordination.ts:48](https://github.com/tangle-network/age
 
 > **QuestionPolicy** = `"auto"` \| `"mustDecide"` \| `"bubble"` \| `"failClosed"`
 
-Defined in: [mcp/tools/coordination.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L60)
+Defined in: [mcp/tools/coordination.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L61)
 
 ***
 
@@ -5799,7 +5799,7 @@ Defined in: [mcp/tools/coordination.ts:60](https://github.com/tangle-network/age
 
 > **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \}
 
-Defined in: [mcp/tools/delegate.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L97)
+Defined in: [mcp/tools/delegate.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L98)
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.
@@ -5810,7 +5810,7 @@ The synchronous result the `delegate` tool returns to the calling agent: the del
 
 > **DelegationProfile** = `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
-Defined in: [mcp/types.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L21)
+Defined in: [mcp/types.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L22)
 
 **`Experimental`**
 
@@ -5820,7 +5820,7 @@ Defined in: [mcp/types.ts:21](https://github.com/tangle-network/agent-runtime/bl
 
 > **DelegationStatus** = `"pending"` \| `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"`
 
-Defined in: [mcp/types.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L24)
+Defined in: [mcp/types.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L25)
 
 **`Experimental`**
 
@@ -5830,7 +5830,7 @@ Defined in: [mcp/types.ts:24](https://github.com/tangle-network/agent-runtime/bl
 
 > **ResearchSource** = `"web"` \| `"corpus"` \| `"twitter"` \| `"github"` \| `"docs"`
 
-Defined in: [mcp/types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L69)
+Defined in: [mcp/types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L70)
 
 **`Experimental`**
 
@@ -5840,7 +5840,7 @@ Defined in: [mcp/types.ts:69](https://github.com/tangle-network/agent-runtime/bl
 
 > **DelegationResultPayload** = \{ `profile`: `"coder"`; `output`: `CoderOutput`; \} \| \{ `profile`: `"researcher"`; `output`: [`ResearchOutputShape`](#researchoutputshape); \} \| \{ `profile`: `"ui-auditor"`; `output`: [`UiAuditorDelegationOutput`](#uiauditordelegationoutput); \}
 
-Defined in: [mcp/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L156)
+Defined in: [mcp/types.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/types.ts#L157)
 
 **`Experimental`**
 
@@ -5854,7 +5854,7 @@ The MCP wire carries it as JSON either way.
 
 > **GitRunner** = (`args`, `opts`) => `object`
 
-Defined in: [mcp/worktree.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L75)
+Defined in: [mcp/worktree.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L76)
 
 Pluggable git runner (sync) — replaceable in tests.
 
@@ -5892,7 +5892,7 @@ Pluggable git runner (sync) — replaceable in tests.
 
 > `const` **DELEGATION\_TRACE\_MAX\_SPANS**: `512` = `512`
 
-Defined in: [mcp/delegation-trace.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L45)
+Defined in: [mcp/delegation-trace.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L46)
 
 **`Experimental`**
 
@@ -5904,7 +5904,7 @@ Default cap on spans retained per delegation record.
 
 > `const` **DELEGATION\_TRACE\_MAX\_BYTES**: `number`
 
-Defined in: [mcp/delegation-trace.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L48)
+Defined in: [mcp/delegation-trace.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L49)
 
 **`Experimental`**
 
@@ -5916,7 +5916,7 @@ Default cap on the serialized trace payload per record, in bytes.
 
 > `const` **defaultChecks**: `Record`\<`string`, [`Check`](#check)\>
 
-Defined in: [mcp/tools/checks.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L93)
+Defined in: [mcp/tools/checks.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L94)
 
 The built-in lens directory. Domain-blind (about any agent trace); compose at test time.
 
@@ -5926,7 +5926,7 @@ The built-in lens directory. Domain-blind (about any agent trace); compose at te
 
 > `const` **DELEGATE\_FEEDBACK\_TOOL\_NAME**: `"delegate_feedback"` = `'delegate_feedback'`
 
-Defined in: [mcp/tools/delegate-feedback.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L24)
+Defined in: [mcp/tools/delegate-feedback.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L25)
 
 **`Experimental`**
 
@@ -5936,7 +5936,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:24](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_FEEDBACK\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegate-feedback.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L27)
+Defined in: [mcp/tools/delegate-feedback.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L28)
 
 **`Experimental`**
 
@@ -5946,7 +5946,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:27](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_FEEDBACK\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegate-feedback.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L51)
+Defined in: [mcp/tools/delegate-feedback.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L52)
 
 **`Experimental`**
 
@@ -6098,7 +6098,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:51](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_TOOL\_NAME**: `"delegate_ui_audit"` = `'delegate_ui_audit'`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L29)
+Defined in: [mcp/tools/delegate-ui-audit.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L30)
 
 **`Experimental`**
 
@@ -6108,7 +6108,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:29](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L32)
+Defined in: [mcp/tools/delegate-ui-audit.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L33)
 
 **`Experimental`**
 
@@ -6118,7 +6118,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:32](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_UI\_AUDIT\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L85)
+Defined in: [mcp/tools/delegate-ui-audit.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L86)
 
 **`Experimental`**
 
@@ -6374,7 +6374,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:85](https://github.com/tangle-networ
 
 > `const` **DELEGATE\_TOOL\_NAME**: `"delegate"` = `'delegate'`
 
-Defined in: [mcp/tools/delegate.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L25)
+Defined in: [mcp/tools/delegate.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L26)
 
 **`Experimental`**
 
@@ -6384,7 +6384,7 @@ Defined in: [mcp/tools/delegate.ts:25](https://github.com/tangle-network/agent-r
 
 > `const` **DELEGATE\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegate.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L28)
+Defined in: [mcp/tools/delegate.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L29)
 
 **`Experimental`**
 
@@ -6394,7 +6394,7 @@ Defined in: [mcp/tools/delegate.ts:28](https://github.com/tangle-network/agent-r
 
 > `const` **DELEGATE\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegate.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L46)
+Defined in: [mcp/tools/delegate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L47)
 
 **`Experimental`**
 
@@ -6458,7 +6458,7 @@ Defined in: [mcp/tools/delegate.ts:46](https://github.com/tangle-network/agent-r
 
 > `const` **DELEGATION\_HISTORY\_TOOL\_NAME**: `"delegation_history"` = `'delegation_history'`
 
-Defined in: [mcp/tools/delegation-history.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L17)
+Defined in: [mcp/tools/delegation-history.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L18)
 
 **`Experimental`**
 
@@ -6468,7 +6468,7 @@ Defined in: [mcp/tools/delegation-history.ts:17](https://github.com/tangle-netwo
 
 > `const` **DELEGATION\_HISTORY\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegation-history.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L20)
+Defined in: [mcp/tools/delegation-history.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L21)
 
 **`Experimental`**
 
@@ -6478,7 +6478,7 @@ Defined in: [mcp/tools/delegation-history.ts:20](https://github.com/tangle-netwo
 
 > `const` **DELEGATION\_HISTORY\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegation-history.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L41)
+Defined in: [mcp/tools/delegation-history.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L42)
 
 **`Experimental`**
 
@@ -6550,7 +6550,7 @@ Defined in: [mcp/tools/delegation-history.ts:41](https://github.com/tangle-netwo
 
 > `const` **DELEGATION\_STATUS\_TOOL\_NAME**: `"delegation_status"` = `'delegation_status'`
 
-Defined in: [mcp/tools/delegation-status.ts:16](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L16)
+Defined in: [mcp/tools/delegation-status.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L17)
 
 **`Experimental`**
 
@@ -6560,7 +6560,7 @@ Defined in: [mcp/tools/delegation-status.ts:16](https://github.com/tangle-networ
 
 > `const` **DELEGATION\_STATUS\_DESCRIPTION**: `string`
 
-Defined in: [mcp/tools/delegation-status.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L19)
+Defined in: [mcp/tools/delegation-status.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L20)
 
 **`Experimental`**
 
@@ -6570,7 +6570,7 @@ Defined in: [mcp/tools/delegation-status.ts:19](https://github.com/tangle-networ
 
 > `const` **DELEGATION\_STATUS\_INPUT\_SCHEMA**: `object`
 
-Defined in: [mcp/tools/delegation-status.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L41)
+Defined in: [mcp/tools/delegation-status.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L42)
 
 **`Experimental`**
 
@@ -6622,7 +6622,7 @@ Defined in: [mcp/tools/delegation-status.ts:41](https://github.com/tangle-networ
 
 > **detectExecutor**(`args`): `Promise`\<[`DelegationExecutor`](#delegationexecutor)\>
 
-Defined in: [mcp/bin-helpers.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L46)
+Defined in: [mcp/bin-helpers.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/bin-helpers.ts#L47)
 
 **`Experimental`**
 
@@ -6653,7 +6653,7 @@ sibling mode would lie about workspace topology.
 
 > **detachedSessionDelegate**(`options`): [`CoderDelegate`](#coderdelegate)
 
-Defined in: [mcp/delegates.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L217)
+Defined in: [mcp/delegates.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L219)
 
 **`Experimental`**
 
@@ -6687,7 +6687,7 @@ behind `MCP_ENABLE_DETACHED_RESUME`.
 
 > **coderTaskFromArgs**(`args`): [`CoderTask`](profiles.md#codertask)
 
-Defined in: [mcp/delegates.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L426)
+Defined in: [mcp/delegates.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L428)
 
 **`Experimental`**
 
@@ -6712,7 +6712,7 @@ process dispatched.
 
 > **settleDetachedCoderTurn**(`turn`, `options`): `Promise`\<`CoderOutput`\>
 
-Defined in: [mcp/delegates.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L464)
+Defined in: [mcp/delegates.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L466)
 
 **`Experimental`**
 
@@ -6748,7 +6748,7 @@ advertised on the generic `worktreeFanout` path. This helper (with `coderTaskFro
 
 > **buildDelegationTraceSpans**(`events`): [`DelegationTraceSpan`](#delegationtracespan)[]
 
-Defined in: [mcp/delegation-trace.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L73)
+Defined in: [mcp/delegation-trace.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L74)
 
 **`Experimental`**
 
@@ -6772,7 +6772,7 @@ readonly [`LoopTraceEvent`](runtime.md#looptraceevent)[]
 
 > **capDelegationTrace**(`spans`, `caps?`): [`CappedDelegationTrace`](#cappeddelegationtrace)
 
-Defined in: [mcp/delegation-trace.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L97)
+Defined in: [mcp/delegation-trace.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L98)
 
 **`Experimental`**
 
@@ -6803,7 +6803,7 @@ readonly [`DelegationTraceSpan`](#delegationtracespan)[]
 
 > **createDelegationTraceCollector**(`onSpans`): [`DelegationTraceCollector`](#delegationtracecollector)
 
-Defined in: [mcp/delegation-trace.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L130)
+Defined in: [mcp/delegation-trace.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L131)
 
 **`Experimental`**
 
@@ -6823,7 +6823,7 @@ Defined in: [mcp/delegation-trace.ts:130](https://github.com/tangle-network/agen
 
 > **composeLoopTraceEmitters**(...`emitters`): [`LoopTraceEmitter`](runtime.md#looptraceemitter) \| `undefined`
 
-Defined in: [mcp/delegation-trace.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L184)
+Defined in: [mcp/delegation-trace.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegation-trace.ts#L185)
 
 **`Experimental`**
 
@@ -6848,7 +6848,7 @@ so callers keep the kernel's "no emitter, no events" fast path.
 
 > **formatDetachedSessionRef**(`parts`): `string`
 
-Defined in: [mcp/detached-turn.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L95)
+Defined in: [mcp/detached-turn.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L96)
 
 **`Experimental`**
 
@@ -6872,7 +6872,7 @@ bound. Ids must not contain the `;`/`=` delimiters.
 
 > **parseDetachedSessionRef**(`raw`): [`DetachedSessionRefParts`](#detachedsessionrefparts)
 
-Defined in: [mcp/detached-turn.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L103)
+Defined in: [mcp/detached-turn.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L104)
 
 **`Experimental`**
 
@@ -6894,7 +6894,7 @@ Inverse of [formatDetachedSessionRef](#formatdetachedsessionref); throws `Valida
 
 > **detachedTurnEvents**(`sessionId`, `turn`): `SandboxEvent`[]
 
-Defined in: [mcp/detached-turn.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L150)
+Defined in: [mcp/detached-turn.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L151)
 
 **`Experimental`**
 
@@ -6923,7 +6923,7 @@ for adapters that scan assistant text for the fenced result block.
 
 > **runDetachedTurn**(`options`): `Promise`\<[`DetachedTurn`](#detachedturn)\>
 
-Defined in: [mcp/detached-turn.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L211)
+Defined in: [mcp/detached-turn.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L212)
 
 **`Experimental`**
 
@@ -6950,7 +6950,7 @@ teardown, which is exactly the case the resume driver re-attaches to.
 
 > **createDetachedTurnResumeDriver**(`options`): [`DelegationResumeDriver`](#delegationresumedriver)
 
-Defined in: [mcp/detached-turn.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L415)
+Defined in: [mcp/detached-turn.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/detached-turn.ts#L416)
 
 **`Experimental`**
 
@@ -6987,7 +6987,7 @@ fleet machine, and destroying a fleet machine would be unrecoverable.
 
 > **createSiblingSandboxExecutor**(`options`): [`DelegationExecutor`](#delegationexecutor)
 
-Defined in: [mcp/executor.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L54)
+Defined in: [mcp/executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L55)
 
 **`Experimental`**
 
@@ -7013,7 +7013,7 @@ only added behavior is a `describePlacement` tag the kernel reads.
 
 > **createFleetWorkspaceExecutor**(`options`): [`DelegationExecutor`](#delegationexecutor)
 
-Defined in: [mcp/executor.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L116)
+Defined in: [mcp/executor.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/executor.ts#L117)
 
 **`Experimental`**
 
@@ -7038,7 +7038,7 @@ cross-sandbox copy step.
 
 > **eventToSnapshot**(`event`): [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
 
-Defined in: [mcp/feedback-store.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L66)
+Defined in: [mcp/feedback-store.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/feedback-store.ts#L67)
 
 **`Experimental`**
 
@@ -7061,7 +7061,7 @@ Project a `FeedbackEvent` down to the snapshot shape carried on
 
 > **createInProcessExecutor**(`options`): [`DelegationExecutor`](#delegationexecutor)
 
-Defined in: [mcp/in-process-executor.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L87)
+Defined in: [mcp/in-process-executor.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/in-process-executor.ts#L88)
 
 **`Experimental`**
 
@@ -7087,7 +7087,7 @@ raw `WorktreeHarnessResult` (the content-addressed patch artifact). The authored
 
 > **createKbGate**(`options?`): (`candidate`) => `Promise`\<[`KbGateResult`](#kbgateresult)\>
 
-Defined in: [mcp/kb-gate.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L137)
+Defined in: [mcp/kb-gate.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/kb-gate.ts#L139)
 
 **`Experimental`**
 
@@ -7111,7 +7111,7 @@ then any consumer judges, returning on the first veto.
 
 > **runLocalHarness**(`options`): `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
 
-Defined in: [mcp/local-harness.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L179)
+Defined in: [mcp/local-harness.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/local-harness.ts#L180)
 
 **`Experimental`**
 
@@ -7147,9 +7147,11 @@ Does NOT throw when:
 
 > **createMcpServer**(`options?`): [`McpServer`](#mcpserver)
 
-Defined in: [mcp/server.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L150)
+Defined in: [mcp/server.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L155)
 
 **`Experimental`**
+
+Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_feedback`, `delegation_status`, `delegation_history`, optional `delegate_ui_audit`) to sandbox coding-harness agents.
 
 #### Parameters
 
@@ -7167,7 +7169,7 @@ Defined in: [mcp/server.ts:150](https://github.com/tangle-network/agent-runtime/
 
 > **createInProcessTransport**(): `object`
 
-Defined in: [mcp/server.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L334)
+Defined in: [mcp/server.ts:339](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/server.ts#L339)
 
 **`Experimental`**
 
@@ -7219,7 +7221,7 @@ client writes to it) and the server-side stream (the test reads from it).
 
 > **hashIdempotencyInput**(`value`): `string`
 
-Defined in: [mcp/task-queue.ts:805](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L805)
+Defined in: [mcp/task-queue.ts:806](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L806)
 
 **`Experimental`**
 
@@ -7242,7 +7244,7 @@ collisions only affect dedupe, never correctness.
 
 > **liftFindings**(`kind`, `rows`, `producedAt`): `AnalystFinding`[]
 
-Defined in: [mcp/tools/checks.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L143)
+Defined in: [mcp/tools/checks.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L144)
 
 Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps `finding_id`/
  `produced_at`), then enforce the trace-derived firewall (selector ≠ judge). Pure — no LLM.
@@ -7271,7 +7273,7 @@ Lift validated raw rows into `AnalystFinding`s (agent-eval `makeFinding` stamps 
 
 > **renderTrace**(`trace`): `string`
 
-Defined in: [mcp/tools/checks.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L183)
+Defined in: [mcp/tools/checks.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L184)
 
 Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over
  the trace shape: a `{ messages }` conversation, a bare message array, else stringified.
@@ -7292,7 +7294,7 @@ Render a worker's trace (tool calls + results) into the text an analyst lens rea
 
 > **runCheck**(`kind`, `trace`, `opts`, `producedAt`): `Promise`\<`AnalystFinding`[]\>
 
-Defined in: [mcp/tools/checks.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L219)
+Defined in: [mcp/tools/checks.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L220)
 
 Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval
  finding schema; the model's JSON array is parsed (`parseRawFinding`), lifted, and firewalled.
@@ -7325,7 +7327,7 @@ Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens
 
 > **makeCheckRunner**(`kinds`, `opts`): (`kindId`, `trace`, `producedAt`) => `Promise`\<`AnalystFinding`[] \| \{ `error`: `string`; \}\>
 
-Defined in: [mcp/tools/checks.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L271)
+Defined in: [mcp/tools/checks.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/checks.ts#L272)
 
 Build a `run_analyst` runner over a kind directory.
 Returns findings, or a typed error for an unknown kind. `producedAt` is
@@ -7351,7 +7353,7 @@ passed in because replay-safe paths must not read `Date.now`.
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
 
-Defined in: [mcp/tools/coordination.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L169)
+Defined in: [mcp/tools/coordination.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L170)
 
 Build the driver's MCP tools over a live scope.
 
@@ -7371,7 +7373,7 @@ Build the driver's MCP tools over a live scope.
 
 > **validateDelegateFeedbackArgs**(`raw`): [`DelegateFeedbackArgs`](#delegatefeedbackargs)
 
-Defined in: [mcp/tools/delegate-feedback.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L82)
+Defined in: [mcp/tools/delegate-feedback.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L83)
 
 **`Experimental`**
 
@@ -7391,7 +7393,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:82](https://github.com/tangle-networ
 
 > **createDelegateFeedbackHandler**(`options`): (`raw`) => `Promise`\<[`DelegateFeedbackResult`](#delegatefeedbackresult)\>
 
-Defined in: [mcp/tools/delegate-feedback.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L159)
+Defined in: [mcp/tools/delegate-feedback.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L160)
 
 **`Experimental`**
 
@@ -7411,7 +7413,7 @@ Defined in: [mcp/tools/delegate-feedback.ts:159](https://github.com/tangle-netwo
 
 > **validateDelegateUiAuditArgs**(`raw`): [`DelegateUiAuditArgs`](#delegateuiauditargs)
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L113)
+Defined in: [mcp/tools/delegate-ui-audit.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L114)
 
 **`Experimental`**
 
@@ -7431,7 +7433,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:113](https://github.com/tangle-netwo
 
 > **createDelegateUiAuditHandler**(`options`): (`raw`) => `Promise`\<[`DelegateUiAuditResult`](#delegateuiauditresult)\>
 
-Defined in: [mcp/tools/delegate-ui-audit.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L299)
+Defined in: [mcp/tools/delegate-ui-audit.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L300)
 
 **`Experimental`**
 
@@ -7451,7 +7453,7 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:299](https://github.com/tangle-netwo
 
 > **validateDelegateArgs**(`raw`): [`DelegateArgs`](#delegateargs)
 
-Defined in: [mcp/tools/delegate.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L74)
+Defined in: [mcp/tools/delegate.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L75)
 
 **`Experimental`**
 
@@ -7471,7 +7473,7 @@ Defined in: [mcp/tools/delegate.ts:74](https://github.com/tangle-network/agent-r
 
 > **createDelegateHandler**(`options`): (`raw`) => `Promise`\<[`DelegateResult`](#delegateresult)\>
 
-Defined in: [mcp/tools/delegate.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L135)
+Defined in: [mcp/tools/delegate.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L136)
 
 Build the `delegate` tool handler. Closes over the injected supervisor substrate (`router` /
 `backend` / `deliverable`); each call routes the agent's intent to `delegate()` and returns the
@@ -7493,7 +7495,7 @@ delivered output with its conserved cost.
 
 > **validateDelegationHistoryArgs**(`raw`): [`DelegationHistoryArgs`](#delegationhistoryargs)
 
-Defined in: [mcp/tools/delegation-history.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L53)
+Defined in: [mcp/tools/delegation-history.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L54)
 
 **`Experimental`**
 
@@ -7513,7 +7515,7 @@ Defined in: [mcp/tools/delegation-history.ts:53](https://github.com/tangle-netwo
 
 > **createDelegationHistoryHandler**(`options`): (`raw`) => `Promise`\<[`DelegationHistoryResult`](#delegationhistoryresult)\>
 
-Defined in: [mcp/tools/delegation-history.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L94)
+Defined in: [mcp/tools/delegation-history.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L95)
 
 **`Experimental`**
 
@@ -7533,7 +7535,7 @@ Defined in: [mcp/tools/delegation-history.ts:94](https://github.com/tangle-netwo
 
 > **validateDelegationStatusArgs**(`raw`): [`DelegationStatusArgs`](#delegationstatusargs)
 
-Defined in: [mcp/tools/delegation-status.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L56)
+Defined in: [mcp/tools/delegation-status.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L57)
 
 **`Experimental`**
 
@@ -7553,7 +7555,7 @@ Defined in: [mcp/tools/delegation-status.ts:56](https://github.com/tangle-networ
 
 > **createDelegationStatusHandler**(`options`): (`raw`) => `Promise`\<[`DelegationStatusResult`](#delegationstatusresult)\>
 
-Defined in: [mcp/tools/delegation-status.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L81)
+Defined in: [mcp/tools/delegation-status.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L82)
 
 **`Experimental`**
 
@@ -7573,7 +7575,7 @@ Defined in: [mcp/tools/delegation-status.ts:81](https://github.com/tangle-networ
 
 > **readTraceContextFromEnv**(): [`TraceContext`](#tracecontext-2)
 
-Defined in: [mcp/trace-propagation.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L35)
+Defined in: [mcp/trace-propagation.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L36)
 
 Read trace context from the process environment.
 Returns a context with inherited ids or a freshly generated root.
@@ -7588,7 +7590,7 @@ Returns a context with inherited ids or a freshly generated root.
 
 > **createPropagatingTraceEmitter**(`ctx`): `object`
 
-Defined in: [mcp/trace-propagation.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L48)
+Defined in: [mcp/trace-propagation.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L49)
 
 Create a LoopTraceEmitter that:
   1. Parents all spans under the inherited PARENT_SPAN_ID.
@@ -7624,7 +7626,7 @@ Returns both the emitter and the optional exporter handle for shutdown.
 
 > **traceContextToEnv**(`ctx`): `Record`\<`string`, `string`\>
 
-Defined in: [mcp/trace-propagation.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L85)
+Defined in: [mcp/trace-propagation.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/trace-propagation.ts#L86)
 
 Build env vars to pass to a child MCP subprocess so it inherits the
 current trace context.
@@ -7645,7 +7647,7 @@ current trace context.
 
 > **createWorktree**(`options`): `Promise`\<[`WorktreeHandle`](#worktreehandle)\>
 
-Defined in: [mcp/worktree.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L113)
+Defined in: [mcp/worktree.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L114)
 
 **`Experimental`**
 
@@ -7665,7 +7667,7 @@ Defined in: [mcp/worktree.ts:113](https://github.com/tangle-network/agent-runtim
 
 > **captureWorktreeDiff**(`options`): `Promise`\<[`DiffResult`](#diffresult)\>
 
-Defined in: [mcp/worktree.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L133)
+Defined in: [mcp/worktree.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L134)
 
 **`Experimental`**
 
@@ -7685,7 +7687,7 @@ Defined in: [mcp/worktree.ts:133](https://github.com/tangle-network/agent-runtim
 
 > **removeWorktree**(`options`): `Promise`\<`void`\>
 
-Defined in: [mcp/worktree.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L173)
+Defined in: [mcp/worktree.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L174)
 
 **`Experimental`**
 

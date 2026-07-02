@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * OpenAI Chat Completions `tools[]` projection of the queue-bound agent-runtime
  * MCP delegation tools.
@@ -18,6 +17,8 @@
  * Tool name + description + JSON-schema are pulled from the canonical
  * `DELEGATE_*` constants exported by `./tools/*` so the projection cannot
  * drift from the server's own validators.
+ *
+ * @experimental
  */
 
 import type { OpenAIChatTool } from '../types'
@@ -53,11 +54,12 @@ function buildTool(
 }
 
 /**
- * @experimental
  *
  * Returns the queue-bound delegation tools projected into OpenAI Chat
  * Completions `tools[]` shape. The order is stable: `delegate_feedback`,
  * `delegation_status`, `delegation_history`.
+ *
+ * @experimental
  */
 export function mcpToolsForRuntimeMcp(): OpenAIChatTool[] {
   return [
@@ -80,12 +82,13 @@ export function mcpToolsForRuntimeMcp(): OpenAIChatTool[] {
 }
 
 /**
- * @experimental
  *
  * Subset filter — return only the projected tools whose `function.name`
  * appears in `names`. Useful for curated mounts (e.g. only the queue-bound
  * delegation tools, omitting `delegate_feedback`). Unknown names are
  * silently ignored; pass an empty array to get an empty result.
+ *
+ * @experimental
  */
 export function mcpToolsForRuntimeMcpSubset(names: ReadonlyArray<string>): OpenAIChatTool[] {
   const allowed = new Set(names)

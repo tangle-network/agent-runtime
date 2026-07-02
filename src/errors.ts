@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Error taxonomy for `@tangle-network/agent-runtime`.
  *
@@ -18,6 +17,8 @@
  * backend, backend transport errors) get fresh subclasses that still carry an
  * `AgentEvalErrorCode` so cross-package handlers can pattern-match without
  * importing the runtime.
+ *
+ * @stable
  */
 
 import { AgentEvalError } from '@tangle-network/agent-eval'
@@ -32,12 +33,13 @@ export {
 } from '@tangle-network/agent-eval'
 
 /**
- * @stable
  *
  * Caller asked to resume a session against a backend whose `kind` does not
  * match the session's recorded backend. This is a routing bug — the same
  * session id was reused across two different backend implementations — and
  * is not retryable without picking the right backend.
+ *
+ * @stable
  */
 export class SessionMismatchError extends AgentEvalError {
   readonly sessionBackend: string
@@ -55,12 +57,13 @@ export class SessionMismatchError extends AgentEvalError {
 }
 
 /**
- * @stable
  *
  * A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success
  * status. Distinct from `JudgeError` (which is structural / unrecoverable)
  * because backend failures are sometimes retryable and consumers may want to
  * branch on the upstream status code.
+ *
+ * @stable
  */
 export class BackendTransportError extends AgentEvalError {
   readonly backend: string
@@ -86,10 +89,11 @@ export class BackendTransportError extends AgentEvalError {
 }
 
 /**
- * @stable
  *
  * A runtime-run lifecycle method was called in an order the state machine does
  * not allow: `persist()` before `complete()`, `complete()` twice, etc.
+ *
+ * @stable
  */
 export class RuntimeRunStateError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -98,7 +102,6 @@ export class RuntimeRunStateError extends AgentEvalError {
 }
 
 /**
- * @stable
  *
  * The dynamic-loop planner returned an unusable topology move — the LLM emitted
  * no parseable envelope, an unknown `kind`, or a structurally-invalid move
@@ -107,6 +110,8 @@ export class RuntimeRunStateError extends AgentEvalError {
  * cannot drive the kernel. Carries `validation` so cross-package handlers can
  * pattern-match without importing the runtime. Fail loud — never substitute a
  * default move, or the loop silently runs a topology nobody chose.
+ *
+ * @stable
  */
 export class PlannerError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {

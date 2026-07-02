@@ -1,11 +1,12 @@
 /**
- * @experimental
  *
  * The SETTLE-time analyst: when a worker finishes, collect its tool spans from a `TraceSource` and run
  * agent-eval's PUBLISHED batch analyzers over them — `buildTrajectory` (structured run summary),
  * `stuckLoopView` (full-run repeated-call view, complementing the online consecutive detector), and
  * `toolWasteView`. Substrate-agnostic: the spans come from any source (an owned loop's buffer OR a
  * sandbox box session). No analysis reimplemented — this is the thin bridge into agent-eval's analyzers.
+ *
+ * @experimental
  */
 
 import { buildTrajectory, InMemoryTraceStore } from '@tangle-network/agent-eval'

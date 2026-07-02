@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Resolve the `delegate` supervisor substrate (router brain + worker backend) from env, so the
  * `agent-runtime-mcp` bin can serve the ONE generic `delegate` verb by env, over the SAME stdio
@@ -12,6 +11,8 @@
  * repo's `resolveRouterBaseUrl` convention
  * (`TANGLE_ROUTER_URL` / `TANGLE_ROUTER_BASE_URL`), normalised to an OpenAI-compatible `/v1` endpoint,
  * keyed by `TANGLE_API_KEY`.
+ *
+ * @experimental
  */
 
 import type { BackendType } from '@tangle-network/sandbox'

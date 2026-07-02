@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Durable conversation transcript — survives a driver process crash mid-run.
  * The runner journals every committed turn before yielding `turn_end`, so a
@@ -12,6 +11,8 @@
  * is ~30 lines. The in-memory adapter is the default for tests and scratch.
  * The file adapter (JSONL on disk) is the default-durable choice when no
  * upstream store is wired.
+ *
+ * @stable
  */
 
 import type { ConversationTurn, HaltReason } from './types'

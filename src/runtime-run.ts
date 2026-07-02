@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Production-run lifecycle: record what the agent did on behalf of a customer,
  * what it cost, and how it ended.
@@ -22,6 +21,8 @@
  *     KV store. The adapter receives a sanitized row shape; no telemetry
  *     payload bytes flow through it unless the consumer opts in via
  *     `RuntimeRunOptions.telemetryEvents`.
+ *
+ * @stable
  */
 
 import { RuntimeRunStateError, ValidationError } from './errors'
@@ -140,10 +141,11 @@ export interface RuntimeRunHandle {
 }
 
 /**
- * @stable
  *
  * Construct a runtime-run handle. The returned handle is mutable across its
  * lifetime; consumers should not share it across requests.
+ *
+ * @stable
  */
 export function startRuntimeRun(options: RuntimeRunOptions): RuntimeRunHandle {
   if (!options.workspaceId) {

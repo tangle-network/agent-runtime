@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * Prompt formatter for the auditor profile. `formatAuditorPrompt` produces
  * the user message handed to the iteration — describes the captures to be
@@ -14,6 +13,8 @@
  *
  * The formatter is pure and deterministic — re-run on the same task
  * produces the same prompt. Tests and trace replays rely on this.
+ *
+ * @experimental
  */
 
 import type { UiAuditTask } from './task'

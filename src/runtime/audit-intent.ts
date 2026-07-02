@@ -105,6 +105,7 @@ const auditSchema = {
   },
 }
 
+/** The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. */
 export async function auditIntent(
   input: AuditIntentInput,
   opts: AuditIntentOptions,

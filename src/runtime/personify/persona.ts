@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The personify layer impl — `definePersona` (the thin builder) + `runPersonified` (composes
  * the persona + chosen shape onto the keystone `Supervisor`), plus `createShapeContext`, the
@@ -16,6 +15,8 @@
  * that supplies raw `seams` is therefore wrapped here into a registry whose resolved factories
  * receive a ctx with the persona seams merged in — so a persona never has to pre-close its
  * factories by hand. A persona may instead supply a fully-built `registry` and skip the wrap.
+ *
+ * @experimental
  */
 
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'

@@ -1,8 +1,9 @@
 /**
- * @experimental
  *
  * `delegation_status` MCP tool — synchronous poll. Returns the current
  * state machine + optional progress + final result (when terminal).
+ *
+ * @experimental
  */
 
 import { NotFoundError } from '../../errors'

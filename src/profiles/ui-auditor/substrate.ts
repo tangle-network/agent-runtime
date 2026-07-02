@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * UI audit finding shapes — the unit of evidence a contributor can act on.
  *
@@ -10,6 +9,8 @@
  *
  * The shapes are deliberately constraining — the validator + writer
  * hard-fail on missing screenshot evidence, missing lens, missing title.
+ *
+ * @experimental
  */
 
 /**

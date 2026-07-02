@@ -1,5 +1,4 @@
 /**
- * @stable
  *
  * Server-Sent Events serialization for runtime telemetry streams.
  *
@@ -7,6 +6,8 @@
  * a space (browsers terminate fields on newline), and multi-line `data`
  * payloads are split into one `data:` line per source line so JSON.stringify
  * output transports cleanly.
+ *
+ * @stable
  */
 
 import type { KnowledgeReadinessReport } from '@tangle-network/agent-eval'

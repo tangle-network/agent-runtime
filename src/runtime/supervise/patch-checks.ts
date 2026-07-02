@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The mechanical patch gate — the SINGLE source of the no-op / always-on secret-path floor /
  * forbidden-path / diff-size / test / typecheck checks over a captured diff. No I/O: it scores a
@@ -8,6 +7,8 @@
  *
  * The always-on safety floors (no-op rejection + secret-path) are also exported standalone
  * (`isNonEmptyPatch` / `touchesSecretPath`) for reuse outside the full scorer.
+ *
+ * @experimental
  */
 
 import type { DefaultVerdict } from '../types'
@@ -82,7 +83,6 @@ export function touchesSecretPath(patch: string): string[] {
 }
 
 /**
- * @experimental
  *
  * The pure mechanical gate — the SINGLE source of the no-op / always-on secret-path floor /
  * diff-size / forbidden-path / test / typecheck checks. No I/O: it scores a patch + its
@@ -92,6 +92,8 @@ export function touchesSecretPath(patch: string): string[] {
  * `forbiddenPaths`), (3) forbidden-path, (4) diff-size cap, (5) tests, (6) typecheck.
  * Aggregate score: `0.5*tests + 0.3*typecheck + 0.2*(1 - diffLines/maxDiff)`; `valid` is the
  * conjunction of all six.
+ *
+ * @experimental
  */
 export function runCoderChecks(
   input: CoderCheckInput,

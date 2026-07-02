@@ -10,7 +10,7 @@
 
 ### CircuitOpenError
 
-Defined in: [conversation/call-policy.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L41)
+Defined in: [conversation/call-policy.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L42)
 
 #### Extends
 
@@ -22,7 +22,7 @@ Defined in: [conversation/call-policy.ts:41](https://github.com/tangle-network/a
 
 > **new CircuitOpenError**(`participant`, `retryAfterMs`): [`CircuitOpenError`](#circuitopenerror)
 
-Defined in: [conversation/call-policy.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L42)
+Defined in: [conversation/call-policy.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L43)
 
 ###### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [conversation/call-policy.ts:42](https://github.com/tangle-network/a
 
 ### DeadlineExceededError
 
-Defined in: [conversation/call-policy.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L50)
+Defined in: [conversation/call-policy.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L51)
 
 #### Extends
 
@@ -58,7 +58,7 @@ Defined in: [conversation/call-policy.ts:50](https://github.com/tangle-network/a
 
 > **new DeadlineExceededError**(`deadlineMs`): [`DeadlineExceededError`](#deadlineexceedederror)
 
-Defined in: [conversation/call-policy.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L51)
+Defined in: [conversation/call-policy.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L52)
 
 ###### Parameters
 
@@ -78,7 +78,7 @@ Defined in: [conversation/call-policy.ts:51](https://github.com/tangle-network/a
 
 ### CircuitBreakerState
 
-Defined in: [conversation/call-policy.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L83)
+Defined in: [conversation/call-policy.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L84)
 
 Live circuit-breaker state — one instance per (participant, conversation run).
 
@@ -88,7 +88,7 @@ Live circuit-breaker state — one instance per (participant, conversation run).
 
 > **new CircuitBreakerState**(`config`): [`CircuitBreakerState`](#circuitbreakerstate)
 
-Defined in: [conversation/call-policy.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L87)
+Defined in: [conversation/call-policy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L88)
 
 ###### Parameters
 
@@ -106,7 +106,7 @@ Defined in: [conversation/call-policy.ts:87](https://github.com/tangle-network/a
 
 > **preflight**(`participant`, `now?`): `void`
 
-Defined in: [conversation/call-policy.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L93)
+Defined in: [conversation/call-policy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L94)
 
 Check whether the next call is allowed. Throws `CircuitOpenError` when
 the breaker is open and the cooldown hasn't elapsed.
@@ -129,7 +129,7 @@ the breaker is open and the cooldown hasn't elapsed.
 
 > **recordSuccess**(): `void`
 
-Defined in: [conversation/call-policy.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L103)
+Defined in: [conversation/call-policy.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L104)
 
 ###### Returns
 
@@ -139,7 +139,7 @@ Defined in: [conversation/call-policy.ts:103](https://github.com/tangle-network/
 
 > **recordFailure**(`now?`): `void`
 
-Defined in: [conversation/call-policy.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L108)
+Defined in: [conversation/call-policy.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L109)
 
 ###### Parameters
 
@@ -155,7 +155,7 @@ Defined in: [conversation/call-policy.ts:108](https://github.com/tangle-network/
 
 ### SqlConversationJournal
 
-Defined in: [conversation/journal-sql.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L119)
+Defined in: [conversation/journal-sql.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L120)
 
 SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds
 start/halt timestamps + halt reason) and turns (one row per committed turn,
@@ -172,7 +172,7 @@ payload is the ConversationTurn JSON). Replays the turns table on
 
 > **new SqlConversationJournal**(`db`, `table?`): [`SqlConversationJournal`](#sqlconversationjournal)
 
-Defined in: [conversation/journal-sql.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L126)
+Defined in: [conversation/journal-sql.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L127)
 
 ###### Parameters
 
@@ -200,7 +200,7 @@ Table-name prefix; the journal creates `${table}_runs` and
 
 > **migrate**(): `Promise`\<`void`\>
 
-Defined in: [conversation/journal-sql.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L135)
+Defined in: [conversation/journal-sql.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L136)
 
 Create the journal's tables if absent. Idempotent. Call once at deploy
 (or at app boot) — running on every request is harmless but adds latency.
@@ -213,7 +213,7 @@ Create the journal's tables if absent. Idempotent. Call once at deploy
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal-sql.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L141)
+Defined in: [conversation/journal-sql.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L142)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -238,7 +238,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal-sql.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L167)
+Defined in: [conversation/journal-sql.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L168)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -266,7 +266,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal-sql.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L186)
+Defined in: [conversation/journal-sql.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L187)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -294,7 +294,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal-sql.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L207)
+Defined in: [conversation/journal-sql.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L208)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -325,7 +325,7 @@ is observed-final; subsequent `loadRun` returns the same halt.
 
 ### InMemoryConversationJournal
 
-Defined in: [conversation/journal.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L58)
+Defined in: [conversation/journal.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L59)
 
 #### Implements
 
@@ -347,7 +347,7 @@ Defined in: [conversation/journal.ts:58](https://github.com/tangle-network/agent
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L61)
+Defined in: [conversation/journal.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L62)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -372,7 +372,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L74)
+Defined in: [conversation/journal.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L75)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -400,7 +400,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L87)
+Defined in: [conversation/journal.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L88)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -428,7 +428,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L102)
+Defined in: [conversation/journal.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L103)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -459,7 +459,7 @@ is observed-final; subsequent `loadRun` returns the same halt.
 
 ### FileConversationJournal
 
-Defined in: [conversation/journal.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L122)
+Defined in: [conversation/journal.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L123)
 
 JSONL on disk. One line per record; first line is the `begin`, subsequent
 lines are `turn` records, terminal line is `halt`. Replays the whole file
@@ -480,7 +480,7 @@ process crash between writes never loses an acknowledged turn.
 
 > **new FileConversationJournal**(`path`): [`FileConversationJournal`](#fileconversationjournal)
 
-Defined in: [conversation/journal.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L123)
+Defined in: [conversation/journal.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L124)
 
 ###### Parameters
 
@@ -498,7 +498,7 @@ Defined in: [conversation/journal.ts:123](https://github.com/tangle-network/agen
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L125)
+Defined in: [conversation/journal.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L126)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -523,7 +523,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L161)
+Defined in: [conversation/journal.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L162)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -551,7 +551,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L174)
+Defined in: [conversation/journal.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L175)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -579,7 +579,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L178)
+Defined in: [conversation/journal.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L179)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -610,14 +610,14 @@ is observed-final; subsequent `loadRun` returns the same halt.
 
 ### BackendTransportError
 
-Defined in: [errors.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L65)
-
-#### Stable
+Defined in: [errors.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L68)
 
 A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success
 status. Distinct from `JudgeError` (which is structural / unrecoverable)
 because backend failures are sometimes retryable and consumers may want to
 branch on the upstream status code.
+
+#### Stable
 
 #### Extends
 
@@ -629,7 +629,7 @@ branch on the upstream status code.
 
 > **new BackendTransportError**(`backend`, `message`, `options?`): [`BackendTransportError`](#backendtransporterror)
 
-Defined in: [errors.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L76)
+Defined in: [errors.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L79)
 
 ###### Parameters
 
@@ -669,19 +669,19 @@ Defined in: [errors.ts:76](https://github.com/tangle-network/agent-runtime/blob/
 
 > `readonly` **backend**: `string`
 
-Defined in: [errors.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L66)
+Defined in: [errors.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L69)
 
 ##### status?
 
 > `readonly` `optional` **status?**: `number`
 
-Defined in: [errors.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L67)
+Defined in: [errors.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L70)
 
 ##### body?
 
 > `readonly` `optional` **body?**: `string`
 
-Defined in: [errors.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L74)
+Defined in: [errors.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L77)
 
 Truncated upstream response body (≤2 KiB) when available. Diagnostic
 only — surfaces in `backend_error.error.body` and `final.error.body`
@@ -692,12 +692,12 @@ cracking the log line open.
 
 ### RuntimeRunStateError
 
-Defined in: [errors.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L94)
-
-#### Stable
+Defined in: [errors.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L98)
 
 A runtime-run lifecycle method was called in an order the state machine does
 not allow: `persist()` before `complete()`, `complete()` twice, etc.
+
+#### Stable
 
 #### Extends
 
@@ -709,7 +709,7 @@ not allow: `persist()` before `complete()`, `complete()` twice, etc.
 
 > **new RuntimeRunStateError**(`message`, `options?`): [`RuntimeRunStateError`](#runtimerunstateerror)
 
-Defined in: [errors.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L95)
+Defined in: [errors.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L99)
 
 ###### Parameters
 
@@ -735,9 +735,7 @@ Defined in: [errors.ts:95](https://github.com/tangle-network/agent-runtime/blob/
 
 ### PlannerError
 
-Defined in: [errors.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L111)
-
-#### Stable
+Defined in: [errors.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L116)
 
 The dynamic-loop planner returned an unusable topology move — the LLM emitted
 no parseable envelope, an unknown `kind`, or a structurally-invalid move
@@ -746,6 +744,8 @@ agent-authored topology, not a config mistake: the planner ran but its output
 cannot drive the kernel. Carries `validation` so cross-package handlers can
 pattern-match without importing the runtime. Fail loud — never substitute a
 default move, or the loop silently runs a topology nobody chose.
+
+#### Stable
 
 #### Extends
 
@@ -757,7 +757,7 @@ default move, or the loop silently runs a topology nobody chose.
 
 > **new PlannerError**(`message`, `options?`): [`PlannerError`](#plannererror)
 
-Defined in: [errors.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L112)
+Defined in: [errors.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/errors.ts#L117)
 
 ###### Parameters
 
@@ -783,7 +783,7 @@ Defined in: [errors.ts:112](https://github.com/tangle-network/agent-runtime/blob
 
 ### InMemoryRuntimeSessionStore
 
-Defined in: [sessions.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L40)
+Defined in: [sessions.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L41)
 
 #### Stable
 
@@ -807,7 +807,7 @@ Defined in: [sessions.ts:40](https://github.com/tangle-network/agent-runtime/blo
 
 > **get**(`sessionId`): `RuntimeSession` \| `undefined`
 
-Defined in: [sessions.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L44)
+Defined in: [sessions.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L45)
 
 ###### Parameters
 
@@ -827,7 +827,7 @@ Defined in: [sessions.ts:44](https://github.com/tangle-network/agent-runtime/blo
 
 > **put**(`session`): `void`
 
-Defined in: [sessions.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L48)
+Defined in: [sessions.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L49)
 
 ###### Parameters
 
@@ -847,7 +847,7 @@ Defined in: [sessions.ts:48](https://github.com/tangle-network/agent-runtime/blo
 
 > **appendEvent**(`sessionId`, `event`): `void`
 
-Defined in: [sessions.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L52)
+Defined in: [sessions.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L53)
 
 ###### Parameters
 
@@ -871,7 +871,7 @@ Defined in: [sessions.ts:52](https://github.com/tangle-network/agent-runtime/blo
 
 > **listEvents**(`sessionId`): [`RuntimeStreamEvent`](#runtimestreamevent)[]
 
-Defined in: [sessions.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L58)
+Defined in: [sessions.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L59)
 
 ###### Parameters
 
@@ -891,7 +891,7 @@ Defined in: [sessions.ts:58](https://github.com/tangle-network/agent-runtime/blo
 
 ### CircuitBreakerConfig
 
-Defined in: [conversation/call-policy.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L23)
+Defined in: [conversation/call-policy.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L24)
 
 Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`.
 
@@ -901,19 +901,19 @@ Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed o
 
 > **failuresToOpen**: `number`
 
-Defined in: [conversation/call-policy.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L24)
+Defined in: [conversation/call-policy.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L25)
 
 ##### cooldownMs
 
 > **cooldownMs**: `number`
 
-Defined in: [conversation/call-policy.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L25)
+Defined in: [conversation/call-policy.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L26)
 
 ***
 
 ### BackendCallPolicy
 
-Defined in: [conversation/call-policy.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L28)
+Defined in: [conversation/call-policy.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L29)
 
 #### Properties
 
@@ -921,7 +921,7 @@ Defined in: [conversation/call-policy.ts:28](https://github.com/tangle-network/a
 
 > `optional` **perAttemptDeadlineMs?**: `number`
 
-Defined in: [conversation/call-policy.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L30)
+Defined in: [conversation/call-policy.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L31)
 
 Per-attempt wall clock limit. Exceeding fires an AbortSignal and is treated as a retryable failure.
 
@@ -929,7 +929,7 @@ Per-attempt wall clock limit. Exceeding fires an AbortSignal and is treated as a
 
 > `optional` **maxRetries?**: `number`
 
-Defined in: [conversation/call-policy.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L32)
+Defined in: [conversation/call-policy.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L33)
 
 Number of retries after the first attempt; total attempts = 1 + maxRetries. Default 0.
 
@@ -937,7 +937,7 @@ Number of retries after the first attempt; total attempts = 1 + maxRetries. Defa
 
 > `optional` **retryBackoffMs?**: [`RetryBackoff`](#retrybackoff)
 
-Defined in: [conversation/call-policy.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L34)
+Defined in: [conversation/call-policy.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L35)
 
 Backoff between attempts. Default 250ms with jitter.
 
@@ -945,7 +945,7 @@ Backoff between attempts. Default 250ms with jitter.
 
 > `optional` **isRetryable?**: [`RetryableErrorPredicate`](#retryableerrorpredicate)
 
-Defined in: [conversation/call-policy.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L36)
+Defined in: [conversation/call-policy.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L37)
 
 Custom retry classifier. Defaults to [defaultIsRetryable](#defaultisretryable).
 
@@ -953,7 +953,7 @@ Custom retry classifier. Defaults to [defaultIsRetryable](#defaultisretryable).
 
 > `optional` **circuitBreaker?**: [`CircuitBreakerConfig`](#circuitbreakerconfig)
 
-Defined in: [conversation/call-policy.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L38)
+Defined in: [conversation/call-policy.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L39)
 
 Circuit breaker that opens after N consecutive failures per participant.
 
@@ -961,7 +961,7 @@ Circuit breaker that opens after N consecutive failures per participant.
 
 ### SqlAdapter
 
-Defined in: [conversation/journal-sql.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L48)
+Defined in: [conversation/journal-sql.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L49)
 
 Minimal SQL driver shape. Implementations forward to whichever client the
 deployment already uses; agent-runtime takes no opinion on which.
@@ -975,7 +975,7 @@ file header accept this convention.
 
 > **exec**(`sql`, `params?`): `Promise`\<\{ `rowsAffected`: `number`; \}\>
 
-Defined in: [conversation/journal-sql.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L50)
+Defined in: [conversation/journal-sql.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L51)
 
 Execute a write statement (INSERT/UPDATE/DELETE/DDL).
 
@@ -997,7 +997,7 @@ readonly `unknown`[]
 
 > **query**\<`TRow`\>(`sql`, `params?`): `Promise`\<`TRow`[]\>
 
-Defined in: [conversation/journal-sql.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L52)
+Defined in: [conversation/journal-sql.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L53)
 
 Execute a read statement (SELECT). Returns rows as plain objects.
 
@@ -1025,7 +1025,7 @@ readonly `unknown`[]
 
 ### D1DatabaseLike
 
-Defined in: [conversation/journal-sql.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L83)
+Defined in: [conversation/journal-sql.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L84)
 
 Structural type matching the surface of `D1Database` we depend on, so the
 SDK never imports `@cloudflare/workers-types`. Consumers pass their real
@@ -1037,7 +1037,7 @@ SDK never imports `@cloudflare/workers-types`. Consumers pass their real
 
 > **prepare**(`sql`): [`D1StmtLike`](#d1stmtlike)
 
-Defined in: [conversation/journal-sql.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L84)
+Defined in: [conversation/journal-sql.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L85)
 
 ###### Parameters
 
@@ -1053,7 +1053,7 @@ Defined in: [conversation/journal-sql.ts:84](https://github.com/tangle-network/a
 
 ### D1StmtLike
 
-Defined in: [conversation/journal-sql.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L86)
+Defined in: [conversation/journal-sql.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L87)
 
 #### Methods
 
@@ -1061,7 +1061,7 @@ Defined in: [conversation/journal-sql.ts:86](https://github.com/tangle-network/a
 
 > **bind**(...`params`): [`D1StmtLike`](#d1stmtlike)
 
-Defined in: [conversation/journal-sql.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L87)
+Defined in: [conversation/journal-sql.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L88)
 
 ###### Parameters
 
@@ -1077,7 +1077,7 @@ Defined in: [conversation/journal-sql.ts:87](https://github.com/tangle-network/a
 
 > **run**(): `Promise`\<`unknown`\>
 
-Defined in: [conversation/journal-sql.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L88)
+Defined in: [conversation/journal-sql.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L89)
 
 ###### Returns
 
@@ -1087,7 +1087,7 @@ Defined in: [conversation/journal-sql.ts:88](https://github.com/tangle-network/a
 
 > **all**\<`TRow`\>(): `Promise`\<\{ `results?`: `TRow`[]; \}\>
 
-Defined in: [conversation/journal-sql.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L89)
+Defined in: [conversation/journal-sql.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L90)
 
 ###### Type Parameters
 
@@ -1103,7 +1103,7 @@ Defined in: [conversation/journal-sql.ts:89](https://github.com/tangle-network/a
 
 ### ConversationJournalEntry
 
-Defined in: [conversation/journal.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L19)
+Defined in: [conversation/journal.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L20)
 
 #### Properties
 
@@ -1111,19 +1111,19 @@ Defined in: [conversation/journal.ts:19](https://github.com/tangle-network/agent
 
 > **runId**: `string`
 
-Defined in: [conversation/journal.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L20)
+Defined in: [conversation/journal.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L21)
 
 ##### startedAt
 
 > **startedAt**: `string`
 
-Defined in: [conversation/journal.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L21)
+Defined in: [conversation/journal.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L22)
 
 ##### halted?
 
 > `optional` **halted?**: [`HaltReason`](#haltreason)
 
-Defined in: [conversation/journal.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L23)
+Defined in: [conversation/journal.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L24)
 
 Set when the run reaches a terminal state.
 
@@ -1131,19 +1131,19 @@ Set when the run reaches a terminal state.
 
 > `optional` **endedAt?**: `string`
 
-Defined in: [conversation/journal.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L24)
+Defined in: [conversation/journal.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L25)
 
 ##### turns
 
 > **turns**: [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/journal.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L25)
+Defined in: [conversation/journal.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L26)
 
 ***
 
 ### ConversationJournal
 
-Defined in: [conversation/journal.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L28)
+Defined in: [conversation/journal.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L29)
 
 #### Methods
 
@@ -1151,7 +1151,7 @@ Defined in: [conversation/journal.ts:28](https://github.com/tangle-network/agent
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L35)
+Defined in: [conversation/journal.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L36)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -1172,7 +1172,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L42)
+Defined in: [conversation/journal.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L43)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -1196,7 +1196,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L49)
+Defined in: [conversation/journal.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L50)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -1220,7 +1220,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L55)
+Defined in: [conversation/journal.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L56)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -1536,7 +1536,7 @@ Defined in: [conversation/run-persona.ts:210](https://github.com/tangle-network/
 
 ### ConversationParticipant
 
-Defined in: [conversation/types.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L20)
+Defined in: [conversation/types.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L21)
 
 #### Stable
 
@@ -1546,7 +1546,7 @@ Defined in: [conversation/types.ts:20](https://github.com/tangle-network/agent-r
 
 > **name**: `string`
 
-Defined in: [conversation/types.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L25)
+Defined in: [conversation/types.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L26)
 
 Stable name used as the speaker label in the transcript. Must be unique
 within a `Conversation`.
@@ -1555,7 +1555,7 @@ within a `Conversation`.
 
 > **backend**: [`AgentExecutionBackend`](#agentexecutionbackend)
 
-Defined in: [conversation/types.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L32)
+Defined in: [conversation/types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L33)
 
 Backend that runs this participant's turn. Reuses the existing
 `AgentExecutionBackend` contract from `runAgentTaskStream`, so any
@@ -1566,7 +1566,7 @@ adaptation.
 
 > `optional` **label?**: `string`
 
-Defined in: [conversation/types.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L37)
+Defined in: [conversation/types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L38)
 
 Optional human label for traces / dashboards. Distinct from `name`, which
 is the addressing key.
@@ -1575,7 +1575,7 @@ is the addressing key.
 
 > `optional` **callPolicy?**: [`BackendCallPolicy`](#backendcallpolicy)
 
-Defined in: [conversation/types.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L43)
+Defined in: [conversation/types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L44)
 
 Optional per-participant override of the conversation's default
 `callPolicy`. Use to tighten the deadline or raise the retry budget for
@@ -1585,7 +1585,7 @@ a participant known to be slow or flaky.
 
 > `optional` **authSource?**: [`AuthSource`](#authsource-1)
 
-Defined in: [conversation/types.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L63)
+Defined in: [conversation/types.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L64)
 
 Who pays for THIS participant's outbound calls?
 
@@ -1609,7 +1609,7 @@ purely about *whether to also forward the user's identity downstream*.
 
 ### ConversationDriveState
 
-Defined in: [conversation/types.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L76)
+Defined in: [conversation/types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L77)
 
 #### Stable
 
@@ -1623,25 +1623,25 @@ Defined in: [conversation/types.ts:76](https://github.com/tangle-network/agent-r
 
 > **transcript**: readonly [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L77)
+Defined in: [conversation/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L78)
 
 ##### turnIndex
 
 > **turnIndex**: `number`
 
-Defined in: [conversation/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L78)
+Defined in: [conversation/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L79)
 
 ##### spentCreditsCents
 
 > **spentCreditsCents**: `number`
 
-Defined in: [conversation/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L79)
+Defined in: [conversation/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L80)
 
 ***
 
 ### HaltContext
 
-Defined in: [conversation/types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L83)
+Defined in: [conversation/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L84)
 
 #### Stable
 
@@ -1655,7 +1655,7 @@ Defined in: [conversation/types.ts:83](https://github.com/tangle-network/agent-r
 
 > **transcript**: readonly [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L77)
+Defined in: [conversation/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L78)
 
 ###### Inherited from
 
@@ -1665,7 +1665,7 @@ Defined in: [conversation/types.ts:77](https://github.com/tangle-network/agent-r
 
 > **turnIndex**: `number`
 
-Defined in: [conversation/types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L78)
+Defined in: [conversation/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L79)
 
 ###### Inherited from
 
@@ -1675,7 +1675,7 @@ Defined in: [conversation/types.ts:78](https://github.com/tangle-network/agent-r
 
 > **spentCreditsCents**: `number`
 
-Defined in: [conversation/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L79)
+Defined in: [conversation/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L80)
 
 ###### Inherited from
 
@@ -1685,13 +1685,13 @@ Defined in: [conversation/types.ts:79](https://github.com/tangle-network/agent-r
 
 > **lastTurn**: [`ConversationTurn`](#conversationturn)
 
-Defined in: [conversation/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L84)
+Defined in: [conversation/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L85)
 
 ***
 
 ### HaltSignal
 
-Defined in: [conversation/types.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L88)
+Defined in: [conversation/types.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L89)
 
 #### Stable
 
@@ -1701,19 +1701,19 @@ Defined in: [conversation/types.ts:88](https://github.com/tangle-network/agent-r
 
 > **halted**: `true`
 
-Defined in: [conversation/types.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L89)
+Defined in: [conversation/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L90)
 
 ##### reason
 
 > **reason**: `string`
 
-Defined in: [conversation/types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L90)
+Defined in: [conversation/types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L91)
 
 ***
 
 ### ConversationPolicy
 
-Defined in: [conversation/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L107)
+Defined in: [conversation/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L108)
 
 #### Stable
 
@@ -1723,7 +1723,7 @@ Defined in: [conversation/types.ts:107](https://github.com/tangle-network/agent-
 
 > **maxTurns**: `number`
 
-Defined in: [conversation/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L109)
+Defined in: [conversation/types.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L110)
 
 Hard cap on speaker-turns. Each call into a participant's backend counts as 1.
 
@@ -1731,7 +1731,7 @@ Hard cap on speaker-turns. Each call into a participant's backend counts as 1.
 
 > `optional` **maxCreditsCents?**: `number`
 
-Defined in: [conversation/types.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L116)
+Defined in: [conversation/types.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L117)
 
 Hard cap on aggregate credit spend across all participants, in cents.
 Computed by summing `llm_call.costUsd` from every participant's stream.
@@ -1742,7 +1742,7 @@ Unset (`undefined`) means no credit ceiling — the run is bounded only by
 
 > `optional` **turnOrder?**: [`TurnOrder`](#turnorder)
 
-Defined in: [conversation/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L121)
+Defined in: [conversation/types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L122)
 
 Speaker selection. Defaults to `'alternate'` for two-participant
 conversations and `'round-robin'` for any other arity.
@@ -1751,7 +1751,7 @@ conversations and `'round-robin'` for any other arity.
 
 > `optional` **haltOn?**: [`HaltPredicate`](#haltpredicate)
 
-Defined in: [conversation/types.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L126)
+Defined in: [conversation/types.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L127)
 
 Optional convergence / content-based halt. Called after every turn ends;
 returning truthy stops the loop with `{ kind: 'predicate', ... }`.
@@ -1760,7 +1760,7 @@ returning truthy stops the loop with `{ kind: 'predicate', ... }`.
 
 > `optional` **defaultCallPolicy?**: [`BackendCallPolicy`](#backendcallpolicy)
 
-Defined in: [conversation/types.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L132)
+Defined in: [conversation/types.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L133)
 
 Default per-turn resilience policy applied to every participant call
 (deadline, retries, circuit breaker). Individual participants may
@@ -1770,7 +1770,7 @@ override via `ConversationParticipant.callPolicy`.
 
 ### ConversationTurn
 
-Defined in: [conversation/types.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L136)
+Defined in: [conversation/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L137)
 
 #### Stable
 
@@ -1780,19 +1780,19 @@ Defined in: [conversation/types.ts:136](https://github.com/tangle-network/agent-
 
 > **index**: `number`
 
-Defined in: [conversation/types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L137)
+Defined in: [conversation/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L138)
 
 ##### speaker
 
 > **speaker**: `string`
 
-Defined in: [conversation/types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L138)
+Defined in: [conversation/types.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L139)
 
 ##### turnId
 
 > **turnId**: `string`
 
-Defined in: [conversation/types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L144)
+Defined in: [conversation/types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L145)
 
 Deterministic turn identifier — stable across retries of the same logical
 turn so caching gateways and trace backends can dedupe. Shape:
@@ -1802,13 +1802,13 @@ turn so caching gateways and trace backends can dedupe. Shape:
 
 > **text**: `string`
 
-Defined in: [conversation/types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L145)
+Defined in: [conversation/types.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L146)
 
 ##### usage?
 
 > `optional` **usage?**: `object`
 
-Defined in: [conversation/types.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L151)
+Defined in: [conversation/types.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L152)
 
 Aggregated backend usage for this turn alone. Populated from any
 `llm_call` stream events the backend emitted; `undefined` when the
@@ -1838,7 +1838,7 @@ backend reports no usage.
 
 > **attempts**: `number`
 
-Defined in: [conversation/types.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L163)
+Defined in: [conversation/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L164)
 
 Number of attempts that ran before this turn committed. `1` is the
 common case; higher means the call policy retried after transient
@@ -1848,19 +1848,19 @@ failures.
 
 > **startedAt**: `string`
 
-Defined in: [conversation/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L164)
+Defined in: [conversation/types.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L165)
 
 ##### endedAt
 
 > **endedAt**: `string`
 
-Defined in: [conversation/types.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L165)
+Defined in: [conversation/types.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L166)
 
 ***
 
 ### Conversation
 
-Defined in: [conversation/types.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L169)
+Defined in: [conversation/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L170)
 
 #### Stable
 
@@ -1870,19 +1870,19 @@ Defined in: [conversation/types.ts:169](https://github.com/tangle-network/agent-
 
 > **participants**: readonly [`ConversationParticipant`](#conversationparticipant)[]
 
-Defined in: [conversation/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L170)
+Defined in: [conversation/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L171)
 
 ##### policy
 
 > **policy**: [`ConversationPolicy`](#conversationpolicy)
 
-Defined in: [conversation/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L171)
+Defined in: [conversation/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L172)
 
 ***
 
 ### RunConversationOptions
 
-Defined in: [conversation/types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L175)
+Defined in: [conversation/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L176)
 
 #### Stable
 
@@ -1892,7 +1892,7 @@ Defined in: [conversation/types.ts:175](https://github.com/tangle-network/agent-
 
 > **seed**: `string`
 
-Defined in: [conversation/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L177)
+Defined in: [conversation/types.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L178)
 
 First message kicking off the conversation. Routes to the first speaker.
 
@@ -1900,7 +1900,7 @@ First message kicking off the conversation. Routes to the first speaker.
 
 > `optional` **runId?**: `string`
 
-Defined in: [conversation/types.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L184)
+Defined in: [conversation/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L185)
 
 Optional run identifier for cross-participant trace correlation. Auto-
 generated when omitted. Reusing a runId against the same `journal`
@@ -1911,7 +1911,7 @@ continues from the first un-recorded turn.
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [conversation/types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L186)
+Defined in: [conversation/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L187)
 
 Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`.
 
@@ -1919,7 +1919,7 @@ Cancellation signal — aborts mid-stream and halts with `{ kind: 'abort' }`.
 
 > `optional` **onEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [conversation/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L193)
+Defined in: [conversation/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L194)
 
 Event sink for per-turn micro-events. Distinct from the result transcript:
 the sink fires for every text-delta, every turn-start/end, and the
@@ -1940,7 +1940,7 @@ without waiting for the conversation to finish.
 
 > `optional` **journal?**: [`ConversationJournal`](#conversationjournal)
 
-Defined in: [conversation/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L200)
+Defined in: [conversation/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L201)
 
 Optional durable transcript. When set, the runner persists every
 committed turn before yielding `turn_end`. Reusing the same `runId`
@@ -1951,7 +1951,7 @@ driver process crash mid-run loses zero acknowledged turns.
 
 > `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [conversation/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L207)
+Defined in: [conversation/types.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L208)
 
 Headers to forward verbatim to every participant backend call (gateway
 propagation: `X-Tangle-Forwarded-Authorization`, run/turn correlation,
@@ -1962,7 +1962,7 @@ their `AgentBackendContext`; backends that ignore the field still work.
 
 > `optional` **inboundDepth?**: `number`
 
-Defined in: [conversation/types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L213)
+Defined in: [conversation/types.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L214)
 
 Inbound depth at the point this driver was invoked. The runner
 increments it on every outbound participant call; gateways refuse at
@@ -1972,7 +1972,7 @@ increments it on every outbound participant call; gateways refuse at
 
 > `optional` **parentTurnId?**: `string`
 
-Defined in: [conversation/types.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L220)
+Defined in: [conversation/types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L221)
 
 Parent turn id when this conversation is *inside* another turn (i.e. the
 driver is itself a participant via `createConversationBackend`). The
@@ -1983,7 +1983,7 @@ so trace stitching survives nested orchestration.
 
 ### ConversationResult
 
-Defined in: [conversation/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L224)
+Defined in: [conversation/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L225)
 
 #### Stable
 
@@ -1993,49 +1993,49 @@ Defined in: [conversation/types.ts:224](https://github.com/tangle-network/agent-
 
 > **runId**: `string`
 
-Defined in: [conversation/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L225)
+Defined in: [conversation/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L226)
 
 ##### transcript
 
 > **transcript**: [`ConversationTurn`](#conversationturn)[]
 
-Defined in: [conversation/types.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L226)
+Defined in: [conversation/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L227)
 
 ##### turns
 
 > **turns**: `number`
 
-Defined in: [conversation/types.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L227)
+Defined in: [conversation/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L228)
 
 ##### spentCreditsCents
 
 > **spentCreditsCents**: `number`
 
-Defined in: [conversation/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L228)
+Defined in: [conversation/types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L229)
 
 ##### halted
 
 > **halted**: [`HaltReason`](#haltreason)
 
-Defined in: [conversation/types.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L229)
+Defined in: [conversation/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L230)
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [conversation/types.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L230)
+Defined in: [conversation/types.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L231)
 
 ##### startedAt
 
 > **startedAt**: `string`
 
-Defined in: [conversation/types.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L231)
+Defined in: [conversation/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L232)
 
 ##### endedAt
 
 > **endedAt**: `string`
 
-Defined in: [conversation/types.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L232)
+Defined in: [conversation/types.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L233)
 
 ***
 
@@ -2387,7 +2387,7 @@ Content type for the response.
 
 ### VerifyResult
 
-Defined in: [improvement/agentic-generator.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L41)
+Defined in: [improvement/agentic-generator.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L42)
 
 Outcome of verifying a candidate worktree. `feedback` (compiler errors,
  failing test output) is fed into the next shot when `ok` is false.
@@ -2398,19 +2398,19 @@ Outcome of verifying a candidate worktree. `feedback` (compiler errors,
 
 > **ok**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L42)
+Defined in: [improvement/agentic-generator.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L43)
 
 ##### feedback?
 
 > `optional` **feedback?**: `string`
 
-Defined in: [improvement/agentic-generator.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L43)
+Defined in: [improvement/agentic-generator.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L44)
 
 ***
 
 ### AgenticGeneratorOptions
 
-Defined in: [improvement/agentic-generator.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L51)
+Defined in: [improvement/agentic-generator.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L52)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -2431,7 +2431,7 @@ mutates a git worktree via a pluggable `CandidateGenerator`:
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/agentic-generator.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L53)
+Defined in: [improvement/agentic-generator.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L54)
 
 Local coding harness to run in the worktree. Default `claude`.
 
@@ -2439,7 +2439,7 @@ Local coding harness to run in the worktree. Default `claude`.
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/agentic-generator.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L55)
+Defined in: [improvement/agentic-generator.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L56)
 
 Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
@@ -2447,7 +2447,7 @@ Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
 > `optional` **buildPrompt?**: (`args`) => `string`
 
-Defined in: [improvement/agentic-generator.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L58)
+Defined in: [improvement/agentic-generator.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L59)
 
 Build the harness task prompt from the report + findings. Override for
  domain phrasing; the default turns findings into a concrete coder task.
@@ -2472,7 +2472,7 @@ Build the harness task prompt from the report + findings. Override for
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L64)
+Defined in: [improvement/agentic-generator.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L65)
 
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
@@ -2484,7 +2484,7 @@ Verify the worktree after each dirtying shot. When set, a candidate that
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [improvement/agentic-generator.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L66)
+Defined in: [improvement/agentic-generator.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L67)
 
 Test seam — inject the harness runner (defaults to `runLocalHarness`).
 
@@ -2520,7 +2520,7 @@ Does NOT throw when:
 
 > `optional` **isDirty?**: (`worktreePath`) => `boolean`
 
-Defined in: [improvement/agentic-generator.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L68)
+Defined in: [improvement/agentic-generator.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L69)
 
 Test seam — inject the worktree-dirty check (defaults to `git status`).
 
@@ -2538,7 +2538,7 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ### ImproveOptions
 
-Defined in: [improvement/improve.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L47)
+Defined in: [improvement/improve.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L48)
 
 #### Type Parameters
 
@@ -2556,7 +2556,7 @@ Defined in: [improvement/improve.ts:47](https://github.com/tangle-network/agent-
 
 > `optional` **surface?**: [`ImproveSurface`](#improvesurface)
 
-Defined in: [improvement/improve.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L50)
+Defined in: [improvement/improve.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L51)
 
 Which profile lever to optimize. Default `'prompt'`. Selects the default
  generator + the baseline-surface extraction shape.
@@ -2565,7 +2565,7 @@ Which profile lever to optimize. Default `'prompt'`. Selects the default
 
 > `optional` **generator?**: `SurfaceProposer`\<`unknown`\>
 
-Defined in: [improvement/improve.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L54)
+Defined in: [improvement/improve.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L55)
 
 The `SurfaceProposer` that mutates the surface. When unset, the facade
  picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
@@ -2575,7 +2575,7 @@ The `SurfaceProposer` that mutates the surface. When unset, the facade
 
 > `optional` **gate?**: `"none"` \| `"holdout"`
 
-Defined in: [improvement/improve.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L57)
+Defined in: [improvement/improve.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L58)
 
 Gate mode. `'holdout'` (default) runs the held-out promotion gate;
  `'none'` is a baseline-only run (`budget.generations = 0`).
@@ -2584,7 +2584,7 @@ Gate mode. `'holdout'` (default) runs the held-out promotion gate;
 
 > **scenarios**: `TScenario`[]
 
-Defined in: [improvement/improve.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L59)
+Defined in: [improvement/improve.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L60)
 
 Scenarios to evaluate against. Passthrough to `selfImprove`.
 
@@ -2592,7 +2592,7 @@ Scenarios to evaluate against. Passthrough to `selfImprove`.
 
 > **judge**: `JudgeConfig`\<`TArtifact`, `TScenario`\>
 
-Defined in: [improvement/improve.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L61)
+Defined in: [improvement/improve.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L62)
 
 Judge that scores artifacts. Passthrough to `selfImprove`.
 
@@ -2600,7 +2600,7 @@ Judge that scores artifacts. Passthrough to `selfImprove`.
 
 > **agent**: (`surface`, `scenario`, `ctx`) => `Promise`\<`TArtifact`\>
 
-Defined in: [improvement/improve.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L64)
+Defined in: [improvement/improve.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L65)
 
 The agent under improvement — same shape as `selfImprove.agent`: it takes
  the current surface + scenario + ctx and returns the artifact to judge.
@@ -2627,7 +2627,7 @@ The agent under improvement — same shape as `selfImprove.agent`: it takes
 
 > `optional` **budget?**: `SelfImproveBudget`
 
-Defined in: [improvement/improve.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L66)
+Defined in: [improvement/improve.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L67)
 
 Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
@@ -2635,7 +2635,7 @@ Budget + loop shape. Passthrough; `gate: 'none'` forces `generations = 0`.
 
 > `optional` **llm?**: `SelfImproveLlm`
 
-Defined in: [improvement/improve.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L69)
+Defined in: [improvement/improve.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L70)
 
 LLM config. Passthrough to `selfImprove` AND used to construct the default
  reflective proposer (`gepaProposer`/`skillOptProposer`) when `generator` is unset.
@@ -2644,7 +2644,7 @@ LLM config. Passthrough to `selfImprove` AND used to construct the default
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [improvement/improve.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L73)
+Defined in: [improvement/improve.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L74)
 
 Restrict the run to this subset of models. When set, the reflection model
  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
@@ -2654,7 +2654,7 @@ Restrict the run to this subset of models. When set, the reflection model
 
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L76)
+Defined in: [improvement/improve.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L77)
 
 #### Type Parameters
 
@@ -2672,7 +2672,7 @@ Defined in: [improvement/improve.ts:76](https://github.com/tangle-network/agent-
 
 > **profile**: `AgentProfile`
 
-Defined in: [improvement/improve.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L79)
+Defined in: [improvement/improve.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L80)
 
 The profile after improvement: the winner surface applied back into the
  matching field when the gate shipped, else the input profile unchanged.
@@ -2681,7 +2681,7 @@ The profile after improvement: the winner surface applied back into the
 
 > **shipped**: `boolean`
 
-Defined in: [improvement/improve.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L81)
+Defined in: [improvement/improve.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L82)
 
 True when `gateDecision === 'ship'`.
 
@@ -2689,7 +2689,7 @@ True when `gateDecision === 'ship'`.
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L83)
+Defined in: [improvement/improve.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L84)
 
 Held-out lift (`winner − baseline` composite).
 
@@ -2697,7 +2697,7 @@ Held-out lift (`winner − baseline` composite).
 
 > **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L85)
+Defined in: [improvement/improve.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L86)
 
 The five-valued gate verdict from `selfImprove`.
 
@@ -2705,7 +2705,7 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L87)
+Defined in: [improvement/improve.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L88)
 
 Full `selfImprove` result for advanced inspection.
 
@@ -2713,7 +2713,7 @@ Full `selfImprove` result for advanced inspection.
 
 ### CandidateGenerator
 
-Defined in: [improvement/improvement-driver.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L35)
+Defined in: [improvement/improvement-driver.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L36)
 
 The byte-producing seam — the ONE thing that differs between the cheap
  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -2726,7 +2726,7 @@ The byte-producing seam — the ONE thing that differs between the cheap
 
 > **kind**: `string`
 
-Defined in: [improvement/improvement-driver.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L36)
+Defined in: [improvement/improvement-driver.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L37)
 
 #### Methods
 
@@ -2734,7 +2734,7 @@ Defined in: [improvement/improvement-driver.ts:36](https://github.com/tangle-net
 
 > **generate**(`args`): `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; \}\>
 
-Defined in: [improvement/improvement-driver.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L37)
+Defined in: [improvement/improvement-driver.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L38)
 
 ###### Parameters
 
@@ -2783,7 +2783,7 @@ DEPTH: max iterations the generator may take (agentic uses this; the
 
 ### ImprovementDriverOptions
 
-Defined in: [improvement/improvement-driver.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L53)
+Defined in: [improvement/improvement-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L54)
 
 #### Properties
 
@@ -2791,19 +2791,19 @@ Defined in: [improvement/improvement-driver.ts:53](https://github.com/tangle-net
 
 > **worktree**: `WorktreeAdapter`
 
-Defined in: [improvement/improvement-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L54)
+Defined in: [improvement/improvement-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L55)
 
 ##### generator
 
 > **generator**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improvement-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L55)
+Defined in: [improvement/improvement-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L56)
 
 ##### baseRef?
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improvement-driver.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L57)
+Defined in: [improvement/improvement-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L58)
 
 Base ref candidate worktrees fork from. Default `main`.
 
@@ -2857,7 +2857,7 @@ Minimum tools the server must expose to pass. Default 1.
 
 ### ReflectiveGeneratorOptions
 
-Defined in: [improvement/reflective-generator.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L20)
+Defined in: [improvement/reflective-generator.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L21)
 
 #### Properties
 
@@ -2865,13 +2865,13 @@ Defined in: [improvement/reflective-generator.ts:20](https://github.com/tangle-n
 
 > **improvementAdapter**: [`ImprovementAdapter`](analyst-loop.md#improvementadapter)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
 
-Defined in: [improvement/reflective-generator.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L21)
+Defined in: [improvement/reflective-generator.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L22)
 
 ***
 
 ### DelegatedLoopResult
 
-Defined in: [loop-runner.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L66)
+Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L67)
 
 **`Experimental`**
 
@@ -2890,7 +2890,7 @@ Uniform result — never throws from a registered runner; a
 
 > **mode**: `"code"` \| `"review"` \| `"research"` \| `"audit"` \| `"self-improve"`
 
-Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L67)
+Defined in: [loop-runner.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L68)
 
 **`Experimental`**
 
@@ -2898,7 +2898,7 @@ Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/
 
 > **ok**: `boolean`
 
-Defined in: [loop-runner.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L68)
+Defined in: [loop-runner.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L69)
 
 **`Experimental`**
 
@@ -2906,7 +2906,7 @@ Defined in: [loop-runner.ts:68](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **output?**: `T`
 
-Defined in: [loop-runner.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L69)
+Defined in: [loop-runner.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L70)
 
 **`Experimental`**
 
@@ -2914,7 +2914,7 @@ Defined in: [loop-runner.ts:69](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **error?**: `string`
 
-Defined in: [loop-runner.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L70)
+Defined in: [loop-runner.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L71)
 
 **`Experimental`**
 
@@ -2922,7 +2922,7 @@ Defined in: [loop-runner.ts:70](https://github.com/tangle-network/agent-runtime/
 
 > **durationMs**: `number`
 
-Defined in: [loop-runner.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L71)
+Defined in: [loop-runner.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L72)
 
 **`Experimental`**
 
@@ -2930,7 +2930,7 @@ Defined in: [loop-runner.ts:71](https://github.com/tangle-network/agent-runtime/
 
 ### RunDelegatedLoopOptions
 
-Defined in: [loop-runner.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L75)
+Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L76)
 
 **`Experimental`**
 
@@ -2940,7 +2940,7 @@ Defined in: [loop-runner.ts:75](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L76)
+Defined in: [loop-runner.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L77)
 
 **`Experimental`**
 
@@ -2948,7 +2948,7 @@ Defined in: [loop-runner.ts:76](https://github.com/tangle-network/agent-runtime/
 
 > `optional` **now?**: () => `number`
 
-Defined in: [loop-runner.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L78)
+Defined in: [loop-runner.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L79)
 
 **`Experimental`**
 
@@ -2962,7 +2962,7 @@ Clock override for deterministic tests.
 
 ### WorktreeLoopRunnerOptions
 
-Defined in: [loop-runner.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L119)
+Defined in: [loop-runner.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L121)
 
 **`Experimental`**
 
@@ -2974,7 +2974,7 @@ Options for the local-repo `code` runner over the GENERIC recursive path.
 
 > **repoRoot**: `string`
 
-Defined in: [loop-runner.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L121)
+Defined in: [loop-runner.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L123)
 
 **`Experimental`**
 
@@ -2984,7 +2984,7 @@ Absolute path to the local git checkout each worktree is cut from.
 
 > **taskPrompt**: `string`
 
-Defined in: [loop-runner.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L123)
+Defined in: [loop-runner.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L125)
 
 **`Experimental`**
 
@@ -2994,7 +2994,7 @@ The instruction handed to every authored harness (composed under each profile's 
 
 > **harnesses**: readonly [`AuthoredHarness`](runtime.md#authoredharness)[]
 
-Defined in: [loop-runner.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L125)
+Defined in: [loop-runner.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L127)
 
 **`Experimental`**
 
@@ -3004,7 +3004,7 @@ The supervisor-authored harness profiles — one fanout item (one worktree-CLI l
 
 > **budget**: [`Budget`](runtime.md#budget-12)
 
-Defined in: [loop-runner.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L127)
+Defined in: [loop-runner.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L129)
 
 **`Experimental`**
 
@@ -3014,7 +3014,7 @@ Conserved budget pool bounding the fanout (equal-k holds by construction).
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [loop-runner.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L129)
+Defined in: [loop-runner.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L131)
 
 **`Experimental`**
 
@@ -3024,7 +3024,7 @@ Shell command run in each worktree to derive the tests-PASS signal.
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [loop-runner.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L131)
+Defined in: [loop-runner.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L133)
 
 **`Experimental`**
 
@@ -3034,7 +3034,7 @@ Shell command run in each worktree to derive the typecheck-PASS signal.
 
 > `optional` **require?**: readonly (`"tests"` \| `"typecheck"`)[]
 
-Defined in: [loop-runner.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L133)
+Defined in: [loop-runner.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L135)
 
 **`Experimental`**
 
@@ -3044,7 +3044,7 @@ Which verification signals the deliverable REQUIRES present-and-passing (default
 
 > `optional` **maxDiffLines?**: `number`
 
-Defined in: [loop-runner.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L135)
+Defined in: [loop-runner.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L137)
 
 **`Experimental`**
 
@@ -3054,7 +3054,7 @@ Diff-size cap (lines).
 
 > `optional` **forbiddenPaths?**: `string`[]
 
-Defined in: [loop-runner.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L137)
+Defined in: [loop-runner.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L139)
 
 **`Experimental`**
 
@@ -3064,7 +3064,7 @@ Literal path prefixes the patch must not touch (the secret-floor is always on re
 
 > `optional` **winnerStrategy?**: [`WinnerStrategy`](runtime.md#winnerstrategy)
 
-Defined in: [loop-runner.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L139)
+Defined in: [loop-runner.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L141)
 
 **`Experimental`**
 
@@ -3074,7 +3074,7 @@ Winner-selection strategy among gated candidates. Default `highest-score`.
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [loop-runner.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L141)
+Defined in: [loop-runner.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L143)
 
 **`Experimental`**
 
@@ -3084,7 +3084,7 @@ Test seams forwarded to the worktree-CLI leaves so the runner drives offline.
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [loop-runner.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L142)
+Defined in: [loop-runner.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L144)
 
 **`Experimental`**
 
@@ -3120,7 +3120,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [loop-runner.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L143)
+Defined in: [loop-runner.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L145)
 
 **`Experimental`**
 
@@ -3128,7 +3128,7 @@ Defined in: [loop-runner.ts:143](https://github.com/tangle-network/agent-runtime
 
 ### VetoedFact
 
-Defined in: [loop-runner.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L205)
+Defined in: [loop-runner.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L208)
 
 **`Experimental`**
 
@@ -3140,7 +3140,7 @@ A fact rejected at the KB gate — surfaced, never dropped.
 
 > **candidate**: [`FactCandidate`](mcp.md#factcandidate)
 
-Defined in: [loop-runner.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L206)
+Defined in: [loop-runner.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L209)
 
 **`Experimental`**
 
@@ -3148,7 +3148,7 @@ Defined in: [loop-runner.ts:206](https://github.com/tangle-network/agent-runtime
 
 > `optional` **vetoedBy?**: `string`
 
-Defined in: [loop-runner.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L207)
+Defined in: [loop-runner.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L210)
 
 **`Experimental`**
 
@@ -3156,7 +3156,7 @@ Defined in: [loop-runner.ts:207](https://github.com/tangle-network/agent-runtime
 
 > `optional` **reason?**: `string`
 
-Defined in: [loop-runner.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L208)
+Defined in: [loop-runner.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L211)
 
 **`Experimental`**
 
@@ -3164,7 +3164,7 @@ Defined in: [loop-runner.ts:208](https://github.com/tangle-network/agent-runtime
 
 ### ResearchLoopResult
 
-Defined in: [loop-runner.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L212)
+Defined in: [loop-runner.ts:215](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L215)
 
 **`Experimental`**
 
@@ -3174,7 +3174,7 @@ Defined in: [loop-runner.ts:212](https://github.com/tangle-network/agent-runtime
 
 > **accepted**: [`FactCandidate`](mcp.md#factcandidate)[]
 
-Defined in: [loop-runner.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L214)
+Defined in: [loop-runner.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L217)
 
 **`Experimental`**
 
@@ -3184,7 +3184,7 @@ Facts that passed the fail-closed gate — safe to write to the KB.
 
 > **vetoed**: [`VetoedFact`](#vetoedfact)[]
 
-Defined in: [loop-runner.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L216)
+Defined in: [loop-runner.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L219)
 
 **`Experimental`**
 
@@ -3194,7 +3194,7 @@ Facts the gate vetoed in the final round — escalate, do not silently drop.
 
 > **rounds**: `number`
 
-Defined in: [loop-runner.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L218)
+Defined in: [loop-runner.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L221)
 
 **`Experimental`**
 
@@ -3204,7 +3204,7 @@ Research rounds actually run.
 
 ### ResearchLoopRunnerOptions
 
-Defined in: [loop-runner.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L222)
+Defined in: [loop-runner.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L225)
 
 **`Experimental`**
 
@@ -3216,7 +3216,7 @@ Options for the default `research` runner.
 
 > **research**: (`round`, `vetoed`) => `Promise`\<[`FactCandidate`](mcp.md#factcandidate)[]\>
 
-Defined in: [loop-runner.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L229)
+Defined in: [loop-runner.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L232)
 
 **`Experimental`**
 
@@ -3243,7 +3243,7 @@ Returns fact candidates carrying their grounding (`verbatimPassage` +
 
 > `optional` **gate?**: [`CreateKbGateOptions`](mcp.md#createkbgateoptions)
 
-Defined in: [loop-runner.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L231)
+Defined in: [loop-runner.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L234)
 
 **`Experimental`**
 
@@ -3253,7 +3253,7 @@ Gate config (extra judges, self-artifact kinds, …). The floor is always on.
 
 > `optional` **maxRounds?**: `number`
 
-Defined in: [loop-runner.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L233)
+Defined in: [loop-runner.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L236)
 
 **`Experimental`**
 
@@ -3263,7 +3263,7 @@ Max research rounds (correct-on-veto remediation). Default 1.
 
 ### ModelInfo
 
-Defined in: [model-resolution.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L21)
+Defined in: [model-resolution.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L22)
 
 A model entry as returned by the Tangle Router `/v1/models` endpoint.
 Intentionally minimal — only the fields resolution + validation read.
@@ -3274,25 +3274,25 @@ Intentionally minimal — only the fields resolution + validation read.
 
 > **id**: `string`
 
-Defined in: [model-resolution.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L22)
+Defined in: [model-resolution.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L23)
 
 ##### name?
 
 > `optional` **name?**: `string`
 
-Defined in: [model-resolution.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L23)
+Defined in: [model-resolution.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L24)
 
 ##### description?
 
 > `optional` **description?**: `string`
 
-Defined in: [model-resolution.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L24)
+Defined in: [model-resolution.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L25)
 
 ##### provider?
 
 > `optional` **provider?**: `string`
 
-Defined in: [model-resolution.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L26)
+Defined in: [model-resolution.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L27)
 
 Provider slug, when the router exposes it (`provider` or `_provider`).
 
@@ -3300,13 +3300,13 @@ Provider slug, when the router exposes it (`provider` or `_provider`).
 
 > `optional` **\_provider?**: `string`
 
-Defined in: [model-resolution.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L27)
+Defined in: [model-resolution.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L28)
 
 ##### architecture?
 
 > `optional` **architecture?**: `object`
 
-Defined in: [model-resolution.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L28)
+Defined in: [model-resolution.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L29)
 
 ###### modality?
 
@@ -3324,7 +3324,7 @@ Defined in: [model-resolution.ts:28](https://github.com/tangle-network/agent-run
 
 ### RouterEnv
 
-Defined in: [model-resolution.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L36)
+Defined in: [model-resolution.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L37)
 
 Env keys the router base URL is resolved from.
 
@@ -3334,19 +3334,19 @@ Env keys the router base URL is resolved from.
 
 > `optional` **TANGLE\_ROUTER\_URL?**: `string`
 
-Defined in: [model-resolution.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L37)
+Defined in: [model-resolution.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L38)
 
 ##### TANGLE\_ROUTER\_BASE\_URL?
 
 > `optional` **TANGLE\_ROUTER\_BASE\_URL?**: `string`
 
-Defined in: [model-resolution.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L38)
+Defined in: [model-resolution.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L39)
 
 ***
 
 ### ResolvedChatModel
 
-Defined in: [model-resolution.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L78)
+Defined in: [model-resolution.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L79)
 
 #### Properties
 
@@ -3354,13 +3354,13 @@ Defined in: [model-resolution.ts:78](https://github.com/tangle-network/agent-run
 
 > **source**: `string`
 
-Defined in: [model-resolution.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L79)
+Defined in: [model-resolution.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L80)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: [model-resolution.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L80)
+Defined in: [model-resolution.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L81)
 
 ***
 
@@ -3868,7 +3868,7 @@ Defined in: [otel-export.ts:608](https://github.com/tangle-network/agent-runtime
 
 ### RuntimeHookEvent
 
-Defined in: [runtime-hooks.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L35)
+Defined in: [runtime-hooks.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L36)
 
 #### Type Parameters
 
@@ -3882,67 +3882,67 @@ Defined in: [runtime-hooks.ts:35](https://github.com/tangle-network/agent-runtim
 
 > **id**: `string`
 
-Defined in: [runtime-hooks.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L36)
+Defined in: [runtime-hooks.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L37)
 
 ##### runId
 
 > **runId**: `string`
 
-Defined in: [runtime-hooks.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L37)
+Defined in: [runtime-hooks.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L38)
 
 ##### scenarioId?
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [runtime-hooks.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L38)
+Defined in: [runtime-hooks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L39)
 
 ##### target
 
 > **target**: [`RuntimeHookTarget`](#runtimehooktarget)
 
-Defined in: [runtime-hooks.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L39)
+Defined in: [runtime-hooks.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L40)
 
 ##### phase
 
 > **phase**: [`RuntimeHookPhase`](#runtimehookphase)
 
-Defined in: [runtime-hooks.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L40)
+Defined in: [runtime-hooks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L41)
 
 ##### timestamp
 
 > **timestamp**: `number`
 
-Defined in: [runtime-hooks.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L41)
+Defined in: [runtime-hooks.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L42)
 
 ##### stepIndex?
 
 > `optional` **stepIndex?**: `number`
 
-Defined in: [runtime-hooks.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L42)
+Defined in: [runtime-hooks.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L43)
 
 ##### parentId?
 
 > `optional` **parentId?**: `string`
 
-Defined in: [runtime-hooks.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L43)
+Defined in: [runtime-hooks.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L44)
 
 ##### payload?
 
 > `optional` **payload?**: `Payload`
 
-Defined in: [runtime-hooks.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L44)
+Defined in: [runtime-hooks.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L45)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime-hooks.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L45)
+Defined in: [runtime-hooks.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L46)
 
 ***
 
 ### RuntimeHookContext
 
-Defined in: [runtime-hooks.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L48)
+Defined in: [runtime-hooks.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L49)
 
 #### Properties
 
@@ -3950,13 +3950,13 @@ Defined in: [runtime-hooks.ts:48](https://github.com/tangle-network/agent-runtim
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime-hooks.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L49)
+Defined in: [runtime-hooks.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L50)
 
 ***
 
 ### RuntimeDecisionEvidenceRef
 
-Defined in: [runtime-hooks.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L52)
+Defined in: [runtime-hooks.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L53)
 
 #### Properties
 
@@ -3964,31 +3964,31 @@ Defined in: [runtime-hooks.ts:52](https://github.com/tangle-network/agent-runtim
 
 > **source**: `string`
 
-Defined in: [runtime-hooks.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L53)
+Defined in: [runtime-hooks.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L54)
 
 ##### id
 
 > **id**: `string`
 
-Defined in: [runtime-hooks.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L54)
+Defined in: [runtime-hooks.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L55)
 
 ##### detail?
 
 > `optional` **detail?**: `string`
 
-Defined in: [runtime-hooks.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L55)
+Defined in: [runtime-hooks.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L56)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime-hooks.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L56)
+Defined in: [runtime-hooks.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L57)
 
 ***
 
 ### RuntimeDecisionPoint
 
-Defined in: [runtime-hooks.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L59)
+Defined in: [runtime-hooks.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L60)
 
 #### Properties
 
@@ -3996,61 +3996,61 @@ Defined in: [runtime-hooks.ts:59](https://github.com/tangle-network/agent-runtim
 
 > **id**: `string`
 
-Defined in: [runtime-hooks.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L60)
+Defined in: [runtime-hooks.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L61)
 
 ##### runId
 
 > **runId**: `string`
 
-Defined in: [runtime-hooks.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L61)
+Defined in: [runtime-hooks.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L62)
 
 ##### scenarioId?
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [runtime-hooks.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L62)
+Defined in: [runtime-hooks.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L63)
 
 ##### stepIndex
 
 > **stepIndex**: `number`
 
-Defined in: [runtime-hooks.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L63)
+Defined in: [runtime-hooks.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L64)
 
 ##### kind
 
 > **kind**: [`RuntimeDecisionKind`](#runtimedecisionkind)
 
-Defined in: [runtime-hooks.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L64)
+Defined in: [runtime-hooks.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L65)
 
 ##### candidateActions
 
 > **candidateActions**: `string`[]
 
-Defined in: [runtime-hooks.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L65)
+Defined in: [runtime-hooks.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L66)
 
 ##### context?
 
 > `optional` **context?**: `string`
 
-Defined in: [runtime-hooks.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L66)
+Defined in: [runtime-hooks.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L67)
 
 ##### evidence
 
 > **evidence**: [`RuntimeDecisionEvidenceRef`](#runtimedecisionevidenceref)[]
 
-Defined in: [runtime-hooks.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L67)
+Defined in: [runtime-hooks.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L68)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime-hooks.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L68)
+Defined in: [runtime-hooks.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L69)
 
 ***
 
 ### RuntimeHookErrorContext
 
-Defined in: [runtime-hooks.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L71)
+Defined in: [runtime-hooks.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L72)
 
 #### Properties
 
@@ -4058,43 +4058,43 @@ Defined in: [runtime-hooks.ts:71](https://github.com/tangle-network/agent-runtim
 
 > **hook**: `"onEvent"` \| `"onDecisionPoint"`
 
-Defined in: [runtime-hooks.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L72)
+Defined in: [runtime-hooks.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L73)
 
 ##### eventId?
 
 > `optional` **eventId?**: `string`
 
-Defined in: [runtime-hooks.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L73)
+Defined in: [runtime-hooks.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L74)
 
 ##### target?
 
 > `optional` **target?**: [`RuntimeHookTarget`](#runtimehooktarget)
 
-Defined in: [runtime-hooks.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L74)
+Defined in: [runtime-hooks.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L75)
 
 ##### phase?
 
 > `optional` **phase?**: [`RuntimeHookPhase`](#runtimehookphase)
 
-Defined in: [runtime-hooks.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L75)
+Defined in: [runtime-hooks.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L76)
 
 ##### decisionId?
 
 > `optional` **decisionId?**: `string`
 
-Defined in: [runtime-hooks.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L76)
+Defined in: [runtime-hooks.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L77)
 
 ##### decisionKind?
 
 > `optional` **decisionKind?**: [`RuntimeDecisionKind`](#runtimedecisionkind)
 
-Defined in: [runtime-hooks.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L77)
+Defined in: [runtime-hooks.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L78)
 
 ***
 
 ### RuntimeHooks
 
-Defined in: [runtime-hooks.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L87)
+Defined in: [runtime-hooks.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L88)
 
 The observation seam attached to a running loop (never to the portable genome).
 Implement the optional hooks to receive lifecycle events, semantic decision points,
@@ -4108,7 +4108,7 @@ callback-prop zoo.
 
 > `optional` **onEvent?**: (`event`, `context`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime-hooks.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L93)
+Defined in: [runtime-hooks.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L94)
 
 General before/after/event hook. Use this for telemetry, memory capture,
 policy wrapping, child lifecycle observers, or product-specific extension
@@ -4132,7 +4132,7 @@ points.
 
 > `optional` **onDecisionPoint?**: (`point`, `context`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime-hooks.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L98)
+Defined in: [runtime-hooks.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L99)
 
 Semantic decision hook. Belief-state evaluation consumes this, but runtime
 code should keep emitting ordinary lifecycle events as the base layer.
@@ -4155,7 +4155,7 @@ code should keep emitting ordinary lifecycle events as the base layer.
 
 > `optional` **onHookError?**: (`error`, `context`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime-hooks.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L102)
+Defined in: [runtime-hooks.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L103)
 
 ###### Parameters
 
@@ -4175,7 +4175,7 @@ Defined in: [runtime-hooks.ts:102](https://github.com/tangle-network/agent-runti
 
 ### RuntimeRunRow
 
-Defined in: [runtime-run.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L60)
+Defined in: [runtime-run.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L61)
 
 #### Stable
 
@@ -4185,7 +4185,7 @@ Defined in: [runtime-run.ts:60](https://github.com/tangle-network/agent-runtime/
 
 > **id**: `string`
 
-Defined in: [runtime-run.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L62)
+Defined in: [runtime-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L63)
 
 Stable runtime-side identifier. Adapters may translate to their own primary key.
 
@@ -4193,85 +4193,85 @@ Stable runtime-side identifier. Adapters may translate to their own primary key.
 
 > **workspaceId**: `string`
 
-Defined in: [runtime-run.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L63)
+Defined in: [runtime-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L64)
 
 ##### sessionId?
 
 > `optional` **sessionId?**: `string`
 
-Defined in: [runtime-run.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L64)
+Defined in: [runtime-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L65)
 
 ##### agentId?
 
 > `optional` **agentId?**: `string`
 
-Defined in: [runtime-run.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L65)
+Defined in: [runtime-run.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L66)
 
 ##### domain?
 
 > `optional` **domain?**: `string`
 
-Defined in: [runtime-run.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L66)
+Defined in: [runtime-run.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L67)
 
 ##### taskId
 
 > **taskId**: `string`
 
-Defined in: [runtime-run.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L67)
+Defined in: [runtime-run.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L68)
 
 ##### scenarioId?
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [runtime-run.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L68)
+Defined in: [runtime-run.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L69)
 
 ##### status
 
 > **status**: `RuntimeRunStatus`
 
-Defined in: [runtime-run.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L69)
+Defined in: [runtime-run.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L70)
 
 ##### resultSummary?
 
 > `optional` **resultSummary?**: `string`
 
-Defined in: [runtime-run.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L70)
+Defined in: [runtime-run.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L71)
 
 ##### error?
 
 > `optional` **error?**: `string`
 
-Defined in: [runtime-run.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L71)
+Defined in: [runtime-run.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L72)
 
 ##### cost
 
 > **cost**: `RuntimeRunCost`
 
-Defined in: [runtime-run.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L72)
+Defined in: [runtime-run.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L73)
 
 ##### startedAt
 
 > **startedAt**: `string`
 
-Defined in: [runtime-run.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L73)
+Defined in: [runtime-run.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L74)
 
 ##### completedAt?
 
 > `optional` **completedAt?**: `string`
 
-Defined in: [runtime-run.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L74)
+Defined in: [runtime-run.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L75)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [runtime-run.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L75)
+Defined in: [runtime-run.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L76)
 
 ***
 
 ### RuntimeRunPersistenceAdapter
 
-Defined in: [runtime-run.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L79)
+Defined in: [runtime-run.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L80)
 
 #### Stable
 
@@ -4281,7 +4281,7 @@ Defined in: [runtime-run.ts:79](https://github.com/tangle-network/agent-runtime/
 
 > **upsert**(`row`): `void` \| `Promise`\<`void`\>
 
-Defined in: [runtime-run.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L87)
+Defined in: [runtime-run.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L88)
 
 Called once when `handle.persist()` runs. Implementations write `row` to
 their durable store (D1, postgres, KV) and return whatever the consumer
@@ -4303,7 +4303,7 @@ retry or log-and-continue.
 
 ### RuntimeRunHandle
 
-Defined in: [runtime-run.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L106)
+Defined in: [runtime-run.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L107)
 
 #### Stable
 
@@ -4313,7 +4313,7 @@ Defined in: [runtime-run.ts:106](https://github.com/tangle-network/agent-runtime
 
 > `readonly` **id**: `string`
 
-Defined in: [runtime-run.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L108)
+Defined in: [runtime-run.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L109)
 
 Stable id assigned at start.
 
@@ -4321,25 +4321,25 @@ Stable id assigned at start.
 
 > `readonly` **workspaceId**: `string`
 
-Defined in: [runtime-run.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L109)
+Defined in: [runtime-run.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L110)
 
 ##### sessionId
 
 > `readonly` **sessionId**: `string` \| `undefined`
 
-Defined in: [runtime-run.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L110)
+Defined in: [runtime-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L111)
 
 ##### taskSpec
 
 > `readonly` **taskSpec**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [runtime-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L111)
+Defined in: [runtime-run.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L112)
 
 ##### status
 
 > `readonly` **status**: `RuntimeRunStatus`
 
-Defined in: [runtime-run.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L112)
+Defined in: [runtime-run.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L113)
 
 #### Methods
 
@@ -4347,7 +4347,7 @@ Defined in: [runtime-run.ts:112](https://github.com/tangle-network/agent-runtime
 
 > **observe**(`event`): `void`
 
-Defined in: [runtime-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L119)
+Defined in: [runtime-run.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L120)
 
 Observe a single `RuntimeStreamEvent`. The handle ignores non-cost events
 (text deltas, tool calls) silently so consumers can pipe the whole stream
@@ -4367,7 +4367,7 @@ through `handle.observe`. `llm_call` events update the ledger.
 
 > **cost**(): `RuntimeRunCost`
 
-Defined in: [runtime-run.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L122)
+Defined in: [runtime-run.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L123)
 
 Snapshot of the current cost ledger. Safe to call at any time.
 
@@ -4379,7 +4379,7 @@ Snapshot of the current cost ledger. Safe to call at any time.
 
 > **complete**(`input`): `void`
 
-Defined in: [runtime-run.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L129)
+Defined in: [runtime-run.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L130)
 
 Transition to a terminal state. Idempotent for the same status; throws
 `RuntimeRunStateError` for a different terminal status (state machines
@@ -4399,7 +4399,7 @@ don't time-travel).
 
 > **toRow**(`metadata?`): [`RuntimeRunRow`](#runtimerunrow)
 
-Defined in: [runtime-run.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L132)
+Defined in: [runtime-run.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L133)
 
 Build the current row without writing it. Useful for tests + dry runs.
 
@@ -4417,7 +4417,7 @@ Build the current row without writing it. Useful for tests + dry runs.
 
 > **persist**(`metadata?`): `Promise`\<`void`\>
 
-Defined in: [runtime-run.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L139)
+Defined in: [runtime-run.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L140)
 
 Persist the current row via the configured adapter. Must be called after
 `complete()`. Idempotent for the same terminal state (the adapter sees
@@ -4437,7 +4437,7 @@ the same row on retry).
 
 ### RuntimeTelemetryOptions
 
-Defined in: [sanitize.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L29)
+Defined in: [sanitize.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L30)
 
 #### Stable
 
@@ -4447,7 +4447,7 @@ Defined in: [sanitize.ts:29](https://github.com/tangle-network/agent-runtime/blo
 
 > `optional` **includeInputs?**: `boolean`
 
-Defined in: [sanitize.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L34)
+Defined in: [sanitize.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L35)
 
 Include raw task inputs. Off by default because task inputs often contain
 customer facts, credentials, source text, or internal IDs.
@@ -4456,7 +4456,7 @@ customer facts, credentials, source text, or internal IDs.
 
 > `optional` **includeRequirementDescriptions?**: `boolean`
 
-Defined in: [sanitize.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L36)
+Defined in: [sanitize.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L37)
 
 Include requirement descriptions. Secret requirements are always redacted.
 
@@ -4464,7 +4464,7 @@ Include requirement descriptions. Secret requirements are always redacted.
 
 > `optional` **includeEvidenceIds?**: `boolean`
 
-Defined in: [sanitize.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L38)
+Defined in: [sanitize.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L39)
 
 Include evidence IDs. Off by default; counts are safer for shared reports.
 
@@ -4472,7 +4472,7 @@ Include evidence IDs. Off by default; counts are safer for shared reports.
 
 > `optional` **includeUserAnswers?**: `boolean`
 
-Defined in: [sanitize.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L40)
+Defined in: [sanitize.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L41)
 
 Include user answers from question preflight. Off by default.
 
@@ -4480,7 +4480,7 @@ Include user answers from question preflight. Off by default.
 
 > `optional` **includeControlPayloads?**: `boolean`
 
-Defined in: [sanitize.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L42)
+Defined in: [sanitize.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L43)
 
 Include action payloads and action results for control steps. Off by default.
 
@@ -4488,7 +4488,7 @@ Include action payloads and action results for control steps. Off by default.
 
 > `optional` **includeMetadata?**: `boolean`
 
-Defined in: [sanitize.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L44)
+Defined in: [sanitize.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L45)
 
 Include task metadata. Off by default because metadata may carry IDs or policy internals.
 
@@ -4496,7 +4496,7 @@ Include task metadata. Off by default because metadata may carry IDs or policy i
 
 > `optional` **includeEvalDetails?**: `boolean`
 
-Defined in: [sanitize.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L46)
+Defined in: [sanitize.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L47)
 
 Include eval detail/evidence strings. Off by default because validators may echo private input.
 
@@ -4504,7 +4504,7 @@ Include eval detail/evidence strings. Off by default because validators may echo
 
 ### SanitizedKnowledgeReadinessReport
 
-Defined in: [sanitize.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L67)
+Defined in: [sanitize.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L68)
 
 #### Stable
 
@@ -4514,67 +4514,67 @@ Defined in: [sanitize.ts:67](https://github.com/tangle-network/agent-runtime/blo
 
 > **taskId**: `string`
 
-Defined in: [sanitize.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L68)
+Defined in: [sanitize.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L69)
 
 ##### readinessScore
 
 > **readinessScore**: `number`
 
-Defined in: [sanitize.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L69)
+Defined in: [sanitize.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L70)
 
 ##### recommendedAction
 
 > **recommendedAction**: `KnowledgeRecommendedAction`
 
-Defined in: [sanitize.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L70)
+Defined in: [sanitize.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L71)
 
 ##### severity
 
 > **severity**: `ControlSeverity`
 
-Defined in: [sanitize.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L71)
+Defined in: [sanitize.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L72)
 
 ##### reason
 
 > **reason**: `string`
 
-Defined in: [sanitize.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L72)
+Defined in: [sanitize.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L73)
 
 ##### blockingMissingRequirements
 
 > **blockingMissingRequirements**: `SanitizedKnowledgeRequirement`[]
 
-Defined in: [sanitize.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L73)
+Defined in: [sanitize.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L74)
 
 ##### nonBlockingGaps
 
 > **nonBlockingGaps**: `SanitizedKnowledgeRequirement`[]
 
-Defined in: [sanitize.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L74)
+Defined in: [sanitize.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L75)
 
 ##### evidenceCount
 
 > **evidenceCount**: `number`
 
-Defined in: [sanitize.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L75)
+Defined in: [sanitize.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L76)
 
 ##### evidenceIds?
 
 > `optional` **evidenceIds?**: `string`[]
 
-Defined in: [sanitize.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L76)
+Defined in: [sanitize.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L77)
 
 ##### missingRequirementIds
 
 > **missingRequirementIds**: `string`[]
 
-Defined in: [sanitize.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L77)
+Defined in: [sanitize.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L78)
 
 ***
 
 ### RuntimeEventCollector
 
-Defined in: [sanitize.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L492)
+Defined in: [sanitize.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L493)
 
 #### Stable
 
@@ -4602,7 +4602,7 @@ Defined in: [sanitize.ts:492](https://github.com/tangle-network/agent-runtime/bl
 
 > **onEvent**: (`event`) => `void`
 
-Defined in: [sanitize.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L498)
+Defined in: [sanitize.ts:499](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L499)
 
 ###### Parameters
 
@@ -4618,13 +4618,13 @@ Defined in: [sanitize.ts:498](https://github.com/tangle-network/agent-runtime/bl
 
 > **events**: `Record`\<`string`, `unknown`\>[]
 
-Defined in: [sanitize.ts:499](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L499)
+Defined in: [sanitize.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L500)
 
 ***
 
 ### RuntimeStreamEventCollector
 
-Defined in: [sanitize.ts:522](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L522)
+Defined in: [sanitize.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L523)
 
 #### Stable
 
@@ -4634,13 +4634,13 @@ Defined in: [sanitize.ts:522](https://github.com/tangle-network/agent-runtime/bl
 
 > **onEvent**: `RuntimeStreamEventSink`
 
-Defined in: [sanitize.ts:523](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L523)
+Defined in: [sanitize.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L524)
 
 ##### events
 
 > **events**: `Record`\<`string`, `unknown`\>[]
 
-Defined in: [sanitize.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L524)
+Defined in: [sanitize.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L525)
 
 #### Methods
 
@@ -4648,7 +4648,7 @@ Defined in: [sanitize.ts:524](https://github.com/tangle-network/agent-runtime/bl
 
 > **summary**(): `RuntimeStreamEventSummary`
 
-Defined in: [sanitize.ts:526](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L526)
+Defined in: [sanitize.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L527)
 
 Snapshot of a small streaming-flavored summary derived from collected events.
 
@@ -5164,7 +5164,7 @@ Defined in: [tool-loop.ts:330](https://github.com/tangle-network/agent-runtime/b
 
 ### AgentTaskSpec
 
-Defined in: [types.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L26)
+Defined in: [types.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L27)
 
 #### Stable
 
@@ -5174,19 +5174,19 @@ Defined in: [types.ts:26](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **id**: `string`
 
-Defined in: [types.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L27)
+Defined in: [types.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L28)
 
 ##### intent
 
 > **intent**: `string`
 
-Defined in: [types.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L28)
+Defined in: [types.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L29)
 
 ##### domain?
 
 > `optional` **domain?**: `string`
 
-Defined in: [types.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L30)
+Defined in: [types.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L31)
 
 Domain is metadata, not an architectural boundary: tax, legal, gtm, creative, blueprint, redteam, etc.
 
@@ -5194,31 +5194,31 @@ Domain is metadata, not an architectural boundary: tax, legal, gtm, creative, bl
 
 > `optional` **inputs?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L31)
+Defined in: [types.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L32)
 
 ##### requiredKnowledge?
 
 > `optional` **requiredKnowledge?**: `KnowledgeRequirement`[]
 
-Defined in: [types.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L32)
+Defined in: [types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L33)
 
 ##### budget?
 
 > `optional` **budget?**: `Partial`\<`ControlBudget`\>
 
-Defined in: [types.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L33)
+Defined in: [types.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L34)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L34)
+Defined in: [types.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L35)
 
 ***
 
 ### AgentKnowledgeProvider
 
-Defined in: [types.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L38)
+Defined in: [types.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L39)
 
 #### Stable
 
@@ -5228,7 +5228,7 @@ Defined in: [types.ts:38](https://github.com/tangle-network/agent-runtime/blob/m
 
 > `optional` **buildReadiness**(`task`): `KnowledgeReadinessReport` \| `Promise`\<`KnowledgeReadinessReport`\>
 
-Defined in: [types.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L39)
+Defined in: [types.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L40)
 
 ###### Parameters
 
@@ -5244,7 +5244,7 @@ Defined in: [types.ts:39](https://github.com/tangle-network/agent-runtime/blob/m
 
 > `optional` **answerQuestions**(`questions`, `task`): `Record`\<`string`, `string`\> \| `Promise`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [types.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L40)
+Defined in: [types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L41)
 
 ###### Parameters
 
@@ -5264,7 +5264,7 @@ Defined in: [types.ts:40](https://github.com/tangle-network/agent-runtime/blob/m
 
 > `optional` **executeAcquisitionPlans**(`plans`, `task`): `string`[] \| `Promise`\<`string`[]\>
 
-Defined in: [types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L44)
+Defined in: [types.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L45)
 
 ###### Parameters
 
@@ -5284,7 +5284,7 @@ Defined in: [types.ts:44](https://github.com/tangle-network/agent-runtime/blob/m
 
 > `optional` **refreshReadiness**(`input`): `KnowledgeReadinessReport` \| `Promise`\<`KnowledgeReadinessReport`\>
 
-Defined in: [types.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L48)
+Defined in: [types.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L49)
 
 ###### Parameters
 
@@ -5314,7 +5314,7 @@ Defined in: [types.ts:48](https://github.com/tangle-network/agent-runtime/blob/m
 
 ### AgentTaskContext
 
-Defined in: [types.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L57)
+Defined in: [types.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L58)
 
 #### Stable
 
@@ -5342,73 +5342,73 @@ Defined in: [types.ts:57](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L63)
+Defined in: [types.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L64)
 
 ##### knowledge
 
 > **knowledge**: `KnowledgeReadinessReport`
 
-Defined in: [types.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L64)
+Defined in: [types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L65)
 
 ##### state
 
 > **state**: `TState`
 
-Defined in: [types.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L65)
+Defined in: [types.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L66)
 
 ##### evals
 
 > **evals**: `TEval`[]
 
-Defined in: [types.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L66)
+Defined in: [types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L67)
 
 ##### history
 
 > **history**: `ControlStep`\<`TState`, `TAction`, `TActionResult`, `TEval`\>[]
 
-Defined in: [types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L67)
+Defined in: [types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L68)
 
 ##### budget
 
 > **budget**: `ControlBudget`
 
-Defined in: [types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L68)
+Defined in: [types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L69)
 
 ##### stepIndex
 
 > **stepIndex**: `number`
 
-Defined in: [types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L69)
+Defined in: [types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L70)
 
 ##### wallMs
 
 > **wallMs**: `number`
 
-Defined in: [types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L70)
+Defined in: [types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L71)
 
 ##### spentCostUsd
 
 > **spentCostUsd**: `number`
 
-Defined in: [types.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L71)
+Defined in: [types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L72)
 
 ##### remainingCostUsd?
 
 > `optional` **remainingCostUsd?**: `number`
 
-Defined in: [types.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L72)
+Defined in: [types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L73)
 
 ##### abortSignal
 
 > **abortSignal**: `AbortSignal`
 
-Defined in: [types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L73)
+Defined in: [types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L74)
 
 ***
 
 ### AgentAdapter
 
-Defined in: [types.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L77)
+Defined in: [types.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L78)
 
 #### Stable
 
@@ -5436,7 +5436,7 @@ Defined in: [types.ts:77](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **observe**(`ctx`): `TState` \| `Promise`\<`TState`\>
 
-Defined in: [types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L83)
+Defined in: [types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L84)
 
 ###### Parameters
 
@@ -5466,7 +5466,7 @@ Defined in: [types.ts:83](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **validate**(`ctx`): `TEval`[] \| `Promise`\<`TEval`[]\>
 
-Defined in: [types.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L90)
+Defined in: [types.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L91)
 
 ###### Parameters
 
@@ -5500,7 +5500,7 @@ Defined in: [types.ts:90](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **decide**(`ctx`): `ControlDecision`\<`TAction`\> \| `Promise`\<`ControlDecision`\<`TAction`\>\>
 
-Defined in: [types.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L98)
+Defined in: [types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L99)
 
 ###### Parameters
 
@@ -5516,7 +5516,7 @@ Defined in: [types.ts:98](https://github.com/tangle-network/agent-runtime/blob/m
 
 > **act**(`action`, `ctx`): `TActionResult` \| `Promise`\<`TActionResult`\>
 
-Defined in: [types.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L102)
+Defined in: [types.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L103)
 
 ###### Parameters
 
@@ -5536,7 +5536,7 @@ Defined in: [types.ts:102](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **shouldStop**(`ctx`): `Promise`\<\{ `stop`: `boolean`; `pass`: `boolean`; `reason`: `string`; `score?`: `number`; \}\> \| \{ `stop`: `boolean`; `pass`: `boolean`; `reason`: `string`; `score?`: `number`; \}
 
-Defined in: [types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L107)
+Defined in: [types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L108)
 
 ###### Parameters
 
@@ -5552,7 +5552,7 @@ Defined in: [types.ts:107](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **onKnowledgeBlocked**(`ctx`): `ControlDecision`\<`TAction`\> \| `Promise`\<`ControlDecision`\<`TAction`\>\>
 
-Defined in: [types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L121)
+Defined in: [types.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L122)
 
 ###### Parameters
 
@@ -5582,7 +5582,7 @@ Defined in: [types.ts:121](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **getActionCostUsd**(`ctx`): `number` \| `undefined`
 
-Defined in: [types.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L128)
+Defined in: [types.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L129)
 
 ###### Parameters
 
@@ -5620,7 +5620,7 @@ Defined in: [types.ts:128](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **projectRunRecords**(`result`, `task`): `RunRecord`[]
 
-Defined in: [types.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L137)
+Defined in: [types.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L138)
 
 ###### Parameters
 
@@ -5640,9 +5640,7 @@ Defined in: [types.ts:137](https://github.com/tangle-network/agent-runtime/blob/
 
 ### BackendErrorDetail
 
-Defined in: [types.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L210)
-
-#### Stable
+Defined in: [types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L212)
 
 Typed transport / backend failure detail. Carried on `backend_error` and
 `final` events when the backend's stream throws or the upstream HTTP call
@@ -5656,13 +5654,15 @@ misconfigured proxy never bloats event payloads or logs. Consumers needing
 the full body should inspect the underlying `BackendTransportError.body`
 via a custom `mapEvent` or backend wrapper.
 
+#### Stable
+
 #### Properties
 
 ##### kind
 
 > **kind**: `"backend"` \| `"transport"`
 
-Defined in: [types.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L216)
+Defined in: [types.ts:218](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L218)
 
 `'transport'` — upstream HTTP / network failure with optional status code.
 `'backend'` — the backend's `stream()` generator threw for a non-transport
@@ -5672,13 +5672,13 @@ reason (e.g. a custom adapter error, sandbox crash).
 
 > **message**: `string`
 
-Defined in: [types.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L217)
+Defined in: [types.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L219)
 
 ##### status?
 
 > `optional` **status?**: `number`
 
-Defined in: [types.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L219)
+Defined in: [types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L221)
 
 Upstream HTTP status when known. `0` for connection / abort errors.
 
@@ -5686,7 +5686,7 @@ Upstream HTTP status when known. `0` for connection / abort errors.
 
 > `optional` **body?**: `string`
 
-Defined in: [types.ts:221](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L221)
+Defined in: [types.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L223)
 
 Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 
@@ -5694,9 +5694,7 @@ Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 
 ### OpenAIChatTool
 
-Defined in: [types.ts:239](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L239)
-
-#### Stable
+Defined in: [types.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L242)
 
 OpenAI Chat Completions tool descriptor. The shape mirrors the
 `/v1/chat/completions` `tools[]` parameter so callers can pass tool
@@ -5710,19 +5708,21 @@ MCP `tools/list` at config time and project the result into this shape. The
 runtime intentionally does NOT depend on `@modelcontextprotocol/sdk` —
 keeping the backend transport thin lets domain repos own MCP plumbing.
 
+#### Stable
+
 #### Properties
 
 ##### type
 
 > **type**: `"function"`
 
-Defined in: [types.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L240)
+Defined in: [types.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L243)
 
 ##### function
 
 > **function**: `object`
 
-Defined in: [types.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L241)
+Defined in: [types.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L244)
 
 ###### name
 
@@ -5740,7 +5740,7 @@ Defined in: [types.ts:241](https://github.com/tangle-network/agent-runtime/blob/
 
 ### RuntimeSessionStore
 
-Defined in: [types.ts:456](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L456)
+Defined in: [types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L461)
 
 #### Stable
 
@@ -5750,7 +5750,7 @@ Defined in: [types.ts:456](https://github.com/tangle-network/agent-runtime/blob/
 
 > **get**(`sessionId`): `RuntimeSession` \| `Promise`\<`RuntimeSession` \| `undefined`\> \| `undefined`
 
-Defined in: [types.ts:457](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L457)
+Defined in: [types.ts:462](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L462)
 
 ###### Parameters
 
@@ -5766,7 +5766,7 @@ Defined in: [types.ts:457](https://github.com/tangle-network/agent-runtime/blob/
 
 > **put**(`session`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:458](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L458)
+Defined in: [types.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L463)
 
 ###### Parameters
 
@@ -5782,7 +5782,7 @@ Defined in: [types.ts:458](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **appendEvent**(`sessionId`, `event`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L459)
+Defined in: [types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L464)
 
 ###### Parameters
 
@@ -5802,7 +5802,7 @@ Defined in: [types.ts:459](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **listEvents**(`sessionId`): [`RuntimeStreamEvent`](#runtimestreamevent)[] \| `Promise`\<[`RuntimeStreamEvent`](#runtimestreamevent)[]\>
 
-Defined in: [types.ts:460](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L460)
+Defined in: [types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L465)
 
 ###### Parameters
 
@@ -5818,7 +5818,7 @@ Defined in: [types.ts:460](https://github.com/tangle-network/agent-runtime/blob/
 
 ### AgentBackendInput
 
-Defined in: [types.ts:464](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L464)
+Defined in: [types.ts:469](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L469)
 
 #### Stable
 
@@ -5828,19 +5828,19 @@ Defined in: [types.ts:464](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L465)
+Defined in: [types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L470)
 
 ##### message?
 
 > `optional` **message?**: `string`
 
-Defined in: [types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L466)
+Defined in: [types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L471)
 
 ##### messages?
 
 > `optional` **messages?**: `object`[]
 
-Defined in: [types.ts:467](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L467)
+Defined in: [types.ts:472](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L472)
 
 ###### role
 
@@ -5854,13 +5854,13 @@ Defined in: [types.ts:467](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **inputs?**: `Record`\<`string`, `unknown`\>
 
-Defined in: [types.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L468)
+Defined in: [types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L473)
 
 ***
 
 ### AgentBackendContext
 
-Defined in: [types.ts:472](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L472)
+Defined in: [types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L477)
 
 #### Stable
 
@@ -5870,31 +5870,31 @@ Defined in: [types.ts:472](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:473](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L473)
+Defined in: [types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L478)
 
 ##### knowledge
 
 > **knowledge**: `KnowledgeReadinessReport`
 
-Defined in: [types.ts:474](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L474)
+Defined in: [types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L479)
 
 ##### session
 
 > **session**: `RuntimeSession`
 
-Defined in: [types.ts:475](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L475)
+Defined in: [types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L480)
 
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L476)
+Defined in: [types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L481)
 
 ##### runId?
 
 > `optional` **runId?**: `string`
 
-Defined in: [types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L482)
+Defined in: [types.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L487)
 
 Conversation/run identifier when this call is part of a multi-agent run.
 Backends should stamp it into any trace/log emission so cross-participant
@@ -5904,7 +5904,7 @@ events correlate. Absent when the call is a stand-alone `runAgentTask`.
 
 > `optional` **turnId?**: `string`
 
-Defined in: [types.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L487)
+Defined in: [types.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L492)
 
 Deterministic turn id for this single call. Stable across retries of the
 same logical turn so a caching gateway / idempotent backend can dedupe.
@@ -5913,7 +5913,7 @@ same logical turn so a caching gateway / idempotent backend can dedupe.
 
 > `optional` **parentTurnId?**: `string`
 
-Defined in: [types.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L493)
+Defined in: [types.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L498)
 
 If this call is itself nested inside a higher-order conversation
 (recursion via `createConversationBackend`), the enclosing turn's id.
@@ -5923,7 +5923,7 @@ Used for trace stitching across nested orchestration.
 
 > `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [types.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L500)
+Defined in: [types.ts:505](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L505)
 
 Headers to forward verbatim to any outbound HTTP the backend issues:
 `X-Tangle-Forwarded-Authorization`, `X-Tangle-Forwarded-Depth`,
@@ -5934,7 +5934,7 @@ the outbound request; backends that don't issue HTTP may ignore them.
 
 ### AgentExecutionBackend
 
-Defined in: [types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L504)
+Defined in: [types.ts:509](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L509)
 
 #### Stable
 
@@ -5950,7 +5950,7 @@ Defined in: [types.ts:504](https://github.com/tangle-network/agent-runtime/blob/
 
 > **kind**: `string`
 
-Defined in: [types.ts:505](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L505)
+Defined in: [types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L510)
 
 #### Methods
 
@@ -5958,7 +5958,7 @@ Defined in: [types.ts:505](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **start**(`input`, `context`): `RuntimeSession` \| `Promise`\<`RuntimeSession`\>
 
-Defined in: [types.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L506)
+Defined in: [types.ts:511](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L511)
 
 ###### Parameters
 
@@ -5978,7 +5978,7 @@ Defined in: [types.ts:506](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **resume**(`session`, `input`, `context`): `RuntimeSession` \| `Promise`\<`RuntimeSession`\>
 
-Defined in: [types.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L510)
+Defined in: [types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L515)
 
 ###### Parameters
 
@@ -6002,7 +6002,7 @@ Defined in: [types.ts:510](https://github.com/tangle-network/agent-runtime/blob/
 
 > **stream**(`input`, `context`): `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
 
-Defined in: [types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L515)
+Defined in: [types.ts:520](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L520)
 
 ###### Parameters
 
@@ -6022,7 +6022,7 @@ Defined in: [types.ts:515](https://github.com/tangle-network/agent-runtime/blob/
 
 > `optional` **stop**(`session`, `reason`): `void` \| `Promise`\<`void`\>
 
-Defined in: [types.ts:516](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L516)
+Defined in: [types.ts:521](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L521)
 
 ###### Parameters
 
@@ -6042,7 +6042,7 @@ Defined in: [types.ts:516](https://github.com/tangle-network/agent-runtime/blob/
 
 ### AgentTaskRunResult
 
-Defined in: [types.ts:552](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L552)
+Defined in: [types.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L557)
 
 #### Stable
 
@@ -6070,55 +6070,55 @@ Defined in: [types.ts:552](https://github.com/tangle-network/agent-runtime/blob/
 
 > **task**: [`AgentTaskSpec`](#agenttaskspec)
 
-Defined in: [types.ts:558](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L558)
+Defined in: [types.ts:563](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L563)
 
 ##### status
 
 > **status**: [`AgentTaskStatus`](#agenttaskstatus)
 
-Defined in: [types.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L559)
+Defined in: [types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L564)
 
 ##### knowledge
 
 > **knowledge**: `KnowledgeReadinessReport`
 
-Defined in: [types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L560)
+Defined in: [types.ts:565](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L565)
 
 ##### questions
 
 > **questions**: `UserQuestion`[]
 
-Defined in: [types.ts:561](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L561)
+Defined in: [types.ts:566](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L566)
 
 ##### acquisitionPlans
 
 > **acquisitionPlans**: `DataAcquisitionPlan`[]
 
-Defined in: [types.ts:562](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L562)
+Defined in: [types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L567)
 
 ##### userAnswers
 
 > **userAnswers**: `Record`\<`string`, `string`\>
 
-Defined in: [types.ts:563](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L563)
+Defined in: [types.ts:568](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L568)
 
 ##### acquiredEvidenceIds
 
 > **acquiredEvidenceIds**: `string`[]
 
-Defined in: [types.ts:564](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L564)
+Defined in: [types.ts:569](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L569)
 
 ##### control
 
 > **control**: `ControlRunResult`\<`TState`, `TAction`, `TActionResult`, `TEval`\>
 
-Defined in: [types.ts:565](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L565)
+Defined in: [types.ts:570](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L570)
 
 ##### runRecords
 
 > **runRecords**: `RunRecord`[]
 
-Defined in: [types.ts:566](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L566)
+Defined in: [types.ts:571](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L571)
 
 ## Type Aliases
 
@@ -6126,7 +6126,7 @@ Defined in: [types.ts:566](https://github.com/tangle-network/agent-runtime/blob/
 
 > **RetryableErrorPredicate** = (`err`) => `boolean`
 
-Defined in: [conversation/call-policy.ts:17](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L17)
+Defined in: [conversation/call-policy.ts:18](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L18)
 
 Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors.
 
@@ -6146,7 +6146,7 @@ Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, Abo
 
 > **RetryBackoff** = `number` \| ((`attempt`) => `number`)
 
-Defined in: [conversation/call-policy.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L20)
+Defined in: [conversation/call-policy.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L21)
 
 Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`.
 
@@ -6156,7 +6156,7 @@ Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`.
 
 > **ForwardHeaderName** = *typeof* [`FORWARD_HEADERS`](#forward_headers)\[keyof *typeof* [`FORWARD_HEADERS`](#forward_headers)\]
 
-Defined in: [conversation/headers.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L34)
+Defined in: [conversation/headers.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L35)
 
 ***
 
@@ -6164,7 +6164,7 @@ Defined in: [conversation/headers.ts:34](https://github.com/tangle-network/agent
 
 > **PropagatedHeaders** = `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [conversation/headers.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L110)
+Defined in: [conversation/headers.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L111)
 
 Header bag carried through `AgentBackendContext.propagatedHeaders` so
 backends that opt in can merge them into their outbound HTTP requests.
@@ -6188,7 +6188,7 @@ A persona that drives the conversation: either a full driver `AgentProfile`
 
 > **AuthSource** = `"forward-user"` \| `"agent-owned"` \| ((`state`) => `"forward-user"` \| `"agent-owned"`)
 
-Defined in: [conversation/types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L67)
+Defined in: [conversation/types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L68)
 
 #### Stable
 
@@ -6198,7 +6198,7 @@ Defined in: [conversation/types.ts:67](https://github.com/tangle-network/agent-r
 
 > **TurnOrder** = `"alternate"` \| `"round-robin"` \| ((`state`) => `number`)
 
-Defined in: [conversation/types.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L73)
+Defined in: [conversation/types.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L74)
 
 #### Stable
 
@@ -6208,7 +6208,7 @@ Defined in: [conversation/types.ts:73](https://github.com/tangle-network/agent-r
 
 > **HaltPredicate** = (`ctx`) => `boolean` \| [`HaltSignal`](#haltsignal) \| `Promise`\<`boolean` \| [`HaltSignal`](#haltsignal)\>
 
-Defined in: [conversation/types.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L94)
+Defined in: [conversation/types.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L95)
 
 #### Parameters
 
@@ -6228,7 +6228,7 @@ Defined in: [conversation/types.ts:94](https://github.com/tangle-network/agent-r
 
 > **HaltReason** = \{ `kind`: `"max_turns"`; `turns`: `number`; \} \| \{ `kind`: `"max_credits"`; `spentCents`: `number`; `capCents`: `number`; \} \| \{ `kind`: `"predicate"`; `reason`: `string`; \} \| \{ `kind`: `"abort"`; \} \| \{ `kind`: `"participant_error"`; `participant`: `string`; `message`: `string`; \}
 
-Defined in: [conversation/types.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L99)
+Defined in: [conversation/types.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L100)
 
 #### Stable
 
@@ -6238,7 +6238,7 @@ Defined in: [conversation/types.ts:99](https://github.com/tangle-network/agent-r
 
 > **ConversationStreamEvent** = \{ `type`: `"conversation_start"`; `runId`: `string`; `participants`: readonly `string`[]; `seed`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"conversation_resumed"`; `runId`: `string`; `participants`: readonly `string`[]; `transcript`: readonly [`ConversationTurn`](#conversationturn)[]; `timestamp`: `string`; \} \| \{ `type`: `"turn_start"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `timestamp`: `string`; \} \| \{ `type`: `"turn_text_delta"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"turn_retry"`; `runId`: `string`; `index`: `number`; `speaker`: `string`; `turnId`: `string`; `attempt`: `number`; `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"turn_end"`; `runId`: `string`; `turn`: [`ConversationTurn`](#conversationturn); `timestamp`: `string`; \} \| \{ `type`: `"conversation_end"`; `runId`: `string`; `result`: [`ConversationResult`](#conversationresult); `timestamp`: `string`; \}
 
-Defined in: [conversation/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L236)
+Defined in: [conversation/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/types.ts#L237)
 
 #### Stable
 
@@ -6248,7 +6248,7 @@ Defined in: [conversation/types.ts:236](https://github.com/tangle-network/agent-
 
 > **Verifier** = (`worktreePath`) => `Promise`\<[`VerifyResult`](#verifyresult)\> \| [`VerifyResult`](#verifyresult)
 
-Defined in: [improvement/agentic-generator.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L49)
+Defined in: [improvement/agentic-generator.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L50)
 
 Verifies the edited worktree. Sync or async; throws only on a setup fault
  (a candidate that fails verification returns `{ok:false}`, it does not
@@ -6270,7 +6270,7 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 > **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"code"`
 
-Defined in: [improvement/improve.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L45)
+Defined in: [improvement/improve.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L46)
 
 The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  profile levers; `code` is the implementation-tier surface.
@@ -6281,7 +6281,7 @@ The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
 
 > **DelegatedLoopMode** = *typeof* [`DELEGATED_LOOP_MODES`](#delegated_loop_modes)\[`number`\]
 
-Defined in: [loop-runner.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L49)
+Defined in: [loop-runner.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L50)
 
 **`Experimental`**
 
@@ -6291,7 +6291,7 @@ Defined in: [loop-runner.ts:49](https://github.com/tangle-network/agent-runtime/
 
 > **DelegatedLoopRunner**\<`T`\> = (`signal`) => `Promise`\<`T`\>
 
-Defined in: [loop-runner.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L58)
+Defined in: [loop-runner.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L59)
 
 **`Experimental`**
 
@@ -6320,7 +6320,7 @@ A pre-configured loop for one mode. Returns the mode's raw
 
 > **DelegatedLoopRegistry** = `Partial`\<`Record`\<[`DelegatedLoopMode`](#delegatedloopmode), [`DelegatedLoopRunner`](#delegatedlooprunner)\>\>
 
-Defined in: [loop-runner.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L62)
+Defined in: [loop-runner.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L63)
 
 **`Experimental`**
 
@@ -6333,7 +6333,7 @@ Mode → configured runner. Partial: only register the modes a
 
 > **RuntimeHookPhase** = `"before"` \| `"after"` \| `"error"` \| `"event"`
 
-Defined in: [runtime-hooks.ts:9](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L9)
+Defined in: [runtime-hooks.ts:10](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L10)
 
 **`Experimental`**
 
@@ -6347,7 +6347,7 @@ loop or product harness that is running the profile.
 
 > **RuntimeHookTarget** = `"agent.run"` \| `"agent.turn"` \| `"agent.tool_call"` \| `"agent.spawn"` \| `"agent.child"` \| `"agent.plan"` \| `"agent.decision"` \| `string` & `object`
 
-Defined in: [runtime-hooks.ts:11](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L11)
+Defined in: [runtime-hooks.ts:12](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L12)
 
 ***
 
@@ -6355,7 +6355,7 @@ Defined in: [runtime-hooks.ts:11](https://github.com/tangle-network/agent-runtim
 
 > **RuntimeDecisionKind** = `"continue"` \| `"verify"` \| `"ask"` \| `"retry"` \| `"stop"` \| `"memory-write"` \| `"memory-read"` \| `"tool-select"` \| `"skill-select"` \| `"workflow-select"` \| `"surface-promote"` \| `string` & `object`
 
-Defined in: [runtime-hooks.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L21)
+Defined in: [runtime-hooks.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L22)
 
 ***
 
@@ -6460,7 +6460,7 @@ Defined in: [tool-loop.ts:298](https://github.com/tangle-network/agent-runtime/b
 
 > **AgentTaskStatus** = `"completed"` \| `"blocked"` \| `"failed"` \| `"aborted"`
 
-Defined in: [types.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L144)
+Defined in: [types.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L145)
 
 #### Stable
 
@@ -6470,7 +6470,7 @@ Defined in: [types.ts:144](https://github.com/tangle-network/agent-runtime/blob/
 
 > **AgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; \} \| \{ `type`: `"control_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; \} \| \{ `type`: `"control_step"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `step`: `ControlStep`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"control_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `control`: `ControlRunResult`\<`TState`, `TAction`, `TActionResult`, `TEval`\>; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; \}
 
-Defined in: [types.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L147)
+Defined in: [types.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L148)
 
 #### Type Parameters
 
@@ -6498,7 +6498,7 @@ Defined in: [types.ts:147](https://github.com/tangle-network/agent-runtime/blob/
 
 > **AgentRuntimeEventSink**\<`TState`, `TAction`, `TActionResult`, `TEval`\> = (`event`) => `Promise`\<`void`\> \| `void`
 
-Defined in: [types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L188)
+Defined in: [types.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L189)
 
 #### Type Parameters
 
@@ -6536,14 +6536,14 @@ Defined in: [types.ts:188](https://github.com/tangle-network/agent-runtime/blob/
 
 > **OpenAIChatToolChoice** = `"auto"` \| `"none"` \| `"required"` \| \{ `type`: `"function"`; `function`: \{ `name`: `string`; \}; \}
 
-Defined in: [types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L256)
-
-#### Stable
+Defined in: [types.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L260)
 
 `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI
 spec: `'auto'` (default — model decides), `'none'` (disable tool calling
 for this turn), `'required'` (force a tool call), or a specific function
 pin `{ type: 'function', function: { name } }`.
+
+#### Stable
 
 ***
 
@@ -6551,13 +6551,13 @@ pin `{ type: 'function', function: { name } }`.
 
 > **OpenAIChatResponseFormat** = \{ `type`: `"text"`; \} \| \{ `type`: `"json_object"`; \} \| \{ `type`: `"json_schema"`; `json_schema`: `Record`\<`string`, `unknown`\>; \}
 
-Defined in: [types.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L269)
-
-#### Stable
+Defined in: [types.ts:274](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L274)
 
 `response_format` parameter for OpenAI-compatible chat endpoints. Use
 `json_object` when the caller needs syntactically valid JSON, or
 `json_schema` when the upstream provider supports schema-constrained JSON.
+
+#### Stable
 
 ***
 
@@ -6565,7 +6565,7 @@ Defined in: [types.ts:269](https://github.com/tangle-network/agent-runtime/blob/
 
 > **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: `KnowledgeReadinessDecision`; `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: `RuntimeSession`; `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: `RuntimeSession`; `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
-Defined in: [types.ts:275](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L275)
+Defined in: [types.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/types.ts#L280)
 
 #### Union Members
 
@@ -6786,7 +6786,7 @@ MUST map this to `RunRecord.error` rather than recording silent
 
 > `const` **defaultIsRetryable**: [`RetryableErrorPredicate`](#retryableerrorpredicate)
 
-Defined in: [conversation/call-policy.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L62)
+Defined in: [conversation/call-policy.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L63)
 
 Default retryable classification — network/timeout class errors. Errors
 a model deliberately throws (validation, refusal, 4xx) are not retried;
@@ -6798,7 +6798,7 @@ those represent real outcomes, not transient infrastructure faults.
 
 > `const` **FORWARD\_HEADERS**: `object`
 
-Defined in: [conversation/headers.ts:19](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L19)
+Defined in: [conversation/headers.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L20)
 
 Standard names — lowercased so Headers maps interop on every runtime.
 
@@ -6846,7 +6846,7 @@ Logical conversation peer label at the sending side, for trace stitching.
 
 > `const` **DEFAULT\_MAX\_DEPTH**: `4` = `4`
 
-Defined in: [conversation/headers.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L37)
+Defined in: [conversation/headers.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L38)
 
 Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded.
 
@@ -6856,7 +6856,7 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 > `const` **DELEGATED\_LOOP\_MODES**: readonly \[`"code"`, `"review"`, `"research"`, `"audit"`, `"self-improve"`\]
 
-Defined in: [loop-runner.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L46)
+Defined in: [loop-runner.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L47)
 
 **`Experimental`**
 
@@ -6868,7 +6868,7 @@ Every delegated-loop mode, for validation + CLI surfaces.
 
 > `const` **DEFAULT\_ROUTER\_BASE\_URL**: `"https://router.tangle.tools"` = `'https://router.tangle.tools'`
 
-Defined in: [model-resolution.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L41)
+Defined in: [model-resolution.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L42)
 
 ***
 
@@ -6886,7 +6886,7 @@ Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body).
 
 > **createIterableBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L29)
+Defined in: [backends.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L30)
 
 #### Type Parameters
 
@@ -6930,7 +6930,7 @@ Defined in: [backends.ts:29](https://github.com/tangle-network/agent-runtime/blo
 
 > **createSandboxPromptBackend**\<`TBox`, `TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L40)
+Defined in: [backends.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L41)
 
 #### Type Parameters
 
@@ -6974,7 +6974,38 @@ Defined in: [backends.ts:40](https://github.com/tangle-network/agent-runtime/blo
 
 > **createOpenAICompatibleBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [backends.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L206)
+Defined in: [backends.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L208)
+
+OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
+`POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
+Tangle Router, OpenAI direct, OpenRouter, Groq, DeepSeek, Together. The
+router also fronts Anthropic models in Anthropic-native SSE shape; this
+backend handles both.
+
+### Tool calls
+
+Pass `tools` (and optionally `toolChoice`) to forward an OpenAI Chat
+Completions `tools[]` array on every request. Streamed `tool_call` chunks
+are buffered until the model finalizes them (either `finish_reason:
+'tool_calls'` for OpenAI shape or a `content_block_stop` for Anthropic
+`tool_use` blocks proxied through the router), then emitted as a single
+`tool_call` RuntimeStreamEvent with the assembled `args`.
+
+The backend does NOT execute tools — it surfaces calls for the caller's
+own dispatcher (typically the product's MCP / sandbox runtime) to fulfill
+and feed back as a subsequent `messages` turn. This keeps the transport
+thin and lets the agent host own tool dispatch policy.
+
+### Fail-loud errors
+
+Non-success HTTP responses (4xx/5xx) and exhausted retry budgets throw
+`BackendTransportError` from inside the `stream()` generator. The runtime
+catches the throw, yields a `backend_error` with a typed `error` field
+(`kind`, `status`, truncated `body`) and a terminal `final` event with
+`status: 'failed'` carrying the same detail. Consumers MUST map
+`final.error` onto their `RunRecord.error` — silently treating an empty
+`finalText` as "agent produced nothing" hides credit exhaustion, auth
+failure, and upstream outages.
 
 #### Type Parameters
 
@@ -7040,44 +7071,13 @@ OpenAI Chat Completions `response_format`. Omit for provider default text.
 
 #### Stable
 
-OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
-`POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
-Tangle Router, OpenAI direct, OpenRouter, Groq, DeepSeek, Together. The
-router also fronts Anthropic models in Anthropic-native SSE shape; this
-backend handles both.
-
-### Tool calls
-
-Pass `tools` (and optionally `toolChoice`) to forward an OpenAI Chat
-Completions `tools[]` array on every request. Streamed `tool_call` chunks
-are buffered until the model finalizes them (either `finish_reason:
-'tool_calls'` for OpenAI shape or a `content_block_stop` for Anthropic
-`tool_use` blocks proxied through the router), then emitted as a single
-`tool_call` RuntimeStreamEvent with the assembled `args`.
-
-The backend does NOT execute tools — it surfaces calls for the caller's
-own dispatcher (typically the product's MCP / sandbox runtime) to fulfill
-and feed back as a subsequent `messages` turn. This keeps the transport
-thin and lets the agent host own tool dispatch policy.
-
-### Fail-loud errors
-
-Non-success HTTP responses (4xx/5xx) and exhausted retry budgets throw
-`BackendTransportError` from inside the `stream()` generator. The runtime
-catches the throw, yields a `backend_error` with a typed `error` field
-(`kind`, `status`, truncated `body`) and a terminal `final` event with
-`status: 'failed'` carrying the same detail. Consumers MUST map
-`final.error` onto their `RunRecord.error` — silently treating an empty
-`finalText` as "agent produced nothing" hides credit exhaustion, auth
-failure, and upstream outages.
-
 ***
 
 ### makePerAttemptSignal()
 
 > **makePerAttemptSignal**(`parentSignal`, `deadlineMs`): `object`
 
-Defined in: [conversation/call-policy.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L126)
+Defined in: [conversation/call-policy.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L127)
 
 Build a per-attempt AbortSignal linked to the parent signal AND fired when
 the deadline elapses. The returned `dispose()` MUST be called in a
@@ -7127,7 +7127,7 @@ the underlying operation throws.
 
 > **computeBackoff**(`spec`, `attempt`): `number`
 
-Defined in: [conversation/call-policy.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L166)
+Defined in: [conversation/call-policy.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L167)
 
 Compute the delay before the next attempt. Default: 250ms exponential with jitter.
 
@@ -7151,7 +7151,7 @@ Compute the delay before the next attempt. Default: 250ms exponential with jitte
 
 > **sleep**(`ms`): `Promise`\<`void`\>
 
-Defined in: [conversation/call-policy.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L176)
+Defined in: [conversation/call-policy.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L177)
 
 #### Parameters
 
@@ -7169,7 +7169,7 @@ Defined in: [conversation/call-policy.ts:176](https://github.com/tangle-network/
 
 > **createConversationBackend**(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)
 
-Defined in: [conversation/conversation-backend.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/conversation-backend.ts#L28)
+Defined in: [conversation/conversation-backend.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/conversation-backend.ts#L29)
 
 #### Parameters
 
@@ -7195,7 +7195,7 @@ Optional backend kind label. Defaults to `'conversation'`.
 
 > **defineConversation**(`input`): [`Conversation`](#conversation)
 
-Defined in: [conversation/define-conversation.ts:13](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/define-conversation.ts#L13)
+Defined in: [conversation/define-conversation.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/define-conversation.ts#L14)
 
 #### Parameters
 
@@ -7219,7 +7219,7 @@ Defined in: [conversation/define-conversation.ts:13](https://github.com/tangle-n
 
 > **readDepth**(`headers`): `number`
 
-Defined in: [conversation/headers.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L52)
+Defined in: [conversation/headers.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L53)
 
 Read the depth counter off an inbound request. Missing → 0 (caller is the
 origin). Non-integer → throws — silent coercion would let a bad caller
@@ -7241,7 +7241,7 @@ reset depth and bypass the limit.
 
 > **isDepthExceeded**(`inboundDepth`, `max?`): `boolean`
 
-Defined in: [conversation/headers.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L70)
+Defined in: [conversation/headers.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L71)
 
 Refuse further forwarding when the inbound depth has reached the limit.
 Callers (the gateway middleware) translate the boolean to an HTTP 413.
@@ -7266,7 +7266,7 @@ Callers (the gateway middleware) translate the boolean to an HTTP 413.
 
 > **buildForwardHeaders**(`input`): `Record`\<`string`, `string`\>
 
-Defined in: [conversation/headers.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L81)
+Defined in: [conversation/headers.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L82)
 
 Build the headers to emit on an outbound participant call, given the
 conversation's propagation context. Depth is incremented from the inbound
@@ -7312,7 +7312,7 @@ right wallet.
 
 > **d1ToSqlAdapter**(`db`): [`SqlAdapter`](#sqladapter)
 
-Defined in: [conversation/journal-sql.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L60)
+Defined in: [conversation/journal-sql.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal-sql.ts#L61)
 
 Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1
 consumers don't have to write the wrapper themselves; the runtime never
@@ -7334,7 +7334,7 @@ imports `@cloudflare/workers-types` directly (peer-style typing).
 
 > **runConversation**(`conversation`, `options`): `Promise`\<[`ConversationResult`](#conversationresult)\>
 
-Defined in: [conversation/run-conversation.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L64)
+Defined in: [conversation/run-conversation.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L65)
 
 #### Parameters
 
@@ -7356,7 +7356,9 @@ Defined in: [conversation/run-conversation.ts:64](https://github.com/tangle-netw
 
 > **runConversationStream**(`conversation`, `options`): `AsyncIterable`\<[`ConversationStreamEvent`](#conversationstreamevent)\>
 
-Defined in: [conversation/run-conversation.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L82)
+Defined in: [conversation/run-conversation.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-conversation.ts#L84)
+
+Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers.
 
 #### Parameters
 
@@ -7433,7 +7435,16 @@ axis is the persona, and the runner is the cell. Meters the worker through
 
 > **turnId**(`runId`, `index`, `speaker`): `string`
 
-Defined in: [conversation/turn-id.ts:14](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/turn-id.ts#L14)
+Defined in: [conversation/turn-id.ts:15](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/turn-id.ts#L15)
+
+Deterministic turn identifier. Stable across retries of the same logical
+turn so backends (and any caching gateway in between) can dedupe on it.
+A retry triggered by a network blip or deadline timeout MUST produce the
+same `turn_id`; only the underlying attempt count differs.
+
+Shape: `${runId}.t${index}.${speakerSlug}` — readable in logs, sortable by
+turn index, attributable to a speaker. Slugify keeps the speaker portion
+URL-safe so it can ride in HTTP headers without escaping.
 
 #### Parameters
 
@@ -7455,22 +7466,13 @@ Defined in: [conversation/turn-id.ts:14](https://github.com/tangle-network/agent
 
 #### Stable
 
-Deterministic turn identifier. Stable across retries of the same logical
-turn so backends (and any caching gateway in between) can dedupe on it.
-A retry triggered by a network blip or deadline timeout MUST produce the
-same `turn_id`; only the underlying attempt count differs.
-
-Shape: `${runId}.t${index}.${speakerSlug}` — readable in logs, sortable by
-turn index, attributable to a speaker. Slugify keeps the speaker portion
-URL-safe so it can ride in HTTP headers without escaping.
-
 ***
 
 ### slugifySpeaker()
 
 > **slugifySpeaker**(`speaker`): `string`
 
-Defined in: [conversation/turn-id.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/turn-id.ts#L24)
+Defined in: [conversation/turn-id.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/turn-id.ts#L25)
 
 Reduce a speaker name to ASCII alphanumerics + dashes. Preserves enough
 substance to read in a log line; collisions between speakers within a
@@ -7558,20 +7560,9 @@ Wire integration:
 
 > **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/agentic-generator.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L71)
+Defined in: [improvement/agentic-generator.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L73)
 
-`@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
-agent-eval's improvement loop.
-
-The ONE entry point for optimization is agent-eval's `selfImprove`
-(`@tangle-network/agent-eval/contract`) — text/config surfaces, held-out gated,
-with `analyzeGeneration` for analyst-fed reflection and `analyzeRuns` /
-`fromOtelSpans` / `partitionRunsByAuthoringModel` for production intake +
-cohorting. This module supplies only the one genuinely runtime-specific piece:
-a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
-mutates a git worktree via a pluggable `CandidateGenerator`:
-  - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
-  - `agenticGenerator`     — full coding harness in the worktree, multi-shot
+Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
 
 #### Parameters
 
@@ -7589,7 +7580,7 @@ mutates a git worktree via a pluggable `CandidateGenerator`:
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L159)
+Defined in: [improvement/agentic-generator.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L161)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
@@ -7658,7 +7649,7 @@ Defined in: [improvement/build-prompts.ts:43](https://github.com/tangle-network/
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L199)
+Defined in: [improvement/improve.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L200)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 
@@ -7710,7 +7701,9 @@ Optimize the system prompt, default holdout gate:
 
 > **improvementDriver**(`opts`): `SurfaceProposer`\<`AnalystFinding`\>
 
-Defined in: [improvement/improvement-driver.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L60)
+Defined in: [improvement/improvement-driver.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L62)
+
+The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`.
 
 #### Parameters
 
@@ -7746,7 +7739,9 @@ Defined in: [improvement/mcp-serve-verifier.ts:43](https://github.com/tangle-net
 
 > **reflectiveGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/reflective-generator.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L24)
+Defined in: [improvement/reflective-generator.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/reflective-generator.ts#L26)
+
+Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edits via the improvement adapter and apply them as one coherent candidate.
 
 #### Parameters
 
@@ -7764,7 +7759,7 @@ Defined in: [improvement/reflective-generator.ts:24](https://github.com/tangle-n
 
 > **isDelegatedLoopMode**(`value`): value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
 
-Defined in: [loop-runner.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L52)
+Defined in: [loop-runner.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L53)
 
 **`Experimental`**
 
@@ -7786,7 +7781,7 @@ value is "code" \| "review" \| "research" \| "audit" \| "self-improve"
 
 > **runDelegatedLoop**\<`T`\>(`mode`, `registry`, `options?`): `Promise`\<[`DelegatedLoopResult`](#delegatedloopresult)\<`T`\>\>
 
-Defined in: [loop-runner.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L89)
+Defined in: [loop-runner.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L91)
 
 **`Experimental`**
 
@@ -7825,7 +7820,7 @@ config bug, not a silent no-op. A runner that throws is captured as
 
 > **worktreeLoopRunner**(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`WorktreeHarnessResult`\>
 
-Defined in: [loop-runner.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L159)
+Defined in: [loop-runner.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L162)
 
 **`Experimental`**
 
@@ -7855,7 +7850,7 @@ patch artifact, or throws when no candidate is delivered (fail loud, never a vac
 
 > **researchLoopRunner**(`o`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`ResearchLoopResult`](#researchloopresult)\>
 
-Defined in: [loop-runner.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L244)
+Defined in: [loop-runner.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L249)
 
 **`Experimental`**
 
@@ -7882,11 +7877,11 @@ never silently dropped) so the caller audits vs retries.
 
 > **selfImproveLoopRunner**\<`TScenario`, `TArtifact`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<`SelfImproveResult`\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [loop-runner.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L271)
+Defined in: [loop-runner.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L280)
 
 **`Experimental`**
 
-`self-improve` mode — agent-eval's one-call closed loop (held-out gated).
+`self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated).
 
 #### Type Parameters
 
@@ -7914,7 +7909,7 @@ Defined in: [loop-runner.ts:271](https://github.com/tangle-network/agent-runtime
 
 > **auditLoopRunner**\<`TProposal`, `TEdit`\>(`options`): [`DelegatedLoopRunner`](#delegatedlooprunner)\<[`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)\<`TProposal`, `TEdit`\>\>
 
-Defined in: [loop-runner.ts:278](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L278)
+Defined in: [loop-runner.ts:291](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L291)
 
 **`Experimental`**
 
@@ -7946,7 +7941,7 @@ Defined in: [loop-runner.ts:278](https://github.com/tangle-network/agent-runtime
 
 > **mcpToolsForRuntimeMcp**(): [`OpenAIChatTool`](#openaichattool)[]
 
-Defined in: [mcp/openai-tools.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L62)
+Defined in: [mcp/openai-tools.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L64)
 
 **`Experimental`**
 
@@ -7964,7 +7959,7 @@ Completions `tools[]` shape. The order is stable: `delegate_feedback`,
 
 > **mcpToolsForRuntimeMcpSubset**(`names`): [`OpenAIChatTool`](#openaichattool)[]
 
-Defined in: [mcp/openai-tools.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L90)
+Defined in: [mcp/openai-tools.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/openai-tools.ts#L93)
 
 **`Experimental`**
 
@@ -7989,7 +7984,7 @@ readonly `string`[]
 
 > **resolveRouterBaseUrl**(`env?`): `string`
 
-Defined in: [model-resolution.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L44)
+Defined in: [model-resolution.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L45)
 
 Resolve the router base URL from env, normalised — no trailing `/v1` or `/`.
 
@@ -8009,7 +8004,7 @@ Resolve the router base URL from env, normalised — no trailing `/v1` or `/`.
 
 > **getModels**(`routerBaseUrl?`): `Promise`\<[`ModelInfo`](#modelinfo)[]\>
 
-Defined in: [model-resolution.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L54)
+Defined in: [model-resolution.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L55)
 
 Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx
 response — callers decide whether to fail open (empty catalog) or closed.
@@ -8030,7 +8025,7 @@ response — callers decide whether to fail open (empty catalog) or closed.
 
 > **cleanModelId**(`value`): `string` \| `undefined`
 
-Defined in: [model-resolution.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L66)
+Defined in: [model-resolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L67)
 
 Trim a candidate model id; `undefined` for non-strings and blanks.
 
@@ -8050,7 +8045,7 @@ Trim a candidate model id; `undefined` for non-strings and blanks.
 
 > **resolveChatModel**(`candidates`, `fallback`): [`ResolvedChatModel`](#resolvedchatmodel)
 
-Defined in: [model-resolution.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L89)
+Defined in: [model-resolution.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L90)
 
 Resolve a chat model by precedence: the first candidate carrying a
 non-blank model wins, else `fallback`. The caller owns the precedence
@@ -8077,7 +8072,7 @@ etc.) while the first-non-blank logic and the telemetry shape stay shared.
 
 > **validateChatModelId**(`modelId`, `options?`): `Promise`\<`ChatModelValidation`\>
 
-Defined in: [model-resolution.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L129)
+Defined in: [model-resolution.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L130)
 
 Validate a caller-supplied chat-model id. Rejects non-strings, malformed
 ids, and ids absent from both the caller's `allowlist` and the live router
@@ -8274,7 +8269,9 @@ Throws only on a missing key or network failure.
 
 > **decideKnowledgeReadiness**(`report`, `options?`): `KnowledgeReadinessDecision`
 
-Defined in: [readiness.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/readiness.ts#L22)
+Defined in: [readiness.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/readiness.ts#L27)
+
+Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on.
 
 #### Parameters
 
@@ -8300,7 +8297,7 @@ Defined in: [readiness.ts:22](https://github.com/tangle-network/agent-runtime/bl
 
 > **applyRunRecordDefaults**(`records`, `scenarioId`, `controlFailureClass`): `RunRecord`[]
 
-Defined in: [run.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L48)
+Defined in: [run.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L49)
 
 Stamp cross-cutting defaults onto adapter-projected RunRecords without
  overriding anything the adapter set explicitly:
@@ -8334,7 +8331,9 @@ Stamp cross-cutting defaults onto adapter-projected RunRecords without
 
 > **runAgentTask**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`options`): `Promise`\<[`AgentTaskRunResult`](#agenttaskrunresult)\<`TState`, `TAction`, `TActionResult`, `TEval`\>\>
 
-Defined in: [run.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L83)
+Defined in: [run.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L88)
+
+Single-shot task lifecycle for adapter-driven tasks: readiness-gated, emits the runtime lifecycle event vocabulary, session-store pluggable.
 
 #### Type Parameters
 
@@ -8372,7 +8371,9 @@ Defined in: [run.ts:83](https://github.com/tangle-network/agent-runtime/blob/mai
 
 > **runAgentTaskStream**\<`TInput`\>(`options`): `AsyncIterable`\<[`RuntimeStreamEvent`](#runtimestreamevent)\>
 
-Defined in: [run.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L197)
+Defined in: [run.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/run.ts#L206)
+
+Streaming task lifecycle: delegates execution to an `AgentExecutionBackend` (model API, sandbox, or custom iterable) and yields lifecycle events as they happen.
 
 #### Type Parameters
 
@@ -8398,7 +8399,7 @@ Defined in: [run.ts:197](https://github.com/tangle-network/agent-runtime/blob/ma
 
 > **defineRuntimeHooks**(`hooks`): [`RuntimeHooks`](#runtimehooks)
 
-Defined in: [runtime-hooks.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L106)
+Defined in: [runtime-hooks.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L107)
 
 Identity helper that types a [RuntimeHooks](#runtimehooks) literal so the fields are inferred.
 
@@ -8418,7 +8419,7 @@ Identity helper that types a [RuntimeHooks](#runtimehooks) literal so the fields
 
 > **composeRuntimeHooks**(...`entries`): [`RuntimeHooks`](#runtimehooks)
 
-Defined in: [runtime-hooks.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L115)
+Defined in: [runtime-hooks.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L116)
 
 Merge several [RuntimeHooks](#runtimehooks) into one. Falsy entries are dropped (so you can
 pass `flag && hooks`), and every observer's `onEvent`/`onDecisionPoint` fires for each
@@ -8440,7 +8441,7 @@ event. Use this to attach N observers to a loop instead of a second event bus.
 
 > **notifyRuntimeHookEvent**(`hooks`, `event`, `context?`): `void`
 
-Defined in: [runtime-hooks.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L156)
+Defined in: [runtime-hooks.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L157)
 
 #### Parameters
 
@@ -8466,7 +8467,7 @@ Defined in: [runtime-hooks.ts:156](https://github.com/tangle-network/agent-runti
 
 > **notifyRuntimeDecisionPoint**(`hooks`, `point`, `context?`): `void`
 
-Defined in: [runtime-hooks.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L186)
+Defined in: [runtime-hooks.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L187)
 
 #### Parameters
 
@@ -8492,7 +8493,10 @@ Defined in: [runtime-hooks.ts:186](https://github.com/tangle-network/agent-runti
 
 > **startRuntimeRun**(`options`): [`RuntimeRunHandle`](#runtimerunhandle)
 
-Defined in: [runtime-run.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L148)
+Defined in: [runtime-run.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-run.ts#L150)
+
+Construct a runtime-run handle. The returned handle is mutable across its
+lifetime; consumers should not share it across requests.
 
 #### Parameters
 
@@ -8506,16 +8510,13 @@ Defined in: [runtime-run.ts:148](https://github.com/tangle-network/agent-runtime
 
 #### Stable
 
-Construct a runtime-run handle. The returned handle is mutable across its
-lifetime; consumers should not share it across requests.
-
 ***
 
 ### sanitizeKnowledgeReadinessReport()
 
 > **sanitizeKnowledgeReadinessReport**(`report`, `options?`): [`SanitizedKnowledgeReadinessReport`](#sanitizedknowledgereadinessreport)
 
-Defined in: [sanitize.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L81)
+Defined in: [sanitize.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L82)
 
 #### Parameters
 
@@ -8539,7 +8540,7 @@ Defined in: [sanitize.ts:81](https://github.com/tangle-network/agent-runtime/blo
 
 > **sanitizeAgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`event`, `options?`): `Record`\<`string`, `unknown`\>
 
-Defined in: [sanitize.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L104)
+Defined in: [sanitize.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L105)
 
 #### Type Parameters
 
@@ -8581,7 +8582,7 @@ Defined in: [sanitize.ts:104](https://github.com/tangle-network/agent-runtime/bl
 
 > **sanitizeRuntimeStreamEvent**(`event`, `options?`): `Record`\<`string`, `unknown`\>
 
-Defined in: [sanitize.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L160)
+Defined in: [sanitize.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L161)
 
 #### Parameters
 
@@ -8605,7 +8606,7 @@ Defined in: [sanitize.ts:160](https://github.com/tangle-network/agent-runtime/bl
 
 > **createRuntimeEventCollector**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`options?`): [`RuntimeEventCollector`](#runtimeeventcollector)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
 
-Defined in: [sanitize.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L530)
+Defined in: [sanitize.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L531)
 
 #### Type Parameters
 
@@ -8643,7 +8644,14 @@ Defined in: [sanitize.ts:530](https://github.com/tangle-network/agent-runtime/bl
 
 > **createRuntimeStreamEventCollector**(`options?`): [`RuntimeStreamEventCollector`](#runtimestreameventcollector)
 
-Defined in: [sanitize.ts:557](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L557)
+Defined in: [sanitize.ts:559](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L559)
+
+Streaming-event counterpart of `createRuntimeEventCollector`. Pass each
+event yielded by `runAgentTaskStream` through `onEvent` and read the
+sanitized copies off `events`; the same `RuntimeTelemetryOptions` redaction
+flags apply. Kept distinct from `createRuntimeEventCollector` because the
+stream and non-stream event shapes overlap on `type` literals — dispatching
+on `type` alone would misroute events.
 
 #### Parameters
 
@@ -8657,20 +8665,13 @@ Defined in: [sanitize.ts:557](https://github.com/tangle-network/agent-runtime/bl
 
 #### Stable
 
-Streaming-event counterpart of `createRuntimeEventCollector`. Pass each
-event yielded by `runAgentTaskStream` through `onEvent` and read the
-sanitized copies off `events`; the same `RuntimeTelemetryOptions` redaction
-flags apply. Kept distinct from `createRuntimeEventCollector` because the
-stream and non-stream event shapes overlap on `type` literals — dispatching
-on `type` alone would misroute events.
-
 ***
 
 ### readinessServerSentEvent()
 
 > **readinessServerSentEvent**(`report`, `options?`): `string`
 
-Defined in: [sse.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L41)
+Defined in: [sse.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L42)
 
 #### Parameters
 
@@ -8694,7 +8695,7 @@ Defined in: [sse.ts:41](https://github.com/tangle-network/agent-runtime/blob/mai
 
 > **runtimeStreamServerSentEvent**(`event`, `options?`): `string`
 
-Defined in: [sse.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L56)
+Defined in: [sse.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L57)
 
 #### Parameters
 

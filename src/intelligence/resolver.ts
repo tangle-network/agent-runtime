@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The capability resolver — the ONLY place that knows binding kinds. It lowers a
  * `CapabilityManifest` into a uniform `ResolvedSurface` consumed identically by
@@ -23,6 +22,8 @@
  * returns the base surface only; a per-capability resolve failure DROPS that
  * capability (never a half-wired tool); a post-resolve drift check drops any tool
  * whose live names diverge from the certified interface.
+ *
+ * @experimental
  */
 
 import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'

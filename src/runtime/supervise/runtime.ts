@@ -1,5 +1,4 @@
 /**
- * @experimental
  *
  * The leaf runtime — the built-in `Executor` IMPLEMENTATIONS behind the ONE
  * open interface frozen in `./types`, plus the open resolver/registry that maps
@@ -21,6 +20,8 @@
  * Layering: `estimateCost`/`isModelPriced` are substrate primitives from
  * `@tangle-network/agent-eval`; `runLoop`/`acquireSandbox` are runtime kernels
  * from this package. No per-vendor adapters live here.
+ *
+ * @experimental
  */
 
 import { spawn } from 'node:child_process'
