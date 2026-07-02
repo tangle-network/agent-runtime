@@ -33,7 +33,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability for resumable conversations + supervisor trees. |
-| [intelligence-sdk.md](./intelligence-sdk.md) | subsystem | The product intelligence drop-in (`withTangleIntelligence`). |
+| [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | The Intelligence SDK reference — the `/intelligence` subpath (observe, effort tiers, certified delivery). |
 | [BUILDING.md](./BUILDING.md) | process | Building discipline: goal first, cheapest decisive proof, verification rules. |
 | [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes. |
 | [MAINTAINING.md](./MAINTAINING.md) | process | How the generated API reference + the docs-freshness gate stay honest. |
@@ -44,7 +44,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 |---|---|---|
 | [simplification-plan.md](./research/simplification-plan.md) | **live tracker** | The in-flight simplification/rearchitecture: the converged design, the scratch list, the doc/module inventory, the workstreams + completion criteria. |
 | [research/README.md](./research/README.md) | research index | Forward-looking design threads + decision log. Not the canonical spine. |
-| [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results). |
+| [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results, benchmark-matrix consolidation). |
 
 ## Conventions
 

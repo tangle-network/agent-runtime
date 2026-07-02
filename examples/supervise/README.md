@@ -19,5 +19,8 @@ const result = await supervise(
 
 Run: `TANGLE_API_KEY=<router key> pnpm tsx examples/supervise/supervise.ts`
 
-For the lower-level seams (`supervisorAgent` + `createSupervisor().run`, or a different worker backend
-per spawn), see `examples/supervisor-loop/`.
+This is the smallest call — router brain, router-tools workers, everything defaulted. When your
+workers need a real backend (a sandbox box, a local harness CLI, or the coordination MCP), graduate
+to [`../supervisor-loop/`](../supervisor-loop/) — the same `supervise()` call with the worker
+backend as the only knob. For the lower-level seams (`supervisorAgent` + `createSupervisor().run`)
+see its README.
