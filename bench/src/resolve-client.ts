@@ -8,6 +8,10 @@
  *                              domains whose worker is a completion, or where box egress is blocked.
  *   - `router` + searchProvider → OFF-BOX `router-tools`: the same off-box loop with a live
  *                              `web_search` tool (the capability axis research benches need).
+ *   - `bridge`               → OFF-BOX: a local cli-bridge fronting a harness CLI
+ *                              (opencode/kimi-code/…) as the leaf executor. Same resumable
+ *                              `bridgeExecutor` the supervisor uses; harness+model ride the
+ *                              bridge `model` id (`${harness}/${model}`).
  *   - anything else (`sandbox`/a BackendType) → IN-BOX: a real `Sandbox`. The in-box backend
  *                              TYPE (opencode/codex/…) is set separately on the `AgentRunSpec`;
  *                              this only decides off-box-vs-in-box transport for `runLoop`.
@@ -29,8 +33,12 @@ export interface ResolveBenchClientOptions {
    *  with a live `web_search` tool backed by this provider (`you`/`exa`/…). */
   searchProvider?: string
   sandboxBaseUrl?: string
-  /** In-box sandbox timeout (ms). */
+  /** In-box sandbox timeout (ms). Also the per-turn deadline for the `bridge` backend. */
   timeoutMs?: number
+  /** `bridge` backend: cli-bridge base URL. Defaults to `http://127.0.0.1:3355`. */
+  bridgeUrl?: string
+  /** `bridge` backend: bearer the bridge requires. Falls back to `routerKey` when unset. */
+  bridgeBearer?: string
 }
 
 export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClient {
@@ -49,6 +57,19 @@ export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClie
       )
     }
     return inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
+  }
+  if (backend === 'bridge') {
+    const bridgeBearer = opts.bridgeBearer ?? routerKey
+    if (!bridgeBearer) throw new Error("resolveBenchClient: backend 'bridge' needs bridgeBearer or routerKey")
+    return inlineSandboxClient(
+      createExecutor({
+        backend: 'bridge',
+        bridgeUrl: opts.bridgeUrl ?? 'http://127.0.0.1:3355',
+        bridgeBearer,
+        model,
+        timeoutMs: opts.timeoutMs,
+      }),
+    )
   }
   return new Sandbox({
     baseUrl: opts.sandboxBaseUrl ?? 'https://sandbox.tangle.tools',
