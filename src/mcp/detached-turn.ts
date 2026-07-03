@@ -100,7 +100,7 @@ export function formatDetachedSessionRef(parts: DetachedSessionRefParts): string
   return `sandbox=${parts.sandboxId};session=${parts.sessionId}`
 }
 
-/** @experimental Inverse of {@link formatDetachedSessionRef}; throws `ValidationError` on malformed input. */
+/** Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. @experimental */
 export function parseDetachedSessionRef(raw: string): DetachedSessionRefParts {
   const fields = new Map<string, string>()
   for (const pair of raw.split(';')) {

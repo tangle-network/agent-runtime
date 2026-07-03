@@ -78,7 +78,7 @@ export interface SanitizedKnowledgeReadinessReport {
   missingRequirementIds: string[]
 }
 
-/** @stable */
+/** Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. @stable */
 export function sanitizeKnowledgeReadinessReport(
   report: KnowledgeReadinessReport,
   options: RuntimeTelemetryOptions = {},
@@ -101,7 +101,7 @@ export function sanitizeKnowledgeReadinessReport(
   }
 }
 
-/** @stable */
+/** Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. @stable */
 export function sanitizeAgentRuntimeEvent<
   TState,
   TAction,
@@ -157,7 +157,7 @@ export function sanitizeAgentRuntimeEvent<
   return { ...base, status: event.status, reason: event.reason }
 }
 
-/** @stable */
+/** Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. @stable */
 export function sanitizeRuntimeStreamEvent(
   event: RuntimeStreamEvent,
   options: RuntimeTelemetryOptions = {},
@@ -527,7 +527,7 @@ export interface RuntimeStreamEventCollector {
   summary(): RuntimeStreamEventSummary
 }
 
-/** @stable */
+/** Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. @stable */
 export function createRuntimeEventCollector<
   TState = unknown,
   TAction = unknown,

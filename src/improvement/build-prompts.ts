@@ -27,6 +27,7 @@ function findingLines(findings: AnalystFinding[]): string[] {
   })
 }
 
+/** Build the starting instruction for a coder agent tasked with implementing a new tool. */
 export function toolBuildPrompt(args: FindingsArg): string {
   return [
     'You are building a new TOOL for this codebase to address the gaps below.',
@@ -40,6 +41,7 @@ export function toolBuildPrompt(args: FindingsArg): string {
   ].join('\n')
 }
 
+/** Build the starting instruction for a coder agent tasked with implementing a new MCP server. */
 export function mcpBuildPrompt(args: FindingsArg): string {
   return [
     'You are building a new MCP SERVER (Model Context Protocol) that exposes',

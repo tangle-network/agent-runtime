@@ -10,7 +10,9 @@
 
 ### AgentManifestError
 
-Defined in: [agent/define-agent.ts:308](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L308)
+Defined in: [agent/define-agent.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L309)
+
+Thrown when `defineAgent` finds a required surface missing on disk.
 
 #### Extends
 
@@ -22,7 +24,7 @@ Defined in: [agent/define-agent.ts:308](https://github.com/tangle-network/agent-
 
 > **new AgentManifestError**(`message`, `agentId`, `issues?`): [`AgentManifestError`](#agentmanifesterror)
 
-Defined in: [agent/define-agent.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L309)
+Defined in: [agent/define-agent.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L310)
 
 ###### Parameters
 
@@ -52,13 +54,13 @@ readonly `unknown`[] = `[]`
 
 > `readonly` **agentId**: `string`
 
-Defined in: [agent/define-agent.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L311)
+Defined in: [agent/define-agent.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L312)
 
 ##### issues
 
 > `readonly` **issues**: readonly `unknown`[] = `[]`
 
-Defined in: [agent/define-agent.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L312)
+Defined in: [agent/define-agent.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L313)
 
 ## Interfaces
 
@@ -1528,7 +1530,7 @@ directly in the chat surface.
 
 > **defineAgent**\<`TPersona`, `TRunOutput`\>(`manifest`): [`AgentManifest`](#agentmanifest)\<`TPersona`, `TRunOutput`\>
 
-Defined in: [agent/define-agent.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L332)
+Defined in: [agent/define-agent.ts:333](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/define-agent.ts#L333)
 
 Construct a validated agent manifest. Throws `AgentManifestError`
 if any required surface is missing on disk.
@@ -1588,7 +1590,9 @@ The substrate-default `ImprovementAdapter`: resolve each finding's subject to a 
 
 > **createSurfaceKnowledgeAdapter**\<`TProposal`\>(`opts`, `deps`): [`KnowledgeAdapter`](analyst-loop.md#knowledgeadapter)\<`TProposal`\>
 
-Defined in: [agent/knowledge-adapter.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L58)
+Defined in: [agent/knowledge-adapter.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/knowledge-adapter.ts#L59)
+
+Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files.
 
 #### Type Parameters
 
@@ -1755,7 +1759,9 @@ readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
 > **renderSurfaceIssues**(`issues`, `repoRoot`): `string`
 
-Defined in: [agent/surfaces.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L246)
+Defined in: [agent/surfaces.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L247)
+
+Format a list of surface validation issues into a human-readable error string.
 
 #### Parameters
 

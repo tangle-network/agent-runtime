@@ -305,6 +305,7 @@ export interface AutoApplyPolicy {
 
 // ── factory + validation ─────────────────────────────────────────────
 
+/** Thrown when `defineAgent` finds a required surface missing on disk. */
 export class AgentManifestError extends Error {
   constructor(
     message: string,

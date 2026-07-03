@@ -26,10 +26,10 @@ import {
   hashIdempotencyInput,
 } from '../task-queue'
 
-/** @experimental */
+/** MCP tool name for the `delegate_ui_audit` async kickoff tool. @experimental */
 export const DELEGATE_UI_AUDIT_TOOL_NAME = 'delegate_ui_audit'
 
-/** @experimental */
+/** Human-readable description of the `delegate_ui_audit` MCP tool, injected into the tool manifest. @experimental */
 export const DELEGATE_UI_AUDIT_DESCRIPTION = [
   'Delegate a UI/UX audit to a vision-driven auditor that produces self-contained',
   'GitHub-issue-ready Markdown findings — one file per finding, with embedded',
@@ -82,7 +82,7 @@ const ROUTE_SCHEMA = {
   additionalProperties: false,
 } as const
 
-/** @experimental */
+/** JSON Schema for `delegate_ui_audit` tool arguments (`workspaceDir`, `routes`, optional config). @experimental */
 export const DELEGATE_UI_AUDIT_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -110,7 +110,7 @@ export const DELEGATE_UI_AUDIT_INPUT_SCHEMA = {
 
 const PER_LENS_PER_ROUTE_ESTIMATE_MS = 45_000
 
-/** @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegateUiAuditArgs`; throws `TypeError` on bad input. @experimental */
 export function validateDelegateUiAuditArgs(raw: unknown): DelegateUiAuditArgs {
   if (raw === null || typeof raw !== 'object') {
     throw new TypeError('delegate_ui_audit: arguments must be an object')
@@ -296,7 +296,7 @@ export interface DelegateUiAuditHandlerOptions {
   estimateDurationMs?: (args: DelegateUiAuditArgs) => number
 }
 
-/** @experimental */
+/** Build the MCP tool handler that validates input, deduplicates via idempotency key, and enqueues a UI audit. @experimental */
 export function createDelegateUiAuditHandler(
   options: DelegateUiAuditHandlerOptions,
 ): (raw: unknown) => Promise<DelegateUiAuditResult> {

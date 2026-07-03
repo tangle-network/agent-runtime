@@ -40,6 +40,7 @@ interface JsonRpcResponse {
   error?: { code: number; message: string }
 }
 
+/** Build a `Verifier` that boots a generated MCP server over stdio and checks it exposes tools. */
 export function mcpServeVerifier(spec: McpServeSpec): Verifier {
   const timeoutMs = spec.timeoutMs ?? 30_000
   const minTools = spec.minTools ?? 1

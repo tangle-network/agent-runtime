@@ -22,10 +22,10 @@ import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate
 import type { ExecutorConfig } from '../../runtime/supervise/runtime'
 import type { Spend, SupervisedResult } from '../../runtime/supervise/types'
 
-/** @experimental */
+/** MCP tool name for the `delegate` generic-delegation tool. @experimental */
 export const DELEGATE_TOOL_NAME = 'delegate'
 
-/** @experimental */
+/** Human-readable description of the `delegate` MCP tool, injected into the tool manifest. @experimental */
 export const DELEGATE_DESCRIPTION = [
   'Delegate an INTENT to a supervisor that AUTHORS and drives whatever worker the intent needs.',
   '',
@@ -43,7 +43,7 @@ export const DELEGATE_DESCRIPTION = [
   'a success.',
 ].join('\n')
 
-/** @experimental */
+/** JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`). @experimental */
 export const DELEGATE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -71,7 +71,7 @@ export interface DelegateArgs {
   runId?: string
 }
 
-/** @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. @experimental */
 export function validateDelegateArgs(raw: unknown): DelegateArgs {
   if (raw === null || typeof raw !== 'object') {
     throw new TypeError('delegate: arguments must be an object')

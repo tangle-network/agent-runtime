@@ -55,6 +55,7 @@ export interface WaterfallCollector {
   reset(): void
 }
 
+/** Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. */
 export function createWaterfallCollector(): WaterfallCollector {
   let spans = new Map<string, WaterfallSpan>()
 

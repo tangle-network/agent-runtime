@@ -136,6 +136,7 @@ export interface ProfileRichnessThresholds {
   readonly minSystemPromptLines: number
 }
 
+/** Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt. */
 export const defaultProfileRichnessThresholds: ProfileRichnessThresholds = {
   minSystemPromptChars: 600,
   minSystemPromptLines: 6,

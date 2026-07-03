@@ -243,6 +243,7 @@ export function validateSurfaces(
   return issues
 }
 
+/** Format a list of surface validation issues into a human-readable error string. */
 export function renderSurfaceIssues(
   issues: ReadonlyArray<SurfaceValidationIssue>,
   repoRoot: string,

@@ -222,7 +222,7 @@ Then run the §5 gate. If a findings-fed driver beats random@k at equal k under 
 - `src/analyst-loop/` — `runAnalystLoop`; the trace observer feeding the canonical loop
   is `observe()` (`src/runtime/observe.ts`), consumed by the agent-driver.
 - Prompt-space optimization lives in agent-eval (`selfImprove`); the analyst-prompt
-  coordinate is measured flat (frozen-holdout tie, 2026-06-09).
+  coordinate has shown no significant lift on held-back problems in controlled runs to date — see `.evolve/current.json` and the memory ledger for the current evidence state.
 - `bench/src/selector.ts` + `bench/src/corpus-replay.mts --selector` — the deployable
   selector and its offline replay harness.
 - `bench/src/refine-loop.ts` — shared k-shot loop.

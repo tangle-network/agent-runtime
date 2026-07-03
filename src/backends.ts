@@ -26,7 +26,7 @@ import type {
   RuntimeStreamEvent,
 } from './types'
 
-/** @stable */
+/** Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. @stable */
 export function createIterableBackend<TInput extends AgentBackendInput>(options: {
   kind: string
   start?: AgentExecutionBackend<TInput>['start']
@@ -37,7 +37,7 @@ export function createIterableBackend<TInput extends AgentBackendInput>(options:
   return options
 }
 
-/** @stable */
+/** Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call. @stable */
 export function createSandboxPromptBackend<
   TBox,
   TInput extends AgentBackendInput = AgentBackendInput,

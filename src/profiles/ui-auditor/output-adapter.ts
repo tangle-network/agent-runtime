@@ -29,7 +29,7 @@ function isUiLens(v: unknown): v is UiLens {
   return typeof v === 'string' && KNOWN_LENS_VALUES.has(v as UiLens)
 }
 
-/** @experimental */
+/** Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`. @experimental */
 export function parseAuditorEvents(events: SandboxEvent[]): UiAuditOutput {
   const findings: UiFinding[] = []
   const captures: UiAuditCapture[] = []

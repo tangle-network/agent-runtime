@@ -39,6 +39,7 @@ export interface BackendCallPolicy {
   circuitBreaker?: CircuitBreakerConfig
 }
 
+/** Thrown when the circuit breaker is open for a participant and no retry is allowed yet. */
 export class CircuitOpenError extends Error {
   constructor(participant: string, retryAfterMs: number) {
     super(
@@ -48,6 +49,7 @@ export class CircuitOpenError extends Error {
   }
 }
 
+/** Thrown when a backend call exceeds its per-attempt deadline. */
 export class DeadlineExceededError extends Error {
   constructor(deadlineMs: number) {
     super(`backend call exceeded per-attempt deadline of ${deadlineMs}ms`)
@@ -174,6 +176,7 @@ export function computeBackoff(spec: RetryBackoff | undefined, attempt: number):
   return Math.max(0, spec)
 }
 
+/** Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

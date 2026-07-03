@@ -10,16 +10,9 @@
 
 ### PlatformAuthError
 
-Defined in: [platform/auth.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L50)
+Defined in: [platform/auth.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L51)
 
-`@tangle-network/agent-runtime/platform` — typed server-side clients
-for the Tangle platform's cross-site SSO bridge and integrations
-hub. Apps consume these to avoid rolling their own OAuth, session,
-and connection storage.
-
-See:
-  - [PlatformAuthClient](#platformauthclient) for "Login with Tangle"
-  - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
+Thrown when a `PlatformAuthClient` request returns a non-success status.
 
 #### Extends
 
@@ -31,7 +24,7 @@ See:
 
 > **new PlatformAuthError**(`message`, `status`, `body`): [`PlatformAuthError`](#platformautherror)
 
-Defined in: [platform/auth.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L51)
+Defined in: [platform/auth.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L52)
 
 ###### Parameters
 
@@ -61,28 +54,21 @@ Defined in: [platform/auth.ts:51](https://github.com/tangle-network/agent-runtim
 
 > `readonly` **status**: `number`
 
-Defined in: [platform/auth.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L53)
+Defined in: [platform/auth.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L54)
 
 ##### body
 
 > `readonly` **body**: `unknown`
 
-Defined in: [platform/auth.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L54)
+Defined in: [platform/auth.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L55)
 
 ***
 
 ### PlatformAuthClient
 
-Defined in: [platform/auth.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L61)
+Defined in: [platform/auth.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L63)
 
-`@tangle-network/agent-runtime/platform` — typed server-side clients
-for the Tangle platform's cross-site SSO bridge and integrations
-hub. Apps consume these to avoid rolling their own OAuth, session,
-and connection storage.
-
-See:
-  - [PlatformAuthClient](#platformauthclient) for "Login with Tangle"
-  - [PlatformHubClient](#platformhubclient) for the `/v1/hub/*` surface
+HTTP client for the Tangle Platform SSO: builds authorize URLs and exchanges auth codes for API keys.
 
 #### Constructors
 
@@ -90,7 +76,7 @@ See:
 
 > **new PlatformAuthClient**(`options`): [`PlatformAuthClient`](#platformauthclient)
 
-Defined in: [platform/auth.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L66)
+Defined in: [platform/auth.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L68)
 
 ###### Parameters
 
@@ -108,7 +94,7 @@ Defined in: [platform/auth.ts:66](https://github.com/tangle-network/agent-runtim
 
 > **authorizeUrl**(`options`): `string`
 
-Defined in: [platform/auth.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L81)
+Defined in: [platform/auth.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L83)
 
 Build the URL the user is redirected to in order to start SSO.
 The platform redirects back to one of `appId`'s registered
@@ -128,7 +114,7 @@ The platform redirects back to one of `appId`'s registered
 
 > **exchange**(`code`): `Promise`\<[`ExchangeCodeResult`](#exchangecoderesult)\>
 
-Defined in: [platform/auth.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L99)
+Defined in: [platform/auth.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/auth.ts#L101)
 
 Exchange a single-use auth code (delivered to the consumer's
 callback by the platform) for an API key + the user's identity.
@@ -148,7 +134,9 @@ Codes are single-use and expire ~5 minutes after issue.
 
 ### PlatformHubError
 
-Defined in: [platform/integrations.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L132)
+Defined in: [platform/integrations.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L133)
+
+Thrown when a `PlatformHubClient` request returns a non-success status.
 
 #### Extends
 
@@ -160,7 +148,7 @@ Defined in: [platform/integrations.ts:132](https://github.com/tangle-network/age
 
 > **new PlatformHubError**(`message`, `status`, `code`, `body`): [`PlatformHubError`](#platformhuberror)
 
-Defined in: [platform/integrations.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L133)
+Defined in: [platform/integrations.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L134)
 
 ###### Parameters
 
@@ -194,25 +182,27 @@ Defined in: [platform/integrations.ts:133](https://github.com/tangle-network/age
 
 > `readonly` **status**: `number`
 
-Defined in: [platform/integrations.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L135)
+Defined in: [platform/integrations.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L136)
 
 ##### code
 
 > `readonly` **code**: `string` \| `undefined`
 
-Defined in: [platform/integrations.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L136)
+Defined in: [platform/integrations.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L137)
 
 ##### body
 
 > `readonly` **body**: `unknown`
 
-Defined in: [platform/integrations.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L137)
+Defined in: [platform/integrations.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L138)
 
 ***
 
 ### PlatformHubClient
 
-Defined in: [platform/integrations.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L150)
+Defined in: [platform/integrations.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L152)
+
+HTTP client for the Tangle Platform Hub API: provider catalog, connection flow, and status.
 
 #### Constructors
 
@@ -220,7 +210,7 @@ Defined in: [platform/integrations.ts:150](https://github.com/tangle-network/age
 
 > **new PlatformHubClient**(`options`): [`PlatformHubClient`](#platformhubclient)
 
-Defined in: [platform/integrations.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L155)
+Defined in: [platform/integrations.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L157)
 
 ###### Parameters
 
@@ -238,7 +228,7 @@ Defined in: [platform/integrations.ts:155](https://github.com/tangle-network/age
 
 > **catalog**(): `Promise`\<[`CatalogResult`](#catalogresult)\>
 
-Defined in: [platform/integrations.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L166)
+Defined in: [platform/integrations.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L168)
 
 GET /v1/hub/providers — the connectable provider catalog.
 
@@ -250,7 +240,7 @@ GET /v1/hub/providers — the connectable provider catalog.
 
 > **listConnections**(): `Promise`\<[`PlatformConnection`](#platformconnection)[]\>
 
-Defined in: [platform/integrations.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L171)
+Defined in: [platform/integrations.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L173)
 
 GET /v1/hub/connections — the calling user's live connections.
 
@@ -262,7 +252,7 @@ GET /v1/hub/connections — the calling user's live connections.
 
 > **revokeConnection**(`connectionId`): `Promise`\<\{ `connection`: [`PlatformConnection`](#platformconnection); \}\>
 
-Defined in: [platform/integrations.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L180)
+Defined in: [platform/integrations.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L182)
 
 DELETE /v1/hub/connections/:connectionId — revoke + disable a connection.
 
@@ -280,7 +270,7 @@ DELETE /v1/hub/connections/:connectionId — revoke + disable a connection.
 
 > **startAuth**(`input`): `Promise`\<[`StartAuthResult`](#startauthresult)\>
 
-Defined in: [platform/integrations.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L190)
+Defined in: [platform/integrations.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L192)
 
 POST /v1/hub/connections/:provider/start — begin OAuth/grant. The provider
 is taken from the URL; the body carries `returnUrl` (+ `cli`). The platform's
@@ -301,7 +291,7 @@ substrate → `redirectUrl`); this normalizes to `authorizationUrl`.
 
 > **listHealthchecks**(): `Promise`\<[`HealthCheck`](#healthcheck)[]\>
 
-Defined in: [platform/integrations.ts:217](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L217)
+Defined in: [platform/integrations.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L219)
 
 Last-known health for every connection. The platform has no global
 healthcheck listing — health rides on each connection row — so this derives
@@ -315,7 +305,7 @@ the list from `listConnections()` (one request, no extra round-trips).
 
 > **checkConnectionHealth**(`connectionId`): `Promise`\<[`ConnectionHealthResult`](#connectionhealthresult)\>
 
-Defined in: [platform/integrations.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L231)
+Defined in: [platform/integrations.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L233)
 
 POST /v1/hub/connections/:connectionId/health — trigger a fresh health
 probe for one connection and return its updated state.
@@ -334,7 +324,7 @@ probe for one connection and return its updated state.
 
 > **runHealthchecks**(): `Promise`\<\{ `scheduled`: `number`; \}\>
 
-Defined in: [platform/integrations.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L240)
+Defined in: [platform/integrations.ts:242](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L242)
 
 Trigger a fresh health probe across all of the user's connections. The
 platform exposes health per-connection only, so this fans out over
@@ -348,7 +338,7 @@ platform exposes health per-connection only, so this fans out over
 
 > **status**(): `Promise`\<[`PlatformHubStatus`](#platformhubstatus)\>
 
-Defined in: [platform/integrations.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L247)
+Defined in: [platform/integrations.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L249)
 
 GET /v1/hub/status — principal + aggregate connection counts.
 
@@ -360,7 +350,7 @@ GET /v1/hub/status — principal + aggregate connection counts.
 
 > **mintToken**(`input`): `Promise`\<[`MintTokenResult`](#minttokenresult)\>
 
-Defined in: [platform/integrations.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L256)
+Defined in: [platform/integrations.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L258)
 
 POST /v1/hub/tokens — mint a short-lived, action-scoped capability token a
 sandbox can use to invoke one hub action on the user's behalf without
@@ -380,7 +370,7 @@ seeing the underlying provider credential.
 
 > **exec**(`input`): `Promise`\<`unknown`\>
 
-Defined in: [platform/integrations.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L261)
+Defined in: [platform/integrations.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/platform/integrations.ts#L263)
 
 POST /v1/hub/exec — execute a hub action and return its result.
 

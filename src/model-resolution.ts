@@ -39,6 +39,7 @@ export interface RouterEnv {
   TANGLE_ROUTER_BASE_URL?: string
 }
 
+/** Default Tangle Router base URL used when no env override is set. */
 export const DEFAULT_ROUTER_BASE_URL = 'https://router.tangle.tools'
 
 /** Resolve the router base URL from env, normalised — no trailing `/v1` or `/`. */

@@ -110,6 +110,8 @@ Defined in: [mcp/delegation-store.ts:76](https://github.com/tangle-network/agent
 
 **`Experimental`**
 
+In-memory `DelegationStore` — suitable for single-process use and tests.
+
 #### Implements
 
 - [`DelegationStore`](#delegationstore)
@@ -372,6 +374,8 @@ Defined in: [mcp/feedback-store.ts:42](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
+In-memory `FeedbackStore` — suitable for single-process use and tests.
+
 #### Implements
 
 - [`FeedbackStore`](#feedbackstore)
@@ -452,6 +456,8 @@ across all namespaces. Returns events in insertion order.
 Defined in: [mcp/task-queue.ts:243](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/task-queue.ts#L243)
 
 **`Experimental`**
+
+In-process queue for async delegation tasks — submit, cancel, poll status, and read history.
 
 #### Constructors
 
@@ -5930,6 +5936,8 @@ Defined in: [mcp/tools/delegate-feedback.ts:25](https://github.com/tangle-networ
 
 **`Experimental`**
 
+MCP tool name for the `delegate_feedback` feedback-recording tool.
+
 ***
 
 ### DELEGATE\_FEEDBACK\_DESCRIPTION
@@ -5940,6 +5948,8 @@ Defined in: [mcp/tools/delegate-feedback.ts:28](https://github.com/tangle-networ
 
 **`Experimental`**
 
+Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest.
+
 ***
 
 ### DELEGATE\_FEEDBACK\_INPUT\_SCHEMA
@@ -5949,6 +5959,8 @@ Defined in: [mcp/tools/delegate-feedback.ts:28](https://github.com/tangle-networ
 Defined in: [mcp/tools/delegate-feedback.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L52)
 
 **`Experimental`**
+
+JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields).
 
 #### Type Declaration
 
@@ -6102,6 +6114,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:30](https://github.com/tangle-networ
 
 **`Experimental`**
 
+MCP tool name for the `delegate_ui_audit` async kickoff tool.
+
 ***
 
 ### DELEGATE\_UI\_AUDIT\_DESCRIPTION
@@ -6112,6 +6126,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:33](https://github.com/tangle-networ
 
 **`Experimental`**
 
+Human-readable description of the `delegate_ui_audit` MCP tool, injected into the tool manifest.
+
 ***
 
 ### DELEGATE\_UI\_AUDIT\_INPUT\_SCHEMA
@@ -6121,6 +6137,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:33](https://github.com/tangle-networ
 Defined in: [mcp/tools/delegate-ui-audit.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-ui-audit.ts#L86)
 
 **`Experimental`**
+
+JSON Schema for `delegate_ui_audit` tool arguments (`workspaceDir`, `routes`, optional config).
 
 #### Type Declaration
 
@@ -6378,6 +6396,8 @@ Defined in: [mcp/tools/delegate.ts:26](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
+MCP tool name for the `delegate` generic-delegation tool.
+
 ***
 
 ### DELEGATE\_DESCRIPTION
@@ -6388,6 +6408,8 @@ Defined in: [mcp/tools/delegate.ts:29](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
+Human-readable description of the `delegate` MCP tool, injected into the tool manifest.
+
 ***
 
 ### DELEGATE\_INPUT\_SCHEMA
@@ -6397,6 +6419,8 @@ Defined in: [mcp/tools/delegate.ts:29](https://github.com/tangle-network/agent-r
 Defined in: [mcp/tools/delegate.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L47)
 
 **`Experimental`**
+
+JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`).
 
 #### Type Declaration
 
@@ -6462,6 +6486,8 @@ Defined in: [mcp/tools/delegation-history.ts:18](https://github.com/tangle-netwo
 
 **`Experimental`**
 
+MCP tool name for the `delegation_history` read-past-delegations tool.
+
 ***
 
 ### DELEGATION\_HISTORY\_DESCRIPTION
@@ -6472,6 +6498,8 @@ Defined in: [mcp/tools/delegation-history.ts:21](https://github.com/tangle-netwo
 
 **`Experimental`**
 
+Human-readable description of the `delegation_history` MCP tool, injected into the tool manifest.
+
 ***
 
 ### DELEGATION\_HISTORY\_INPUT\_SCHEMA
@@ -6481,6 +6509,8 @@ Defined in: [mcp/tools/delegation-history.ts:21](https://github.com/tangle-netwo
 Defined in: [mcp/tools/delegation-history.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L42)
 
 **`Experimental`**
+
+JSON Schema for `delegation_history` tool arguments (optional `namespace`, `profile`, `since`, `limit`).
 
 #### Type Declaration
 
@@ -6554,6 +6584,8 @@ Defined in: [mcp/tools/delegation-status.ts:17](https://github.com/tangle-networ
 
 **`Experimental`**
 
+MCP tool name for the `delegation_status` synchronous-poll tool.
+
 ***
 
 ### DELEGATION\_STATUS\_DESCRIPTION
@@ -6564,6 +6596,8 @@ Defined in: [mcp/tools/delegation-status.ts:20](https://github.com/tangle-networ
 
 **`Experimental`**
 
+Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest.
+
 ***
 
 ### DELEGATION\_STATUS\_INPUT\_SCHEMA
@@ -6573,6 +6607,8 @@ Defined in: [mcp/tools/delegation-status.ts:20](https://github.com/tangle-networ
 Defined in: [mcp/tools/delegation-status.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L42)
 
 **`Experimental`**
+
+JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`).
 
 #### Type Declaration
 
@@ -6807,6 +6843,8 @@ Defined in: [mcp/delegation-trace.ts:131](https://github.com/tangle-network/agen
 
 **`Experimental`**
 
+Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle.
+
 #### Parameters
 
 ##### onSpans
@@ -6876,7 +6914,7 @@ Defined in: [mcp/detached-turn.ts:104](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
-Inverse of [formatDetachedSessionRef](#formatdetachedsessionref); throws `ValidationError` on malformed input.
+Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input.
 
 #### Parameters
 
@@ -7377,6 +7415,8 @@ Defined in: [mcp/tools/delegate-feedback.ts:83](https://github.com/tangle-networ
 
 **`Experimental`**
 
+Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input.
+
 #### Parameters
 
 ##### raw
@@ -7396,6 +7436,8 @@ Defined in: [mcp/tools/delegate-feedback.ts:83](https://github.com/tangle-networ
 Defined in: [mcp/tools/delegate-feedback.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate-feedback.ts#L160)
 
 **`Experimental`**
+
+Build the MCP tool handler that persists feedback events and attaches them to delegation records.
 
 #### Parameters
 
@@ -7417,6 +7459,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:114](https://github.com/tangle-netwo
 
 **`Experimental`**
 
+Parse and validate raw MCP tool input into typed `DelegateUiAuditArgs`; throws `TypeError` on bad input.
+
 #### Parameters
 
 ##### raw
@@ -7437,6 +7481,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:300](https://github.com/tangle-netwo
 
 **`Experimental`**
 
+Build the MCP tool handler that validates input, deduplicates via idempotency key, and enqueues a UI audit.
+
 #### Parameters
 
 ##### options
@@ -7456,6 +7502,8 @@ Defined in: [mcp/tools/delegate-ui-audit.ts:300](https://github.com/tangle-netwo
 Defined in: [mcp/tools/delegate.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegate.ts#L75)
 
 **`Experimental`**
+
+Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input.
 
 #### Parameters
 
@@ -7499,6 +7547,8 @@ Defined in: [mcp/tools/delegation-history.ts:54](https://github.com/tangle-netwo
 
 **`Experimental`**
 
+Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input.
+
 #### Parameters
 
 ##### raw
@@ -7518,6 +7568,8 @@ Defined in: [mcp/tools/delegation-history.ts:54](https://github.com/tangle-netwo
 Defined in: [mcp/tools/delegation-history.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-history.ts#L95)
 
 **`Experimental`**
+
+Build the MCP tool handler that reads filtered past delegations from a `DelegationTaskQueue`.
 
 #### Parameters
 
@@ -7539,6 +7591,8 @@ Defined in: [mcp/tools/delegation-status.ts:57](https://github.com/tangle-networ
 
 **`Experimental`**
 
+Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input.
+
 #### Parameters
 
 ##### raw
@@ -7558,6 +7612,8 @@ Defined in: [mcp/tools/delegation-status.ts:57](https://github.com/tangle-networ
 Defined in: [mcp/tools/delegation-status.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/delegation-status.ts#L82)
 
 **`Experimental`**
+
+Build the MCP tool handler that polls a `DelegationTaskQueue` for task status.
 
 #### Parameters
 
@@ -7651,6 +7707,8 @@ Defined in: [mcp/worktree.ts:114](https://github.com/tangle-network/agent-runtim
 
 **`Experimental`**
 
+Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`.
+
 #### Parameters
 
 ##### options
@@ -7671,6 +7729,8 @@ Defined in: [mcp/worktree.ts:134](https://github.com/tangle-network/agent-runtim
 
 **`Experimental`**
 
+Stage all changes in a worktree and return the diff patch + shortstat against the base ref.
+
 #### Parameters
 
 ##### options
@@ -7690,6 +7750,8 @@ Defined in: [mcp/worktree.ts:134](https://github.com/tangle-network/agent-runtim
 Defined in: [mcp/worktree.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L174)
 
 **`Experimental`**
+
+Remove a git worktree and delete its branch; tolerates already-removed paths.
 
 #### Parameters
 

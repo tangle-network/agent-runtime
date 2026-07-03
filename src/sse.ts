@@ -38,7 +38,7 @@ export function encodeServerSentEvent(data: unknown, options: ServerSentEventOpt
   return `${lines.join('\n')}\n\n`
 }
 
-/** @stable */
+/** Serialize a `KnowledgeReadinessReport` as a Server-Sent Event string. @stable */
 export function readinessServerSentEvent(
   report: KnowledgeReadinessReport,
   options: RuntimeTelemetryOptions & ServerSentEventOptions = {},
@@ -53,7 +53,7 @@ export function readinessServerSentEvent(
   )
 }
 
-/** @stable */
+/** Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. @stable */
 export function runtimeStreamServerSentEvent(
   event: RuntimeStreamEvent,
   options: RuntimeTelemetryOptions & ServerSentEventOptions = {},

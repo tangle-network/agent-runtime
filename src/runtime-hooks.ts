@@ -154,6 +154,7 @@ export function composeRuntimeHooks(
   }
 }
 
+/** Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`. */
 export function notifyRuntimeHookEvent(
   hooks: RuntimeHooks | undefined,
   event: RuntimeHookEvent,
@@ -184,6 +185,7 @@ export function notifyRuntimeHookEvent(
   }
 }
 
+/** Fire `hooks.onDecisionPoint`, swallowing sync throws and surfacing async failures to `onError`. */
 export function notifyRuntimeDecisionPoint(
   hooks: RuntimeHooks | undefined,
   point: RuntimeDecisionPoint,

@@ -30,12 +30,12 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
 | `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
-| `createIterableBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
 | `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
 | `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
-| `createRuntimeEventCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
 | `createRuntimeStreamEventCollector` | function | Streaming-event counterpart of `createRuntimeEventCollector`. Pass each |
-| `createSandboxPromptBackend` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createSandboxPromptBackend` | function | Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
 | `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
@@ -46,19 +46,19 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
 | `improvementDriver` | function | The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. |
-| `isDelegatedLoopMode` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
 | `loopEventToOtelSpan` | function | Convert a LoopTraceEvent into an OtelSpan for export. |
 | `makePerAttemptSignal` | function | Build a per-attempt AbortSignal linked to the parent signal AND fired when |
-| `mcpBuildPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `mcpServeVerifier` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `mcpBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new MCP server. |
+| `mcpServeVerifier` | function | Build a `Verifier` that boots a generated MCP server over stdio and checks it exposes tools. |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
-| `notifyRuntimeDecisionPoint` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `notifyRuntimeHookEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `notifyRuntimeDecisionPoint` | function | Fire `hooks.onDecisionPoint`, swallowing sync throws and surfacing async failures to `onError`. |
+| `notifyRuntimeHookEvent` | function | Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`. |
 | `parseLoopRunnerArgv` | function | Parse `--mode X --config Y` from an argv tail (`process.argv.slice(2)`). |
 | `readDepth` | function | Read the depth counter off an inbound request. Missing → 0 (caller is the |
-| `readinessServerSentEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `readinessServerSentEvent` | function | Serialize a `KnowledgeReadinessReport` as a Server-Sent Event string. |
 | `reflectiveGenerator` | function | Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edits via the improvement adapter and apply them as one coherent candidate. |
 | `researchLoopRunner` | function | `research` mode — research-in-a-loop with valid-only KB growth. |
 | `resolveChatModel` | function | Resolve a chat model by precedence: the first candidate carrying a |
@@ -71,35 +71,35 @@ Import from `@tangle-network/agent-runtime` — 208 exports.
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
-| `runtimeStreamServerSentEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
 | `runToolLoop` | function | Run the bounded tool loop and return the final text + every executed tool |
-| `sanitizeAgentRuntimeEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `sanitizeKnowledgeReadinessReport` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `sanitizeRuntimeStreamEvent` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
+| `sanitizeKnowledgeReadinessReport` | function | Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. |
+| `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
 | `selfImproveLoopRunner` | function | `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated). |
-| `sleep` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `sleep` | function | Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. |
 | `slugifySpeaker` | function | Reduce a speaker name to ASCII alphanumerics + dashes. Preserves enough |
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
-| `toolBuildPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `toolBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new tool. |
 | `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
 | `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
 | `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
-| `DEFAULT_ROUTER_BASE_URL` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `DEFAULT_ROUTER_BASE_URL` | const | Default Tangle Router base URL used when no env override is set. |
 | `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
-| `DELEGATED_LOOP_MODES` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
 | `AgentEvalError` | class | _(no summary — add a TSDoc line at the declaration)_ |
 | `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
-| `CircuitOpenError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `CircuitOpenError` | class | Thrown when the circuit breaker is open for a participant and no retry is allowed yet. |
 | `ConfigError` | class | Configuration missing or malformed (`HOME` unset, required image not supplied, env var absent). |
-| `DeadlineExceededError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `DeadlineExceededError` | class | Thrown when a backend call exceeds its per-attempt deadline. |
 | `FileConversationJournal` | class | JSONL on disk. One line per record; first line is the `begin`, subsequent |
-| `InMemoryConversationJournal` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `InMemoryRuntimeSessionStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `InMemoryConversationJournal` | class | In-memory `ConversationJournal` — suitable for testing and single-process runs. |
+| `InMemoryRuntimeSessionStore` | class | In-memory `RuntimeSessionStore` for single-process use and tests. |
 | `JudgeError` | class | A judge call failed in a way that's not retryable: schema parse failure, bad rubric, conflicting dimensions. |
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
 | `PlannerError` | class | The dynamic-loop planner returned an unusable topology move — the LLM emitted |
@@ -152,14 +152,14 @@ Import from `@tangle-network/agent-runtime/agent` — 33 exports.
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
 | `createSurfaceImprovementAdapter` | function | The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. |
-| `createSurfaceKnowledgeAdapter` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createSurfaceKnowledgeAdapter` | function | Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files. |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
 | `measureOutcome` | function | Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the |
-| `renderSurfaceIssues` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `renderSurfaceIssues` | function | Format a list of surface validation issues into a human-readable error string. |
 | `resolveSubjectPath` | function | Resolve a parsed `FindingSubject` to the file path the substrate |
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
 | `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
-| `AgentManifestError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentManifestError` | class | Thrown when `defineAgent` finds a required surface missing on disk. |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
 | `CreateSurfaceKnowledgeAdapterOpts` | interface | Substrate-default `KnowledgeAdapter` — wraps agent-knowledge's |
@@ -278,7 +278,7 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
 | `createSupervisor` | function | The `Supervisor` impl (KEYSTONE, build step 5). |
 | `createVerifierEnvironment` | function | Any checkable task as an `Environment`, no tool surface required: the artifact is the worker's answer and the domain is one deployable `check` over it. |
-| `createWaterfallCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createWaterfallCollector` | function | Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline. |
 | `createWorktreeCliExecutor` | function | Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a |
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
@@ -371,9 +371,9 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `builtinShapes` | const | The default registry `runPersonified` resolves a shape name against. Empty by construction — |
 | `cliWorktreeExecutor` | const | The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored |
 | `defaultAnalystInstruction` | const | The default observer instruction — exported so an optimizer can seed its population. |
-| `defaultAuditorInstruction` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
-| `defaultProfileRichnessThresholds` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `defaultProfileRichnessThresholds` | const | Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt. |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
@@ -663,21 +663,21 @@ Import from `@tangle-network/agent-runtime/profiles` — 43 exports.
 |---|---|---|
 | `appendFindings` | function | Append findings to a workspace, writing one Markdown file per finding |
 | `buildAuditorSystemPrompt` | function | Build a system prompt for a single auditor iteration. |
-| `coderTaskToPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createInProcessUiAuditClient` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createUiAuditorValidator` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `coderTaskToPrompt` | function | Render a `CoderTask` into the per-task instruction handed to the coder profile. |
+| `createInProcessUiAuditClient` | function | Create a `SandboxClient` that drives a local Playwright browser for in-process UI audits. |
+| `createUiAuditorValidator` | function | Build a `Validator` that rejects off-lens findings and findings missing screenshot evidence. |
 | `decodeAuditTaskEnvelope` | function | Parse a task envelope back out of a prompt string. Returns undefined if |
-| `encodeAuditTaskEnvelope` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `formatAuditorPrompt` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `initAuditWorkspace` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `parseAuditorEvents` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `readAuditRegistry` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `encodeAuditTaskEnvelope` | function | Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-describing. |
+| `formatAuditorPrompt` | function | Produce the user message for one audit iteration: lens, captures to take, and the task envelope. |
+| `initAuditWorkspace` | function | Create the `issues/`, `screenshots/`, and `registry.json` scaffold in a new audit workspace. |
+| `parseAuditorEvents` | function | Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`. |
+| `readAuditRegistry` | function | Read and validate the `registry.json` from an audit workspace. |
 | `registerCaptures` | function | Record screenshots taken for a route in the registry, without filing a |
-| `summarizeRegistry` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `summarizeRegistry` | function | Compute finding counts by severity, lens, and route from an `AuditRegistry`. |
 | `uiAuditorProfile` | function | Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs. |
 | `writeAuditIndex` | function | Regenerate `<workspace>/index.md` from registry.json. |
-| `LENS_BRIEFS` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `SHARED_AUDITOR_RULES` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `LENS_BRIEFS` | const | Per-lens auditor briefs: concrete signals to look for and cross-lens distinctions to respect. |
+| `SHARED_AUDITOR_RULES` | const | Cross-lens rules injected into every UI audit iteration: finding quality standards and scope limits. |
 | `UI_FINDING_SEVERITIES` | const | Frozen severity tuple, ordered worst → least bad for sort/report. |
 | `UI_LENSES` | const | Frozen tuple of lenses for validation + iteration. |
 | `UiAuditOutput` | interface | Output of one iteration. `findings` is the headline payload; `captures` |
@@ -695,10 +695,10 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `PlatformAuthClient` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `PlatformAuthError` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `PlatformHubClient` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `PlatformHubError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `PlatformAuthClient` | class | HTTP client for the Tangle Platform SSO: builds authorize URLs and exchanges auth codes for API keys. |
+| `PlatformAuthError` | class | Thrown when a `PlatformAuthClient` request returns a non-success status. |
+| `PlatformHubClient` | class | HTTP client for the Tangle Platform Hub API: provider catalog, connection flow, and status. |
+| `PlatformHubError` | class | Thrown when a `PlatformHubClient` request returns a non-success status. |
 | `HealthCheck` | interface | Last-known health for a connection, derived from the connection row. |
 | `PlatformAuthClientOptions` | interface | Server-side client for the Tangle platform's cross-site SSO bridge. |
 | `PlatformCatalogProvider` | interface | A connectable provider in the catalog (`/v1/hub/providers`). |
@@ -715,16 +715,16 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 |---|---|---|
 | `buildDelegationTraceSpans` | function | Derive the compact span tree for ONE loop run from its buffered |
 | `capDelegationTrace` | function | Enforce the trace caps over an ordered (oldest-first) span list. Drops the |
-| `captureWorktreeDiff` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `captureWorktreeDiff` | function | Stage all changes in a worktree and return the diff patch + shortstat against the base ref. |
 | `coderTaskFromArgs` | function | Canonical `DelegateCodeArgs` → `CoderTask` mapping — the single source for |
 | `composeLoopTraceEmitters` | function | Fan one `LoopTraceEvent` stream into several emitters — e.g. the |
 | `createCoordinationTools` | function | Build the driver's MCP tools over a live scope. |
-| `createDelegateFeedbackHandler` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createDelegateFeedbackHandler` | function | Build the MCP tool handler that persists feedback events and attaches them to delegation records. |
 | `createDelegateHandler` | function | Build the `delegate` tool handler. Closes over the injected supervisor substrate (`router` / |
-| `createDelegateUiAuditHandler` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createDelegationHistoryHandler` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createDelegationStatusHandler` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `createDelegationTraceCollector` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createDelegateUiAuditHandler` | function | Build the MCP tool handler that validates input, deduplicates via idempotency key, and enqueues a UI audit. |
+| `createDelegationHistoryHandler` | function | Build the MCP tool handler that reads filtered past delegations from a `DelegationTaskQueue`. |
+| `createDelegationStatusHandler` | function | Build the MCP tool handler that polls a `DelegationTaskQueue` for task status. |
+| `createDelegationTraceCollector` | function | Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle. |
 | `createDetachedTurnResumeDriver` | function | Build the `driveTurn`-backed {@link DelegationResumeDriver}. Each `tick()` |
 | `createFleetWorkspaceExecutor` | function | Build an executor that resolves each delegated iteration to an existing |
 | `createInProcessExecutor` | function | Build an in-process executor. Returns a {@link DelegationExecutor} whose `client.create()` |
@@ -733,7 +733,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `createMcpServer` | function | Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_feedback`, `delegation_status`, `delegation_history`, optional `delegate_ui_audit`) to sandbox coding-harness agents. |
 | `createPropagatingTraceEmitter` | function | Create a LoopTraceEmitter that: |
 | `createSiblingSandboxExecutor` | function | Wrap a raw sandbox SDK client so the kernel emits |
-| `createWorktree` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createWorktree` | function | Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`. |
 | `detachedSessionDelegate` | function | Build the sandbox-session coder delegate. It drives `runLoop` against the project's |
 | `detachedTurnEvents` | function | Synthesize the terminal event array a detached turn settles through. Shaped |
 | `detectExecutor` | function | Pick the right executor for an MCP server invocation based on env vars. |
@@ -744,44 +744,44 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `makeCheckRunner` | function | Build a `run_analyst` runner over a kind directory. |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
-| `parseDetachedSessionRef` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
-| `removeWorktree` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `removeWorktree` | function | Remove a git worktree and delete its branch; tolerates already-removed paths. |
 | `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over |
 | `runCheck` | function | Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval |
 | `runDetachedTurn` | function | Dispatch one detached turn and advance it to a terminal state with |
 | `runLocalHarness` | function | Spawn a local coding harness CLI as a subprocess + collect its output. |
 | `settleDetachedCoderTurn` | function | Settle a completed detached coder turn through the same gate the streaming |
 | `traceContextToEnv` | function | Build env vars to pass to a child MCP subprocess so it inherits the |
-| `validateDelegateArgs` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `validateDelegateFeedbackArgs` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `validateDelegateUiAuditArgs` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `validateDelegationHistoryArgs` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `validateDelegationStatusArgs` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `validateDelegateArgs` | function | Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. |
+| `validateDelegateFeedbackArgs` | function | Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input. |
+| `validateDelegateUiAuditArgs` | function | Parse and validate raw MCP tool input into typed `DelegateUiAuditArgs`; throws `TypeError` on bad input. |
+| `validateDelegationHistoryArgs` | function | Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input. |
+| `validateDelegationStatusArgs` | function | Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input. |
 | `defaultChecks` | const | The built-in lens directory. Domain-blind (about any agent trace); compose at test time. |
-| `DELEGATE_DESCRIPTION` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_FEEDBACK_DESCRIPTION` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_FEEDBACK_INPUT_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_FEEDBACK_TOOL_NAME` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_INPUT_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_TOOL_NAME` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_UI_AUDIT_DESCRIPTION` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_UI_AUDIT_INPUT_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATE_UI_AUDIT_TOOL_NAME` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_HISTORY_DESCRIPTION` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_HISTORY_INPUT_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_HISTORY_TOOL_NAME` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_STATUS_DESCRIPTION` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_STATUS_INPUT_SCHEMA` | const | _(no summary — add a TSDoc line at the declaration)_ |
-| `DELEGATION_STATUS_TOOL_NAME` | const | _(no summary — add a TSDoc line at the declaration)_ |
+| `DELEGATE_DESCRIPTION` | const | Human-readable description of the `delegate` MCP tool, injected into the tool manifest. |
+| `DELEGATE_FEEDBACK_DESCRIPTION` | const | Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest. |
+| `DELEGATE_FEEDBACK_INPUT_SCHEMA` | const | JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields). |
+| `DELEGATE_FEEDBACK_TOOL_NAME` | const | MCP tool name for the `delegate_feedback` feedback-recording tool. |
+| `DELEGATE_INPUT_SCHEMA` | const | JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`). |
+| `DELEGATE_TOOL_NAME` | const | MCP tool name for the `delegate` generic-delegation tool. |
+| `DELEGATE_UI_AUDIT_DESCRIPTION` | const | Human-readable description of the `delegate_ui_audit` MCP tool, injected into the tool manifest. |
+| `DELEGATE_UI_AUDIT_INPUT_SCHEMA` | const | JSON Schema for `delegate_ui_audit` tool arguments (`workspaceDir`, `routes`, optional config). |
+| `DELEGATE_UI_AUDIT_TOOL_NAME` | const | MCP tool name for the `delegate_ui_audit` async kickoff tool. |
+| `DELEGATION_HISTORY_DESCRIPTION` | const | Human-readable description of the `delegation_history` MCP tool, injected into the tool manifest. |
+| `DELEGATION_HISTORY_INPUT_SCHEMA` | const | JSON Schema for `delegation_history` tool arguments (optional `namespace`, `profile`, `since`, `limit`). |
+| `DELEGATION_HISTORY_TOOL_NAME` | const | MCP tool name for the `delegation_history` read-past-delegations tool. |
+| `DELEGATION_STATUS_DESCRIPTION` | const | Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest. |
+| `DELEGATION_STATUS_INPUT_SCHEMA` | const | JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`). |
+| `DELEGATION_STATUS_TOOL_NAME` | const | MCP tool name for the `delegation_status` synchronous-poll tool. |
 | `DELEGATION_TRACE_MAX_BYTES` | const | Default cap on the serialized trace payload per record, in bytes. |
 | `DELEGATION_TRACE_MAX_SPANS` | const | Default cap on spans retained per delegation record. |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
-| `DelegationTaskQueue` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `DelegationTaskQueue` | class | In-process queue for async delegation tasks — submit, cancel, poll status, and read history. |
 | `FileDelegationStore` | class | JSON-file persistence for the delegation queue. Each write serializes |
-| `InMemoryDelegationStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `InMemoryFeedbackStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `InMemoryDelegationStore` | class | In-memory `DelegationStore` — suitable for single-process use and tests. |
+| `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |

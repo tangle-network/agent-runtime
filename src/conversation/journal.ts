@@ -56,6 +56,7 @@ export interface ConversationJournal {
   recordHalt(runId: string, halt: HaltReason, endedAt: string): Promise<void>
 }
 
+/** In-memory `ConversationJournal` — suitable for testing and single-process runs. */
 export class InMemoryConversationJournal implements ConversationJournal {
   private readonly entries = new Map<string, ConversationJournalEntry>()
 

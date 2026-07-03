@@ -75,7 +75,7 @@ function assertValidWorkspaceDir(dir: string): void {
   }
 }
 
-/** @experimental */
+/** Create the `issues/`, `screenshots/`, and `registry.json` scaffold in a new audit workspace. @experimental */
 export async function initAuditWorkspace(workspaceDir: string): Promise<void> {
   assertValidWorkspaceDir(workspaceDir)
   await fs.mkdir(path.join(workspaceDir, 'issues'), { recursive: true })
@@ -89,7 +89,7 @@ export async function initAuditWorkspace(workspaceDir: string): Promise<void> {
   }
 }
 
-/** @experimental */
+/** Read and validate the `registry.json` from an audit workspace. @experimental */
 export async function readAuditRegistry(workspaceDir: string): Promise<AuditRegistry> {
   assertValidWorkspaceDir(workspaceDir)
   const regPath = path.join(workspaceDir, 'registry.json')
@@ -375,7 +375,7 @@ export interface AuditIndex {
   byRoute: Record<string, number>
 }
 
-/** @experimental */
+/** Compute finding counts by severity, lens, and route from an `AuditRegistry`. @experimental */
 export function summarizeRegistry(reg: AuditRegistry): AuditIndex {
   const bySeverity: Record<UiFinding['severity'], number> = {
     critical: 0,

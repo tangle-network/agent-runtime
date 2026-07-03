@@ -1316,6 +1316,8 @@ Defined in: [profiles/ui-auditor/lens-prompts.ts:18](https://github.com/tangle-n
 
 **`Experimental`**
 
+Cross-lens rules injected into every UI audit iteration: finding quality standards and scope limits.
+
 ***
 
 ### LENS\_BRIEFS
@@ -1325,6 +1327,8 @@ Defined in: [profiles/ui-auditor/lens-prompts.ts:18](https://github.com/tangle-n
 Defined in: [profiles/ui-auditor/lens-prompts.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/lens-prompts.ts#L40)
 
 **`Experimental`**
+
+Per-lens auditor briefs: concrete signals to look for and cross-lens distinctions to respect.
 
 ***
 
@@ -1356,6 +1360,8 @@ Defined in: [audit/issue-writer.ts:79](https://github.com/tangle-network/agent-r
 
 **`Experimental`**
 
+Create the `issues/`, `screenshots/`, and `registry.json` scaffold in a new audit workspace.
+
 #### Parameters
 
 ##### workspaceDir
@@ -1375,6 +1381,8 @@ Defined in: [audit/issue-writer.ts:79](https://github.com/tangle-network/agent-r
 Defined in: [audit/issue-writer.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/audit/issue-writer.ts#L93)
 
 **`Experimental`**
+
+Read and validate the `registry.json` from an audit workspace.
 
 #### Parameters
 
@@ -1456,6 +1464,8 @@ Defined in: [audit/issue-writer.ts:379](https://github.com/tangle-network/agent-
 
 **`Experimental`**
 
+Compute finding counts by severity, lens, and route from an `AuditRegistry`.
+
 #### Parameters
 
 ##### reg
@@ -1520,6 +1530,8 @@ Defined in: [profiles/ui-auditor/in-process-client.ts:190](https://github.com/ta
 
 **`Experimental`**
 
+Create a `SandboxClient` that drives a local Playwright browser for in-process UI audits.
+
 #### Parameters
 
 ##### options
@@ -1559,6 +1571,8 @@ Build a system prompt for a single auditor iteration.
 Defined in: [profiles/ui-auditor/output-adapter.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/output-adapter.ts#L33)
 
 **`Experimental`**
+
+Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`.
 
 #### Parameters
 
@@ -1632,6 +1646,8 @@ Defined in: [profiles/ui-auditor/prompt.ts:26](https://github.com/tangle-network
 
 **`Experimental`**
 
+Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-describing.
+
 #### Parameters
 
 ##### task
@@ -1676,6 +1692,8 @@ Defined in: [profiles/ui-auditor/prompt.ts:56](https://github.com/tangle-network
 
 **`Experimental`**
 
+Produce the user message for one audit iteration: lens, captures to take, and the task envelope.
+
 #### Parameters
 
 ##### task
@@ -1695,6 +1713,8 @@ Defined in: [profiles/ui-auditor/prompt.ts:56](https://github.com/tangle-network
 Defined in: [profiles/ui-auditor/validator.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/validator.ts#L52)
 
 **`Experimental`**
+
+Build a `Validator` that rejects off-lens findings and findings missing screenshot evidence.
 
 #### Parameters
 
