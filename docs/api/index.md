@@ -3876,7 +3876,7 @@ Defined in: [otel-export.ts:608](https://github.com/tangle-network/agent-runtime
 
 ### ResolveAgentBackendOptions
 
-Defined in: [resolve-agent-backend.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L50)
+Defined in: [resolve-agent-backend.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L51)
 
 #### Extends
 
@@ -3932,11 +3932,35 @@ OpenAI Chat Completions `response_format`. Omit for provider default text.
 
 `OpenAICompatPassthrough.responseFormat`
 
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+Defined in: [backends.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L234)
+
+OpenAI Chat Completions `temperature`. Omit for provider default.
+
+###### Inherited from
+
+`OpenAICompatPassthrough.temperature`
+
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Defined in: [backends.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L236)
+
+Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
+
+###### Inherited from
+
+`OpenAICompatPassthrough.maxTokens`
+
 ##### fetchImpl?
 
 > `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
 
-Defined in: [backends.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L233)
+Defined in: [backends.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L237)
 
 ###### Parameters
 
@@ -3960,7 +3984,7 @@ Defined in: [backends.ts:233](https://github.com/tangle-network/agent-runtime/bl
 
 > `optional` **retry?**: `BackendRetryPolicy`
 
-Defined in: [backends.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L234)
+Defined in: [backends.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L238)
 
 ###### Inherited from
 
@@ -3970,7 +3994,7 @@ Defined in: [backends.ts:234](https://github.com/tangle-network/agent-runtime/bl
 
 > **kind**: [`AgentBackendKind`](#agentbackendkind)
 
-Defined in: [resolve-agent-backend.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L53)
+Defined in: [resolve-agent-backend.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L54)
 
 The chat transport to resolve.
 
@@ -3978,7 +4002,7 @@ The chat transport to resolve.
 
 > **apiKey**: `string`
 
-Defined in: [resolve-agent-backend.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L59)
+Defined in: [resolve-agent-backend.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L60)
 
 Bearer credential for the OpenAI-compat kinds. Empty string is valid for a
 loopback-anonymous cli-bridge; a `router`/`tcloud` route with an empty key
@@ -3988,7 +4012,7 @@ is a caller bug the product surfaces before calling in.
 
 > **baseUrl**: `string`
 
-Defined in: [resolve-agent-backend.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L61)
+Defined in: [resolve-agent-backend.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L62)
 
 Base URL for the OpenAI-compat kinds. cli-bridge's is its `/v1`.
 
@@ -3996,7 +4020,7 @@ Base URL for the OpenAI-compat kinds. cli-bridge's is its `/v1`.
 
 > **model**: `string`
 
-Defined in: [resolve-agent-backend.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L63)
+Defined in: [resolve-agent-backend.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L64)
 
 Model id sent on every request. cli-bridge rejects a request without it.
 
@@ -4004,7 +4028,7 @@ Model id sent on every request. cli-bridge rejects a request without it.
 
 > `optional` **label?**: `string`
 
-Defined in: [resolve-agent-backend.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L65)
+Defined in: [resolve-agent-backend.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L66)
 
 `kind` label stamped on the resolved backend + its traces. Defaults to `kind`.
 
@@ -4012,7 +4036,7 @@ Defined in: [resolve-agent-backend.ts:65](https://github.com/tangle-network/agen
 
 > `optional` **sandboxBackend?**: () => [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [resolve-agent-backend.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L71)
+Defined in: [resolve-agent-backend.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L72)
 
 `sandbox` kind: the product's own domain backend. Required for that kind —
 the substrate owns no product sandbox shape, so a `sandbox` resolution with
@@ -6491,7 +6515,7 @@ Mode → configured runner. Partial: only register the modes a
 
 > **AgentBackendKind** = `"router"` \| `"tcloud"` \| `"cli-bridge"` \| `"sandbox"`
 
-Defined in: [resolve-agent-backend.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L37)
+Defined in: [resolve-agent-backend.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L38)
 
 The transport a chat backend runs on.
 
@@ -7230,6 +7254,18 @@ omits the field; provider falls back to its own default — typically
 [`OpenAIChatResponseFormat`](#openaichatresponseformat)
 
 OpenAI Chat Completions `response_format`. Omit for provider default text.
+
+###### temperature?
+
+`number`
+
+OpenAI Chat Completions `temperature`. Omit for provider default.
+
+###### maxTokens?
+
+`number`
+
+Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
 
 ###### fetchImpl?
 
@@ -8479,7 +8515,7 @@ Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / 
 
 > **resolveAgentBackend**\<`TInput`\>(`opts`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
-Defined in: [resolve-agent-backend.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L78)
+Defined in: [resolve-agent-backend.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L79)
 
 Resolve the `AgentExecutionBackend` for the chosen `kind`. Reuse this instead
 of hand-rolling the `createOpenAICompatibleBackend` branch in each product.
