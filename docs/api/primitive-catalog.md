@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.86.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.87.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 426 exports.
+Import from `@tangle-network/agent-runtime/loops` — 429 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -276,6 +276,7 @@ Import from `@tangle-network/agent-runtime/loops` — 426 exports.
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
+| `createSandboxToolPartState` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
@@ -314,6 +315,7 @@ Import from `@tangle-network/agent-runtime/loops` — 426 exports.
 | `loopUntil` | function | `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into |
 | `makeFinding` | function | Convenience factory: produce a fully-formed AnalystFinding with the |
 | `mapSandboxEvent` | function | Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary, |
+| `mapSandboxToolEvent` | function | Project one `SandboxEvent` onto the `tool_call` / `tool_result` variants of |
 | `naiveDriver` | function | `naiveDriver` — the no-signal steering control. |
 | `observe` | function | The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. |
 | `openSandboxRun` | function | Open a sandbox run. Harness-agnostic: the harness lives in |
@@ -441,7 +443,7 @@ Import from `@tangle-network/agent-runtime/loops` — 426 exports.
 | `InboxMessage` | interface | The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as |
 | `InMemoryRunContext` | interface | The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`. |
 | `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
-| `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
+| `InProcessPromptCtx` | interface | Context handed to each `onPrompt` / `onTask` call. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
 | `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
 | `LeaderboardBenchScore` | interface | Structurally `BenchScore` (bench registry shape). |
@@ -494,6 +496,7 @@ Import from `@tangle-network/agent-runtime/loops` — 426 exports.
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
+| `SandboxToolPartState` | interface | Cross-event state for {@link mapSandboxToolEvent}. Sandbox backends emit a |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
 | `ScopeAnalyst` | interface | The reactive analyst seam — the PORT of the round-synchronous driver's `analyze` hook |
 | `ScopeAnalyzeInput` | interface | Input to a `ScopeAnalyst.analyze` — the root task framing + the children settled so far. |

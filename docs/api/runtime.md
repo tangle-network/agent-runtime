@@ -2202,9 +2202,9 @@ Per-run analysis failures — reported, never silently dropped.
 
 ### InProcessPromptCtx
 
-Defined in: [runtime/in-process-sandbox-client.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L42)
+Defined in: [runtime/in-process-sandbox-client.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L44)
 
-Context handed to each `onPrompt` call.
+Context handed to each `onPrompt` / `onTask` call.
 
 #### Properties
 
@@ -2212,16 +2212,17 @@ Context handed to each `onPrompt` call.
 
 > **round**: `number`
 
-Defined in: [runtime/in-process-sandbox-client.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L45)
+Defined in: [runtime/in-process-sandbox-client.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L48)
 
-0-based round index — increments per `streamPrompt` on the SAME box (so a
- refine driver's round N can differ from round N-1). Fresh boxes start at 0.
+0-based round index — increments per `streamPrompt`/`streamTask` on the
+ SAME box (so a refine driver's round N can differ from round N-1). Fresh
+ boxes start at 0.
 
 ##### workdir?
 
 > `optional` **workdir?**: `string`
 
-Defined in: [runtime/in-process-sandbox-client.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L49)
+Defined in: [runtime/in-process-sandbox-client.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L52)
 
 Absolute path of this box's workspace, when a `workdir` was configured.
  Write the deliverable / fixtures here; `fs.read`/`fs.write`/`exec` operate
@@ -2231,15 +2232,34 @@ Absolute path of this box's workspace, when a `workdir` was configured.
 
 > **signal**: `AbortSignal`
 
-Defined in: [runtime/in-process-sandbox-client.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L51)
+Defined in: [runtime/in-process-sandbox-client.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L54)
 
 Cooperative cancellation channel for this turn.
+
+##### mode
+
+> **mode**: `"task"` \| `"prompt"`
+
+Defined in: [runtime/in-process-sandbox-client.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L57)
+
+Which box verb produced this call: `prompt` = `streamPrompt`,
+ `task` = `streamTask`.
+
+##### options?
+
+> `optional` **options?**: `Record`\<`string`, `unknown`\>
+
+Defined in: [runtime/in-process-sandbox-client.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L61)
+
+The verbatim per-call options the caller passed to the box verb (minus
+ `signal`, surfaced above) — lets an offline test assert an options
+ passthrough (`model`, `sessionId`, `maxTurns`, …) actually arrived.
 
 ***
 
 ### InProcessSandboxClientOptions
 
-Defined in: [runtime/in-process-sandbox-client.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L66)
+Defined in: [runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L76)
 
 **`Experimental`**
 
@@ -2249,17 +2269,31 @@ Defined in: [runtime/in-process-sandbox-client.ts:66](https://github.com/tangle-
 
 > **onPrompt**: [`InProcessOnPrompt`](#inprocessonprompt)
 
-Defined in: [runtime/in-process-sandbox-client.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L68)
+Defined in: [runtime/in-process-sandbox-client.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L78)
 
 **`Experimental`**
 
 The per-turn behavior — see [InProcessOnPrompt](#inprocessonprompt).
 
+##### onTask?
+
+> `optional` **onTask?**: [`InProcessOnPrompt`](#inprocessonprompt)
+
+Defined in: [runtime/in-process-sandbox-client.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L86)
+
+**`Experimental`**
+
+Task-mode behavior, driven by `box.streamTask` (the verb `streamAgentTurn`'s
+`box-task` backend calls). When omitted, `streamTask` drives `onPrompt` —
+the pseudo-box has ONE behavior callback and both verbs exercise it
+(`ctx.mode` tells them apart). Provide `onTask` when a test must
+discriminate the verbs or script different task-mode behavior.
+
 ##### workdir?
 
 > `optional` **workdir?**: `string`
 
-Defined in: [runtime/in-process-sandbox-client.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L76)
+Defined in: [runtime/in-process-sandbox-client.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L94)
 
 **`Experimental`**
 
@@ -2273,7 +2307,7 @@ or fanout loop needs.
 
 > `optional` **id?**: `string` \| ((`seq`) => `string`)
 
-Defined in: [runtime/in-process-sandbox-client.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L83)
+Defined in: [runtime/in-process-sandbox-client.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L101)
 
 **`Experimental`**
 
@@ -5930,6 +5964,44 @@ Defined in: [runtime/sandbox-capabilities.ts:75](https://github.com/tangle-netwo
 
 ***
 
+### SandboxToolPartState
+
+Defined in: [runtime/sandbox-events.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L146)
+
+**`Experimental`**
+
+Cross-event state for [mapSandboxToolEvent](#mapsandboxtoolevent). Sandbox backends emit a
+tool invocation as MANY `message.part.updated` frames on the same call id
+(pending → running → completed), so faithful projection needs per-call
+status memory: one `tool_call` on first sighting, at most one `tool_result`
+on the terminal transition, nothing on intermediate re-frames. Create one
+state per turn via [createSandboxToolPartState](#createsandboxtoolpartstate).
+
+#### Properties
+
+##### statusByCall
+
+> **statusByCall**: `Map`\<`string`, `string`\>
+
+Defined in: [runtime/sandbox-events.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L149)
+
+**`Experimental`**
+
+Last seen status per tool call id. A terminal status is sticky — later
+ frames on a settled call project to nothing.
+
+##### seq
+
+> **seq**: `number`
+
+Defined in: [runtime/sandbox-events.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L151)
+
+**`Experimental`**
+
+Sequence for synthesized call ids when an event carries none.
+
+***
+
 ### SandboxLineageHandle
 
 Defined in: [runtime/sandbox-lineage.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L114)
@@ -8238,7 +8310,7 @@ Defined in: [runtime/strategy.ts:1028](https://github.com/tangle-network/agent-r
 
 ### StreamAgentTurnOptions
 
-Defined in: [runtime/stream-agent-turn.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L93)
+Defined in: [runtime/stream-agent-turn.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L141)
 
 **`Experimental`**
 
@@ -8248,7 +8320,7 @@ Defined in: [runtime/stream-agent-turn.ts:93](https://github.com/tangle-network/
 
 > `optional` **signal?**: `AbortSignal`
 
-Defined in: [runtime/stream-agent-turn.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L95)
+Defined in: [runtime/stream-agent-turn.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L143)
 
 **`Experimental`**
 
@@ -8258,7 +8330,7 @@ Caller-initiated cancellation. Terminates the stream with `final.status: 'aborte
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L101)
+Defined in: [runtime/stream-agent-turn.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L149)
 
 **`Experimental`**
 
@@ -8266,11 +8338,52 @@ Wall-clock deadline for the whole turn in ms. An expired deadline aborts
 the backend and terminates the stream with `final.status: 'failed'`
 (a blown deadline is a turn failure, not a caller cancellation).
 
+##### preserveToolParts?
+
+> `optional` **preserveToolParts?**: `boolean`
+
+Defined in: [runtime/stream-agent-turn.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L159)
+
+**`Experimental`**
+
+Opt-in tool-part projection for box-kind backends (`box`, `box-task`,
+`executor`): sandbox tool parts additionally surface in-stream as
+`tool_call` / `tool_result` events (`mapSandboxToolEvent`), so a consumer
+rendering tool activity needs no bespoke sandbox-event parser. Default
+off — the stream vocabulary existing consumers see is unchanged. No-op
+for the `chat` kind (its backend emits `RuntimeStreamEvent`s directly,
+tool events included when the backend produces them).
+
+##### onRawEvent?
+
+> `optional` **onRawEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Defined in: [runtime/stream-agent-turn.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L168)
+
+**`Experimental`**
+
+Raw-event tap for box-kind backends: called (and awaited) with every
+unmapped `SandboxEvent` BEFORE it is projected, so a consumer can read
+parts the chat-UX projection drops (part ids, step markers, custom
+backend events) without forking the mapper. Purely observational — it
+cannot alter the mapped stream. Never called for the `chat` kind, which
+has no sandbox events.
+
+###### Parameters
+
+###### event
+
+`SandboxEvent`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
 ***
 
 ### AgentTurnUsage
 
-Defined in: [runtime/stream-agent-turn.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L112)
+Defined in: [runtime/stream-agent-turn.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L179)
 
 **`Experimental`**
 
@@ -8285,7 +8398,7 @@ present only when the backend actually reported them.
 
 > **input**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L113)
+Defined in: [runtime/stream-agent-turn.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L180)
 
 **`Experimental`**
 
@@ -8293,7 +8406,7 @@ Defined in: [runtime/stream-agent-turn.ts:113](https://github.com/tangle-network
 
 > **output**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L114)
+Defined in: [runtime/stream-agent-turn.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L181)
 
 **`Experimental`**
 
@@ -8301,7 +8414,7 @@ Defined in: [runtime/stream-agent-turn.ts:114](https://github.com/tangle-network
 
 > `optional` **costUsd?**: `number`
 
-Defined in: [runtime/stream-agent-turn.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L115)
+Defined in: [runtime/stream-agent-turn.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L182)
 
 **`Experimental`**
 
@@ -8309,7 +8422,7 @@ Defined in: [runtime/stream-agent-turn.ts:115](https://github.com/tangle-network
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/stream-agent-turn.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L116)
+Defined in: [runtime/stream-agent-turn.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L183)
 
 **`Experimental`**
 
@@ -8317,7 +8430,7 @@ Defined in: [runtime/stream-agent-turn.ts:116](https://github.com/tangle-network
 
 ### CollectedAgentTurn
 
-Defined in: [runtime/stream-agent-turn.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L126)
+Defined in: [runtime/stream-agent-turn.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L193)
 
 **`Experimental`**
 
@@ -8331,7 +8444,7 @@ turn stays inspectable without re-scanning `events`.
 
 > **finalText**: `string`
 
-Defined in: [runtime/stream-agent-turn.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L127)
+Defined in: [runtime/stream-agent-turn.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L194)
 
 **`Experimental`**
 
@@ -8339,7 +8452,7 @@ Defined in: [runtime/stream-agent-turn.ts:127](https://github.com/tangle-network
 
 > **usage**: [`AgentTurnUsage`](#agentturnusage)
 
-Defined in: [runtime/stream-agent-turn.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L128)
+Defined in: [runtime/stream-agent-turn.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L195)
 
 **`Experimental`**
 
@@ -8347,7 +8460,7 @@ Defined in: [runtime/stream-agent-turn.ts:128](https://github.com/tangle-network
 
 > **events**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
 
-Defined in: [runtime/stream-agent-turn.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L129)
+Defined in: [runtime/stream-agent-turn.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L196)
 
 **`Experimental`**
 
@@ -8355,7 +8468,7 @@ Defined in: [runtime/stream-agent-turn.ts:129](https://github.com/tangle-network
 
 > **status**: [`AgentTaskStatus`](index.md#agenttaskstatus)
 
-Defined in: [runtime/stream-agent-turn.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L130)
+Defined in: [runtime/stream-agent-turn.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L197)
 
 **`Experimental`**
 
@@ -8363,7 +8476,7 @@ Defined in: [runtime/stream-agent-turn.ts:130](https://github.com/tangle-network
 
 > `optional` **error?**: [`BackendErrorDetail`](index.md#backenderrordetail)
 
-Defined in: [runtime/stream-agent-turn.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L131)
+Defined in: [runtime/stream-agent-turn.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L198)
 
 **`Experimental`**
 
@@ -14013,7 +14126,7 @@ Defined in: [mcp/tools/coordination.ts:93](https://github.com/tangle-network/age
 
 > **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
 
-Defined in: [runtime/in-process-sandbox-client.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L60)
+Defined in: [runtime/in-process-sandbox-client.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L70)
 
 The user callback: given a prompt and its round, produce the box's event
 stream for that turn. Return a plain `SandboxEvent[]` (the common case) or an
@@ -14676,9 +14789,9 @@ Defined in: [runtime/strategy-evolution.ts:55](https://github.com/tangle-network
 
 ### AgentTurnBackend
 
-> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"box-task"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`TaskOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
 
-Defined in: [runtime/stream-agent-turn.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L63)
+Defined in: [runtime/stream-agent-turn.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L82)
 
 **`Experimental`**
 
@@ -14689,7 +14802,7 @@ the three stream surfaces the runtime already owns.
 
 ##### Type Literal
 
-\{ `kind`: `"box"`; `box`: `SandboxInstance`; `agentRunName?`: `string`; \}
+\{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \}
 
 ###### kind
 
@@ -14700,6 +14813,52 @@ A live sandbox box: the turn is one `box.streamPrompt(prompt)` call.
 ###### box
 
 > **box**: `SandboxInstance`
+
+###### options?
+
+> `optional` **options?**: `Omit`\<`PromptOptions`, `"signal"`\>
+
+Per-turn `PromptOptions` forwarded verbatim to `streamPrompt`
+(`sessionId`, `turnId`, `model`, `backend` profile, `timeoutMs`, …).
+The turn's derived abort signal (caller `signal` + `timeoutMs`
+deadline) is always installed as `signal` — pass cancellation through
+`StreamAgentTurnOptions`, not here.
+
+###### agentRunName?
+
+> `optional` **agentRunName?**: `string`
+
+Model label stamped on cost-only `llm_call` events. Default `'agent'`.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"box-task"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`TaskOptions`, `"signal"`\>; `agentRunName?`: `string`; \}
+
+###### kind
+
+> **kind**: `"box-task"`
+
+A live sandbox box in TASK mode: the turn is one
+`box.streamTask(prompt)` call — the sandbox SDK's autonomous-task
+verb. Unlike `streamPrompt` (one chat turn), the agent works until
+the task completes or errors, session state is maintained for
+continuity, and `options.maxTurns` bounds the agent's internal turns.
+Event projection, usage folding, and the terminal `final` contract
+are identical to the `box` kind.
+
+###### box
+
+> **box**: `SandboxInstance`
+
+###### options?
+
+> `optional` **options?**: `Omit`\<`TaskOptions`, `"signal"`\>
+
+Per-task `TaskOptions` forwarded verbatim to `streamTask`
+(`maxTurns` plus every `PromptOptions` field). The turn's derived
+abort signal is always installed as `signal`.
 
 ###### agentRunName?
 
@@ -15670,7 +15829,7 @@ Batch the firewalled `observe()` analyst over completed runs and accrete the tra
 
 > **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-3)
 
-Defined in: [runtime/in-process-sandbox-client.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L98)
+Defined in: [runtime/in-process-sandbox-client.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/in-process-sandbox-client.ts#L116)
 
 **`Experimental`**
 
@@ -17022,11 +17181,69 @@ readonly `SandboxEvent`[]
 
 ***
 
+### createSandboxToolPartState()
+
+> **createSandboxToolPartState**(): [`SandboxToolPartState`](#sandboxtoolpartstate)
+
+Defined in: [runtime/sandbox-events.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L155)
+
+**`Experimental`**
+
+#### Returns
+
+[`SandboxToolPartState`](#sandboxtoolpartstate)
+
+***
+
+### mapSandboxToolEvent()
+
+> **mapSandboxToolEvent**(`event`, `state`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
+
+Defined in: [runtime/sandbox-events.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L186)
+
+**`Experimental`**
+
+Project one `SandboxEvent` onto the `tool_call` / `tool_result` variants of
+`RuntimeStreamEvent` — the tool-part projection `mapSandboxEvent`
+deliberately does NOT perform. Opt-in and additive: `mapSandboxEvent`'s
+default vocabulary (text/reasoning deltas + `llm_call`) is unchanged;
+consumers that need the tool surface (chat UIs rendering tool activity)
+compose this projector alongside it — `streamAgentTurn` does exactly that
+under its `preserveToolParts` option.
+
+Handled shapes (observed on the opencode / claude-code sandbox backends):
+  - `message.part.updated` with `part.type === 'tool'` — stateful: a
+    `tool_call` on the call id's first frame (args from `state.input` or
+    `state.metadata.input`), a `tool_result` when the status transitions to
+    `completed` (result from `state.output` / `metadata.output`) or to a
+    terminal failure (result is `{ error, status, output? }` — the error
+    surfaced in-band, never dropped).
+  - bare `tool*` event types (`tool.call`, `tool_result`, …) — stateless:
+    `*result*` types project to `tool_result`, the rest to `tool_call`.
+
+Returns `[]` for every non-tool event.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+##### state
+
+[`SandboxToolPartState`](#sandboxtoolpartstate)
+
+#### Returns
+
+[`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
+
+***
+
 ### mapSandboxEvent()
 
 > **mapSandboxEvent**(`event`, `opts?`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [runtime/sandbox-events.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L153)
+Defined in: [runtime/sandbox-events.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L313)
 
 Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
 for runtimes that bridge a sandbox `streamPrompt` into the
@@ -17039,6 +17256,9 @@ lifecycle, no guessed tool-part shapes):
   - `message.part.updated` text part → `text_delta`
   - `message.part.updated` reasoning/thinking part → `reasoning_delta`
   - cost-bearing events → `llm_call` (shared with the ledger extractor)
+
+Tool parts are deliberately NOT mapped here (unchanged default) — compose
+[mapSandboxToolEvent](#mapsandboxtoolevent) alongside when a consumer needs them.
 
 The opencode backend emits incremental text as
 `{ type: 'message.part.updated', data: { part: { type, text }, delta } }`;
@@ -17504,7 +17724,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 > **streamAgentTurn**(`backend`, `prompt`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-Defined in: [runtime/stream-agent-turn.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L158)
+Defined in: [runtime/stream-agent-turn.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L225)
 
 **`Experimental`**
 
@@ -17539,7 +17759,7 @@ timeout alike. The generator never throws; failures surface in-band as
 
 > **collectAgentTurn**(`stream`): `Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
 
-Defined in: [runtime/stream-agent-turn.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L223)
+Defined in: [runtime/stream-agent-turn.ts:298](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L298)
 
 **`Experimental`**
 
