@@ -87,6 +87,21 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
+// The declarative eval-leaderboard facade: cases + prompt + score → one
+// runProfileMatrix call (expandProfileAxes × loopDispatch × naiveDriver),
+// with a structural BenchmarkAdapter view via toBenchmarkAdapter().
+export {
+  type DefinedLeaderboard,
+  defineLeaderboard,
+  type LeaderboardBenchmarkAdapter,
+  type LeaderboardBenchScore,
+  type LeaderboardBenchTask,
+  type LeaderboardFlagSpec,
+  type LeaderboardRunContext,
+  type LeaderboardScenario,
+  type LeaderboardScore,
+  type LeaderboardSpec,
+} from './define-leaderboard'
 export {
   type AgentEnvironment,
   type AgentEnvironmentCapabilities,
@@ -363,6 +378,14 @@ export {
   type StrategyEvolutionConfig,
   selectChampion,
 } from './strategy-evolution'
+export {
+  type AgentTurnBackend,
+  type AgentTurnUsage,
+  type CollectedAgentTurn,
+  collectAgentTurn,
+  type StreamAgentTurnOptions,
+  streamAgentTurn,
+} from './stream-agent-turn'
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export {

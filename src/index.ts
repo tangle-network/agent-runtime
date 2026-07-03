@@ -179,6 +179,8 @@ export {
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
+export type { AgentBackendKind, ResolveAgentBackendOptions } from './resolve-agent-backend'
+export { resolveAgentBackend } from './resolve-agent-backend'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 // ── Runtime hooks ────────────────────────────────────────────────────
