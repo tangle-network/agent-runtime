@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 429 exports.
+Import from `@tangle-network/agent-runtime/loops` — 430 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -556,6 +556,7 @@ Import from `@tangle-network/agent-runtime/loops` — 429 exports.
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
 | `MountRecorder` | type | Records a mounted resource into the run's provenance manifest. Passed to |
+| `OpenSandboxRunPromptOptions` | type | Prompt options forwarded to every sandbox prompt turn in this run. The |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |

@@ -6004,7 +6004,7 @@ Sequence for synthesized call ids when an event carries none.
 
 ### SandboxLineageHandle
 
-Defined in: [runtime/sandbox-lineage.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L114)
+Defined in: [runtime/sandbox-lineage.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L125)
 
 **`Experimental`**
 
@@ -6018,7 +6018,7 @@ the kernel beyond `box` (for placement/teardown) and `sessionId` (trace).
 
 > **box**: `SandboxInstance`
 
-Defined in: [runtime/sandbox-lineage.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L116)
+Defined in: [runtime/sandbox-lineage.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L127)
 
 **`Experimental`**
 
@@ -6028,7 +6028,7 @@ The owned, running sandbox this handle drives.
 
 > **sessionId**: `string`
 
-Defined in: [runtime/sandbox-lineage.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L123)
+Defined in: [runtime/sandbox-lineage.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L134)
 
 **`Experimental`**
 
@@ -6041,7 +6041,7 @@ the shared context comes from the checkpoint, not a shared session id.
 
 ### SandboxLineage
 
-Defined in: [runtime/sandbox-lineage.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L132)
+Defined in: [runtime/sandbox-lineage.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L143)
 
 **`Experimental`**
 
@@ -6052,9 +6052,9 @@ capability-gated lifecycle moves. Construct via `createSandboxLineage`.
 
 ##### start()
 
-> **start**(`spec`, `prompt`, `signal`): `Promise`\<\{ `handle`: [`SandboxLineageHandle`](#sandboxlineagehandle); `events`: `AsyncIterable`\<`SandboxEvent`\>; \}\>
+> **start**(`spec`, `prompt`, `signal`, `promptOptions?`): `Promise`\<\{ `handle`: [`SandboxLineageHandle`](#sandboxlineagehandle); `events`: `AsyncIterable`\<`SandboxEvent`\>; \}\>
 
-Defined in: [runtime/sandbox-lineage.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L137)
+Defined in: [runtime/sandbox-lineage.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L148)
 
 **`Experimental`**
 
@@ -6075,15 +6075,19 @@ the live `streamPrompt` iterable for the first turn (caller drains it).
 
 `AbortSignal`
 
+###### promptOptions?
+
+`Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
 ###### Returns
 
 `Promise`\<\{ `handle`: [`SandboxLineageHandle`](#sandboxlineagehandle); `events`: `AsyncIterable`\<`SandboxEvent`\>; \}\>
 
 ##### continue()
 
-> **continue**(`handle`, `prompt`, `signal`): `Promise`\<`AsyncIterable`\<`SandboxEvent`, `any`, `any`\>\>
+> **continue**(`handle`, `prompt`, `signal`, `promptOptions?`): `Promise`\<`AsyncIterable`\<`SandboxEvent`, `any`, `any`\>\>
 
-Defined in: [runtime/sandbox-lineage.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L149)
+Defined in: [runtime/sandbox-lineage.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L161)
 
 **`Experimental`**
 
@@ -6107,6 +6111,10 @@ of a contextless turn the caller mistakes for a real continuation.
 
 `AbortSignal`
 
+###### promptOptions?
+
+`Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
 ###### Returns
 
 `Promise`\<`AsyncIterable`\<`SandboxEvent`, `any`, `any`\>\>
@@ -6115,7 +6123,7 @@ of a contextless turn the caller mistakes for a real continuation.
 
 > **fork**(`parent`, `prompts`, `specs`, `signal`): `Promise`\<`object`[]\>
 
-Defined in: [runtime/sandbox-lineage.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L165)
+Defined in: [runtime/sandbox-lineage.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L178)
 
 **`Experimental`**
 
@@ -6155,7 +6163,7 @@ streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
 
 > **prune**(`keep`): `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-lineage.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L178)
+Defined in: [runtime/sandbox-lineage.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L191)
 
 **`Experimental`**
 
@@ -6179,7 +6187,7 @@ Best-effort, bounded, parallel — a failed delete never throws.
 
 > **teardown**(): `Promise`\<`void`\>
 
-Defined in: [runtime/sandbox-lineage.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L180)
+Defined in: [runtime/sandbox-lineage.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L193)
 
 **`Experimental`**
 
@@ -6193,7 +6201,7 @@ Destroy every box this lineage owns. Best-effort, bounded, parallel.
 
 ### CheckpointCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L384)
+Defined in: [runtime/sandbox-lineage.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L397)
 
 **`Experimental`**
 
@@ -6208,7 +6216,7 @@ without importing sandbox-backend specifics.
 
 > `optional` **checkpoint?**: (`options?`) => `Promise`\<\{ `checkpointId`: `string`; \}\>
 
-Defined in: [runtime/sandbox-lineage.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L385)
+Defined in: [runtime/sandbox-lineage.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L398)
 
 **`Experimental`**
 
@@ -6232,7 +6240,7 @@ Defined in: [runtime/sandbox-lineage.ts:385](https://github.com/tangle-network/a
 
 ### ForkCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:391](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L391)
+Defined in: [runtime/sandbox-lineage.ts:404](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L404)
 
 **`Experimental`**
 
@@ -6244,7 +6252,7 @@ Loop-side widening of the box's optional fork method.
 
 > `optional` **fork?**: (`checkpointId`, `options?`) => `Promise`\<`SandboxInstance`\>
 
-Defined in: [runtime/sandbox-lineage.ts:392](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L392)
+Defined in: [runtime/sandbox-lineage.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L405)
 
 **`Experimental`**
 
@@ -6268,7 +6276,7 @@ Defined in: [runtime/sandbox-lineage.ts:392](https://github.com/tangle-network/a
 
 ### SessionCapableBox
 
-Defined in: [runtime/sandbox-lineage.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L402)
+Defined in: [runtime/sandbox-lineage.ts:415](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L415)
 
 **`Experimental`**
 
@@ -6283,7 +6291,7 @@ fakes. `status()` resolves `null` when the id is unknown to the sandbox.
 
 > `optional` **session?**: (`id`) => `object`
 
-Defined in: [runtime/sandbox-lineage.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L403)
+Defined in: [runtime/sandbox-lineage.ts:416](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L416)
 
 **`Experimental`**
 
@@ -6442,7 +6450,7 @@ Defined in: [runtime/sandbox-run.ts:101](https://github.com/tangle-network/agent
 
 ### OpenSandboxRunOptions
 
-Defined in: [runtime/sandbox-run.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L105)
+Defined in: [runtime/sandbox-run.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L114)
 
 **`Experimental`**
 
@@ -6452,7 +6460,7 @@ Defined in: [runtime/sandbox-run.ts:105](https://github.com/tangle-network/agent
 
 > **agentRun**: [`AgentRunSpec`](#agentrunspec)\<`string`\>
 
-Defined in: [runtime/sandbox-run.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L107)
+Defined in: [runtime/sandbox-run.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L116)
 
 **`Experimental`**
 
@@ -6462,7 +6470,7 @@ Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness.
 
 > **signal**: `AbortSignal`
 
-Defined in: [runtime/sandbox-run.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L108)
+Defined in: [runtime/sandbox-run.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L117)
 
 **`Experimental`**
 
@@ -6470,7 +6478,7 @@ Defined in: [runtime/sandbox-run.ts:108](https://github.com/tangle-network/agent
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/sandbox-run.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L110)
+Defined in: [runtime/sandbox-run.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L119)
 
 **`Experimental`**
 
@@ -6480,7 +6488,7 @@ Optional execution-scoped observers. Hook failures never fail the run.
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L112)
+Defined in: [runtime/sandbox-run.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L121)
 
 **`Experimental`**
 
@@ -6490,17 +6498,28 @@ Stable run id for trace joins. Defaults to a short runtime-minted id.
 
 > `optional` **scenarioId?**: `string`
 
-Defined in: [runtime/sandbox-run.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L114)
+Defined in: [runtime/sandbox-run.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L123)
 
 **`Experimental`**
 
 Optional benchmark/scenario id carried into emitted hook events.
 
+##### promptOptions?
+
+> `optional` **promptOptions?**: [`OpenSandboxRunPromptOptions`](#opensandboxrunpromptoptions)
+
+Defined in: [runtime/sandbox-run.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L126)
+
+**`Experimental`**
+
+Per-prompt sandbox SDK options forwarded to both `start()` and `resume()`.
+ The runtime still owns the session id and abort signal for each turn.
+
 ##### now?
 
 > `optional` **now?**: () => `number`
 
-Defined in: [runtime/sandbox-run.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L116)
+Defined in: [runtime/sandbox-run.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L128)
 
 **`Experimental`**
 
@@ -6514,7 +6533,7 @@ Test seam for deterministic hook timestamps. Defaults to `Date.now`.
 
 > `optional` **maxConcurrency?**: `number`
 
-Defined in: [runtime/sandbox-run.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L118)
+Defined in: [runtime/sandbox-run.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L130)
 
 **`Experimental`**
 
@@ -6524,7 +6543,7 @@ Bounds box-creation bursts inside lineage fanout. Default from lineage.
 
 > `optional` **readRetryDelayMs?**: `number`
 
-Defined in: [runtime/sandbox-run.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L121)
+Defined in: [runtime/sandbox-run.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L133)
 
 **`Experimental`**
 
@@ -14731,6 +14750,21 @@ How a typed deliverable `Out` is materialized from a finished turn.
 
 ***
 
+### OpenSandboxRunPromptOptions
+
+> **OpenSandboxRunPromptOptions** = `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
+Defined in: [runtime/sandbox-run.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L111)
+
+**`Experimental`**
+
+Prompt options forwarded to every sandbox prompt turn in this run. The
+runtime owns `sessionId` and `signal` so callers cannot accidentally break
+resume or cancellation semantics while still setting backend-level prompt
+controls such as `timeoutMs`.
+
+***
+
 ### SteeringDecision
 
 > **SteeringDecision** = `"refine"` \| `"pick-winner"` \| `"fail"`
@@ -17286,7 +17320,7 @@ The opencode backend emits incremental text as
 
 > **createSandboxLineage**(`client`, `capabilities`, `options?`): [`SandboxLineage`](#sandboxlineage)
 
-Defined in: [runtime/sandbox-lineage.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L190)
+Defined in: [runtime/sandbox-lineage.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-lineage.ts#L203)
 
 **`Experimental`**
 
@@ -17332,7 +17366,7 @@ Run provenance recorder forwarded to every `prepareBox` the lineage runs
 
 > **openSandboxRun**\<`Out`\>(`client`, `options`, `deliverable`): `Promise`\<[`SandboxRun`](#sandboxrun)\<`Out`\>\>
 
-Defined in: [runtime/sandbox-run.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L131)
+Defined in: [runtime/sandbox-run.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-run.ts#L143)
 
 **`Experimental`**
 

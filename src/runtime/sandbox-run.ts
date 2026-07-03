@@ -31,7 +31,7 @@
  * artifact-or-events deliverable + resume over ONE persistent box.
  */
 
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
@@ -101,6 +101,15 @@ export interface SandboxRun<Out> {
   close(): Promise<void>
 }
 
+/** Prompt options forwarded to every sandbox prompt turn in this run. The
+ * runtime owns `sessionId` and `signal` so callers cannot accidentally break
+ * resume or cancellation semantics while still setting backend-level prompt
+ * controls such as `timeoutMs`.
+ *
+ * @experimental
+ */
+export type OpenSandboxRunPromptOptions = Omit<PromptOptions, 'signal' | 'sessionId'>
+
 /** @experimental */
 export interface OpenSandboxRunOptions {
   /** Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness. */
@@ -112,6 +121,9 @@ export interface OpenSandboxRunOptions {
   runId?: string
   /** Optional benchmark/scenario id carried into emitted hook events. */
   scenarioId?: string
+  /** Per-prompt sandbox SDK options forwarded to both `start()` and `resume()`.
+   *  The runtime still owns the session id and abort signal for each turn. */
+  promptOptions?: OpenSandboxRunPromptOptions
   /** Test seam for deterministic hook timestamps. Defaults to `Date.now`. */
   now?: () => number
   /** Bounds box-creation bursts inside lineage fanout. Default from lineage. */
@@ -288,6 +300,7 @@ export async function openSandboxRun<Out>(
           options.agentRun as AgentRunSpec<unknown>,
           prompt,
           options.signal,
+          options.promptOptions,
         )
         handle = r.handle
         const result = await settle(handle.box, r.events)
@@ -332,7 +345,7 @@ export async function openSandboxRun<Out>(
       try {
         const result = await settle(
           handle.box,
-          await lineage.continue(handle, prompt, options.signal),
+          await lineage.continue(handle, prompt, options.signal, options.promptOptions),
         )
         turnCount += 1
         emit({
