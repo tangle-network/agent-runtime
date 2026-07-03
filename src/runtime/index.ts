@@ -378,6 +378,14 @@ export {
   type StrategyEvolutionConfig,
   selectChampion,
 } from './strategy-evolution'
+export {
+  type AgentTurnBackend,
+  type AgentTurnUsage,
+  type CollectedAgentTurn,
+  collectAgentTurn,
+  type StreamAgentTurnOptions,
+  streamAgentTurn,
+} from './stream-agent-turn'
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export {

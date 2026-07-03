@@ -8143,6 +8143,139 @@ Defined in: [runtime/strategy.ts:1028](https://github.com/tangle-network/agent-r
 
 ***
 
+### StreamAgentTurnOptions
+
+Defined in: [runtime/stream-agent-turn.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L93)
+
+**`Experimental`**
+
+#### Properties
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Defined in: [runtime/stream-agent-turn.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L95)
+
+**`Experimental`**
+
+Caller-initiated cancellation. Terminates the stream with `final.status: 'aborted'`.
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `number`
+
+Defined in: [runtime/stream-agent-turn.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L101)
+
+**`Experimental`**
+
+Wall-clock deadline for the whole turn in ms. An expired deadline aborts
+the backend and terminates the stream with `final.status: 'failed'`
+(a blown deadline is a turn failure, not a caller cancellation).
+
+***
+
+### AgentTurnUsage
+
+Defined in: [runtime/stream-agent-turn.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L112)
+
+**`Experimental`**
+
+Metered usage of one turn, summed over every cost-bearing event the backend
+emitted. `input`/`output` are token counts (0 when the backend reported
+none — the honest sum, never a fabricated estimate). `costUsd`/`model` are
+present only when the backend actually reported them.
+
+#### Properties
+
+##### input
+
+> **input**: `number`
+
+Defined in: [runtime/stream-agent-turn.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L113)
+
+**`Experimental`**
+
+##### output
+
+> **output**: `number`
+
+Defined in: [runtime/stream-agent-turn.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L114)
+
+**`Experimental`**
+
+##### costUsd?
+
+> `optional` **costUsd?**: `number`
+
+Defined in: [runtime/stream-agent-turn.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L115)
+
+**`Experimental`**
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Defined in: [runtime/stream-agent-turn.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L116)
+
+**`Experimental`**
+
+***
+
+### CollectedAgentTurn
+
+Defined in: [runtime/stream-agent-turn.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L126)
+
+**`Experimental`**
+
+A drained turn: the terminal summary plus every event the stream yielded.
+`status`/`error` mirror the terminal `final` event so a failed or aborted
+turn stays inspectable without re-scanning `events`.
+
+#### Properties
+
+##### finalText
+
+> **finalText**: `string`
+
+Defined in: [runtime/stream-agent-turn.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L127)
+
+**`Experimental`**
+
+##### usage
+
+> **usage**: [`AgentTurnUsage`](#agentturnusage)
+
+Defined in: [runtime/stream-agent-turn.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L128)
+
+**`Experimental`**
+
+##### events
+
+> **events**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
+
+Defined in: [runtime/stream-agent-turn.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L129)
+
+**`Experimental`**
+
+##### status
+
+> **status**: [`AgentTaskStatus`](index.md#agenttaskstatus)
+
+Defined in: [runtime/stream-agent-turn.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L130)
+
+**`Experimental`**
+
+##### error?
+
+> `optional` **error?**: [`BackendErrorDetail`](index.md#backenderrordetail)
+
+Defined in: [runtime/stream-agent-turn.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L131)
+
+**`Experimental`**
+
+***
+
 ### SurfaceWorkerOut
 
 Defined in: [runtime/supervise-surface.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L34)
@@ -14448,6 +14581,83 @@ Defined in: [runtime/strategy-evolution.ts:55](https://github.com/tangle-network
 
 ***
 
+### AgentTurnBackend
+
+> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+
+Defined in: [runtime/stream-agent-turn.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L63)
+
+**`Experimental`**
+
+The execution substrate one turn runs on — a closed discriminated union over
+the three stream surfaces the runtime already owns.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"box"`; `box`: `SandboxInstance`; `agentRunName?`: `string`; \}
+
+###### kind
+
+> **kind**: `"box"`
+
+A live sandbox box: the turn is one `box.streamPrompt(prompt)` call.
+
+###### box
+
+> **box**: `SandboxInstance`
+
+###### agentRunName?
+
+> `optional` **agentRunName?**: `string`
+
+Model label stamped on cost-only `llm_call` events. Default `'agent'`.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \}
+
+###### kind
+
+> **kind**: `"executor"`
+
+A one-shot `Executor` (cli-bridge / router / BYO): the factory is
+instantiated fresh for the turn via `inlineSandboxClient`, run once on
+the prompt, and torn down — the same per-spawn lifecycle the supervise
+runtime gives it.
+
+###### factory
+
+> **factory**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+
+###### agentRunName?
+
+> `optional` **agentRunName?**: `string`
+
+Model label stamped on cost-only `llm_call` events. Default `'agent'`.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+
+###### kind
+
+> **kind**: `"chat"`
+
+An in-process `AgentExecutionBackend` (`resolveAgentBackend` output or
+any custom backend): the turn is one `backend.stream()` call.
+
+###### backend
+
+> **backend**: [`AgentExecutionBackend`](index.md#agentexecutionbackend)
+
+***
+
 ### BudgetReadout
 
 > **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
@@ -17190,6 +17400,66 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 #### Returns
 
 `Promise`\<[`AgenticRunResult`](#agenticrunresult)\>
+
+***
+
+### streamAgentTurn()
+
+> **streamAgentTurn**(`backend`, `prompt`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
+
+Defined in: [runtime/stream-agent-turn.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L158)
+
+**`Experimental`**
+
+Run ONE agent turn on any backend kind and stream its events. Yields the
+`RuntimeStreamEvent` vocabulary incrementally and always ends with a `final`
+event carrying the turn's text and usage (`metadata.tokenUsage`,
+`metadata.costUsd?`, `metadata.model?`) — on success, failure, abort, and
+timeout alike. The generator never throws; failures surface in-band as
+`backend_error` + `final` with a typed `error` detail.
+
+#### Parameters
+
+##### backend
+
+[`AgentTurnBackend`](#agentturnbackend)
+
+##### prompt
+
+`string`
+
+##### opts?
+
+[`StreamAgentTurnOptions`](#streamagentturnoptions) = `{}`
+
+#### Returns
+
+`AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
+
+***
+
+### collectAgentTurn()
+
+> **collectAgentTurn**(`stream`): `Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
+
+Defined in: [runtime/stream-agent-turn.ts:223](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L223)
+
+**`Experimental`**
+
+Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that
+honors its terminal contract) into the turn summary plus the full event
+list. Fail-loud: throws when the stream ends without a terminal `final`
+event — a stream that violates the contract must not read as an empty turn.
+
+#### Parameters
+
+##### stream
+
+`AsyncIterable`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
+
+#### Returns
+
+`Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
 
 ***
 

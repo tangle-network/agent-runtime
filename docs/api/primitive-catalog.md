@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.84.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.85.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 419 exports.
+Import from `@tangle-network/agent-runtime/loops` — 425 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -262,6 +262,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
+| `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
 | `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
 | `computeFindingId` | function | Compute the stable finding_id from the identity-defining fields. |
 | `contentAddress` | function | Mint the content-addressed `outRef` for a result artifact: `sha256:<hex>` over a |
@@ -358,6 +359,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
+| `streamAgentTurn` | function | Run ONE agent turn on any backend kind and stream its events. Yields the |
 | `sumSandboxUsage` | function | Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an |
 | `supervise` | function | One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. |
 | `superviseSurface` | function | Drive a team of agents (spawned + steered by `profile`) to solve a graded `AgenticSurface` task, and |
@@ -394,6 +396,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `AgentProfile` | interface | Public provider-neutral agent profile contract. |
 | `AgentRunSpec` | interface | Sandbox-SDK-shaped agent specification. |
 | `AgentSpec` | interface | `AgentProfile` does NOT carry a `harness`/backend field — `harness` lives on the |
+| `AgentTurnUsage` | interface | Metered usage of one turn, summed over every cost-bearing event the backend |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnytimeTaskCurve` | interface | anytimeReport — time-to-satisfactory-output metrics, derived entirely from the |
 | `AuditIntentInput` | interface | auditIntent — the route-rigor analyst: is this trajectory even going the RIGHT WAY? |
@@ -404,6 +407,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `BusEvent` | interface | Every bus event is a discriminated union member keyed by `type`. |
 | `BusRecord` | interface | A published event stamped for ordering and observability. `seq` is the monotonic publish index; |
 | `CheckpointCapableBox` | interface | Loop-side widening of the box's optional checkpoint method. The |
+| `CollectedAgentTurn` | interface | A drained turn: the terminal summary plus every event the stream yielded. |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
 | `CompletionPolicy` | interface | When a verdict authorizes the driver to END. Deterministic → trust (ground truth); |
@@ -526,6 +530,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
+| `AgentTurnBackend` | type | The execution substrate one turn runs on — a closed discriminated union over |
 | `ApplyContinuation` | type | Fold a steering string into the caller's Task shape, producing the Task for |
 | `AssertTraceDerivedFindings` | type | The firewall assertion contract, re-stated for the reactive seam (PORT of |
 | `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |
@@ -566,7 +571,7 @@ Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LeaderboardSpec`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `McpEnvironmentOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StrategyEvolutionConfig`, `StrategyResult`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LeaderboardSpec`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `McpEnvironmentOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
