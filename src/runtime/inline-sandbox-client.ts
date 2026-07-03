@@ -55,8 +55,21 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
       const createOptions = options
       return {
         id,
-        async *streamPrompt(message: string): AsyncGenerator<SandboxEvent> {
+        async *streamPrompt(
+          message: string,
+          opts?: { signal?: AbortSignal },
+        ): AsyncGenerator<SandboxEvent> {
+          // Chain the caller's turn signal into the executor's spawn signal so
+          // an abort reaches `exec.execute` — a cooperative executor settles
+          // (throws) instead of running to completion after cancellation.
           const controller = new AbortController()
+          const callerSignal = opts?.signal
+          const onAbort = () =>
+            controller.abort(callerSignal?.reason ?? new Error('prompt aborted'))
+          if (callerSignal) {
+            if (callerSignal.aborted) onAbort()
+            else callerSignal.addEventListener('abort', onAbort, { once: true })
+          }
           const spec: AgentSpec = { profile: { name: id }, harness: null }
           const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
           try {
@@ -86,6 +99,7 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
               },
             } as unknown as SandboxEvent
           } finally {
+            callerSignal?.removeEventListener('abort', onAbort)
             await exec.teardown('brutalKill').catch(() => {})
           }
         },
