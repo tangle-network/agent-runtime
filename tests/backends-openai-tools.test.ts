@@ -130,6 +130,32 @@ describe('createOpenAICompatibleBackend — tools[] request shape', () => {
     })
   })
 
+  it('includes generation options when configured', async () => {
+    let captured: Record<string, unknown> | undefined
+    const backend = createOpenAICompatibleBackend({
+      apiKey: 'sk-test',
+      baseUrl: 'https://router.tangle.tools/v1',
+      model: 'kimi-k2.7-code-highspeed',
+      temperature: 1,
+      maxTokens: 8192,
+      fetchImpl: async (_url, init) => {
+        captured = JSON.parse((init?.body as string) ?? '{}') as Record<string, unknown>
+        return new Response('data: [DONE]\n\n', { status: 200 })
+      },
+    })
+    await collect(
+      runAgentTaskStream({
+        task: { id: 'generation-options', intent: 'hi', requiredKnowledge: [readyReq] },
+        backend,
+        input: { message: 'hi' },
+      }),
+    )
+    expect(captured).toMatchObject({
+      temperature: 1,
+      max_tokens: 8192,
+    })
+  })
+
   it('honors an explicit tool_choice value (auto / none / required / pin)', async () => {
     const captures: Record<string, unknown>[] = []
     const make = (toolChoice: Parameters<typeof createOpenAICompatibleBackend>[0]['toolChoice']) =>
