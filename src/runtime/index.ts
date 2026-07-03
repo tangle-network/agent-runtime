@@ -324,6 +324,7 @@ export {
 export {
   type Deliverable,
   type OpenSandboxRunOptions,
+  type OpenSandboxRunPromptOptions,
   openSandboxRun,
   type SandboxRun,
   SandboxRunAbortError,
