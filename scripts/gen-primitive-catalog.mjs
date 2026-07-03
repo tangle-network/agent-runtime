@@ -271,7 +271,7 @@ for (let i = 0; i < allModules.length; i++) bySpecifier.set(allModules[i].specif
 // The ceiling is the exact current count; when a backfill lowers the real number,
 // lower the constant to match. Exceeding it (a new undocumented callable) exits 1.
 
-const maxUndocumentedCallables = 34
+const maxUndocumentedCallables = 0
 const ratchetKinds = new Set(['function', 'class', 'const'])
 
 // ─────────────────────────────────────────────────────────────────────────────
