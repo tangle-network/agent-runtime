@@ -1310,7 +1310,7 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ### LeaderboardScore
 
-Defined in: runtime/define-leaderboard.ts:60
+Defined in: [runtime/define-leaderboard.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L60)
 
 Structured per-case verdict a `score` function may return (a bare number is
  shorthand for `{ composite }`). `composite` is the [0,1] leaderboard score;
@@ -1322,25 +1322,25 @@ Structured per-case verdict a `score` function may return (a bare number is
 
 > **composite**: `number`
 
-Defined in: runtime/define-leaderboard.ts:61
+Defined in: [runtime/define-leaderboard.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L61)
 
 ##### dimensions?
 
 > `optional` **dimensions?**: `Record`\<`string`, `number`\>
 
-Defined in: runtime/define-leaderboard.ts:62
+Defined in: [runtime/define-leaderboard.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L62)
 
 ##### notes?
 
 > `optional` **notes?**: `string`
 
-Defined in: runtime/define-leaderboard.ts:63
+Defined in: [runtime/define-leaderboard.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L63)
 
 ***
 
 ### LeaderboardScenario
 
-Defined in: runtime/define-leaderboard.ts:68
+Defined in: [runtime/define-leaderboard.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L68)
 
 The campaign scenario a case is wrapped into: the case rides along so
  judges and hooks can reach the full domain payload, not just its id.
@@ -1361,13 +1361,13 @@ The campaign scenario a case is wrapped into: the case rides along so
 
 > **case**: `TCase`
 
-Defined in: runtime/define-leaderboard.ts:69
+Defined in: [runtime/define-leaderboard.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L69)
 
 ***
 
 ### LeaderboardFlagSpec
 
-Defined in: runtime/define-leaderboard.ts:74
+Defined in: [runtime/define-leaderboard.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L74)
 
 One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>`
  and surfaced to every hook via `ctx.args`.
@@ -1378,19 +1378,19 @@ One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>`
 
 > `optional` **default?**: `string`
 
-Defined in: runtime/define-leaderboard.ts:75
+Defined in: [runtime/define-leaderboard.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L75)
 
 ##### description
 
 > **description**: `string`
 
-Defined in: runtime/define-leaderboard.ts:76
+Defined in: [runtime/define-leaderboard.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L76)
 
 ***
 
 ### LeaderboardRunContext
 
-Defined in: runtime/define-leaderboard.ts:80
+Defined in: [runtime/define-leaderboard.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L80)
 
 Resolved run configuration handed to `setup` / `teardown` / `export`.
 
@@ -1400,13 +1400,13 @@ Resolved run configuration handed to `setup` / `teardown` / `export`.
 
 > **name**: `string`
 
-Defined in: runtime/define-leaderboard.ts:81
+Defined in: [runtime/define-leaderboard.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L81)
 
 ##### backend
 
 > **backend**: `string`
 
-Defined in: runtime/define-leaderboard.ts:83
+Defined in: [runtime/define-leaderboard.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L83)
 
 Execution backend name (`--backend`), a key of `backends`.
 
@@ -1414,19 +1414,19 @@ Execution backend name (`--backend`), a key of `backends`.
 
 > **runDir**: `string`
 
-Defined in: runtime/define-leaderboard.ts:84
+Defined in: [runtime/define-leaderboard.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L84)
 
 ##### exportDir
 
 > **exportDir**: `string`
 
-Defined in: runtime/define-leaderboard.ts:85
+Defined in: [runtime/define-leaderboard.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L85)
 
 ##### args
 
 > **args**: `Record`\<`string`, `string` \| `undefined`\>
 
-Defined in: runtime/define-leaderboard.ts:87
+Defined in: [runtime/define-leaderboard.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L87)
 
 Every parsed flag (standard + `spec.flags`), by name without `--`.
 
@@ -1434,13 +1434,13 @@ Every parsed flag (standard + `spec.flags`), by name without `--`.
 
 > **harnesses**: readonly `HarnessType`[]
 
-Defined in: runtime/define-leaderboard.ts:88
+Defined in: [runtime/define-leaderboard.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L88)
 
 ##### models
 
 > **models**: readonly `string`[]
 
-Defined in: runtime/define-leaderboard.ts:90
+Defined in: [runtime/define-leaderboard.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L90)
 
 Snapshot-stamped model ids (`name@snapshot`) — the eval identity models.
 
@@ -1448,25 +1448,25 @@ Snapshot-stamped model ids (`name@snapshot`) — the eval identity models.
 
 > **caseIds**: readonly `string`[]
 
-Defined in: runtime/define-leaderboard.ts:91
+Defined in: [runtime/define-leaderboard.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L91)
 
 ##### shots
 
 > **shots**: `number`
 
-Defined in: runtime/define-leaderboard.ts:92
+Defined in: [runtime/define-leaderboard.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L92)
 
 ##### reps
 
 > **reps**: `number`
 
-Defined in: runtime/define-leaderboard.ts:93
+Defined in: [runtime/define-leaderboard.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L93)
 
 ***
 
 ### LeaderboardBenchTask
 
-Defined in: runtime/define-leaderboard.ts:98
+Defined in: [runtime/define-leaderboard.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L98)
 
 Structurally `BenchTask` (bench registry shape) — declared locally so this
  module adds no dependency on a benchmark package.
@@ -1477,31 +1477,31 @@ Structurally `BenchTask` (bench registry shape) — declared locally so this
 
 > **id**: `string`
 
-Defined in: runtime/define-leaderboard.ts:99
+Defined in: [runtime/define-leaderboard.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L99)
 
 ##### prompt
 
 > **prompt**: `string`
 
-Defined in: runtime/define-leaderboard.ts:100
+Defined in: [runtime/define-leaderboard.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L100)
 
 ##### split?
 
 > `optional` **split?**: `string`
 
-Defined in: runtime/define-leaderboard.ts:101
+Defined in: [runtime/define-leaderboard.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L101)
 
 ##### metadata?
 
 > `optional` **metadata?**: `Record`\<`string`, `unknown`\>
 
-Defined in: runtime/define-leaderboard.ts:102
+Defined in: [runtime/define-leaderboard.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L102)
 
 ***
 
 ### LeaderboardBenchScore
 
-Defined in: runtime/define-leaderboard.ts:106
+Defined in: [runtime/define-leaderboard.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L106)
 
 Structurally `BenchScore` (bench registry shape).
 
@@ -1511,25 +1511,25 @@ Structurally `BenchScore` (bench registry shape).
 
 > **resolved**: `boolean`
 
-Defined in: runtime/define-leaderboard.ts:107
+Defined in: [runtime/define-leaderboard.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L107)
 
 ##### score
 
 > **score**: `number`
 
-Defined in: runtime/define-leaderboard.ts:108
+Defined in: [runtime/define-leaderboard.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L108)
 
 ##### detail?
 
 > `optional` **detail?**: `string`
 
-Defined in: runtime/define-leaderboard.ts:109
+Defined in: [runtime/define-leaderboard.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L109)
 
 ***
 
 ### LeaderboardBenchmarkAdapter
 
-Defined in: runtime/define-leaderboard.ts:114
+Defined in: [runtime/define-leaderboard.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L114)
 
 Structurally `BenchmarkAdapter` (bench registry shape): `name`,
  `preflight()`, `loadTasks()`, deterministic `judge()`, `goldArtifact()`.
@@ -1540,7 +1540,7 @@ Structurally `BenchmarkAdapter` (bench registry shape): `name`,
 
 > `readonly` **name**: `string`
 
-Defined in: runtime/define-leaderboard.ts:115
+Defined in: [runtime/define-leaderboard.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L115)
 
 #### Methods
 
@@ -1548,7 +1548,7 @@ Defined in: runtime/define-leaderboard.ts:115
 
 > **preflight**(): `Promise`\<`void`\>
 
-Defined in: runtime/define-leaderboard.ts:116
+Defined in: [runtime/define-leaderboard.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L116)
 
 ###### Returns
 
@@ -1558,7 +1558,7 @@ Defined in: runtime/define-leaderboard.ts:116
 
 > **loadTasks**(`opts?`): `Promise`\<[`LeaderboardBenchTask`](#leaderboardbenchtask)[]\>
 
-Defined in: runtime/define-leaderboard.ts:117
+Defined in: [runtime/define-leaderboard.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L117)
 
 ###### Parameters
 
@@ -1584,7 +1584,7 @@ Defined in: runtime/define-leaderboard.ts:117
 
 > **judge**(`task`, `artifact`): `Promise`\<[`LeaderboardBenchScore`](#leaderboardbenchscore)\>
 
-Defined in: runtime/define-leaderboard.ts:122
+Defined in: [runtime/define-leaderboard.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L122)
 
 ###### Parameters
 
@@ -1604,7 +1604,7 @@ Defined in: runtime/define-leaderboard.ts:122
 
 > **goldArtifact**(`task`): `Promise`\<`string` \| `undefined`\>
 
-Defined in: runtime/define-leaderboard.ts:123
+Defined in: [runtime/define-leaderboard.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L123)
 
 ###### Parameters
 
@@ -1620,7 +1620,7 @@ Defined in: runtime/define-leaderboard.ts:123
 
 ### LeaderboardSpec
 
-Defined in: runtime/define-leaderboard.ts:126
+Defined in: [runtime/define-leaderboard.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L126)
 
 #### Type Parameters
 
@@ -1634,7 +1634,7 @@ Defined in: runtime/define-leaderboard.ts:126
 
 > **name**: `string`
 
-Defined in: runtime/define-leaderboard.ts:128
+Defined in: [runtime/define-leaderboard.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L128)
 
 Leaderboard name — the scenario `kind`, default profile name, and report title.
 
@@ -1642,7 +1642,7 @@ Leaderboard name — the scenario `kind`, default profile name, and report title
 
 > **cases**: `TCase`[]
 
-Defined in: runtime/define-leaderboard.ts:130
+Defined in: [runtime/define-leaderboard.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L130)
 
 The case corpus. Every case needs a stable string id (see `caseId`).
 
@@ -1650,7 +1650,7 @@ The case corpus. Every case needs a stable string id (see `caseId`).
 
 > `optional` **caseId?**: (`c`) => `string`
 
-Defined in: runtime/define-leaderboard.ts:133
+Defined in: [runtime/define-leaderboard.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L133)
 
 Stable id extractor. Default: the case's own `id` property (fail-loud
  when absent or not a string).
@@ -1669,7 +1669,7 @@ Stable id extractor. Default: the case's own `id` property (fail-loud
 
 > **prompt**: (`c`) => `string` \| `Promise`\<`string`\>
 
-Defined in: runtime/define-leaderboard.ts:136
+Defined in: [runtime/define-leaderboard.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L136)
 
 The per-case task prompt. May be async (e.g. built by shelling out to a
  reference implementation); resolved ONCE per case before dispatch.
@@ -1688,7 +1688,7 @@ The per-case task prompt. May be async (e.g. built by shelling out to a
 
 > **score**: (`output`, `c`) => `number` \| [`LeaderboardScore`](#leaderboardscore)
 
-Defined in: runtime/define-leaderboard.ts:140
+Defined in: [runtime/define-leaderboard.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L140)
 
 The domain grader: agent output text → score. Used BOTH as the per-shot
  validator (a shot with `composite > 0` stops the naive retry loop) and,
@@ -1712,7 +1712,7 @@ The domain grader: agent output text → score. Used BOTH as the per-shot
 
 > `optional` **axis?**: `object`
 
-Defined in: runtime/define-leaderboard.ts:144
+Defined in: [runtime/define-leaderboard.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L144)
 
 Harness × model axes for `expandProfileAxes`. Defaults: the canonical
  `CODING_HARNESSES` × the base profile's `model.default`. `--harnesses` /
@@ -1730,7 +1730,7 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 > `optional` **baseProfile?**: `AgentProfile`
 
-Defined in: runtime/define-leaderboard.ts:147
+Defined in: [runtime/define-leaderboard.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L147)
 
 Base profile the axes expand over (prompt/tools/skills held fixed).
  Default: a minimal `{ name, model: { default: <first model> } }`.
@@ -1739,7 +1739,7 @@ Base profile the axes expand over (prompt/tools/skills held fixed).
 
 > `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-3)) \| `undefined`\>
 
-Defined in: runtime/define-leaderboard.ts:157
+Defined in: [runtime/define-leaderboard.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L157)
 
 Execution-backend registry: `--backend <name>` picks the factory that
 yields the `SandboxClient` every cell runs on. Merged over the defaults:
@@ -1753,7 +1753,7 @@ yields the `SandboxClient` every cell runs on. Merged over the defaults:
 
 > `optional` **flags?**: `Record`\<`string`, [`LeaderboardFlagSpec`](#leaderboardflagspec)\>
 
-Defined in: runtime/define-leaderboard.ts:159
+Defined in: [runtime/define-leaderboard.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L159)
 
 Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
 
@@ -1761,7 +1761,7 @@ Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
 
 > `optional` **modelBackend?**: `Record`\<`string`, `unknown`\>
 
-Defined in: runtime/define-leaderboard.ts:163
+Defined in: [runtime/define-leaderboard.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L163)
 
 Extra fields merged into each cell's `backend.model` create override —
  e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
@@ -1771,7 +1771,7 @@ Extra fields merged into each cell's `backend.model` create override —
 
 > `optional` **setup?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: runtime/define-leaderboard.ts:165
+Defined in: [runtime/define-leaderboard.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L165)
 
 Runs once before the matrix (fetch fixtures, warm caches).
 
@@ -1789,7 +1789,7 @@ Runs once before the matrix (fetch fixtures, warm caches).
 
 > `optional` **teardown?**: (`ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: runtime/define-leaderboard.ts:167
+Defined in: [runtime/define-leaderboard.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L167)
 
 Runs once after the matrix, even on failure (reap boxes, close handles).
 
@@ -1807,7 +1807,7 @@ Runs once after the matrix, even on failure (reap boxes, close handles).
 
 > `optional` **onCellEvents?**: (`events`, `c`) => `void`
 
-Defined in: runtime/define-leaderboard.ts:171
+Defined in: [runtime/define-leaderboard.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L171)
 
 Per-cell event tap: the raw sandbox events of each parsed iteration,
  with the case — the seam for domain metric capture (search counts,
@@ -1831,7 +1831,7 @@ readonly `SandboxEvent`[]
 
 > `optional` **parseOutput?**: (`events`, `c`) => `string`
 
-Defined in: runtime/define-leaderboard.ts:175
+Defined in: [runtime/define-leaderboard.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L175)
 
 Output decode override: raw events → the scored output text. Default:
  the sandbox SDK's `collectAgentResponseText` (final answer text; empty
@@ -1855,7 +1855,7 @@ readonly `SandboxEvent`[]
 
 > `optional` **export?**: (`result`, `ctx`) => `void` \| `Promise`\<`void`\>
 
-Defined in: runtime/define-leaderboard.ts:178
+Defined in: [runtime/define-leaderboard.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L178)
 
 Result export. Default: write `matrix-result.json` under the run dir and
  print (+ write) the ranked leaderboard markdown under the export dir.
@@ -1878,7 +1878,7 @@ Result export. Default: write `matrix-result.json` under the run dir and
 
 > `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `string`\>
 
-Defined in: runtime/define-leaderboard.ts:184
+Defined in: [runtime/define-leaderboard.ts:184](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L184)
 
 LEVEL 2 — full dispatch replacement (in-process products bring their own).
  The default is `loopDispatch` + `naiveDriver` over the resolved backend.
@@ -1887,7 +1887,7 @@ LEVEL 2 — full dispatch replacement (in-process products bring their own).
 
 > `optional` **judges?**: `JudgeConfig`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>[]
 
-Defined in: runtime/define-leaderboard.ts:186
+Defined in: [runtime/define-leaderboard.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L186)
 
 LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge.
 
@@ -1895,7 +1895,7 @@ LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge.
 
 > `optional` **shots?**: `number`
 
-Defined in: runtime/define-leaderboard.ts:188
+Defined in: [runtime/define-leaderboard.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L188)
 
 Naive-retry shot cap per cell (`--shots`). Default 1.
 
@@ -1903,7 +1903,7 @@ Naive-retry shot cap per cell (`--shots`). Default 1.
 
 > `optional` **reps?**: `number`
 
-Defined in: runtime/define-leaderboard.ts:190
+Defined in: [runtime/define-leaderboard.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L190)
 
 Replicates per cell (`--reps`). Default 1.
 
@@ -1911,7 +1911,7 @@ Replicates per cell (`--reps`). Default 1.
 
 > `optional` **matrix?**: `Partial`\<`RunProfileMatrixOptions`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `string`\>\>
 
-Defined in: runtime/define-leaderboard.ts:194
+Defined in: [runtime/define-leaderboard.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L194)
 
 Passthrough overrides spread onto the final `runProfileMatrix` call
  (e.g. `maxConcurrency`, `costCeiling`, `integrity`, `storage`) — spread
@@ -1921,7 +1921,7 @@ Passthrough overrides spread onto the final `runProfileMatrix` call
 
 ### DefinedLeaderboard
 
-Defined in: runtime/define-leaderboard.ts:197
+Defined in: [runtime/define-leaderboard.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L197)
 
 #### Type Parameters
 
@@ -1935,7 +1935,7 @@ Defined in: runtime/define-leaderboard.ts:197
 
 > **run**(`argv?`): `Promise`\<`RunProfileMatrixResult`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>\>
 
-Defined in: runtime/define-leaderboard.ts:211
+Defined in: [runtime/define-leaderboard.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L211)
 
 Parse flags, run the matrix, export, and return the raw result.
 
@@ -1963,7 +1963,7 @@ only an explicit `--run-dir` opts into that resume behavior.
 
 > **toBenchmarkAdapter**(): [`LeaderboardBenchmarkAdapter`](#leaderboardbenchmarkadapter)
 
-Defined in: runtime/define-leaderboard.ts:213
+Defined in: [runtime/define-leaderboard.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L213)
 
 The same domain surface in the structural `BenchmarkAdapter` shape.
 
@@ -15319,7 +15319,7 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 > **defineLeaderboard**\<`TCase`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`\>
 
-Defined in: runtime/define-leaderboard.ts:255
+Defined in: [runtime/define-leaderboard.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L255)
 
 #### Type Parameters
 
