@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.83.0` and `@tangle-network/agent-eval@0.100.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.84.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 409 exports.
+Import from `@tangle-network/agent-runtime/loops` — 419 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -285,6 +285,7 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
+| `defineLeaderboard` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `definePersona` | function | Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with |
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
 | `delegate` | function | Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged. |
@@ -438,7 +439,14 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
+| `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
+| `LeaderboardBenchScore` | interface | Structurally `BenchScore` (bench registry shape). |
+| `LeaderboardBenchTask` | interface | Structurally `BenchTask` (bench registry shape) — declared locally so this |
+| `LeaderboardFlagSpec` | interface | One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>` |
 | `LeaderboardRow` | interface | One leaderboard row — a harness×model profile, every measured column. |
+| `LeaderboardRunContext` | interface | Resolved run configuration handed to `setup` / `teardown` / `export`. |
+| `LeaderboardScenario` | interface | The campaign scenario a case is wrapped into: the case rides along so |
+| `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
 | `LoopLineageOptions` | interface | Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags |
@@ -558,7 +566,7 @@ Import from `@tangle-network/agent-runtime/loops` — 409 exports.
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `McpEnvironmentOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StrategyEvolutionConfig`, `StrategyResult`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgenticOptions`, `AgenticRunResult`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `ArtifactHandle`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CreateAgentEnvironmentInput`, `DefinedLeaderboard`, `Driver`, `EventBus`, `EvolutionArchiveNode`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ForkRequest`, `GitWorkspaceOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LeaderboardSpec`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `McpEnvironmentOptions`, `Observation`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PlacementInfo`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ResourceRequest`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolLoopResult`, `RunAgenticOptions`, `SandboxRun`, `ShotSpec`, `StrategyEvolutionConfig`, `StrategyResult`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SurfaceScore`, `ToolSpec`, `TraceSource`, `ValidationCtx`, `Validator`, `WaterfallCollector`, `WaterfallReport`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `LoopTraceEvent`, `MakeWorkerAgent`, `WorkspaceCommit`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
@@ -824,8 +832,8 @@ Import from `@tangle-network/agent-eval` — 30 exports.
 |---|---|---|
 | `buildAgreementJudge` | function | Build a `JudgeConfig` that scores a produced student artifact against the |
 | `cachedJudge` | function | Wrap a `JudgeConfig` so repeat judgments of the same artifact are served |
-| `calibrateJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `compilerJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `calibrateJudge` | function | Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids. |
+| `compilerJudge` | function | Build a `SandboxJudgeSpec` that scores whether the harness compiles without errors. |
 | `contractJudge` | function | Adapt trace contracts to a campaign `JudgeConfig`. One judge dimension per |
 | `createAntiSlopJudge` | function | Create a reusable Judge function from an anti-slop config. |
 | `createCustomJudge` | function | Create a custom judge with a fully custom prompt. |
@@ -834,16 +842,16 @@ Import from `@tangle-network/agent-eval` — 30 exports.
 | `createSemanticConceptJudge` | function | Factory: pin LLM options once, return a closure that accepts inputs. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
-| `judgeReplayGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `judgeSpans` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `linterJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `judgeReplayGate` | function | Confirm a candidate's win with a stronger judge: score baseline and candidate outputs independently, then bootstrap a CI to verify the lift generalises beyond the inner loop. |
+| `judgeSpans` | function | Query judge-kind spans from the trace store, optionally scoped to a single run. |
+| `linterJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by linter rule violations. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
 | `replayTraceThroughJudge` | function | Apply a judge function to every LLM span in a run and record the |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
-| `securityJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `testJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `securityJudge` | function | Build a `SandboxJudgeSpec` that scores the harness output for security issues via a security scanner. |
+| `testJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by its test-suite pass rate. |
 | `traceJudge` | function | Wrap a single JudgeFn so its LLM call emits a traced span. |
 | `adversarialJudge` | const | Adversarial judge — red-teams agent responses. |
 | `codeExecutionJudge` | const | Code execution judge — evaluates whether code blocks are valid and runnable. |
@@ -875,11 +883,11 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 | Symbol | Kind | Summary |
 |---|---|---|
 | `gradeSemanticStatus` | function | Grade a semantic-concept-style judge result into a single layer status. |
-| `verifyAgentProfileCell` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `verifyAgentProfileCell` | function | Verify an `AgentProfileCell`'s `cellId` matches the sha256 of its hash-material fields, confirming the record has not been tampered with. |
 | `verifyAttestation` | function | Verify a report against its attestation. Returns a typed outcome rather |
 | `verifyCompletion` | function | Verify whether a run completed the task. `checkCorrectness` is injected — |
 | `verifyManifest` | function | Verify that a signed manifest has not been tampered with. |
-| `MultiLayerVerifier` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `MultiLayerVerifier` | class | Ordered DAG of verification layers with dependency-based skipping, per-layer findings, soft-fail semantics, and a blended composite score across all passed layers. |
 | `VerificationReport` | interface | Extends the substrate verdict spine: `valid` = `allPass` and `score` = |
 | `LayerStatus` | type | Multi-layer verifier — ordered pipeline of verification layers. |
 
@@ -930,70 +938,78 @@ Import from `@tangle-network/agent-eval` — 49 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 206 exports.
+Import from `@tangle-network/agent-eval/campaign` — 226 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `aceProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `aceProposer` | function | Append-only context engineering proposer: grows a skill playbook by appending generation-tagged lessons without merging or overwriting prior entries. |
 | `applySkillPatch` | function | Apply a SkillOpt patch to a text surface. Ops apply in array order against |
 | `buildAnalystSurfaceDispatch` | function | Build the `dispatchWithSurface(surface, scenario, ctx)` the improvement loop |
 | `buildEvidenceVector` | function | The Evidence Bus. For each objective, pair candidate vs baseline by full |
 | `buildLoopProvenanceRecord` | function | Build the durable provenance record from a completed loop result. |
 | `campaignBreakdown` | function | Per-candidate evidence a reflective/patch proposer grounds its next proposal |
 | `campaignMeanComposite` | function | Mean composite across a campaign: per cell, the mean of its judges' |
-| `compareProposers` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `compareProposers` | function | Run a head-to-head lift benchmark across surface proposers on a shared holdout, returning per-proposer lift CIs and pairwise "who wins" verdicts. |
 | `composeGate` | function | Compose gates — all must `ship` for the composite to `ship`. First |
 | `countSentenceEdits` | function | Sentence-level edit distance — count distinct add/remove ops between |
-| `defaultProductionGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `defaultRenderDiff` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `defaultProductionGate` | function | Opinionated production gate composing held-out significance, red-team, reward-hacking, and canary checks into a single `Gate.decide` decision. |
+| `defaultRenderDiff` | function | Default surface diff renderer: produces a unified baseline/winner text diff for prompt surfaces or a worktree-ref summary for code surfaces. |
 | `detectScale` | function | Detect the native scale of a set of scores: 0-100 when any magnitude clears |
 | `dimensionRegressions` | function | Per-critical-dimension regression guard. For each dimension, pair the |
+| `discoverEvalFixtures` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `emitLoopProvenance` | function | Build the provenance record + OTel spans and persist them durably under the |
-| `evolutionaryProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `extractFapoAttributionSignals` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `evolutionaryProposer` | function | Wrap a stateless `Mutator` (GEPA, AxGEPA, reflective-mutation) as a `SurfaceProposer` that mutates the current best surface into N candidates each generation. |
+| `extractFapoAttributionSignals` | function | Scan a findings array and extract FAPO attribution signals — per-level counts and failure clusters used to decide which optimization level to escalate to next. |
 | `extractH2Sections` | function | Extract H2 headings (`## Foo`) from a markdown surface. Exported for |
 | `failureModeRecallJudge` | function | Deterministic, ground-truth judge for analyst findings. Composite = |
-| `fapoEscalationEntry` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `fapoEscalationEntry` | function | Build a `ProposerEntry` that runs the full FAPO escalation policy (prompt → parameter → structural) as a single comparable optimizer entry. |
 | `fapoProposer` | function | Build a FAPO policy proposer from level-specific candidate generators. |
 | `fsCampaignStorage` | function | Node-filesystem storage — the default. Lazily requires `node:fs` so the |
 | `gepaParetoEntry` | function | GEPA with the Pareto frontier + combine-complementary-lessons. |
-| `gepaProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `gepaProposer` | function | GEPA reflective proposer: each generation reflects on the weakest scenarios and dimensions to produce targeted prompt rewrites, optionally combining Pareto-frontier parents. |
 | `gepaReflectionEntry` | function | GEPA, reflection-only (single-parent, no Pareto combine). |
-| `gitWorktreeAdapter` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `gitWorktreeAdapter` | function | Git-backed `WorktreeAdapter`: creates isolated worktrees on fresh branches, commits agent changes, and discards losers. |
 | `haloProposer` | function | Wrap the real halo-engine CLI as a SurfaceProposer (prompt-tier). |
-| `heldOutGate` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `heldOutGate` | function | Composable held-out delta gate: ships only when the candidate's mean composite on `scenarios` beats the baseline by at least `deltaThreshold`. |
 | `heldoutSignificance` | function | Significance of the held-out composite lift: ship only when the paired |
 | `inMemoryCampaignStorage` | function | In-memory storage for filesystem-less runtimes. Artifacts + trace spans |
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `labelTrustRank` | function | Ordinal rank for a label-trust tier; absent ⇒ `unverified` (rank 0). |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
+| `loadEvalFixture` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `loadEvalFixtureScenarios` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `loopProvenanceSpans` | function | Build the loop's OTLP-ingestable spans from a provenance record. One root |
 | `makePlaybackDispatch` | function | Adapt a `PlaybackDriver` into a `runProfileMatrix` dispatch. The artifact the |
 | `memoryCurationProposer` | function | Build the CURATOR proposer. |
-| `openAutoPr` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `openAutoPr` | function | Open a GitHub PR for a gate-approved surface promotion, attaching the manifest hash, gate verdict, and diff as the PR body. |
 | `pairHoldout` | function | Pair candidate vs baseline holdout observations by FULL cellId. `select` |
 | `parameterSweepProposer` | function | Config/parameter-level proposer for FAPO's middle escalation level. |
 | `paretoSignificanceGate` | function | Wrap the bus + a policy as a `Gate`. Plugs into the existing |
-| `parseSkillPatchResponse` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `parseSkillPatchResponse` | function | Parse a SkillOpt LLM response into validated `SkillPatch` objects, throwing `SkillPatchParseError` on malformed JSON and silently dropping ops that violate the edit budget. |
 | `patchEditCount` | function | Total ops in a patch — the edit-budget axis (SkillOpt's "textual learning |
+| `planCampaignRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `planEvalFixtureRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `policyEditProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `provenanceRecordPath` | function | Canonical durable paths under the run dir. |
-| `provenanceSpansPath` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `provenanceSpansPath` | function | Canonical path for the durable OTLP spans JSONL file under a loop run directory. |
 | `renderScoreboardMarkdown` | function | Render the scoreboard as a launch-readiness Markdown document — the literal |
+| `resolveRunDir` | function | Resolve a campaign `runDir`. An absolute path is honored as-is (the caller |
 | `resolveWorktreePath` | function | Resolve a `CodeSurface`'s worktreeRef to a directory the measurement can |
-| `runCampaign` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runEval` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runImprovementLoop` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runOptimization` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runProfileMatrix` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `runSkillOpt` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `runCampaign` | function | Core campaign orchestrator: fan scenarios through dispatch, score with judges, aggregate bootstrap CIs, and persist reproducible `CampaignResult` records. |
+| `runEval` | function | Simplest evaluation preset: run scenarios through dispatch, score with judges, and return a `CampaignResult` — no optimizer, no gate, no PR. |
+| `runImprovementLoop` | function | Gated-promotion shell over `runOptimization`: scores the winner against the baseline on a holdout set, runs the release gate, and optionally opens a PR. |
+| `runOptimization` | function | Improvement loop body: N generations of propose → campaign → rank, maintaining a Pareto frontier and promoting the top-scoring candidates to the next generation. |
+| `runProfileMatrix` | function | Profile × scenario matrix runner: fan N agent profiles across M scenarios, project each cell to a validated `RunRecord` with real token usage, and enforce the backend-integrity guard before returning. |
+| `runSkillOpt` | function | SkillOpt sequential hill-climb: each epoch reflects on train-scenario weaknesses, proposes bounded patches, accepts the first patch that strictly improves the held-out composite, and anneals the edit  |
 | `scoreboardSummary` | function | Roll the per-requirement rows up into the launch headline counts. |
 | `scoreUserStory` | function | Score one story's produced state against its requirements. Thin wrapper over |
 | `sequentialDecide` | function | `SurfaceProposer.decide` adapter — stops the optimization loop the moment |
 | `sequentialPairedGate` | function | Anytime-valid sequential paired gate. Conforms to the existing `Gate` |
 | `skillOptEntry` | function | SkillOpt patch-mode hill-climb. Runs findings-BLIND: `runSkillOpt` owns its |
-| `skillOptProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `skillOptProposer` | function | SkillOpt proposer: proposes bounded, anchored patch operations (add/delete/replace) on a skill document, conforming to both the patch-native `SkillOptProposer` and the generic `SurfaceProposer` interf |
 | `surfaceContentHash` | function | Stable sha256 (full hex) of a surface's effective text. Code surfaces hash |
-| `surfaceHash` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `surfaceHash` | function | Short (16-char) sha256 fingerprint of a `MutableSurface`: hashes text content for prompt surfaces, or the worktree + base ref pair for code surfaces. |
+| `tangleTracesRoot` | function | The shared, out-of-repo root for campaign/benchmark run bundles. Keeping run |
 | `traceAnalystProposer` | function | Wrap agent-eval's trace-analyst registry as a SurfaceProposer (prompt-tier). |
 | `userStoryScoreboard` | function | Flatten story verdicts into the per-requirement scoreboard — the literal |
 | `paretoPolicy` | const | The default strategy: symmetric multi-objective Pareto significance. Ship iff |
@@ -1019,7 +1035,6 @@ Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 | `GenerationCandidate` | interface | One scored candidate surface in a generation. `dimensions` + `scenarios` |
 | `GepaProposerConstraints` | interface | `gepaProposer` — a reflective `SurfaceProposer` for prompt-tier surfaces. |
 | `HaloProposerOptions` | interface | `haloProposer` — wraps the REAL halo-engine (Inference.net's hierarchical |
-| `HeldOutGateOptions` | interface | Thin Gate adapter — exposes delta-threshold-on-holdout as a composable |
 | `JudgeConfig` | interface | Pluggable dimensional scorer. `score` is the contract: |
 | `JudgeScore` | interface | The canonical judge verdict shape — one declaration, shared by campaign |
 | `LabeledScenarioWrite` | interface | Required-provenance write. The store rejects writes that |
@@ -1033,6 +1048,7 @@ Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 | `PlaybackContext` | interface | Dispatch context plus the profile under test (which cheap model, etc.). |
 | `PlaybackDriver` | interface | Drives the real product through a story and returns the runtime event stream |
 | `PlaybackStep` | interface | One step of a user story — what the user does. The driver interprets |
+| `PolicyEditProposerOptions` | interface | `policyEditProposer` turns typed analyst policy edits into measured candidate |
 | `ProposeContext` | interface | Everything a proposer may read to plan the next |
 | `ProposedCandidate` | interface | A proposer output carrying the surface AND the WHY behind |
 | `ProposerEntry` | interface | What an optimizer produced: the surface it promoted + what it cost to get |
@@ -1068,7 +1084,7 @@ Import from `@tangle-network/agent-eval/campaign` — 206 exports.
 | `SequentialDecision` | type | Anytime-valid sequential promotion gate — an e-process (betting |
 | `SkillPatchOp` | type | A single bounded edit against a skill surface. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcceptedEdit`, `ApplySkillPatchResult`, `AxisEvidence`, `BuildAnalystSurfaceDispatchOptions`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CompareProposersOptions`, `DimensionRegression`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvidenceVector`, `FailureModeRecallJudgeOptions`, `FapoAttributionSignals`, `FapoFailureCluster`, `FapoProposerOptions`, `FapoReviewInput`, `FapoReviewIssue`, `FapoReviewResult`, `FapoScopeContract`, `GateContext`, `GateResult`, `GenerationRecord`, `GepaProposerOptions`, `GitWorktreeAdapterOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `OpenAutoPrResult`, `OptimizerConfig`, `ParameterCandidate`, `ParameterChange`, `ParameterSweepProposerOptions`, `ParetoSignificanceGateOptions`, `ProfileSummary`, `PromotionObjective`, `ProposePatchesArgs`, `ProposerComparison`, `ProposerPairwise`, `ProposerScore`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunSkillOptResult`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SkillOptEpochRecord`, `SkillOptProposer`, `SkillOptProposerOptions`, `SkillPatchRejection`, `TraceSpan`, `WorktreeAdapter`, `JsonPrimitive`, `JsonValue`, `RedactionStatus`, `RunOptimizationOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcceptedEdit`, `ApplySkillPatchResult`, `AxisEvidence`, `BuildAnalystSurfaceDispatchOptions`, `BuildEvidenceVectorOptions`, `BuildLoopProvenanceArgs`, `CampaignAggregates`, `CampaignBreakdown`, `CampaignCellResult`, `CampaignResult`, `CampaignRunPlan`, `CampaignRunPlanCell`, `CompareProposersOptions`, `DimensionRegression`, `EmitLoopProvenanceArgs`, `EmitLoopProvenanceResult`, `EvalFixture`, `EvalFixtureFile`, `EvalFixtureLoadOptions`, `EvalFixtureScenario`, `EvidenceVector`, `FailureModeRecallJudgeOptions`, `FapoAttributionSignals`, `FapoFailureCluster`, `FapoProposerOptions`, `FapoReviewInput`, `FapoReviewIssue`, `FapoReviewResult`, `FapoScopeContract`, `GateContext`, `GateResult`, `GenerationRecord`, `GepaProposerOptions`, `GitWorktreeAdapterOptions`, `HeldOutGateOptions`, `HeldoutSignificance`, `HeldoutSignificanceOptions`, `JudgeAggregate`, `JudgeDimension`, `LabeledScenarioRecord`, `LabeledScenarioSampleArgs`, `LabeledScenarioStore`, `LlmJudgeOptions`, `LoadEvalFixtureScenariosOptions`, `LoopProvenanceBackend`, `LoopProvenanceCandidate`, `OpenAutoPrResult`, `OptimizerConfig`, `ParameterCandidate`, `ParameterChange`, `ParameterSweepProposerOptions`, `ParetoSignificanceGateOptions`, `PlanCampaignRunOptions`, `PlanEvalFixtureRunOptions`, `ProfileSummary`, `PromotionObjective`, `ProposePatchesArgs`, `ProposerComparison`, `ProposerPairwise`, `ProposerScore`, `RunImprovementLoopResult`, `RunOptimizationResult`, `RunProfileMatrixOptions`, `RunProfileMatrixResult`, `RunSkillOptResult`, `ScenarioAggregate`, `ScenarioRollup`, `ScoreboardRenderOptions`, `SequentialDecideFn`, `SequentialDecideOptions`, `SequentialObservation`, `SequentialPairedGate`, `SequentialPairedGateOptions`, `SkillOptEpochRecord`, `SkillOptProposer`, `SkillOptProposerOptions`, `SkillPatchRejection`, `TraceSpan`, `WorktreeAdapter`, `EvalFixtureRunPlan`, `EvalFixtureValidationMode`, `JsonPrimitive`, `JsonValue`, `RedactionStatus`, `RunOptimizationOptions`.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 

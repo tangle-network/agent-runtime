@@ -1308,6 +1308,671 @@ Minimum confidence a PROBABILISTIC verdict must clear to end. Default 0.8.
 
 ***
 
+### LeaderboardScore
+
+Defined in: runtime/define-leaderboard.ts:60
+
+Structured per-case verdict a `score` function may return (a bare number is
+ shorthand for `{ composite }`). `composite` is the [0,1] leaderboard score;
+ `dimensions` are recorded as extra judge dimensions.
+
+#### Properties
+
+##### composite
+
+> **composite**: `number`
+
+Defined in: runtime/define-leaderboard.ts:61
+
+##### dimensions?
+
+> `optional` **dimensions?**: `Record`\<`string`, `number`\>
+
+Defined in: runtime/define-leaderboard.ts:62
+
+##### notes?
+
+> `optional` **notes?**: `string`
+
+Defined in: runtime/define-leaderboard.ts:63
+
+***
+
+### LeaderboardScenario
+
+Defined in: runtime/define-leaderboard.ts:68
+
+The campaign scenario a case is wrapped into: the case rides along so
+ judges and hooks can reach the full domain payload, not just its id.
+
+#### Extends
+
+- `Scenario`
+
+#### Type Parameters
+
+##### TCase
+
+`TCase`
+
+#### Properties
+
+##### case
+
+> **case**: `TCase`
+
+Defined in: runtime/define-leaderboard.ts:69
+
+***
+
+### LeaderboardFlagSpec
+
+Defined in: runtime/define-leaderboard.ts:74
+
+One extra CLI flag a spec declares. Parsed by `run()` as `--<name> <value>`
+ and surfaced to every hook via `ctx.args`.
+
+#### Properties
+
+##### default?
+
+> `optional` **default?**: `string`
+
+Defined in: runtime/define-leaderboard.ts:75
+
+##### description
+
+> **description**: `string`
+
+Defined in: runtime/define-leaderboard.ts:76
+
+***
+
+### LeaderboardRunContext
+
+Defined in: runtime/define-leaderboard.ts:80
+
+Resolved run configuration handed to `setup` / `teardown` / `export`.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+Defined in: runtime/define-leaderboard.ts:81
+
+##### backend
+
+> **backend**: `string`
+
+Defined in: runtime/define-leaderboard.ts:83
+
+Execution backend name (`--backend`), a key of `backends`.
+
+##### runDir
+
+> **runDir**: `string`
+
+Defined in: runtime/define-leaderboard.ts:84
+
+##### exportDir
+
+> **exportDir**: `string`
+
+Defined in: runtime/define-leaderboard.ts:85
+
+##### args
+
+> **args**: `Record`\<`string`, `string` \| `undefined`\>
+
+Defined in: runtime/define-leaderboard.ts:87
+
+Every parsed flag (standard + `spec.flags`), by name without `--`.
+
+##### harnesses
+
+> **harnesses**: readonly `HarnessType`[]
+
+Defined in: runtime/define-leaderboard.ts:88
+
+##### models
+
+> **models**: readonly `string`[]
+
+Defined in: runtime/define-leaderboard.ts:90
+
+Snapshot-stamped model ids (`name@snapshot`) — the eval identity models.
+
+##### caseIds
+
+> **caseIds**: readonly `string`[]
+
+Defined in: runtime/define-leaderboard.ts:91
+
+##### shots
+
+> **shots**: `number`
+
+Defined in: runtime/define-leaderboard.ts:92
+
+##### reps
+
+> **reps**: `number`
+
+Defined in: runtime/define-leaderboard.ts:93
+
+***
+
+### LeaderboardBenchTask
+
+Defined in: runtime/define-leaderboard.ts:98
+
+Structurally `BenchTask` (bench registry shape) — declared locally so this
+ module adds no dependency on a benchmark package.
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+Defined in: runtime/define-leaderboard.ts:99
+
+##### prompt
+
+> **prompt**: `string`
+
+Defined in: runtime/define-leaderboard.ts:100
+
+##### split?
+
+> `optional` **split?**: `string`
+
+Defined in: runtime/define-leaderboard.ts:101
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+Defined in: runtime/define-leaderboard.ts:102
+
+***
+
+### LeaderboardBenchScore
+
+Defined in: runtime/define-leaderboard.ts:106
+
+Structurally `BenchScore` (bench registry shape).
+
+#### Properties
+
+##### resolved
+
+> **resolved**: `boolean`
+
+Defined in: runtime/define-leaderboard.ts:107
+
+##### score
+
+> **score**: `number`
+
+Defined in: runtime/define-leaderboard.ts:108
+
+##### detail?
+
+> `optional` **detail?**: `string`
+
+Defined in: runtime/define-leaderboard.ts:109
+
+***
+
+### LeaderboardBenchmarkAdapter
+
+Defined in: runtime/define-leaderboard.ts:114
+
+Structurally `BenchmarkAdapter` (bench registry shape): `name`,
+ `preflight()`, `loadTasks()`, deterministic `judge()`, `goldArtifact()`.
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+Defined in: runtime/define-leaderboard.ts:115
+
+#### Methods
+
+##### preflight()
+
+> **preflight**(): `Promise`\<`void`\>
+
+Defined in: runtime/define-leaderboard.ts:116
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### loadTasks()
+
+> **loadTasks**(`opts?`): `Promise`\<[`LeaderboardBenchTask`](#leaderboardbenchtask)[]\>
+
+Defined in: runtime/define-leaderboard.ts:117
+
+###### Parameters
+
+###### opts?
+
+###### limit?
+
+`number`
+
+###### split?
+
+`string`
+
+###### ids?
+
+`string`[]
+
+###### Returns
+
+`Promise`\<[`LeaderboardBenchTask`](#leaderboardbenchtask)[]\>
+
+##### judge()
+
+> **judge**(`task`, `artifact`): `Promise`\<[`LeaderboardBenchScore`](#leaderboardbenchscore)\>
+
+Defined in: runtime/define-leaderboard.ts:122
+
+###### Parameters
+
+###### task
+
+[`LeaderboardBenchTask`](#leaderboardbenchtask)
+
+###### artifact
+
+`string`
+
+###### Returns
+
+`Promise`\<[`LeaderboardBenchScore`](#leaderboardbenchscore)\>
+
+##### goldArtifact()
+
+> **goldArtifact**(`task`): `Promise`\<`string` \| `undefined`\>
+
+Defined in: runtime/define-leaderboard.ts:123
+
+###### Parameters
+
+###### task
+
+[`LeaderboardBenchTask`](#leaderboardbenchtask)
+
+###### Returns
+
+`Promise`\<`string` \| `undefined`\>
+
+***
+
+### LeaderboardSpec
+
+Defined in: runtime/define-leaderboard.ts:126
+
+#### Type Parameters
+
+##### TCase
+
+`TCase`
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+Defined in: runtime/define-leaderboard.ts:128
+
+Leaderboard name — the scenario `kind`, default profile name, and report title.
+
+##### cases
+
+> **cases**: `TCase`[]
+
+Defined in: runtime/define-leaderboard.ts:130
+
+The case corpus. Every case needs a stable string id (see `caseId`).
+
+##### caseId?
+
+> `optional` **caseId?**: (`c`) => `string`
+
+Defined in: runtime/define-leaderboard.ts:133
+
+Stable id extractor. Default: the case's own `id` property (fail-loud
+ when absent or not a string).
+
+###### Parameters
+
+###### c
+
+`TCase`
+
+###### Returns
+
+`string`
+
+##### prompt
+
+> **prompt**: (`c`) => `string` \| `Promise`\<`string`\>
+
+Defined in: runtime/define-leaderboard.ts:136
+
+The per-case task prompt. May be async (e.g. built by shelling out to a
+ reference implementation); resolved ONCE per case before dispatch.
+
+###### Parameters
+
+###### c
+
+`TCase`
+
+###### Returns
+
+`string` \| `Promise`\<`string`\>
+
+##### score
+
+> **score**: (`output`, `c`) => `number` \| [`LeaderboardScore`](#leaderboardscore)
+
+Defined in: runtime/define-leaderboard.ts:140
+
+The domain grader: agent output text → score. Used BOTH as the per-shot
+ validator (a shot with `composite > 0` stops the naive retry loop) and,
+ wrapped as a campaign judge, as the recorded leaderboard score.
+
+###### Parameters
+
+###### output
+
+`string`
+
+###### c
+
+`TCase`
+
+###### Returns
+
+`number` \| [`LeaderboardScore`](#leaderboardscore)
+
+##### axis?
+
+> `optional` **axis?**: `object`
+
+Defined in: runtime/define-leaderboard.ts:144
+
+Harness × model axes for `expandProfileAxes`. Defaults: the canonical
+ `CODING_HARNESSES` × the base profile's `model.default`. `--harnesses` /
+ `--models` override per run.
+
+###### harnesses?
+
+> `optional` **harnesses?**: readonly `HarnessType`[]
+
+###### models?
+
+> `optional` **models?**: readonly `string`[]
+
+##### baseProfile?
+
+> `optional` **baseProfile?**: `AgentProfile`
+
+Defined in: runtime/define-leaderboard.ts:147
+
+Base profile the axes expand over (prompt/tools/skills held fixed).
+ Default: a minimal `{ name, model: { default: <first model> } }`.
+
+##### backends?
+
+> `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-3)) \| `undefined`\>
+
+Defined in: runtime/define-leaderboard.ts:157
+
+Execution-backend registry: `--backend <name>` picks the factory that
+yields the `SandboxClient` every cell runs on. Merged over the defaults:
+  - `sandbox` — throws with guidance (a product must supply its real
+    Sandbox-backed client; the facade has no credentials).
+  - `cli-bridge` — `resolveSandboxClient({ backend: 'bridge' })` reading
+    `CLI_BRIDGE_URL` + `BRIDGE_BEARER`/`CLI_BRIDGE_BEARER`; the per-cell
+    harness/model ride in via `sandboxOverrides.backend`.
+
+##### flags?
+
+> `optional` **flags?**: `Record`\<`string`, [`LeaderboardFlagSpec`](#leaderboardflagspec)\>
+
+Defined in: runtime/define-leaderboard.ts:159
+
+Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
+
+##### modelBackend?
+
+> `optional` **modelBackend?**: `Record`\<`string`, `unknown`\>
+
+Defined in: runtime/define-leaderboard.ts:163
+
+Extra fields merged into each cell's `backend.model` create override —
+ e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
+ sandbox. The cell's bare model id is set by the facade from the axis.
+
+##### setup?
+
+> `optional` **setup?**: (`ctx`) => `void` \| `Promise`\<`void`\>
+
+Defined in: runtime/define-leaderboard.ts:165
+
+Runs once before the matrix (fetch fixtures, warm caches).
+
+###### Parameters
+
+###### ctx
+
+[`LeaderboardRunContext`](#leaderboardruncontext)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### teardown?
+
+> `optional` **teardown?**: (`ctx`) => `void` \| `Promise`\<`void`\>
+
+Defined in: runtime/define-leaderboard.ts:167
+
+Runs once after the matrix, even on failure (reap boxes, close handles).
+
+###### Parameters
+
+###### ctx
+
+[`LeaderboardRunContext`](#leaderboardruncontext)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### onCellEvents?
+
+> `optional` **onCellEvents?**: (`events`, `c`) => `void`
+
+Defined in: runtime/define-leaderboard.ts:171
+
+Per-cell event tap: the raw sandbox events of each parsed iteration,
+ with the case — the seam for domain metric capture (search counts,
+ citations) without a substrate change.
+
+###### Parameters
+
+###### events
+
+readonly `SandboxEvent`[]
+
+###### c
+
+`TCase`
+
+###### Returns
+
+`void`
+
+##### parseOutput?
+
+> `optional` **parseOutput?**: (`events`, `c`) => `string`
+
+Defined in: runtime/define-leaderboard.ts:175
+
+Output decode override: raw events → the scored output text. Default:
+ the sandbox SDK's `collectAgentResponseText` (final answer text; empty
+ string when the stream carried none — which then scores 0).
+
+###### Parameters
+
+###### events
+
+readonly `SandboxEvent`[]
+
+###### c
+
+`TCase`
+
+###### Returns
+
+`string`
+
+##### export?
+
+> `optional` **export?**: (`result`, `ctx`) => `void` \| `Promise`\<`void`\>
+
+Defined in: runtime/define-leaderboard.ts:178
+
+Result export. Default: write `matrix-result.json` under the run dir and
+ print (+ write) the ranked leaderboard markdown under the export dir.
+
+###### Parameters
+
+###### result
+
+`RunProfileMatrixResult`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>
+
+###### ctx
+
+[`LeaderboardRunContext`](#leaderboardruncontext)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### dispatch?
+
+> `optional` **dispatch?**: `ProfileDispatchFn`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `string`\>
+
+Defined in: runtime/define-leaderboard.ts:184
+
+LEVEL 2 — full dispatch replacement (in-process products bring their own).
+ The default is `loopDispatch` + `naiveDriver` over the resolved backend.
+
+##### judges?
+
+> `optional` **judges?**: `JudgeConfig`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>[]
+
+Defined in: runtime/define-leaderboard.ts:186
+
+LEVEL 2 — full judge replacement. Default: `score` wrapped as one judge.
+
+##### shots?
+
+> `optional` **shots?**: `number`
+
+Defined in: runtime/define-leaderboard.ts:188
+
+Naive-retry shot cap per cell (`--shots`). Default 1.
+
+##### reps?
+
+> `optional` **reps?**: `number`
+
+Defined in: runtime/define-leaderboard.ts:190
+
+Replicates per cell (`--reps`). Default 1.
+
+##### matrix?
+
+> `optional` **matrix?**: `Partial`\<`RunProfileMatrixOptions`\<[`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>, `string`\>\>
+
+Defined in: runtime/define-leaderboard.ts:194
+
+Passthrough overrides spread onto the final `runProfileMatrix` call
+ (e.g. `maxConcurrency`, `costCeiling`, `integrity`, `storage`) — spread
+ LAST, so anything the facade wired can be overridden.
+
+***
+
+### DefinedLeaderboard
+
+Defined in: runtime/define-leaderboard.ts:197
+
+#### Type Parameters
+
+##### TCase
+
+`TCase`
+
+#### Methods
+
+##### run()
+
+> **run**(`argv?`): `Promise`\<`RunProfileMatrixResult`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>\>
+
+Defined in: runtime/define-leaderboard.ts:211
+
+Parse flags, run the matrix, export, and return the raw result.
+
+Standard flags: `--backend <name>` (default `sandbox`), `--harnesses a,b`,
+`--models m1,m2`, `--cases id1,id2`, `--shots N`, `--reps N`,
+`--model-snapshot <tag>`, `--run-dir <path>`, `--export-dir <path>`,
+plus every `spec.flags` entry. `argv` defaults to `process.argv.slice(2)`.
+
+The default run dir is FRESH per invocation (timestamp+pid under the OS
+tmpdir). `runProfileMatrix` caches cells by run dir, and a stable default
+would silently reuse a prior FAILED zero-token cell and skip dispatch —
+only an explicit `--run-dir` opts into that resume behavior.
+
+###### Parameters
+
+###### argv?
+
+`string`[]
+
+###### Returns
+
+`Promise`\<`RunProfileMatrixResult`\<`string`, [`LeaderboardScenario`](#leaderboardscenario)\<`TCase`\>\>\>
+
+##### toBenchmarkAdapter()
+
+> **toBenchmarkAdapter**(): [`LeaderboardBenchmarkAdapter`](#leaderboardbenchmarkadapter)
+
+Defined in: runtime/define-leaderboard.ts:213
+
+The same domain surface in the structural `BenchmarkAdapter` shape.
+
+###### Returns
+
+[`LeaderboardBenchmarkAdapter`](#leaderboardbenchmarkadapter)
+
+***
+
 ### HarvestCorpusOptions
 
 Defined in: [runtime/harvest-corpus.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/harvest-corpus.ts#L28)
@@ -14647,6 +15312,30 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 #### Returns
 
 [`CompletionAnalyst`](#completionanalyst)\<`Task`, `Output`\>
+
+***
+
+### defineLeaderboard()
+
+> **defineLeaderboard**\<`TCase`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`\>
+
+Defined in: runtime/define-leaderboard.ts:255
+
+#### Type Parameters
+
+##### TCase
+
+`TCase`
+
+#### Parameters
+
+##### spec
+
+[`LeaderboardSpec`](#leaderboardspec)\<`TCase`\>
+
+#### Returns
+
+[`DefinedLeaderboard`](#definedleaderboard)\<`TCase`\>
 
 ***
 

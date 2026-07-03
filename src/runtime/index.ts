@@ -87,6 +87,21 @@ export {
   sentinelCompletion,
   stopSentinel,
 } from './completion'
+// The declarative eval-leaderboard facade: cases + prompt + score → one
+// runProfileMatrix call (expandProfileAxes × loopDispatch × naiveDriver),
+// with a structural BenchmarkAdapter view via toBenchmarkAdapter().
+export {
+  type DefinedLeaderboard,
+  defineLeaderboard,
+  type LeaderboardBenchmarkAdapter,
+  type LeaderboardBenchScore,
+  type LeaderboardBenchTask,
+  type LeaderboardFlagSpec,
+  type LeaderboardRunContext,
+  type LeaderboardScenario,
+  type LeaderboardScore,
+  type LeaderboardSpec,
+} from './define-leaderboard'
 export {
   type AgentEnvironment,
   type AgentEnvironmentCapabilities,
