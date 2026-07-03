@@ -110,6 +110,37 @@ describe('inProcessSandboxClient', () => {
     expect(b.id).toBe('box-1')
   })
 
+  it('streamTask drives the ONE behavior callback when no onTask is configured (mode + options surfaced)', async () => {
+    const seen: { mode?: string; options?: Record<string, unknown>; round: number }[] = []
+    const client = inProcessSandboxClient({
+      onPrompt: (_prompt, ctx): SandboxEvent[] => {
+        seen.push({ mode: ctx.mode, options: ctx.options, round: ctx.round })
+        return [{ type: 'result', data: { finalText: `m:${ctx.mode}` } }]
+      },
+    })
+    const box = await client.create()
+    const collected: SandboxEvent[] = []
+    for await (const ev of box.streamTask('go', { maxTurns: 3 })) collected.push(ev)
+    expect(collected.at(-1)?.data?.finalText).toBe('m:task')
+    expect(seen).toEqual([{ mode: 'task', options: { maxTurns: 3 }, round: 0 }])
+    // The round counter is shared across both verbs on the same box.
+    for await (const _ of box.streamPrompt('again')) {
+      // consume
+    }
+    expect(seen.at(-1)).toMatchObject({ mode: 'prompt', round: 1 })
+  })
+
+  it('streamTask prefers onTask when configured', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () => [{ type: 'result', data: { finalText: 'prompt-path' } }],
+      onTask: () => [{ type: 'result', data: { finalText: 'task-path' } }],
+    })
+    const box = await client.create()
+    const collected: SandboxEvent[] = []
+    for await (const ev of box.streamTask('go')) collected.push(ev)
+    expect(collected.at(-1)?.data?.finalText).toBe('task-path')
+  })
+
   it('accepts an async-iterable event stream from the callback', async () => {
     async function* stream(): AsyncIterable<SandboxEvent> {
       yield { type: 'result', data: { finalText: 'streamed' } }

@@ -1,8 +1,10 @@
 /**
  * Offline contract tests for `streamAgentTurn` / `collectAgentTurn` — one per
- * backend kind (box via `inProcessSandboxClient`, executor via a stub
- * `ExecutorFactory`, chat via a stub `AgentExecutionBackend`), plus the
- * terminal-guarantee, abort, and timeout paths. No network, no credentials.
+ * backend kind (box via `inProcessSandboxClient`, box-task via its `onTask`
+ * seam, executor via a stub `ExecutorFactory`, chat via a stub
+ * `AgentExecutionBackend`), plus the terminal-guarantee, abort, timeout,
+ * tool-part-preservation, raw-event-tap, and pull-based mid-stream-lifecycle
+ * paths. No network, no credentials.
  */
 
 import type { SandboxEvent } from '@tangle-network/sandbox'
@@ -86,6 +88,328 @@ describe('streamAgentTurn: box backend', () => {
     const types = turn.events.map((e) => e.type)
     expect(types).toContain('backend_error')
     expect(types.at(-1)).toBe('final')
+  })
+})
+
+describe('streamAgentTurn: box-task backend', () => {
+  it('drives box.streamTask (never streamPrompt) with per-task options and folds usage identically', async () => {
+    const calls: { mode?: string; options?: Record<string, unknown> }[] = []
+    const client = inProcessSandboxClient({
+      onPrompt: () => {
+        throw new Error('box-task must not drive streamPrompt')
+      },
+      onTask: (_prompt, ctx) => {
+        calls.push({ mode: ctx.mode, options: ctx.options })
+        expect(ctx.signal).toBeInstanceOf(AbortSignal)
+        return [
+          { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'task output' } },
+          {
+            type: 'done',
+            data: {
+              tokenUsage: { inputTokens: 9, outputTokens: 4 },
+              totalCostUsd: 0.01,
+              model: 'kimi-k2',
+            },
+          },
+        ] as SandboxEvent[]
+      },
+    })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'box-task', box, options: { maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' } },
+        'do the task',
+      ),
+    )
+    // The options passthrough arrives verbatim at the task verb.
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.mode).toBe('task')
+    expect(calls[0]?.options).toMatchObject({ maxTurns: 5, sessionId: 'sess-1', model: 'kimi-k2' })
+    const start = turn.events[0]
+    if (start?.type !== 'backend_start') throw new Error('expected backend_start')
+    expect(start.backend).toBe('box-task')
+    expect(turn.finalText).toBe('task output')
+    expect(turn.usage).toEqual({ input: 9, output: 4, costUsd: 0.01, model: 'kimi-k2' })
+    expect(turn.status).toBe('completed')
+  })
+
+  it('timeoutMs aborts a hanging task with final.status failed', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () => {
+        throw new Error('box-task must not drive streamPrompt')
+      },
+      onTask: async function* (_prompt, ctx): AsyncIterable<SandboxEvent> {
+        await new Promise<never>((_resolve, reject) => {
+          const onAbort = () => reject(ctx.signal.reason ?? new Error('aborted'))
+          if (ctx.signal.aborted) onAbort()
+          else ctx.signal.addEventListener('abort', onAbort, { once: true })
+        })
+      },
+    })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'box-task', box }, 'hang', { timeoutMs: 25 }),
+    )
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+  })
+})
+
+describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
+  const toolFrames = [
+    {
+      type: 'message.part.updated',
+      data: {
+        part: {
+          type: 'tool',
+          callID: 'call-1',
+          tool: 'bash',
+          state: { status: 'running', input: { cmd: 'ls' } },
+        },
+      },
+    },
+    // Repeated non-terminal frame on the same call — must dedupe to nothing.
+    {
+      type: 'message.part.updated',
+      data: {
+        part: {
+          type: 'tool',
+          callID: 'call-1',
+          tool: 'bash',
+          state: { status: 'running', input: { cmd: 'ls' } },
+        },
+      },
+    },
+    {
+      type: 'message.part.updated',
+      data: {
+        part: {
+          type: 'tool',
+          callID: 'call-1',
+          tool: 'bash',
+          state: { status: 'completed', input: { cmd: 'ls' }, output: 'file.txt' },
+        },
+      },
+    },
+    { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'listed' } },
+    { type: 'done', data: { tokenUsage: { inputTokens: 5, outputTokens: 2 } } },
+  ] as SandboxEvent[]
+
+  async function makeBox(events: SandboxEvent[]) {
+    const client = inProcessSandboxClient({ onPrompt: () => events })
+    return client.create()
+  }
+
+  it('preserveToolParts: true surfaces deduped tool_call/tool_result in-stream', async () => {
+    const box = await makeBox(toolFrames)
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'box', box }, 'list files', { preserveToolParts: true }),
+    )
+    expect(turn.events.map((e) => e.type)).toEqual([
+      'backend_start',
+      'tool_call',
+      'tool_result',
+      'text_delta',
+      'llm_call',
+      'final',
+    ])
+    const call = turn.events[1]
+    if (call?.type !== 'tool_call') throw new Error('expected tool_call')
+    expect(call).toMatchObject({ toolName: 'bash', toolCallId: 'call-1', args: { cmd: 'ls' } })
+    const result = turn.events[2]
+    if (result?.type !== 'tool_result') throw new Error('expected tool_result')
+    expect(result).toMatchObject({ toolName: 'bash', toolCallId: 'call-1', result: 'file.txt' })
+    // The projection is additive: text/usage folding is unchanged.
+    expect(turn.finalText).toBe('listed')
+    expect(turn.usage).toEqual({ input: 5, output: 2 })
+  })
+
+  it('default (off) leaves the stream vocabulary unchanged — no tool events', async () => {
+    const box = await makeBox(toolFrames)
+    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'list files'))
+    expect(turn.events.map((e) => e.type)).toEqual([
+      'backend_start',
+      'text_delta',
+      'llm_call',
+      'final',
+    ])
+  })
+
+  it('a terminal failure status projects a tool_result carrying the error in-band', async () => {
+    const box = await makeBox([
+      {
+        type: 'message.part.updated',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-9',
+            tool: 'web_fetch',
+            state: { status: 'failed', input: { url: 'https://x' }, error: 'connection refused' },
+          },
+        },
+      },
+      { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
+    ] as SandboxEvent[])
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'box', box }, 'fetch', { preserveToolParts: true }),
+    )
+    const types = turn.events.map((e) => e.type)
+    expect(types).toEqual(['backend_start', 'tool_call', 'tool_result', 'llm_call', 'final'])
+    const result = turn.events[2]
+    if (result?.type !== 'tool_result') throw new Error('expected tool_result')
+    expect(result.result).toEqual({ error: 'connection refused', status: 'failed' })
+  })
+
+  it('bare tool.* event types project statelessly (box-task kind)', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () => {
+        throw new Error('box-task must not drive streamPrompt')
+      },
+      onTask: () =>
+        [
+          { type: 'tool.call', data: { id: 't-1', name: 'search', input: { q: 'tangle' } } },
+          { type: 'tool.result', data: { id: 't-1', name: 'search', output: 'hit' } },
+          { type: 'done', data: { tokenUsage: { inputTokens: 3, outputTokens: 1 } } },
+        ] as SandboxEvent[],
+    })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'box-task', box }, 'search', { preserveToolParts: true }),
+    )
+    expect(turn.events.map((e) => e.type)).toEqual([
+      'backend_start',
+      'tool_call',
+      'tool_result',
+      'llm_call',
+      'final',
+    ])
+    expect(turn.events[1]).toMatchObject({ toolName: 'search', toolCallId: 't-1' })
+    expect(turn.events[2]).toMatchObject({ toolCallId: 't-1', result: 'hit' })
+  })
+})
+
+describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
+  it('receives EVERY raw sandbox event — including unmapped ones — before its projection, awaited', async () => {
+    const log: string[] = []
+    const client = inProcessSandboxClient({
+      onPrompt: () =>
+        [
+          // `step-start` has no chat-UX projection — the tap must still see it.
+          { type: 'message.part.updated', data: { part: { type: 'step-start' } } },
+          { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'hi' } },
+          { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 1 } } },
+        ] as SandboxEvent[],
+    })
+    const box = await client.create()
+    const stream = streamAgentTurn({ kind: 'box', box }, 'go', {
+      onRawEvent: async (event) => {
+        // Async on purpose: the drive must AWAIT the tap before projecting.
+        await Promise.resolve()
+        log.push(`raw:${String(event.type)}`)
+      },
+    })
+    for await (const event of stream) log.push(`mapped:${event.type}`)
+    expect(log).toEqual([
+      'mapped:backend_start',
+      'raw:message.part.updated',
+      'raw:message.part.updated',
+      'mapped:text_delta',
+      'raw:done',
+      'mapped:llm_call',
+      'mapped:final',
+    ])
+  })
+})
+
+describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () => {
+  it('caller-side async work between events suspends production — nothing is produced past the held event', async () => {
+    const log: string[] = []
+    const client = inProcessSandboxClient({
+      onPrompt: async function* (): AsyncIterable<SandboxEvent> {
+        log.push('produced:a')
+        yield {
+          type: 'message.part.updated',
+          data: { part: { type: 'text' }, delta: 'a' },
+        } as SandboxEvent
+        log.push('produced:b')
+        yield {
+          type: 'message.part.updated',
+          data: { part: { type: 'text' }, delta: 'b' },
+        } as SandboxEvent
+        log.push('produced:done')
+        yield {
+          type: 'done',
+          data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } },
+        } as SandboxEvent
+      },
+    })
+    const box = await client.create()
+    for await (const event of streamAgentTurn({ kind: 'box', box }, 'go')) {
+      log.push(`consumed:${event.type}`)
+      // The mid-stream escape: arbitrary awaited work (a vault sync, a retry
+      // decision) runs here while the producer is suspended.
+      await new Promise((resolve) => setTimeout(resolve, 1))
+      log.push(`synced:${event.type}`)
+    }
+    expect(log).toEqual([
+      'consumed:backend_start',
+      'synced:backend_start',
+      'produced:a',
+      'consumed:text_delta',
+      'synced:text_delta',
+      'produced:b',
+      'consumed:text_delta',
+      'synced:text_delta',
+      'produced:done',
+      'consumed:llm_call',
+      'synced:llm_call',
+      'consumed:final',
+      'synced:final',
+    ])
+  })
+
+  it('a consumer can run pre-done work on `final` and withhold/replace the terminal event downstream', async () => {
+    // The physim pattern: vault-sync BEFORE forwarding a terminal event, and a
+    // noop-retry that swallows the first turn's `final` and re-drives.
+    const client = inProcessSandboxClient({
+      onPrompt: (_prompt, ctx) =>
+        ctx.round === 0
+          ? ([
+              { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 0 } } },
+            ] as SandboxEvent[])
+          : ([
+              {
+                type: 'message.part.updated',
+                data: { part: { type: 'text' }, delta: 'real answer' },
+              },
+              { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 2 } } },
+            ] as SandboxEvent[]),
+    })
+    const box = await client.create()
+    const downstream: string[] = []
+    let synced = false
+
+    async function* withLifecycle(): AsyncGenerator<RuntimeStreamEvent> {
+      const first = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'attempt'))
+      const noop = first.finalText === '' && first.status === 'completed'
+      if (noop) {
+        // Retry with a steering prompt — the first `final` is never forwarded.
+        for await (const event of streamAgentTurn({ kind: 'box', box }, 'attempt (retry)')) {
+          if (event.type === 'final') {
+            synced = true // pre-done lifecycle work completes before forwarding
+          }
+          yield event
+        }
+        return
+      }
+      for (const event of first.events) yield event
+    }
+
+    for await (const event of withLifecycle()) downstream.push(event.type)
+    expect(synced).toBe(true)
+    // Exactly ONE terminal event reached downstream — the retry's, not the noop's.
+    expect(downstream.filter((t) => t === 'final')).toHaveLength(1)
+    expect(downstream).toContain('text_delta')
   })
 })
 
