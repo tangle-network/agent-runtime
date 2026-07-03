@@ -3874,6 +3874,156 @@ Defined in: [otel-export.ts:608](https://github.com/tangle-network/agent-runtime
 
 ***
 
+### ResolveAgentBackendOptions
+
+Defined in: [resolve-agent-backend.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L50)
+
+#### Extends
+
+- `OpenAICompatPassthrough`
+
+#### Type Parameters
+
+##### TInput
+
+`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
+
+#### Properties
+
+##### tools?
+
+> `optional` **tools?**: readonly [`OpenAIChatTool`](#openaichattool)[]
+
+Defined in: [backends.ts:222](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L222)
+
+OpenAI Chat Completions `tools[]` definitions surfaced to the model on
+every request. Omit to send a tool-free request (existing behavior).
+The runtime makes no assumption about the dispatcher — calls stream out
+as `tool_call` events and the caller is responsible for executing them
+and feeding `tool_result` messages back on a follow-up turn.
+
+###### Inherited from
+
+`OpenAICompatPassthrough.tools`
+
+##### toolChoice?
+
+> `optional` **toolChoice?**: [`OpenAIChatToolChoice`](#openaichattoolchoice)
+
+Defined in: [backends.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L228)
+
+OpenAI Chat Completions `tool_choice`. Default `undefined` (request
+omits the field; provider falls back to its own default — typically
+`'auto'`).
+
+###### Inherited from
+
+`OpenAICompatPassthrough.toolChoice`
+
+##### responseFormat?
+
+> `optional` **responseFormat?**: [`OpenAIChatResponseFormat`](#openaichatresponseformat)
+
+Defined in: [backends.ts:232](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L232)
+
+OpenAI Chat Completions `response_format`. Omit for provider default text.
+
+###### Inherited from
+
+`OpenAICompatPassthrough.responseFormat`
+
+##### fetchImpl?
+
+> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
+
+Defined in: [backends.ts:233](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L233)
+
+###### Parameters
+
+###### input
+
+`string` \| `URL` \| `Request`
+
+###### init?
+
+`RequestInit`
+
+###### Returns
+
+`Promise`\<`Response`\>
+
+###### Inherited from
+
+`OpenAICompatPassthrough.fetchImpl`
+
+##### retry?
+
+> `optional` **retry?**: `BackendRetryPolicy`
+
+Defined in: [backends.ts:234](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L234)
+
+###### Inherited from
+
+`OpenAICompatPassthrough.retry`
+
+##### kind
+
+> **kind**: [`AgentBackendKind`](#agentbackendkind)
+
+Defined in: [resolve-agent-backend.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L53)
+
+The chat transport to resolve.
+
+##### apiKey
+
+> **apiKey**: `string`
+
+Defined in: [resolve-agent-backend.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L59)
+
+Bearer credential for the OpenAI-compat kinds. Empty string is valid for a
+loopback-anonymous cli-bridge; a `router`/`tcloud` route with an empty key
+is a caller bug the product surfaces before calling in.
+
+##### baseUrl
+
+> **baseUrl**: `string`
+
+Defined in: [resolve-agent-backend.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L61)
+
+Base URL for the OpenAI-compat kinds. cli-bridge's is its `/v1`.
+
+##### model
+
+> **model**: `string`
+
+Defined in: [resolve-agent-backend.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L63)
+
+Model id sent on every request. cli-bridge rejects a request without it.
+
+##### label?
+
+> `optional` **label?**: `string`
+
+Defined in: [resolve-agent-backend.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L65)
+
+`kind` label stamped on the resolved backend + its traces. Defaults to `kind`.
+
+##### sandboxBackend?
+
+> `optional` **sandboxBackend?**: () => [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
+
+Defined in: [resolve-agent-backend.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L71)
+
+`sandbox` kind: the product's own domain backend. Required for that kind —
+the substrate owns no product sandbox shape, so a `sandbox` resolution with
+no seam is a caller bug, not a silent fallback.
+
+###### Returns
+
+[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
+
+***
+
 ### RuntimeHookEvent
 
 Defined in: [runtime-hooks.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L36)
@@ -6337,6 +6487,16 @@ Mode → configured runner. Partial: only register the modes a
 
 ***
 
+### AgentBackendKind
+
+> **AgentBackendKind** = `"router"` \| `"tcloud"` \| `"cli-bridge"` \| `"sandbox"`
+
+Defined in: [resolve-agent-backend.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L37)
+
+The transport a chat backend runs on.
+
+***
+
 ### RuntimeHookPhase
 
 > **RuntimeHookPhase** = `"before"` \| `"after"` \| `"error"` \| `"event"`
@@ -8312,6 +8472,33 @@ Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / 
 `KnowledgeReadinessDecision`
 
 #### Stable
+
+***
+
+### resolveAgentBackend()
+
+> **resolveAgentBackend**\<`TInput`\>(`opts`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
+
+Defined in: [resolve-agent-backend.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/resolve-agent-backend.ts#L78)
+
+Resolve the `AgentExecutionBackend` for the chosen `kind`. Reuse this instead
+of hand-rolling the `createOpenAICompatibleBackend` branch in each product.
+
+#### Type Parameters
+
+##### TInput
+
+`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
+
+#### Parameters
+
+##### opts
+
+[`ResolveAgentBackendOptions`](#resolveagentbackendoptions)\<`TInput`\>
+
+#### Returns
+
+[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
 ***
 
