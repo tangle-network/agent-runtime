@@ -37,7 +37,7 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
-/** @stable */
+/** In-memory `RuntimeSessionStore` for single-process use and tests. @stable */
 export class InMemoryRuntimeSessionStore implements RuntimeSessionStore {
   private readonly sessions = new Map<string, RuntimeSession>()
   private readonly events = new Map<string, RuntimeStreamEvent[]>()

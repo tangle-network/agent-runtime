@@ -48,7 +48,7 @@ function isGenericTitle(title: string): boolean {
   return GENERIC_TITLE_PATTERNS.some((re) => re.test(t))
 }
 
-/** @experimental */
+/** Build a `Validator` that rejects off-lens findings and findings missing screenshot evidence. @experimental */
 export function createUiAuditorValidator(task: UiAuditTask): Validator<UiAuditOutput> {
   return {
     async validate(output) {

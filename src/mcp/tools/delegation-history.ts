@@ -14,10 +14,10 @@ import type {
   DelegationTaskQueue,
 } from '../task-queue'
 
-/** @experimental */
+/** MCP tool name for the `delegation_history` read-past-delegations tool. @experimental */
 export const DELEGATION_HISTORY_TOOL_NAME = 'delegation_history'
 
-/** @experimental */
+/** Human-readable description of the `delegation_history` MCP tool, injected into the tool manifest. @experimental */
 export const DELEGATION_HISTORY_DESCRIPTION = [
   'Read past delegations newest-first. Each entry carries the original',
   'arguments, current status, cost, and any feedback attached via',
@@ -38,7 +38,7 @@ export const DELEGATION_HISTORY_DESCRIPTION = [
   'to 50, capped at 500.',
 ].join('\n')
 
-/** @experimental */
+/** JSON Schema for `delegation_history` tool arguments (optional `namespace`, `profile`, `since`, `limit`). @experimental */
 export const DELEGATION_HISTORY_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -50,7 +50,7 @@ export const DELEGATION_HISTORY_INPUT_SCHEMA = {
   additionalProperties: false,
 } as const
 
-/** @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input. @experimental */
 export function validateDelegationHistoryArgs(raw: unknown): DelegationHistoryArgs {
   if (raw === undefined || raw === null) return {}
   if (typeof raw !== 'object') {
@@ -91,7 +91,7 @@ export interface DelegationHistoryHandlerOptions {
   queue: DelegationTaskQueue
 }
 
-/** @experimental */
+/** Build the MCP tool handler that reads filtered past delegations from a `DelegationTaskQueue`. @experimental */
 export function createDelegationHistoryHandler(
   options: DelegationHistoryHandlerOptions,
 ): (raw: unknown) => Promise<DelegationHistoryResult> {

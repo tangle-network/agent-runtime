@@ -127,7 +127,7 @@ export interface DelegationTraceCollector {
   settle(): void
 }
 
-/** @experimental */
+/** Build a `DelegationTraceCollector` that buffers loop-trace events and converts them to spans on settle. @experimental */
 export function createDelegationTraceCollector(
   onSpans: (spans: DelegationTraceSpan[]) => void,
 ): DelegationTraceCollector {

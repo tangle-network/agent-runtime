@@ -55,6 +55,7 @@ export interface KnowledgeAdapterDeps<TProposal> {
   lintAfterApply?: (root: string) => Promise<ReadonlyArray<string>>
 }
 
+/** Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files. */
 export function createSurfaceKnowledgeAdapter<TProposal>(
   opts: CreateSurfaceKnowledgeAdapterOpts,
   deps: KnowledgeAdapterDeps<TProposal>,

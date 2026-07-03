@@ -7751,7 +7751,7 @@ A prompt with fewer than this many non-blank lines is thin (default 6).
 
 ### ProfileRichness
 
-Defined in: [runtime/supervise/authoring.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L145)
+Defined in: [runtime/supervise/authoring.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L146)
 
 Per-field verdict on one authored profile — the raw material the bench renders + scores.
 
@@ -7761,13 +7761,13 @@ Per-field verdict on one authored profile — the raw material the bench renders
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L146)
+Defined in: [runtime/supervise/authoring.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L147)
 
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string`
 
-Defined in: [runtime/supervise/authoring.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L149)
+Defined in: [runtime/supervise/authoring.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L150)
 
 The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt.system`
  convention, or a bare-string prompt — whichever the author used).
@@ -7776,55 +7776,55 @@ The resolved system prompt (canonical `prompt.systemPrompt`, the sandbox `prompt
 
 > `readonly` **systemPromptChars**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L150)
+Defined in: [runtime/supervise/authoring.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L151)
 
 ##### systemPromptLines
 
 > `readonly` **systemPromptLines**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L151)
+Defined in: [runtime/supervise/authoring.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L152)
 
 ##### sentenceCount
 
 > `readonly` **sentenceCount**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L152)
+Defined in: [runtime/supervise/authoring.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L153)
 
 ##### hasDescription
 
 > `readonly` **hasDescription**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L153)
+Defined in: [runtime/supervise/authoring.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L154)
 
 ##### hasTools
 
 > `readonly` **hasTools**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L154)
+Defined in: [runtime/supervise/authoring.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L155)
 
 ##### hasSkills
 
 > `readonly` **hasSkills**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L155)
+Defined in: [runtime/supervise/authoring.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L156)
 
 ##### hasMcp
 
 > `readonly` **hasMcp**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L156)
+Defined in: [runtime/supervise/authoring.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L157)
 
 ##### hasSubagents
 
 > `readonly` **hasSubagents**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L157)
+Defined in: [runtime/supervise/authoring.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L158)
 
 ##### richness
 
 > `readonly` **richness**: `number`
 
-Defined in: [runtime/supervise/authoring.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L159)
+Defined in: [runtime/supervise/authoring.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L160)
 
 0..1 — fraction of richness signals present (prompt-depth + the four levers).
 
@@ -7832,7 +7832,7 @@ Defined in: [runtime/supervise/authoring.ts:159](https://github.com/tangle-netwo
 
 > `readonly` **thin**: `boolean`
 
-Defined in: [runtime/supervise/authoring.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L161)
+Defined in: [runtime/supervise/authoring.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L162)
 
 True when the supervisor authored a stub instead of a real profile.
 
@@ -7840,7 +7840,7 @@ True when the supervisor authored a stub instead of a real profile.
 
 > `readonly` **reasons**: `string`[]
 
-Defined in: [runtime/supervise/authoring.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L163)
+Defined in: [runtime/supervise/authoring.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L164)
 
 The specific reasons it is thin (empty when rich) — used in the finding's action.
 
@@ -14172,7 +14172,9 @@ Defined in: [runtime/workspace.ts:7](https://github.com/tangle-network/agent-run
 
 > `const` **defaultAuditorInstruction**: `string`
 
-Defined in: [runtime/audit-intent.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L65)
+Defined in: [runtime/audit-intent.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L66)
+
+Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories.
 
 ***
 
@@ -14265,7 +14267,9 @@ The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept 
 
 > `const` **defaultProfileRichnessThresholds**: [`ProfileRichnessThresholds`](#profilerichnessthresholds)
 
-Defined in: [runtime/supervise/authoring.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L139)
+Defined in: [runtime/supervise/authoring.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L140)
+
+Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt.
 
 ***
 
@@ -14376,7 +14380,7 @@ One row per (strategy, satisficing target): the shareable time-to-satisfactory t
 
 > **auditIntent**(`input`, `opts`): `Promise`\<[`IntentAudit`](#intentaudit)\>
 
-Defined in: [runtime/audit-intent.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L109)
+Defined in: [runtime/audit-intent.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/audit-intent.ts#L110)
 
 The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention.
 
@@ -16633,7 +16637,7 @@ Build a worker AGENT from a profile the supervisor authored: the authored `syste
 
 > **assessAuthoredProfile**(`profile`, `opts?`): [`ProfileRichness`](#profilerichness)
 
-Defined in: [runtime/supervise/authoring.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L181)
+Defined in: [runtime/supervise/authoring.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L182)
 
 OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task
  context (`needsMcp`) lets a domain say "this work needs a data/tool MCP" so a missing MCP counts.
@@ -16664,7 +16668,7 @@ OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is 
 
 > **profileRichnessFinding**(`richness`, `opts?`): `AnalystFinding`
 
-Defined in: [runtime/supervise/authoring.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L244)
+Defined in: [runtime/supervise/authoring.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/authoring.ts#L245)
 
 Turn a [ProfileRichness](#profilerichness) verdict into a bus-routable `AnalystFinding` (area `profile-quality`).
  Severity scales with thinness; the recommended action names the MISSING lever so the supervisor can
@@ -17516,7 +17520,9 @@ Any checkable task as an `Environment`, no tool surface required: the artifact i
 
 > **createWaterfallCollector**(): [`WaterfallCollector`](#waterfallcollector)
 
-Defined in: [runtime/waterfall.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L58)
+Defined in: [runtime/waterfall.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/waterfall.ts#L59)
+
+Build a `WaterfallCollector` that records agent spans and renders them as an ASCII timeline.
 
 #### Returns
 

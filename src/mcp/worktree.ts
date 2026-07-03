@@ -110,7 +110,7 @@ function ensureGitOk(
   }
 }
 
-/** @experimental */
+/** Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`. @experimental */
 export async function createWorktree(options: CreateWorktreeOptions): Promise<WorktreeHandle> {
   const variants = options.variantsDir ?? '.agent-worktrees'
   const baseRef = options.baseRef ?? 'HEAD'
@@ -130,7 +130,7 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Wo
   return { path, baseSha: headSha.stdout.trim(), branch }
 }
 
-/** @experimental */
+/** Stage all changes in a worktree and return the diff patch + shortstat against the base ref. @experimental */
 export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffResult> {
   const baseRef = options.baseRef ?? options.worktree.baseSha
   // Stage everything (incl. NEW/untracked files) before diffing: a plain `git diff <ref>`
@@ -170,7 +170,7 @@ function parseShortstat(text: string): DiffResult['stats'] {
   return out
 }
 
-/** @experimental */
+/** Remove a git worktree and delete its branch; tolerates already-removed paths. @experimental */
 export async function removeWorktree(options: RemoveWorktreeOptions): Promise<void> {
   const force = options.force ?? true
   const args = ['worktree', 'remove']

@@ -38,7 +38,7 @@ export interface FeedbackStore {
   list(filter?: { namespace?: string; refersToRef?: string }): Promise<FeedbackEvent[]>
 }
 
-/** @experimental */
+/** In-memory `FeedbackStore` — suitable for single-process use and tests. @experimental */
 export class InMemoryFeedbackStore implements FeedbackStore {
   private readonly events: FeedbackEvent[] = []
 

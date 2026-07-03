@@ -43,13 +43,13 @@ import {
   worktreeFanout,
 } from './runtime'
 
-/** @experimental Every delegated-loop mode, for validation + CLI surfaces. */
+/** All valid delegated-loop mode names — used for validation and CLI surfaces. @experimental */
 export const DELEGATED_LOOP_MODES = ['code', 'review', 'research', 'audit', 'self-improve'] as const
 
 /** @experimental */
 export type DelegatedLoopMode = (typeof DELEGATED_LOOP_MODES)[number]
 
-/** @experimental Type guard for an untrusted mode string (CLI / config input). */
+/** Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. @experimental */
 export function isDelegatedLoopMode(value: unknown): value is DelegatedLoopMode {
   return typeof value === 'string' && (DELEGATED_LOOP_MODES as readonly string[]).includes(value)
 }

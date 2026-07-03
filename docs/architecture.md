@@ -251,9 +251,9 @@ being squatted on.
     **Banned from steering only** (the trace-derived-findings firewall) — it scores the corpus, it
     never feeds a steer or a selection.
 - **Selector (distinct):** the deployable, learnable component that picks among candidates at
-  inference (vote / verifier-rerank). Today we still *fake* it with the oracle ("any-pass"), which
-  isn't available in deployment (§11) — replacing that fake with a real verifier-based selector is
-  the open work, not a reason to ban verifiers from the loop.
+  inference (vote / verifier-rerank). A verifier-grounded selector (`verifierGroundedSelect` in
+  `bench/src/selector.ts`) is built and measured — see `docs/architecture-interpretations.md` §2
+  for its current evidence status. The law stands regardless: the selector is never the judge.
 
 ---
 

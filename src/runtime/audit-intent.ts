@@ -62,6 +62,7 @@ export interface IntentAudit {
   confidence: number
 }
 
+/** Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. */
 export const defaultAuditorInstruction =
   'You audit whether an AI agent is on the RIGHT ROUTE — not whether it works hard, but whether its ' +
   'actions serve the stated intents. Infer the REVEALED intent from the action pattern (what the ' +

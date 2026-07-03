@@ -10,7 +10,9 @@
 
 ### CircuitOpenError
 
-Defined in: [conversation/call-policy.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L42)
+Defined in: [conversation/call-policy.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L43)
+
+Thrown when the circuit breaker is open for a participant and no retry is allowed yet.
 
 #### Extends
 
@@ -22,7 +24,7 @@ Defined in: [conversation/call-policy.ts:42](https://github.com/tangle-network/a
 
 > **new CircuitOpenError**(`participant`, `retryAfterMs`): [`CircuitOpenError`](#circuitopenerror)
 
-Defined in: [conversation/call-policy.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L43)
+Defined in: [conversation/call-policy.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L44)
 
 ###### Parameters
 
@@ -46,7 +48,9 @@ Defined in: [conversation/call-policy.ts:43](https://github.com/tangle-network/a
 
 ### DeadlineExceededError
 
-Defined in: [conversation/call-policy.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L51)
+Defined in: [conversation/call-policy.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L53)
+
+Thrown when a backend call exceeds its per-attempt deadline.
 
 #### Extends
 
@@ -58,7 +62,7 @@ Defined in: [conversation/call-policy.ts:51](https://github.com/tangle-network/a
 
 > **new DeadlineExceededError**(`deadlineMs`): [`DeadlineExceededError`](#deadlineexceedederror)
 
-Defined in: [conversation/call-policy.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L52)
+Defined in: [conversation/call-policy.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L54)
 
 ###### Parameters
 
@@ -78,7 +82,7 @@ Defined in: [conversation/call-policy.ts:52](https://github.com/tangle-network/a
 
 ### CircuitBreakerState
 
-Defined in: [conversation/call-policy.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L84)
+Defined in: [conversation/call-policy.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L86)
 
 Live circuit-breaker state — one instance per (participant, conversation run).
 
@@ -88,7 +92,7 @@ Live circuit-breaker state — one instance per (participant, conversation run).
 
 > **new CircuitBreakerState**(`config`): [`CircuitBreakerState`](#circuitbreakerstate)
 
-Defined in: [conversation/call-policy.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L88)
+Defined in: [conversation/call-policy.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L90)
 
 ###### Parameters
 
@@ -106,7 +110,7 @@ Defined in: [conversation/call-policy.ts:88](https://github.com/tangle-network/a
 
 > **preflight**(`participant`, `now?`): `void`
 
-Defined in: [conversation/call-policy.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L94)
+Defined in: [conversation/call-policy.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L96)
 
 Check whether the next call is allowed. Throws `CircuitOpenError` when
 the breaker is open and the cooldown hasn't elapsed.
@@ -129,7 +133,7 @@ the breaker is open and the cooldown hasn't elapsed.
 
 > **recordSuccess**(): `void`
 
-Defined in: [conversation/call-policy.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L104)
+Defined in: [conversation/call-policy.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L106)
 
 ###### Returns
 
@@ -139,7 +143,7 @@ Defined in: [conversation/call-policy.ts:104](https://github.com/tangle-network/
 
 > **recordFailure**(`now?`): `void`
 
-Defined in: [conversation/call-policy.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L109)
+Defined in: [conversation/call-policy.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L111)
 
 ###### Parameters
 
@@ -325,7 +329,9 @@ is observed-final; subsequent `loadRun` returns the same halt.
 
 ### InMemoryConversationJournal
 
-Defined in: [conversation/journal.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L59)
+Defined in: [conversation/journal.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L60)
+
+In-memory `ConversationJournal` — suitable for testing and single-process runs.
 
 #### Implements
 
@@ -347,7 +353,7 @@ Defined in: [conversation/journal.ts:59](https://github.com/tangle-network/agent
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L62)
+Defined in: [conversation/journal.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L63)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -372,7 +378,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L75)
+Defined in: [conversation/journal.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L76)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -400,7 +406,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L88)
+Defined in: [conversation/journal.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L89)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -428,7 +434,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L103)
+Defined in: [conversation/journal.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L104)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -459,7 +465,7 @@ is observed-final; subsequent `loadRun` returns the same halt.
 
 ### FileConversationJournal
 
-Defined in: [conversation/journal.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L123)
+Defined in: [conversation/journal.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L124)
 
 JSONL on disk. One line per record; first line is the `begin`, subsequent
 lines are `turn` records, terminal line is `halt`. Replays the whole file
@@ -480,7 +486,7 @@ process crash between writes never loses an acknowledged turn.
 
 > **new FileConversationJournal**(`path`): [`FileConversationJournal`](#fileconversationjournal)
 
-Defined in: [conversation/journal.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L124)
+Defined in: [conversation/journal.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L125)
 
 ###### Parameters
 
@@ -498,7 +504,7 @@ Defined in: [conversation/journal.ts:124](https://github.com/tangle-network/agen
 
 > **loadRun**(`runId`): `Promise`\<[`ConversationJournalEntry`](#conversationjournalentry) \| `undefined`\>
 
-Defined in: [conversation/journal.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L126)
+Defined in: [conversation/journal.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L127)
 
 Load any prior state for `runId`. Returns `undefined` for a fresh run.
 Implementations MUST NOT mutate the returned object — the runner clones
@@ -523,7 +529,7 @@ identically, so a journal with zero turns is equivalent to "fresh."
 
 > **beginRun**(`runId`, `startedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L162)
+Defined in: [conversation/journal.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L163)
 
 Initialise journal state for a fresh run. Called once per run, before any
 `appendTurn`. Idempotent: calling with an existing runId is a no-op if
@@ -551,7 +557,7 @@ the entry already exists with the same `startedAt`.
 
 > **appendTurn**(`runId`, `turn`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L175)
+Defined in: [conversation/journal.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L176)
 
 Append a committed turn. The runner only calls this AFTER the turn's
 backend stream completed and the credit total has been updated, so an
@@ -579,7 +585,7 @@ appended turn is observed-committed and never speculative.
 
 > **recordHalt**(`runId`, `halt`, `endedAt`): `Promise`\<`void`\>
 
-Defined in: [conversation/journal.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L179)
+Defined in: [conversation/journal.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/journal.ts#L180)
 
 Record the run's terminal halt reason + end time. Once called, the run
 is observed-final; subsequent `loadRun` returns the same halt.
@@ -784,6 +790,8 @@ Defined in: [errors.ts:117](https://github.com/tangle-network/agent-runtime/blob
 ### InMemoryRuntimeSessionStore
 
 Defined in: [sessions.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/sessions.ts#L41)
+
+In-memory `RuntimeSessionStore` for single-process use and tests.
 
 #### Stable
 
@@ -3346,7 +3354,7 @@ Defined in: [model-resolution.ts:39](https://github.com/tangle-network/agent-run
 
 ### ResolvedChatModel
 
-Defined in: [model-resolution.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L79)
+Defined in: [model-resolution.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L80)
 
 #### Properties
 
@@ -3354,13 +3362,13 @@ Defined in: [model-resolution.ts:79](https://github.com/tangle-network/agent-run
 
 > **source**: `string`
 
-Defined in: [model-resolution.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L80)
+Defined in: [model-resolution.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L81)
 
 ##### model
 
 > **model**: `string`
 
-Defined in: [model-resolution.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L81)
+Defined in: [model-resolution.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L82)
 
 ***
 
@@ -6786,7 +6794,7 @@ MUST map this to `RunRecord.error` rather than recording silent
 
 > `const` **defaultIsRetryable**: [`RetryableErrorPredicate`](#retryableerrorpredicate)
 
-Defined in: [conversation/call-policy.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L63)
+Defined in: [conversation/call-policy.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L65)
 
 Default retryable classification — network/timeout class errors. Errors
 a model deliberately throws (validation, refusal, 4xx) are not retried;
@@ -6860,7 +6868,7 @@ Defined in: [loop-runner.ts:47](https://github.com/tangle-network/agent-runtime/
 
 **`Experimental`**
 
-Every delegated-loop mode, for validation + CLI surfaces.
+All valid delegated-loop mode names — used for validation and CLI surfaces.
 
 ***
 
@@ -6868,7 +6876,9 @@ Every delegated-loop mode, for validation + CLI surfaces.
 
 > `const` **DEFAULT\_ROUTER\_BASE\_URL**: `"https://router.tangle.tools"` = `'https://router.tangle.tools'`
 
-Defined in: [model-resolution.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L42)
+Defined in: [model-resolution.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L43)
+
+Default Tangle Router base URL used when no env override is set.
 
 ***
 
@@ -6887,6 +6897,8 @@ Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body).
 > **createIterableBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
 Defined in: [backends.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L30)
+
+Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`.
 
 #### Type Parameters
 
@@ -6931,6 +6943,8 @@ Defined in: [backends.ts:30](https://github.com/tangle-network/agent-runtime/blo
 > **createSandboxPromptBackend**\<`TBox`, `TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
 Defined in: [backends.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/backends.ts#L41)
+
+Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call.
 
 #### Type Parameters
 
@@ -7077,7 +7091,7 @@ OpenAI Chat Completions `response_format`. Omit for provider default text.
 
 > **makePerAttemptSignal**(`parentSignal`, `deadlineMs`): `object`
 
-Defined in: [conversation/call-policy.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L127)
+Defined in: [conversation/call-policy.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L129)
 
 Build a per-attempt AbortSignal linked to the parent signal AND fired when
 the deadline elapses. The returned `dispose()` MUST be called in a
@@ -7127,7 +7141,7 @@ the underlying operation throws.
 
 > **computeBackoff**(`spec`, `attempt`): `number`
 
-Defined in: [conversation/call-policy.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L167)
+Defined in: [conversation/call-policy.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L169)
 
 Compute the delay before the next attempt. Default: 250ms exponential with jitter.
 
@@ -7151,7 +7165,9 @@ Compute the delay before the next attempt. Default: 250ms exponential with jitte
 
 > **sleep**(`ms`): `Promise`\<`void`\>
 
-Defined in: [conversation/call-policy.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L177)
+Defined in: [conversation/call-policy.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L180)
+
+Resolve after `ms` milliseconds — used for retry backoff in conversation call policy.
 
 #### Parameters
 
@@ -7613,7 +7629,9 @@ A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
 
 > **toolBuildPrompt**(`args`): `string`
 
-Defined in: [improvement/build-prompts.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/build-prompts.ts#L30)
+Defined in: [improvement/build-prompts.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/build-prompts.ts#L31)
+
+Build the starting instruction for a coder agent tasked with implementing a new tool.
 
 #### Parameters
 
@@ -7631,7 +7649,9 @@ Defined in: [improvement/build-prompts.ts:30](https://github.com/tangle-network/
 
 > **mcpBuildPrompt**(`args`): `string`
 
-Defined in: [improvement/build-prompts.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/build-prompts.ts#L43)
+Defined in: [improvement/build-prompts.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/build-prompts.ts#L45)
+
+Build the starting instruction for a coder agent tasked with implementing a new MCP server.
 
 #### Parameters
 
@@ -7721,7 +7741,9 @@ The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the ca
 
 > **mcpServeVerifier**(`spec`): [`Verifier`](#verifier)
 
-Defined in: [improvement/mcp-serve-verifier.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/mcp-serve-verifier.ts#L43)
+Defined in: [improvement/mcp-serve-verifier.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/mcp-serve-verifier.ts#L44)
+
+Build a `Verifier` that boots a generated MCP server over stdio and checks it exposes tools.
 
 #### Parameters
 
@@ -7763,7 +7785,7 @@ Defined in: [loop-runner.ts:53](https://github.com/tangle-network/agent-runtime/
 
 **`Experimental`**
 
-Type guard for an untrusted mode string (CLI / config input).
+Type guard — returns true when `value` is a valid `DelegatedLoopMode` string.
 
 #### Parameters
 
@@ -7984,7 +8006,7 @@ readonly `string`[]
 
 > **resolveRouterBaseUrl**(`env?`): `string`
 
-Defined in: [model-resolution.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L45)
+Defined in: [model-resolution.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L46)
 
 Resolve the router base URL from env, normalised — no trailing `/v1` or `/`.
 
@@ -8004,7 +8026,7 @@ Resolve the router base URL from env, normalised — no trailing `/v1` or `/`.
 
 > **getModels**(`routerBaseUrl?`): `Promise`\<[`ModelInfo`](#modelinfo)[]\>
 
-Defined in: [model-resolution.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L55)
+Defined in: [model-resolution.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L56)
 
 Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx
 response — callers decide whether to fail open (empty catalog) or closed.
@@ -8025,7 +8047,7 @@ response — callers decide whether to fail open (empty catalog) or closed.
 
 > **cleanModelId**(`value`): `string` \| `undefined`
 
-Defined in: [model-resolution.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L67)
+Defined in: [model-resolution.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L68)
 
 Trim a candidate model id; `undefined` for non-strings and blanks.
 
@@ -8045,7 +8067,7 @@ Trim a candidate model id; `undefined` for non-strings and blanks.
 
 > **resolveChatModel**(`candidates`, `fallback`): [`ResolvedChatModel`](#resolvedchatmodel)
 
-Defined in: [model-resolution.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L90)
+Defined in: [model-resolution.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L91)
 
 Resolve a chat model by precedence: the first candidate carrying a
 non-blank model wins, else `fallback`. The caller owns the precedence
@@ -8072,7 +8094,7 @@ etc.) while the first-non-blank logic and the telemetry shape stay shared.
 
 > **validateChatModelId**(`modelId`, `options?`): `Promise`\<`ChatModelValidation`\>
 
-Defined in: [model-resolution.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L130)
+Defined in: [model-resolution.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/model-resolution.ts#L131)
 
 Validate a caller-supplied chat-model id. Rejects non-strings, malformed
 ids, and ids absent from both the caller's `allowlist` and the live router
@@ -8441,7 +8463,9 @@ event. Use this to attach N observers to a loop instead of a second event bus.
 
 > **notifyRuntimeHookEvent**(`hooks`, `event`, `context?`): `void`
 
-Defined in: [runtime-hooks.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L157)
+Defined in: [runtime-hooks.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L158)
+
+Fire `hooks.onEvent`, swallowing sync throws and surfacing async failures to `onError`.
 
 #### Parameters
 
@@ -8467,7 +8491,9 @@ Defined in: [runtime-hooks.ts:157](https://github.com/tangle-network/agent-runti
 
 > **notifyRuntimeDecisionPoint**(`hooks`, `point`, `context?`): `void`
 
-Defined in: [runtime-hooks.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L187)
+Defined in: [runtime-hooks.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime-hooks.ts#L189)
+
+Fire `hooks.onDecisionPoint`, swallowing sync throws and surfacing async failures to `onError`.
 
 #### Parameters
 
@@ -8518,6 +8544,8 @@ lifetime; consumers should not share it across requests.
 
 Defined in: [sanitize.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L82)
 
+Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission.
+
 #### Parameters
 
 ##### report
@@ -8541,6 +8569,8 @@ Defined in: [sanitize.ts:82](https://github.com/tangle-network/agent-runtime/blo
 > **sanitizeAgentRuntimeEvent**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`event`, `options?`): `Record`\<`string`, `unknown`\>
 
 Defined in: [sanitize.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L105)
+
+Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry.
 
 #### Type Parameters
 
@@ -8584,6 +8614,8 @@ Defined in: [sanitize.ts:105](https://github.com/tangle-network/agent-runtime/bl
 
 Defined in: [sanitize.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L161)
 
+Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry.
+
 #### Parameters
 
 ##### event
@@ -8607,6 +8639,8 @@ Defined in: [sanitize.ts:161](https://github.com/tangle-network/agent-runtime/bl
 > **createRuntimeEventCollector**\<`TState`, `TAction`, `TActionResult`, `TEval`\>(`options?`): [`RuntimeEventCollector`](#runtimeeventcollector)\<`TState`, `TAction`, `TActionResult`, `TEval`\>
 
 Defined in: [sanitize.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/sanitize.ts#L531)
+
+Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection.
 
 #### Type Parameters
 
@@ -8673,6 +8707,8 @@ on `type` alone would misroute events.
 
 Defined in: [sse.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L42)
 
+Serialize a `KnowledgeReadinessReport` as a Server-Sent Event string.
+
 #### Parameters
 
 ##### report
@@ -8696,6 +8732,8 @@ Defined in: [sse.ts:42](https://github.com/tangle-network/agent-runtime/blob/mai
 > **runtimeStreamServerSentEvent**(`event`, `options?`): `string`
 
 Defined in: [sse.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/sse.ts#L57)
+
+Serialize a `RuntimeStreamEvent` as a Server-Sent Event string.
 
 #### Parameters
 

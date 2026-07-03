@@ -22,7 +22,7 @@ import type { UiAuditTask } from './task'
 const ENVELOPE_BEGIN = '<<UI_AUDIT_TASK>>'
 const ENVELOPE_END = '<<UI_AUDIT_TASK_END>>'
 
-/** @experimental */
+/** Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-describing. @experimental */
 export function encodeAuditTaskEnvelope(task: UiAuditTask): string {
   return `${ENVELOPE_BEGIN}${JSON.stringify(task)}${ENVELOPE_END}`
 }
@@ -52,7 +52,7 @@ export function decodeAuditTaskEnvelope(prompt: string): UiAuditTask | undefined
   }
 }
 
-/** @experimental */
+/** Produce the user message for one audit iteration: lens, captures to take, and the task envelope. @experimental */
 export function formatAuditorPrompt(task: UiAuditTask): string {
   const lines: string[] = []
   lines.push(`# UI audit iteration — lens: ${task.lens}`)

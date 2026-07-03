@@ -129,6 +129,7 @@ export interface PlatformHubStatus {
   connections: { connectedProviderCount: number; unhealthyProviderCount: number }
 }
 
+/** Thrown when a `PlatformHubClient` request returns a non-success status. */
 export class PlatformHubError extends Error {
   constructor(
     message: string,
@@ -147,6 +148,7 @@ interface PlatformEnvelope<T> {
   error?: { code?: string; message?: string } | string
 }
 
+/** HTTP client for the Tangle Platform Hub API: provider catalog, connection flow, and status. */
 export class PlatformHubClient {
   private readonly baseUrl: string
   private readonly bearer: string

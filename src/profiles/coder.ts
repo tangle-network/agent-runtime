@@ -35,7 +35,7 @@ export interface CoderTask {
   maxDiffLines?: number
 }
 
-/** @experimental Render a `CoderTask` into the per-task instruction handed to the coder profile. */
+/** Render a `CoderTask` into the per-task instruction handed to the coder profile. @experimental */
 export function coderTaskToPrompt(task: CoderTask): string {
   const base = task.baseBranch ?? 'main'
   const testCmd = task.testCmd ?? 'pnpm test --run'

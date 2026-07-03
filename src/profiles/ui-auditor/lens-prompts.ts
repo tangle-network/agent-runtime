@@ -14,7 +14,7 @@
 
 import type { UiLens } from './substrate'
 
-/** @experimental */
+/** Cross-lens rules injected into every UI audit iteration: finding quality standards and scope limits. @experimental */
 export const SHARED_AUDITOR_RULES = `
 You are auditing a UI for a specific class of problems. Stay strictly in your assigned lens — do not file issues that belong to another lens (a separate iteration will catch those).
 
@@ -36,7 +36,7 @@ Required for every finding:
 Most findings are med or low. Reserve high/critical for genuine blockers.
 `.trim()
 
-/** @experimental */
+/** Per-lens auditor briefs: concrete signals to look for and cross-lens distinctions to respect. @experimental */
 export const LENS_BRIEFS: Record<UiLens, string> = {
   consistency: `
 LENS: consistency

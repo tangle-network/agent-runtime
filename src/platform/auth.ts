@@ -47,6 +47,7 @@ export interface ExchangeCodeResult {
   }
 }
 
+/** Thrown when a `PlatformAuthClient` request returns a non-success status. */
 export class PlatformAuthError extends Error {
   constructor(
     message: string,
@@ -58,6 +59,7 @@ export class PlatformAuthError extends Error {
   }
 }
 
+/** HTTP client for the Tangle Platform SSO: builds authorize URLs and exchanges auth codes for API keys. */
 export class PlatformAuthClient {
   private readonly baseUrl: string
   private readonly appId: string

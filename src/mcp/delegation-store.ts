@@ -72,7 +72,7 @@ export class DelegationPersistenceError extends AgentEvalError {
   }
 }
 
-/** @experimental */
+/** In-memory `DelegationStore` — suitable for single-process use and tests. @experimental */
 export class InMemoryDelegationStore implements DelegationStore {
   private readonly records = new Map<string, DelegationRecord>()
 

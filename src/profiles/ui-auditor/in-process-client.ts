@@ -186,7 +186,7 @@ function makeSandboxId(): string {
   return `ui-audit-${rand()}${rand()}`
 }
 
-/** @experimental */
+/** Create a `SandboxClient` that drives a local Playwright browser for in-process UI audits. @experimental */
 export function createInProcessUiAuditClient(
   options: InProcessUiAuditClientOptions,
 ): SandboxClient & {

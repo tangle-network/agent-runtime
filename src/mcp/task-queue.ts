@@ -239,7 +239,7 @@ export interface DelegationTaskQueueOptions {
   traceContext?: TraceContext
 }
 
-/** @experimental */
+/** In-process queue for async delegation tasks — submit, cancel, poll status, and read history. @experimental */
 export class DelegationTaskQueue {
   private readonly records = new Map<string, DelegationRecord>()
   private readonly controllers = new Map<string, AbortController>()
