@@ -97,6 +97,7 @@ export {
   type LeaderboardBenchScore,
   type LeaderboardBenchTask,
   type LeaderboardFlagSpec,
+  type LeaderboardIterationInfo,
   type LeaderboardRunContext,
   type LeaderboardScenario,
   type LeaderboardScore,

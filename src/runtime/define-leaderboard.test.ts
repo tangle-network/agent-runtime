@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
-import { defineLeaderboard, type LeaderboardRunContext } from './define-leaderboard'
+import {
+  defineLeaderboard,
+  type LeaderboardIterationInfo,
+  type LeaderboardRunContext,
+} from './define-leaderboard'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
 
 interface FakeCase {
@@ -126,6 +130,85 @@ describe('defineLeaderboard', () => {
     }).run([...AXIS])
     expect(seen.map((s) => s.id).sort()).toEqual(['case-alpha', 'case-beta'])
     for (const s of seen) expect(s.types).toContain('llm_call')
+  })
+
+  it('carries per-shot index + verdict to onCellEvents, and error for THROWN shots', async () => {
+    // Shot 0 throws before producing events; shot 1 succeeds. Before the
+    // iteration-metadata seam, the thrown shot was invisible through the facade.
+    let attempts = 0
+    const throwingBackend = inProcessSandboxClient({
+      onPrompt: (prompt): SandboxEvent[] => {
+        if (attempts++ === 0) throw new Error('upstream harness terminated')
+        const answer = /answer=(\S+)/.exec(prompt)?.[1] ?? 'missing'
+        return [
+          { type: 'llm_call', data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 } },
+          { type: 'result', data: { finalText: `final answer=${answer}` } },
+        ]
+      },
+    })
+    const shots: Array<{ id: string; info: LeaderboardIterationInfo | undefined }> = []
+    await board({
+      backends: { inproc: () => throwingBackend },
+      shots: 2,
+      onCellEvents: (_events, c, info) => {
+        shots.push({ id: c.id, info })
+      },
+    }).run([...AXIS, '--cases', 'case-alpha'])
+
+    expect(shots).toHaveLength(2)
+    expect(shots[0]?.info).toEqual({ index: 0, error: 'upstream harness terminated' })
+    expect(shots[1]?.info).toEqual({ index: 1, verdict: { score: 1 } })
+  })
+
+  it('pins HARNESS_NATIVE_MODEL-snapped cells via the resolveModel seam', async () => {
+    // claude-code is vendor-locked to anthropic/*; a moonshot model snaps the
+    // axis to the 'default' sentinel, and the RunRecord then REQUIRES a
+    // dispatch-reported served model.
+    const snappedAxis = [
+      '--backend',
+      'inproc',
+      '--harnesses',
+      'claude-code',
+      '--models',
+      'moonshot/kimi-k2@2026-01-01',
+    ]
+    await expect(board().run([...snappedAxis, '--cases', 'case-alpha'])).rejects.toThrow(
+      /observeModel/,
+    )
+
+    const result = await board({
+      resolveModel: (events) => {
+        // The served model rides the backend's own usage events — here the fake
+        // backend's llm_call stands in for the harness's terminal event.
+        const call = events.find((e) => (e as { type: string }).type === 'llm_call')
+        return call ? 'kimi-k2@2026-01-01' : undefined
+      },
+    }).run([...snappedAxis, '--cases', 'case-alpha'])
+    expect(result.records[0]?.model).toBe('kimi-k2@2026-01-01')
+  })
+
+  it('flows a structured TArtifact through parseOutput → score → records natively', async () => {
+    interface Structured {
+      answer: string
+      confidence: number
+    }
+    const result = await defineLeaderboard<FakeCase, Structured>({
+      name: 'structured-board',
+      cases: CASES,
+      prompt: async (c) => `solve the task. answer=${c.answer}`,
+      parseOutput: (events): Structured => {
+        const final = events.find((e) => (e as { type: string }).type === 'result') as
+          | { data?: { finalText?: string } }
+          | undefined
+        const text = final?.data?.finalText ?? ''
+        return { answer: /answer=(\S+)/.exec(text)?.[1] ?? '', confidence: 0.9 }
+      },
+      score: (output, c) => (output.answer === c.answer ? output.confidence : 0),
+      backends: { inproc: fakeBackend },
+      export: async () => {},
+    }).run([...AXIS, '--cases', 'case-alpha'])
+
+    expect(Object.values(result.byProfile)[0]?.meanComposite).toBe(0.9)
   })
 
   it('parses spec.flags and surfaces every flag to the hooks via ctx.args', async () => {
