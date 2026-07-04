@@ -1,0 +1,21 @@
+[
+  {
+    "id": "finresearchbench-fixture-0",
+    "category": "stock-specific-analysis",
+    "question": "Assess whether Company A's margin expansion is durable given revenue growth and cost pressure.",
+    "reference_answer": "Margin expansion is not durable unless revenue growth continues and cost pressure eases.",
+    "reference_report": "Margin expansion is not durable unless revenue growth continues and cost pressure eases.",
+    "logic_tree": {
+      "claim": "durability depends on growth and cost pressure",
+      "children": [
+        { "evidence": "revenue growth supports operating leverage" },
+        { "evidence": "persistent cost pressure offsets margin gains" }
+      ]
+    },
+    "rubric": {
+      "requires": ["states a conclusion", "mentions revenue growth", "mentions cost pressure"]
+    },
+    "judge_system_prompt": "You are the official benchmark judge. Return JSON with score in [0,1].",
+    "judge_prompt_template": "Question: {question}\nReference: {reference_report}\nLogic tree: {logic_tree}\nRubric: {rubric}\nResponse: {response}\nReturn JSON: {\"score\": 0.0}"
+  }
+]

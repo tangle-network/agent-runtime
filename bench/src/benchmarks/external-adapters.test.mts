@@ -4,7 +4,10 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAgentBenchAdapter } from './agentbench'
+import { createBfclAdapter } from './bfcl'
+import { createFinResearchBenchAdapter } from './finresearchbench'
 import { createTau2BenchAdapter } from './tau2-bench'
+import { createTau3BankingAdapter } from './tau3-banking'
 import { createToolLlmAdapter } from './toollm'
 import { createWebArenaVerifiedAdapter } from './webarena-verified'
 
@@ -55,6 +58,21 @@ test('tau2-bench fixture mode loads tasks and live mode fails loud without check
   })
 })
 
+test('tau3-banking fixture mode loads tasks and live mode fails loud without checkout', async () => {
+  await withEnv({ TAU3_FIXTURES: '1', TAU3_BENCH_DIR: undefined }, async () => {
+    const adapter = createTau3BankingAdapter()
+    await adapter.preflight()
+    const tasks = await adapter.loadTasks({ limit: 1 })
+    assert.equal(tasks.length, 1)
+    assert.equal(tasks[0].id, 'banking-knowledge-fixture-0')
+    assert.match(tasks[0].prompt, /tau3 banking task/)
+  })
+
+  await withEnv({ TAU3_FIXTURES: undefined, TAU3_BENCH_DIR: undefined }, async () => {
+    await assert.rejects(() => createTau3BankingAdapter().preflight(), /TAU3_BENCH_DIR is required/)
+  })
+})
+
 test('AgentBench DBBench fixture mode loads and exact-label judge scores deterministically', async () => {
   await withEnv({ AGENTBENCH_FIXTURES: '1', AGENTBENCH_DIR: undefined }, async () => {
     const adapter = createAgentBenchAdapter()
@@ -67,6 +85,23 @@ test('AgentBench DBBench fixture mode loads and exact-label judge scores determi
 
   await withEnv({ AGENTBENCH_FIXTURES: undefined, AGENTBENCH_DIR: undefined }, async () => {
     await assert.rejects(() => createAgentBenchAdapter().preflight(), /AGENTBENCH_DIR is required/)
+  })
+})
+
+test('BFCL fixture mode loads official-shaped rows and scores function calls', async () => {
+  await withEnv({ BFCL_FIXTURES: '1', BFCL_DIR: undefined }, async () => {
+    const adapter = createBfclAdapter()
+    await adapter.preflight()
+    const [task] = await adapter.loadTasks({ limit: 1 })
+    assert.equal(task.id, 'simple_python_fixture_0')
+    const gold = await adapter.goldArtifact(task)
+    assert.match(gold ?? '', /calculate_triangle_area/)
+    assert.equal((await adapter.judge(task, gold ?? '')).score, 1)
+    assert.equal((await adapter.judge(task, '{"function_calls":[{"name":"wrong","arguments":{}}]}')).score, 0)
+  })
+
+  await withEnv({ BFCL_FIXTURES: undefined, BFCL_DIR: undefined }, async () => {
+    await assert.rejects(() => createBfclAdapter().preflight(), /BFCL_DIR is required/)
   })
 })
 
@@ -96,4 +131,20 @@ test('ToolLLM scores only deterministic API-selection labels and rejects unlabel
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('FinResearchBench fixture mode is explicit and live mode requires exported judge rows', async () => {
+  await withEnv({ FINRESEARCHBENCH_FIXTURES: '1', FINRESEARCHBENCH_DATA_FILE: undefined }, async () => {
+    const adapter = createFinResearchBenchAdapter()
+    await adapter.preflight()
+    const [task] = await adapter.loadTasks({ limit: 1 })
+    const gold = await adapter.goldArtifact(task)
+    assert.match(gold ?? '', /Margin expansion/)
+    assert.equal((await adapter.judge(task, gold ?? '')).score, 1)
+    assert.equal((await adapter.judge(task, 'unrelated answer')).score, 0)
+  })
+
+  await withEnv({ FINRESEARCHBENCH_FIXTURES: undefined, FINRESEARCHBENCH_DATA_FILE: undefined }, async () => {
+    await assert.rejects(() => createFinResearchBenchAdapter().preflight(), /FINRESEARCHBENCH_DATA_FILE is required/)
+  })
 })

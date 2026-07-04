@@ -8,12 +8,14 @@
 import { createAecBenchAdapter } from './benchmarks/aec-bench'
 import { createAgentBenchAdapter } from './benchmarks/agentbench'
 import { createAppWorldAdapter, createAppWorldReactAdapter } from './benchmarks/appworld'
+import { createBfclAdapter } from './benchmarks/bfcl'
 import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import { createDabstepAdapter } from './benchmarks/dabstep'
 import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
+import { createFinResearchBenchAdapter } from './benchmarks/finresearchbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
@@ -23,6 +25,7 @@ import { createProgrambenchAdapter } from './benchmarks/programbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import { createTau2BenchAdapter } from './benchmarks/tau2-bench'
+import { createTau3BankingAdapter } from './benchmarks/tau3-banking'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import { createToolLlmAdapter } from './benchmarks/toollm'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
@@ -41,7 +44,9 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   programbench: createProgrambenchAdapter,
   'webarena-verified': createWebArenaVerifiedAdapter,
   'tau2-bench': createTau2BenchAdapter,
+  'tau3-banking': createTau3BankingAdapter,
   agentbench: createAgentBenchAdapter,
+  bfcl: createBfclAdapter,
   toollm: createToolLlmAdapter,
   appworld: createAppWorldAdapter,
   // AppWorld's native interactive protocol — the worker is the in-engine ReAct
@@ -52,6 +57,7 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
   frames: createFramesAdapter,
+  finresearchbench: createFinResearchBenchAdapter,
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,
   hotpotqa: createHotpotqaAdapter,
