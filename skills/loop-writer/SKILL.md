@@ -30,6 +30,7 @@ The driver owns strategy.
 | Review from several lenses | `panel` |
 | Simulated user/product eval | `defineConversation` + `runConversation` |
 | Dynamic topology / drivers of drivers | `Scope` or sandbox driver + `createCoordinationTools` |
+| **A coded multi-round loop spawned + steered like a worker** | `defineLoop` + `loopChild` (the loop atom) |
 | Mutate a shared repo | git branch/clone loop with typed merge outcomes |
 
 If a fixed combinator solves it, do not use a dynamic driver.
@@ -113,6 +114,39 @@ When the driver lives in a sandbox, expose the same verbs through
 `createCoordinationTools`: `spawn_worker`, `await_event`, `observe_worker`,
 `steer_worker`, `list_questions`, `answer_question`, `ask_parent`, `stop`, and
 optional analyst tools.
+
+## The Loop Atom — a coded loop spawned like a worker
+
+When the loop itself is the reusable unit (a research loop, a verify loop, an
+evolve loop), make it a spawnable atom instead of a hand-driver. `defineLoop`
+authors the body; the runtime owns the round ceiling, the conserved budget, the
+gate, and steer-between-rounds. A supervisor spawns / observes / steers it with
+the SAME coordination verbs as a worker.
+
+```ts
+// The author writes ONE round (arbitrary code — may spawn children); the runtime
+// iterates it up to maxRounds, stops the instant `check` passes, and folds any
+// steer_agent message into the NEXT round's ctx.steer. Settles valid ⟺ check passed.
+const research = defineLoop('two-agent-research', {
+  maxRounds: 3,
+  round: async ({ scope, round, steer }) => {
+    const w = scope.spawn(researcher, { round, steer }, { budget: perRound, label: `r${round}` })
+    if (!w.ok) throw new Error(w.reason)
+    const found = await scope.next()               // conserved child work
+    return { out: found, done: false }             // `done: true` also stops early
+  },
+  check: (out) => readinessPasses(out),            // the deployable completion oracle
+})
+
+// Spawn it exactly like a worker (role:'loop' resolves to the loop-executor).
+const r = scope.spawn(loopChild(research, journal), task, { budget, label: 'research-loop' })
+// Wire once at the top: createInMemoryRunContext({ withDriver: true, withLoop: true }).
+```
+
+Rules: `round` is code, not the model's judgment — that is what makes maxRounds,
+the budget, and the gate ENFORCED rather than hoped-for. Give the loop a real
+`check` (an executable oracle, never a self-judged score). Budget nests: the pool
+reserves each spawn's full ceiling until it settles, so pool > loop > per-round.
 
 ## Role Boundaries
 
