@@ -2318,6 +2318,126 @@ tags, so set it when a demo's output reads on a meaningful sandbox id.
 
 ***
 
+### AuthorLoopOptions
+
+Defined in: [runtime/loop-author.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L77)
+
+#### Properties
+
+##### chat
+
+> **chat**: `ChatClient`
+
+Defined in: [runtime/loop-author.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L79)
+
+The model-call seam (agent-eval `createChatClient`).
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Defined in: [runtime/loop-author.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L80)
+
+##### fallbackModel?
+
+> `optional` **fallbackModel?**: `string`
+
+Defined in: [runtime/loop-author.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L84)
+
+A NAMED fallback author tried once when the primary call fails or returns no code block
+ (thinking models can time out at the edge on long authoring prompts, or return empty
+ content without `maxTokens`). Opt-in — absent means the primary's failure propagates.
+
+##### contract?
+
+> `optional` **contract?**: `string`
+
+Defined in: [runtime/loop-author.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L87)
+
+The contract text shown to the author. Default `loopAuthorContract`. A skill/GEPA loop can
+ evolve this text and gate each variant on the same check as any loop.
+
+##### goal
+
+> **goal**: `string`
+
+Defined in: [runtime/loop-author.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L89)
+
+What the loop must accomplish — the objective, in plain language (the author's orientation).
+
+##### context?
+
+> `optional` **context?**: `string`
+
+Defined in: [runtime/loop-author.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L92)
+
+Optional orienting context: the check's shape, the child agents available, prior findings —
+ never the check's internals (the author stays blind to the oracle, like `authorStrategy`).
+
+##### maxRounds
+
+> **maxRounds**: `number`
+
+Defined in: [runtime/loop-author.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L94)
+
+The round ceiling the loop must respect.
+
+##### outDir
+
+> **outDir**: `string`
+
+Defined in: [runtime/loop-author.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L96)
+
+Where the authored module file is written (created if missing).
+
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+Defined in: [runtime/loop-author.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L97)
+
+##### maxTokens?
+
+> `optional` **maxTokens?**: `number`
+
+Defined in: [runtime/loop-author.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L99)
+
+Completion cap — required by thinking-model authors that stream reasoning first.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Defined in: [runtime/loop-author.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L100)
+
+***
+
+### AuthoredLoop
+
+Defined in: [runtime/loop-author.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L103)
+
+#### Properties
+
+##### loop
+
+> **loop**: [`LoopDef`](#loopdef)
+
+Defined in: [runtime/loop-author.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L104)
+
+##### file
+
+> **file**: `string`
+
+Defined in: [runtime/loop-author.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L105)
+
+##### code
+
+> **code**: `string`
+
+Defined in: [runtime/loop-author.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L106)
+
+***
+
 ### LoopDispatchOptions
 
 Defined in: [runtime/loop-dispatch.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-dispatch.ts#L50)
@@ -8159,7 +8279,7 @@ Defined in: [runtime/strategy.ts:88](https://github.com/tangle-network/agent-run
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`model`](#model-7)
+[`AgenticOptions`](#agenticoptions).[`model`](#model-8)
 
 ##### complete?
 
@@ -8195,7 +8315,7 @@ Defined in: [runtime/strategy.ts:95](https://github.com/tangle-network/agent-run
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`temperature`](#temperature-2)
+[`AgenticOptions`](#agenticoptions).[`temperature`](#temperature-3)
 
 ##### maxTokens?
 
@@ -8208,7 +8328,7 @@ Completion cap per worker turn — REQUIRED for thinking models (they burn unbou
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-2)
+[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-3)
 
 ##### innerTurns?
 
@@ -15510,6 +15630,16 @@ Default system instruction for intent-auditor agents: diagnose diverged/drifting
 
 ***
 
+### loopAuthorContract
+
+> `const` **loopAuthorContract**: "\nYou author a LOOP ATOM for an agent supervisor. A loop runs a bounded, multi-round journey\ntoward a deployable check; a supervisor spawns / observes / steers it exactly like a worker.\nYou write ONE round; the runtime owns the round ceiling, the conserved budget, the gate, and\nfolding a supervisor's steer into the next round. So write real control flow inside a round,\nbut never write the loop's stop condition as \"hope the model stops\" — that is the runtime's job.\n\nYou export ONE module of EXACTLY this shape (no other imports, no commentary outside the code):\n\nimport \{ defineLoop \} from '@tangle-network/agent-runtime/loops'\nexport default defineLoop('your-loop-name', \{\n  maxRounds: 3,\n  round: async (\{ task, scope, round, maxRounds, steer, budget, signal \}) =\> \{\n    // arbitrary code for ONE round. Do real work by spawning children on the nested scope:\n    //   const w = scope.spawn(childAgent, subtask, \{ budget: perRound, label: \`r$\{round\}\` \})\n    //   if (!w.ok) throw new Error(w.reason)      // fail loud: budget-exhausted \| depth-exceeded\n    //   const settled = await scope.next()        // conserved child work; settles gated\n    // 'steer' is the supervisor's messages since the last round (fold them into what you do next).\n    // 'signal' aborts if a forceful steer arrives mid-round — pass it to your awaited work.\n    return \{ out: /\* the running result \*/ undefined, done: false \}  // done:true stops early\n  \},\n  check: (out) =\> /\* the deployable completion oracle \*/ Boolean(out),\n\})\n\nThe round context:\n  task       the spawn task, verbatim.\n  scope      the NESTED conserved scope. scope.spawn(agent, task, \{ budget, label \}) reserves\n             budget and fails closed; scope.next() awaits one child settlement. Budget NESTS —\n             the pool reserves each spawn's full ceiling until it settles, so give children a\n             per-round budget smaller than the loop's own.\n  round      1-based round index. maxRounds is the declared ceiling.\n  steer      readonly string\[\] — supervisor steer\_agent messages that arrived since last round.\n  budget     conserved-pool readouts (tokensLeft, usdLeft, deadlineMs) for in-body awareness.\n  signal     AbortSignal — the spawn signal + a fresh per-round interrupt; honor it in awaits.\n\nThe round result: \{ out: unknown; done?: boolean \}. 'out' is the running result the gate reads;\n'done: true' is YOUR early stop (distinct from the runtime's gate 'check').\n\ncheck(out): boolean \| Promise\<boolean\>. The DEPLOYABLE oracle — an executable test, a state\nverifier, a readiness score threshold — read off 'out', never the model judging itself. The loop\nsettles valid IFF check passes, and the runtime polls it after each round to stop the instant the\nloop has delivered. A loop that exhausts maxRounds without check passing settles valid:false.\n\nRules:\n- ALWAYS await every scope.spawn drain / async call — a floating rejection crashes the run.\n- Do real work by SPAWNING children; raw un-metered inference in the body is not budget-conserved.\n- Give 'check' a real oracle. A loop whose check is a self-judged score cannot be trusted.\n- The only import allowed is '@tangle-network/agent-runtime/loops'. No require/eval/fetch/process/\n  node builtins — the runtime meters and gates you; out-of-band compute breaks that.\n"
+
+Defined in: [runtime/loop-author.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L26)
+
+The compressed consumable a skill carries: everything an author needs to emit a loop atom.
+
+***
+
 ### defaultAnalystInstruction
 
 > `const` **defaultAnalystInstruction**: `string`
@@ -16088,6 +16218,28 @@ run once on the prompt, emit the terminal result event, tear down.
 #### Returns
 
 [`SandboxClient`](#sandboxclient-3)
+
+***
+
+### authorLoop()
+
+> **authorLoop**(`opts`): `Promise`\<[`AuthoredLoop`](#authoredloop)\>
+
+Defined in: [runtime/loop-author.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/loop-author.ts#L159)
+
+Author + load a coded loop from a goal. Throws when the author emits no loadable module; with
+`fallbackModel` set, the named fallback gets one attempt first. The returned `loop` is handed
+to `loopChild(loop, journal)` and spawned as a first-class atom.
+
+#### Parameters
+
+##### opts
+
+[`AuthorLoopOptions`](#authorloopoptions)
+
+#### Returns
+
+`Promise`\<[`AuthoredLoop`](#authoredloop)\>
 
 ***
 
