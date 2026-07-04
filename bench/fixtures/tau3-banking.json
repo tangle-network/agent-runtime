@@ -1,0 +1,16 @@
+[
+  {
+    "id": "banking-knowledge-fixture-0",
+    "domain": "banking_knowledge",
+    "user_scenario": {
+      "instructions": "The customer asks whether they can dispute a cash-back charge and needs the correct policy path before any account mutation."
+    },
+    "description": "Adapter fixture for tau3 banking knowledge task loading.",
+    "evaluation_criteria": {
+      "actions": [
+        "retrieve the relevant banking policy",
+        "only mutate account state after confirming the policy path"
+      ]
+    }
+  }
+]

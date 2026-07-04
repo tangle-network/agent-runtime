@@ -2,7 +2,7 @@
   "name": "@tangle-network/agent-bench",
   "version": "0.1.0",
   "type": "module",
-  "description": "The unified benchmark suite for agent-runtime agents: 23 adapters (commit0, enterpriseops-gym, trata-hedge, finsearchcomp, dabstep, webarena-verified, tau2-bench, agentbench, swe-bench, humaneval, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
+  "description": "The unified benchmark suite for agent-runtime agents: 26 adapters (commit0, enterpriseops-gym, tau3-banking, bfcl, finresearchbench, trata-hedge, finsearchcomp, dabstep, webarena-verified, tau2-bench, agentbench, swe-bench, humaneval, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -18,9 +18,9 @@
     "terminal-compare": "tsx src/terminal-compare.ts"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.100.0",
-    "@tangle-network/agent-runtime": "^0.79.3",
-    "@tangle-network/sandbox": "^0.9.3"
+    "@tangle-network/agent-eval": "^0.103.2",
+    "@tangle-network/agent-runtime": "^0.88.0",
+    "@tangle-network/sandbox": "^0.9.5"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

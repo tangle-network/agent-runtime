@@ -1,0 +1,45 @@
+{
+  "category": "BFCL_fixture_simple_python",
+  "rows": [
+    {
+      "id": "simple_python_fixture_0",
+      "question": [
+        [
+          {
+            "role": "user",
+            "content": "Find the area of a triangle with a base of 10 units and height of 5 units."
+          }
+        ]
+      ],
+      "function": [
+        {
+          "name": "calculate_triangle_area",
+          "description": "Calculate the area of a triangle given its base and height.",
+          "parameters": {
+            "type": "dict",
+            "properties": {
+              "base": { "type": "integer" },
+              "height": { "type": "integer" },
+              "unit": { "type": "string" }
+            },
+            "required": ["base", "height"]
+          }
+        }
+      ]
+    }
+  ],
+  "answers": [
+    {
+      "id": "simple_python_fixture_0",
+      "ground_truth": [
+        {
+          "calculate_triangle_area": {
+            "base": [10],
+            "height": [5],
+            "unit": ["units", ""]
+          }
+        }
+      ]
+    }
+  ]
+}
