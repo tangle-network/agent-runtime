@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.87.0` and `@tangle-network/agent-eval@0.103.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.87.0` and `@tangle-network/agent-eval@0.103.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -92,7 +92,7 @@ Import from `@tangle-network/agent-runtime` — 211 exports.
 | `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
-| `AgentEvalError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `AgentEvalError` | class | Base class for every contract error this package throws — carries the stable |
 | `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
 | `CircuitOpenError` | class | Thrown when the circuit breaker is open for a participant and no retry is allowed yet. |
@@ -276,7 +276,7 @@ Import from `@tangle-network/agent-runtime/loops` — 430 exports.
 | `createMcpEnvironment` | function | Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` with provider-safe schemas; the domain supplies only the artifact lifecycle hooks. |
 | `createPushTraceSource` | function | A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): the loop calls |
 | `createSandboxLineage` | function | Build a lineage bound to one client + its probed capabilities. The |
-| `createSandboxToolPartState` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `createSandboxToolPartState` | function | Fresh per-turn {@link SandboxToolPartState} for {@link mapSandboxToolEvent} — an |
 | `createScope` | function | Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. |
 | `createScopeAnalyst` | function | Build a `ScopeAnalyst` that spawns the analyst agent through `Scope.spawn` (so its compute is |
 | `createShapeRegistry` | function | Build a fresh open `ShapeRegistry`. A factory is stored type-erased and re-cast on resolve — the |
@@ -287,7 +287,7 @@ Import from `@tangle-network/agent-runtime/loops` — 430 exports.
 | `decodeToolPart` | function | Decode a part with a specific harness's adapter when known, else try every registered adapter |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
-| `defineLeaderboard` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `defineLeaderboard` | function | Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable |
 | `definePersona` | function | Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with |
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
 | `delegate` | function | Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged. |
@@ -967,7 +967,7 @@ Import from `@tangle-network/agent-eval/campaign` — 226 exports.
 | `defaultRenderDiff` | function | Default surface diff renderer: produces a unified baseline/winner text diff for prompt surfaces or a worktree-ref summary for code surfaces. |
 | `detectScale` | function | Detect the native scale of a set of scores: 0-100 when any magnitude clears |
 | `dimensionRegressions` | function | Per-critical-dimension regression guard. For each dimension, pair the |
-| `discoverEvalFixtures` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `discoverEvalFixtures` | function | Walk `evalsDir` and return the relative name of every fixture directory (one containing an exact-case `PROMPT.md`). |
 | `emitLoopProvenance` | function | Build the provenance record + OTel spans and persist them durably under the |
 | `evolutionaryProposer` | function | Wrap a stateless `Mutator` (GEPA, AxGEPA, reflective-mutation) as a `SurfaceProposer` that mutates the current best surface into N candidates each generation. |
 | `extractFapoAttributionSignals` | function | Scan a findings array and extract FAPO attribution signals — per-level counts and failure clusters used to decide which optimization level to escalate to next. |
@@ -987,8 +987,8 @@ Import from `@tangle-network/agent-eval/campaign` — 226 exports.
 | `isProposedCandidate` | function | Type guard: a proposal carrying its rationale vs a bare |
 | `labelTrustRank` | function | Ordinal rank for a label-trust tier; absent ⇒ `unverified` (rank 0). |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
-| `loadEvalFixture` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `loadEvalFixtureScenarios` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `loadEvalFixture` | function | Load ONE fixture by name: reads `PROMPT.md` (plus `EVAL.ts`/`EVAL.tsx` and `package.json` under |
+| `loadEvalFixtureScenarios` | function | Load fixtures (all discovered, or just `names`) as campaign `Scenario`s tagged `eval-fixture`. |
 | `loopProvenanceSpans` | function | Build the loop's OTLP-ingestable spans from a provenance record. One root |
 | `makePlaybackDispatch` | function | Adapt a `PlaybackDriver` into a `runProfileMatrix` dispatch. The artifact the |
 | `memoryCurationProposer` | function | Build the CURATOR proposer. |
@@ -998,9 +998,9 @@ Import from `@tangle-network/agent-eval/campaign` — 226 exports.
 | `paretoSignificanceGate` | function | Wrap the bus + a policy as a `Gate`. Plugs into the existing |
 | `parseSkillPatchResponse` | function | Parse a SkillOpt LLM response into validated `SkillPatch` objects, throwing `SkillPatchParseError` on malformed JSON and silently dropping ops that violate the edit budget. |
 | `patchEditCount` | function | Total ops in a patch — the edit-budget axis (SkillOpt's "textual learning |
-| `planCampaignRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `planEvalFixtureRun` | function | _(no summary — add a TSDoc line at the declaration)_ |
-| `policyEditProposer` | function | _(no summary — add a TSDoc line at the declaration)_ |
+| `planCampaignRun` | function | Plan a campaign WITHOUT dispatching: computes the manifest hash and the per-cell |
+| `planEvalFixtureRun` | function | Dry-run planner for a fixture campaign: loads the scenarios, delegates to `planCampaignRun`, |
+| `policyEditProposer` | function | `SurfaceProposer` that admission-checks typed analyst `PolicyEdit`s and applies each |
 | `provenanceRecordPath` | function | Canonical durable paths under the run dir. |
 | `provenanceSpansPath` | function | Canonical path for the durable OTLP spans JSONL file under a loop run directory. |
 | `renderScoreboardMarkdown` | function | Render the scoreboard as a launch-readiness Markdown document — the literal |
@@ -1024,11 +1024,11 @@ Import from `@tangle-network/agent-eval/campaign` — 226 exports.
 | `traceAnalystProposer` | function | Wrap agent-eval's trace-analyst registry as a SurfaceProposer (prompt-tier). |
 | `userStoryScoreboard` | function | Flatten story verdicts into the per-requirement scoreboard — the literal |
 | `paretoPolicy` | const | The default strategy: symmetric multi-objective Pareto significance. Ship iff |
-| `FsLabeledScenarioStore` | class | _(no summary — add a TSDoc line at the declaration)_ |
-| `LabeledScenarioStoreError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
+| `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
 | `SkillPatchParseError` | class | Parse + validate the patch response. Throws `SkillPatchParseError` when the |
-| `WorktreeAdapterError` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |
 | `AceProposerOptions` | interface | `aceProposer` — Agentic Context Engineering: an APPEND-MOSTLY curator, the |
 | `AnalystArtifact` | interface | The analyst's output for one scenario — the artifact the judge scores. |
 | `AnalystScenario` | interface | A labeled trace scenario: a FIXED trace corpus plus the failure modes a |

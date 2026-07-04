@@ -151,7 +151,12 @@ export interface SandboxToolPartState {
   seq: number
 }
 
-/** @experimental */
+/**
+ * Fresh per-turn {@link SandboxToolPartState} for {@link mapSandboxToolEvent} — an
+ * empty call-status map so each turn projects tool frames independently.
+ *
+ * @experimental
+ */
 export function createSandboxToolPartState(): SandboxToolPartState {
   return { statusByCall: new Map(), seq: 0 }
 }

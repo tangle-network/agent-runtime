@@ -15815,7 +15815,11 @@ passes. Ground truth — the driver ends directly, no validation. The check read
 
 > **defineLeaderboard**\<`TCase`, `TArtifact`\>(`spec`): [`DefinedLeaderboard`](#definedleaderboard)\<`TCase`, `TArtifact`\>
 
-Defined in: [runtime/define-leaderboard.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L294)
+Defined in: [runtime/define-leaderboard.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/define-leaderboard.ts#L299)
+
+Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable
+harness×model leaderboard — `run()` executes the matrix, `toBenchmarkAdapter()`
+exposes the same domain as a structural `BenchmarkAdapter`.
 
 #### Type Parameters
 
@@ -17219,9 +17223,12 @@ readonly `SandboxEvent`[]
 
 > **createSandboxToolPartState**(): [`SandboxToolPartState`](#sandboxtoolpartstate)
 
-Defined in: [runtime/sandbox-events.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L155)
+Defined in: [runtime/sandbox-events.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L160)
 
 **`Experimental`**
+
+Fresh per-turn [SandboxToolPartState](#sandboxtoolpartstate) for [mapSandboxToolEvent](#mapsandboxtoolevent) — an
+empty call-status map so each turn projects tool frames independently.
 
 #### Returns
 
@@ -17233,7 +17240,7 @@ Defined in: [runtime/sandbox-events.ts:155](https://github.com/tangle-network/ag
 
 > **mapSandboxToolEvent**(`event`, `state`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) & `object`[]
 
-Defined in: [runtime/sandbox-events.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L186)
+Defined in: [runtime/sandbox-events.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L191)
 
 **`Experimental`**
 
@@ -17277,7 +17284,7 @@ Returns `[]` for every non-tool event.
 
 > **mapSandboxEvent**(`event`, `opts?`): [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [runtime/sandbox-events.ts:313](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L313)
+Defined in: [runtime/sandbox-events.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/sandbox-events.ts#L318)
 
 Project one `SandboxEvent` onto the `RuntimeStreamEvent` chat-UX vocabulary,
 for runtimes that bridge a sandbox `streamPrompt` into the

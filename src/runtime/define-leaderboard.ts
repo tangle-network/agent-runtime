@@ -291,6 +291,11 @@ function normalizeScore(s: number | LeaderboardScore): LeaderboardScore {
   return typeof s === 'number' ? { composite: s } : s
 }
 
+/**
+ * Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable
+ * harness×model leaderboard — `run()` executes the matrix, `toBenchmarkAdapter()`
+ * exposes the same domain as a structural `BenchmarkAdapter`.
+ */
 export function defineLeaderboard<TCase, TArtifact = string>(
   spec: LeaderboardSpec<TCase, TArtifact>,
 ): DefinedLeaderboard<TCase, TArtifact> {
