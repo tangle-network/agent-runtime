@@ -101,17 +101,33 @@ export interface LoopDef {
   readonly describe?: string
 }
 
+/** One named agent in a MULTI-AGENT loop (the `agents` form of `defineLoop`). `run` does the
+ *  agent's work for a round; `prior` is the previous agent's output, or `ctx.task` for the first.
+ *  The last agent's return is the round's `out`. So a proposer→verifier loop is just two agents. */
+export interface LoopAgent {
+  /** A short, human name for the agent this plays (proposer, verifier, engineer). */
+  readonly name: string
+  run(ctx: LoopRoundCtx, prior: unknown): Promise<unknown>
+}
+
 /**
  * Author a coded loop atom. The returned `LoopDef` is handed to `loopChild` to become a
- * spawnable `Agent`. This is the runtime-owned counterpart to a hand-driven supervisor
- * loop: the author writes `round` (arbitrary code, may spawn children), the runtime owns
- * `maxRounds`, the conserved budget, the gate, and steer-folding.
+ * spawnable `Agent`. The runtime owns `maxRounds`, the conserved budget, the gate, and
+ * steer-folding; you supply ONE of two round shapes:
+ *
+ *  - `round` — freeform: write the whole round yourself (arbitrary code, may spawn children).
+ *  - `agents` — declarative MULTI-AGENT: an ordered list of named agents piped each round
+ *    (`task → agents[0] → agents[1] → … → out`). "How many agents" is self-evident from the
+ *    list, so a two-agent research loop is `agents: [proposer, verifier]` — no bespoke function.
+ *
+ * Provide EXACTLY one of `round` / `agents`.
  */
 export function defineLoop(
   name: string,
   spec: {
     maxRounds: number
-    round: (ctx: LoopRoundCtx) => Promise<LoopRoundResult>
+    round?: (ctx: LoopRoundCtx) => Promise<LoopRoundResult>
+    agents?: readonly LoopAgent[]
     check?: (out: unknown) => boolean | Promise<boolean>
     describe?: string
   },
@@ -120,15 +136,43 @@ export function defineLoop(
   if (!Number.isInteger(spec.maxRounds) || spec.maxRounds < 1) {
     throw new ValidationError(`defineLoop: "${name}" needs an integer maxRounds >= 1`)
   }
-  if (typeof spec.round !== 'function') {
-    throw new ValidationError(`defineLoop: "${name}" needs a round(ctx) function`)
+  const hasRound = typeof spec.round === 'function'
+  const hasAgents = Array.isArray(spec.agents) && spec.agents.length > 0
+  if (hasRound === hasAgents) {
+    throw new ValidationError(
+      `defineLoop: "${name}" needs exactly one of round(ctx) or a non-empty agents[]`,
+    )
   }
+  const round = hasRound
+    ? (spec.round as LoopDef['round'])
+    : agentPipelineRound(name, spec.agents ?? [])
   return {
     name,
     maxRounds: spec.maxRounds,
-    round: spec.round,
+    round,
     ...(spec.check ? { check: spec.check } : {}),
     ...(spec.describe ? { describe: spec.describe } : {}),
+  }
+}
+
+/** Compile an ordered agent list into a round: pipe `ctx.task` through each agent in turn, the
+ *  last one's output is the round result. This is the whole "multi-agent loop" — a pipeline of
+ *  named agents, not a bespoke per-shape function. */
+function agentPipelineRound(
+  name: string,
+  agents: readonly LoopAgent[],
+): (ctx: LoopRoundCtx) => Promise<LoopRoundResult> {
+  for (const agent of agents) {
+    if (!agent || typeof agent.run !== 'function' || !agent.name) {
+      throw new ValidationError(`defineLoop: "${name}" has an agent missing a name or run()`)
+    }
+  }
+  return async (ctx) => {
+    let out: unknown = ctx.task
+    for (const agent of agents) {
+      out = await agent.run(ctx, out)
+    }
+    return { out }
   }
 }
 

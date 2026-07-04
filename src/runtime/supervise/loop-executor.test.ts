@@ -178,4 +178,46 @@ describe('loop-executor: a coded loop as a spawnable atom', () => {
     expect(spent.tokens.input).toBeGreaterThanOrEqual(5)
     expect(spent.tokens.output).toBeGreaterThanOrEqual(5)
   })
+
+  it('the agents form pipes named agents in order each round (two-agent loop, no bespoke fn)', async () => {
+    const order: string[] = []
+    const ctx = createInMemoryRunContext({ withLoop: true })
+    // "Two agents" is self-evident from the list — proposer produces, verifier refines its output.
+    const loop = defineLoop('propose-verify', {
+      maxRounds: 2,
+      agents: [
+        { name: 'proposer', run: async ({ round }) => (order.push('proposer'), { draft: round }) },
+        {
+          name: 'verifier',
+          run: async (_c, prior) => (
+            order.push('verifier'), { verified: (prior as { draft: number }).draft }
+          ),
+        },
+      ],
+      check: (out) => (out as { verified: number }).verified >= 1, // delivered once verifier ran
+    })
+    const result = await createSupervisor().run(
+      rootReturningChild(loopChild(loop, ctx.journal)),
+      'go',
+      { budget: POOL, runId: 'test-agents', ...ctx },
+    )
+    expect(order).toEqual(['proposer', 'verifier']) // piped in declared order, verifier saw proposer's output
+    const settled = settledOf(result)
+    expect(settled.kind).toBe('done')
+    if (settled.kind === 'done') {
+      expect(settled.verdict?.valid).toBe(true)
+      expect(settled.out).toMatchObject({ verified: 1 })
+    }
+  })
+
+  it('rejects a loop with neither round nor agents, and with both', () => {
+    expect(() => defineLoop('x', { maxRounds: 1 })).toThrow(/exactly one of round/)
+    expect(() =>
+      defineLoop('x', {
+        maxRounds: 1,
+        round: async () => ({ out: 1 }),
+        agents: [{ name: 'a', run: async () => 1 }],
+      }),
+    ).toThrow(/exactly one of round/)
+  })
 })

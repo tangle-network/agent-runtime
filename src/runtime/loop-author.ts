@@ -47,7 +47,22 @@ export default defineLoop('your-loop-name', {
   check: (out) => /* the deployable completion oracle */ Boolean(out),
 })
 
-The round context:
+For a MULTI-AGENT loop (a proposer then a verifier, a researcher then an engineer), do NOT
+hand-write the pipeline in 'round' — use 'agents' instead: an ordered list of named agents piped
+each round (task -> agents[0] -> agents[1] -> ... -> out). "How many agents" is then self-evident.
+
+import { defineLoop } from '@tangle-network/agent-runtime/loops'
+export default defineLoop('your-loop-name', {
+  maxRounds: 3,
+  agents: [
+    { name: 'proposer', run: async (ctx, prior) => { /* spawn a worker, produce a draft */ return draft } },
+    { name: 'verifier', run: async (ctx, prior) => { /* verify/refine the proposer's draft */ return checked } },
+  ],
+  check: (out) => Boolean(out),
+})
+
+Provide EXACTLY one of 'round' or 'agents'. The round context (for the 'round' form, and passed to
+each agent's run as its first arg):
   task       the spawn task, verbatim.
   scope      the NESTED conserved scope. scope.spawn(agent, task, { budget, label }) reserves
              budget and fails closed; scope.next() awaits one child settlement. Budget NESTS —
