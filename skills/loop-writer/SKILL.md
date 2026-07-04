@@ -123,19 +123,30 @@ authors the body; the runtime owns the round ceiling, the conserved budget, the
 gate, and steer-between-rounds. A supervisor spawns / observes / steers it with
 the SAME coordination verbs as a worker.
 
+Two ways to author the round. **`agents`** — a MULTI-AGENT loop as a declarative
+CHAIN (the common case): an ordered list of named agents piped each round,
+`task -> agents[0] -> agents[1] -> ... -> out`, each agent's return feeding the next
+as `prior`. "Two agents" is self-evident from the list — no bespoke `runTwoAgent...`
+function. **`round`** — freeform code for any other topology (fan-out, dynamic
+routing). Provide exactly one.
+
 ```ts
-// The author writes ONE round (arbitrary code — may spawn children); the runtime
-// iterates it up to maxRounds, stops the instant `check` passes, and folds any
-// steer_agent message into the NEXT round's ctx.steer. Settles valid ⟺ check passed.
-const research = defineLoop('two-agent-research', {
+// A two-agent research loop as a CHAIN: proposer drafts, verifier checks the draft.
+const research = defineLoop('research', {
   maxRounds: 3,
-  round: async ({ scope, round, steer }) => {
-    const w = scope.spawn(researcher, { round, steer }, { budget: perRound, label: `r${round}` })
-    if (!w.ok) throw new Error(w.reason)
-    const found = await scope.next()               // conserved child work
-    return { out: found, done: false }             // `done: true` also stops early
-  },
-  check: (out) => readinessPasses(out),            // the deployable completion oracle
+  agents: [
+    { name: 'proposer', run: async ({ scope, steer }, _prior) => {
+        const w = scope.spawn(researcher, { steer }, { budget: perRound, label: 'propose' })
+        if (!w.ok) throw new Error(w.reason)
+        return await scope.next()                    // the draft
+    } },
+    { name: 'verifier', run: async ({ scope }, draft) => {
+        const w = scope.spawn(verifier, { draft }, { budget: perRound, label: 'verify' })
+        if (!w.ok) throw new Error(w.reason)
+        return await scope.next()                    // the verified result -> round out
+    } },
+  ],
+  check: (out) => readinessPasses(out),              // the deployable completion oracle
 })
 
 // Spawn it exactly like a worker (role:'loop' resolves to the loop-executor).
@@ -143,7 +154,14 @@ const r = scope.spawn(loopChild(research, journal), task, { budget, label: 'rese
 // Wire once at the top: createInMemoryRunContext({ withDriver: true, withLoop: true }).
 ```
 
-Rules: `round` is code, not the model's judgment — that is what makes maxRounds,
+TOPOLOGY: `agents` is a sequential CHAIN only. It is NOT parallel and NOT a graph —
+the loop's nested `scope.next()` is one shared queue, so parallel agents would steal
+each other's settlements. For fan-out (a panel of critics, best-of-N), dynamic
+routing, or any non-linear shape, use the freeform `round`: spawn every handle first,
+then drain N times, or branch on the data yourself. `fanout`/`panel`/`pipeline` cover
+the reactive-layer parallel case.
+
+Rules: the loop is code, not the model's judgment — that is what makes maxRounds,
 the budget, and the gate ENFORCED rather than hoped-for. Give the loop a real
 `check` (an executable oracle, never a self-judged score). Budget nests: the pool
 reserves each spawn's full ceiling until it settles, so pool > loop > per-round.

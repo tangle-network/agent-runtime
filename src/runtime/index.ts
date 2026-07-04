@@ -469,6 +469,7 @@ export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
 // `Agent` (`role: 'loop'`), resolved by `withLoopExecutor` (wired via `{ withLoop: true }`).
 export {
   defineLoop,
+  type LoopAgent,
   type LoopDef,
   type LoopRoundCtx,
   type LoopRoundResult,

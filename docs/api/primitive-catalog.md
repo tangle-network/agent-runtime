@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 441 exports.
+Import from `@tangle-network/agent-runtime/loops` — 442 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -461,6 +461,7 @@ Import from `@tangle-network/agent-runtime/loops` — 441 exports.
 | `LeaderboardScenario` | interface | The campaign scenario a case is wrapped into: the case rides along so |
 | `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LeaderboardSpec` | interface | The declarative leaderboard spec. `TArtifact` is the artifact channel the |
+| `LoopAgent` | interface | One named agent in a MULTI-AGENT loop (the `agents` form of `defineLoop`). `run` does the |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
 | `LoopDef` | interface | An authored coded loop: a name, a round ceiling, the round body, and an optional |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
