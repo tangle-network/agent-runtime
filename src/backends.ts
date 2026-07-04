@@ -230,6 +230,10 @@ export function createOpenAICompatibleBackend<
    * OpenAI Chat Completions `response_format`. Omit for provider default text.
    */
   responseFormat?: OpenAIChatResponseFormat
+  /** OpenAI Chat Completions `temperature`. Omit for provider default. */
+  temperature?: number
+  /** Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default. */
+  maxTokens?: number
   fetchImpl?: typeof fetch
   retry?: BackendRetryPolicy
 }): AgentExecutionBackend<TInput> {
@@ -268,6 +272,12 @@ export function createOpenAICompatibleBackend<
       }
       if (options.responseFormat !== undefined) {
         bodyPayload.response_format = options.responseFormat
+      }
+      if (options.temperature !== undefined) {
+        bodyPayload.temperature = options.temperature
+      }
+      if (options.maxTokens !== undefined) {
+        bodyPayload.max_tokens = options.maxTokens
       }
       const requestBody = JSON.stringify(bodyPayload)
       let response: Response | undefined

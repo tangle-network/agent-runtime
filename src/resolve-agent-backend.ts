@@ -25,8 +25,9 @@
  * This resolver is PURE backend selection. Product concerns — credit hard-cuts,
  * fetch-capture shims, D1 platform wiring — stay as product-side WRAPPERS
  * around the returned backend. The OpenAI-compat passthrough fields (`tools`,
- * `toolChoice`, `responseFormat`, `fetchImpl`, `retry`) are forwarded verbatim
- * so a product can advertise its app tools or install a capturing fetch without
+ * `toolChoice`, `responseFormat`, `temperature`, `maxTokens`, `fetchImpl`,
+ * `retry`) are forwarded verbatim so a product can advertise its app tools,
+ * preserve generation settings, or install a capturing fetch without
  * re-opening the branch this consolidation closes.
  */
 
@@ -44,7 +45,7 @@ export type AgentBackendKind = 'router' | 'tcloud' | 'cli-bridge' | 'sandbox'
  */
 type OpenAICompatPassthrough = Pick<
   Parameters<typeof createOpenAICompatibleBackend>[0],
-  'tools' | 'toolChoice' | 'responseFormat' | 'fetchImpl' | 'retry'
+  'tools' | 'toolChoice' | 'responseFormat' | 'temperature' | 'maxTokens' | 'fetchImpl' | 'retry'
 >
 
 export interface ResolveAgentBackendOptions<TInput extends AgentBackendInput = AgentBackendInput>
@@ -89,6 +90,8 @@ export function resolveAgentBackend<TInput extends AgentBackendInput = AgentBack
       if (opts.tools !== undefined) passthrough.tools = opts.tools
       if (opts.toolChoice !== undefined) passthrough.toolChoice = opts.toolChoice
       if (opts.responseFormat !== undefined) passthrough.responseFormat = opts.responseFormat
+      if (opts.temperature !== undefined) passthrough.temperature = opts.temperature
+      if (opts.maxTokens !== undefined) passthrough.maxTokens = opts.maxTokens
       if (opts.fetchImpl !== undefined) passthrough.fetchImpl = opts.fetchImpl
       if (opts.retry !== undefined) passthrough.retry = opts.retry
       return createOpenAICompatibleBackend<TInput>({

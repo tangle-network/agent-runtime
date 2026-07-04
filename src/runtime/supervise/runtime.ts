@@ -1212,9 +1212,40 @@ async function* parseSseChatStream(
         sep = buf.indexOf('\n\n')
       }
     }
+    // Upstream failures routinely arrive UNTERMINATED: a final `data:` frame
+    // with no trailing blank line, or a bare JSON error body with no SSE
+    // framing at all (kimi's access_terminated_error). Dropping the tail here
+    // ends the stream as one empty zero-token turn — the integrity guard still
+    // fails the run, but the diagnostic dies with the buffer. Parse the tail so
+    // the upstream error message rides the thrown event instead.
+    const tail = parseSseStreamTail(buf)
+    if (tail !== undefined && tail !== 'done') yield tail
   } finally {
     reader.releaseLock()
   }
+}
+
+/** Parse the stream's unterminated tail: an SSE frame missing its trailing
+ *  blank line, or a bare (non-SSE) JSON body — the shape bridge upstreams use
+ *  for terminal failures. Throws `ValidationError` on an error payload; returns
+ *  `undefined` for keepalive noise or non-JSON leftovers. */
+function parseSseStreamTail(buf: string): BridgeStreamChunk | 'done' | undefined {
+  const tail = buf.trim()
+  if (!tail) return undefined
+  const framed = parseSseFrame(tail)
+  if (framed !== undefined) return framed
+  let parsed: { error?: { message?: string; type?: string } }
+  try {
+    parsed = JSON.parse(tail)
+  } catch {
+    return undefined
+  }
+  if (parsed.error) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge upstream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
+    )
+  }
+  return undefined
 }
 
 /** Parse one SSE frame (possibly multi-line `data:`/comment) into a chunk, `'done'`,
@@ -1237,7 +1268,7 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
       }
       message?: { content?: string | null }
     }>
-    error?: { message?: string }
+    error?: { message?: string; type?: string }
     usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
   }
   try {
@@ -1246,8 +1277,10 @@ function parseSseFrame(frame: string): BridgeStreamChunk | 'done' | undefined {
     return undefined
   }
   if (parsed.error) {
+    // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
+    // — carry it when the payload has no message, never collapse to 'unknown'.
     throw new ValidationError(
-      `bridgeExecutor: bridge stream error: ${parsed.error.message ?? 'unknown'}`,
+      `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
     )
   }
   const out: BridgeStreamChunk = {}

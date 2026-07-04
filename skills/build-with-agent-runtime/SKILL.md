@@ -64,8 +64,9 @@ agent-runtime's `AgentSpec { profile, harness }`. To sweep it as an eval axis,
 don't hand-declare a harness list — expand one base profile across
 `CODING_HARNESSES` with `expandProfileAxes` (agent-eval), run with
 `runProfileMatrix`, and pivot results by the stamped `AgentProfileCell`
-(`groupRunsByAgentProfileCell`); incompatible `(harness, model)` pairs drop via
-`harnessSupportsModel`.
+(`groupRunsByAgentProfileCell`); `harnessSupportsModel` filters per harness,
+and a vendor-locked harness that supports none of the requested models SNAPS
+to its native default (`HARNESS_NATIVE_MODEL`) — never silently dropped.
 
 | Altitude — I want to… | Use | Source |
 |---|---|---|
@@ -80,6 +81,10 @@ don't hand-declare a harness list — expand one base profile across
 | **Add a stateful tool-using domain** | implement `AgenticSurface` (5 hooks) — `/loops` | canonical-api §3.3 |
 | **Drive a team of agents over a graded `AgenticSurface` task** (workers settle on its check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })` — `/loops` | canonical-api §2 |
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
+| **Author a PRODUCT eval leaderboard** (cases + prompt + grader → ranked board, standard flags, fresh run-dir, export, `toBenchmarkAdapter()`) | `defineLeaderboard({ name, cases, prompt, score, axis?, backends?, flags?, setup?/teardown?, onCellEvents?, resolveModel?, export?, dispatch?, judges?, matrix? })` — `/loops` — NOT a hand-assembled flag-parsing + `runProfileMatrix` frame; `runProfileMatrix` is the escape floor, the level-2 `dispatch` override is how in-process products plug in | `src/runtime/define-leaderboard.ts` (verify vs source) |
+| **Resolve a harness-in-box backend** (box / local cli-bridge / router leaf, one `SandboxClient` shape) | `resolveSandboxClient({ backend: 'sandbox' \| 'bridge' \| 'router' })` — `/loops` — NOT a per-product backend factory or a hand-faked box (`inlineSandboxClient` / the bridge executor already exist) | `src/runtime/resolve-sandbox-client.ts` |
+| **Resolve an in-process chat backend** (the one `--backend` branch for `runChatThroughRuntime` / `runAgentTaskStream`) | `resolveAgentBackend({ kind: 'router' \| 'tcloud' \| 'cli-bridge' \| 'sandbox' })` — root `.` | `src/resolve-agent-backend.ts` |
+| **Run ONE agent turn as one normalized event stream** (box, executor, or chat backend; guaranteed terminal result+usage) | `streamAgentTurn(backend, prompt, { signal, timeoutMs })` + `collectAgentTurn(stream)` — `/loops` | canonical-api §2 |
 | **Benchmark report: multi-profile × multi-axis leaderboard** (ranked board + score matrix + SVG/HTML charts, any `RunRecord[]`) | `leaderboard(records)` + `renderLeaderboardMarkdown` / `renderLeaderboardSvg` / `renderLeaderboardHtml` — `/loops` | canonical-api §2 |
 | **Meter one `openSandboxRun` cell's token/cost usage** | `sumSandboxUsage(events)` — `/loops` | canonical-api §2 |
 | **Sweep harness × model as an eval axis** (turn one base profile into the full harness × model set) | `expandProfileAxes({ base, harnesses, models })` over `CODING_HARNESSES` → `runProfileMatrix(...)`, pivot with `groupRunsByAgentProfileCell` — `agent-eval` root — NOT a hand-declared `HARNESSES` list | agent-eval root (verify vs source) |
@@ -125,10 +130,24 @@ holds the load-bearing invariant the parallel breaks:
   (seeded, identical run-to-run; never report a point lift without `low/high/pairs`).
 - a per-product `HARNESSES` / `HarnessBackend` list + a metadata-harness reader
   **≈** `CODING_HARNESSES` + `expandProfileAxes` (the one canonical harness list;
-  incompatible `(harness, model)` pairs drop via `harnessSupportsModel`) and the
+  vendor-locked harnesses SNAP to their native model via `HARNESS_NATIVE_MODEL`,
+  never dropped) and the
   `AgentProfileCell` stamped by `runProfileMatrix`, pivoted via
   `groupRunsByAgentProfileCell` — never bake the harness into the model id so the
   same model can run under multiple harnesses.
+- a per-product leaderboard CLI (flag parsing + run-dir management + axis
+  expansion + a `runProfileMatrix` call + export/markdown) **≈**
+  `defineLeaderboard` (0.84+; it owns that whole frame — FRESH default run-dir,
+  standard `--backend`/`--harnesses`/`--models`/`--cases`/`--shots`/`--reps`
+  flags, `toBenchmarkAdapter()`; the product writes ~150-250 domain lines).
+- a backend factory / `if (backend === 'router') ... else ...` branch or a
+  hand-faked box around a non-box executor **≈** `resolveSandboxClient`
+  (harness-in-box: `'sandbox' | 'bridge' | 'router'`) or `resolveAgentBackend`
+  (in-process: `'router' | 'tcloud' | 'cli-bridge' | 'sandbox'`) — grep the
+  substrate first; `inlineSandboxClient` and the bridge executor exist.
+- a per-provider stream→event mapper for a single agent turn **≈**
+  `streamAgentTurn` + `collectAgentTurn` (0.85+; one `RuntimeStreamEvent`
+  contract over box / executor / chat, guaranteed terminal result+usage).
 
 ## End-to-end recipe
 

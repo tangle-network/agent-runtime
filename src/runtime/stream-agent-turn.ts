@@ -1,6 +1,7 @@
 /**
  * `streamAgentTurn` — the ONE run-a-turn event-stream contract over every
- * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`), a
+ * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`, or
+ * `streamTask` via the `box-task` kind for autonomous-task semantics), a
  * one-shot `Executor` (cli-bridge / router / BYO, via `ExecutorFactory`), and
  * an in-process `AgentExecutionBackend` (the `resolveAgentBackend` output).
  *
@@ -15,6 +16,10 @@
  * adapter over code that already exists and is already hardened:
  *   - `box`      — `mapSandboxEvent` + `extractLlmCallEvent` (sandbox-events.ts)
  *                  project the sandbox event stream; nothing is re-mapped here.
+ *   - `box-task` — the same projection over `box.streamTask` (the sandbox
+ *                  SDK's autonomous-task verb: the agent works to completion,
+ *                  multi-turn, session state maintained) with per-task
+ *                  `TaskOptions` passthrough.
  *   - `executor` — `inlineSandboxClient` (the ONE executor→box adapter) turns
  *                  the factory into a box, then the box path drives it. The
  *                  executor's settle/teardown lifecycle stays in that adapter.
@@ -34,11 +39,25 @@
  * `final.status: 'failed'` — so cancellation stays distinguishable from a
  * blown deadline.
  *
+ * Mid-stream lifecycle work needs NO extra API: the generator is pull-based,
+ * so the producer is suspended between yields and resumes only when the caller
+ * pulls again. A consumer can therefore run arbitrary async work between
+ * events — sync state on each `tool_result`, decide a no-op retry after
+ * draining, run a pre-`done` flush when it receives `final` and BEFORE it
+ * forwards its own terminal event downstream. The interleaving is guaranteed
+ * (and locked by test): nothing is produced past the event the caller is
+ * holding.
+ *
  * @experimental
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  PromptOptions,
+  SandboxEvent,
+  SandboxInstance,
+  TaskOptions,
+} from '@tangle-network/sandbox'
 import { normalizeBackendStreamEvent } from '../backends'
 import { BackendTransportError } from '../errors'
 import { newRuntimeSession, nowIso } from '../sessions'
@@ -51,7 +70,7 @@ import type {
   RuntimeStreamEvent,
 } from '../types'
 import { inlineSandboxClient } from './inline-sandbox-client'
-import { mapSandboxEvent } from './sandbox-events'
+import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
 import type { ExecutorFactory } from './supervise/types'
 
 /**
@@ -65,6 +84,35 @@ export type AgentTurnBackend =
       /** A live sandbox box: the turn is one `box.streamPrompt(prompt)` call. */
       kind: 'box'
       box: SandboxInstance
+      /**
+       * Per-turn `PromptOptions` forwarded verbatim to `streamPrompt`
+       * (`sessionId`, `turnId`, `model`, `backend` profile, `timeoutMs`, …).
+       * The turn's derived abort signal (caller `signal` + `timeoutMs`
+       * deadline) is always installed as `signal` — pass cancellation through
+       * `StreamAgentTurnOptions`, not here.
+       */
+      options?: Omit<PromptOptions, 'signal'>
+      /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
+      agentRunName?: string
+    }
+  | {
+      /**
+       * A live sandbox box in TASK mode: the turn is one
+       * `box.streamTask(prompt)` call — the sandbox SDK's autonomous-task
+       * verb. Unlike `streamPrompt` (one chat turn), the agent works until
+       * the task completes or errors, session state is maintained for
+       * continuity, and `options.maxTurns` bounds the agent's internal turns.
+       * Event projection, usage folding, and the terminal `final` contract
+       * are identical to the `box` kind.
+       */
+      kind: 'box-task'
+      box: SandboxInstance
+      /**
+       * Per-task `TaskOptions` forwarded verbatim to `streamTask`
+       * (`maxTurns` plus every `PromptOptions` field). The turn's derived
+       * abort signal is always installed as `signal`.
+       */
+      options?: Omit<TaskOptions, 'signal'>
       /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
       agentRunName?: string
     }
@@ -99,6 +147,25 @@ export interface StreamAgentTurnOptions {
    * (a blown deadline is a turn failure, not a caller cancellation).
    */
   timeoutMs?: number
+  /**
+   * Opt-in tool-part projection for box-kind backends (`box`, `box-task`,
+   * `executor`): sandbox tool parts additionally surface in-stream as
+   * `tool_call` / `tool_result` events (`mapSandboxToolEvent`), so a consumer
+   * rendering tool activity needs no bespoke sandbox-event parser. Default
+   * off — the stream vocabulary existing consumers see is unchanged. No-op
+   * for the `chat` kind (its backend emits `RuntimeStreamEvent`s directly,
+   * tool events included when the backend produces them).
+   */
+  preserveToolParts?: boolean
+  /**
+   * Raw-event tap for box-kind backends: called (and awaited) with every
+   * unmapped `SandboxEvent` BEFORE it is projected, so a consumer can read
+   * parts the chat-UX projection drops (part ids, step markers, custom
+   * backend events) without forking the mapper. Purely observational — it
+   * cannot alter the mapped stream. Never called for the `chat` kind, which
+   * has no sandbox events.
+   */
+  onRawEvent?: (event: SandboxEvent) => void | Promise<void>
 }
 
 /**
@@ -174,13 +241,21 @@ export async function* streamAgentTurn(
       backend.kind === 'chat'
         ? driveChatTurn(backend.backend, task, session, prompt, deadline.signal, acc)
         : driveBoxTurn(
-            backend.kind === 'box'
-              ? backend.box
-              : await inlineSandboxClient(backend.factory).create(),
+            backend.kind === 'executor'
+              ? await inlineSandboxClient(backend.factory).create()
+              : backend.box,
             prompt,
             deadline.signal,
             backend.agentRunName ?? 'agent',
             acc,
+            {
+              mode: backend.kind === 'box-task' ? 'task' : 'prompt',
+              ...(backend.kind !== 'executor' && backend.options
+                ? { options: backend.options }
+                : {}),
+              preserveToolParts: opts.preserveToolParts === true,
+              ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
+            },
           )
     for await (const event of inner) {
       yield event
@@ -273,11 +348,26 @@ async function startTurnSession(
   return newRuntimeSession(label)
 }
 
+/** Box-drive configuration derived from the backend kind + turn options. */
+interface BoxTurnConfig {
+  /** `prompt` → `box.streamPrompt` (one chat turn); `task` → `box.streamTask`
+   *  (autonomous multi-turn task). */
+  mode: 'prompt' | 'task'
+  /** Caller `PromptOptions`/`TaskOptions` forwarded to the box verb; the
+   *  turn's derived signal is installed over any caller value. */
+  options?: Omit<TaskOptions, 'signal'>
+  /** Project tool parts to `tool_call`/`tool_result` (see `mapSandboxToolEvent`). */
+  preserveToolParts: boolean
+  /** Awaited raw-event tap, before projection. */
+  onRawEvent?: (event: SandboxEvent) => void | Promise<void>
+}
+
 /**
- * One turn over a box: `box.streamPrompt` projected through the EXISTING
- * `mapSandboxEvent` (text/reasoning deltas + cost-bearing `llm_call`s). Usage
- * accumulates off the mapped `llm_call` events — the same fold
- * `sumSandboxUsage` applies. Final text prefers the terminal
+ * One turn over a box: `box.streamPrompt` (or `box.streamTask` in task mode)
+ * projected through the EXISTING `mapSandboxEvent` (text/reasoning deltas +
+ * cost-bearing `llm_call`s), plus the opt-in `mapSandboxToolEvent` tool-part
+ * projection. Usage accumulates off the mapped `llm_call` events — the same
+ * fold `sumSandboxUsage` applies. Final text prefers the terminal
  * `result`/`done`/`final` payload over concatenated deltas, because the
  * sandbox `message.part.updated` fallback may carry running accumulations.
  */
@@ -287,10 +377,21 @@ async function* driveBoxTurn(
   signal: AbortSignal,
   agentRunName: string,
   acc: TurnAccumulator,
+  cfg: BoxTurnConfig,
 ): AsyncGenerator<RuntimeStreamEvent> {
-  for await (const event of box.streamPrompt(prompt, { signal })) {
+  const callOptions: TaskOptions = { ...(cfg.options ?? {}), signal }
+  const stream =
+    cfg.mode === 'task'
+      ? box.streamTask(prompt, callOptions)
+      : box.streamPrompt(prompt, callOptions)
+  const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
+  for await (const event of stream) {
+    if (cfg.onRawEvent) await cfg.onRawEvent(event)
     const terminalText = terminalTextFromSandboxEvent(event)
     if (terminalText !== undefined) acc.terminalText = terminalText
+    if (toolParts) {
+      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) yield toolEvent
+    }
     const mapped = mapSandboxEvent(event, { agentRunName })
     if (!mapped) continue
     // `mapSandboxEvent` stamps `agentRunName` as the model label when the

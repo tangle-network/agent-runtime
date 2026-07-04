@@ -65,12 +65,26 @@ describe('resolveAgentBackend', () => {
     expect(cfg.fetchImpl).toBe(fetchImpl)
   })
 
+  it('forwards generation options when set', () => {
+    const backend = resolveAgentBackend({
+      kind: 'router',
+      ...base,
+      temperature: 1,
+      maxTokens: 8192,
+    })
+    const cfg = configOf(backend)
+    expect(cfg.temperature).toBe(1)
+    expect(cfg.maxTokens).toBe(8192)
+  })
+
   it('omits passthrough fields that were never set (keeps the tool-free request shape)', () => {
     const backend = resolveAgentBackend({ kind: 'tcloud', ...base })
     const cfg = configOf(backend)
     expect('tools' in cfg).toBe(false)
     expect('toolChoice' in cfg).toBe(false)
     expect('responseFormat' in cfg).toBe(false)
+    expect('temperature' in cfg).toBe(false)
+    expect('maxTokens' in cfg).toBe(false)
     expect('fetchImpl' in cfg).toBe(false)
     expect('retry' in cfg).toBe(false)
   })

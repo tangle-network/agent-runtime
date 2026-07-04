@@ -26,6 +26,8 @@ interface FakeOpts {
 interface StreamCall {
   boxId: string
   sessionId?: string
+  timeoutMs?: number
+  signal?: AbortSignal
 }
 
 /**
@@ -46,9 +48,14 @@ function createFakeClient(opts: FakeOpts = {}) {
       id,
       async *streamPrompt(
         _message: string,
-        options?: { sessionId?: string; signal?: AbortSignal },
+        options?: { sessionId?: string; signal?: AbortSignal; timeoutMs?: number },
       ): AsyncGenerator<SandboxEvent> {
-        streamCalls.push({ boxId: id, sessionId: options?.sessionId })
+        streamCalls.push({
+          boxId: id,
+          sessionId: options?.sessionId,
+          timeoutMs: options?.timeoutMs,
+          signal: options?.signal,
+        })
         opts.onStream?.(streamCalls.length)
         const stream = opts.events ?? [
           { type: 'result', data: { ok: true, text: 'streamed' } } satisfies SandboxEvent,
@@ -206,6 +213,27 @@ describe('openSandboxRun — artifact deliverable (the file-read seam over Outpu
 })
 
 describe('openSandboxRun — resume continues the SAME session over the SAME box', () => {
+  it('forwards promptOptions to both start and resume without letting callers own session/signal', async () => {
+    const { client, streamCalls } = createFakeClient({ sessionLive: true })
+    const signal = new AbortController().signal
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal,
+        promptOptions: { timeoutMs: 420_000 },
+      },
+      eventsDeliverable,
+    )
+    await run.start('turn 1')
+    await run.resume('turn 2')
+
+    expect(streamCalls).toHaveLength(2)
+    expect(streamCalls.map((call) => call.timeoutMs)).toEqual([420_000, 420_000])
+    expect(streamCalls.map((call) => call.signal)).toEqual([signal, signal])
+    expect(streamCalls[1]!.sessionId).toBe(streamCalls[0]!.sessionId)
+  })
+
   it('reuses the box + session id and does not re-create', async () => {
     const { client, streamCalls, created } = createFakeClient({ sessionLive: true })
     const run = await openSandboxRun(

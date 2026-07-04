@@ -33,7 +33,12 @@
  * @experimental
  */
 
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  CreateSandboxOptions,
+  PromptOptions,
+  SandboxEvent,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
@@ -70,13 +75,18 @@ async function* pollPromptEvents(
   prompt: string,
   sessionId: string,
   signal: AbortSignal,
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
 ): AsyncIterable<SandboxEvent> {
   if (signal.aborted) throwAbort()
   // dispatchPrompt returns the session id the platform actually assigned, which
   // may be one it MINTED rather than the supplied `sessionId`. Polling the
   // supplied id when the platform minted a different one 404s the session-events
   // endpoint ("Resource not found"). Always follow the assigned id.
-  const dispatched = await box.dispatchPrompt(prompt, { sessionId, signal })
+  const dispatched = await box.dispatchPrompt(prompt, {
+    ...(promptOptions ?? {}),
+    sessionId,
+    signal,
+  })
   const activeSessionId = dispatched.sessionId
   const result = await box.session(activeSessionId).result()
   if (signal.aborted) throwAbort()
@@ -98,10 +108,11 @@ export function promptEvents(
   prompt: string,
   sessionId: string,
   signal: AbortSignal,
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
 ): AsyncIterable<SandboxEvent> {
   return streaming === 'poll'
-    ? pollPromptEvents(box, prompt, sessionId, signal)
-    : box.streamPrompt(prompt, { sessionId, signal })
+    ? pollPromptEvents(box, prompt, sessionId, signal, promptOptions)
+    : box.streamPrompt(prompt, { ...(promptOptions ?? {}), sessionId, signal })
 }
 
 /**
@@ -138,6 +149,7 @@ export interface SandboxLineage {
     spec: AgentRunSpec<unknown>,
     prompt: string,
     signal: AbortSignal,
+    promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
   ): Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }>
   /**
    * Continue an existing handle's session with one more turn on the SAME box.
@@ -150,6 +162,7 @@ export interface SandboxLineage {
     handle: SandboxLineageHandle,
     prompt: string,
     signal: AbortSignal,
+    promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
   ): Promise<AsyncIterable<SandboxEvent>>
   /**
    * Branch `count` children from `parent`. When the platform can fork, each
@@ -227,21 +240,21 @@ export function createSandboxLineage(
   }
 
   return {
-    async start(spec, prompt, signal) {
+    async start(spec, prompt, signal, promptOptions) {
       const box = await acquireFresh(spec, signal)
       const sessionId = mintSessionId()
-      const events = promptEvents(streaming, box, prompt, sessionId, signal)
+      const events = promptEvents(streaming, box, prompt, sessionId, signal, promptOptions)
       return { handle: { box, sessionId }, events }
     },
 
-    async continue(handle, prompt, signal) {
+    async continue(handle, prompt, signal, promptOptions) {
       if (signal.aborted) throwAbort()
       // Fail loud if the platform did not preserve the client-minted session:
       // continuing a dead/unknown session would silently lose all prior context.
       await assertSessionLive(handle.box, handle.sessionId)
       // Same box, same session id — the server continues the conversation; we do
       // NOT re-acquire and do NOT re-inject prior context as prompt text.
-      return promptEvents(streaming, handle.box, prompt, handle.sessionId, signal)
+      return promptEvents(streaming, handle.box, prompt, handle.sessionId, signal, promptOptions)
     },
 
     async fork(parent, prompts, specs, signal) {
