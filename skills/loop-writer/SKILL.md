@@ -166,27 +166,6 @@ the budget, and the gate ENFORCED rather than hoped-for. Give the loop a real
 `check` (an executable oracle, never a self-judged score). Budget nests: the pool
 reserves each spawn's full ceiling until it settles, so pool > loop > per-round.
 
-### Codemode — an LLM authors the loop at runtime
-
-When the supervisor should WRITE the loop for a novel goal (not pick a hand-built
-one), use `authorLoop` — the codemode seam over the atom, the sibling of
-`authorStrategy`. It shows the model `loopAuthorContract` (the exact `defineLoop`
-module shape, exported so a skill/GEPA pass can evolve it), extracts the fenced
-module, lints it with `assertStrategyContract` (only the loops import; no
-require/eval/fetch/process/node builtins), writes it, dynamic-imports it, and
-validates the default export is a `LoopDef` — ready for `loopChild`.
-
-```ts
-const { loop } = await authorLoop({ chat, goal, maxRounds, outDir, fallbackModel })
-const spawned = scope.spawn(loopChild(loop, journal), task, { budget, label: 'authored-loop' })
-```
-
-Safety is structural, same as `authorStrategy`: the authored body can be WRONG
-but cannot overspend (conserved pool), cannot skip the check (the runtime gates
-it), and cannot reach outside the loops surface (the lint). Do not build a
-per-product loop-code generator or a VM sandbox around authored loops — `authorLoop`
-is that seam.
-
 ## Role Boundaries
 
 - **Verifier**: executable shippability gate; controls accept/reject.
