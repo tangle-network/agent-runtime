@@ -1,14 +1,19 @@
-# ui-audit
+# Find UI problems on a web page, and file them as issues
 
-`uiAuditorProfile()` + `createInProcessUiAuditClient()` + `runLoop()` + the issue-Markdown writer — the smallest end-to-end UI audit.
+Point this at a URL. It opens the page, inspects it through a fixed list of review "lenses"
+(accessibility, layout, contrast, and so on), and for every problem it finds it writes a
+self-contained GitHub-issue Markdown file — title, description, screenshot — ready to file with
+`gh issue create`.
 
-The example uses a **stub judge** so it runs without an API key and demonstrates the wiring. For production, replace `stubJudge` with a real vision LLM call.
+It runs with **no API key**: the example ships a stub reviewer so you can watch the whole pipeline end
+to end. For real audits you swap in a vision model (below).
 
-## What the example shows
+## Why it matters
 
-- A custom `SandboxClient` — the in-process browser+judge client — satisfies the kernel contract WITHOUT a real sandbox-SDK harness. The kernel does `client.create() → box.streamPrompt() → box.delete()` exactly as it does for any profile (e.g. `researcherProfile`); the work happens in-process.
-- A custom `Driver` (`lensCyclingDriver`) plans one iteration per lens in a fixed order. It is **content-blind**: it cycles a fixed lens list off `history.length` and never reads a worker's output to decide what to do next. For a driver that re-plans *from* worker output, see [`driver-loop/`](../driver-loop). Supply your own `Driver` that authors its topology from the trace for richer policies.
-- `appendFindings(workspaceDir, findings)` and `writeAuditIndex(workspaceDir)` persist self-contained GitHub-issue Markdown files plus a registry + index.
+UI review is exactly the tedious, repeatable check teams skip. This turns it into one command that
+produces filed, actionable issues. It also shows how to plug a browser and a visual reviewer into this
+library's run loop **without a cloud sandbox** — the browser and reviewer run in-process, but the loop
+drives them exactly like any other agent worker.
 
 ## Run
 
@@ -16,8 +21,19 @@ The example uses a **stub judge** so it runs without an API key and demonstrates
 pnpm dlx tsx examples/ui-audit/ui-audit.ts /tmp/ui-audit-demo https://example.com
 ```
 
-If you omit the workspace path, the example writes to a temp dir. The screenshots and `issues/NNN--<lens>--<slug>.md` files are self-contained — you can `gh issue create --body-file <file>` them straight into GitHub.
+Omit the path and it writes to a temp dir. You get screenshots plus
+`issues/NNN--<lens>--<slug>.md` files — file them straight into GitHub with
+`gh issue create --body-file <file>`.
 
-## Production wiring
+## Make it real
 
-Replace `stubJudge` with the real perception seam. The judge owns the vision LLM call (OpenAI, Anthropic, gemini, local model — anything that accepts images + a prompt and returns structured findings). The auditor handles capture + Markdown emission; the judge owns judgment.
+The example uses a **stub reviewer** that returns canned findings (so it needs no key). Replace it with
+a real vision model — anything that takes an image + a prompt and returns structured findings (OpenAI,
+Anthropic, Gemini, a local model). Capturing the page and writing the issue files stays identical; only
+the judgment call changes.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `ui-audit.ts` | the whole run: browse the page, review it lens by lens, write the issue files |

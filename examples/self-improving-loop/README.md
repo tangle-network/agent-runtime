@@ -1,82 +1,47 @@
-# self-improving-loop
+# Watch an AI agent improve itself, then refuse to ship if the gain is luck
 
-The v0 → judge → analyst → mutation → v1 → gate cycle in one runnable file:
-`@tangle-network/agent-eval`'s multishot + judge primitives driven from this
-package, with the `@tangle-network/sandbox` `AgentProfile` type as the shared
-contract. The finding type and the gate statistic are the real substrate
-primitives — the analyst emits a canonical `AnalystFinding` (`makeFinding`) and
-the gate ships on a `pairedBootstrap` confidence interval, the production
-held-out gate's statistical core (minus the minimum-evidence floor it omits at
-this demo's n=3 — see the ⚠️ under *What it shows*). Only the analyst body, the proposer, and the
-LLM are scripted, so the demo is deterministic and offline. In production, run
-`improve()` over `selfImprove` from `@tangle-network/agent-eval` for text-surface
-optimization (see [`examples/improve/`](../improve/) and
-[`examples/intelligence-recommend/`](../intelligence-recommend/)), or
-`runStrategyEvolution` + `promotionGate` from
-`@tangle-network/agent-runtime/loops` for strategy/topology optimization (see
-[`examples/strategy-suite/`](../strategy-suite/)).
+An AI agent starts out weak. It gets scored on real tasks, a second AI reads the
+transcripts and diagnoses *why* it scored low, proposes a fix, the fix is applied, and the
+patched agent is scored again. Then a statistical test decides whether the new version is
+genuinely better or just got lucky, and only ships it if the gain is real. The whole cycle
+runs in one file, offline, in about a second.
 
-## What it shows
+This is the loop you run to make an agent better without guessing: measure, diagnose,
+patch, re-measure, and gate.
 
-The 7-phase evolution loop in `self-improving-loop.ts`. Each phase is annotated with the substrate package that owns it (per the *Where each substrate piece lives* table below). The load-bearing join is the gate: it pairs v1 against v0 per persona and ships only if the `pairedBootstrap` CI lower bound clears 0 — the production held-out gate's statistical core, not a bare mean-delta threshold.
+## Why it matters
 
-> **⚠️ The demo gates at n=3; the production gate does not.** Three personas keep the example small and runnable, but n=3 is below the minimum-evidence floor the real gate enforces — agent-eval's `heldoutSignificance` won't report a pair under `minSamples` (default 8), and `HeldOutGate` rejects below `minProductiveRuns` with `few_runs`. A CI on 3 paired points is the **small-n mirage** (this repo's documented #1 failure mode): a near-constant gap can clear 0 and still mean nothing. **Never ship a real change on n=3** — call `improve()` / the held-out gate (which floors the evidence for you) and bring 20-50 paired observations.
+"Tweak the prompt and it feels better" is how most people improve agents, and it's how you
+ship regressions. Here every step is grounded. A **judge** (an LLM that scores an answer
+0-10 on named qualities) turns "feels better" into numbers. A statistical **gate** compares
+the old and new versions *pair by pair* and ships the new one only if the improvement is
+too large to be noise. You can't fool it with one good run.
 
-```mermaid
-flowchart TD
-  v0["AgentProfile v0<br/>weak systemPrompt: 'Give general advice.'<br/><i>@tangle-network/sandbox</i>"]
+## What runs, step by step
 
-  subgraph P1["Phase 1 — runMultishot over v0 · @tangle-network/agent-eval/multishot"]
-    direction TB
-    m0maya["runMultishot(Maya · cpg-founder)<br/>maxTurns:1"] --> j0maya["runJudge<br/>concreteness + audience_fit"]
-    m0theo["runMultishot(Theo · b2b-saas)<br/>maxTurns:1"] --> j0theo["runJudge<br/>concreteness + audience_fit"]
-    m0aur["runMultishot(Aurora · creator)<br/>maxTurns:1"] --> j0aur["runJudge<br/>concreteness + audience_fit"]
-  end
+The agent is a "content coach" that helps founders write social posts. Its first version
+has a deliberately weak instruction ("give general advice"), so it scores low.
 
-  v0 --> P1
-  j0maya --> v0mean["v0 runs + composite mean (~3.0)"]
-  j0theo --> v0mean
-  j0aur --> v0mean
+1. **Score v0.** The coach answers three simulated founders (a beverage founder, a B2B SaaS
+   founder, a beauty creator). A judge scores each answer on `concreteness` (real posts vs
+   vague tips) and `audience_fit` (tailored vs generic). v0 averages ~3/10.
+2. **Diagnose.** An analyst reads the worst run and emits a structured root-cause note: the
+   output was too generic, so *always include two ready-to-post examples*.
+3. **Patch.** That recommendation is appended to the coach's instructions, producing v1.
+4. **Score v1.** The three founders are re-run. v1 now writes concrete, on-domain posts and
+   averages ~8.5/10.
+5. **Gate.** The five-point-per-persona before/after pairs go through a paired bootstrap
+   confidence interval (resample the pairs many times, keep the range the true gain falls
+   in). If the low end of that range is above 0, the lift beats noise and v1 ships.
 
-  v0mean --> P2["Phase 2 — runAnalyst<br/>sort runs, take worst (b2b-saas)<br/>makeFinding → AnalystFinding{claim, recommended_action}<br/><i>agent-eval makeFinding · prod: @tangle-network/agent-runtime/analyst-loop</i>"]
-
-  P2 --> P3["Phase 3 — applyMutation<br/>append mutation as systemPrompt suffix<br/><i>(this file)</i>"]
-  P3 --> v1["AgentProfile v1<br/>baseline + 'IMPROVED v1: ...'<br/><i>@tangle-network/sandbox</i>"]
-
-  subgraph P4["Phase 4 — runMultishot over v1 · @tangle-network/agent-eval/multishot"]
-    direction TB
-    m1maya["runMultishot(Maya · cpg-founder)<br/>maxTurns:1"] --> j1maya["runJudge<br/>concreteness + audience_fit"]
-    m1theo["runMultishot(Theo · b2b-saas)<br/>maxTurns:1"] --> j1theo["runJudge<br/>concreteness + audience_fit"]
-    m1aur["runMultishot(Aurora · creator)<br/>maxTurns:1"] --> j1aur["runJudge<br/>concreteness + audience_fit"]
-  end
-
-  v1 --> P4
-  j1maya --> v1mean["v1 runs + composite mean (~8.5)"]
-  j1theo --> v1mean
-  j1aur --> v1mean
-
-  v0mean -.v0 paired.-> gate
-  v1mean --> gate{"Phase 5 — gate<br/>pairedBootstrap(v0, v1).low &gt; 0?<br/><i>agent-eval statistics · prod: HeldOutGate / improve()</i>"}
-
-  gate -->|"ship: true (CI clears 0)"| promoted["PROMOTED v1 → production"]
-  gate -->|"hold (CI includes 0)"| held["HELD — keep v0"]
-```
-
-This is the loop every product wires for evolution — the substrate makes each piece composable, this example shows them snapping together.
-
-## Run
+## Run it
 
 ```bash
 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
 ```
 
-Default mode runs offline with scripted LLM responses so the demo is reproducible. To run live against the Tangle router:
-
-```bash
-TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
-```
-
-## Expected output
+No API key needed: the model responses are scripted so the run is deterministic and offline.
+Expected output:
 
 ```
 ═══ self-improving-loop demo ═══
@@ -95,9 +60,6 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
 
 — Phase 4: v1 re-run
   v1 mean: 8.50 (over 3 personas)
-    cpg-founder    composite=8.50
-    b2b-saas       composite=8.50
-    creator        composite=8.50
 
 — Phase 5: gate decision
   ship: true | paired median delta: +5.00 | paired median +5.00, 95% CI [5.00, 6.00] clears 0 (n=3)
@@ -105,26 +67,20 @@ TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-impr
 ═══ PROMOTED v1 → production ═══
 ```
 
-## Where each substrate piece lives
+To run the same loop against a real model instead of the scripts:
 
-| Phase | Substrate | What it does |
-|---|---|---|
-| 1, 4 | `@tangle-network/agent-eval/multishot` `runMultishot` | Multi-turn driver-agent loop + inline tool execution |
-| 1, 4 | `@tangle-network/agent-eval/multishot` `runJudge` | Generic 0-10 dimensional scorer with JSON parsing |
-| 1-7 | `@tangle-network/sandbox` `AgentProfile` | The substrate type that flows unwrapped through the entire loop |
-| 2 | `@tangle-network/agent-eval` `makeFinding` → `AnalystFinding` | The canonical finding type the loop reflects on. The analyst BODY (which finding) is scripted here; in production `@tangle-network/agent-runtime/analyst-loop` `runAnalystLoop` reads traces and emits these |
-| 3 | (this file) `applyMutation` | Domain-specific — typically a systemPrompt suffix or a tool addition |
-| 5 | `@tangle-network/agent-eval` `pairedBootstrap` | The real paired-bootstrap CI the production held-out gate is built on. Products call the full gate (`HeldOutGate` / `improve()` over `selfImprove`, `agent-eval/contract`) with a held-out set + threshold |
+```bash
+TANGLE_API_KEY=sk-tan-... MOCK=0 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
+```
 
-## How this maps to a real product
+## Honest scope
 
-In a real product, this loop runs as a scheduled job (the `production-loop` CI cron):
+Two things are stubbed so the demo is reproducible, and only two: the model's replies and
+*which* fix the analyst picks. The parts that make the loop trustworthy — the judge, and the
+paired-bootstrap gate — are the real functions used in production (`runJudge` and
+`pairedBootstrap` from `@tangle-network/agent-eval`).
 
-1. Production traces accumulate in `.production-data/traces/` via the ingestion mount (`@tangle-network/agent-runtime/wire`).
-2. The analyst loop reads them → finds failure clusters → produces typed findings.
-3. The reflective mutator (`@tangle-network/agent-eval/optimization`) generates N candidate mutations from those findings.
-4. `runMultishotMatrix` evaluates each candidate against the same persona × judge set.
-5. `evaluateReleaseConfidence` compares against the held-out baseline.
-6. If it ships, the new profile lands in the production composer as a PR — human reviews + merges.
-
-See `agent-stack-adoption` skill ([dotfiles](https://github.com/drewstone/dotfiles/blob/main/claude/skills/agent-stack-adoption/SKILL.md)) for the end-to-end 10-phase runbook.
+One caveat the demo makes on purpose: it gates on **3** paired points to stay small. That is
+too few to trust. A confidence interval on 3 pairs can clear 0 by accident — a near-constant
+gap looks significant when it isn't. A real gate refuses to decide below ~8 pairs and wants
+20-50. Treat the `ship: true` here as showing the *mechanism*, not a defensible promotion.

@@ -1,101 +1,124 @@
-# Agents of all shapes → one Tangle Intelligence pipe
+# Analyze any agent, no matter what framework it's built on
 
-Proof that Tangle Intelligence works with **any agent, not just our sandbox**.
-Every shape — the Tangle runtime, an OpenAI-compatible router (tcloud /
-OpenRouter), a Mastra agent, the Claude Agent SDK, a Python agno agent —
-converges on the **same** canonical OpenTelemetry GenAI spans, and the **same**
-in-process engine produces the decision packet:
+You have AI agents running in production. Some are ours, some are LangChain-style, some are a
+Mastra agent, some the Claude Agent SDK, some a Python script. You want **one** report across all of
+them: which are failing and why, which are burning money for little quality, and which changes to
+make first. This example proves you can get that report from **any** of them without rewriting them
+onto our stack.
+
+The trick: every agent already emits (or can emit) **OpenTelemetry spans** — the industry-standard
+trace records for a program's operations. As long as each agent tags its spans with a few standard
+fields (which model ran, tokens used, cost, and a quality score), they all pour into the **same**
+analysis engine and produce the **same** report. That engine runs **in-process** — no server, no
+deploy, no sandbox.
 
 ```
 your agent (any framework)
-   → OTel GenAI spans (gen_ai.request.model, gen_ai.usage.*, score)
-      → fromOtelSpans()  →  RunRecord[]
-         → analyzeRuns() →  InsightReport   (composite, lift CI, Pareto,
-                                             failureModes, recommendations)
+   → OpenTelemetry spans (model, tokens, cost, score)
+      → fromOtelSpans()   turns raw spans into structured run records
+         → analyzeRuns()  produces the report: failure clusters, cost/quality
+                          tradeoffs, ranked recommendations
 ```
-
-No sandbox. No deploy. No server. The analysis runs **in-process**.
 
 ## Run it
 
 ```bash
-# Verified QA path — in-process, no key, no infra:
+# In-process, no key, no infra. Runs five agent "shapes" through the same engine:
 pnpm tsx examples/agents-of-all-shapes/run.ts
 
-# CI verification (what proves it):
+# The CI proof that it works:
 pnpm test -- tests/agents-of-all-shapes.test.ts
 ```
 
-Set `TANGLE_API_KEY=sk-tan-...` to *also* POST the same spans to the hosted
-`/v1/otlp/v1/traces` ingest for the dashboard — identical analysis, server-side.
+You'll see one **fleet report** merging every framework's runs, then a per-shape breakdown proving
+the same engine works on each framework alone:
 
-## The one contract every shape meets
+```
+=== Fleet InsightReport (all shapes) ===
+runs:            <total across all frameworks>
+composite mean:  <mean quality score 0..1>
+failure modes:   [...clustered failure names...]
+recommendations: <count>
+  [P1] <top ranked recommendation>
 
-`shared/intelligence.ts` is the whole integration surface. A shape only has to
-emit OTel spans carrying the standard GenAI attributes plus a `score`:
+=== Per-shape composite ===
+tangleRuntimeRuns    n=.. mean=..
+openAiCompatibleRuns n=.. mean=..
+mastraRuns           n=.. mean=..
+claudeAgentSdkRuns   n=.. mean=..
+```
 
-| attribute | meaning |
+To *also* send the same spans to the hosted dashboard, set `TANGLE_API_KEY=sk-tan-...`; the analysis
+is identical, just server-side.
+
+## The one contract every framework meets
+
+There's a single integration surface (`shared/intelligence.ts`). An agent only has to emit OTel spans
+carrying these standard fields plus a `score`:
+
+| span attribute | meaning |
 |---|---|
-| `gen_ai.request.model` | model snapshot (also `llm.model`, `tangle.model`) |
+| `gen_ai.request.model` | which model ran |
 | `gen_ai.usage.input_tokens` / `output_tokens` | token usage |
-| `gen_ai.usage.cost_usd` | cost (also `cost.usd`) |
-| `score` | your eval/judge/rubric outcome 0..1 (also `tangle.score`, `eval.score`) |
-| an `ERROR`-status span's `name` | → `RunRecord.failureMode` |
+| `gen_ai.usage.cost_usd` | dollar cost |
+| `score` | your quality outcome, 0 to 1 (from your eval, judge, or rubric) |
+| an error span's name | becomes the run's failure mode, so failures cluster |
 
-These are **standard OpenTelemetry GenAI semantic conventions** — most
-frameworks already emit them; you add `score`.
+The first four are **standard OpenTelemetry GenAI conventions** that most agent frameworks already
+emit — you only add `score`, your own measure of how good the run was.
 
-## The shapes
+## The five shapes it proves
 
-| Shape | File | Live wiring |
+| shape | what it is | how it feeds the engine live |
 |---|---|---|
-| **Tangle runtime / router (tcloud)** | `shapes.ts` → `tangleRuntimeRuns` | `createOtelExporter` + `loopEventToOtelSpan` (see below) |
-| **OpenAI-compatible** (tcloud / OpenRouter / OpenAI / vLLM) | `shapes.ts` → `openAiCompatibleRuns` | any OpenAI client at the router's `baseURL`; emit a GenAI span per call |
-| **Mastra** | `shapes.ts` → `mastraRuns` | Mastra's native OTLP exporter → `${INTELLIGENCE_BASE}/v1/otlp/v1/traces` |
-| **Claude Agent SDK** | `shapes.ts` → `claudeAgentSdkRuns` | wrap `query()`, one GenAI span per turn from `msg.usage` |
-| **Python agno** | `python-agno/agno_to_intelligence.py` | agno run → OTLP/HTTP POST (or `pip install agent-eval-rpc`) |
+| **Tangle runtime** | agents on this repo's runtime | built-in OTel exporter, one call in your product |
+| **OpenAI-compatible** | any OpenAI-style client (OpenRouter, vLLM, OpenAI) | emit one GenAI span per model call |
+| **Mastra** | the Mastra agent framework | Mastra's native OTLP exporter, pointed at the ingest URL |
+| **Claude Agent SDK** | Anthropic's agent SDK | wrap `query()`, one span per turn from its usage data |
+| **Python agno** | a non-TS Python agent | POST the same spans over OTLP/HTTP |
 
-The TypeScript shapes ship deterministic batches so the showcase is
-**verifiable in CI with no key** (`tests/agents-of-all-shapes.test.ts`). Each
-shape's header comment shows the exact live wiring — swap the batch for your
+The four TypeScript shapes ship **deterministic sample data** so the demo is verifiable in CI with no
+key. Each shape's header comment shows the exact live wiring — swap the sample batch for your
 framework's real telemetry and it lands on the identical engine.
 
-> The Python agno shape (`python-agno/agno_to_intelligence.py`) is an **illustrative
-> snippet** of the OTLP/HTTP POST a non-TS agent makes — it is **not run by `run.ts`** and
-> not covered by the TypeScript typecheck. `run.ts` exercises the four TS shapes plus the
-> seeded batches; the Python file shows the wire shape for a Python agent.
+> The Python file (`python-agno/agno_to_intelligence.py`) is an illustrative snippet of the HTTP POST
+> a non-TS agent makes. It is not run by `run.ts` and not part of the TypeScript typecheck — it just
+> shows the wire format for a Python agent.
 
-## Tangle-runtime live wiring (the built-in exporter)
+## Sending it to the hosted dashboard (live)
 
-For the first shape, the live leg is the runtime's built-in exporter — one
-block in your product:
+For agents already on this runtime, the live leg is one block — the built-in exporter POSTs your
+spans to the hosted ingest:
 
 ```ts
 import { createOtelExporter, loopEventToOtelSpan } from '@tangle-network/agent-runtime'
 
-// The exporter POSTs to `${endpoint}/v1/traces`, so point it at `.../v1/otlp`
-// (becomes `.../v1/otlp/v1/traces`, the hosted ingest route).
 const exporter = createOtelExporter({
   endpoint: 'https://intelligence.tangle.tools/v1/otlp',
   headers: { authorization: `Bearer ${process.env.TANGLE_API_KEY}` },
   serviceName: 'my-agent',
 })
-if (!exporter) throw new Error('no OTLP endpoint configured')
-
-// Per loop/stream event:
+// per loop/stream event:
 exporter.exportSpan(loopEventToOtelSpan({ kind, runId, timestamp, payload }, traceId))
 await exporter.flush()
 ```
 
-Anything that doesn't run on agent-runtime POSTs the same OTel GenAI spans
-raw to `${INTELLIGENCE_BASE}/v1/traces` (`resourceSpans` JSON, Bearer key —
-tenant resolves from the key, never the payload). Read insights back from
-the dashboard or `GET /v1/insights/outputs` with the same key.
+Anything not on this runtime just POSTs the same OTel spans raw to the ingest URL with a Bearer key
+(the tenant is resolved from the key, never the payload). Read the report back from the dashboard or
+the insights endpoint with the same key.
 
 ## Why this matters
 
-The integration point is the **OTel wire**, not the Tangle SDK or sandbox. Any
-team with agent traces — whatever framework, whatever runtime — gets the full
-`InsightReport` (failure clustering, cost/quality Pareto, ranked
-recommendations, and lift CI once they emit two cohorts) without adopting our
-execution stack.
+The integration point is the **OpenTelemetry wire format**, not our SDK. Any team with agent traces —
+whatever framework, whatever runtime — gets the full report (failure clustering, cost-vs-quality
+tradeoffs, ranked fixes, and A/B lift with confidence once they tag two cohorts) without adopting our
+execution stack at all.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `run.ts` | the entrypoint: merges all shapes, runs the in-process engine, prints the fleet + per-shape reports |
+| `shapes.ts` | the five agent shapes, each producing OTel spans (with live-wiring notes in the header) |
+| `shared/intelligence.ts` | the whole integration surface: spans → run records → report |
+| `python-agno/agno_to_intelligence.py` | illustrative POST for a non-TS Python agent |

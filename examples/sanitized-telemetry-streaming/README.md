@@ -1,39 +1,65 @@
-# sanitized-telemetry-streaming
+# Log an agent's activity without leaking your users' data
 
-Shows `createRuntimeStreamEventCollector` consuming a `runAgentTaskStream`
-loop with redaction on by default. Multi-tenant products should never
-serialize raw events directly — they may carry inputs, user answers,
-credentials, evidence ids, or eval details. The collector redacts all of
-those by default; you opt back in field by field.
+An agent's event stream is full of things you can't put in your logs: tool arguments, tool results,
+user inputs, file URIs, tenant metadata. This captures that stream for telemetry with **every
+sensitive field redacted by default**. You get counts, timings, session id, and final status out of
+the box — and you opt each sensitive field back in, one at a time, only where you truly need it (say,
+an operator triaging a live incident).
 
-## Non-streaming counterpart
+## Why it matters
 
-For non-streaming `runAgentTask` runs, use `createRuntimeEventCollector()`
-instead — same default redaction, same `RuntimeTelemetryOptions` flags
-(`includeInputs`, `includeMetadata`, `includeEvalDetails`, ...), passed as
-`onEvent: collector.onEvent`. `runAgentTaskStream` yields a different event
-shape than `runAgentTask` (timestamps, sessions, text/tool deltas) so it has
-its own collector factory; both honor the same options.
+The default failure mode for agent telemetry is "just serialize the events" — which quietly ships
+customer emails, secret tokens, and internal storage paths into your log pipeline. This flips the
+default to **safe**: nothing sensitive is recorded unless you explicitly ask for it, so a new sink
+(a log drain, a dashboard, an analytics table) is safe the moment you point it at the collector. In a
+multi-tenant product that is the difference between a telemetry feature and a data breach.
 
-## Run
+## How it works
+
+You feed each streamed event into `createRuntimeStreamEventCollector()`. It passes through the
+harmless structural fields (event type, timestamps, session, status) and **strips** the sensitive
+ones. To reveal a field you turn on its flag: `includeInputs`, `includeMetadata`,
+`includeControlPayloads` (tool args and results), `includeEvidenceIds`. Anything you don't turn on
+stays redacted.
+
+One field is the exception: `task.intent`. It flows through telemetry by default, so treat it as a
+**static label** — set it to a fixed operation name like `"Look up a customer record"`, never to
+user input. Real user input belongs in `inputs`, which is redacted by default.
+
+## Run — fully offline, no key, no network
 
 ```bash
 pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 ```
 
-## What it shows
+The example drains the *same* streaming task twice — once through a default collector, once through
+one with the reveal flags on — so you can diff them. Watch the `tool_call` event.
 
-- `createRuntimeStreamEventCollector()` capturing each yielded
-  `RuntimeStreamEvent` safely
-- The opt-in pattern via `includeInputs` / `includeControlPayloads` /
-  `includeEvidenceIds` / `includeMetadata`
-- `collector.summary()` rolling up event counts, session id, final
-  status, and concatenated `text_delta` text
+Default (safe): only the tool name survives; the customer id and email are gone.
 
-## `task.intent` is sanitized telemetry by default
+```json
+{"type":"tool_call","task":{"intent":"Look up a customer record","inputs":"[redacted]","metadata":"[redacted]"},"toolName":"lookup_customer"}
+```
 
-The `task.intent` string flows through sanitized telemetry on every
-event. Treat it like a static label — set it to a fixed operation kind
-(`"Look up a customer record"`, `"Score a tax return"`), never to user
-input. If you need to log user-visible intent, route it through `inputs`
-(redacted by default).
+Opt-in (`includeInputs` + `includeControlPayloads` on): the same event now carries the arguments —
+this is the operator-triage view, and only the fields you enabled appear.
+
+```json
+{"type":"tool_call","task":{"intent":"Look up a customer record","inputs":{"customerId":"cust-42"},"metadata":{"tenantId":"tenant-7"}},"toolName":"lookup_customer","args":{"customerId":"cust-42","email":"redact-me@example.com"}}
+```
+
+`collector.summary()` gives you the safe rollup either way: event counts by type, session id, final
+status, and the concatenated assistant text.
+
+## Non-streaming agents
+
+If you run a task without streaming (`runAgentTask` instead of `runAgentTaskStream`), use
+`createRuntimeEventCollector()` — same redaction, same flags, passed as `onEvent:
+collector.onEvent`. The streaming stream carries extra event shapes (text and tool deltas), which is
+why it has its own collector; the safety story is identical.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `sanitized-telemetry-streaming.ts` | a synthetic streaming backend plus the two drains (default vs opt-in) |

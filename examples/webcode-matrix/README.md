@@ -1,12 +1,12 @@
-# webcode-matrix
+# Rank AI coding agents on tasks they can't have memorized
 
-Run the **real** [WebCode benchmark](https://exa.ai/blog/webcode) across a **matrix of harnesses × models**, scored by Exa's own graders, rendered as a publishable leaderboard.
+Run the **real** [WebCode benchmark](https://exa.ai/blog/webcode) across every combination of **agent harness × model**, score each one with Exa's own graders, and render a publishable leaderboard.
 
-WebCode is 33 coding tasks across 9 languages, each targeting a library API released *after* the model's training cutoff, so the agent must **web-search** to find the current signatures. Each task ships a prompt, the file to produce, and a pytest grader (`test_patch`).
+WebCode is 33 coding tasks across 9 languages. Every task targets a library API that was released *after* the model's training cutoff, so the agent can't have seen it — it has to **web-search** for the current function signatures and use them correctly. Each task ships a prompt, the file to produce, and a pytest grader (`test_patch`) that is the sole arbiter of pass/fail.
 
 ## What this is — and what Exa ships
 
-Exa open-sources the **dataset only**: *"No agent harness included — bring your own (e.g. mini-swe-agent)."* So this example is **the harness**: it sweeps the cartesian of **harness** (what drives the agent — claude-code / codex / opencode / gemini) × **model**, runs each (harness×model, task) cell in its own sandbox with web search on, writes the agent's solution, and runs **Exa's exact `test_patch`** — pass ⟺ pytest exits 0. No LLM judge; no invented tasks.
+Exa open-sources the **dataset only**: *"No agent harness included — bring your own (e.g. mini-swe-agent)."* So this example is **the harness**: it runs every combination of **harness** (what drives the agent — claude-code / codex / opencode / gemini) × **model**, gives each (harness×model, task) cell its own sandbox with web search on, writes the agent's solution, and runs **Exa's exact `test_patch`** — the run passes only if pytest exits 0. No LLM judge; no invented tasks.
 
 The real 33-task dataset (MIT) is **fetched, not committed** (it carries secret-shaped test fixtures) — run [`data/fetch.sh`](./data/fetch.sh) first, or set `WEBCODE_DATASET`. See [`data/SOURCE.md`](./data/SOURCE.md) for provenance.
 

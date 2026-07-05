@@ -1,18 +1,16 @@
 /**
- * Strategy demo — the optimization suite in three layers, on a toy Environment (no gym).
+ * The whole toolkit in one small file, on a toy task (drive a counter to 5).
  *
- * The whole idea in one file: you implement an `Environment` (5 hooks: open/tools/call/
- * score/close), and you get optimization STRATEGIES — sample (best-of-N), refine
- * (iterate-with-feedback), and any you author — compared and scored by your own check,
- * for free. This uses a trivial "counter" environment so it runs with just a router key
- * (no benchmark dataset, no sandbox).
+ * You write one small adapter (open a task, expose tools, score the result) and get back
+ * automatic comparison of ways to spend a compute budget, each scored by your own check.
+ * Three levels, shown below:
+ *   1. just run it     — runBenchmark(env, …) compares the built-in tactics for you.
+ *   2. pick tactics    — sample (N blind attempts, keep best), refine (critic steers the
+ *                        retry), adaptiveRefine (refine, restart a stalled line).
+ *   3. author your own — defineStrategy(name, body) in ~10 lines from shot() + critique().
  *
- *   dotenvx run -f …/.env.keys -- env WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts
- *
- * The three layers shown below:
- *   1. just run it     — runBenchmark(env, …) compares the default strategies, free.
- *   2. pick strategies — pass [sample, refine, adaptiveRefine].
- *   3. author your own — defineStrategy(name, body) in ~10 lines, no Supervisor ceremony.
+ * Toy task = only a router key needed (no dataset, no sandbox). Run from bench/:
+ *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts
  */
 import { adaptiveRefine, type AgenticTask, type ArtifactHandle, defineStrategy, type Environment, printBenchmarkReport, refine, runBenchmark, sample } from '@tangle-network/agent-runtime/loops'
 

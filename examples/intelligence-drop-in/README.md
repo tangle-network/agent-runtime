@@ -1,38 +1,60 @@
-# intelligence-drop-in
+# One-line observability for any agent — and proof "off" costs nothing
 
-The Observe + Mode-0 slice of the Tangle Intelligence SDK: wrap an existing agent, ship one trace per
-call, and pay **only inference** (the base model stream) at the OFF tier. **Why it matters:** you get
-per-call observability + billing with a one-line wrapper, and you can prove — not just assert — that
-turning intelligence *off* charges nothing extra. The wrapper is best-effort: a live agent never fails
-because Intelligence is down.
+Wrap any agent function in one line and every call ships a trace (a per-call record of what ran and
+what it cost) to Tangle Intelligence. Two things make this worth a look:
 
-> **Mode 0** = the OFF tier: telemetry stays on, but intelligence spend (analysts, corpus, extra spawns)
-> is clamped to 0. **Inference spend** = the base model stream you'd pay anyway; **intelligence spend** =
-> what the SDK's extra reasoning adds on top.
+1. **It's genuinely one line** — `withTangleIntelligence(agent, opts)` preserves your agent's exact
+   call shape and adds tracing invisibly.
+2. **It's safe** — the tracing is best-effort. If Tangle Intelligence is down, your agent still answers.
+   Telemetry never takes down the app.
+3. **"Off" really means free** — turn intelligence off and you're billed only for the model call you'd
+   pay for anyway. This example doesn't just claim that; it reads the exported trace back and *asserts*
+   the extra charge is exactly zero.
 
-## Run
+## Run it
 
 ```bash
-# $0, no creds — stands up a throwaway local OTLP collector so the trace is visible without a key.
+# $0, no credentials — spins up a throwaway local trace collector so you can see the trace without a key.
 pnpm tsx examples/intelligence-drop-in/intelligence-drop-in.ts
 ```
 
-It prints three proofs and **asserts** the last two (throws if they don't hold):
-1. wrap any `(input) => Promise<output>` in one line and it ships a trace;
-2. point it at a dead endpoint — the agent still answers (export failure swallowed);
-3. at `effort: 'off'`, read the exported span BACK off the collector and confirm `intelligence_usd = 0`.
+It prints three results and **throws** if the last two aren't true:
 
-## What it shows
+```
+1) wrapped an agent, got its answer: "You asked: how do I reset my password?. Here is a helpf…
+2) survived a dead endpoint: true
+3a) a trace landed on the collector: true
+3b) OFF tier — intelligence_usd on the exported span: 0 (0 = the billing floor)
+```
 
-- `withTangleIntelligence(agent, { project, apiKey, endpoint })` — wrap any agent; the call shape is
-  preserved and one trace span is exported per call, fire-and-forget.
-- `createIntelligenceClient(...).traceRun(meta, fn)` — the explicit-trace API (`trace.recordOutput` /
-  `trace.recordOutcome`), used here so we can `flush()` and read the span back.
-- **The OFF proof, by execution** — at OFF there is no intelligence spawn, so the exported span's
-  `intelligence_usd` is `0` by construction. The example digs it out of the OTLP payload and asserts it.
+## Why it matters
+
+Adding observability and billing to an agent usually means threading a tracing SDK through your code
+and trusting a dashboard's word on what "off" costs. Here it's a single wrapper, and the "off" bill is
+*proven by execution*: the example digs the `intelligence_usd` field out of the actual exported trace
+and fails loudly if it isn't `0`. You get a number you can check, not a label you have to believe.
+
+## The two APIs
+
+- **`withTangleIntelligence(agent, { project, apiKey, endpoint })`** — the one-liner. Wrap any
+  `(input) => Promise<output>` agent; each call fires off one trace in the background and returns as
+  soon as your agent does.
+- **`createIntelligenceClient(...).traceRun(meta, fn)`** — the explicit version, for when you want to
+  record extra detail and flush traces on demand. Used here so the example can flush and read the trace
+  back to prove the zero.
+
+Two spend numbers show up in a trace: **inference** (the base model call you'd pay for regardless) and
+**intelligence** (what Tangle's extra reasoning — analysts, corpus lookups, extra worker spawns — adds
+on top). At the OFF tier, intelligence is clamped to 0; only inference costs anything.
 
 ## Going live
 
-Drop the local collector: set `TANGLE_API_KEY` and point `endpoint` at your real OTLP/HTTP collector
-(or omit `endpoint` to use `OTEL_EXPORTER_OTLP_ENDPOINT`). Raise `effort` from `off` to `standard`/`max`
-to enable the intelligence tiers — the same wrapper, one field changed.
+Drop the local collector: set `TANGLE_API_KEY` and point `endpoint` at your real collector (or omit
+`endpoint` to use the standard `OTEL_EXPORTER_OTLP_ENDPOINT` env var). Raise `effort` from `'off'` to
+`'standard'` or `'max'` to turn the intelligence tiers on — same wrapper, one field changed.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `intelligence-drop-in.ts` | the wrapper demo, the throwaway local collector, and the three assertions |

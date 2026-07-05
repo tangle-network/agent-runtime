@@ -1,163 +1,160 @@
 # agent-runtime examples
 
-Start by reading ONE example: [`driver-loop/`](./driver-loop/) — the move every supervisor is built on.
-The catalog below is a learning path for when you want more: each example adds a single concept on top of the last.
+Runnable, single-file demos of what this library does: build agents, run several of them under one
+budget, score them against a real check, and let them improve from their own runs. Every example
+imports from the published package (`@tangle-network/agent-runtime`) exactly as your code would, and
+most run **offline with no API key** so you can see the machinery before spending anything.
 
-Every example imports from `@tangle-network/agent-runtime` (the surface consumers use), not from
-relative paths, and they are typechecked by `pnpm run typecheck:examples` — except `researcher-loop`,
-which needs the optional `@tangle-network/agent-knowledge` peer that agent-runtime doesn't depend on
-and CI doesn't install, so it is excluded from that typecheck (run it with `agent-knowledge` installed).
-
-## Quickstart — the golden path (≈5 min; the first two are $0, offline)
+New here? Run these three, in order (the first two cost $0):
 
 ```bash
-pnpm tsx examples/driver-loop/driver-loop.ts                  # 1. SEE THE FOLD — offline, no creds
-pnpm tsx examples/improve/improve.ts                          # 2. the gated self-improvement verb — offline
-TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one-call supervisor over real workers (router key)
+pnpm tsx examples/driver-loop/driver-loop.ts                  # 1. one agent steering another — offline
+pnpm tsx examples/improve/improve.ts                          # 2. an agent that rewrites its own prompt, safely — offline
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one function call = a supervisor over real workers
 ```
 
-`driver-loop` is the one move everything else is built on; `improve` is the one self-improvement
-verb; `supervise` is the one-call product entry. The full learning path is below.
+`driver-loop` is the core move everything else builds on; `improve` is the self-improvement primitive;
+`supervise` is the one-call product entry point.
 
-## Vocabulary
+## A few words that appear everywhere
 
-These words appear in every example. The clearest demonstration of all of them is
-[`driver-loop/`](./driver-loop/).
+- **worker** — an agent that produces an answer.
+- **driver** (or **supervisor**) — an agent that launches workers, reads their output, and decides
+  what to do next.
+- **the fold** — the key trick: a driver reads the last worker's output and writes the *next*
+  instruction from it, so the loop actually reacts instead of retrying blind.
+- **shot** — one worker attempt. **sample** = make N attempts and keep the best (breadth). **refine**
+  = attempt, let a critic read what went wrong, steer the next attempt (depth).
+- **check** — a function that scores an answer pass/fail. It is the ground truth every loop optimizes
+  against.
 
-- **round** — one driver cycle: `plan → run workers → decide` (the `runLoop` kernel runs this once per round).
-- **shot** — one independent worker attempt/sample; **multishot** plays N shots in parallel.
-- **sample** — best-of-N shots (breadth); **refine** — iterate-with-critique across rounds (depth).
-- **the fold** — a driver reading the last worker's output and writing the next instruction *from* it.
+---
 
-## Tier 0 — the three cores (read one, feel the power)
+## Start here — three self-contained demos
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 1 | [`chat-handler/`](./chat-handler/) | You're wiring a product's chat turn — the `handleChatTurn` lifecycle every product runs. |
-| 2 | [`strategy-suite/`](./strategy-suite/) | You want to compare optimization strategies (sample vs refine vs your own) against your own pass/fail check (offline via an in-process mock router; `TANGLE_API_KEY` swaps in the live router). |
-| 3 | [`recursive-supervisor/`](./recursive-supervisor/) | You want the raw recursive atom: one `Agent` spawning children on a conserved budget pool, shown twice (raw `scope.spawn` + the `fanout` combinator, offline). |
+| 1 | [`chat-handler/`](./chat-handler/) | The full lifecycle of one product chat turn — the entry point every product wires. Offline. |
+| 2 | [`strategy-suite/`](./strategy-suite/) | Compare ways of spending a compute budget (sample vs refine vs your own) against your own pass/fail check. Offline via an in-process fake model; `TANGLE_API_KEY` swaps in the real one. |
+| 3 | [`recursive-supervisor/`](./recursive-supervisor/) | One agent spawns child agents on a single shared budget that refuses to overspend — shown by hand, then as a one-line helper. Offline. |
 
-## Tier 1 — the driver loop & supervisor (the heart of the product)
+## The supervisor — one agent that runs other agents
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 4 | [`driver-loop/`](./driver-loop/) | **You want to SEE the fold** — a driver reads the last worker's output and composes the next prompt from it (plan → run → decide → re-plan). The seam that makes everything else click. Offline. |
-| 5 | [`supervise/`](./supervise/) | You want the one-call headline: `supervise(profile, goal)` — a router-brained supervisor with all scaffolding defaulted (needs `TANGLE_API_KEY`). |
-| 6 | [`supervisor-loop/`](./supervisor-loop/) | You want that same supervisor over a real worker backend — sandbox box / local cli-bridge / coordination MCP — with the **worker backend as the only knob**. |
-| 7 | [`delegate/`](./delegate/) | You want the one-call `delegate(intent)`: the supervisor authors + spawns a worker that does real on-disk filesystem work, the gate settles only when the file exists, cost rides through (needs `TANGLE_API_KEY`). |
+| 4 | [`driver-loop/`](./driver-loop/) | **See the fold**: a driver reads the last worker's output and composes the next prompt from it (plan → run → decide → re-plan). Offline. |
+| 5 | [`supervise/`](./supervise/) | The one-call headline: `supervise(profile, goal)` runs a full supervisor with everything defaulted. Needs `TANGLE_API_KEY`. |
+| 6 | [`supervisor-loop/`](./supervisor-loop/) | The same supervisor over a real worker backend — cloud sandbox, local coding-CLI, or an MCP server — with the backend as the only knob you change. |
+| 7 | [`delegate/`](./delegate/) | `delegate(intent)`: the supervisor writes and spawns a worker that does real work on disk, and the run only settles once the file it was asked to create actually exists. Needs `TANGLE_API_KEY`. |
 
-## Tier 2 — the runLoop kernel (the leaf the benches drive)
+## Benchmarking — score agents against a check
 
-The round-synchronous kernel: `driver.plan()` → N tasks → one sandbox per iteration → `output.parse`
-→ `validator.validate` → `driver.decide`. The drivers below are single-round and content-blind on
-purpose — read [`driver-loop/`](./driver-loop/) for the contrast (a driver that re-plans from output).
+A round-based runner: plan tasks, run each in its own sandbox, parse and validate the output, decide,
+repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 8 | [`researcher-loop/`](./researcher-loop/) | You want the canonical `runLoop` + inline fanout driver, with a validator that hard-fails a namespace leak so the kernel prunes the bad candidate (needs the optional `@tangle-network/agent-knowledge` peer). |
-| 9 | [`ui-audit/`](./ui-audit/) | You want the smallest end-to-end `runLoop` over a real client (Playwright + stub judge), persisting findings. |
-| 9a | `agent-eval/examples/eval-fixtures-quickstart` | You want Vercel-style eval folders (`PROMPT.md` + `EVAL.ts`) to run through runtime's `runLoop`; pair `loadEvalFixtureScenarios()` with `loopCampaignDispatch()`. |
-| 9b | [`coding-benchmark/`](./coding-benchmark/) | You want a scientifically-rigorous coding benchmark across harnesses: `runProfileMatrix` over harness × baseline-profile × scenario, a one-line tool knob (websearch / webfetch / MCP), a held-out-test-execution anti-cheat (the agent is graded on hidden tests it never saw, so it can't hardcode), a secondary quality judge, and paired-bootstrap + Wilson + BH stats (offline by default; `--live` for real harness boxes). |
-| 9c | [`webcode-matrix/`](./webcode-matrix/) | You want the **real WebCode benchmark** (Exa's 33-task dataset, graded by its own hidden tests) across a harness×model matrix, rendered as a publishable leaderboard — ranked board + profile×axis matrix + SVG/HTML charts + CIs + pairwise significance, all via the domain-agnostic `leaderboard()` engine. WebCode's discriminator is web *retrieval* (post-cutoff APIs); for SWE-style coding see `9b`. |
+| 8 | [`researcher-loop/`](./researcher-loop/) | A research agent whose validator hard-fails if one tenant's data leaks into another's namespace, so the leak is pruned automatically. Needs the optional `@tangle-network/agent-knowledge` peer installed. |
+| 9 | [`ui-audit/`](./ui-audit/) | The smallest end-to-end loop over a real browser (Playwright) with a stub judge, persisting the findings. |
+| 9b | [`coding-benchmark/`](./coding-benchmark/) | Rank coding agents (Claude Code, opencode, Codex, a bare CLI) on real tasks with an **anti-cheat**: each agent is graded on hidden tests it never saw, so it can't hardcode the answer. Includes a secondary quality judge and real significance stats. Offline by default; `--live` uses real agent boxes. |
+| 9c | [`webcode-matrix/`](./webcode-matrix/) | The real WebCode benchmark (Exa's 33-task dataset, graded by its own hidden tests) across a harness × model grid, rendered as a publishable leaderboard with charts, confidence bands, and pairwise significance. |
 
-## Tier 3 — the production runtime, deeper
+## Production plumbing — cost, streaming, telemetry
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 10 | [`knowledge-gating/`](./knowledge-gating/) | You want readiness gating: the loop BLOCKS when a required-knowledge confidence is below threshold (also the smallest `runAgentTask`). |
-| 11 | [`runtime-run/`](./runtime-run/) | You want the run-record + cost-ledger persistence lifecycle for dashboards. |
-| 12 | [`stream-backends/`](./stream-backends/) | You want to pick a stream transport (iterable / sandbox / OpenAI-compatible) — the "pick your backend" map (OpenAI section needs `OPENAI_API_KEY`). |
-| 13 | [`sanitized-telemetry-streaming/`](./sanitized-telemetry-streaming/) | You want redaction-by-default telemetry on the stream (and the `task.intent` PII footgun). |
+| 10 | [`knowledge-gating/`](./knowledge-gating/) | Stop an agent before it acts on facts it isn't confident about: the loop blocks when a required-knowledge confidence is below threshold. |
+| 11 | [`runtime-run/`](./runtime-run/) | The run-record + cost-ledger you persist for dashboards — one row per run, any database. |
+| 12 | [`stream-backends/`](./stream-backends/) | Pick where an agent's streaming output comes from (in-process iterator, cloud sandbox, or an OpenAI-compatible endpoint) behind one wire format. The OpenAI path needs `OPENAI_API_KEY`; the rest is offline. |
+| 13 | [`sanitized-telemetry-streaming/`](./sanitized-telemetry-streaming/) | Log an agent's activity with user data redacted by default (and the one field that leaks PII if you opt out). |
 
-## Tier 4 — delegation over MCP
+## Hand work to another agent over MCP
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 14 | [`mcp-delegation/`](./mcp-delegation/) | You want to mount `agent-runtime-mcp` in an `AgentProfile`. Exposes the generic `delegate` verb (opt in with `MCP_ENABLE_DELEGATE=1`) plus the always-on `delegate_feedback` / `delegation_status` / `delegation_history` trio (and `delegate_ui_audit` when a UI-audit runner is wired). Needs `pnpm build` first. |
-| 15 | [`fleet-delegation/`](./fleet-delegation/) | You want `TANGLE_FLEET_ID` to flip delegation from sibling-sandbox to fleet-workspace topology. |
+| 14 | [`mcp-delegation/`](./mcp-delegation/) | Give any agent a "delegate this" button by mounting the agent-runtime MCP server: a `delegate` verb plus always-on status/history/feedback tools. Run `pnpm build` first so the local server binary exists. |
+| 15 | [`fleet-delegation/`](./fleet-delegation/) | Set `TANGLE_FLEET_ID` to flip delegation from spawning a sibling sandbox to sharing one fleet workspace. Offline. |
 
-## Tier 5 — self-improvement & intelligence
+## Self-improvement — agents that get better from their own runs
 
-| # | Example | Use this when… |
+| # | Example | What it shows |
 |---|---|---|
-| 16 | [`strategy-evolution/`](./strategy-evolution/) | You want the full policy-search + holdout gate: author candidates from losses, promote a champion only if a paired-bootstrap CI says it isn't luck (needs `TANGLE_API_KEY`). |
-| 17 | [`improve/`](./improve/) | You want the one supported RSI verb: `improve(profile, findings, opts)` — optimize one profile surface, ship only if it clears the held-out gate. Offline. |
-| 17b | [`self-improving-coder/`](./self-improving-coder/) | You want the flywheel on a **contamination-proof coding task**: an agent authors strategies from its train losses, graded by real pytest, promoted only if a paired-bootstrap CI clears on a fresh holdout. The bundled task is deliberately saturated (the gate honestly returns no-promotion); swap in a harder env or SWE-bench to see a real lift. `CALIBRATE=1` is a $0 no-creds check. |
-| 18 | [`self-improving-loop/`](./self-improving-loop/) | You want the unrolled internals of #17: v0 → judge → analyst → mutation → v1 → gate, with the "which substrate owns each phase" map. Offline. |
-| 19 | [`intelligence-recommend/`](./intelligence-recommend/) | You want the intelligence loop offline: trace → findings → `improve()` → gated candidate. |
-| 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | You want to wrap any agent with `withTangleIntelligence` and ship one trace per call (best-effort; off = passthrough). |
-| 20b | [`intelligence-webcode/`](./intelligence-webcode/) | You want the full Intelligence SDK (billing boundary + effort tiers, per-tool cost waterfall, OTLP export) on **every cell of a real benchmark** — the WebCode harness×model matrix, instrumented. Needs a sandbox key. |
-| 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | You want proof that any framework's traces converge on one OTel contract → one `InsightReport` (the CI-tested example). |
-| 22 | [`product-eval/`](./product-eval/) | You want user-sim product evals: a persona over a multi-round conversation via `runPersonaConversation`, then score the transcript (`maxTurns` is a ceiling, not a target). Needs `TANGLE_API_KEY` (the engine takes a `backendFor` override, but this example wires the live router). |
-| 23 | [`agentic-data-creation/`](./agentic-data-creation/) | You want the **Autodata inner loop**: an agent manufactures HARD training examples from a doc and keeps only the ones that DISCRIMINATE a strong solver from a weak one. Composes the fold (`runLoop`+refine driver), N× sampling (`runLoop`+fanout driver), `llmJudge`, `CostLedger`, and `Corpus`; the one new piece is `discriminativeAcceptRule`. Shows the calibration (plain gap ≈ 0.02 vs agentic ≈ 0.31). Offline. |
+| 16 | [`strategy-evolution/`](./strategy-evolution/) | Full policy search with a safety gate: write new tactics from past losses, promote a champion only if a statistical test says the win isn't luck. Needs `TANGLE_API_KEY`. |
+| 17 | [`improve/`](./improve/) | The one self-improvement verb: `improve(profile, findings)` rewrites a prompt and ships the new version only if it beats the old one on a held-out test set. Offline. |
+| 17b | [`self-improving-coder/`](./self-improving-coder/) | The flywheel on a contamination-proof coding task: an agent writes strategies from its training losses, graded by real pytest, promoted only if a fresh holdout confirms the gain. `CALIBRATE=1` is a $0 no-key check. |
+| 18 | [`self-improving-loop/`](./self-improving-loop/) | #17 unrolled step by step: v0 → judge → analyst → mutation → v1 → gate, showing which part owns each phase. Offline. |
+| 19 | [`intelligence-recommend/`](./intelligence-recommend/) | The improvement loop offline end to end: read a run's trace → derive findings → `improve()` → a gated candidate. |
+| 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | Wrap any agent with `withTangleIntelligence` to emit one trace per call — best-effort, and a proof that "off" is a zero-cost passthrough. |
+| 20b | [`intelligence-webcode/`](./intelligence-webcode/) | The full observability SDK (billing boundary, effort tiers, per-tool cost breakdown, OTLP export) instrumented over every cell of the WebCode benchmark. Needs a sandbox key. |
+| 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | Proof that any framework's traces converge on one open telemetry contract and produce one insight report. CI-tested. Offline. |
+| 22 | [`product-eval/`](./product-eval/) | Test an agent against a simulated user: a persona holds a multi-round conversation, then the transcript is scored. Needs `TANGLE_API_KEY`. |
+| 23 | [`agentic-data-creation/`](./agentic-data-creation/) | An agent manufactures **hard** training examples from a document and keeps only the ones that separate a strong solver from a weak one. Offline. |
 
 ## Research harnesses (not on the learning path)
 
-| Example | Use this when… |
+| Example | What it shows |
 |---|---|
-| [`ablation-suite/`](./ablation-suite/) | You want the coordination-vs-raw-compute ablation (continuous vs ralph vs supervisor, cost-aware, paired-bootstrap Δ) — the suite behind the supervisor +20.8pp result. Needs `TANGLE_API_KEY`; run `ARMS=cal` first (its README explains why). |
+| [`ablation-suite/`](./ablation-suite/) | The head-to-head behind the "supervisor beats raw compute by +20.8 points" result: three coordination styles compared cost-for-cost with a paired-bootstrap delta. Needs `TANGLE_API_KEY`; run `ARMS=cal` first (its README explains why). |
 
 ## Conventions
 
-- Examples are synthetic unless noted. `strategy-evolution`, `product-eval`, `supervise`, and
-  `delegate` need `TANGLE_API_KEY` (`strategy-suite` also runs offline on an in-process mock
-  router); `stream-backends`'
-  OpenAI section needs `OPENAI_API_KEY` (the rest runs offline); `mcp-delegation` needs `pnpm build` first so the local
-  MCP bin exists; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
-  Everything else runs fully offline.
-- Where domain types are needed (`SandboxBox`, evidence stores), the example defines them inline —
-  comments call out which parts are *yours* to provide vs *the runtime's* contract.
-- No example creates its own throwaway `package.json` — they run from this repo's tsx so changes to
-  the runtime are picked up immediately.
+- Everything runs from this repo's `tsx`, so edits to the runtime are picked up immediately — no
+  example creates its own throwaway `package.json`.
+- Examples are synthetic and offline unless a row above says otherwise. The ones that need a key:
+  `supervise`, `delegate`, `strategy-evolution`, `product-eval` (`TANGLE_API_KEY`); `stream-backends`'
+  OpenAI path (`OPENAI_API_KEY`). `mcp-delegation` needs `pnpm build` first; `researcher-loop` needs
+  the optional `@tangle-network/agent-knowledge` peer.
+- Where a domain type is yours to provide (a sandbox box, an evidence store), the example defines a
+  stub inline and comments mark which parts are *yours* vs the runtime's.
 
-## Run
+## Run everything, in learning order
 
-From the agent-runtime repo root, in the learning order above:
+From the repo root:
 
 ```bash
-# Tier 0 — the three cores
+# Start here
 pnpm tsx examples/chat-handler/chat-handler.ts
-pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline (mock worker); TANGLE_API_KEY swaps in the live router
+pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline; TANGLE_API_KEY swaps in the real model
 pnpm tsx examples/recursive-supervisor/recursive-supervisor.ts
 
-# Tier 1 — driver loop & supervisor (the heart)
+# The supervisor
 pnpm tsx examples/driver-loop/driver-loop.ts                       # SEE THE FOLD (offline)
-TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts        # the one-call supervisor
-WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
-  WORKER_BACKEND=bridge WORKER_MODEL=opencode/... pnpm tsx examples/supervisor-loop/run.ts  # one knob: bridge|sandbox
-TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts          # delegate(intent), one call
+TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts
+WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
+  pnpm tsx examples/supervisor-loop/run.ts                         # one knob: bridge | sandbox
+TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts
 
-# Tier 2 — the runLoop kernel
-pnpm tsx examples/researcher-loop/researcher-loop.ts
+# Benchmarking
+pnpm tsx examples/researcher-loop/researcher-loop.ts               # needs the agent-knowledge peer
 pnpm dlx tsx examples/ui-audit/ui-audit.ts /tmp/ui-audit-demo https://example.com
-pnpm tsx examples/coding-benchmark/benchmark.ts                     # harness × profile × scenario (offline)
-pnpm tsx examples/coding-benchmark/benchmark.ts --ensemble --reps 5 # 3-model judge panel + more reps
+pnpm tsx examples/coding-benchmark/benchmark.ts                    # offline
+pnpm tsx examples/coding-benchmark/benchmark.ts --ensemble --reps 5
 
-# Tier 3 — production runtime, deeper
+# Production plumbing
 pnpm tsx examples/knowledge-gating/knowledge-gating.ts
 pnpm tsx examples/runtime-run/runtime-run.ts
 pnpm tsx examples/stream-backends/stream-backends.ts
 pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
 
-# Tier 4 — delegation over MCP
+# Delegation over MCP
 pnpm build  # mcp-delegation needs dist/mcp/bin.js
 pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
 
-# Tier 5 — self-improvement & intelligence
+# Self-improvement
 TANGLE_API_KEY=... pnpm tsx examples/strategy-evolution/strategy-evolution.ts
 pnpm tsx examples/improve/improve.ts
+CALIBRATE=1 pnpm tsx examples/self-improving-coder/self-improving-coder.ts   # $0 no-key check
 pnpm tsx examples/self-improving-loop/self-improving-loop.ts
 pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts
 pnpm tsx examples/intelligence-drop-in/intelligence-drop-in.ts
 pnpm tsx examples/agents-of-all-shapes/run.ts
 TANGLE_API_KEY=... pnpm tsx examples/product-eval/product-eval.ts
-pnpm tsx examples/agentic-data-creation/run.ts                      # Autodata inner loop (offline)
+pnpm tsx examples/agentic-data-creation/run.ts
 ```
 
 ## Tracing
 
-The kernels emit `loop.*` trace events as they run; with `OTEL_EXPORTER_OTLP_ENDPOINT` set they
-export as OTel GenAI spans (see the root README § Tracing). `agents-of-all-shapes/` (#21) shows the
-full traces → insights pipe; the `agent-stack-adoption` skill documents the end-to-end production
-ingestion pipeline.
+Every loop emits `loop.*` trace events. Set `OTEL_EXPORTER_OTLP_ENDPOINT` and they export as standard
+OpenTelemetry GenAI spans — the same open format any observability backend reads. Example #21
+(`agents-of-all-shapes`) shows the traces-to-insights pipe end to end.

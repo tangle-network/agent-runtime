@@ -1,31 +1,74 @@
-# delegate — the one-call delegation verb
+# Say what you want in one sentence; get a result checked against reality
 
-`delegate(intent, opts)` hands an INTENT to a default authoring supervisor: a router-brained
-supervisor that DECOMPOSES the intent and AUTHORS the worker profile it needs — no hardcoded
-coder/researcher profile. It is a thin wrapper over `supervise()`, so the conserved-budget pool, the
-completion oracle, and equal-compute accounting come for free.
+Hand `delegate()` a plain-English instruction and a pass/fail check. A supervisor model reads the
+instruction, decides what kind of worker the job needs, builds that worker with exactly the tools it
+should have, and runs it — then settles the run **only when your check passes against the real world**,
+never on the worker's say-so.
 
 ```ts
 const result = await delegate(
   'Create a file named out.txt containing exactly the word hello …',
   {
-    backend,                       // WHERE the authored worker runs (router-tools here)
-    router: { routerBaseUrl, routerKey, model },  // the supervisor brain's substrate
-    deliverable: fileDeliverable(targetAbs, target), // settle ⟺ the file exists on disk
+    backend,                                          // where the worker runs + which tools it gets
+    router: { routerBaseUrl, routerKey, model },      // the model that powers the supervisor
+    deliverable: fileDeliverable(targetAbs, target),  // the pass/fail check, read off disk
     budget: { maxIterations: 40, maxTokens: 200_000, maxUsd: 0.5 },
   },
 )
 ```
 
-- **`backend`** is WHERE the authored worker runs. Here the worker is granted ONE tool — a
-  path-confined `write_file` — and nothing else.
-- **`deliverable`** is a DISK-TRUTH oracle: the run settles `winner` only when the file actually
-  exists with the right content, read off disk — never the worker judging itself. Always pass one.
-- **`result.spentTotal`** reports what the whole delegation cost on BOTH paths: a `winner` carries the
-  worker's spend, a `no-winner` carries what it spent before failing.
+## Why it matters
 
-Run: `TANGLE_API_KEY=<router key> pnpm tsx examples/delegate/delegate.ts`
+Most "AI agent" wiring makes you pick the worker, write its role, list its tools, then trust whatever
+it reports back. `delegate()` inverts that: you supply the **intent** and a **check**, and it authors
+the worker for you. The check is ground truth — in this example the run is only a `winner` when
+`out.txt` actually exists and contains `hello`, read straight off the filesystem. A confident "I did
+it!" from a worker that wrote nothing still **fails** the run. And `budget` is a hard ceiling on
+iterations, tokens, and dollars, so a stuck run can't drain your key; `result.spentTotal` reports what
+it cost whether it won or gave up.
 
-The reusable pieces (the `write_file` tool, the deliverable, the backend) live in `shared.ts`; the
-regression proof that drives the same wiring end-to-end is `tests/delegate-example.test.ts`
-(env-gated — a paid live e2e when `TANGLE_API_KEY` is set, skipped at $0 otherwise).
+## The three inputs
+
+- **`backend`** — where the worker runs and what it can touch. Here the worker gets exactly ONE tool: a
+  `write_file` confined to a scratch directory it cannot escape. Nothing else.
+- **`deliverable`** — the completion check, `{ check: () => …, describe: '…' }`. It reads disk, so the
+  result is trustworthy instead of self-reported. Always pass one.
+- **`budget`** — the hard ceiling above.
+
+## Run it — needs a Tangle router key
+
+There is no offline mode; `delegate.ts` exits immediately without a key, because a real model both
+supervises the run and powers the worker.
+
+```bash
+TANGLE_API_KEY=<your Tangle router key> pnpm tsx examples/delegate/delegate.ts
+```
+
+You'll watch the supervisor author a worker, the worker call `write_file` once, and the disk check pass:
+
+```
+=== delegate() ===
+brain / worker : deepseek-v4-flash / deepseek-v4-flash
+result.kind    : winner
+file           : "hello" @ /tmp/delegate-xxxx/out.txt
+spentTotal     : {"iterations":…,"tokens":{"input":…,"output":…},"usd":…,"ms":…}
+worker out     : "DONE"
+```
+
+Optional env: `WORKER_MODEL` sets the worker's model, `BRAIN_MODEL` the supervisor's, `MODEL` sets both
+(all default to `deepseek-v4-flash`); `TANGLE_ROUTER_URL` overrides the router endpoint
+(`https://router.tangle.tools/v1`).
+
+## Files
+
+| file | what it is |
+|---|---|
+| `delegate.ts` | the intent, the options, and the run |
+| `shared.ts` | the confined `write_file` tool, the disk-truth check, the scratch dir, and the worker backend |
+
+## Honest scope
+
+The task here — write one file — is deliberately trivial; the point is the **pattern**: intent in,
+worker authored for you, result verified against reality. The truth-check itself is a plain filesystem
+read that needs no key, and the whole loop is guarded end-to-end by `tests/delegate-example.test.ts`
+(a paid live test when `TANGLE_API_KEY` is set, skipped for $0 otherwise).

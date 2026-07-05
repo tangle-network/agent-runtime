@@ -1,21 +1,17 @@
 /**
- * benchmark-matrix — rank a MATRIX of agent cells (harness × model × persona) across a SUBSET of the
- * external benchmark registry, in one `runBenchmarks` call.
+ * Rank a set of AI agents across a set of public benchmarks, and print a leaderboard.
  *
- * The registry counterpart to the runtime's `examples/webcode-matrix` (which ranks profiles on one
- * custom suite via `runProfileMatrix`). Here the scenarios come from the 23-adapter registry
- * (swe-bench, terminal-bench, humaneval, dabstep, …), each with its OWN deterministic judge — so the
- * number is the benchmark's, not a self-authored score. Pick any subset of benchmarks and any set of
- * cells; the harness rides the in-box `backend.type`, the model rides the cell, the persona rides the
- * profile. A consumer at any level of the stack expresses its question as just these two arrays.
+ * A "cell" is one agent = a coding harness (opencode, Codex, a bare router call) + a model.
+ * Each benchmark (humaneval, swe-bench, terminal-bench, …) brings its OWN deterministic
+ * grader, so the score is the benchmark's, not one we invented. Pick the benchmarks with
+ * the BENCHMARKS env var; edit the `cells` array below to change who competes.
  *
- * Run it:
- *   # offline demo (no creds): a stub adapter + stub shot prove the matrix end to end
- *   tsx bench/src/examples/benchmark-matrix.mts
+ * Run from bench/:
+ *   # offline demo (no creds): a stub benchmark + stub agent prove the pipeline end to end
+ *   tsx src/examples/benchmark-matrix.mts
  *
- *   # live: real benchmarks × real harnesses, scored by each adapter's judge
- *   TANGLE_API_KEY=... BENCHMARKS=humaneval CELLS=opencode/glm-4.6,codex/gpt-5 \
- *     tsx bench/src/examples/benchmark-matrix.mts
+ *   # live: real benchmarks graded by their real graders
+ *   TANGLE_API_KEY=... BENCHMARKS=humaneval tsx src/examples/benchmark-matrix.mts
  */
 import type { BenchmarkAdapter, BenchScore, BenchTask } from '../benchmarks/types'
 import { type BenchCell, type BenchShot, printBenchmarksReport, runBenchmarks } from '../run-benchmarks'

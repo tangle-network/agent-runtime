@@ -1,33 +1,63 @@
-# stream-backends
+# Three sources of an AI's streaming output, one wire format for your app
 
-The three stream transports behind `runAgentTaskStream`, side by side, all
-landing on the same SSE serialization a browser route writes:
+An agent's output arrives as a live stream of events: text as it's typed, tool calls as they
+fire, tool results as they return. That stream can come from three very different places — a
+function you wrote, a remote sandbox running a coding agent, or any OpenAI-compatible chat
+API. This example runs all three and shows they emit the **same typed events** and serialize
+to the **same format a browser reads**, so the source is a swappable detail your UI never
+sees.
 
-| Backend | Factory | When |
-|---|---|---|
-| Iterable | `createIterableBackend` | You own the event loop (tests, scripted demos, custom shapes) |
-| Sandbox | `createSandboxPromptBackend` | A `@tangle-network/sandbox` box streams the canonical `SandboxEvent` vocabulary — the default mapper handles `message.part.updated` / `tool_call` / `tool_result`, no custom `mapEvent` needed |
-| OpenAI-compatible | `createOpenAICompatibleBackend` | Any OpenAI-compatible chat endpoint (the Tangle router, OpenAI, vLLM, ...) |
+## Why it matters
 
-Plus the two SSE helpers: `runtimeStreamServerSentEvent` for each
-`RuntimeStreamEvent`, and `readinessServerSentEvent` for the one-off
-knowledge-readiness event a gated task emits.
+The painful coupling in agent apps is that the frontend ends up knowing which backend it's
+talking to — mock in tests, a real model in prod, a sandbox for the heavy stuff — because
+each streams a different shape. Here they don't. Every backend lands on one typed event
+stream and one SSE serialization, so you swap transports (test → sandbox → hosted model)
+without touching the route that streams to the browser or the code that collects the events.
 
-## Run
+("SSE" is Server-Sent Events, the plain `data: ...\n\n` streaming format a browser reads with
+`EventSource` — the standard way a web app receives a live token stream.)
+
+## The three backends
+
+| Backend | You'd use it for |
+|---|---|
+| **Iterable** (`createIterableBackend`) | You own the loop: write an async generator that yields events directly. For tests, scripted demos, or wrapping a stream shape the others don't map. |
+| **Sandbox** (`createSandboxPromptBackend`) | A remote `@tangle-network/sandbox` box runs the agent and streams back its native events (text updates, tool calls, tool results). The default mapper already understands them, so you write no translation code. |
+| **OpenAI-compatible** (`createOpenAICompatibleBackend`) | Any OpenAI-style chat endpoint: OpenAI itself, the Tangle router, a local vLLM server. |
+
+All three feed `runAgentTaskStream`, which emits a typed `RuntimeStreamEvent` stream, which
+two helpers serialize to SSE (`runtimeStreamServerSentEvent` per event, plus
+`readinessServerSentEvent` for a one-off "still waiting on required info" event a gated task
+can emit).
+
+## Run it
 
 ```bash
 pnpm tsx examples/stream-backends/stream-backends.ts
 ```
 
-The iterable and sandbox sections run offline (synthetic box). The
-OpenAI-compatible section runs only when `OPENAI_API_KEY` is set
-(`OPENAI_BASE_URL` / `OPENAI_MODEL` optional) and says so when skipped.
+No API key needed for the first two backends: the iterable and sandbox sections run offline
+against a synthetic in-process box. You'll see each section stream SSE frames to stdout,
+e.g.:
 
-## What it shows
+```
+--- iterable backend ---
+data: {"type":"text_delta","text":"you said: hello\n"}
 
-- All three backends yield the same typed `RuntimeStreamEvent` stream —
-  swapping transports does not touch your route or your collector wiring
-- The sandbox-SDK event vocabulary consumers copy verbatim (text deltas as
-  `message.part.updated` with nested `part.text`, tool turns as
-  `tool_call` / `tool_result`)
-- SSE framing for browser routes in two helper calls
+--- sandbox backend ---
+data: {"type":"text_delta","text":"received: hello\n"}
+data: {"type":"tool_call","toolName":"Read","toolCallId":"call_1", ...}
+data: {"type":"tool_result","toolName":"Read", ...}
+```
+
+The third (OpenAI-compatible) section is skipped with a printed note unless you give it a real
+endpoint:
+
+```bash
+OPENAI_API_KEY=sk-... pnpm tsx examples/stream-backends/stream-backends.ts
+```
+
+Point it anywhere OpenAI-compatible with `OPENAI_BASE_URL` and `OPENAI_MODEL` — e.g. set
+`OPENAI_BASE_URL=https://router.tangle.tools/v1` and pass a Tangle key as `OPENAI_API_KEY` to
+stream from the Tangle router. The output is the same SSE shape as the offline sections.
