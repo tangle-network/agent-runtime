@@ -1,13 +1,15 @@
 /**
- * Math through the suite — the ANY-DOMAIN generalization proof. No tool surface, no gym,
- * no sandbox: the domain is one `check` function (numeric answer match), built with
- * `createVerifierEnvironment`. The same strategies (sample / refine / your own) compete
- * on word problems exactly as they do on EOPS tickets or commit0 repos.
+ * Grade an AI's answers, then let it retry until they're right.
  *
- * This is the template for every answer-shaped product domain: tax (a computed return
- * value), legal (a clause checklist), creative/gtm (a rubric scorer) — swap `check`.
+ * The "task" is three word problems; the "check" is one function that scores the final
+ * number by exact match. `createVerifierEnvironment` turns that single check into a full
+ * benchmark, and the toolkit compares ways of spending the compute budget: sample (N blind
+ * attempts, keep the best), refine (a critic reads the failure and steers the retry), and
+ * sampleThenRefine (both). Swap the `check` and this same file grades a tax return value,
+ * a rubric score, anything answer-shaped.
  *
- *   WORKER_MODEL=gpt-4o-mini BUDGET=3 tsx src/examples/math-demo.mts
+ * Run from bench/ (needs a router key; default model deepseek-v4-flash):
+ *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini BUDGET=3 tsx src/examples/math-demo.mts
  */
 import {
   type AgenticTask,

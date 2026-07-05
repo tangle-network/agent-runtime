@@ -1,52 +1,65 @@
-# strategy-suite
+# Compare ways of spending an AI's attempts, fairly, on your own pass/fail check
 
-The optimization suite (`@tangle-network/agent-runtime/loops`) in three
-layers, on a tiny in-memory `Environment` — no benchmark dataset, no gym, no
-sandbox.
+Give an AI agent a task and a budget of, say, 3 attempts. Should it take 3 independent shots
+and keep the best? Or take one shot, have a critic read what went wrong, and steer the next?
+Those are two *strategies*, and which one wins depends on the task. This example runs both
+(plus one you write yourself) against the same task, at the same budget, scored by the same
+check, and prints who won.
 
-The model: you have a **task**, a deployable **check**, and a compute
-**budget**. A *strategy* is **how you spend the budget to beat the check**.
-You implement an `Environment` (5 hooks: `open` / `tools` / `call` / `score`
-/ `close`) and get the strategies compared, scored by your own check, for
-free.
+You bring three things: a **task**, a **check** that says pass/fail (your own code, never an
+LLM's opinion), and a **budget**. The library brings the strategies and a fair tournament.
 
-1. **Just run it** — `runBenchmark({ environment, tasks, worker })` compares
-   strategies at equal budget and reports the paired lift.
-2. **Pick built-ins** — this run compares two: `sample` (N independent attempts, keep the
-   best-verifying) and `refine` (attempt → critic reads the trace → steer the next → repeat). Two more
-   ship and swap in the same way: `adaptiveRefine` (refine, but abandon-and-restart a line that stops
-   improving) and `sampleThenRefine`.
-3. **Author your own** — `defineStrategy(name, body)`. A body composes two steps — `shot()` (one worker
-   attempt over the artifact) and `critique()` (the firewalled analyst reads the trace → a steer) — with
-   zero Supervisor/Scope ceremony. The example authors **`doubleCheck`**: a policy the built-ins *don't*
-   have — it never trusts a single passing shot, requiring the solution to pass **twice in a row** before
-   it stops (a flake/luck guard). `refine` ships on the first pass; `doubleCheck` re-verifies once more.
-   The payoff is real on a non-deterministic surface (flaky tools/tests) — the whole point of authoring a
-   stop-condition the library doesn't ship, in ~10 lines.
+## Why it matters
 
-## Run
+The gap between a mediocre agent and a good one is often not the model, it's how you spend
+its attempts. Best-of-N, iterate-with-feedback, retry-on-flake all cost the same tokens and
+win on different tasks. This gives you an apples-to-apples bench to find out which, instead
+of guessing, and a 10-line way to add your own idea to the race.
+
+## The three strategies in this run
+
+- **`sample`** — take N independent attempts, keep the one that passes the check. (Best-of-N.)
+- **`refine`** — take one attempt, a critic reads the failure trace and writes a hint, feed
+  the hint into the next attempt, repeat until it passes.
+- **`doubleCheck`** — the one this file writes from scratch (in ~15 lines), to show how. Its
+  rule the built-ins don't have: never trust a single passing attempt, require the solution
+  to pass **twice in a row** before stopping. That's a guard against a lucky pass on a flaky
+  task (real tools, non-deterministic tests). On this deterministic toy task it just matches
+  `refine` plus one confirming shot; its payoff shows up when passes are unreliable.
+
+The task itself is deliberately trivial (drive a counter to 5 using an `increment` tool,
+verify with `read_count`) so the file is about the *strategy machinery*, not the puzzle.
+
+## Run it
 
 ```bash
-pnpm tsx examples/strategy-suite/strategy-suite.ts                      # offline (injected transport)
-TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts   # live Tangle router worker
+pnpm tsx examples/strategy-suite/strategy-suite.ts
 ```
 
-With no key the worker runs against an injected `complete` transport
-(`RouterConfig.complete`) — a deterministic in-process responder that drives
-the counter — so the whole comparison runs end-to-end with zero credentials
-and no localhost server. Set `TANGLE_API_KEY` to swap in the live Tangle
-router as the drop-in upgrade (`WORKER_MODEL` / `ROUTER_BASE` optional).
-Everything else — the environment, the check, the strategies — runs
-in-process either way.
+No API key needed. Without one, the "model" is a small deterministic in-process responder
+(no network, no server) that drives the counter correctly on the first shot. Because it
+never fails, **all three strategies tie at 100%** — that is expected: the offline run proves
+the *wiring* (equal budget, scored by your own check), not that the strategies differ. The
+run prints a banner saying exactly this, then a report table.
+
+To make the strategies actually separate, point it at a live model so attempts can fail and
+`refine`'s feedback loop can earn its keep:
+
+```bash
+TANGLE_API_KEY=sk-tan-... pnpm tsx examples/strategy-suite/strategy-suite.ts
+```
+
+`WORKER_MODEL` (default `gpt-4o-mini`) and `ROUTER_BASE` are optional overrides.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `strategy-suite.ts` | authors `doubleCheck`, wires the offline responder, runs the comparison |
+| `counter-env.ts` | the toy domain: the counter, its two tools, and the pass/fail check |
 
 ## Where to go next
 
-- **Evolve strategies instead of hand-picking them** —
-  `runStrategyEvolution` + `authorStrategy` + `promotionGate` (same subpath)
-  author candidate strategies from observed per-task losses and promote only
-  what wins on a held-out slice.
-- **Real domains + the empirical results** — `bench/HARNESS.md` (the
-  canonical suite over EnterpriseOps-Gym, coding, and answer-shaped domains)
-  and `bench/src/examples/` (the counter demo's bigger siblings).
-- **Custom recursive topologies** below the strategy layer —
-  [`examples/recursive-supervisor/`](../recursive-supervisor/).
+- To have an AI *write* new strategies from the tasks each one loses on, and promote a winner
+  only if it beats the incumbent on held-out tasks, see
+  [`../strategy-evolution/`](../strategy-evolution/) (it reuses this same counter domain).

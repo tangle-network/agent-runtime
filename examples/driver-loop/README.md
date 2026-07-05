@@ -1,72 +1,70 @@
-# driver-loop
+# A retry loop that actually learns from failure
 
-**See the fold.** This is the single most important example in the set: a driver that
-*reads the last worker's output and writes the next instruction from it*. That read-then-rewrite
-move — "the fold" — is what every supervisor in this repo is built on. Once you've seen it here,
-`supervise()`, the coordination MCP, and the self-improvement loop all read as variations of it.
+Most "retry on failure" code just runs the same thing again and hopes. This one is smarter: after each
+attempt it **reads what the worker actually produced, sees why it was rejected, and writes a new,
+corrected instruction from that output** before trying again. The same move a good engineer makes — read
+the error, fix the specific thing, retry — in ~40 lines of plain, readable code.
 
-Runs fully offline (a scripted worker, no credentials):
+## See it work — no API key, ~1 second
 
 ```bash
 pnpm tsx examples/driver-loop/driver-loop.ts
 ```
 
-## Vocabulary
+The task: write a one-line release note that must mention the word "rollback".
 
-These words are used across every example. The key thing: **a shot, a round, and a turn are the
-same atom** — one driver↔worker exchange. "Many shots" is the *sequence* of them, not a fanout.
+```
+SHOT 0: [reject] note = "Shipped one-click restore for failed deploys."
+         └─ driver folds this rejected output into shot 1
+SHOT 1: [PASS]   note = "Shipped one-click restore with an instant rollback path if a deploy goes bad."
 
-| Term | Meaning |
-|---|---|
-| **shot** = **round** = **turn** | ONE driver↔worker exchange: `driver ──prompt──▶ worker ──output (+traces/analysis)──▶ driver`. (`runLoop` increments a "round"; the multi-turn conversation primitive calls it a "turn"; people say "shot". Same atom.) |
-| **the loop** (*"many shots"*) | A **sequence** of shots where each output **folds** into the next prompt: `prompt0 ▶ worker ▶ output0 ▶ driver ▶ prompt1 ▶ worker ▶ …`. Each shot builds on the last. **This example.** |
-| **refine** | The strategy this file uses: keep taking shots, folding the last output into the next prompt, until a check passes (depth). |
-| **fanout** (*best-of-N*) | A **different** axis: N *independent* shots with **no fold** between them, keep the best (breadth). This is **not** "many shots" in the looping sense — see `examples/researcher-loop`. |
-
-## What the example shows
-
-A multi-shot **refine** driver:
-
-- **Shot 0** — `driver.plan(task, history=[])`: no history yet, so it runs the worker once. The
-  worker drafts a release note but forgets a required word, so the validator **rejects** it.
-- **Shot 1** — `driver.plan(task, history=[1 rejected])`: the driver READS the rejected draft
-  and its verdict out of `history`, then COMPOSES a corrective prompt *from that output* ("your
-  draft was X, it was rejected because Y — rewrite it to mention Z"). The worker obeys the new
-  prompt and the validator **passes**.
-
-The two load-bearing lines in `driver-loop.ts` are commented `THE FOLD, PART 1: INGEST` (where it
-reads `history[history.length-1].output`) and `THE FOLD, PART 2: GENERATE` (where it builds the
-next prompt). In production a router LLM does that composition — it reads the folded worker output
-from its tool-result messages and writes the next spawn's prompt. Here it's plain code so the seam
-is visible.
-
-```mermaid
-flowchart TD
-  task["NoteTask\nprompt: draft a release note"] --> plan0
-  subgraph s0["SHOT 0 — plan(task, history=[])"]
-    plan0["driver runs the worker once"]
-  end
-  plan0 --> w0["worker → 'Shipped one-click restore for failed deploys.'"]
-  w0 --> v0{"validator: mentions 'rollback'?"}
-  v0 -->|no — REJECT| fold["THE FOLD\ndriver reads the rejected draft\n+ builds a corrective prompt from it"]
-  subgraph s1["SHOT 1 — plan(task, history=[1 rejected])"]
-    fold
-  end
-  fold --> w1["worker → '…with an instant rollback path…'"]
-  w1 --> v1{"validator: mentions 'rollback'?"}
-  v1 -->|yes — PASS| done["decide → pick-winner"]
+decision: pick-winner
+winner: shot 1
 ```
 
-**Shot vs fanout (the other axis).** This file refines *depth*-wise: each shot improves on the
-last by folding its output forward. The orthogonal move is *breadth* — fire N independent shots at
-once with no fold between them and keep the best (a fanout / best-of-N). That's a different example:
-see `examples/researcher-loop`, whose driver is single-round and content-blind on purpose.
+Shot 0 forgets the required word and gets rejected. The driver reads that rejected draft **and the
+reason it failed**, then builds shot 1's prompt from them: *"your draft was X, it was rejected because
+Y, rewrite it to mention rollback."* Shot 1 obeys and passes. Shot 1 succeeds **because** shot 0
+failed — that's the whole point.
 
-## Where this goes next
+## Why it matters
 
-- `examples/supervise/` — the one-call `supervise(profile, goal)` where a router LLM does the fold
-  for you.
-- `examples/supervisor-loop/` — the same supervisor over a real worker backend (sandbox box /
-  local cli-bridge), worker backend as the only knob.
-- `examples/researcher-loop/` — a `runLoop` driver that is *single-round* and *content-blind* on
-  purpose (a fanout, never a fold); read it to see the breadth axis next to this file's depth axis.
+That read-then-rewrite move is the core of every self-correcting agent: the difference between a loop
+that blindly re-rolls the dice and one whose next attempt is *informed* by the last. This example
+strips it down to plain code so you can see exactly where it happens — the two key lines are commented
+`THE FOLD, PART 1: INGEST` (reads the previous output) and `THE FOLD, PART 2: GENERATE` (writes the
+next prompt from it). In a production agent a model does that composition; here it's hand-written so
+nothing is hidden.
+
+## A driver is just two functions
+
+- **`plan(task, history)`** — given everything that happened so far, what should the worker run next?
+  On the first attempt there's no history, so it runs the task as-is; on later attempts it reads the
+  last result and composes a corrected prompt. Returning `[]` means "stop, no more attempts."
+- **`decide(history)`** — are we done? Returns `pick-winner` (a passing attempt exists, ship it),
+  `fail` (out of attempts, give up), or `refine` (keep going — run `plan()` again).
+
+```
+attempt 0 ──▶ worker ──▶ output ──▶ check ──▶ (reject) ──▶ driver reads it, rewrites the prompt
+attempt 1 ──▶ worker ──▶ output ──▶ check ──▶ (PASS) ──▶ pick-winner
+```
+
+## Why it runs offline
+
+The "worker" is a scripted stand-in (`scripted-worker.ts`): if the incoming prompt mentions "rollback"
+it returns the good draft, otherwise the naive one. That determinism is what lets the example *prove*
+the loop worked — shot 1 can only pass if the driver folded the right correction into its prompt. No
+credentials, no network, same result every run.
+
+## Files
+
+| file | what it is |
+|---|---|
+| `driver-loop.ts` | the driver — `plan()` does the read-then-rewrite, `decide()` picks when to stop |
+| `scripted-worker.ts` | the offline stand-in worker, its output parser, and the pass/fail check |
+
+## Honest scope
+
+Everything here is real and runs for $0 — the *worker* is scripted so the loop is deterministic and
+provable, but the driver, the loop kernel (`runLoop`), and the winner-selection are the actual runtime
+primitives. Swap the scripted worker for a live model-backed one and the same driver drives it.

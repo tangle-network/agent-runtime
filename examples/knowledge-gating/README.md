@@ -1,45 +1,63 @@
-# knowledge-gating
+# Stop an agent before it acts on facts it doesn't have
 
-## The minimal adapter first
+An agent should not "review your tax return" if it doesn't actually know your filing status. This
+example shows a runtime that **checks what a task needs to know before letting the agent do anything**,
+refuses to start when a required fact is missing, and hands the agent the specific open question so it
+can go get the answer (ask you, query a database) instead of guessing or silently failing. It runs
+offline with no API key.
 
-The smallest `runAgentTask` invocation is a domain `AgentAdapter` with four
-lifecycle methods — `observe` (read domain state), `validate` (score it),
-`decide` (return `{ type: 'continue', action }` or `{ type: 'stop', reason }`),
-and `act` (apply the action). The adapter in this example is exactly that
-minimal shape; use it as the starting point for any new domain agent.
+## Why it matters
 
-## Then the gate
+The common agent failure isn't a bad answer — it's a confident answer built on a fact the agent never
+had. This flips the default to **fail-closed on missing knowledge**: a task declares the facts it
+depends on, the runtime scores whether those facts are present and confident enough, and a *blocking*
+gap halts the run before the agent can act. You get a clean "I need X first" instead of a plausible
+hallucination.
 
-This example adds one concept on top: a task that declares required
-knowledge. The runtime scores readiness before running the control loop and
-stops if a blocking requirement is missing. The adapter's
-`onKnowledgeBlocked` hook lets you convert the block into a domain action
-(asking the user, querying a connector, etc.) instead of failing the run.
+## How it works
 
-## Run
+A task carries a `requiredKnowledge` list. Each entry says what's needed, how confident the agent must
+be (`confidenceNeeded`), and how bad it is to miss (`importance: 'blocking'` vs. optional). Before the
+control loop runs, the runtime scores readiness. Two outcomes:
+
+- **Missing a blocking fact** → the run is gated and the adapter's `onKnowledgeBlocked` hook fires,
+  receiving the exact open questions. A real agent returns an action here ("ask the user", "query the
+  connector") and re-scores; this demo just records the question it *would* ask and stops.
+- **All facts present** → readiness passes and the agent's normal loop runs.
+
+The agent itself is a tiny four-method `adapter` — `observe` (read state), `validate` (score it),
+`decide` (continue or stop), `act` (apply an action) — the minimal shape any new domain agent starts
+from. The knowledge gate sits in front of it; no knowledge provider is needed for the basic case.
+
+## See it work — no API key needed
 
 ```bash
 pnpm tsx examples/knowledge-gating/knowledge-gating.ts
 ```
 
-## What it shows
+Runs the same task twice — once with zero confidence in the filing status, once with full confidence:
 
-- `task.requiredKnowledge` — declaring what the task needs to know
-- The runtime's default readiness scoring (no provider needed for the
-  basic case) — `result.knowledge.readinessScore` and
-  `result.knowledge.recommendedAction`
-- `adapter.onKnowledgeBlocked` — converting a block into a domain action
+```
+blocked status: blocked
+  readinessScore: 0
+  recommendedAction: <ask the user>
+  blocking gaps: [ 'filing-status' ]
+  onKnowledgeBlocked → would ask the user: Taxpayer filing status
 
-## When you do need a knowledge provider
+ready status: <completed>
+  readinessScore: 1
+  recommendedAction: <proceed>
+```
 
-Pass an `AgentKnowledgeProvider` when you want to:
+## Files
 
-- Pull evidence/answers from your own DB or connectors before scoring
-  (`buildReadiness`)
-- Resolve user questions yourself instead of letting the runtime emit
-  them (`answerQuestions`)
-- Run acquisition plans (`executeAcquisitionPlans`) and re-score
-  (`refreshReadiness`)
+| File | What's in it |
+|---|---|
+| `knowledge-gating.ts` | The minimal adapter, a task with a blocking requirement, and both the blocked and ready runs |
+| `README.md` | This file |
 
-The provider interface is fully optional — every method has a default
-fallback.
+## Optional: bring your own knowledge
+
+The basic case needs no external provider. Pass an `AgentKnowledgeProvider` only when you want to pull
+evidence from your own database before scoring, answer the open questions yourself, or run acquisition
+steps and re-score. Every method has a default fallback, so it's fully opt-in.

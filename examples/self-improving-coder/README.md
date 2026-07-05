@@ -1,35 +1,83 @@
-# self-improving-coder
+# An agent that improves itself — and can only ship a change if it's provably better
 
-The self-improvement flywheel, composed cleanly, on a **contamination-proof** coding task. An agent authors candidate strategies from its training-set losses, then a **held-out gate** ships a change only if it beats the current agent on fresh tasks the search never touched — so registering an agent for self-improvement can never make it worse.
+An agent solves coding tasks, learns from the ones it fails, and writes new **strategies** (better
+plans for attacking the task) to try. The catch: a new strategy is only kept if it beats the current
+agent on a batch of **fresh tasks the search never saw** — measured with a statistical test, read
+exactly once. So the loop can make the agent better, but it can never make it worse, and it can never
+fool itself into thinking it improved when it didn't.
 
-Nothing here is hand-rolled: the agent is an `AgentProfile` worker, the task is an `AgenticSurface`, and the gated flywheel is `runStrategyEvolution` + `promotionGate` (a seeded paired-bootstrap CI on a disjoint holdout, read exactly once).
+Everything here is composed from the runtime's own pieces, nothing hand-rolled: the agent is a
+worker profile, the task is a pluggable environment (open a workspace, offer tools, grade the
+result), and the whole gated loop is one call — `runStrategyEvolution`.
+
+## Why it matters
+
+"Self-improving agent" is usually a demo that trains and tests on the same tasks, so it reports a
+lift that's really just memorization. This example is built to make that impossible:
+
+- **The gate is honest.** After the search, one decision is made on a **held-out** batch of tasks
+  the search never touched, using a paired bootstrap confidence interval (a resampling test that
+  asks "is this lift real or just luck?"). The held-out batch is disjoint by construction and read
+  once, so the loop cannot quietly tune itself to the test.
+- **The task can't be memorized.** Each task is a tiny wire-protocol library whose exact rules
+  (version string, separator, checksum modulus) are **derived from a random seed** and defined
+  *only* by the test file. A frontier model can't recall the answer — the contract is generated
+  fresh per task. And it's graded by **real pytest**, not by another model's opinion.
 
 ## Run
 
 ```bash
-# $0, no creds — proves the task is solvable AND the grader discriminates before spending anything.
+# Step 1 — $0, no key. Proves the task is solvable AND the grader tells right from wrong,
+# BEFORE you spend anything on models. If this fails, the task/grader is broken — fix it first.
 CALIBRATE=1  pnpm tsx examples/self-improving-coder/self-improving-coder.ts
 
-# the real flywheel (needs a router key + python3/pytest on the host to run the deployable check).
+# Step 2 — the real loop. Needs a router API key, plus python3 + pytest on your machine
+# (pytest is the grader).
 TANGLE_API_KEY=sk-...  pnpm tsx examples/self-improving-coder/self-improving-coder.ts
 ```
 
-Env knobs: `WORKER_MODEL` (default `deepseek-v4-flash`), `AUTHOR_MODEL` (default `gemini-2.5-pro`), `TRAIN_N`, `ROUTER_BASE`.
+Step 1 prints a clean calibration table — reference solution passes all 9 tests, empty stub passes 0,
+on five different seeds:
 
-## What you'll see — and why "No promotion" is the honest, correct result
+```
+═══ CALIBRATION ($0) — task solvable + grader discriminates? ═══
+  seed 0: stub 0/9  →  reference 9/9  ✓
+  seed 1: stub 0/9  →  reference 9/9  ✓
+  seed 2: stub 0/9  →  reference 9/9  ✓
+  seed 7: stub 0/9  →  reference 9/9  ✓
+  seed 11: stub 0/9  →  reference 9/9  ✓
 
-**The bundled task is deliberately simple** — a few wire-protocol functions fully pinned by their tests. A capable model aces it (every strategy scores 1.0), so the gate **correctly returns no promotion**: you cannot demonstrate improvement where there is no headroom, and this harness refuses to fake one (`calibrate-before-measure`, enforced). That null is the point — the gate is honest.
+>>> CALIBRATED — task is solvable + the grader discriminates. Safe to run the loop.
+```
 
-**To see a real promotion, give it a task with a correctable middle band** (some attempts pass, some fail — the only regime where improvement is measurable):
-- swap `environment`/`tasks` for the algorithmically-hard generated env in [`../ablation-suite/hard-coding-env.ts`](../ablation-suite/hard-coding-env.ts), or
-- swap in the SWE-bench `Environment` (`bench/src/benchmarks/swe-bench.ts`) — everything else is identical. *(SWE-bench is contamination-**suspect**: its bugs are public GitHub fixes a model may have memorized — report that, never claim clean.)*
+Useful env knobs: `WORKER_MODEL` (the agent that codes, default `deepseek-v4-flash`), `AUTHOR_MODEL`
+(the model that writes new strategies, default `gemini-2.5-pro`), `TRAIN_N`, `HOLDOUT_N`,
+`ROUTER_BASE`.
 
-## Why contamination-proof
+## Why "No promotion" is the correct result on the bundled task
 
-Each task is a small wire-protocol library whose constants (version, separators, checksum modulus, opcode) are **derived from the seed** and specified **only** by the test file — so a frontier model cannot have memorized the fix; the exact contract is generated per task. Graded by **real pytest** (a deployable check), never an LLM judge.
+The bundled task is **deliberately easy** — a few functions fully pinned by their tests. A capable
+model aces every attempt (each strategy scores 1.0), which leaves the gate no headroom to detect an
+improvement, so it correctly reports **no promotion**. That null isn't a bug; it's the gate refusing
+to invent a win where none exists. You can't demonstrate self-improvement on a task with no room to
+improve, and this harness won't pretend otherwise.
 
-## Related
+To see a real promotion, give the loop a task with a middle band — some attempts pass, some fail:
 
-- [`improve`](../improve) — the one-call `improve(profile, findings)` facade over this loop.
-- [`self-improving-loop`](../self-improving-loop) — the same gate on a prompt surface, offline.
-- [`strategy-evolution`](../strategy-evolution) — the multi-generation `runStrategyEvolution` in isolation.
+- Swap in the algorithmically-hard generated environment at
+  [`../ablation-suite/hard-coding-env.ts`](../ablation-suite/hard-coding-env.ts), or
+- Swap in SWE-bench (`bench/src/benchmarks/swe-bench.ts`) — everything else stays the same. *(Note:
+  SWE-bench bugs are public GitHub fixes a model may have memorized, so it's contamination-suspect —
+  report that, don't claim it's clean.)*
+
+## Files
+
+| file | what it is |
+|---|---|
+| `self-improving-coder.ts` | the whole thing: the seed-derived task generator, the pytest-graded environment, the calibration self-check, and the gated `runStrategyEvolution` call |
+
+## Related examples
+
+- [`../improve`](../improve) — the one-call `improve(profile, findings)` shortcut over this same loop.
+- [`../self-improving-loop`](../self-improving-loop) — the same held-out gate on a text/prompt task, fully offline.
+- [`../strategy-evolution`](../strategy-evolution) — the multi-generation search in isolation, without the coding task.
