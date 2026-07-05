@@ -26,7 +26,6 @@
 
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { withDriverExecutor } from './driver-executor'
-import { withLoopExecutor } from './loop-executor'
 import { createExecutorRegistry } from './runtime'
 import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
 
@@ -39,13 +38,6 @@ export interface InMemoryRunContextOptions {
    * leaf workers. Default `false`.
    */
   readonly withDriver?: boolean
-  /**
-   * Wrap the executor registry with `withLoopExecutor` so a spawned child marked
-   * `role: 'loop'` resolves to the loop-executor (a coded, budget-conserving, gated,
-   * steerable multi-round loop over a nested `Scope` on the same pool). Composes with
-   * `withDriver` so loops and drivers coexist. Default `false`.
-   */
-  readonly withLoop?: boolean
 }
 
 /**
@@ -64,15 +56,9 @@ export interface InMemoryRunContext {
  */
 export function createInMemoryRunContext(opts: InMemoryRunContextOptions = {}): InMemoryRunContext {
   const base = createExecutorRegistry()
-  // Compose the recursion decorators: a `role: 'driver'` child routes to the driver-executor,
-  // a `role: 'loop'` child to the loop-executor, everything else to the base registry. Each
-  // wrapper delegates non-matching specs down, so the order only stacks the role checks.
-  let executors = base
-  if (opts.withDriver) executors = withDriverExecutor(executors)
-  if (opts.withLoop) executors = withLoopExecutor(executors)
   return {
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
-    executors,
+    executors: opts.withDriver ? withDriverExecutor(base) : base,
   }
 }

@@ -3970,7 +3970,7 @@ Defined in: [mcp/tools/coordination.ts:95](https://github.com/tangle-network/age
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](runtime.md#scope-2)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](runtime.md#scope-1)\<`unknown`\>
 
 Defined in: [mcp/tools/coordination.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L96)
 
@@ -3988,7 +3988,7 @@ Defined in: [mcp/tools/coordination.ts:98](https://github.com/tangle-network/age
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](runtime.md#budget-13)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-12)
 
 Defined in: [mcp/tools/coordination.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination.ts#L99)
 

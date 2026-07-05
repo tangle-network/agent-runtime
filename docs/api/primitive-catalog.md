@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.88.0` and `@tangle-network/agent-eval@0.103.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.89.0` and `@tangle-network/agent-eval@0.103.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -246,7 +246,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 438 exports.
+Import from `@tangle-network/agent-runtime/loops` — 430 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -288,7 +288,6 @@ Import from `@tangle-network/agent-runtime/loops` — 438 exports.
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
 | `defineLeaderboard` | function | Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable |
-| `defineLoop` | function | Author a coded loop atom. The returned `LoopDef` is handed to `loopChild` to become a |
 | `definePersona` | function | Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with |
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
 | `delegate` | function | Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged. |
@@ -312,7 +311,6 @@ Import from `@tangle-network/agent-runtime/loops` — 438 exports.
 | `leaderboard` | function | Aggregate a fleet of records into the ranked, multi-axis report. Pure — no IO, deterministic. |
 | `localShell` | function | Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr, code }` (never throws on non-zero exit). |
 | `loopCampaignDispatch` | function | Adapter for plain `runCampaign` scenarios. This is the runtime-side pair for |
-| `loopChild` | function | Mark + carry an authored loop so the recursive registry resolves it to the |
 | `loopDispatch` | function | Adapter for `runProfileMatrix` (profile is an axis). Returns a |
 | `loopUntil` | function | `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into |
 | `makeFinding` | function | Convenience factory: produce a fully-formed AnalystFinding with the |
@@ -373,7 +371,6 @@ Import from `@tangle-network/agent-runtime/loops` — 438 exports.
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
-| `withLoopExecutor` | function | Register the loop-executor so a child marked `role: 'loop'` resolves to it. Mirrors |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
@@ -384,7 +381,6 @@ Import from `@tangle-network/agent-runtime/loops` — 438 exports.
 | `defaultAuditorInstruction` | const | Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories. |
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
 | `defaultProfileRichnessThresholds` | const | Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt. |
-| `loopRuntime` | const | The runtime tag the registry maps a loop child to. |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
@@ -459,14 +455,10 @@ Import from `@tangle-network/agent-runtime/loops` — 438 exports.
 | `LeaderboardScenario` | interface | The campaign scenario a case is wrapped into: the case rides along so |
 | `LeaderboardScore` | interface | Structured per-case verdict a `score` function may return (a bare number is |
 | `LeaderboardSpec` | interface | The declarative leaderboard spec. `TArtifact` is the artifact channel the |
-| `LoopAgent` | interface | One named agent in a MULTI-AGENT loop (the `agents` form of `defineLoop`). `run` does the |
 | `LoopCampaignDispatchOptions` | interface | Options for adapting plain agent-eval campaign scenarios into runtime `runLoop` cells. |
-| `LoopDef` | interface | An authored coded loop: a name, a round ceiling, the round body, and an optional |
 | `LoopIterationDispatchPayload` | interface | Where the iteration's worker was placed. `sibling` = a fresh sandbox the |
 | `LoopLineageOptions` | interface | Opt-in box-lineage controls for `runLoop`. Default OFF — with both flags |
 | `LoopPlanPayload` | interface | Emitted once per `plan()` round, immediately after the driver plans. Carries |
-| `LoopRoundCtx` | interface | What one round of a loop receives. The scope is the NESTED scope — spawn conserved |
-| `LoopRoundResult` | interface | What a round returns. `out` is the running result; `done: true` stops the loop early |
 | `LoopTeardownFailedPayload` | interface | Emitted when a box's `delete()` throws or times out during teardown — the |
 | `LoopTokenUsage` | interface | LLM token usage. Structurally matches agent-eval's `RunTokenUsage` / |
 | `LoopUntilSpec` | interface | `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step` |

@@ -78,7 +78,6 @@ to its native default (`HARNESS_NATIVE_MODEL`) — never silently dropped.
 | **Produce-then-gate / multi-judge quorum / fixed chain** | `verify` / `panel` / `pipeline` — `/loops` | canonical-api §3.1 |
 | **Run depth-vs-breadth (or a custom strategy) over a stateful tool domain** | `runAgentic({ surface, task, mode\|strategy, budget })` — `/loops` | canonical-api §3.3 |
 | **Author a new topology/strategy compactly** | `defineStrategy(name, body)` w/ `ctx.shot()`+`ctx.critique()` — `/loops` | canonical-api §3.3 |
-| **Spawn a coded loop as a first-class atom** (bounded/gated/steerable, spawned + steered like a worker — the 3rd shape beside leaf worker + driver child) | `defineLoop(name, { maxRounds, round | agents, check })` + `loopChild`, wired via `createInMemoryRunContext({ withLoop: true })` — `/loops` — multi-agent = `agents: [proposer, verifier]` (declarative chain, not a bespoke `runTwoAgent…` fn); NOT a hand-driver looping in the model's head; the loop-executor owns maxRounds + conserved budget + gate + steer-between-rounds | canonical-api decision table |
 | **Add a stateful tool-using domain** | implement `AgenticSurface` (5 hooks) — `/loops` | canonical-api §3.3 |
 | **Drive a team of agents over a graded `AgenticSurface` task** (workers settle on its check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })` — `/loops` | canonical-api §2 |
 | **Benchmark: compare strategies + significance + Pareto on a domain** | `runBenchmark({ environment, tasks, worker, strategies })` — `/loops` | canonical-api §3.3 |
@@ -149,10 +148,6 @@ holds the load-bearing invariant the parallel breaks:
 - a per-provider stream→event mapper for a single agent turn **≈**
   `streamAgentTurn` + `collectAgentTurn` (0.85+; one `RuntimeStreamEvent`
   contract over box / executor / chat, guaranteed terminal result+usage).
-- a supervisor `act` with a `for (round…)` loop that spawns + checks + continues
-  in the model's reasoning **≈** `defineLoop` + `loopChild` (the loop-executor
-  enforces the round ceiling, the conserved pool, the completion gate, and
-  steer-between-rounds; a hand-driver loop enforces none of them).
 
 ## End-to-end recipe
 
