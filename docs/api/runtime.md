@@ -2807,7 +2807,7 @@ The analyst agent the combinator spawns over the trace. `harness` is the persona
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-13)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/analyst.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/analyst.ts#L79)
 
@@ -3113,7 +3113,7 @@ against them and fails closed, so an over-eager shape can never overspend.
 
 ##### perChild
 
-> `readonly` **perChild**: [`Budget`](#budget-13)
+> `readonly` **perChild**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/types.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L156)
 
@@ -3347,7 +3347,7 @@ Defined in: [runtime/personify/types.ts:227](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-13)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/personify/types.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/personify/types.ts#L228)
 
@@ -8032,7 +8032,7 @@ Defined in: [runtime/strategy.ts:773](https://github.com/tangle-network/agent-ru
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](#scope-2)\<[`Outcome`](#outcome-1)\<`unknown`\>\>
+> `readonly` **scope**: [`Scope`](#scope-1)\<[`Outcome`](#outcome-1)\<`unknown`\>\>
 
 Defined in: [runtime/strategy.ts:774](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L774)
 
@@ -8321,7 +8321,7 @@ budget: refine→max shots; sample→rollout width.
 
 ##### rootBudget?
 
-> `optional` **rootBudget?**: [`Budget`](#budget-13)
+> `optional` **rootBudget?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/strategy.ts:1028](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1028)
 
@@ -8615,7 +8615,7 @@ Where/how each worker runs the surface task.
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`Budget`](#budget-13)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise-surface.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise-surface.ts#L175)
 
@@ -8924,7 +8924,7 @@ caller inspects `ok` before `ticket`.
 
 ###### b
 
-[`Budget`](#budget-13)
+[`Budget`](#budget-12)
 
 ###### Returns
 
@@ -9112,7 +9112,7 @@ Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion se
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-13)
+> `readonly` **perWorker**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/coordination-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/coordination-driver.ts#L58)
 
@@ -9395,7 +9395,7 @@ WHERE the authored workers run — the worker-execution backend (`router-tools` 
 
 ##### budget?
 
-> `readonly` `optional` **budget?**: [`Budget`](#budget-13)
+> `readonly` `optional` **budget?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/delegate.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L49)
 
@@ -9858,208 +9858,6 @@ readonly [`InboxMessage`](#inboxmessage)[]
 
 ***
 
-### LoopRoundCtx
-
-Defined in: [runtime/supervise/loop-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L65)
-
-What one round of a loop receives. The scope is the NESTED scope — spawn conserved
- children here; budget/depth are enforced by the scope, not the body.
-
-#### Properties
-
-##### task
-
-> `readonly` **task**: `unknown`
-
-Defined in: [runtime/supervise/loop-executor.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L67)
-
-The spawn task, verbatim.
-
-##### scope
-
-> `readonly` **scope**: [`Scope`](#scope-2)\<`unknown`\>
-
-Defined in: [runtime/supervise/loop-executor.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L69)
-
-The nested, conserved scope. Spawn children with `scope.spawn`, react with `scope.next`.
-
-##### round
-
-> `readonly` **round**: `number`
-
-Defined in: [runtime/supervise/loop-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L71)
-
-1-based round index.
-
-##### maxRounds
-
-> `readonly` **maxRounds**: `number`
-
-Defined in: [runtime/supervise/loop-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L73)
-
-The declared ceiling on rounds.
-
-##### steer
-
-> `readonly` **steer**: readonly `string`[]
-
-Defined in: [runtime/supervise/loop-executor.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L75)
-
-Supervisor `steer_agent` messages that arrived since the last round, folded to text.
-
-##### budget
-
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
-
-Defined in: [runtime/supervise/loop-executor.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L77)
-
-Conserved-pool readouts (post-reservation) for in-body budget-awareness.
-
-##### signal
-
-> `readonly` **signal**: `AbortSignal`
-
-Defined in: [runtime/supervise/loop-executor.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L80)
-
-Abort signal: the spawn signal + nested-scope signal + a fresh per-round interrupt.
- A forceful steer during the round aborts THIS signal so the body can break and re-plan.
-
-***
-
-### LoopRoundResult
-
-Defined in: [runtime/supervise/loop-executor.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L85)
-
-What a round returns. `out` is the running result; `done: true` stops the loop early
- (the author's own stop condition, distinct from the runtime's gate `check`).
-
-#### Properties
-
-##### out
-
-> `readonly` **out**: `unknown`
-
-Defined in: [runtime/supervise/loop-executor.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L86)
-
-##### done?
-
-> `readonly` `optional` **done?**: `boolean`
-
-Defined in: [runtime/supervise/loop-executor.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L87)
-
-***
-
-### LoopDef
-
-Defined in: [runtime/supervise/loop-executor.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L93)
-
-An authored coded loop: a name, a round ceiling, the round body, and an optional
- deployable gate `check`. `check` decides DELIVERED — the loop settles `valid` iff it
- passes — and is polled after each round to stop as soon as the loop has delivered.
-
-#### Properties
-
-##### name
-
-> `readonly` **name**: `string`
-
-Defined in: [runtime/supervise/loop-executor.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L94)
-
-##### maxRounds
-
-> `readonly` **maxRounds**: `number`
-
-Defined in: [runtime/supervise/loop-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L95)
-
-##### describe?
-
-> `readonly` `optional` **describe?**: `string`
-
-Defined in: [runtime/supervise/loop-executor.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L101)
-
-What the loop was supposed to produce — surfaced in traces.
-
-#### Methods
-
-##### round()
-
-> **round**(`ctx`): `Promise`\<[`LoopRoundResult`](#looproundresult)\>
-
-Defined in: [runtime/supervise/loop-executor.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L96)
-
-###### Parameters
-
-###### ctx
-
-[`LoopRoundCtx`](#looproundctx)
-
-###### Returns
-
-`Promise`\<[`LoopRoundResult`](#looproundresult)\>
-
-##### check()?
-
-> `optional` **check**(`out`): `boolean` \| `Promise`\<`boolean`\>
-
-Defined in: [runtime/supervise/loop-executor.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L99)
-
-The deployable completion oracle. `settled.valid ⟺ this resolves true`. A throwing
- check is fail-closed (not delivered). Omit for a loop whose only stop is `done`.
-
-###### Parameters
-
-###### out
-
-`unknown`
-
-###### Returns
-
-`boolean` \| `Promise`\<`boolean`\>
-
-***
-
-### LoopAgent
-
-Defined in: [runtime/supervise/loop-executor.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L107)
-
-One named agent in a MULTI-AGENT loop (the `agents` form of `defineLoop`). `run` does the
- agent's work for a round; `prior` is the previous agent's output, or `ctx.task` for the first.
- The last agent's return is the round's `out`. So a proposer→verifier loop is just two agents.
-
-#### Properties
-
-##### name
-
-> `readonly` **name**: `string`
-
-Defined in: [runtime/supervise/loop-executor.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L109)
-
-A short, human name for the agent this plays (proposer, verifier, engineer).
-
-#### Methods
-
-##### run()
-
-> **run**(`ctx`, `prior`): `Promise`\<`unknown`\>
-
-Defined in: [runtime/supervise/loop-executor.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L110)
-
-###### Parameters
-
-###### ctx
-
-[`LoopRoundCtx`](#looproundctx)
-
-###### prior
-
-`unknown`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-***
-
 ### PatchDeliverableOptions
 
 Defined in: [runtime/supervise/patch-deliverable.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/patch-deliverable.ts#L28)
@@ -10121,7 +9919,7 @@ that command). Default `[]` — gate on no-op / secret / forbidden / diff-size o
 
 ### InMemoryRunContextOptions
 
-Defined in: [runtime/supervise/run-context.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L34)
+Defined in: [runtime/supervise/run-context.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L33)
 
 Options for the in-memory run context.
 
@@ -10131,29 +9929,18 @@ Options for the in-memory run context.
 
 > `readonly` `optional` **withDriver?**: `boolean`
 
-Defined in: [runtime/supervise/run-context.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L41)
+Defined in: [runtime/supervise/run-context.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L40)
 
 Wrap the executor registry with `withDriverExecutor` so a spawned child marked
 `role: 'driver'` resolves to the recursive driver-executor (agents driving agents
 over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
 leaf workers. Default `false`.
 
-##### withLoop?
-
-> `readonly` `optional` **withLoop?**: `boolean`
-
-Defined in: [runtime/supervise/run-context.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L48)
-
-Wrap the executor registry with `withLoopExecutor` so a spawned child marked
-`role: 'loop'` resolves to the loop-executor (a coded, budget-conserving, gated,
-steerable multi-round loop over a nested `Scope` on the same pool). Composes with
-`withDriver` so loops and drivers coexist. Default `false`.
-
 ***
 
 ### InMemoryRunContext
 
-Defined in: [runtime/supervise/run-context.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L55)
+Defined in: [runtime/supervise/run-context.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L47)
 
 The bundle of stores a supervised run needs, shaped to spread into `SupervisorOpts`.
 The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
@@ -10164,19 +9951,19 @@ The fields are exactly `SupervisorOpts`' `journal` / `blobs` / `executors`.
 
 > `readonly` **journal**: `SpawnJournal`
 
-Defined in: [runtime/supervise/run-context.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L56)
+Defined in: [runtime/supervise/run-context.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L48)
 
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
 
-Defined in: [runtime/supervise/run-context.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L57)
+Defined in: [runtime/supervise/run-context.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L49)
 
 ##### executors
 
 > `readonly` **executors**: [`ExecutorRegistry`](#executorregistry)
 
-Defined in: [runtime/supervise/run-context.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L58)
+Defined in: [runtime/supervise/run-context.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L50)
 
 ***
 
@@ -10290,7 +10077,7 @@ Defined in: [runtime/supervise/supervise.ts:46](https://github.com/tangle-networ
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-13)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervise.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L48)
 
@@ -10380,7 +10167,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](#budget-13)
+> `readonly` `optional` **perWorker?**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervise.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervise.ts#L77)
 
@@ -10539,7 +10326,7 @@ Resolve a spawned worker `profile` to a leaf agent — the recursion seam (same 
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](#budget-13)
+> `readonly` **perWorker**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/supervisor-agent.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/supervisor-agent.ts#L74)
 
@@ -10793,7 +10580,7 @@ Defined in: [runtime/supervise/types.ts:52](https://github.com/tangle-network/ag
 
 ###### scope
 
-[`Scope`](#scope-2)\<`Out`\>
+[`Scope`](#scope-1)\<`Out`\>
 
 ###### Returns
 
@@ -11517,7 +11304,7 @@ Defined in: [runtime/supervise/types.ts:440](https://github.com/tangle-network/a
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](#budget-13)
+> `readonly` **budget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/types.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/types.ts#L442)
 
@@ -15208,7 +14995,7 @@ How to run a sandboxed harness as the DRIVER, with the coordination verbs mounte
 
 ###### scope
 
-[`Scope`](#scope-2)\<`unknown`\>
+[`Scope`](#scope-1)\<`unknown`\>
 
 ###### coordinationMcpUrl
 
@@ -15649,23 +15436,13 @@ Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minim
 
 ### defaultDelegateBudget
 
-> `const` **defaultDelegateBudget**: [`Budget`](#budget-13)
+> `const` **defaultDelegateBudget**: [`Budget`](#budget-12)
 
 Defined in: [runtime/supervise/delegate.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/delegate.ts#L35)
 
 The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`.
  A modest token ceiling + a small iteration ceiling — generous enough for a few-worker decompose,
  bounded enough that an unsupervised intent cannot run away. Callers override via `opts.budget`.
-
-***
-
-### loopRuntime
-
-> `const` **loopRuntime**: `"loop"`
-
-Defined in: [runtime/supervise/loop-executor.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L56)
-
-The runtime tag the registry maps a loop child to.
 
 ***
 
@@ -16314,7 +16091,7 @@ Fail loud (no silent empty findings):
 
 ##### scope
 
-[`Scope`](#scope-2)\<[`Outcome`](#outcome-1)\<`D`\>\>
+[`Scope`](#scope-1)\<[`Outcome`](#outcome-1)\<`D`\>\>
 
 ##### options
 
@@ -18273,7 +18050,7 @@ readout's `deadlineMs` is a stable wall-clock instant, not a shrinking remainder
 
 ##### root
 
-[`Budget`](#budget-13)
+[`Budget`](#budget-12)
 
 ##### now?
 
@@ -18383,7 +18160,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### scope
 
-[`Scope`](#scope-2)\<`unknown`\>
+[`Scope`](#scope-1)\<`unknown`\>
 
 ###### blobs
 
@@ -18395,7 +18172,7 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 
 ###### perWorker
 
-[`Budget`](#budget-13)
+[`Budget`](#budget-12)
 
 ###### maxLiveWorkers?
 
@@ -18560,113 +18337,6 @@ Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `ans
 
 ***
 
-### defineLoop()
-
-> **defineLoop**(`name`, `spec`): [`LoopDef`](#loopdef)
-
-Defined in: [runtime/supervise/loop-executor.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L125)
-
-Author a coded loop atom. The returned `LoopDef` is handed to `loopChild` to become a
-spawnable `Agent`. The runtime owns `maxRounds`, the conserved budget, the gate, and
-steer-folding; you supply ONE of two round shapes:
-
- - `round` — freeform: write the whole round yourself (arbitrary code, may spawn children).
- - `agents` — declarative MULTI-AGENT: an ordered list of named agents piped each round
-   (`task → agents[0] → agents[1] → … → out`). "How many agents" is self-evident from the
-   list, so a two-agent research loop is `agents: [proposer, verifier]` — no bespoke function.
-
-Provide EXACTLY one of `round` / `agents`.
-
-#### Parameters
-
-##### name
-
-`string`
-
-##### spec
-
-###### maxRounds
-
-`number`
-
-###### round?
-
-(`ctx`) => `Promise`\<[`LoopRoundResult`](#looproundresult)\>
-
-###### agents?
-
-readonly [`LoopAgent`](#loopagent)[]
-
-###### check?
-
-(`out`) => `boolean` \| `Promise`\<`boolean`\>
-
-###### describe?
-
-`string`
-
-#### Returns
-
-[`LoopDef`](#loopdef)
-
-***
-
-### loopChild()
-
-> **loopChild**\<`Out`\>(`loop`, `journal`): [`Agent`](#agent)\<`unknown`, `Out`\>
-
-Defined in: [runtime/supervise/loop-executor.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L194)
-
-Mark + carry an authored loop so the recursive registry resolves it to the
-loop-executor. The returned agent is SPAWNED (never run directly): its `executorSpec` is
-marked `role: 'loop'` and carries the `LoopDef` + the shared journal. `act` fails loud if
-called directly — a loop child runs THROUGH its nested-scope executor, never as a root.
-
-#### Type Parameters
-
-##### Out
-
-`Out`
-
-#### Parameters
-
-##### loop
-
-[`LoopDef`](#loopdef)
-
-##### journal
-
-`SpawnJournal`
-
-#### Returns
-
-[`Agent`](#agent)\<`unknown`, `Out`\>
-
-***
-
-### withLoopExecutor()
-
-> **withLoopExecutor**(`base`): [`ExecutorRegistry`](#executorregistry)
-
-Defined in: [runtime/supervise/loop-executor.ts:336](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/loop-executor.ts#L336)
-
-Register the loop-executor so a child marked `role: 'loop'` resolves to it. Mirrors
-`withDriverExecutor`: a loop-role spec → the loop-executor; everything else → the base
-registry's resolution. Compose it WITH `withDriverExecutor` so loops and drivers coexist:
-`withLoopExecutor(withDriverExecutor(base))`.
-
-#### Parameters
-
-##### base
-
-[`ExecutorRegistry`](#executorregistry)
-
-#### Returns
-
-[`ExecutorRegistry`](#executorregistry)
-
-***
-
 ### assertModelAllowed()
 
 > **assertModelAllowed**(`model`, `allowed`): `void`
@@ -18721,7 +18391,7 @@ whether the patch is DELIVERED (the `valid` conjunction).
 
 > **createInMemoryRunContext**(`opts?`): [`InMemoryRunContext`](#inmemoryruncontext)
 
-Defined in: [runtime/supervise/run-context.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L65)
+Defined in: [runtime/supervise/run-context.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/run-context.ts#L57)
 
 Build a fresh in-memory run context. Every call returns NEW stores (no shared global
 state between runs), so two runs never cross-contaminate their journals/blobs.
@@ -18787,7 +18457,7 @@ harness-derived runtime (`'sandbox'` for any `BackendType`); else fail loud.
 
 ### createScope()
 
-> **createScope**\<`Out`\>(`args`): [`Scope`](#scope-2)\<`Out`\>
+> **createScope**\<`Out`\>(`args`): [`Scope`](#scope-1)\<`Out`\>
 
 Defined in: [runtime/supervise/scope.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/scope.ts#L194)
 
@@ -18807,7 +18477,7 @@ Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children o
 
 #### Returns
 
-[`Scope`](#scope-2)\<`Out`\>
+[`Scope`](#scope-1)\<`Out`\>
 
 ***
 

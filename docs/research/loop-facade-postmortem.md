@@ -75,3 +75,29 @@ The cloud proof still must add `openSandboxRun worker -> remote git branch`.
 A proposed API fails review if it primarily renames existing substrate concepts
 or needs fake agents to demonstrate its value. The accepted API is the smallest
 wrapper over proven joins, not the nicest grammar imagined ahead of them.
+
+## Recurrence 20260704: it happened again (`loop-executor.ts`)
+
+On 2026-07-04 the same anti-pattern was rebuilt from scratch as
+`src/runtime/supervise/loop-executor.ts` — a spawnable `role:'loop'` atom
+(`defineLoop`/`loopChild`/`agents`) plus an `authorLoop` "codemode" seam and a
+release (0.88.0). It hit **every** failure signature in this record:
+
+- It renamed existing substrate concepts — the `agents` chain is a `for` loop over
+  `Scope.spawn`/`Scope.next`; `loopUntil`/`fanout`/`pipeline` already cover "loop
+  until a check passes".
+- Its only demonstration used **fake, scripted agents** (a hardcoded proposer +
+  verifier). No live-substrate join was ever shown. That alone should have failed
+  review under the rule above.
+- The physim use it claimed to unlock — verifying a subsystem's BOM — **already
+  existed** as the deterministic delivery gate (`physimSubsystemDeliverable`).
+
+Removed in 0.89.0 (`defineLoop`/`loopChild`/`agents`, `withLoop`, `authorLoop`, the
+loop-atom docs + skill sections). The substrate-first loop story in the Fix section
+above is unchanged and remains the answer.
+
+**Why it recurred:** this guardrail lives in `docs/research/`, which was not read
+before building. The prevention rule is sound; its DISCOVERABILITY was the gap.
+Loop/orchestration primitives are governed by the `canonical-api.md` §2 decision
+table — that table now points here, and any "new loop primitive" idea must clear
+this record's executable-proof-with-real-agents bar before a line is written.

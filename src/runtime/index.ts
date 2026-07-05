@@ -456,19 +456,6 @@ export {
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
-// The coded loop atom: `defineLoop(name, { maxRounds, round, check })` authors a spawnable,
-// budget-conserving, gated, steerable multi-round loop; `loopChild` makes it a spawnable
-// `Agent` (`role: 'loop'`), resolved by `withLoopExecutor` (wired via `{ withLoop: true }`).
-export {
-  defineLoop,
-  type LoopAgent,
-  type LoopDef,
-  type LoopRoundCtx,
-  type LoopRoundResult,
-  loopChild,
-  loopRuntime,
-  withLoopExecutor,
-} from './supervise/loop-executor'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed } from './supervise/model-policy'
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
