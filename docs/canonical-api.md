@@ -37,7 +37,23 @@ Two substrates implement the same recursive-atom over the one `Executor` port an
 
 This table is judgment-only: it maps an intent to the ONE primitive to reach for and the thing NOT to build. It is not an inventory — **for the full list of what exists (every export, its import path, its one-line summary) see the generated `docs/api/primitive-catalog.md`; for full signatures, the per-module `docs/api/` pages.** Each row tags its import subpath; a row is a LOCAL export of this package unless tagged with a substrate package (`agent-eval/contract`, `agent-eval/campaign`, `@tangle-network/sandbox`) or `bench`.
 
-> **Loop/orchestration guardrail — read before adding any "loop" primitive.** "Loop until a check passes" is already `loopUntil`/`fanout`/`pipeline`/`panel`; dynamic trees are `Scope` + Supervisor; sandbox loops are `runLoop`. A `defineLoop`-style authoring facade has been built and deleted **twice** (see [`research/loop-facade-postmortem.md`](./research/loop-facade-postmortem.md)) — it renames substrate concepts and can only be demoed with fake agents. No new loop facade lands without a tiny executable proof over REAL agents of the exact substrate join it claims to simplify.
+### "A loop" is not one thing — read this before reaching for one
+
+A general "loop" primitive is the single most common modelling error in this repo; it has produced a `defineLoop` facade **twice** (see [`research/loop-facade-postmortem.md`](./research/loop-facade-postmortem.md)). "Iterate agents toward a goal" splits on **one question: is the structure FIXED (you write the shape, it's code) or DYNAMIC (a model decides the shape at runtime)?** How many agents (1 vs N) is *orthogonal* — every shape below is 1..N agents, so "two agents (proposer→verifier)" is not special, it's a 2-stage chain.
+
+**FIXED shape → a combinator you compose:**
+
+| You want… | Shape | Use (`/loops`) |
+|---|---|---|
+| refine ONE artifact over rounds until a check passes | depth | `loopUntil` |
+| try N independent attempts, keep the best | breadth | `fanout` |
+| ordered stages, each feeds the next — this is what "propose → verify" is | chain | `pipeline` |
+| many independent views of one artifact, then aggregate | ensemble | `panel` |
+| expand only the promising branches | adaptive search | `widen` + `flatWidenGate` |
+
+**DYNAMIC shape → this is orchestration, NOT a loop.** When an LLM decides *at runtime* what to spawn next and when to stop (decompose a messy goal, react to each result, no fixed round count), it is a reactive tree, not a loop: `Scope` + Supervisor in-process (`supervise` / `runPersonified`), or `createCoordinationTools` for a sandbox driver. Its topology is *data*, so no fixed-round "loop" grammar can describe it.
+
+**The trap** is a single grammar (`defineLoop`, a `runXxxLoop`) spanning all of the above — there can't be one, because some are code and one is a model deciding. No new loop primitive lands without a tiny executable proof, **over real agents**, of the exact substrate join it claims to simplify.
 
 | I want to… | Use (import) | Do NOT build |
 |---|---|---|
