@@ -100,20 +100,6 @@ const r = scope.spawn(loopChild(research, run.journal), task, { budget, label: '
 // observe it, steer_agent it, stop it — same coordination surface as a worker.
 ```
 
-## Let an LLM write a loop (codemode)
-
-For a novel goal, a supervisor can have the model *author* the loop instead of
-picking a pre-built one — the sibling of `authorStrategy`:
-
-```ts
-const { loop } = await authorLoop({ chat, goal, maxRounds, outDir })
-scope.spawn(loopChild(loop, journal), task, { budget, label: 'authored-loop' })
-```
-
-`authorLoop` shows the model the exact `defineLoop` contract, extracts the fenced
-module, lints it (only the loops import; no `require`/`eval`/`fetch`), and loads
-it. Safety is structural — conserved pool + the gate + the lint — not a sandbox.
-
 ## Why this isn't `loopUntil` / `pipeline` / `defineStrategy`
 
 Those return a **run *shape*** (`CombinatorShape` / `Strategy`) you hand to
@@ -130,6 +116,5 @@ layer: a shape is the root of a run; the loop atom is a child of one.
 **One line to remember:** a loop is a sub-supervisor whose *keep going / stop /
 passed?* is written in code, not left to the model's judgment.
 
-*Source: `src/runtime/supervise/loop-executor.ts` (the executor + `defineLoop`),
-`src/runtime/loop-author.ts` (`authorLoop`). See also the decision-table rows in
-[`canonical-api.md`](./canonical-api.md).*
+*Source: `src/runtime/supervise/loop-executor.ts` (the executor + `defineLoop`).
+See also the decision-table row in [`canonical-api.md`](./canonical-api.md).*

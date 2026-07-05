@@ -153,14 +153,6 @@ export {
 } from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
-// Codemode over the loop atom: an LLM authors a `defineLoop` module from a goal, gated by the
-// same contract lint as `authorStrategy`; the loaded `LoopDef` is spawned via `loopChild`.
-export {
-  type AuthoredLoop,
-  type AuthorLoopOptions,
-  authorLoop,
-  loopAuthorContract,
-} from './loop-author'
 export {
   type LoopCampaignDispatchOptions,
   type LoopDispatchOptions,
