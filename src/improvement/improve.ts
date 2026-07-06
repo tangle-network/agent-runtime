@@ -86,6 +86,14 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  losing every generation with it (the default `mem://` run keeps everything
    *  in-process). */
   runDir?: string
+  /** Per-generation findings producer passthrough (see selfImprove.analyzeGeneration).
+   *  DEFAULT: the built-in failure distiller — after each generation it turns the
+   *  worst-scoring/errored cells into structured findings ({ scenario, composite,
+   *  notes, error }) for the NEXT proposal round, so the proposer reasons over what
+   *  actually failed instead of a static seed. Pass your own producer (e.g. a
+   *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
+   *  and keep the static `findings` all the way through. */
+  analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
   /** CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
    *  repo, and the facade assembles the whole candidate pipeline — git worktrees
    *  (`gitWorktreeAdapter`) driven by `improvementDriver` with the full agentic
@@ -178,6 +186,54 @@ function baselineSurfaceFor(profile: AgentProfile, surface: ImproveSurface): Mut
       // the facade has no worktree ref to seed, so the baseline is the empty
       // string (the driver opens its own worktree off `baseRef`).
       return ''
+  }
+}
+
+/** The default `analyzeGeneration`: distill each generation's failing cells into
+ *  findings for the next proposal round. Deliberately dependency-free — judge notes
+ *  and errors are already the domain's own diagnosis (executable gates put their
+ *  reasons there); a trace-analyst can replace this wholesale via
+ *  `opts.analyzeGeneration`. Falls back to the static seed findings when the
+ *  generation had no failures, so a clean round never wipes the seed context. */
+function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
+  staticFindings: unknown[],
+): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
+  const CAP = 12
+  return async (input) => {
+    const failures: Array<{ scenario: string; composite: number; notes: string; error?: string }> =
+      []
+    for (const candidate of input.candidates) {
+      for (const rawCell of candidate.campaign.cells) {
+        const cell = rawCell as unknown as Record<string, unknown>
+        const scenario = String(cell.scenarioId ?? 'unknown')
+        const error = typeof cell.error === 'string' ? cell.error : undefined
+        const judgeScores =
+          cell.judgeScores && typeof cell.judgeScores === 'object'
+            ? Object.values(
+                cell.judgeScores as Record<string, { composite?: number; notes?: string }>,
+              )
+            : []
+        const composite =
+          judgeScores.length === 0
+            ? 0
+            : judgeScores.reduce((sum, j) => sum + (j.composite ?? 0), 0) / judgeScores.length
+        if (!error && composite >= 0.999) continue
+        const notes = judgeScores
+          .map((j) => j.notes)
+          .filter((n): n is string => typeof n === 'string' && n.length > 0)
+          .join('; ')
+          .slice(0, 400)
+        failures.push({
+          scenario,
+          composite: Number(composite.toFixed(3)),
+          notes,
+          ...(error ? { error: error.slice(0, 200) } : {}),
+        })
+      }
+    }
+    if (failures.length === 0) return staticFindings
+    failures.sort((a, b) => a.composite - b.composite)
+    return failures.slice(0, CAP)
   }
 }
 
@@ -302,6 +358,12 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     findings,
     ...(opts.runDir !== undefined ? { runDir: opts.runDir } : {}),
     ...(opts.storage !== undefined ? { storage: opts.storage } : {}),
+    ...(opts.analyzeGeneration === null
+      ? {}
+      : {
+          analyzeGeneration:
+            opts.analyzeGeneration ?? generationFailureDistiller<TScenario, TArtifact>(findings),
+        }),
   })
 
   const shipped = raw.gateDecision === 'ship'

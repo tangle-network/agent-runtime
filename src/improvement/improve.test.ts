@@ -131,6 +131,43 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
   })
 
+  it('the default generation distiller feeds real failures to the next proposal round', async () => {
+    // Judge fails scenario 'b' with a distinctive reason; everything else is perfect.
+    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'distiller-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: ({ scenario }) =>
+        scenario.id === 'b'
+          ? { dimensions: { q: 0 }, composite: 0, notes: 'tour is not a permutation of 0..8' }
+          : { dimensions: { q: 1 }, composite: 1, notes: 'ok' },
+    }
+    // Proposer stub records the findings it is handed each generation.
+    const findingsSeen: unknown[][] = []
+    const stubProposer = {
+      kind: 'stub-recorder',
+      async propose(ctx: { findings: unknown[]; populationSize: number }) {
+        findingsSeen.push(ctx.findings)
+        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
+      },
+    }
+    const result = await improve(promptProfile(), [{ seed: 'static-seed-finding' }], {
+      surface: 'prompt',
+      scenarios,
+      judge: failingJudge,
+      agent: stubAgent,
+      generator: stubProposer as never,
+      budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+    })
+    expect(typeof result.gateDecision).toBe('string')
+    expect(findingsSeen.length).toBeGreaterThanOrEqual(2)
+    // Generation 1 proposes from the static seed; generation 2 must propose from the
+    // DISTILLED failures of generation 1's cells (scenario 'b' + the judge's reason).
+    expect(JSON.stringify(findingsSeen[0])).toContain('static-seed-finding')
+    const secondRound = JSON.stringify(findingsSeen[1])
+    expect(secondRound).toContain('"scenario":"b"')
+    expect(secondRound).toContain('not a permutation')
+  })
+
   it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
     const { execSync } = await import('node:child_process')
     const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
