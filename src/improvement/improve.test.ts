@@ -95,6 +95,30 @@ describe('improve() — default proposer resolution (substrate export drift guar
     expect(result.profile.resources?.skills).toEqual([])
   })
 
+  it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
+    const { mkdtempSync, existsSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const runDir = mkdtempSync(join(tmpdir(), 'improve-rundir-'))
+    try {
+      const result = await improve(promptProfile(), [], {
+        surface: 'prompt',
+        gate: 'none',
+        scenarios,
+        judge,
+        agent: stubAgent,
+        runDir,
+      })
+      expect(result.gateDecision).toBe('hold')
+      // The durable-storage default keys off a real (non-mem://) runDir: the loop
+      // provenance record must survive the call on disk — this is what a 5-hour
+      // search recovers from after a process death.
+      expect(existsSync(join(runDir, 'loop-provenance.json'))).toBe(true)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
+
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
     // The default-proposer map covers prompt + skills only; the config surfaces
     // (tools/mcp/hooks/code) require a caller-supplied generator. This is the

@@ -33,6 +33,7 @@ import {
   type Scenario,
   type SelfImproveBudget,
   type SelfImproveLlm,
+  type SelfImproveOptions,
   type SelfImproveResult,
   type SurfaceProposer,
   selfImprove,
@@ -72,6 +73,14 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
    *  a `ConfigError` before the generator is built. Unset = unrestricted. */
   allowedModels?: readonly string[]
+  /** Run directory passthrough to `selfImprove`. Pass a REAL path to make the loop
+   *  durable: campaign cells + the loop provenance record land on the filesystem as
+   *  they complete, so a multi-hour search survives a process/infra death instead of
+   *  losing every generation with it (the default `mem://` run keeps everything
+   *  in-process). */
+  runDir?: string
+  /** Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`. */
+  storage?: SelfImproveOptions<TScenario, TArtifact>['storage']
 }
 
 export interface ImproveResult<TScenario extends Scenario, TArtifact> {
@@ -228,6 +237,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     budget,
     llm: opts.llm,
     findings,
+    ...(opts.runDir !== undefined ? { runDir: opts.runDir } : {}),
+    ...(opts.storage !== undefined ? { storage: opts.storage } : {}),
   })
 
   const shipped = raw.gateDecision === 'ship'
