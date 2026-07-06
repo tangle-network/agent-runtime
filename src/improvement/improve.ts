@@ -25,7 +25,11 @@
  * @experimental
  */
 
-import { gepaProposer, skillOptProposer } from '@tangle-network/agent-eval/campaign'
+import {
+  gepaProposer,
+  gitWorktreeAdapter,
+  skillOptProposer,
+} from '@tangle-network/agent-eval/campaign'
 import {
   type DispatchContext,
   type JudgeConfig,
@@ -40,7 +44,10 @@ import {
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
+import type { LocalHarness } from '../mcp/local-harness'
 import { assertModelAllowed } from '../runtime/supervise/model-policy'
+import { agenticGenerator, type Verifier } from './agentic-generator'
+import { type CandidateGenerator, improvementDriver } from './improvement-driver'
 
 /** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  *  profile levers; `code` is the implementation-tier surface. */
@@ -79,8 +86,35 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  losing every generation with it (the default `mem://` run keeps everything
    *  in-process). */
   runDir?: string
+  /** CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
+   *  repo, and the facade assembles the whole candidate pipeline — git worktrees
+   *  (`gitWorktreeAdapter`) driven by `improvementDriver` with the full agentic
+   *  generator (a real coding harness edits each candidate worktree; a `verify`
+   *  hook gates candidates before they are ever measured). Ignored when
+   *  `opts.generator` is supplied. Without either, `surface: 'code'` still fails
+   *  loud — there is no safe zero-config repo to invent. */
+  code?: ImproveCodeOptions
   /** Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`. */
   storage?: SelfImproveOptions<TScenario, TArtifact>['storage']
+}
+
+export interface ImproveCodeOptions {
+  /** Repo root candidate worktrees fork from. */
+  repoRoot: string
+  /** Base ref candidates fork from. Default `main`. */
+  baseRef?: string
+  /** Directory worktrees are created under. Default `<repoRoot>/.worktrees`. */
+  worktreeDir?: string
+  /** Coding harness the agentic generator runs in each worktree. Default `claude`. */
+  harness?: LocalHarness
+  /** Verify a candidate worktree before it becomes a measurable surface; failures
+   *  feed the next shot (see `agenticGenerator.verify` / `commandVerifier`). */
+  verify?: Verifier
+  /** Per-shot wall-clock timeout for the harness (ms). */
+  timeoutMs?: number
+  /** Byte-producer override — the test seam and the escape hatch for custom
+   *  candidate production. When set, `harness`/`verify`/`timeoutMs` are unused. */
+  generator?: CandidateGenerator
 }
 
 export interface ImproveResult<TScenario extends Scenario, TArtifact> {
@@ -145,6 +179,32 @@ function baselineSurfaceFor(profile: AgentProfile, surface: ImproveSurface): Mut
       // string (the driver opens its own worktree off `baseRef`).
       return ''
   }
+}
+
+/** Assemble the code-surface proposer from `opts.code`: git worktrees + the
+ *  improvement driver + (by default) the full agentic generator. Returns
+ *  `undefined` when the surface is not `code` or no code options were given —
+ *  the caller then falls through to the fail-loud ConfigError. */
+function codeProposerFor(
+  surface: ImproveSurface,
+  code: ImproveCodeOptions | undefined,
+): SurfaceProposer | undefined {
+  if (surface !== 'code' || !code) return undefined
+  const generator =
+    code.generator ??
+    agenticGenerator({
+      ...(code.harness ? { harness: code.harness } : {}),
+      ...(code.verify ? { verify: code.verify } : {}),
+      ...(code.timeoutMs ? { timeoutMs: code.timeoutMs } : {}),
+    })
+  return improvementDriver({
+    worktree: gitWorktreeAdapter({
+      repoRoot: code.repoRoot,
+      ...(code.worktreeDir ? { worktreeDir: code.worktreeDir } : {}),
+    }),
+    generator,
+    ...(code.baseRef ? { baseRef: code.baseRef } : {}),
+  }) as SurfaceProposer
 }
 
 /** Parse a JSON winner surface (`skills`/`tools`/`mcp`/`hooks`) with a typed,
@@ -218,10 +278,13 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   // (no-op when allowedModels is unset).
   assertModelAllowed(opts.llm?.model ?? defaultReflectionModel, opts.allowedModels)
 
-  const proposer = opts.generator ?? defaultGeneratorFor(surface, opts.llm)
+  const proposer =
+    opts.generator ?? defaultGeneratorFor(surface, opts.llm) ?? codeProposerFor(surface, opts.code)
   if (!proposer) {
     throw new ConfigError(
-      `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
+      surface === 'code'
+        ? `improve(): surface 'code' needs either opts.generator or opts.code ({ repoRoot, ... }) — there is no safe zero-config repo to invent`
+        : `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
     )
   }
 

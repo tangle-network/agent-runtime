@@ -130,4 +130,63 @@ describe('improve() — default proposer resolution (substrate export drift guar
       ).rejects.toBeInstanceOf(ConfigError)
     }
   })
+
+  it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), 'improve-code-'))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      // Byte-producer stub via the designed test seam: writes a change into the
+      // candidate worktree; the driver finalizes it into a CodeSurface.
+      let generatorCalls = 0
+      const measured: unknown[] = []
+      const result = await improve(promptProfile(), [{ finding: 'module.txt is stale' }], {
+        surface: 'code',
+        scenarios,
+        judge,
+        agent: async (surface, _scenario, ctx) => {
+          ctx.cost.observe(0.0001, 'stub-agent')
+          ctx.cost.observeTokens({ input: 1, output: 1 })
+          measured.push(surface)
+          return { text: 'ok' }
+        },
+        code: {
+          repoRoot,
+          generator: {
+            kind: 'stub',
+            async generate({ worktreePath }) {
+              generatorCalls += 1
+              writeFileSync(join(worktreePath, 'module.txt'), 'improved contents\n')
+              return { applied: true, summary: 'stub improvement' }
+            },
+          },
+        },
+        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      })
+
+      // The facade assembled a real proposer: the stub produced candidates, the
+      // loop measured them (code surfaces reached the agent), and the gate decided.
+      expect(generatorCalls).toBeGreaterThanOrEqual(1)
+      expect(typeof result.gateDecision).toBe('string')
+      const sawCodeSurface = measured.some(
+        (m) =>
+          typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
+      )
+      expect(sawCodeSurface).toBe(true)
+      // A code winner is a worktree ref, not a profile field — profile unchanged.
+      expect(result.profile.prompt?.systemPrompt).toBe('be careful')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
 })
