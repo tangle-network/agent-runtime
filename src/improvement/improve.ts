@@ -25,7 +25,11 @@
  * @experimental
  */
 
-import { gepaProposer, skillOptProposer } from '@tangle-network/agent-eval/campaign'
+import {
+  gepaProposer,
+  gitWorktreeAdapter,
+  skillOptProposer,
+} from '@tangle-network/agent-eval/campaign'
 import {
   type DispatchContext,
   type JudgeConfig,
@@ -33,13 +37,17 @@ import {
   type Scenario,
   type SelfImproveBudget,
   type SelfImproveLlm,
+  type SelfImproveOptions,
   type SelfImproveResult,
   type SurfaceProposer,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
+import type { LocalHarness } from '../mcp/local-harness'
 import { assertModelAllowed } from '../runtime/supervise/model-policy'
+import { agenticGenerator, type Verifier } from './agentic-generator'
+import { type CandidateGenerator, improvementDriver } from './improvement-driver'
 
 /** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  *  profile levers; `code` is the implementation-tier surface. */
@@ -72,6 +80,49 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  (`llm.model`, or the default when unset) must be a member, or `improve()` throws
    *  a `ConfigError` before the generator is built. Unset = unrestricted. */
   allowedModels?: readonly string[]
+  /** Run directory passthrough to `selfImprove`. Pass a REAL path to make the loop
+   *  durable: campaign cells + the loop provenance record land on the filesystem as
+   *  they complete, so a multi-hour search survives a process/infra death instead of
+   *  losing every generation with it (the default `mem://` run keeps everything
+   *  in-process). */
+  runDir?: string
+  /** Per-generation findings producer passthrough (see selfImprove.analyzeGeneration).
+   *  DEFAULT: the built-in failure distiller — after each generation it turns the
+   *  worst-scoring/errored cells into structured findings ({ scenario, composite,
+   *  notes, error }) for the NEXT proposal round, so the proposer reasons over what
+   *  actually failed instead of a static seed. Pass your own producer (e.g. a
+   *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
+   *  and keep the static `findings` all the way through. */
+  analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
+  /** CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
+   *  repo, and the facade assembles the whole candidate pipeline — git worktrees
+   *  (`gitWorktreeAdapter`) driven by `improvementDriver` with the full agentic
+   *  generator (a real coding harness edits each candidate worktree; a `verify`
+   *  hook gates candidates before they are ever measured). Ignored when
+   *  `opts.generator` is supplied. Without either, `surface: 'code'` still fails
+   *  loud — there is no safe zero-config repo to invent. */
+  code?: ImproveCodeOptions
+  /** Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`. */
+  storage?: SelfImproveOptions<TScenario, TArtifact>['storage']
+}
+
+export interface ImproveCodeOptions {
+  /** Repo root candidate worktrees fork from. */
+  repoRoot: string
+  /** Base ref candidates fork from. Default `main`. */
+  baseRef?: string
+  /** Directory worktrees are created under. Default `<repoRoot>/.worktrees`. */
+  worktreeDir?: string
+  /** Coding harness the agentic generator runs in each worktree. Default `claude`. */
+  harness?: LocalHarness
+  /** Verify a candidate worktree before it becomes a measurable surface; failures
+   *  feed the next shot (see `agenticGenerator.verify` / `commandVerifier`). */
+  verify?: Verifier
+  /** Per-shot wall-clock timeout for the harness (ms). */
+  timeoutMs?: number
+  /** Byte-producer override — the test seam and the escape hatch for custom
+   *  candidate production. When set, `harness`/`verify`/`timeoutMs` are unused. */
+  generator?: CandidateGenerator
 }
 
 export interface ImproveResult<TScenario extends Scenario, TArtifact> {
@@ -136,6 +187,80 @@ function baselineSurfaceFor(profile: AgentProfile, surface: ImproveSurface): Mut
       // string (the driver opens its own worktree off `baseRef`).
       return ''
   }
+}
+
+/** The default `analyzeGeneration`: distill each generation's failing cells into
+ *  findings for the next proposal round. Deliberately dependency-free — judge notes
+ *  and errors are already the domain's own diagnosis (executable gates put their
+ *  reasons there); a trace-analyst can replace this wholesale via
+ *  `opts.analyzeGeneration`. Falls back to the static seed findings when the
+ *  generation had no failures, so a clean round never wipes the seed context. */
+function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
+  staticFindings: unknown[],
+): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
+  const CAP = 12
+  return async (input) => {
+    const failures: Array<{ scenario: string; composite: number; notes: string; error?: string }> =
+      []
+    for (const candidate of input.candidates) {
+      for (const rawCell of candidate.campaign.cells) {
+        const cell = rawCell as unknown as Record<string, unknown>
+        const scenario = String(cell.scenarioId ?? 'unknown')
+        const error = typeof cell.error === 'string' ? cell.error : undefined
+        const judgeScores =
+          cell.judgeScores && typeof cell.judgeScores === 'object'
+            ? Object.values(
+                cell.judgeScores as Record<string, { composite?: number; notes?: string }>,
+              )
+            : []
+        const composite =
+          judgeScores.length === 0
+            ? 0
+            : judgeScores.reduce((sum, j) => sum + (j.composite ?? 0), 0) / judgeScores.length
+        if (!error && composite >= 0.999) continue
+        const notes = judgeScores
+          .map((j) => j.notes)
+          .filter((n): n is string => typeof n === 'string' && n.length > 0)
+          .join('; ')
+          .slice(0, 400)
+        failures.push({
+          scenario,
+          composite: Number(composite.toFixed(3)),
+          notes,
+          ...(error ? { error: error.slice(0, 200) } : {}),
+        })
+      }
+    }
+    if (failures.length === 0) return staticFindings
+    failures.sort((a, b) => a.composite - b.composite)
+    return failures.slice(0, CAP)
+  }
+}
+
+/** Assemble the code-surface proposer from `opts.code`: git worktrees + the
+ *  improvement driver + (by default) the full agentic generator. Returns
+ *  `undefined` when the surface is not `code` or no code options were given —
+ *  the caller then falls through to the fail-loud ConfigError. */
+function codeProposerFor(
+  surface: ImproveSurface,
+  code: ImproveCodeOptions | undefined,
+): SurfaceProposer | undefined {
+  if (surface !== 'code' || !code) return undefined
+  const generator =
+    code.generator ??
+    agenticGenerator({
+      ...(code.harness ? { harness: code.harness } : {}),
+      ...(code.verify ? { verify: code.verify } : {}),
+      ...(code.timeoutMs ? { timeoutMs: code.timeoutMs } : {}),
+    })
+  return improvementDriver({
+    worktree: gitWorktreeAdapter({
+      repoRoot: code.repoRoot,
+      ...(code.worktreeDir ? { worktreeDir: code.worktreeDir } : {}),
+    }),
+    generator,
+    ...(code.baseRef ? { baseRef: code.baseRef } : {}),
+  }) as SurfaceProposer
 }
 
 /** Parse a JSON winner surface (`skills`/`tools`/`mcp`/`hooks`) with a typed,
@@ -209,10 +334,13 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   // (no-op when allowedModels is unset).
   assertModelAllowed(opts.llm?.model ?? defaultReflectionModel, opts.allowedModels)
 
-  const proposer = opts.generator ?? defaultGeneratorFor(surface, opts.llm)
+  const proposer =
+    opts.generator ?? defaultGeneratorFor(surface, opts.llm) ?? codeProposerFor(surface, opts.code)
   if (!proposer) {
     throw new ConfigError(
-      `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
+      surface === 'code'
+        ? `improve(): surface 'code' needs either opts.generator or opts.code ({ repoRoot, ... }) — there is no safe zero-config repo to invent`
+        : `improve(): surface '${surface}' has no default generator — pass opts.generator (a SurfaceProposer) explicitly`,
     )
   }
 
@@ -228,6 +356,14 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     budget,
     llm: opts.llm,
     findings,
+    ...(opts.runDir !== undefined ? { runDir: opts.runDir } : {}),
+    ...(opts.storage !== undefined ? { storage: opts.storage } : {}),
+    ...(opts.analyzeGeneration === null
+      ? {}
+      : {
+          analyzeGeneration:
+            opts.analyzeGeneration ?? generationFailureDistiller<TScenario, TArtifact>(findings),
+        }),
   })
 
   const shipped = raw.gateDecision === 'ship'

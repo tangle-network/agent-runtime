@@ -95,6 +95,30 @@ describe('improve() — default proposer resolution (substrate export drift guar
     expect(result.profile.resources?.skills).toEqual([])
   })
 
+  it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
+    const { mkdtempSync, existsSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const runDir = mkdtempSync(join(tmpdir(), 'improve-rundir-'))
+    try {
+      const result = await improve(promptProfile(), [], {
+        surface: 'prompt',
+        gate: 'none',
+        scenarios,
+        judge,
+        agent: stubAgent,
+        runDir,
+      })
+      expect(result.gateDecision).toBe('hold')
+      // The durable-storage default keys off a real (non-mem://) runDir: the loop
+      // provenance record must survive the call on disk — this is what a 5-hour
+      // search recovers from after a process death.
+      expect(existsSync(join(runDir, 'loop-provenance.json'))).toBe(true)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
+  })
+
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
     // The default-proposer map covers prompt + skills only; the config surfaces
     // (tools/mcp/hooks/code) require a caller-supplied generator. This is the
@@ -104,6 +128,102 @@ describe('improve() — default proposer resolution (substrate export drift guar
       await expect(
         improve(promptProfile(), [], { surface, gate: 'none', scenarios, judge, agent: stubAgent }),
       ).rejects.toBeInstanceOf(ConfigError)
+    }
+  })
+
+  it('the default generation distiller feeds real failures to the next proposal round', async () => {
+    // Judge fails scenario 'b' with a distinctive reason; everything else is perfect.
+    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'distiller-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: ({ scenario }) =>
+        scenario.id === 'b'
+          ? { dimensions: { q: 0 }, composite: 0, notes: 'tour is not a permutation of 0..8' }
+          : { dimensions: { q: 1 }, composite: 1, notes: 'ok' },
+    }
+    // Proposer stub records the findings it is handed each generation.
+    const findingsSeen: unknown[][] = []
+    const stubProposer = {
+      kind: 'stub-recorder',
+      async propose(ctx: { findings: unknown[]; populationSize: number }) {
+        findingsSeen.push(ctx.findings)
+        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
+      },
+    }
+    const result = await improve(promptProfile(), [{ seed: 'static-seed-finding' }], {
+      surface: 'prompt',
+      scenarios,
+      judge: failingJudge,
+      agent: stubAgent,
+      generator: stubProposer as never,
+      budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+    })
+    expect(typeof result.gateDecision).toBe('string')
+    expect(findingsSeen.length).toBeGreaterThanOrEqual(2)
+    // Generation 1 proposes from the static seed; generation 2 must propose from the
+    // DISTILLED failures of generation 1's cells (scenario 'b' + the judge's reason).
+    expect(JSON.stringify(findingsSeen[0])).toContain('static-seed-finding')
+    const secondRound = JSON.stringify(findingsSeen[1])
+    expect(secondRound).toContain('"scenario":"b"')
+    expect(secondRound).toContain('not a permutation')
+  })
+
+  it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), 'improve-code-'))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      // Byte-producer stub via the designed test seam: writes a change into the
+      // candidate worktree; the driver finalizes it into a CodeSurface.
+      let generatorCalls = 0
+      const measured: unknown[] = []
+      const result = await improve(promptProfile(), [{ finding: 'module.txt is stale' }], {
+        surface: 'code',
+        scenarios,
+        judge,
+        agent: async (surface, _scenario, ctx) => {
+          ctx.cost.observe(0.0001, 'stub-agent')
+          ctx.cost.observeTokens({ input: 1, output: 1 })
+          measured.push(surface)
+          return { text: 'ok' }
+        },
+        code: {
+          repoRoot,
+          generator: {
+            kind: 'stub',
+            async generate({ worktreePath }) {
+              generatorCalls += 1
+              writeFileSync(join(worktreePath, 'module.txt'), 'improved contents\n')
+              return { applied: true, summary: 'stub improvement' }
+            },
+          },
+        },
+        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      })
+
+      // The facade assembled a real proposer: the stub produced candidates, the
+      // loop measured them (code surfaces reached the agent), and the gate decided.
+      expect(generatorCalls).toBeGreaterThanOrEqual(1)
+      expect(typeof result.gateDecision).toBe('string')
+      const sawCodeSurface = measured.some(
+        (m) =>
+          typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
+      )
+      expect(sawCodeSurface).toBe(true)
+      // A code winner is a worktree ref, not a profile field — profile unchanged.
+      expect(result.profile.prompt?.systemPrompt).toBe('be careful')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
     }
   })
 })
