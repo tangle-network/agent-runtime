@@ -119,6 +119,67 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
   })
 
+  it("surface 'skills' with a document optimizes CONTENT and writes back the shipped winner", async () => {
+    // Baseline document; a scenario whose judge rewards the presence of a rule the
+    // skillOpt proposer will add. A deterministic stub proposer stands in for the LLM.
+    const baselineDoc = '# OR skills\n- always run a solver\n'
+    let writtenBack: string | null = null
+    const stubProposer = {
+      kind: 'stub-skillopt',
+      async propose(ctx: { currentSurface: unknown }) {
+        // Prove the baseline surface is the DOCUMENT, not a refs array.
+        expect(ctx.currentSurface).toBe(baselineDoc)
+        return [
+          {
+            surface: `${baselineDoc}- recompute the objective before writing\n`,
+            label: 'add-recompute-rule',
+            rationale: 'stub',
+          },
+        ]
+      },
+    }
+    // Judge: reward the document that contains the added rule.
+    const docJudge: JudgeConfig<{ doc: string }, Scenario> = {
+      name: 'doc-judge',
+      dimensions: [{ key: 'q', description: 'has recompute rule' }],
+      score: ({ artifact }) => {
+        const has = artifact.doc.includes('recompute the objective')
+        return { dimensions: { q: has ? 1 : 0 }, composite: has ? 1 : 0, notes: '' }
+      },
+    }
+    const skillProfileWithRef = (): AgentProfile => ({
+      name: 'fixture-agent',
+      resources: { skills: [{ path: 'or-skills.md' } as never] },
+    })
+
+    const result = await improve(skillProfileWithRef(), [], {
+      surface: 'skills',
+      scenarios,
+      judge: docJudge,
+      agent: async (surface, _s, ctx) => {
+        ctx.cost.observe(0.0001, 'stub')
+        ctx.cost.observeTokens({ input: 1, output: 1 })
+        return { doc: String(surface) }
+      },
+      generator: stubProposer as never,
+      skills: {
+        document: baselineDoc,
+        writeBack: (winner) => {
+          writtenBack = winner
+        },
+      },
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+    })
+
+    expect(typeof result.gateDecision).toBe('string')
+    if (result.shipped) {
+      // The winner document (content, not a refs array) was written back.
+      expect(writtenBack).toContain('recompute the objective')
+      // The profile ref is unchanged (writeBack owns the file, not the profile).
+      expect(result.profile.resources?.skills).toEqual(skillProfileWithRef().resources?.skills)
+    }
+  })
+
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
     // The default-proposer map covers prompt + skills only; the config surfaces
     // (tools/mcp/hooks/code) require a caller-supplied generator. This is the
