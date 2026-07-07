@@ -28,6 +28,11 @@ import { mapSandboxEvent } from '../runtime'
 import { createSandboxForSpec } from '../runtime/run-loop'
 import type { RuntimeStreamEvent } from '../types'
 import type { AgentRunContext, AgentRunInvocation } from './define-agent'
+import {
+  type AgentProfileMaterializationAxis,
+  assertProfileMaterialization,
+  sandboxActProfileMaterialization,
+} from './profile-materialization'
 
 /** Per-persona profile-merge slots applied over the base profile (§1.5: the caller authors the
  *  per-persona profile). Each slot overlays the base; an absent slot leaves the base untouched. */
@@ -60,6 +65,8 @@ export interface CreateSandboxActOptions<TPersona, TRunOutput> {
   compose?: (persona: TPersona) => SandboxActComposeOverrides
   /** Sandbox-SDK overrides forwarded to `createSandboxForSpec`. */
   sandboxOverrides?: AgentRunSpec<unknown>['sandboxOverrides']
+  /** Optional changed axes the caller expects this path to carry. */
+  requiredProfileAxes?: readonly AgentProfileMaterializationAxis[]
   /** Stable run name surfaced in mapped `llm_call` events. */
   name?: string
   /** Override the `SandboxEvent → RuntimeStreamEvent` mapper. */
@@ -78,6 +85,11 @@ export interface CreateSandboxActOptions<TPersona, TRunOutput> {
 export function createSandboxAct<TPersona, TRunOutput>(
   options: CreateSandboxActOptions<TPersona, TRunOutput>,
 ): (persona: TPersona, ctx: AgentRunContext) => AgentRunInvocation<TRunOutput> {
+  assertProfileMaterialization({
+    contract: sandboxActProfileMaterialization,
+    changedAxes: options.requiredProfileAxes ?? [],
+    context: 'createSandboxAct',
+  })
   const mapEvent = options.mapEvent ?? mapSandboxEvent
 
   return (persona: TPersona, ctx: AgentRunContext): AgentRunInvocation<TRunOutput> => {
