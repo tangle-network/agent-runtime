@@ -90,6 +90,53 @@ async function main(): Promise<void> {
   })
   assert.equal(repped.perTask.length, 6, 'reps × tasks')
 
+  // Looped cells feed safe failure feedback into the next attempt and stop once the judge passes.
+  let prompts: string[] = []
+  const retryShot: BenchShot = async ({ task, prompt }) => {
+    prompts.push(prompt ?? task.prompt)
+    return { artifact: prompts.length === 1 ? 'WRONG' : String(task.metadata?.gold), ok: true }
+  }
+  const oneShot = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', runShot: retryShot, resolveAdapter: resolveStub, n: 1,
+  })
+  assert.equal(oneShot.rows[0]!.resolveRate, 0, 'without the loop, the first bad attempt fails')
+  prompts = []
+  const looped = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', runShot: retryShot, resolveAdapter: resolveStub, n: 1, loopAttempts: 2,
+  })
+  assert.equal(looped.rows[0]!.resolveRate, 1, 'with loopAttempts=2, the retry can pass')
+  assert.equal(prompts.length, 2, 'loop stops after the passing second attempt')
+  assert.match(prompts[1]!, /Previous attempts and safe checker feedback/)
+  assert.match(looped.perTask[0]!.detail ?? '', /"mode":"refine-loop"/)
+
+  // A benchmark's detail may include hidden answer fields; those must never be fed back as hints.
+  const leakyGold = 'SECRET-GOLD'
+  const leaky: BenchmarkAdapter = {
+    name: 'leaky',
+    preflight: async () => {},
+    loadTasks: async () => [{ id: 'leaky-0', prompt: 'Answer the hidden task.', metadata: { gold: leakyGold } }],
+    judge: async (_task, artifact) => ({
+      resolved: artifact === leakyGold,
+      score: artifact === leakyGold ? 1 : 0,
+      detail: JSON.stringify({ bestGold: leakyGold, expectedAnswer: leakyGold, publicHint: 'retry' }),
+    }),
+    goldArtifact: async () => leakyGold,
+  }
+  const leakyPrompts: string[] = []
+  const leakyShot: BenchShot = async ({ prompt }) => {
+    leakyPrompts.push(prompt ?? '')
+    return { artifact: leakyPrompts.length === 1 ? 'WRONG' : leakyGold, ok: true }
+  }
+  await runBenchmarks({
+    benchmarks: ['leaky'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', runShot: leakyShot, resolveAdapter: () => leaky, loopAttempts: 2,
+  })
+  assert.equal(leakyPrompts.length, 2)
+  assert.equal(leakyPrompts[1]!.includes(leakyGold), false, 'retry prompt redacts hidden gold fields')
+  assert.match(leakyPrompts[1]!, /publicHint/)
+
   // An unavailable benchmark (preflight throws) is skipped, not fatal; the sweep still runs the rest.
   const flaky: Record<string, BenchmarkAdapter> = {
     ok: stubAdapter('ok', 2),

@@ -20,9 +20,13 @@ const must = (k: string): string => {
   return v
 }
 
-/** `harness/model` → in-box cell; bare `model` → off-box router cell. */
+/** `harness/model` → in-box cell; bare `model` → off-box router cell. For cli-bridge, the
+ *  full model id is already `harness/model`, so do not split it. */
 function parseCell(spec: string): BenchCell {
   const s = spec.trim()
+  if (process.env.BACKEND === 'bridge') {
+    return { label: s, model: s, backend: 'bridge', ...(process.env.SEARCH_PROVIDER ? { searchProvider: process.env.SEARCH_PROVIDER } : {}) }
+  }
   const slash = s.indexOf('/')
   if (slash > 0) {
     const harness = s.slice(0, slash)
@@ -43,11 +47,14 @@ async function main(): Promise<void> {
     cells,
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: must('TANGLE_API_KEY'),
+    ...(process.env.BRIDGE_URL ? { bridgeUrl: process.env.BRIDGE_URL } : {}),
+    ...(process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER ? { bridgeBearer: process.env.BRIDGE_BEARER ?? process.env.CLI_BRIDGE_BEARER } : {}),
     ...(process.env.SANDBOX_BASE ? { sandboxBaseUrl: process.env.SANDBOX_BASE } : {}),
     n: Number(process.env.N ?? 10),
     ...(process.env.IDS ? { ids: process.env.IDS.split(',') } : {}),
     ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),
     ...(process.env.REPS ? { reps: Number(process.env.REPS) } : {}),
+    ...(process.env.LOOP_ATTEMPTS ? { loopAttempts: Number(process.env.LOOP_ATTEMPTS) } : {}),
     concurrency: Number(process.env.CONCURRENCY ?? 4),
     ...(process.env.TIMEOUT_MS ? { timeoutMs: Number(process.env.TIMEOUT_MS) } : {}),
     ...(process.env.VERIFY_JUDGE === '0' ? { verifyJudge: false } : {}),
