@@ -1,0 +1,10 @@
+[
+  {
+    "id": "crag-fixture-0",
+    "domain": "finance",
+    "question_type": "simple",
+    "static_or_dynamic": "slow-changing",
+    "query": "What was Contoso's reported revenue in 2025?",
+    "answer": ["$12.4 billion", "12.4 billion dollars"]
+  }
+]

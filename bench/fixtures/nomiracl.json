@@ -1,0 +1,26 @@
+[
+  {
+    "id": "nomiracl-fixture-relevant",
+    "language": "en",
+    "query": "What is the refund window?",
+    "positive_passages": [
+      {
+        "docid": "p1",
+        "title": "Refund policy",
+        "text": "The refund window is 30 days."
+      }
+    ]
+  },
+  {
+    "id": "nomiracl-fixture-non-relevant",
+    "language": "en",
+    "query": "What is the refund window?",
+    "negative_passages": [
+      {
+        "docid": "p2",
+        "title": "Shipping policy",
+        "text": "Shipping labels expire after 7 days."
+      }
+    ]
+  }
+]

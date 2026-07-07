@@ -1,0 +1,21 @@
+[
+  {
+    "id": "ragbench-fixture-0",
+    "dataset": "support",
+    "question": "How long is the refund window?",
+    "response": "30 days",
+    "documents": [
+      [
+        ["0a", "Title: Refund policy"],
+        ["0b", "Customers can request a refund within 30 days of purchase."]
+      ],
+      [
+        ["1a", "Title: Shipping policy"],
+        ["1b", "Shipping labels expire after 7 days."]
+      ]
+    ],
+    "adherence": 1,
+    "completeness": 1,
+    "relevance": 1
+  }
+]

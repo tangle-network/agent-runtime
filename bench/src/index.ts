@@ -11,6 +11,25 @@
  * absent, so importing the registry is cheap; running a specific benchmark pulls only its deps.
  */
 export { ADAPTERS, resolveAdapter } from './adapters'
+export { createCragAdapter } from './benchmarks/crag'
+export { createNoMiraclAdapter } from './benchmarks/nomiracl'
+export { createOpenRagBenchAdapter } from './benchmarks/open-rag-bench'
+export { createRagBenchAdapter } from './benchmarks/ragbench'
+export {
+  FINAL_ANSWER_SENTINEL,
+  answerScoreToBenchScore,
+  contextBlock,
+  contextsFrom,
+  normalizeAnswer,
+  parseCitations,
+  parseFinalAnswer,
+  ragAnswerOutput,
+  scoreAnswerArtifact,
+  tokenF1,
+  type RagAnswerScore,
+  type RagContext,
+} from './benchmarks/rag-shared'
+export { createT2RagBenchAdapter } from './benchmarks/t2-ragbench'
 export type {
   BenchmarkAdapter,
   BenchScore,
