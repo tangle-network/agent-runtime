@@ -1,0 +1,16 @@
+[
+  {
+    "id": "open-rag-bench-fixture-0",
+    "file_name": "arxiv-0001.pdf",
+    "modality": "table",
+    "question": "Which method has the highest accuracy in the table?",
+    "answer": "Hybrid BM25",
+    "contexts": [
+      {
+        "id": "table-1",
+        "title": "Accuracy table",
+        "text": "Method | Accuracy\nDense | 82.1\nHybrid BM25 | 87.4\nSparse | 79.0"
+      }
+    ]
+  }
+]

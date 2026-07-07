@@ -1,0 +1,13 @@
+[
+  {
+    "id": "t2-ragbench-fixture-0",
+    "subset": "finqa",
+    "context_id": "10k-0001",
+    "question": "What is the percentage increase from 100 to 112?",
+    "program_answer": "12%",
+    "original_answer": "12.0 percent",
+    "context": "Revenue increased from 100 in 2024 to 112 in 2025.",
+    "table": "Year | Revenue\n2024 | 100\n2025 | 112",
+    "file_name": "10k-0001.pdf"
+  }
+]

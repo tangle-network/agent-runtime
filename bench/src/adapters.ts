@@ -13,6 +13,7 @@ import { createCadBenchAdapter } from './benchmarks/cadbench'
 import { createCadDesignAdapter } from './benchmarks/cad-design'
 import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createCommit0Adapter } from './benchmarks/commit0'
+import { createCragAdapter } from './benchmarks/crag'
 import { createDabstepAdapter } from './benchmarks/dabstep'
 import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
 import { createFinResearchBenchAdapter } from './benchmarks/finresearchbench'
@@ -21,9 +22,13 @@ import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import { createHumanEvalAdapter } from './benchmarks/humaneval'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
+import { createNoMiraclAdapter } from './benchmarks/nomiracl'
+import { createOpenRagBenchAdapter } from './benchmarks/open-rag-bench'
 import { createProgrambenchAdapter } from './benchmarks/programbench'
+import { createRagBenchAdapter } from './benchmarks/ragbench'
 import { createSimpleQaAdapter } from './benchmarks/simpleqa'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
+import { createT2RagBenchAdapter } from './benchmarks/t2-ragbench'
 import { createTau2BenchAdapter } from './benchmarks/tau2-bench'
 import { createTau3BankingAdapter } from './benchmarks/tau3-banking'
 import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
@@ -57,6 +62,11 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
   frames: createFramesAdapter,
+  ragbench: createRagBenchAdapter,
+  crag: createCragAdapter,
+  nomiracl: createNoMiraclAdapter,
+  'open-rag-bench': createOpenRagBenchAdapter,
+  't2-ragbench': createT2RagBenchAdapter,
   finresearchbench: createFinResearchBenchAdapter,
   finsearchcomp: createFinsearchcompAdapter,
   simpleqa: createSimpleQaAdapter,

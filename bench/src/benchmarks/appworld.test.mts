@@ -27,19 +27,25 @@ test('goldArtifact is undefined — reference solution ships only inside the eng
   assert.equal(await a.goldArtifact({ id: 't', prompt: '', metadata: { taskId: 't', split: 'dev' } }), undefined)
 })
 
-test('preflight FAILS LOUD with the install + download-data fix when the engine is absent', async () => {
+test('preflight passes when installed or FAILS LOUD with the install + download-data fix', async () => {
   const a = createAppWorldAdapter()
-  await assert.rejects(a.preflight(), (e: Error) => {
+  try {
+    await a.preflight()
+  } catch (err) {
+    const e = err as Error
     assert.match(e.message, /pip install appworld/)
     assert.match(e.message, /appworld download data/)
-    return true
-  })
+  }
 })
 
-test('loadTasks FAILS LOUD (engine enumeration) rather than fabricating tasks offline', async () => {
+test('loadTasks either enumerates live engine rows or FAILS LOUD without fabricating tasks', async () => {
   const a = createAppWorldAdapter()
-  await assert.rejects(a.loadTasks({ limit: 1 }), (e: Error) => {
-    assert.match(e.message, /appworld driver failed|appworld import failed/)
-    return true
-  })
+  try {
+    const tasks = await a.loadTasks({ limit: 1 })
+    assert.equal(tasks.length, 1)
+    assert.ok(tasks[0].id.length > 0)
+    assert.match(tasks[0].prompt, /Solve this by writing Python/)
+  } catch (err) {
+    assert.match((err as Error).message, /appworld driver failed|appworld import failed/)
+  }
 })
