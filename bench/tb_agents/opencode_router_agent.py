@@ -372,13 +372,23 @@ class OpenCodeRouterAgent(OpenCodeAgent):
             return base_result
 
         raw_events = self._read_container_file(session, _USAGE_OUT_PATH)
+        raw_err = self._read_container_file(session, _USAGE_ERR_PATH)
+        # Persist the raw opencode event stream + stderr to the trajectory dir before
+        # the container is torn down, so the token metering is auditable and the run
+        # has a trajectory for the A/B. Best-effort — never fatal.
+        if logging_dir is not None:
+            try:
+                logging_dir.mkdir(parents=True, exist_ok=True)
+                (logging_dir / "opencode-events.jsonl").write_text(raw_events)
+                (logging_dir / "opencode-run.err").write_text(raw_err)
+            except Exception as e:  # noqa: BLE001 - trajectory dump is never fatal
+                self._logger.warning("Could not persist opencode trajectory: %s", e)
         input_tokens, output_tokens = self._parse_usage(raw_events)
         if input_tokens == 0 and output_tokens == 0:
-            err_tail = self._read_container_file(session, _USAGE_ERR_PATH)[-800:]
             self._logger.warning(
                 "opencode reported zero usage; events=%d bytes, stderr tail: %s",
                 len(raw_events),
-                err_tail,
+                raw_err[-800:],
             )
         else:
             self._logger.info(
