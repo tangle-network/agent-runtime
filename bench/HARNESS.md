@@ -102,6 +102,13 @@ self-describing (models + config).
 | `src/examples/strategy-demo.mts` | the 3-layer API demo (gym-free) | `WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts` |
 | `src/examples/math-demo.mts` | any-domain proof: math via `createVerifierEnvironment` (the tax/legal/gtm answer-shape) | `BUDGET=3 tsx src/examples/math-demo.mts` |
 
+`run-benchmarks-cli.mts` can run a bounded per-task refinement loop with
+`LOOP_ATTEMPTS=N`: attempt 1 answers the original task; later attempts receive previous artifacts
+plus redacted checker feedback; the loop stops early on pass. This is for testing whether agents can
+use the benchmark's own feedback to solve the task, not for leaking gold answers into prompts.
+For local subscription-backed workers, set `BACKEND=bridge`, `BRIDGE_URL`, `BRIDGE_BEARER`, and pass
+the full bridge model id in `CELLS`, e.g. `CELLS=opencode/deepseek/deepseek-v4-pro`.
+
 EOPS standup (one container): `docker run -d --rm --name eops -p 8006:8005
 shivakrishnareddyma225/enterpriseops-gym-mcp-itsm:latest` + `EOPS_GYM_DBS_DIR=<unzipped
 gym_dbs.zip from github.com/ServiceNow/EnterpriseOps-Gym>`; restart it FRESH per big run
