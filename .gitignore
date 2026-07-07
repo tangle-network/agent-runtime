@@ -7,6 +7,7 @@ node_modules/
 bench/data/
 bench/experiments/
 bench/runs/
+bench/ab-runs/
 **/__pycache__/
 .claude/
 bench/scripts/__pycache__/
