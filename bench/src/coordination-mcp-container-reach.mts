@@ -167,7 +167,7 @@ async function main(): Promise<void> {
     now: () => Date.now(),
   })
 
-  console.log(
+  console.error(
     ok
       ? 'CONTAINER-REACHABLE: docker tools/list returned spawn_agent and await_event.'
       : 'NOT reachable from container; see output above.',
