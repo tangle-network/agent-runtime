@@ -178,16 +178,25 @@ export function answerScoreToBenchScore(
 export async function readJsonRows(path: string): Promise<unknown[]> {
   const raw = (await readFile(path, 'utf8')).trim()
   if (raw.length === 0) return []
-  if (raw.startsWith('[') || raw.startsWith('{')) {
+  if (raw.startsWith('[')) {
     const parsed = JSON.parse(raw) as unknown
     if (Array.isArray(parsed)) return parsed
-    if (isObject(parsed)) {
-      for (const key of ['rows', 'data', 'examples', 'items']) {
-        const value = parsed[key]
-        if (Array.isArray(value)) return value
+    throw new Error(`${path} must contain a JSON array when it starts with [`)
+  }
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (isObject(parsed)) {
+        for (const key of ['rows', 'data', 'examples', 'items']) {
+          const value = parsed[key]
+          if (Array.isArray(value)) return value
+        }
+        return [parsed]
       }
+      throw new Error(`${path} must contain a JSON object, JSON array, JSONL rows, or an object with rows/data/examples/items`)
+    } catch (err) {
+      if (!raw.includes('\n')) throw err
     }
-    throw new Error(`${path} must contain a JSON array, JSONL rows, or an object with rows/data/examples/items`)
   }
   return raw
     .split(/\r?\n/)

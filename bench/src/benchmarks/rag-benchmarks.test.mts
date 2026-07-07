@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { resolveAdapter } from '../adapters'
 import { createCragAdapter } from './crag'
 import { createNoMiraclAdapter } from './nomiracl'
 import { createOpenRagBenchAdapter } from './open-rag-bench'
 import { createRagBenchAdapter } from './ragbench'
-import { FINAL_ANSWER_SENTINEL } from './rag-shared'
+import { FINAL_ANSWER_SENTINEL, readJsonRows } from './rag-shared'
 import { createT2RagBenchAdapter } from './t2-ragbench'
 
 async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
@@ -28,6 +31,20 @@ async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => P
 test('RAG benchmark adapters are registered', () => {
   for (const key of ['ragbench', 'crag', 'nomiracl', 'open-rag-bench', 't2-ragbench']) {
     assert.equal(resolveAdapter(key).name, key)
+  }
+})
+
+test('RAG JSON reader accepts object-starting JSONL exports', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'rag-jsonl-'))
+  try {
+    const file = join(dir, 'rows.jsonl')
+    await writeFile(file, '{"id":"a","question":"q1"}\n{"id":"b","question":"q2"}\n')
+    assert.deepEqual(await readJsonRows(file), [
+      { id: 'a', question: 'q1' },
+      { id: 'b', question: 'q2' },
+    ])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })
 
