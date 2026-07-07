@@ -41,9 +41,11 @@ Env (forwarded from the tb-launching process, e.g. via dotenvx):
     OPENAI_BASE_URL  router base url (optional; defaults to the Tangle router /v1)
 """
 
+import inspect
 import json
 import os
 import shlex
+import tempfile
 from pathlib import Path
 
 from terminal_bench.agents.base_agent import AgentResult
@@ -53,6 +55,7 @@ from terminal_bench.agents.installed_agents.opencode.opencode_agent import (
 )
 from terminal_bench.terminal.tmux_session import TmuxSession
 from terminal_bench.utils.logger import logger
+from terminal_bench.utils.template_utils import render_setup_script
 
 DEFAULT_ROUTER_BASE_URL = "https://router.tangle.tools/v1"
 
@@ -98,6 +101,27 @@ class OpenCodeRouterAgent(OpenCodeAgent):
     @staticmethod
     def name() -> str:
         return "agent-runtime-opencode-router"
+
+    @property
+    def _install_agent_script_path(self) -> os.PathLike:
+        """Render opencode's install template.
+
+        The base `_get_templated_script_path` resolves the template relative to
+        `inspect.getfile(self.__class__)` — i.e. next to THIS subclass file, where
+        `opencode-setup.sh.j2` does not exist. Resolve it from the stock
+        `OpenCodeAgent`'s own directory instead (same fix as OpenCodeRefineAgent).
+        """
+        template_path = (
+            Path(inspect.getfile(OpenCodeAgent)).parent / "opencode-setup.sh.j2"
+        )
+        script_content = render_setup_script(
+            template_path, self._get_template_variables()
+        )
+        temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False)
+        temp_file.write(script_content)
+        temp_file.close()
+        os.chmod(temp_file.name, 0o755)
+        return Path(temp_file.name)
 
     @property
     def _env(self) -> dict[str, str]:
