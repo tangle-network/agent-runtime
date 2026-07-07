@@ -138,4 +138,17 @@ describe('createSandboxAct — prod-profile eval parity', () => {
     })
     await expect(collectAgentRun(act('p', ctx()))).rejects.toThrow('stream boom')
   })
+
+  it('fails at construction when the caller requires an unsupported custom profile axis', () => {
+    const { client } = fakeClient(SCRIPT)
+    expect(() =>
+      createSandboxAct({
+        baseProfile: BASE,
+        sandboxClient: client,
+        buildPrompt: () => 'x',
+        output,
+        requiredProfileAxes: ['custom:side-channel'],
+      }),
+    ).toThrow('profile materialization would drop axis changes')
+  })
 })

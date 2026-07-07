@@ -147,31 +147,45 @@ Import from `@tangle-network/agent-runtime` — 211 exports.
 
 ### Vertical agent — manifest + improvement adapter
 
-Import from `@tangle-network/agent-runtime/agent` — 33 exports.
+Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `assertProfileMaterialization` | function | Throw when a candidate changes axes the selected run path cannot carry. |
 | `collectAgentRun` | function | Drain `act`'s `events` into an array AND await its `output`. Useful for |
 | `createSandboxAct` | function | Build an `AgentRuntime.act` implementation backed by a single prod-profile |
 | `createSurfaceImprovementAdapter` | function | The substrate-default `ImprovementAdapter`: resolve each finding's subject to a real surface path, LLM-draft a unified-diff patch, then auto-apply or open a PR. |
 | `createSurfaceKnowledgeAdapter` | function | Wire a surface-based `KnowledgeAdapter` that writes analyst proposals to agent surface files. |
 | `defineAgent` | function | Construct a validated agent manifest. Throws `AgentManifestError` |
+| `defineProfileMaterializationContract` | function | Define the profile axes a concrete run path actually carries into execution. |
 | `measureOutcome` | function | Run `runAnalystLoop` and stamp an `OutcomeMeasurement` onto the |
+| `renderProfileMaterializationIssues` | function | Format profile-axis drop issues into a concise operator-facing error. |
 | `renderSurfaceIssues` | function | Format a list of surface validation issues into a human-readable error string. |
 | `resolveSubjectPath` | function | Resolve a parsed `FindingSubject` to the file path the substrate |
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
+| `validateProfileMaterialization` | function | Return every changed profile axis that the selected run path would drop. |
 | `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
+| `AGENT_PROFILE_MATERIALIZATION_AXES` | const | Known AgentProfile axes a run path may or may not carry into execution. |
+| `promptOnlyProfileMaterialization` | const | Materialization contract for a run path that only injects prompt text. |
+| `promptResourceProfileMaterialization` | const | Materialization contract for a run path that injects prompt text plus inline resources. |
+| `sandboxActProfileMaterialization` | const | Materialization contract for `createSandboxAct`, which forwards the full AgentProfile. |
 | `AgentManifestError` | class | Thrown when `defineAgent` finds a required surface missing on disk. |
 | `AgentManifest` | interface | The full agent manifest. Each agent ships ONE of these. |
 | `AgentSurfaces` | interface | Surface declarations. Every path is repo-relative (or absolute) at |
+| `AssertProfileMaterializationOptions` | interface | Input for throwing on dropped profile axes. |
 | `CreateSurfaceKnowledgeAdapterOpts` | interface | Substrate-default `KnowledgeAdapter` — wraps agent-knowledge's |
+| `DefineProfileMaterializationContractOptions` | interface | Input for declaring a run path's profile-axis support. |
 | `KnowledgeAdapterDeps` | interface | Build the adapter. We accept the agent-knowledge functions as DI so |
 | `OutcomeMeasurement` | interface | `OutcomeMeasurement` — the missing metric that turns the analyst |
+| `ProfileMaterializationContract` | interface | Declares which AgentProfile axes a concrete run path really carries. |
+| `ProfileMaterializationIssue` | interface | One changed AgentProfile axis that would be dropped by a run path. |
 | `SurfaceImprovementEdit` | interface | Substrate-default `ImprovementAdapter` — surfaces-driven, LLM-drafted |
 | `SurfaceLifecycle` | interface | One profile surface's artifact-lifecycle wiring — the declarative config a |
 | `SurfaceValidationIssue` | interface | Validate that every declared surface exists on disk under `repoRoot`. |
+| `ValidateProfileMaterializationOptions` | interface | Input for checking a candidate diff against a run path. |
+| `AgentProfileMaterializationAxis` | type | AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `AutoApplyPolicy`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentRubric`, `AgentRunContext`, `AgentRunInvocation`, `AgentRuntime`, `AnalystConfig`, `AutoApplyPolicy`, `CreateSandboxActOptions`, `CreateSurfaceImprovementAdapterOpts`, `DraftPatchInput`, `DraftPatchOutput`, `JudgeConfig`, `OutcomeMeasurementOpts`, `ResolvedSurface`, `RubricDimension`, `KnownAgentProfileMaterializationAxis`.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 

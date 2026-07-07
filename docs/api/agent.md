@@ -1167,9 +1167,159 @@ readonly `string`[]
 
 ***
 
+### ProfileMaterializationContract
+
+Defined in: [agent/profile-materialization.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L40)
+
+Declares which AgentProfile axes a concrete run path really carries.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+Defined in: [agent/profile-materialization.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L42)
+
+Human-readable run path, e.g. `createSandboxAct` or `prompt-only-message`.
+
+##### axes
+
+> **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/profile-materialization.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L44)
+
+Profile axes this run path actually carries into execution.
+
+***
+
+### ProfileMaterializationIssue
+
+Defined in: [agent/profile-materialization.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L48)
+
+One changed AgentProfile axis that would be dropped by a run path.
+
+#### Properties
+
+##### contract
+
+> **contract**: `string`
+
+Defined in: [agent/profile-materialization.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L49)
+
+##### axis
+
+> **axis**: [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)
+
+Defined in: [agent/profile-materialization.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L50)
+
+##### reason
+
+> **reason**: `"unsupported-axis"`
+
+Defined in: [agent/profile-materialization.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L51)
+
+##### supportedAxes
+
+> **supportedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/profile-materialization.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L52)
+
+***
+
+### DefineProfileMaterializationContractOptions
+
+Defined in: [agent/profile-materialization.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L56)
+
+Input for declaring a run path's profile-axis support.
+
+#### Properties
+
+##### name
+
+> **name**: `string`
+
+Defined in: [agent/profile-materialization.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L57)
+
+##### axes
+
+> **axes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/profile-materialization.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L58)
+
+***
+
+### ValidateProfileMaterializationOptions
+
+Defined in: [agent/profile-materialization.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L62)
+
+Input for checking a candidate diff against a run path.
+
+#### Extended by
+
+- [`AssertProfileMaterializationOptions`](#assertprofilematerializationoptions)
+
+#### Properties
+
+##### contract
+
+> **contract**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L63)
+
+##### changedAxes
+
+> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/profile-materialization.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L64)
+
+***
+
+### AssertProfileMaterializationOptions
+
+Defined in: [agent/profile-materialization.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L68)
+
+Input for throwing on dropped profile axes.
+
+#### Extends
+
+- [`ValidateProfileMaterializationOptions`](#validateprofilematerializationoptions)
+
+#### Properties
+
+##### contract
+
+> **contract**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L63)
+
+###### Inherited from
+
+[`ValidateProfileMaterializationOptions`](#validateprofilematerializationoptions).[`contract`](#contract-1)
+
+##### changedAxes
+
+> **changedAxes**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/profile-materialization.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L64)
+
+###### Inherited from
+
+[`ValidateProfileMaterializationOptions`](#validateprofilematerializationoptions).[`changedAxes`](#changedaxes)
+
+##### context?
+
+> `optional` **context?**: `string`
+
+Defined in: [agent/profile-materialization.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L70)
+
+Extra label included in the thrown error, usually the caller or run id.
+
+***
+
 ### CreateSandboxActOptions
 
-Defined in: [agent/sandbox-act.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L47)
+Defined in: [agent/sandbox-act.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L52)
 
 #### Type Parameters
 
@@ -1187,7 +1337,7 @@ Defined in: [agent/sandbox-act.ts:47](https://github.com/tangle-network/agent-ru
 
 > **baseProfile**: `AgentProfile`
 
-Defined in: [agent/sandbox-act.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L49)
+Defined in: [agent/sandbox-act.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L54)
 
 Canonical agent profile — the same one the prod chat turn uses.
 
@@ -1195,7 +1345,7 @@ Canonical agent profile — the same one the prod chat turn uses.
 
 > **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-3)
 
-Defined in: [agent/sandbox-act.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L51)
+Defined in: [agent/sandbox-act.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L56)
 
 Sandbox client used to boot the per-run sandbox.
 
@@ -1203,7 +1353,7 @@ Sandbox client used to boot the per-run sandbox.
 
 > **buildPrompt**: (`persona`) => `string`
 
-Defined in: [agent/sandbox-act.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L53)
+Defined in: [agent/sandbox-act.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L58)
 
 Persona → prompt. Pure; the eval cell's input.
 
@@ -1221,7 +1371,7 @@ Persona → prompt. Pure; the eval cell's input.
 
 > **output**: [`OutputAdapter`](runtime.md#outputadapter)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L55)
+Defined in: [agent/sandbox-act.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L60)
 
 Sandbox event stream → typed output the rubric scores.
 
@@ -1229,7 +1379,7 @@ Sandbox event stream → typed output the rubric scores.
 
 > `optional` **compose?**: (`persona`) => `SandboxActComposeOverrides`
 
-Defined in: [agent/sandbox-act.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L60)
+Defined in: [agent/sandbox-act.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L65)
 
 Per-persona profile overrides (workspace-augmented system prompt, extra
 file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
@@ -1248,7 +1398,7 @@ file mounts, tool flags, MCP connections). Overlaid onto `baseProfile`.
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
 
-Defined in: [agent/sandbox-act.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L62)
+Defined in: [agent/sandbox-act.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L67)
 
 Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
@@ -1258,11 +1408,19 @@ Sandbox-SDK overrides forwarded to `createSandboxForSpec`.
 
 > `optional` **backend?**: `Omit`\<`BackendConfig`, `"profile"`\>
 
+##### requiredProfileAxes?
+
+> `optional` **requiredProfileAxes?**: readonly [`AgentProfileMaterializationAxis`](#agentprofilematerializationaxis)[]
+
+Defined in: [agent/sandbox-act.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L69)
+
+Optional changed axes the caller expects this path to carry.
+
 ##### name?
 
 > `optional` **name?**: `string`
 
-Defined in: [agent/sandbox-act.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L64)
+Defined in: [agent/sandbox-act.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L71)
 
 Stable run name surfaced in mapped `llm_call` events.
 
@@ -1270,7 +1428,7 @@ Stable run name surfaced in mapped `llm_call` events.
 
 > `optional` **mapEvent?**: (`event`, `opts`) => [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
 
-Defined in: [agent/sandbox-act.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L66)
+Defined in: [agent/sandbox-act.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L73)
 
 Override the `SandboxEvent → RuntimeStreamEvent` mapper.
 
@@ -1458,6 +1616,64 @@ Defined in: [agent/surfaces.ts:193](https://github.com/tangle-network/agent-runt
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
 
 Defined in: [agent/surfaces.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L194)
+
+## Type Aliases
+
+### KnownAgentProfileMaterializationAxis
+
+> **KnownAgentProfileMaterializationAxis** = *typeof* [`AGENT_PROFILE_MATERIALIZATION_AXES`](#agent_profile_materialization_axes)\[`number`\]
+
+Defined in: [agent/profile-materialization.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L31)
+
+***
+
+### AgentProfileMaterializationAxis
+
+> **AgentProfileMaterializationAxis** = [`KnownAgentProfileMaterializationAxis`](#knownagentprofilematerializationaxis) \| `` `custom:${string}` ``
+
+Defined in: [agent/profile-materialization.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L35)
+
+AgentProfile axis name, with `custom:<name>` reserved for caller-owned extensions.
+
+## Variables
+
+### AGENT\_PROFILE\_MATERIALIZATION\_AXES
+
+> `const` **AGENT\_PROFILE\_MATERIALIZATION\_AXES**: readonly \[`"identity"`, `"name"`, `"model"`, `"prompt"`, `"systemPrompt"`, `"instructions"`, `"resources"`, `"files"`, `"resourceInstructions"`, `"skills"`, `"resourceTools"`, `"resourceAgents"`, `"commands"`, `"tools"`, `"permissions"`, `"mcp"`, `"mcpConnections"`, `"connections"`, `"subagents"`, `"hooks"`, `"modes"`, `"confidential"`, `"metadata"`, `"extensions"`\]
+
+Defined in: [agent/profile-materialization.ts:4](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L4)
+
+Known AgentProfile axes a run path may or may not carry into execution.
+
+***
+
+### sandboxActProfileMaterialization
+
+> `const` **sandboxActProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L91)
+
+Materialization contract for `createSandboxAct`, which forwards the full AgentProfile.
+
+***
+
+### promptOnlyProfileMaterialization
+
+> `const` **promptOnlyProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L112)
+
+Materialization contract for a run path that only injects prompt text.
+
+***
+
+### promptResourceProfileMaterialization
+
+> `const` **promptResourceProfileMaterialization**: [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:118](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L118)
+
+Materialization contract for a run path that injects prompt text plus inline resources.
 
 ## Functions
 
@@ -1656,11 +1872,95 @@ optional on the type; missing means no measurement was wired).
 
 ***
 
+### defineProfileMaterializationContract()
+
+> **defineProfileMaterializationContract**(`options`): [`ProfileMaterializationContract`](#profilematerializationcontract)
+
+Defined in: [agent/profile-materialization.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L124)
+
+Define the profile axes a concrete run path actually carries into execution.
+
+#### Parameters
+
+##### options
+
+[`DefineProfileMaterializationContractOptions`](#defineprofilematerializationcontractoptions)
+
+#### Returns
+
+[`ProfileMaterializationContract`](#profilematerializationcontract)
+
+***
+
+### validateProfileMaterialization()
+
+> **validateProfileMaterialization**(`options`): readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
+
+Defined in: [agent/profile-materialization.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L138)
+
+Return every changed profile axis that the selected run path would drop.
+
+#### Parameters
+
+##### options
+
+[`ValidateProfileMaterializationOptions`](#validateprofilematerializationoptions)
+
+#### Returns
+
+readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
+
+***
+
+### assertProfileMaterialization()
+
+> **assertProfileMaterialization**(`options`): `void`
+
+Defined in: [agent/profile-materialization.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L159)
+
+Throw when a candidate changes axes the selected run path cannot carry.
+
+#### Parameters
+
+##### options
+
+[`AssertProfileMaterializationOptions`](#assertprofilematerializationoptions)
+
+#### Returns
+
+`void`
+
+***
+
+### renderProfileMaterializationIssues()
+
+> **renderProfileMaterializationIssues**(`issues`, `context?`): `string`
+
+Defined in: [agent/profile-materialization.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/profile-materialization.ts#L166)
+
+Format profile-axis drop issues into a concise operator-facing error.
+
+#### Parameters
+
+##### issues
+
+readonly [`ProfileMaterializationIssue`](#profilematerializationissue)[]
+
+##### context?
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### createSandboxAct()
 
 > **createSandboxAct**\<`TPersona`, `TRunOutput`\>(`options`): (`persona`, `ctx`) => [`AgentRunInvocation`](#agentruninvocation)\<`TRunOutput`\>
 
-Defined in: [agent/sandbox-act.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L78)
+Defined in: [agent/sandbox-act.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/sandbox-act.ts#L85)
 
 Build an `AgentRuntime.act` implementation backed by a single prod-profile
 sandbox run. The returned function honours the `act` contract: it returns

@@ -40,6 +40,25 @@ export type {
 export { createSurfaceKnowledgeAdapter } from './knowledge-adapter'
 export type { OutcomeMeasurement, OutcomeMeasurementOpts } from './outcome'
 export { measureOutcome } from './outcome'
+export type {
+  AgentProfileMaterializationAxis,
+  AssertProfileMaterializationOptions,
+  DefineProfileMaterializationContractOptions,
+  KnownAgentProfileMaterializationAxis,
+  ProfileMaterializationContract,
+  ProfileMaterializationIssue,
+  ValidateProfileMaterializationOptions,
+} from './profile-materialization'
+export {
+  AGENT_PROFILE_MATERIALIZATION_AXES,
+  assertProfileMaterialization,
+  defineProfileMaterializationContract,
+  promptOnlyProfileMaterialization,
+  promptResourceProfileMaterialization,
+  renderProfileMaterializationIssues,
+  sandboxActProfileMaterialization,
+  validateProfileMaterialization,
+} from './profile-materialization'
 export type { CreateSandboxActOptions } from './sandbox-act'
 export { createSandboxAct } from './sandbox-act'
 export type { AgentSurfaces, ResolvedSurface, SurfaceValidationIssue } from './surfaces'
