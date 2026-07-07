@@ -102,8 +102,24 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  `opts.generator` is supplied. Without either, `surface: 'code'` still fails
    *  loud — there is no safe zero-config repo to invent. */
   code?: ImproveCodeOptions
+  /** SKILLS-surface wiring for real skill-DOCUMENT optimization. Without this,
+   *  `surface: 'skills'` optimizes the profile's skills REFS array (file pointers)
+   *  — which `skillOptProposer` (a document patcher) cannot meaningfully edit.
+   *  Provide the document CONTENT to optimize + a `writeBack` to persist the
+   *  shipped winner (the profile ref points at a file the caller owns). This is
+   *  what makes skillOpt reachable through improve(). */
+  skills?: ImproveSkillsOptions
   /** Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`. */
   storage?: SelfImproveOptions<TScenario, TArtifact>['storage']
+}
+
+export interface ImproveSkillsOptions {
+  /** The skill document's current text — the baseline `skillOptProposer` patches. */
+  document: string
+  /** Persist the shipped winner document (write the file the profile ref points at).
+   *  Called only on a ship verdict. When omitted, the winner is still returned in
+   *  `result.raw.winner.surface` for the caller to materialize. */
+  writeBack?: (winnerDocument: string) => void
 }
 
 export interface ImproveCodeOptions {
@@ -169,12 +185,18 @@ function defaultGeneratorFor(
 /** Extract the baseline surface a driver mutates from the profile field that
  *  backs `surface`. `prompt`/`skills` are string surfaces; the config surfaces
  *  serialize the matching profile record. */
-function baselineSurfaceFor(profile: AgentProfile, surface: ImproveSurface): MutableSurface {
+function baselineSurfaceFor(
+  profile: AgentProfile,
+  surface: ImproveSurface,
+  skills?: ImproveSkillsOptions,
+): MutableSurface {
   switch (surface) {
     case 'prompt':
       return profile.prompt?.systemPrompt ?? ''
     case 'skills':
-      return JSON.stringify(profile.resources?.skills ?? [])
+      // With a document supplied, optimize its CONTENT (the real skillOpt path);
+      // otherwise fall back to the refs-array surface for back-compat.
+      return skills?.document ?? JSON.stringify(profile.resources?.skills ?? [])
     case 'tools':
       return JSON.stringify(profile.tools ?? {})
     case 'mcp':
@@ -351,7 +373,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     agent: opts.agent,
     scenarios: opts.scenarios,
     judge: opts.judge,
-    baselineSurface: baselineSurfaceFor(profile, surface),
+    baselineSurface: baselineSurfaceFor(profile, surface, opts.skills),
     proposer,
     budget,
     llm: opts.llm,
@@ -367,7 +389,17 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   })
 
   const shipped = raw.gateDecision === 'ship'
-  const nextProfile = shipped ? applyWinnerToProfile(profile, surface, raw.winner.surface) : profile
+  // When a skill DOCUMENT was optimized, the winner is document text — persist it
+  // via writeBack (the profile ref points at the caller's file, unchanged) rather
+  // than parsing it as a refs array. Otherwise use the standard field write-back.
+  const usedSkillDocument = surface === 'skills' && opts.skills !== undefined
+  if (shipped && usedSkillDocument && typeof raw.winner.surface === 'string') {
+    opts.skills?.writeBack?.(raw.winner.surface)
+  }
+  const nextProfile =
+    shipped && !usedSkillDocument
+      ? applyWinnerToProfile(profile, surface, raw.winner.surface)
+      : profile
 
   return { profile: nextProfile, shipped, lift: raw.lift, gateDecision: raw.gateDecision, raw }
 }

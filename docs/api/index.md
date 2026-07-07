@@ -2698,11 +2698,24 @@ CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
  `opts.generator` is supplied. Without either, `surface: 'code'` still fails
  loud — there is no safe zero-config repo to invent.
 
+##### skills?
+
+> `optional` **skills?**: `ImproveSkillsOptions`
+
+Defined in: [improvement/improve.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L111)
+
+SKILLS-surface wiring for real skill-DOCUMENT optimization. Without this,
+ `surface: 'skills'` optimizes the profile's skills REFS array (file pointers)
+ — which `skillOptProposer` (a document patcher) cannot meaningfully edit.
+ Provide the document CONTENT to optimize + a `writeBack` to persist the
+ shipped winner (the profile ref points at a file the caller owns). This is
+ what makes skillOpt reachable through improve().
+
 ##### storage?
 
 > `optional` **storage?**: `CampaignStorage`
 
-Defined in: [improvement/improve.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L106)
+Defined in: [improvement/improve.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L113)
 
 Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`.
 
@@ -2710,7 +2723,7 @@ Storage passthrough to `selfImprove`; overrides the default chosen from `runDir`
 
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L128)
+Defined in: [improvement/improve.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L144)
 
 #### Type Parameters
 
@@ -2728,7 +2741,7 @@ Defined in: [improvement/improve.ts:128](https://github.com/tangle-network/agent
 
 > **profile**: `AgentProfile`
 
-Defined in: [improvement/improve.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L131)
+Defined in: [improvement/improve.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L147)
 
 The profile after improvement: the winner surface applied back into the
  matching field when the gate shipped, else the input profile unchanged.
@@ -2737,7 +2750,7 @@ The profile after improvement: the winner surface applied back into the
 
 > **shipped**: `boolean`
 
-Defined in: [improvement/improve.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L133)
+Defined in: [improvement/improve.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L149)
 
 True when `gateDecision === 'ship'`.
 
@@ -2745,7 +2758,7 @@ True when `gateDecision === 'ship'`.
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L135)
+Defined in: [improvement/improve.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L151)
 
 Held-out lift (`winner − baseline` composite).
 
@@ -2753,7 +2766,7 @@ Held-out lift (`winner − baseline` composite).
 
 > **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L137)
+Defined in: [improvement/improve.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L153)
 
 The five-valued gate verdict from `selfImprove`.
 
@@ -2761,7 +2774,7 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L139)
+Defined in: [improvement/improve.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L155)
 
 Full `selfImprove` result for advanced inspection.
 
@@ -7913,7 +7926,7 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:325](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L325)
+Defined in: [improvement/improve.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L347)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 
