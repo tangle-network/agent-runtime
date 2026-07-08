@@ -295,6 +295,394 @@ Default 400. Hard cap; the gate hard-fails when exceeded.
 
 ***
 
+### ResearchTask
+
+Defined in: profiles/researcher.ts:39
+
+**`Experimental`**
+
+Task contract for a source-grounded research agent.
+
+#### Properties
+
+##### question
+
+> **question**: `string`
+
+Defined in: profiles/researcher.ts:41
+
+**`Experimental`**
+
+The research question to answer.
+
+##### scope?
+
+> `optional` **scope?**: `string`
+
+Defined in: profiles/researcher.ts:43
+
+**`Experimental`**
+
+Bound: e.g. "audience for cpg-founder ICP".
+
+##### knowledgeNamespace
+
+> **knowledgeNamespace**: `string`
+
+Defined in: profiles/researcher.ts:45
+
+**`Experimental`**
+
+Multi-tenant scope (customer-id, workspace-id). Validator enforces.
+
+##### sources?
+
+> `optional` **sources?**: [`ResearchSource`](#researchsource)[]
+
+Defined in: profiles/researcher.ts:46
+
+**`Experimental`**
+
+##### recencyWindow?
+
+> `optional` **recencyWindow?**: `object`
+
+Defined in: profiles/researcher.ts:47
+
+**`Experimental`**
+
+###### since?
+
+> `optional` **since?**: `Date`
+
+###### until?
+
+> `optional` **until?**: `Date`
+
+##### maxItems?
+
+> `optional` **maxItems?**: `number`
+
+Defined in: profiles/researcher.ts:48
+
+**`Experimental`**
+
+##### minConfidence?
+
+> `optional` **minConfidence?**: `number`
+
+Defined in: profiles/researcher.ts:50
+
+**`Experimental`**
+
+Per-item minimum confidence in [0, 1]. Validator scores recall vs this.
+
+***
+
+### KnowledgeItem
+
+Defined in: profiles/researcher.ts:61
+
+**`Experimental`**
+
+Knowledge item emitted by the researcher.
+
+Profile-local type. When agent-knowledge promotes `KnowledgeClaim` →
+top-level `KnowledgeItem` substrate-wide, these fields collapse 1:1.
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+Defined in: profiles/researcher.ts:62
+
+**`Experimental`**
+
+##### namespace
+
+> **namespace**: `string`
+
+Defined in: profiles/researcher.ts:64
+
+**`Experimental`**
+
+Multi-tenant scope. MUST equal `task.knowledgeNamespace`.
+
+##### claim
+
+> **claim**: `string`
+
+Defined in: profiles/researcher.ts:66
+
+**`Experimental`**
+
+The factual claim, in the researcher's words.
+
+##### evidence
+
+> **evidence**: `object`[]
+
+Defined in: profiles/researcher.ts:68
+
+**`Experimental`**
+
+Provenance — at least one entry required.
+
+###### source
+
+> **source**: `string`
+
+###### quote?
+
+> `optional` **quote?**: `string`
+
+###### url?
+
+> `optional` **url?**: `string`
+
+###### capturedAt
+
+> **capturedAt**: `number`
+
+##### confidence
+
+> **confidence**: `number`
+
+Defined in: profiles/researcher.ts:70
+
+**`Experimental`**
+
+Researcher's self-reported confidence in [0, 1].
+
+##### supersedes?
+
+> `optional` **supersedes?**: `string`[]
+
+Defined in: profiles/researcher.ts:72
+
+**`Experimental`**
+
+Prior item ids this supersedes (chain).
+
+##### retractedAt?
+
+> `optional` **retractedAt?**: `number`
+
+Defined in: profiles/researcher.ts:74
+
+**`Experimental`**
+
+Set if the agent is retracting an earlier item. Unix ms.
+
+##### authoredBy
+
+> **authoredBy**: `object`
+
+Defined in: profiles/researcher.ts:75
+
+**`Experimental`**
+
+###### kind
+
+> **kind**: `"agent"` \| `"human"`
+
+###### id
+
+> **id**: `string`
+
+***
+
+### ResearchOutput
+
+Defined in: profiles/researcher.ts:96
+
+**`Experimental`**
+
+Researcher output. Required fields are typed; optional fields preserve
+the agent's free-form intelligence (`notes`, `raw`). The validator
+enforces the typed minimum.
+
+#### Properties
+
+##### items
+
+> **items**: [`KnowledgeItem`](#knowledgeitem)[]
+
+Defined in: profiles/researcher.ts:97
+
+**`Experimental`**
+
+##### citations
+
+> **citations**: `object`[]
+
+Defined in: profiles/researcher.ts:98
+
+**`Experimental`**
+
+###### url
+
+> **url**: `string`
+
+###### quote
+
+> **quote**: `string`
+
+###### confidence
+
+> **confidence**: `number`
+
+##### proposedWrites
+
+> **proposedWrites**: [`KnowledgeUpdate`](#knowledgeupdate)[]
+
+Defined in: profiles/researcher.ts:99
+
+**`Experimental`**
+
+##### gaps?
+
+> `optional` **gaps?**: `string`[]
+
+Defined in: profiles/researcher.ts:100
+
+**`Experimental`**
+
+##### notes?
+
+> `optional` **notes?**: `string`
+
+Defined in: profiles/researcher.ts:101
+
+**`Experimental`**
+
+##### raw?
+
+> `optional` **raw?**: `unknown`
+
+Defined in: profiles/researcher.ts:103
+
+**`Experimental`**
+
+Anything the agent emitted beyond the typed fields.
+
+***
+
+### ResearcherProfileOptions
+
+Defined in: profiles/researcher.ts:107
+
+**`Experimental`**
+
+Options for the source-grounded researcher profile preset.
+
+#### Properties
+
+##### harness?
+
+> `optional` **harness?**: `string`
+
+Defined in: profiles/researcher.ts:109
+
+**`Experimental`**
+
+Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
+
+##### model?
+
+> `optional` **model?**: `string`
+
+Defined in: profiles/researcher.ts:111
+
+**`Experimental`**
+
+Default model id passed in `AgentProfile.model.default`.
+
+##### systemPrompt?
+
+> `optional` **systemPrompt?**: `string`
+
+Defined in: profiles/researcher.ts:113
+
+**`Experimental`**
+
+Custom system prompt replacement. Default = built-in researcher preset.
+
+##### name?
+
+> `optional` **name?**: `string`
+
+Defined in: profiles/researcher.ts:115
+
+**`Experimental`**
+
+Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
+
+##### citationDensityMin?
+
+> `optional` **citationDensityMin?**: `number`
+
+Defined in: profiles/researcher.ts:120
+
+**`Experimental`**
+
+Default 0.7. Minimum (citations with quote) / items ratio for `valid=true`.
+Below this floor, citation_density scores < 1 and the item set is gated.
+
+***
+
+### MultiHarnessResearcherFanoutOptions
+
+Defined in: profiles/researcher.ts:164
+
+**`Experimental`**
+
+#### Properties
+
+##### harnesses?
+
+> `optional` **harnesses?**: `string`[]
+
+Defined in: profiles/researcher.ts:166
+
+**`Experimental`**
+
+Backend.type identifiers, one per parallel agent.
+
+##### models?
+
+> `optional` **models?**: (`string` \| `undefined`)[]
+
+Defined in: profiles/researcher.ts:168
+
+**`Experimental`**
+
+Optional per-harness model override. Indexed parallel to `harnesses`.
+
+##### citationDensityMin?
+
+> `optional` **citationDensityMin?**: `number`
+
+Defined in: profiles/researcher.ts:170
+
+**`Experimental`**
+
+Default citation density floor for the shared validator.
+
+##### task?
+
+> `optional` **task?**: [`ResearchTask`](#researchtask)
+
+Defined in: profiles/researcher.ts:172
+
+**`Experimental`**
+
+Optional task — narrows the validator's namespace check.
+
+***
+
 ### InProcessUiAuditClientOptions
 
 Defined in: [profiles/ui-auditor/in-process-client.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/ui-auditor/in-process-client.ts#L46)
@@ -1262,6 +1650,31 @@ Optional judge commentary (debug / triage aid).
 
 ## Type Aliases
 
+### ResearchSource
+
+> **ResearchSource** = `"web"` \| `"corpus"` \| `"twitter"` \| `"github"` \| `"docs"`
+
+Defined in: profiles/researcher.ts:36
+
+**`Experimental`**
+
+Source families a researcher profile may prefer for a task.
+
+***
+
+### KnowledgeUpdate
+
+> **KnowledgeUpdate** = \{ `kind`: `"insert"`; `namespace`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"supersede"`; `namespace`: `string`; `previousId`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"retract"`; `namespace`: `string`; `itemId`: `string`; `reason`: `string`; \}
+
+Defined in: profiles/researcher.ts:84
+
+**`Experimental`**
+
+A proposed write to the knowledge base. The profile does NOT apply
+these — the caller decides.
+
+***
+
 ### UiJudge
 
 > **UiJudge** = (`input`) => `Promise`\<[`UiJudgeOutput`](#uijudgeoutput)\>
@@ -1519,6 +1932,144 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 #### Returns
 
 `string`
+
+***
+
+### researcherProfile()
+
+> **researcherProfile**(`options?`): `object`
+
+Defined in: profiles/researcher.ts:127
+
+**`Experimental`**
+
+Build a source-grounded researcher profile with output parsing and validation.
+
+#### Parameters
+
+##### options?
+
+[`ResearcherProfileOptions`](#researcherprofileoptions) & `object` = `{}`
+
+#### Returns
+
+`object`
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+##### taskToPrompt
+
+> **taskToPrompt**: (`task`) => `string`
+
+###### Parameters
+
+###### task
+
+[`ResearchTask`](#researchtask)
+
+###### Returns
+
+`string`
+
+##### output
+
+> **output**: [`OutputAdapter`](runtime.md#outputadapter)\<[`ResearchOutput`](#researchoutput)\>
+
+##### validator
+
+> **validator**: [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+
+##### agentRunSpec
+
+> **agentRunSpec**: [`AgentRunSpec`](runtime.md#agentrunspec)\<[`ResearchTask`](#researchtask)\>
+
+***
+
+### multiHarnessResearcherFanout()
+
+> **multiHarnessResearcherFanout**(`options?`): `object`
+
+Defined in: profiles/researcher.ts:182
+
+**`Experimental`**
+
+Build a fanout topology over multiple harnesses. The kernel round-robins
+`agentRuns` across the N parallel iterations and the `FanoutVote` driver
+picks the highest-scoring valid output.
+
+#### Parameters
+
+##### options?
+
+[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions) = `{}`
+
+#### Returns
+
+`object`
+
+##### agentRuns
+
+> **agentRuns**: [`AgentRunSpec`](runtime.md#agentrunspec)\<[`ResearchTask`](#researchtask)\>[]
+
+##### output
+
+> **output**: [`OutputAdapter`](runtime.md#outputadapter)\<[`ResearchOutput`](#researchoutput)\>
+
+##### validator
+
+> **validator**: [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+
+##### driver
+
+> **driver**: [`Driver`](runtime.md#driver-1)\<[`ResearchTask`](#researchtask), [`ResearchOutput`](#researchoutput), `"done"`\>
+
+***
+
+### createResearcherValidator()
+
+> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
+
+Defined in: profiles/researcher.ts:240
+
+**`Experimental`**
+
+Build a validator that closes over a specific `ResearchTask`'s constraints.
+
+Checks in order:
+  1. Items must be non-empty.
+  2. Every item carries `evidence.length >= 1`.
+  3. Every item + proposedWrite is scoped to `task.knowledgeNamespace`
+     (hard-fail on any namespace mismatch — defence in depth for the
+     multi-tenant invariant).
+  4. Citation density (citations with quote / items) >= floor.
+
+Aggregate score:
+  0.4 · citation_density
++ 0.2 · source_diversity (distinct sources / max(items, 1))
++ 0.2 · recency_match (mean fraction within `recencyWindow`)
++ 0.2 · (1 − gaps/maxGaps), maxGaps = max(items, 1)
+
+#### Parameters
+
+##### task
+
+[`ResearchTask`](#researchtask)
+
+##### config?
+
+###### citationDensityMin?
+
+`number`
+
+###### namespaceCheck?
+
+`boolean`
+
+#### Returns
+
+[`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
 
 ***
 

@@ -68,6 +68,7 @@ const ownSurfaceLabels = {
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './lifecycle': 'Artifact lifecycle — generate → measure → promote → compose',
+  './knowledge': 'Knowledge orchestration — supervised KB updates',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
   './mcp': 'MCP servers — delegate / coordination / detached-session',

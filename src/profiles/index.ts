@@ -27,6 +27,20 @@ export {
 export type { CoderTask } from './coder'
 export { coderTaskToPrompt } from './coder'
 export type {
+  KnowledgeItem,
+  KnowledgeUpdate,
+  MultiHarnessResearcherFanoutOptions,
+  ResearcherProfileOptions,
+  ResearchOutput,
+  ResearchSource,
+  ResearchTask,
+} from './researcher'
+export {
+  createResearcherValidator,
+  multiHarnessResearcherFanout,
+  researcherProfile,
+} from './researcher'
+export type {
   BrowserContextHandle,
   BrowserHandle,
   InProcessUiAuditClientOptions,
