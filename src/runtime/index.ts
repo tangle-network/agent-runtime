@@ -323,6 +323,7 @@ export {
 } from './sandbox-lineage'
 export {
   type Deliverable,
+  type OpenSandboxRunBeforeStartContext,
   type OpenSandboxRunOptions,
   type OpenSandboxRunPromptOptions,
   openSandboxRun,
@@ -351,6 +352,7 @@ export {
   type ArtifactHandle,
   adaptiveRefine,
   breadthStrategy,
+  type CorpusReadbackOptions,
   defineStrategy,
   depthStrategy,
   type RunAgenticOptions,

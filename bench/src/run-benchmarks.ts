@@ -28,7 +28,13 @@
  *   })
  */
 
-import type { AgentProfile, AgentRunSpec, Deliverable } from '@tangle-network/agent-runtime/loops'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import type {
+  AgentProfile,
+  AgentRunSpec,
+  Deliverable,
+  OpenSandboxRunOptions,
+} from '@tangle-network/agent-runtime/loops'
 import { openSandboxRun } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { resolveAdapter } from './adapters'
@@ -70,6 +76,7 @@ export type BenchShot = (input: {
   readonly bridgeBearer?: string
   readonly sandboxBaseUrl?: string
   readonly timeoutMs?: number
+  readonly resolveClient?: typeof resolveBenchClient
 }) => Promise<{ artifact: string; ok: boolean; detail?: string }>
 
 export interface RunBenchmarksOptions {
@@ -92,6 +99,8 @@ export interface RunBenchmarksOptions {
   readonly concurrency?: number
   /** Per-shot wall-clock (ms). */
   readonly timeoutMs?: number
+  /** Test seam: resolve the runtime transport. Defaults to `resolveBenchClient`. */
+  readonly resolveClient?: typeof resolveBenchClient
   /** Max attempts per (benchmark × cell × task). Default 1. Attempts after the first receive
    *  non-answer checker feedback and the previous artifacts; the loop stops early on pass. */
   readonly loopAttempts?: number
@@ -164,8 +173,8 @@ function finalText(events: readonly SandboxEvent[]): string {
 
 /** The default real-agent shot: one `openSandboxRun` over the cell's harness+model, deliverable
  *  extracted by the adapter's parser (or final text), abortable on `timeoutMs`. */
-const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs }) => {
-  const client = resolveBenchClient({
+const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, resolveClient }) => {
+  const client = (resolveClient ?? resolveBenchClient)({
     backend: cell.backend ?? 'router',
     routerBaseUrl,
     routerKey,
@@ -197,28 +206,29 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   }
   const controller = new AbortController()
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
-  const run = await openSandboxRun(
-    client,
-    { agentRun, signal: controller.signal, runId: `bench:${adapter.name}:${task.id}:${uniq}`, scenarioId: task.id },
-    deliverable,
-  )
-  try {
-    // Pre-stage the workspace BEFORE the agent runs: for benchmarks whose artifact
-    // is repo state (SWE-bench), the harness clones the instance repo at base_commit
-    // into a fixed path so the agent only edits — a stochastic model can't be relied
-    // on to clone to an exact path itself (the flaky "agent cloned to a random dir"
-    // failure this removes). Runs under run.sessionId so it lands in the SAME remapped
-    // workspace the agent writes to and boxExtract reads from.
-    if (adapter.boxSetup) {
-      const setup = adapter.boxSetup(task)
-      const sres = await run.box.exec(setup.command, {
+  const runOptions: OpenSandboxRunOptions = {
+    agentRun,
+    signal: controller.signal,
+    runId: `bench:${adapter.name}:${task.id}:${uniq}`,
+    scenarioId: task.id,
+  }
+  const boxSetup = adapter.boxSetup
+  if (boxSetup) {
+    runOptions.beforeStart = async ({ box, sessionId }) => {
+      const setup = boxSetup(task)
+      const sres = await box.exec(setup.command, {
         timeoutMs: 300_000,
-        sessionId: run.sessionId,
+        sessionId,
         ...(setup.cwd ? { cwd: setup.cwd } : {}),
       })
       if (sres.exitCode !== 0)
-        throw new Error(`boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`)
+        throw new Error(
+          `boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
+        )
     }
+  }
+  const run = await openSandboxRun(client, runOptions, deliverable)
+  try {
     const turn = await run.start(prompt ?? task.prompt)
     // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
     let artifact = (turn.out ?? '').trim()
@@ -240,12 +250,11 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
           ...(ex.cwd ? { cwd: ex.cwd } : {}),
         })
         const boxArtifact = (res.stdout ?? '').trim()
-        if (boxArtifact.length > 0) artifact = boxArtifact
-        else if (res.exitCode !== 0)
+        if (res.exitCode !== 0)
           boxExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
+        else if (boxArtifact.length > 0) artifact = boxArtifact
         if (process.env.BENCH_ARTIFACT_DIR) {
           try {
-            const { mkdirSync, writeFileSync } = await import('node:fs')
             mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
             const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
             const map = await run.box
@@ -281,7 +290,6 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     // re-running the agent. Off by default; set BENCH_ARTIFACT_DIR to enable.
     if (process.env.BENCH_ARTIFACT_DIR) {
       try {
-        const { mkdirSync, writeFileSync } = await import('node:fs')
         mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
         const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
         writeFileSync(`${process.env.BENCH_ARTIFACT_DIR}/${safe}.patch`, artifact)
@@ -491,6 +499,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(opts.bridgeBearer ? { bridgeBearer: opts.bridgeBearer } : {}),
         ...(opts.sandboxBaseUrl ? { sandboxBaseUrl: opts.sandboxBaseUrl } : {}),
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
       }
       const out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
       const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
@@ -539,7 +548,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
 function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow[] {
   const byKey = new Map<string, { benchmark: string; cell: string; n: number; resolved: number; errored: number; scoreSum: number }>()
   for (const r of perTask) {
-    const key = `${r.benchmark} ${r.cell}`
+    const key = `${r.benchmark}\u0000${r.cell}`
     const e = byKey.get(key) ?? { benchmark: r.benchmark, cell: r.cell, n: 0, resolved: 0, errored: 0, scoreSum: 0 }
     e.n += 1
     if (!r.ok) e.errored += 1

@@ -171,6 +171,32 @@ describe('rawTraceDistiller', () => {
     expect(JSON.stringify(findings)).toContain(resolve(c.spansPath))
   })
 
+  it('uses the configured runDir override for generation-level trace anchors', async () => {
+    const inputRunDir = join(root, 'input-gen')
+    const overrideRunDir = join(root, 'override-gen')
+    mkdirSync(overrideRunDir, { recursive: true })
+    const input = {
+      generation: 9,
+      runDir: inputRunDir,
+      candidates: [
+        {
+          surfaceHash: 'perfect',
+          composite: 1,
+          campaign: {
+            runDir: join(root, 'candidate-perfect'),
+            cells: [{ cellId: 's:0', scenarioId: 's', judgeScores: { j: { composite: 1 } } }],
+          },
+        },
+      ],
+      history: [],
+    } as unknown as AnalyzeInput
+
+    const findings = await rawTraceDistiller({ runDir: overrideRunDir })(input)
+    const blob = JSON.stringify(findings)
+    expect(blob).toContain(resolve(overrideRunDir))
+    expect(blob).not.toContain(resolve(inputRunDir))
+  })
+
   it('falls back to the seed findings when a generation has no failing cells', async () => {
     const seed = [{ seed: 'keep-me' }]
     const input = {

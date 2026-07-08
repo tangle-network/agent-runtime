@@ -33,9 +33,15 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { type LocalHarness, runLocalHarness } from '../mcp/local-harness'
 import type { CandidateGenerator } from './improvement-driver'
+
+const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
+const RAW_TRACE_AREA = 'raw-trace-context'
+const RAW_TRACE_DIAGNOSIS_PATH = '.improve/raw-trace-diagnosis.md'
 
 /** Outcome of verifying a candidate worktree. `feedback` (compiler errors,
  *  failing test output) is fed into the next shot when `ok` is false. */
@@ -81,6 +87,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
     kind: `agentic:${harness}`,
     async generate({ worktreePath, report, findings, maxShots, signal }) {
       const basePrompt = buildPrompt({ report, findings })
+      const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const shots = Math.max(1, maxShots)
       // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
       let attemptNote = ''
@@ -99,6 +106,14 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         if (!dirty(worktreePath)) {
           attemptNote = EMPTY_TREE_NOTE
           continue
+        }
+
+        if (needsRawTraceEvidence) {
+          const problem = rawTraceEvidenceProblem(worktreePath, findings)
+          if (problem) {
+            attemptNote = problem
+            continue
+          }
         }
 
         // Dirty: with no verifier the diff IS the candidate (we trust the diff,
@@ -134,6 +149,16 @@ function defaultBuildPrompt(args: { report: unknown; findings: AnalystFinding[] 
     lines.push(`- (${f.severity})${where} ${f.claim}`)
     if (f.recommended_action) lines.push(`    → ${f.recommended_action}`)
   }
+  if (requiresRawTraceEvidence(args.findings)) {
+    lines.push(
+      '',
+      'Raw trace evidence requirement:',
+      `- Inspect at least one raw trace path named above before editing.`,
+      `- Write ${RAW_TRACE_DIAGNOSIS_PATH} in this worktree.`,
+      '- Include the exact trace path(s) inspected, the failure mechanism, and the code change made.',
+      '- A candidate without this file, or with only this file changed, is discarded.',
+    )
+  }
   return lines.join('\n')
 }
 
@@ -150,6 +175,57 @@ function failureNote(feedback?: string): string {
     'Fix the problem in place — build on your existing edits, do not revert them.',
     detail ? `Verifier output:\n${truncate(detail, 4000)}` : 'No verifier detail was captured.',
   ].join('\n')
+}
+
+function rawTraceEvidenceProblem(worktreePath: string, findings: AnalystFinding[]): string | null {
+  const changedPaths = worktreeChangedPaths(worktreePath)
+  const substantive = changedPaths.filter((path) => path !== RAW_TRACE_DIAGNOSIS_PATH)
+  if (substantive.length === 0) {
+    return [
+      `NOTE: raw-trace mode requires a real code/config edit in addition to ${RAW_TRACE_DIAGNOSIS_PATH}.`,
+      'Your previous attempt only changed the diagnosis artifact. Inspect the cited traces and make the causal code change.',
+    ].join('\n')
+  }
+
+  const diagnosisPath = join(worktreePath, RAW_TRACE_DIAGNOSIS_PATH)
+  if (!existsSync(diagnosisPath)) {
+    return [
+      `NOTE: raw-trace mode requires ${RAW_TRACE_DIAGNOSIS_PATH}.`,
+      'Before retrying, inspect at least one cited spans.jsonl/cached-result.json/artifact path, then write the diagnosis file with the exact path, failure mechanism, and code change.',
+    ].join('\n')
+  }
+
+  const body = readFileSync(diagnosisPath, 'utf8')
+  const evidencePaths = traceEvidencePaths(findings)
+  if (evidencePaths.length > 0 && !evidencePaths.some((path) => body.includes(path))) {
+    return [
+      `${RAW_TRACE_DIAGNOSIS_PATH} exists, but it does not cite any exact raw trace path from the findings.`,
+      `Cite at least one of these inspected paths exactly: ${evidencePaths.slice(0, 5).join(', ')}`,
+    ].join('\n')
+  }
+
+  return null
+}
+
+function requiresRawTraceEvidence(findings: AnalystFinding[]): boolean {
+  return findings.some((finding) => {
+    const f = finding as unknown as Record<string, unknown>
+    return f.analyst_id === RAW_TRACE_ANALYST_ID || f.area === RAW_TRACE_AREA
+  })
+}
+
+function traceEvidencePaths(findings: AnalystFinding[]): string[] {
+  const out: string[] = []
+  for (const finding of findings) {
+    const refs = (finding as unknown as { evidence_refs?: unknown }).evidence_refs
+    if (!Array.isArray(refs)) continue
+    for (const ref of refs) {
+      if (!ref || typeof ref !== 'object') continue
+      const uri = (ref as { uri?: unknown }).uri
+      if (typeof uri === 'string' && uri.length > 0) out.push(uri)
+    }
+  }
+  return [...new Set(out)]
 }
 
 /** A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
@@ -207,7 +283,11 @@ function truncate(s: string, n: number): string {
  *  Folding that into `false` would silently discard a candidate and mask the
  *  real failure — forbidden by the no-silent-fallbacks doctrine. */
 function worktreeDirty(worktreePath: string): boolean {
-  const result = spawnSync('git', ['status', '--porcelain'], {
+  return worktreeChangedPaths(worktreePath).length > 0
+}
+
+function worktreeChangedPaths(worktreePath: string): string[] {
+  const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: worktreePath,
     encoding: 'utf-8',
   })
@@ -221,5 +301,9 @@ function worktreeDirty(worktreePath: string): boolean {
       `agenticGenerator: git status exited ${result.status} in ${worktreePath}: ${result.stderr.trim()}`,
     )
   }
-  return result.stdout.trim().length > 0
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(3).trim())
 }
