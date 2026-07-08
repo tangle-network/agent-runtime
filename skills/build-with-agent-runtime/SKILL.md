@@ -92,8 +92,8 @@ to its native default (`HARNESS_NATIVE_MODEL`) — never silently dropped.
 | **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/loops` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
 | **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/loops` | canonical-api §3.1 |
 | **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — root `.` | canonical-api §3.4 |
-| **Optimize a PROMPT/config surface** (one call) | `selfImprove({ agent, scenarios, judge, baselineSurface })` — `agent-eval/contract` | canonical-api §3.4 |
-| **Gate: ship/hold a candidate** (campaign ctx) | `defaultProductionGate` / `heldOutGate` / `composeGate` — `agent-eval/contract` | canonical-api §3.4 |
+| **Optimize a PROMPT/config surface** (one call) — START HERE | `improve(profile, findings, { surface, gate })` — root `.` (the one pluggable RSI verb; picks the default proposer from `surface` — `gepaProposer` for prompt, `skillOptProposer` for skills — and wraps `selfImprove`; drop to `selfImprove({ agent, scenarios, judge, baselineSurface })` from `agent-eval/contract` only for the lower-level loop) | canonical-api §3.4 |
+| **Gate: ship/hold a candidate** (campaign ctx) | `defaultProductionGate` / `heldOutGate` / `composeGate` — `agent-eval/contract`; `neutralizationGate` (footprint-matched PLACEBO gate — proves a held-out lift is CONTENT, not added prompt/mount footprint) — `agent-eval/campaign` | canonical-api §3.4 |
 | **Gate: ship/hold from a `BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/loops` | canonical-api §3.4 |
 | **Run the full multi-generation flywheel + certify** | `runStrategyEvolution(config)` — `/loops` | canonical-api §3.4 |
 | **Observe a run** (cost/time waterfall, OTLP) | `createWaterfallCollector()` — `/loops`; `createOtelExporter` attached via `composeRuntimeHooks(...)` — root `.` | canonical-api §2 |
@@ -110,7 +110,7 @@ holds the load-bearing invariant the parallel breaks:
   `loopUntil` + `runPersonified` (threads executor seams; equal-k; selector≠judge
   firewall; journal/replay — a parallel runner silently fails to wire the seams).
 - "skill optimizer" / "topology mutator" that opens branches + applies patches
-  **≈** `improvementDriver` (code surface) or `selfImprove`/`gepaDriver` (prompt
+  **≈** `improvementDriver` (code surface) or `selfImprove`/`gepaProposer` (prompt
   surface) — both gated on a frozen holdout.
 - "profile-seam" / agent-config wrapper carrying model+prompt+tools+role **≈**
   `AgentProfile` (it IS that bundle) + `definePersona` (the run record);
