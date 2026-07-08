@@ -203,12 +203,96 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     deliverable,
   )
   try {
+    // Pre-stage the workspace BEFORE the agent runs: for benchmarks whose artifact
+    // is repo state (SWE-bench), the harness clones the instance repo at base_commit
+    // into a fixed path so the agent only edits — a stochastic model can't be relied
+    // on to clone to an exact path itself (the flaky "agent cloned to a random dir"
+    // failure this removes). Runs under run.sessionId so it lands in the SAME remapped
+    // workspace the agent writes to and boxExtract reads from.
+    if (adapter.boxSetup) {
+      const setup = adapter.boxSetup(task)
+      const sres = await run.box.exec(setup.command, {
+        timeoutMs: 300_000,
+        sessionId: run.sessionId,
+        ...(setup.cwd ? { cwd: setup.cwd } : {}),
+      })
+      if (sres.exitCode !== 0)
+        throw new Error(`boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`)
+    }
     const turn = await run.start(prompt ?? task.prompt)
-    const artifact = (turn.out ?? '').trim()
+    // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
+    let artifact = (turn.out ?? '').trim()
+    let boxExtractError: string | undefined
+    // Primary deliverable for benchmarks whose real artifact lives in the box FS
+    // (SWE-bench: a git diff of the agent's edits). Run the adapter's extraction
+    // command in the STILL-ALIVE box (valid until run.close() below) and prefer its
+    // stdout; the event-stream parse remains the fallback when the box yields nothing.
+    if (adapter.boxExtract) {
+      try {
+        const ex = adapter.boxExtract(task)
+        // The agent runs under a DRIVER SESSION whose workspace is a remapped
+        // virtual root; an exec WITHOUT that sessionId lands on the host FS and
+        // cannot see the agent's edits. Thread run.sessionId so the extraction
+        // runs in the SAME workspace the agent wrote to.
+        const res = await run.box.exec(ex.command, {
+          timeoutMs: 120_000,
+          sessionId: run.sessionId,
+          ...(ex.cwd ? { cwd: ex.cwd } : {}),
+        })
+        const boxArtifact = (res.stdout ?? '').trim()
+        if (boxArtifact.length > 0) artifact = boxArtifact
+        else if (res.exitCode !== 0)
+          boxExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
+        if (process.env.BENCH_ARTIFACT_DIR) {
+          try {
+            const { mkdirSync, writeFileSync } = await import('node:fs')
+            mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
+            const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+            const map = await run.box
+              .exec(
+                'echo "PWD:"; pwd; echo "LS:"; ls -la; echo "GITROOTS:"; find / -maxdepth 5 -type d -name .git 2>/dev/null; echo "SETTINGS:"; find / -maxdepth 8 -name global_settings.py -path "*conf*" 2>/dev/null',
+                { timeoutMs: 60_000, sessionId: run.sessionId },
+              )
+              .catch((e: unknown) => ({ exitCode: -1, stdout: '', stderr: String(e) }))
+            writeFileSync(
+              `${process.env.BENCH_ARTIFACT_DIR}/${safe}.exec.json`,
+              JSON.stringify(
+                { sessionId: run.sessionId, extract: res, map: { exitCode: map.exitCode, stdout: map.stdout, stderr: map.stderr } },
+                null,
+                2,
+              ),
+            )
+          } catch {
+            // debug-only
+          }
+        }
+      } catch (err) {
+        boxExtractError = err instanceof Error ? err.message.slice(0, 160) : String(err)
+      }
+    }
+    const detail =
+      turn.readError !== undefined
+        ? `read: ${turn.readError.slice(0, 160)}`
+        : boxExtractError !== undefined
+          ? `boxExtract: ${boxExtractError}`
+          : undefined
+    // Debug affordance: dump the judged artifact (the exact model_patch the judge
+    // will score) so a scoring failure can be diagnosed off the real bytes without
+    // re-running the agent. Off by default; set BENCH_ARTIFACT_DIR to enable.
+    if (process.env.BENCH_ARTIFACT_DIR) {
+      try {
+        const { mkdirSync, writeFileSync } = await import('node:fs')
+        mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
+        const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+        writeFileSync(`${process.env.BENCH_ARTIFACT_DIR}/${safe}.patch`, artifact)
+      } catch {
+        // debug-only; never fail the shot on a dump error
+      }
+    }
     return {
       artifact,
       ok: artifact.length > 0,
-      ...(turn.readError ? { detail: `read: ${turn.readError.slice(0, 160)}` } : {}),
+      ...(detail ? { detail } : {}),
     }
   } finally {
     if (timer) clearTimeout(timer)

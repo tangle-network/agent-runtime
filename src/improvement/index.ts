@@ -33,4 +33,8 @@ export {
   improvementDriver,
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
+export {
+  type RawTraceDistillerOptions,
+  rawTraceDistiller,
+} from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'

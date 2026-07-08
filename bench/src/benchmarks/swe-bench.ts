@@ -25,11 +25,21 @@ import {
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 /**
- * The SWE deliverable, extracted from the agent's event STREAM (not the box FS).
- * `runLoop`'s `OutputAdapter` only sees events, so the agent prints its unified
- * diff in a fenced block and this pulls the last one out — the seam that lets the
- * SWE benchmark run through the gate runner (`runGate` / `runBenchmark`)
- * like any other.
+ * Fixed in-box path the agent clones the instance repo into. It is the SINGLE
+ * source of truth shared by the prompt template (which tells the agent to clone
+ * here) and `boxExtract` (which runs `git diff` here after the shot) — so the
+ * harness always knows exactly where the agent's edits live, for any instance.
+ */
+const SWE_REPO_DIR = '/work'
+
+/**
+ * The SWE deliverable's FALLBACK parser, from the agent's event STREAM.
+ *
+ * The PRIMARY deliverable is `boxExtract` below: a `git diff` of the agent's
+ * actual edits, read from the cloned repo's STATE inside the box (standard
+ * SWE-bench practice). This event-stream parse only runs when that diff is empty
+ * — a model that edited the source correctly but never printed a fenced diff (the
+ * exact failure this replaces) still scores off its real changes, not its prose.
  */
 export const swePatchOutput: OutputAdapter<string> = {
   parse(events) {
@@ -58,6 +68,28 @@ export function createSweBenchAdapter(): BenchmarkAdapter {
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
+
+    // Extract the patch from repo STATE, not printed text: stage every edit the
+    // agent made in the cloned repo and diff it against the checked-out
+    // base_commit (`HEAD`). Test files are excluded — the judge applies the gold
+    // `test_patch` itself, so an agent edit to a test would collide on apply. The
+    // paths come out `a/<repo-relative>` (cwd = repo root), matching the gold
+    // patch format the swebench judge's `git apply` expects.
+    // Pre-stage: clone the instance repo at base_commit into SWE_REPO_DIR so the
+    // agent only edits (the harness owns the checkout — a stochastic model can't be
+    // trusted to clone to an exact path). `--quiet` keeps the exec output small.
+    boxSetup(task) {
+      const repo = String(task.metadata?.repo ?? '')
+      const base = String(task.metadata?.base_commit ?? '')
+      return {
+        command: `rm -rf ${SWE_REPO_DIR} && git clone --quiet https://github.com/${repo} ${SWE_REPO_DIR} && git -C ${SWE_REPO_DIR} checkout --quiet ${base}`,
+      }
+    },
+    boxExtract() {
+      return {
+        command: `git -C ${SWE_REPO_DIR} add -A && git -C ${SWE_REPO_DIR} diff --cached -- . ':(exclude)*/test*'`,
+      }
+    },
 
     async preflight() {
       await preflightVenvImports({
@@ -101,8 +133,10 @@ print(json.dumps(out))
           prompt: [
             `Repository: ${r.repo} @ ${r.base_commit}`,
             '',
-            'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests, so editing tests does not count. Keep the change minimal.',
-            'When done, END your reply with the COMPLETE unified git diff as the LAST thing, fenced exactly as ```diff … ``` (nothing after the closing fence). That fenced diff is the only deliverable.',
+            `The repository is ALREADY cloned at ${SWE_REPO_DIR}, checked out at commit ${r.base_commit}. Work there directly (\`cd ${SWE_REPO_DIR}\`); do not re-clone.`,
+            '',
+            'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests on a fresh checkout, so editing tests does not count. Keep the change minimal and confined to the cloned repo.',
+            'Work iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your committed edits directly from the repo.',
             '',
             '--- Issue ---',
             String(r.problem_statement ?? ''),
@@ -121,6 +155,9 @@ print(json.dumps(out))
       const runId = safeRunId('bench', task.id)
       return runStagedJudge({
         tmpPrefix: 'swebench-',
+        // Debug: retain the staged dir (holds swebench's per-instance apply/run
+        // logs) for post-mortem when SWEBENCH_KEEP_TMP is set. Off by default.
+        ...(process.env.SWEBENCH_KEEP_TMP ? { keepTmp: true } : {}),
         async stage(dir) {
           await stageFile(
             join(dir, 'preds.json'),

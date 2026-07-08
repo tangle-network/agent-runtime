@@ -271,6 +271,61 @@ describe('coordination tools', () => {
     ])
   })
 
+  it('await_event bounds the block: { pending, live } while a worker runs, then pulls the settlement once it lands', async () => {
+    const { scope } = mockScope()
+    // A cursor that stays blocked until we release it — models a live worker mid-run, the case where
+    // the unbounded await outlived the MCP request timeout and surfaced as a hard tool error.
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    let settlement: unknown = null
+    const blockingScope = {
+      ...scope,
+      next: async () => {
+        await gate
+        const s = settlement
+        settlement = null
+        return s
+      },
+    } as typeof scope
+    const tb = createCoordinationTools({
+      scope: blockingScope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      awaitTimeoutMs: 30,
+    })
+
+    // The drain is still blocked → the bounded wait returns a re-pollable liveness snapshot, never a
+    // hang and never an error. `live` names the worker(s) still in flight (w0 is running in the mock).
+    const pending = (await tool(tb, 'await_event').handler({ kinds: ['settled'] })) as {
+      pending?: boolean
+      live?: Array<{ id: string }>
+    }
+    expect(pending.pending).toBe(true)
+    expect(pending.live?.map((w) => w.id)).toContain('w0')
+
+    // The worker settles after the bound. The SAME in-flight drain publishes it to the bus, so a
+    // later await_event pulls it — a settlement that lands after the fence is not lost.
+    settlement = {
+      kind: 'done' as const,
+      handle: { id: 'w0', label: 'w', status: 'done' as const, abort() {} },
+      out: { answer: 1 },
+      outRef: 'blob:w0',
+      verdict: { valid: true, score: 0.5 },
+      spent: zeroSpend(),
+      seq: 0,
+    }
+    release()
+    let got: { type?: string; settled?: string; status?: string } = {}
+    for (let i = 0; i < 50; i++) {
+      got = (await tool(tb, 'await_event').handler({ kinds: ['settled'] })) as typeof got
+      if (got.type === 'settled') break
+    }
+    expect(got).toMatchObject({ type: 'settled', settled: 'w0', status: 'done' })
+  })
+
   it('blocks stop under failClosed until a parent question is answered', async () => {
     const { scope } = mockScope()
     const emitted: unknown[] = []
