@@ -54,10 +54,12 @@ Topology is the **one recursive agent tree**: each round an agent decides to ref
   construction; the body is harness-re-verified, so an authored strategy can't
   fabricate a win. Use when the right shape is task-dependent (scout-then-fanout,
   refine-then-branch, decompose).
-- **`createCoordinationTools`** — the agent-driving-agent loop: a driver agent
-  spawns / steers / awaits child agents (and sub-drivers) through MCP verbs over a
-  live `Scope`, recursively. Use when a driver should reason about and orchestrate
-  its workers in natural language.
+- **`createCoordinationTools`** (from `@tangle-network/agent-runtime/mcp`) — the
+  agent-driving-agent loop: a driver agent spawns / steers / awaits child agents
+  (and sub-drivers) through MCP verbs over a live `Scope`, recursively. Use when a
+  driver should reason about and orchestrate its workers in natural language. From
+  `/loops` the equivalent surfaces are `serveCoordinationMcp` (the verbs as an HTTP
+  MCP over a live `Scope`) and the offline `driverAgent`.
 
 Topology is **orthogonal to harness** — a strategy decides the shape; the executor
 decides which harness (claude-code / codex / opencode / pi / router) runs each
@@ -100,6 +102,12 @@ agent-driving-agent loop), expose `createCoordinationTools` over a live `Scope`
 
 - `runLoop` validates `ctx.sandboxClient.create` exists or throws
   `ValidationError`. Never stub a `null` client.
+- Build that client with `resolveSandboxClient({ backend })` (from
+  `@tangle-network/agent-runtime/loops`) — the one call that selects the sandbox /
+  bridge (cli-bridge) / router transport `runLoop` drives; do not hand-construct it.
+  Its sibling `resolveAgentBackend` is a DIFFERENT resolver — it resolves the CHAT
+  leg (`runChatThroughRuntime` / `runAgentTaskStream`) and returns an
+  `AgentExecutionBackend`, not a feeder for `resolveSandboxClient`.
 - The kernel emits `loop.started / iteration.dispatch / iteration.ended /
   decision / ended` via `ctx.traceEmitter`. Wire it to the same OTLP sink as the
   chat path so loop telemetry is queryable.
@@ -108,17 +116,19 @@ agent-driving-agent loop), expose `createCoordinationTools` over a live `Scope`
 - Dynamic driver: set the kernel's `runLoop` `maxIterations >=` the driver's so
   the driver's cap governs and the loop closes on a clean `'done'`.
 
-## Campaign bridge — `loopDispatch`
+## Campaign bridge — `loopCampaignDispatch` / `loopDispatch`
 
 To run `runLoop` as an agent-eval campaign cell, do NOT hand-build the ExecCtx +
 forward trace + report usage every time (the third is silent — forgetting it
-yields a `{0,0}` cell `assertRealBackend` reads as a stub). Use the one bridge,
-`loopDispatch` (the old `loopCampaignDispatch` name was consolidated away; verify
-in `src/runtime/index.ts`):
+yields a `{0,0}` cell `assertRealBackend` reads as a stub). Use the bridge. Both
+are exported from `src/runtime/index.ts` and are distinct sibling adapters, NOT a
+rename: `loopCampaignDispatch` returns a `DispatchFn` for plain `runCampaign` /
+`runEvalCampaign`; `loopDispatch` returns a `ProfileDispatchFn` and is the
+`runProfileMatrix` variant (it adds the profile axis).
 
 ```ts
-import { loopDispatch } from '@tangle-network/agent-runtime/loops'
-const dispatch = loopDispatch({
+import { loopCampaignDispatch } from '@tangle-network/agent-runtime/loops'
+const dispatch = loopCampaignDispatch({
   sandboxClient,
   toLoopOptions: (scenario, profile) => ({ driver, agentRun, output, validator, task: toTask(scenario) }),
   // toArtifact? — defaults to result.winner?.output
@@ -126,19 +136,59 @@ const dispatch = loopDispatch({
 // pass `dispatch` to runCampaign / runEvalCampaign; usage + trace are auto-forwarded
 ```
 
-`loopDispatch` doubles as the `runProfileMatrix` variant (the `profile` arg is an axis).
+For the common shape — a fixed set of `cases` + a `prompt` builder + a `score`
+fn, swept across profiles — prefer the declarative facade
+`defineLeaderboard({ cases, prompt, score })` (from
+`@tangle-network/agent-runtime/loops`). It composes
+`expandProfileAxes × loopDispatch × naiveDriver` into one call, exposes
+`.run(argv?)` (CLI-flag parsing + matrix) and `.toBenchmarkAdapter()`, and yields
+a ranked leaderboard. Reach for raw `loopDispatch` only when a cell needs a custom
+driver/validator.
 
-## Identity-gated optimization — agent-eval's `selfImprove`
+## Identity-gated optimization — agent-runtime's `improve()` (facade over agent-eval's `selfImprove`)
 
-The optimization entry point is **`selfImprove`** (`@tangle-network/agent-eval/contract`),
-NOT agent-runtime — agent-runtime contributes the code-surface `improvementDriver`
-(`/improvement`, the git-worktree path) you pass to it as `driver` to optimize CODE
-instead of a string. `selfImprove` optimizes any text/config surface (system /
-planner / judge rubric) and is **identity-gated by construction**: it runs evals,
-proposes candidates (default driver `gepaDriver`), and a held-out gate ships a winner
-only if it beats the baseline. `result.winner.surface` is the **baseline unless
-`result.gateDecision === 'ship'`** — so registering a surface for optimization can
-never regress it; it only improves when held-out data earns it.
+**Start with `improve()`** — the one pluggable RSI verb, exported at the
+`@tangle-network/agent-runtime` package ROOT (its own header: "the ONE public,
+surface-pluggable RSI verb. A thin facade over agent-eval's `selfImprove`"). Real
+signature is 3-arg, NOT a single options object:
+
+```ts
+improve<TScenario, TArtifact>(
+  profile: AgentProfile,
+  findings: unknown[],
+  opts: ImproveOptions,
+): Promise<ImproveResult>
+```
+
+`opts`: `surface?: 'prompt'|'skills'|'tools'|'mcp'|'hooks'|'code'` (default
+`'prompt'`), `scenarios`, `judge`, `agent`, `gate?: 'holdout'|'none'` (default
+`'holdout'`; `'none'` forces `generations = 0`), plus `budget?` / `llm?` /
+`generator?` / `code?` / `skills?` / `runDir?`. It picks the default proposer for
+the surface (`gepaProposer` for `'prompt'`, `skillOptProposer` for `'skills'`;
+`'code'`/`'tools'`/`'mcp'`/`'hooks'` throw `ConfigError` unless you pass
+`opts.generator` or `opts.code`), extracts the baseline from the profile, runs
+`selfImprove` with the held-out gate, and on a ship verdict writes the winner back
+into the profile field. Returns `ImproveResult { profile, shipped, lift,
+gateDecision, raw }` — deploy with `if (out.shipped) deploy(out.profile)`:
+
+```ts
+import { improve } from '@tangle-network/agent-runtime'
+const out = await improve(profile, findings, {
+  surface: 'prompt', scenarios, judge, agent, gate: 'holdout', llm,
+})
+if (out.shipped) deploy(out.profile)
+```
+
+**Drop to `selfImprove`** (`@tangle-network/agent-eval/contract`) only when you
+need finer control — a custom proposer/gate, or the code-surface git-worktree path
+via agent-runtime's `improvementDriver` (`/improvement`), which you pass to it as
+`proposer` to optimize CODE instead of a string. `selfImprove` optimizes any
+text/config surface (system / planner / judge rubric) and is **identity-gated by
+construction**: it runs evals, proposes candidates (default proposer
+`gepaProposer`), and a held-out gate ships a winner only if it beats the baseline.
+`result.winner.surface` is the **baseline unless `result.gateDecision === 'ship'`**
+— so registering a surface for optimization can never regress it; it only improves
+when held-out data earns it.
 
 ```ts
 import { selfImprove } from '@tangle-network/agent-eval/contract'
@@ -148,8 +198,8 @@ const result = await selfImprove({
   scenarios,
   judge,
   budget: { holdoutScenarios, generations: 3, populationSize: 2 },
-  llm: { baseUrl, apiKey, model: REFLECTION_MODEL },   // drives the default gepaDriver
-  // driver? — pass agent-runtime's improvementDriver to optimize CODE (worktree) instead of a string
+  llm: { baseUrl, apiKey, model: REFLECTION_MODEL },   // drives the default gepaProposer
+  // proposer? — pass agent-runtime's improvementDriver to optimize CODE (worktree) instead of a string
   // gate?   — defaults to a held-out gate; pass defaultProductionGate for red-team hardening
 })
 // use result.winner.surface unconditionally: it's the baseline until a candidate genuinely wins
@@ -157,7 +207,7 @@ const result = await selfImprove({
 
 ### selfImprove gotchas — read before wiring
 
-- **`gepaDriver` mutates TEXT only**, and its only structural guard is `##` H2
+- **`gepaProposer` mutates TEXT only**, and its only structural guard is `##` H2
   headings (`preserveSections`) + `maxSentenceEdits`. Make load-bearing sections
   of your prompt real `##` headings, and treat the output schema as fixed code —
   GEPA optimizes the prose, never the envelope/contract.

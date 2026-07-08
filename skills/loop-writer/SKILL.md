@@ -30,7 +30,8 @@ The driver owns strategy.
 | Review from several lenses | `panel` |
 | Simulated user/product eval | `defineConversation` + `runConversation` |
 | Dynamic topology / drivers of drivers | `Scope` or sandbox driver + `createCoordinationTools` |
-| Mutate a shared repo | git branch/clone loop with typed merge outcomes |
+| Run N coding workers on isolated worktrees, gate each, pick best patch | `worktreeFanout` |
+| Mutate a shared repo | git branch/clone loop with typed merge outcomes (`gitWorkspace` seam) |
 
 If a fixed combinator solves it, do not use a dynamic driver.
 
@@ -110,9 +111,9 @@ const result = await createSupervisor<Task, Output>().run(driver, task, supervis
 ```
 
 When the driver lives in a sandbox, expose the same verbs through
-`createCoordinationTools`: `spawn_worker`, `await_event`, `observe_worker`,
-`steer_worker`, `list_questions`, `answer_question`, `ask_parent`, `stop`, and
-optional analyst tools.
+`createCoordinationTools`: `spawn_agent`, `await_event`, `observe_agent`,
+`steer_agent`, `list_questions`, `answer_question`, `ask_parent`, `stop`, and
+optional analyst tools (`list_analysts`, `run_analyst`).
 
 ## Role Boundaries
 
@@ -133,7 +134,7 @@ with unresolved `blocks-run` questions.
 Steer sparingly: only when an analyst finds a concrete mistake, a loop is
 duplicating work, a parent/Pi answers a blocker, or a verifier reveals a specific
 fix a running worker can still use. Delivery is through `Scope.send` or
-`steer_worker`; failed delivery means spawn a fresh corrected attempt.
+`steer_agent`; failed delivery means spawn a fresh corrected attempt.
 
 ## Workspace Loops
 
