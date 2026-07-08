@@ -3009,6 +3009,252 @@ Defined in: [improvement/reflective-generator.ts:22](https://github.com/tangle-n
 
 ***
 
+### RunKnowledgeImprovementJobOptions
+
+Defined in: [knowledge/improvement-job.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L21)
+
+#### Extends
+
+- `Omit`\<`KnowledgeImprovementOptions`, `"updateKnowledge"`\>
+
+#### Properties
+
+##### budget
+
+> **budget**: [`Budget`](runtime.md#budget-12)
+
+Defined in: [knowledge/improvement-job.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L23)
+
+##### readinessCheck?
+
+> `optional` **readinessCheck?**: [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
+
+Defined in: [knowledge/improvement-job.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L24)
+
+##### backend?
+
+> `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
+
+Defined in: [knowledge/improvement-job.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L25)
+
+##### makeWorkerAgent?
+
+> `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
+
+Defined in: [knowledge/improvement-job.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L26)
+
+##### harness?
+
+> `optional` **harness?**: `string`
+
+Defined in: [knowledge/improvement-job.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L27)
+
+##### supervisorModel?
+
+> `optional` **supervisorModel?**: `string`
+
+Defined in: [knowledge/improvement-job.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L28)
+
+##### supervisorSystemPrompt?
+
+> `optional` **supervisorSystemPrompt?**: `string`
+
+Defined in: [knowledge/improvement-job.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L29)
+
+##### superviseOptions?
+
+> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"backend"` \| `"budget"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
+
+Defined in: [knowledge/improvement-job.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L30)
+
+##### allowedModels?
+
+> `optional` **allowedModels?**: readonly `string`[]
+
+Defined in: [knowledge/improvement-job.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L36)
+
+##### runSupervised?
+
+> `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+
+Defined in: [knowledge/improvement-job.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L37)
+
+###### Parameters
+
+###### profile
+
+[`SupervisorProfile`](runtime.md#supervisorprofile)
+
+###### task
+
+`unknown`
+
+###### opts
+
+[`SuperviseOptions`](runtime.md#superviseoptions)
+
+###### Returns
+
+`Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+
+##### onMeasurement?
+
+> `optional` **onMeasurement?**: (`measurement`) => `void` \| `Promise`\<`void`\>
+
+Defined in: [knowledge/improvement-job.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L42)
+
+###### Parameters
+
+###### measurement
+
+[`KnowledgeImprovementJobMeasurement`](#knowledgeimprovementjobmeasurement)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+***
+
+### KnowledgeImprovementJobMeasurement
+
+Defined in: [knowledge/improvement-job.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L45)
+
+#### Properties
+
+##### startedAt
+
+> **startedAt**: `string`
+
+Defined in: [knowledge/improvement-job.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L46)
+
+##### finishedAt
+
+> **finishedAt**: `string`
+
+Defined in: [knowledge/improvement-job.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L47)
+
+##### durationMs
+
+> **durationMs**: `number`
+
+Defined in: [knowledge/improvement-job.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L48)
+
+##### updateCalls
+
+> **updateCalls**: `number`
+
+Defined in: [knowledge/improvement-job.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L49)
+
+##### updateDurationMs
+
+> **updateDurationMs**: `number`
+
+Defined in: [knowledge/improvement-job.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L50)
+
+##### supervisedSpent
+
+> **supervisedSpent**: `object`
+
+Defined in: [knowledge/improvement-job.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L51)
+
+###### iterations
+
+> **iterations**: `number`
+
+###### inputTokens
+
+> **inputTokens**: `number`
+
+###### outputTokens
+
+> **outputTokens**: `number`
+
+###### usd
+
+> **usd**: `number`
+
+###### ms
+
+> **ms**: `number`
+
+***
+
+### KnowledgeImprovementJobResult
+
+Defined in: [knowledge/improvement-job.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L60)
+
+#### Properties
+
+##### improvement
+
+> **improvement**: `KnowledgeImprovementResult`
+
+Defined in: [knowledge/improvement-job.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L61)
+
+##### measurement
+
+> **measurement**: [`KnowledgeImprovementJobMeasurement`](#knowledgeimprovementjobmeasurement)
+
+Defined in: [knowledge/improvement-job.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L62)
+
+##### promoted
+
+> **promoted**: `boolean`
+
+Defined in: [knowledge/improvement-job.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L63)
+
+##### blocked
+
+> **blocked**: `boolean`
+
+Defined in: [knowledge/improvement-job.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L64)
+
+***
+
+### AgentKnowledgeReadinessCheckOptions
+
+Defined in: [knowledge/improvement-job.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L67)
+
+#### Properties
+
+##### goal
+
+> **goal**: `string`
+
+Defined in: [knowledge/improvement-job.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L68)
+
+##### readinessSpecs?
+
+> `optional` **readinessSpecs?**: readonly `KnowledgeReadinessSpec`[]
+
+Defined in: [knowledge/improvement-job.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L69)
+
+##### readinessTaskId?
+
+> `optional` **readinessTaskId?**: `string`
+
+Defined in: [knowledge/improvement-job.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L70)
+
+##### readiness?
+
+> `optional` **readiness?**: `Omit`\<`BuildEvalKnowledgeBundleOptions`, `"taskId"` \| `"index"` \| `"specs"`\>
+
+Defined in: [knowledge/improvement-job.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L71)
+
+##### strict?
+
+> `optional` **strict?**: `boolean`
+
+Defined in: [knowledge/improvement-job.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L72)
+
+##### kbQuality?
+
+> `optional` **kbQuality?**: `KnowledgeBaseQualityOptions`
+
+Defined in: [knowledge/improvement-job.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L73)
+
+***
+
 ### KnowledgeReadinessCheckInput
 
 Defined in: [knowledge/supervised-update.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L22)
@@ -3159,59 +3405,71 @@ Defined in: [knowledge/supervised-update.ts:62](https://github.com/tangle-networ
 
 Defined in: [knowledge/supervised-update.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L63)
 
+##### findings?
+
+> `optional` **findings?**: readonly `unknown`[]
+
+Defined in: [knowledge/supervised-update.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L64)
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+Defined in: [knowledge/supervised-update.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L65)
+
 ##### budget
 
 > **budget**: [`Budget`](runtime.md#budget-12)
 
-Defined in: [knowledge/supervised-update.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L64)
+Defined in: [knowledge/supervised-update.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L66)
 
 ##### backend?
 
 > `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-Defined in: [knowledge/supervised-update.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L65)
+Defined in: [knowledge/supervised-update.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L67)
 
 ##### makeWorkerAgent?
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-Defined in: [knowledge/supervised-update.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L66)
+Defined in: [knowledge/supervised-update.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L68)
 
 ##### harness?
 
 > `optional` **harness?**: `string`
 
-Defined in: [knowledge/supervised-update.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L67)
+Defined in: [knowledge/supervised-update.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L69)
 
 ##### supervisorModel?
 
 > `optional` **supervisorModel?**: `string`
 
-Defined in: [knowledge/supervised-update.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L68)
+Defined in: [knowledge/supervised-update.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L70)
 
 ##### supervisorSystemPrompt?
 
 > `optional` **supervisorSystemPrompt?**: `string`
 
-Defined in: [knowledge/supervised-update.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L69)
+Defined in: [knowledge/supervised-update.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L71)
 
 ##### superviseOptions?
 
 > `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"backend"` \| `"budget"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
 
-Defined in: [knowledge/supervised-update.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L70)
+Defined in: [knowledge/supervised-update.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L72)
 
 ##### allowedModels?
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-Defined in: [knowledge/supervised-update.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L76)
+Defined in: [knowledge/supervised-update.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L78)
 
 ##### runSupervised?
 
 > `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
 
-Defined in: [knowledge/supervised-update.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L77)
+Defined in: [knowledge/supervised-update.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L79)
 
 ###### Parameters
 
@@ -6845,7 +7103,7 @@ Defined in: [knowledge/supervised-update.ts:38](https://github.com/tangle-networ
 
 > **SupervisedKnowledgeUpdater** = (`input`) => `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
 
-Defined in: [knowledge/supervised-update.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L84)
+Defined in: [knowledge/supervised-update.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L86)
 
 #### Parameters
 
@@ -8425,11 +8683,51 @@ Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edi
 
 ***
 
+### createAgentKnowledgeReadinessCheck()
+
+> **createAgentKnowledgeReadinessCheck**(`options`): [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
+
+Defined in: [knowledge/improvement-job.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L77)
+
+Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring.
+
+#### Parameters
+
+##### options
+
+[`AgentKnowledgeReadinessCheckOptions`](#agentknowledgereadinesscheckoptions)
+
+#### Returns
+
+[`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
+
+***
+
+### runKnowledgeImprovementJob()
+
+> **runKnowledgeImprovementJob**(`options`): `Promise`\<[`KnowledgeImprovementJobResult`](#knowledgeimprovementjobresult)\>
+
+Defined in: [knowledge/improvement-job.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/improvement-job.ts#L108)
+
+Run the full KB improvement job: candidate workspace, runtime supervisor update, readiness check, and promotion.
+
+#### Parameters
+
+##### options
+
+[`RunKnowledgeImprovementJobOptions`](#runknowledgeimprovementjoboptions)
+
+#### Returns
+
+`Promise`\<[`KnowledgeImprovementJobResult`](#knowledgeimprovementjobresult)\>
+
+***
+
 ### knowledgeReadinessDeliverable()
 
 > **knowledgeReadinessDeliverable**(`options`): [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
 
-Defined in: [knowledge/supervised-update.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L89)
+Defined in: [knowledge/supervised-update.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L91)
 
 Build the completion check a supervised KB update uses to stop only when the KB is ready.
 
@@ -8449,7 +8747,7 @@ Build the completion check a supervised KB update uses to stop only when the KB 
 
 > **createSupervisedKnowledgeUpdater**(`options`): [`SupervisedKnowledgeUpdater`](#supervisedknowledgeupdater)
 
-Defined in: [knowledge/supervised-update.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L111)
+Defined in: [knowledge/supervised-update.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L113)
 
 Create an `improveKnowledgeBase` update callback backed by runtime supervision.
 
@@ -8469,7 +8767,7 @@ Create an `improveKnowledgeBase` update callback backed by runtime supervision.
 
 > **runSupervisedKnowledgeUpdate**(`options`): `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
 
-Defined in: [knowledge/supervised-update.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L123)
+Defined in: [knowledge/supervised-update.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L127)
 
 Run a runtime supervisor that updates one candidate knowledge base and stops on readiness.
 
@@ -8482,6 +8780,26 @@ Run a runtime supervisor that updates one candidate knowledge base and stops on 
 #### Returns
 
 `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
+
+***
+
+### formatSupervisedKnowledgeTask()
+
+> **formatSupervisedKnowledgeTask**(`options`): `string`
+
+Defined in: [knowledge/supervised-update.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L169)
+
+Format the supervisor task with the KB root, readiness requirements, current findings, and metadata.
+
+#### Parameters
+
+##### options
+
+`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"` \| `"readinessSpecs"` \| `"readinessTaskId"` \| `"findings"` \| `"metadata"`\>
+
+#### Returns
+
+`string`
 
 ***
 
