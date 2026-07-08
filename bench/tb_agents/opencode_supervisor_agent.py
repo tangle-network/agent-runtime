@@ -58,21 +58,8 @@ class OpenCodeSupervisorAgent(OpenCodeRouterAgent):
         return f"http://{DOCKER_BRIDGE_GATEWAY}:{self._mcp_port}/mcp"
 
     def _build_router_config(self) -> str:
+        """Base router config plus the coordination MCP block."""
         config = json.loads(super()._build_router_config())
-        perm = config.setdefault("permission", {})
-        perm.update(
-            {
-                "edit": "allow",
-                "bash": "allow",
-                "webfetch": "allow",
-                "read": "allow",
-                "write": "allow",
-                "task": "allow",
-                "plan_enter": "allow",
-                "plan_exit": "allow",
-                "question": "allow",
-            }
-        )
         if self._mcp_port is not None:
             config["mcp"] = {
                 "coordination": {
