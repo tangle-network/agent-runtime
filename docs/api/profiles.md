@@ -297,7 +297,7 @@ Default 400. Hard cap; the gate hard-fails when exceeded.
 
 ### ResearchTask
 
-Defined in: profiles/researcher.ts:39
+Defined in: [profiles/researcher.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L39)
 
 **`Experimental`**
 
@@ -309,7 +309,7 @@ Task contract for a source-grounded research agent.
 
 > **question**: `string`
 
-Defined in: profiles/researcher.ts:41
+Defined in: [profiles/researcher.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L41)
 
 **`Experimental`**
 
@@ -319,7 +319,7 @@ The research question to answer.
 
 > `optional` **scope?**: `string`
 
-Defined in: profiles/researcher.ts:43
+Defined in: [profiles/researcher.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L43)
 
 **`Experimental`**
 
@@ -329,7 +329,7 @@ Bound: e.g. "audience for cpg-founder ICP".
 
 > **knowledgeNamespace**: `string`
 
-Defined in: profiles/researcher.ts:45
+Defined in: [profiles/researcher.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L45)
 
 **`Experimental`**
 
@@ -339,7 +339,7 @@ Multi-tenant scope (customer-id, workspace-id). Validator enforces.
 
 > `optional` **sources?**: [`ResearchSource`](#researchsource)[]
 
-Defined in: profiles/researcher.ts:46
+Defined in: [profiles/researcher.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L46)
 
 **`Experimental`**
 
@@ -347,7 +347,7 @@ Defined in: profiles/researcher.ts:46
 
 > `optional` **recencyWindow?**: `object`
 
-Defined in: profiles/researcher.ts:47
+Defined in: [profiles/researcher.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L47)
 
 **`Experimental`**
 
@@ -363,7 +363,7 @@ Defined in: profiles/researcher.ts:47
 
 > `optional` **maxItems?**: `number`
 
-Defined in: profiles/researcher.ts:48
+Defined in: [profiles/researcher.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L48)
 
 **`Experimental`**
 
@@ -371,7 +371,7 @@ Defined in: profiles/researcher.ts:48
 
 > `optional` **minConfidence?**: `number`
 
-Defined in: profiles/researcher.ts:50
+Defined in: [profiles/researcher.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L50)
 
 **`Experimental`**
 
@@ -381,7 +381,7 @@ Per-item minimum confidence in [0, 1]. Validator scores recall vs this.
 
 ### KnowledgeItem
 
-Defined in: profiles/researcher.ts:61
+Defined in: [profiles/researcher.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L61)
 
 **`Experimental`**
 
@@ -396,7 +396,7 @@ top-level `KnowledgeItem` substrate-wide, these fields collapse 1:1.
 
 > **id**: `string`
 
-Defined in: profiles/researcher.ts:62
+Defined in: [profiles/researcher.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L62)
 
 **`Experimental`**
 
@@ -404,7 +404,7 @@ Defined in: profiles/researcher.ts:62
 
 > **namespace**: `string`
 
-Defined in: profiles/researcher.ts:64
+Defined in: [profiles/researcher.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L64)
 
 **`Experimental`**
 
@@ -414,7 +414,7 @@ Multi-tenant scope. MUST equal `task.knowledgeNamespace`.
 
 > **claim**: `string`
 
-Defined in: profiles/researcher.ts:66
+Defined in: [profiles/researcher.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L66)
 
 **`Experimental`**
 
@@ -424,7 +424,7 @@ The factual claim, in the researcher's words.
 
 > **evidence**: `object`[]
 
-Defined in: profiles/researcher.ts:68
+Defined in: [profiles/researcher.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L68)
 
 **`Experimental`**
 
@@ -450,7 +450,7 @@ Provenance — at least one entry required.
 
 > **confidence**: `number`
 
-Defined in: profiles/researcher.ts:70
+Defined in: [profiles/researcher.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L70)
 
 **`Experimental`**
 
@@ -460,7 +460,7 @@ Researcher's self-reported confidence in [0, 1].
 
 > `optional` **supersedes?**: `string`[]
 
-Defined in: profiles/researcher.ts:72
+Defined in: [profiles/researcher.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L72)
 
 **`Experimental`**
 
@@ -470,7 +470,7 @@ Prior item ids this supersedes (chain).
 
 > `optional` **retractedAt?**: `number`
 
-Defined in: profiles/researcher.ts:74
+Defined in: [profiles/researcher.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L74)
 
 **`Experimental`**
 
@@ -480,7 +480,7 @@ Set if the agent is retracting an earlier item. Unix ms.
 
 > **authoredBy**: `object`
 
-Defined in: profiles/researcher.ts:75
+Defined in: [profiles/researcher.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L75)
 
 **`Experimental`**
 
@@ -496,7 +496,7 @@ Defined in: profiles/researcher.ts:75
 
 ### ResearchOutput
 
-Defined in: profiles/researcher.ts:96
+Defined in: [profiles/researcher.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L96)
 
 **`Experimental`**
 
@@ -510,7 +510,7 @@ enforces the typed minimum.
 
 > **items**: [`KnowledgeItem`](#knowledgeitem)[]
 
-Defined in: profiles/researcher.ts:97
+Defined in: [profiles/researcher.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L97)
 
 **`Experimental`**
 
@@ -518,7 +518,7 @@ Defined in: profiles/researcher.ts:97
 
 > **citations**: `object`[]
 
-Defined in: profiles/researcher.ts:98
+Defined in: [profiles/researcher.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L98)
 
 **`Experimental`**
 
@@ -538,7 +538,7 @@ Defined in: profiles/researcher.ts:98
 
 > **proposedWrites**: [`KnowledgeUpdate`](#knowledgeupdate)[]
 
-Defined in: profiles/researcher.ts:99
+Defined in: [profiles/researcher.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L99)
 
 **`Experimental`**
 
@@ -546,7 +546,7 @@ Defined in: profiles/researcher.ts:99
 
 > `optional` **gaps?**: `string`[]
 
-Defined in: profiles/researcher.ts:100
+Defined in: [profiles/researcher.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L100)
 
 **`Experimental`**
 
@@ -554,7 +554,7 @@ Defined in: profiles/researcher.ts:100
 
 > `optional` **notes?**: `string`
 
-Defined in: profiles/researcher.ts:101
+Defined in: [profiles/researcher.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L101)
 
 **`Experimental`**
 
@@ -562,7 +562,7 @@ Defined in: profiles/researcher.ts:101
 
 > `optional` **raw?**: `unknown`
 
-Defined in: profiles/researcher.ts:103
+Defined in: [profiles/researcher.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L103)
 
 **`Experimental`**
 
@@ -572,7 +572,7 @@ Anything the agent emitted beyond the typed fields.
 
 ### ResearcherProfileOptions
 
-Defined in: profiles/researcher.ts:107
+Defined in: [profiles/researcher.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L107)
 
 **`Experimental`**
 
@@ -584,7 +584,7 @@ Options for the source-grounded researcher profile preset.
 
 > `optional` **harness?**: `string`
 
-Defined in: profiles/researcher.ts:109
+Defined in: [profiles/researcher.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L109)
 
 **`Experimental`**
 
@@ -594,7 +594,7 @@ Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
 
 > `optional` **model?**: `string`
 
-Defined in: profiles/researcher.ts:111
+Defined in: [profiles/researcher.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L111)
 
 **`Experimental`**
 
@@ -604,7 +604,7 @@ Default model id passed in `AgentProfile.model.default`.
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: profiles/researcher.ts:113
+Defined in: [profiles/researcher.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L113)
 
 **`Experimental`**
 
@@ -614,7 +614,7 @@ Custom system prompt replacement. Default = built-in researcher preset.
 
 > `optional` **name?**: `string`
 
-Defined in: profiles/researcher.ts:115
+Defined in: [profiles/researcher.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L115)
 
 **`Experimental`**
 
@@ -624,7 +624,7 @@ Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
 
 > `optional` **citationDensityMin?**: `number`
 
-Defined in: profiles/researcher.ts:120
+Defined in: [profiles/researcher.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L120)
 
 **`Experimental`**
 
@@ -635,7 +635,7 @@ Below this floor, citation_density scores < 1 and the item set is gated.
 
 ### MultiHarnessResearcherFanoutOptions
 
-Defined in: profiles/researcher.ts:164
+Defined in: [profiles/researcher.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L164)
 
 **`Experimental`**
 
@@ -645,7 +645,7 @@ Defined in: profiles/researcher.ts:164
 
 > `optional` **harnesses?**: `string`[]
 
-Defined in: profiles/researcher.ts:166
+Defined in: [profiles/researcher.ts:166](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L166)
 
 **`Experimental`**
 
@@ -655,7 +655,7 @@ Backend.type identifiers, one per parallel agent.
 
 > `optional` **models?**: (`string` \| `undefined`)[]
 
-Defined in: profiles/researcher.ts:168
+Defined in: [profiles/researcher.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L168)
 
 **`Experimental`**
 
@@ -665,7 +665,7 @@ Optional per-harness model override. Indexed parallel to `harnesses`.
 
 > `optional` **citationDensityMin?**: `number`
 
-Defined in: profiles/researcher.ts:170
+Defined in: [profiles/researcher.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L170)
 
 **`Experimental`**
 
@@ -675,7 +675,7 @@ Default citation density floor for the shared validator.
 
 > `optional` **task?**: [`ResearchTask`](#researchtask)
 
-Defined in: profiles/researcher.ts:172
+Defined in: [profiles/researcher.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L172)
 
 **`Experimental`**
 
@@ -1654,7 +1654,7 @@ Optional judge commentary (debug / triage aid).
 
 > **ResearchSource** = `"web"` \| `"corpus"` \| `"twitter"` \| `"github"` \| `"docs"`
 
-Defined in: profiles/researcher.ts:36
+Defined in: [profiles/researcher.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L36)
 
 **`Experimental`**
 
@@ -1666,7 +1666,7 @@ Source families a researcher profile may prefer for a task.
 
 > **KnowledgeUpdate** = \{ `kind`: `"insert"`; `namespace`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"supersede"`; `namespace`: `string`; `previousId`: `string`; `item`: [`KnowledgeItem`](#knowledgeitem); \} \| \{ `kind`: `"retract"`; `namespace`: `string`; `itemId`: `string`; `reason`: `string`; \}
 
-Defined in: profiles/researcher.ts:84
+Defined in: [profiles/researcher.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L84)
 
 **`Experimental`**
 
@@ -1939,7 +1939,7 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 
 > **researcherProfile**(`options?`): `object`
 
-Defined in: profiles/researcher.ts:127
+Defined in: [profiles/researcher.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L127)
 
 **`Experimental`**
 
@@ -1991,7 +1991,7 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 > **multiHarnessResearcherFanout**(`options?`): `object`
 
-Defined in: profiles/researcher.ts:182
+Defined in: [profiles/researcher.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L182)
 
 **`Experimental`**
 
@@ -2031,7 +2031,7 @@ picks the highest-scoring valid output.
 
 > **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator)\<[`ResearchOutput`](#researchoutput)\>
 
-Defined in: profiles/researcher.ts:240
+Defined in: [profiles/researcher.ts:240](https://github.com/tangle-network/agent-runtime/blob/main/src/profiles/researcher.ts#L240)
 
 **`Experimental`**
 
