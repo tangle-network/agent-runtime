@@ -157,10 +157,15 @@ class OpenCodeRouterAgent(OpenCodeAgent):
         """
         config = {
             "$schema": "https://opencode.ai/config.json",
+            # Headless benchmark runs cannot answer interactive permission prompts.
+            # Keep this identical for raw and supervisor arms.
             "permission": {
                 "edit": "allow",
                 "bash": "allow",
                 "webfetch": "allow",
+                "read": "allow",
+                "write": "allow",
+                "external_directory": "allow",
             },
             "provider": {
                 self._provider: {
