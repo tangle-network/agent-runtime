@@ -8,7 +8,7 @@ set -euo pipefail
 
 ARM="${1:?arm: raw|supervisor}"
 TASK_ID="${2:?task-id}"
-RUN_ID="${3:?run-id}"
+RUN_ID="$(printf '%s' "${3:?run-id}" | tr '[:upper:]' '[:lower:]')"
 OUT_DIR="${4:?out-dir}"
 
 BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
