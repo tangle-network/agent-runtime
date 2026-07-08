@@ -60,6 +60,10 @@ export async function serveCoordinationMcp(opts: {
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   maxLiveWorkers?: number
+  /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
+   *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
+   *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
+  awaitTimeoutMs?: number
   port?: number
   host?: string
   /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
@@ -76,6 +80,7 @@ export async function serveCoordinationMcp(opts: {
     makeWorkerAgent: opts.makeWorkerAgent,
     perWorker: opts.perWorker,
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
+    ...(opts.awaitTimeoutMs !== undefined ? { awaitTimeoutMs: opts.awaitTimeoutMs } : {}),
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
     ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),

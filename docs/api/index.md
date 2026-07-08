@@ -3009,6 +3009,230 @@ Defined in: [improvement/reflective-generator.ts:22](https://github.com/tangle-n
 
 ***
 
+### KnowledgeReadinessCheckInput
+
+Defined in: [knowledge/supervised-update.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L22)
+
+#### Properties
+
+##### root
+
+> **root**: `string`
+
+Defined in: [knowledge/supervised-update.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L23)
+
+##### goal
+
+> **goal**: `string`
+
+Defined in: [knowledge/supervised-update.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L24)
+
+##### readinessSpecs?
+
+> `optional` **readinessSpecs?**: readonly `unknown`[]
+
+Defined in: [knowledge/supervised-update.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L25)
+
+##### readinessTaskId?
+
+> `optional` **readinessTaskId?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L26)
+
+##### readiness?
+
+> `optional` **readiness?**: `unknown`
+
+Defined in: [knowledge/supervised-update.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L27)
+
+***
+
+### SupervisedKnowledgeUpdateInput
+
+Defined in: [knowledge/supervised-update.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L42)
+
+#### Properties
+
+##### goal?
+
+> `optional` **goal?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L43)
+
+##### root?
+
+> `optional` **root?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L44)
+
+##### candidateRoot?
+
+> `optional` **candidateRoot?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L45)
+
+##### findings?
+
+> `optional` **findings?**: readonly `unknown`[]
+
+Defined in: [knowledge/supervised-update.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L46)
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+Defined in: [knowledge/supervised-update.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L47)
+
+***
+
+### SupervisedKnowledgeUpdateResult
+
+Defined in: [knowledge/supervised-update.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L50)
+
+#### Properties
+
+##### applied
+
+> **applied**: `boolean`
+
+Defined in: [knowledge/supervised-update.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L51)
+
+##### summary
+
+> **summary**: `string`
+
+Defined in: [knowledge/supervised-update.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L52)
+
+##### supervised
+
+> **supervised**: [`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>
+
+Defined in: [knowledge/supervised-update.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L53)
+
+##### metadata
+
+> **metadata**: `Record`\<`string`, `unknown`\>
+
+Defined in: [knowledge/supervised-update.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L54)
+
+***
+
+### SupervisedKnowledgeUpdateOptions
+
+Defined in: [knowledge/supervised-update.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L57)
+
+#### Properties
+
+##### root
+
+> **root**: `string`
+
+Defined in: [knowledge/supervised-update.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L58)
+
+##### goal
+
+> **goal**: `string`
+
+Defined in: [knowledge/supervised-update.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L59)
+
+##### readiness
+
+> **readiness**: [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
+
+Defined in: [knowledge/supervised-update.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L60)
+
+##### readinessSpecs?
+
+> `optional` **readinessSpecs?**: readonly `unknown`[]
+
+Defined in: [knowledge/supervised-update.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L61)
+
+##### readinessTaskId?
+
+> `optional` **readinessTaskId?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L62)
+
+##### readinessOptions?
+
+> `optional` **readinessOptions?**: `unknown`
+
+Defined in: [knowledge/supervised-update.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L63)
+
+##### budget
+
+> **budget**: [`Budget`](runtime.md#budget-12)
+
+Defined in: [knowledge/supervised-update.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L64)
+
+##### backend?
+
+> `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
+
+Defined in: [knowledge/supervised-update.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L65)
+
+##### makeWorkerAgent?
+
+> `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
+
+Defined in: [knowledge/supervised-update.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L66)
+
+##### harness?
+
+> `optional` **harness?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L67)
+
+##### supervisorModel?
+
+> `optional` **supervisorModel?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L68)
+
+##### supervisorSystemPrompt?
+
+> `optional` **supervisorSystemPrompt?**: `string`
+
+Defined in: [knowledge/supervised-update.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L69)
+
+##### superviseOptions?
+
+> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"backend"` \| `"budget"` \| `"makeWorkerAgent"` \| `"deliverable"` \| `"allowedModels"`\>\>
+
+Defined in: [knowledge/supervised-update.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L70)
+
+##### allowedModels?
+
+> `optional` **allowedModels?**: readonly `string`[]
+
+Defined in: [knowledge/supervised-update.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L76)
+
+##### runSupervised?
+
+> `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+
+Defined in: [knowledge/supervised-update.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L77)
+
+###### Parameters
+
+###### profile
+
+[`SupervisorProfile`](runtime.md#supervisorprofile)
+
+###### task
+
+`unknown`
+
+###### opts
+
+[`SuperviseOptions`](runtime.md#superviseoptions)
+
+###### Returns
+
+`Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+
+***
+
 ### DelegatedLoopResult
 
 Defined in: [loop-runner.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/loop-runner.ts#L67)
@@ -6591,6 +6815,50 @@ The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
 
 ***
 
+### KnowledgeReadinessCheckResult
+
+> **KnowledgeReadinessCheckResult** = `boolean` \| \{ `ready`: `boolean`; `summary?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; \}
+
+Defined in: [knowledge/supervised-update.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L30)
+
+***
+
+### KnowledgeReadinessCheck
+
+> **KnowledgeReadinessCheck** = (`input`) => `Promise`\<[`KnowledgeReadinessCheckResult`](#knowledgereadinesscheckresult)\> \| [`KnowledgeReadinessCheckResult`](#knowledgereadinesscheckresult)
+
+Defined in: [knowledge/supervised-update.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L38)
+
+#### Parameters
+
+##### input
+
+[`KnowledgeReadinessCheckInput`](#knowledgereadinesscheckinput)
+
+#### Returns
+
+`Promise`\<[`KnowledgeReadinessCheckResult`](#knowledgereadinesscheckresult)\> \| [`KnowledgeReadinessCheckResult`](#knowledgereadinesscheckresult)
+
+***
+
+### SupervisedKnowledgeUpdater
+
+> **SupervisedKnowledgeUpdater** = (`input`) => `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
+
+Defined in: [knowledge/supervised-update.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L84)
+
+#### Parameters
+
+##### input
+
+[`SupervisedKnowledgeUpdateInput`](#supervisedknowledgeupdateinput)
+
+#### Returns
+
+`Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
+
+***
+
 ### DelegatedLoopMode
 
 > **DelegatedLoopMode** = *typeof* [`DELEGATED_LOOP_MODES`](#delegated_loop_modes)\[`number`\]
@@ -7173,6 +7441,16 @@ Logical conversation peer label at the sending side, for trace stitching.
 Defined in: [conversation/headers.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L38)
 
 Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded.
+
+***
+
+### RESEARCH\_SUPERVISOR\_SYSTEM\_PROMPT
+
+> `const` **RESEARCH\_SUPERVISOR\_SYSTEM\_PROMPT**: `string`
+
+Defined in: [knowledge/supervised-update.ts:9](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L9)
+
+Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers.
 
 ***
 
@@ -8144,6 +8422,66 @@ Cheap no-sandbox `CandidateGenerator` (the `shots=1` setting): draft surface edi
 #### Returns
 
 [`CandidateGenerator`](#candidategenerator)
+
+***
+
+### knowledgeReadinessDeliverable()
+
+> **knowledgeReadinessDeliverable**(`options`): [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
+
+Defined in: [knowledge/supervised-update.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L89)
+
+Build the completion check a supervised KB update uses to stop only when the KB is ready.
+
+#### Parameters
+
+##### options
+
+`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"` \| `"readiness"` \| `"readinessSpecs"` \| `"readinessTaskId"` \| `"readinessOptions"`\>
+
+#### Returns
+
+[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
+
+***
+
+### createSupervisedKnowledgeUpdater()
+
+> **createSupervisedKnowledgeUpdater**(`options`): [`SupervisedKnowledgeUpdater`](#supervisedknowledgeupdater)
+
+Defined in: [knowledge/supervised-update.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L111)
+
+Create an `improveKnowledgeBase` update callback backed by runtime supervision.
+
+#### Parameters
+
+##### options
+
+[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions)
+
+#### Returns
+
+[`SupervisedKnowledgeUpdater`](#supervisedknowledgeupdater)
+
+***
+
+### runSupervisedKnowledgeUpdate()
+
+> **runSupervisedKnowledgeUpdate**(`options`): `Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
+
+Defined in: [knowledge/supervised-update.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/knowledge/supervised-update.ts#L123)
+
+Run a runtime supervisor that updates one candidate knowledge base and stops on readiness.
+
+#### Parameters
+
+##### options
+
+[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions)
+
+#### Returns
+
+`Promise`\<[`SupervisedKnowledgeUpdateResult`](#supervisedknowledgeupdateresult)\>
 
 ***
 

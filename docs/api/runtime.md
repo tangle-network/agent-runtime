@@ -18295,6 +18295,14 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
 
+###### awaitTimeoutMs?
+
+`number`
+
+Max wall-clock ms a single `await_event` may block before returning a re-pollable
+ `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
+ DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS; `<= 0` = prior unbounded block (in-process only).
+
 ###### port?
 
 `number`

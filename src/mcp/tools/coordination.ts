@@ -111,7 +111,22 @@ export interface CoordinationToolsOptions {
    *  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
    *  sandboxes/boxes). Omit or `<= 0` = no cap (the prior behavior; the pool stays the only fence). */
   readonly maxLiveWorkers?: number
+  /** Max wall-clock ms a single `await_event` call may block waiting on a live worker to settle
+   *  before it returns a non-error `{ pending: true, live }` snapshot and lets the caller re-poll.
+   *  The underlying `scope.next()` blocks for the WHOLE (multi-minute) worker run; over a remote MCP
+   *  transport that block outlives the client's per-request timeout, so an unbounded await surfaces
+   *  to the supervisor as a hard tool ERROR on every call — the exact failure that leaves it flying
+   *  blind. Bounding the wait converts that error into a re-pollable liveness signal. The background
+   *  drain keeps running, so a settlement that lands after the bound is published to the bus and
+   *  pulled by the next call — nothing is lost. Omit = {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0`
+   *  restores the prior UNBOUNDED block (only safe for in-process drivers with no transport timeout). */
+  readonly awaitTimeoutMs?: number
 }
+
+/** Default ceiling for a single `await_event` block (ms). Chosen well under any reasonable remote
+ *  MCP client request timeout so the call returns a `pending` liveness snapshot instead of erroring;
+ *  the supervisor re-polls until the worker settles. */
+export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 15_000
 
 /**
  * The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool
@@ -409,10 +424,49 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // (O(live), synchronous). The terminal statuses are done/failed/cancelled; everything else
   // (pending/acquiring/running) is still in flight. This is the concurrency fence's input.
   const maxLiveWorkers = opts.maxLiveWorkers
-  const liveWorkerCount = (): number =>
-    opts.scope.view.nodes.filter(
-      (n) => n.status !== 'done' && n.status !== 'failed' && n.status !== 'cancelled',
-    ).length
+  const isLive = (status: string): boolean =>
+    status !== 'done' && status !== 'failed' && status !== 'cancelled'
+  const liveWorkerCount = (): number => opts.scope.view.nodes.filter((n) => isLive(n.status)).length
+
+  // A snapshot of every still-in-flight worker — the liveness signal a bounded `await_event`
+  // returns when its wait elapses, so the supervisor can tell "worker still running, keep waiting"
+  // apart from "nothing is happening" (the distinction it lost when the unbounded await erred out).
+  const liveSnapshot = (): Array<{ id: string; status: string; spent: unknown }> =>
+    opts.scope.view.nodes
+      .filter((n) => isLive(n.status))
+      .map((n) => ({ id: n.id, status: n.status, spent: n.spent }))
+
+  // The blocking `scope.next()` (via `drainSettlement`) waits on a LIVE worker for its whole run.
+  // Keep at most ONE such drain in flight and let every concurrent `await_event` race THAT single
+  // promise against a timeout — so a bounded call never starts a second unbounded block, and the
+  // one drain still delivers the settlement (exactly-once via the scope cursor) whenever it lands.
+  const awaitTimeoutMs = opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS
+  let inFlightDrain: Promise<boolean> | null = null
+  const ensureDrain = (): Promise<boolean> => {
+    if (!inFlightDrain)
+      inFlightDrain = drainSettlement().finally(() => {
+        inFlightDrain = null
+      })
+    return inFlightDrain
+  }
+  // Resolve `{ drained }` if the drain wins, or `undefined` if the bound elapses first. A `<= 0`
+  // bound restores the prior unbounded block (no timer): the caller opted out of the fence.
+  const raceDrainWithTimeout = async (
+    drain: Promise<boolean>,
+  ): Promise<{ drained: boolean } | undefined> => {
+    if (awaitTimeoutMs <= 0) return { drained: await drain }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), awaitTimeoutMs)
+      // Never let this fence-timer alone keep the process alive (e.g. at teardown).
+      if (typeof timer?.unref === 'function') timer.unref()
+    })
+    try {
+      return await Promise.race([drain.then((drained) => ({ drained })), timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
 
   const tools: McpToolDescriptor[] = [
     {
@@ -522,7 +576,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         "answer ('question', from ask_parent / the worker's ask-user), or a trace-analyst finding " +
         "('finding', from analyze-on-settle). Pass kinds:['settled'] for just the next finished " +
         'worker; omit `kinds` to also receive questions and findings. Returns { idle: true } when ' +
-        'nothing is queued and no workers are live.',
+        'nothing is queued and no workers are live. If a worker is still running when the wait ' +
+        'elapses, returns { pending: true, live: [...] } (the workers still in flight) instead of ' +
+        'blocking indefinitely — call await_event again to keep waiting; the settlement is not lost.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -540,14 +596,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               CoordinationEvent['type']
             >)
           : undefined
-        // Already-queued async messages (findings, questions) first; else drive the cursor to
-        // produce the next settlement (and its findings), then re-pull.
+        // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
         let ev = bus.pull(kinds)
-        if (!ev) {
-          const drained = await drainSettlement()
-          ev = bus.pull(kinds)
-          if (!ev) return { idle: !drained }
-        }
+        if (ev) return projectEvent(ev)
+        // Else drive the cursor to produce the next settlement — but BOUND the block. `scope.next()`
+        // waits on a live worker for its entire (multi-minute) run; unbounded, that outlives a remote
+        // MCP client's request timeout and surfaces as a hard tool error, leaving the supervisor with
+        // no working "wait for the worker" primitive. Race the single in-flight drain against the
+        // fence: if it settles in time, re-pull and return the event (or idle when the cursor is dry);
+        // if the fence wins, return a non-error liveness snapshot the supervisor can re-poll on.
+        const raced = await raceDrainWithTimeout(ensureDrain())
+        if (raced === undefined) return { pending: true, live: liveSnapshot() }
+        ev = bus.pull(kinds)
+        if (!ev) return { idle: !raced.drained }
         return projectEvent(ev)
       },
     },

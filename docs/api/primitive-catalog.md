@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 213 exports.
+Import from `@tangle-network/agent-runtime` — 224 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -36,6 +36,7 @@ Import from `@tangle-network/agent-runtime` — 213 exports.
 | `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
 | `createRuntimeStreamEventCollector` | function | Streaming-event counterpart of `createRuntimeEventCollector`. Pass each |
 | `createSandboxPromptBackend` | function | Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call. |
+| `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
 | `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
@@ -48,6 +49,7 @@ Import from `@tangle-network/agent-runtime` — 213 exports.
 | `improvementDriver` | function | The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
+| `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
 | `loopEventToOtelSpan` | function | Convert a LoopTraceEvent into an OtelSpan for export. |
 | `makePerAttemptSignal` | function | Build a per-attempt AbortSignal linked to the parent signal AND fired when |
 | `mcpBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new MCP server. |
@@ -73,6 +75,7 @@ Import from `@tangle-network/agent-runtime` — 213 exports.
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
+| `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
 | `runToolLoop` | function | Run the bounded tool loop and return the final text + every executed tool |
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
@@ -93,6 +96,7 @@ Import from `@tangle-network/agent-runtime` — 213 exports.
 | `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
+| `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 | `AgentEvalError` | class | Base class for every contract error this package throws — carries the stable |
 | `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
@@ -145,7 +149,7 @@ Import from `@tangle-network/agent-runtime` — 213 exports.
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `ToolLoopEvent`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
 
 ### Vertical agent — manifest + improvement adapter
 
@@ -693,9 +697,22 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`.
 
+### Knowledge orchestration — supervised KB updates
+
+Import from `@tangle-network/agent-runtime/knowledge` — 11 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
+| `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
+| `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
+| `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `KnowledgeReadinessCheckInput`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
+
 ### Built-in agent profiles
 
-Import from `@tangle-network/agent-runtime/profiles` — 43 exports.
+Import from `@tangle-network/agent-runtime/profiles` — 53 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -703,14 +720,17 @@ Import from `@tangle-network/agent-runtime/profiles` — 43 exports.
 | `buildAuditorSystemPrompt` | function | Build a system prompt for a single auditor iteration. |
 | `coderTaskToPrompt` | function | Render a `CoderTask` into the per-task instruction handed to the coder profile. |
 | `createInProcessUiAuditClient` | function | Create a `SandboxClient` that drives a local Playwright browser for in-process UI audits. |
+| `createResearcherValidator` | function | Build a validator that closes over a specific `ResearchTask`'s constraints. |
 | `createUiAuditorValidator` | function | Build a `Validator` that rejects off-lens findings and findings missing screenshot evidence. |
 | `decodeAuditTaskEnvelope` | function | Parse a task envelope back out of a prompt string. Returns undefined if |
 | `encodeAuditTaskEnvelope` | function | Wrap a `UiAuditTask` in a machine-readable envelope so iterations are self-describing. |
 | `formatAuditorPrompt` | function | Produce the user message for one audit iteration: lens, captures to take, and the task envelope. |
 | `initAuditWorkspace` | function | Create the `issues/`, `screenshots/`, and `registry.json` scaffold in a new audit workspace. |
+| `multiHarnessResearcherFanout` | function | Build a fanout topology over multiple harnesses. The kernel round-robins |
 | `parseAuditorEvents` | function | Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAuditOutput`. |
 | `readAuditRegistry` | function | Read and validate the `registry.json` from an audit workspace. |
 | `registerCaptures` | function | Record screenshots taken for a route in the registry, without filing a |
+| `researcherProfile` | function | Build a source-grounded researcher profile with output parsing and validation. |
 | `summarizeRegistry` | function | Compute finding counts by severity, lens, and route from an `AuditRegistry`. |
 | `uiAuditorProfile` | function | Preset `runLoop` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs. |
 | `writeAuditIndex` | function | Regenerate `<workspace>/index.md` from registry.json. |
@@ -718,14 +738,20 @@ Import from `@tangle-network/agent-runtime/profiles` — 43 exports.
 | `SHARED_AUDITOR_RULES` | const | Cross-lens rules injected into every UI audit iteration: finding quality standards and scope limits. |
 | `UI_FINDING_SEVERITIES` | const | Frozen severity tuple, ordered worst → least bad for sort/report. |
 | `UI_LENSES` | const | Frozen tuple of lenses for validation + iteration. |
+| `KnowledgeItem` | interface | Knowledge item emitted by the researcher. |
+| `ResearcherProfileOptions` | interface | Options for the source-grounded researcher profile preset. |
+| `ResearchOutput` | interface | Researcher output. Required fields are typed; optional fields preserve |
+| `ResearchTask` | interface | Task contract for a source-grounded research agent. |
 | `UiAuditOutput` | interface | Output of one iteration. `findings` is the headline payload; `captures` |
 | `UiAuditTask` | interface | One iteration's task: audit a single (lens × route) pair, capturing the |
 | `UiFinding` | interface | A single UI audit finding — the unit of work a contributor can act on. |
 | `UiFindingScreenshot` | interface | Pointer to a screenshot referenced by a finding (workspace-relative path). |
+| `KnowledgeUpdate` | type | A proposed write to the knowledge base. The profile does NOT apply |
+| `ResearchSource` | type | Source families a researcher profile may prefer for a task. |
 | `UiFindingSeverity` | type | Severity scale. |
 | `UiLens` | type | Canonical audit lenses. Each lens scopes a finding to a single class of |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AppendFindingsResult`, `AuditIndex`, `AuditRegistry`, `AuditRegistryCapture`, `BrowserContextHandle`, `BrowserHandle`, `CoderTask`, `InProcessUiAuditClientOptions`, `PageHandle`, `RegisterCapturesOptions`, `UiAuditCapture`, `UiAuditCaptureRequest`, `UiAuditorProfileOptions`, `UiAuditViewport`, `UiJudgeInput`, `UiJudgeOutput`, `UiJudgeTokenUsage`, `UiJudge`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AppendFindingsResult`, `AuditIndex`, `AuditRegistry`, `AuditRegistryCapture`, `BrowserContextHandle`, `BrowserHandle`, `CoderTask`, `InProcessUiAuditClientOptions`, `MultiHarnessResearcherFanoutOptions`, `PageHandle`, `RegisterCapturesOptions`, `UiAuditCapture`, `UiAuditCaptureRequest`, `UiAuditorProfileOptions`, `UiAuditViewport`, `UiJudgeInput`, `UiJudgeOutput`, `UiJudgeTokenUsage`, `UiJudge`.
 
 ### Platform glue
 
