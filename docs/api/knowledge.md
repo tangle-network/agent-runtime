@@ -8,9 +8,51 @@
 
 ## References
 
+### AgentKnowledgeReadinessCheckOptions
+
+Re-exports [AgentKnowledgeReadinessCheckOptions](index.md#agentknowledgereadinesscheckoptions)
+
+***
+
+### createAgentKnowledgeReadinessCheck
+
+Re-exports [createAgentKnowledgeReadinessCheck](index.md#createagentknowledgereadinesscheck)
+
+***
+
+### KnowledgeImprovementJobMeasurement
+
+Re-exports [KnowledgeImprovementJobMeasurement](index.md#knowledgeimprovementjobmeasurement)
+
+***
+
+### KnowledgeImprovementJobResult
+
+Re-exports [KnowledgeImprovementJobResult](index.md#knowledgeimprovementjobresult)
+
+***
+
+### RunKnowledgeImprovementJobOptions
+
+Re-exports [RunKnowledgeImprovementJobOptions](index.md#runknowledgeimprovementjoboptions)
+
+***
+
+### runKnowledgeImprovementJob
+
+Re-exports [runKnowledgeImprovementJob](index.md#runknowledgeimprovementjob)
+
+***
+
 ### createSupervisedKnowledgeUpdater
 
 Re-exports [createSupervisedKnowledgeUpdater](index.md#createsupervisedknowledgeupdater)
+
+***
+
+### formatSupervisedKnowledgeTask
+
+Re-exports [formatSupervisedKnowledgeTask](index.md#formatsupervisedknowledgetask)
 
 ***
 

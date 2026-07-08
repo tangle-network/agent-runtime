@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.89.0` and `@tangle-network/agent-eval@0.108.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.89.0` and `@tangle-network/agent-eval@0.108.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 224 exports.
+Import from `@tangle-network/agent-runtime` — 231 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -29,6 +29,7 @@ Import from `@tangle-network/agent-runtime` — 224 exports.
 | `commandVerifier` | function | A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other |
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
+| `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
 | `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
 | `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
@@ -43,6 +44,7 @@ Import from `@tangle-network/agent-runtime` — 224 exports.
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
 | `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
 | `exportEvalRuns` | function | Ship self-improvement eval-run events to Tangle Intelligence. Unlike the |
+| `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
@@ -72,6 +74,7 @@ Import from `@tangle-network/agent-runtime` — 224 exports.
 | `runConversation` | function | Conversation orchestrator. Drives N participants in turn through their own |
 | `runConversationStream` | function | Streaming conversation orchestrator: drives N participants in turn through their own backends, enforcing `maxTurns` / `maxCreditsCents` / `haltOn`, yielding per-event stream markers. |
 | `runDelegatedLoop` | function | Dispatch a configured loop by mode. Fails loud (throws `ConfigError`) when no |
+| `runKnowledgeImprovementJob` | function | Run the full KB improvement job: candidate workspace, runtime supervisor update, readiness check, and promotion. |
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
@@ -149,7 +152,7 @@ Import from `@tangle-network/agent-runtime` — 224 exports.
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentKnowledgeReadinessCheckOptions`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunKnowledgeImprovementJobOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
 
 ### Vertical agent — manifest + improvement adapter
 
@@ -699,16 +702,19 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 
 ### Knowledge orchestration — supervised KB updates
 
-Import from `@tangle-network/agent-runtime/knowledge` — 11 exports.
+Import from `@tangle-network/agent-runtime/knowledge` — 18 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `createAgentKnowledgeReadinessCheck` | function | Build the default readiness check backed by `@tangle-network/agent-knowledge` validation and scoring. |
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
+| `formatSupervisedKnowledgeTask` | function | Format the supervisor task with the KB root, readiness requirements, current findings, and metadata. |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
+| `runKnowledgeImprovementJob` | function | Run the full KB improvement job: candidate workspace, runtime supervisor update, readiness check, and promotion. |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `KnowledgeReadinessCheckInput`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKnowledgeReadinessCheckOptions`, `KnowledgeImprovementJobMeasurement`, `KnowledgeImprovementJobResult`, `KnowledgeReadinessCheckInput`, `RunKnowledgeImprovementJobOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `SupervisedKnowledgeUpdater`.
 
 ### Built-in agent profiles
 
@@ -1081,7 +1087,7 @@ Import from `@tangle-network/agent-eval/campaign` — 261 exports.
 | `paretoPolicy` | const | The default strategy: symmetric multi-objective Pareto significance. Ship iff |
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
-| `Lineage` | class | _(no summary — add a TSDoc line at the declaration)_ |
+| `Lineage` | class | Deterministic improvement-candidate graph with mutation, merge, frontier, and persistence helpers. |
 | `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
 | `SkillPatchParseError` | class | Parse + validate the patch response. Throws `SkillPatchParseError` when the |
 | `WorktreeAdapterError` | class | Typed failure from a `WorktreeAdapter` operation (create/finalize/discard) — wraps the underlying git error as `cause`. |

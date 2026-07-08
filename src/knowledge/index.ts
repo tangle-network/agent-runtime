@@ -1,5 +1,15 @@
 export {
+  type AgentKnowledgeReadinessCheckOptions,
+  createAgentKnowledgeReadinessCheck,
+  type KnowledgeImprovementJobMeasurement,
+  type KnowledgeImprovementJobResult,
+  type RunKnowledgeImprovementJobOptions,
+  runKnowledgeImprovementJob,
+} from './improvement-job'
+
+export {
   createSupervisedKnowledgeUpdater,
+  formatSupervisedKnowledgeTask,
   type KnowledgeReadinessCheck,
   type KnowledgeReadinessCheckInput,
   type KnowledgeReadinessCheckResult,
