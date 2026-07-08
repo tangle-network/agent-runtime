@@ -266,13 +266,14 @@ const bySpecifier = new Map()
 for (let i = 0; i < allModules.length; i++) bySpecifier.set(allModules[i].specifier, extracted[i])
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ratchet: undocumented callables may only DECREASE. Undocumented interface/type
+// Ratchet: undocumented OWN callables may only DECREASE. Undocumented interface/type
 // entries collapse out of the table (see renderSection), but a blank function/class/
 // const row is a reach-for primitive with no summary — visible shame, capped here.
-// The ceiling is the exact current count; when a backfill lowers the real number,
-// lower the constant to match. Exceeding it (a new undocumented callable) exits 1.
+// The ceiling is the exact current count for this package's exports; when a backfill lowers
+// the real number, lower the constant to match. Substrate callables from agent-eval are still
+// rendered and reported, but cannot fail this repo's docs when an external release drifts.
 
-const maxUndocumentedCallables = 0
+const maxUndocumentedOwnCallables = 0
 const ratchetKinds = new Set(['function', 'class', 'const'])
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -323,20 +324,33 @@ function renderSection(mod, importLabel) {
 const importLabelOf = (basePackage, subpath) =>
   subpath === '.' ? basePackage : `${basePackage}/${subpath.replace(/^\.\//, '')}`
 
-const undocumentedCallables = []
+const undocumentedOwnCallables = []
+const undocumentedSubstrateCallables = []
+const ownSpecifiers = new Set(ownModules.map((m) => m.specifier))
 for (const mod of allModules) {
   for (const e of entriesFor(mod)) {
-    if (!e.summary && ratchetKinds.has(e.kind)) undocumentedCallables.push(`${e.name} (${e.kind}, ${mod.specifier})`)
+    if (!e.summary && ratchetKinds.has(e.kind)) {
+      const finding = `${e.name} (${e.kind}, ${mod.specifier})`
+      if (ownSpecifiers.has(mod.specifier)) undocumentedOwnCallables.push(finding)
+      else undocumentedSubstrateCallables.push(finding)
+    }
   }
 }
-if (undocumentedCallables.length > maxUndocumentedCallables) {
+if (undocumentedOwnCallables.length > maxUndocumentedOwnCallables) {
   console.error(
-    `primitive-catalog: ${undocumentedCallables.length} undocumented function/class/const exports exceed the ` +
-      `ratchet ceiling of ${maxUndocumentedCallables}. Add a TSDoc summary line at each new declaration ` +
+    `primitive-catalog: ${undocumentedOwnCallables.length} undocumented own function/class/const exports exceed the ` +
+      `ratchet ceiling of ${maxUndocumentedOwnCallables}. Add a TSDoc summary line at each new declaration ` +
       '(summary BEFORE any @tag — a tag-first block reads as blank). Undocumented callables:\n  ' +
-      undocumentedCallables.join('\n  '),
+      undocumentedOwnCallables.join('\n  '),
   )
   process.exit(1)
+}
+if (undocumentedSubstrateCallables.length) {
+  console.error(
+    `primitive-catalog: ${undocumentedSubstrateCallables.length} undocumented substrate function/class/const exports ` +
+      'were rendered but did not fail this package ratchet:\n  ' +
+      undocumentedSubstrateCallables.join('\n  '),
+  )
 }
 
 const out = []
@@ -400,5 +414,6 @@ console.error(
   `primitive-catalog: wrote docs/api/primitive-catalog.md — ${ownModules.length} own subpaths + ` +
     `${substrateModules.length} substrate surfaces, ${total} catalogued symbols ` +
     `(agent-runtime@${pkg.version}, agent-eval@${substrateVersion}); ` +
-    `${undocumentedCallables.length}/${maxUndocumentedCallables} undocumented callables (ratchet).`,
+    `${undocumentedOwnCallables.length}/${maxUndocumentedOwnCallables} undocumented own callables (ratchet), ` +
+    `${undocumentedSubstrateCallables.length} undocumented substrate callables.`,
 )

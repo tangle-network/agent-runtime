@@ -105,11 +105,25 @@ export interface AgenticOptions {
    *  worker. Omitted ⇒ the worker's `model`. */
   analystModel?: string
   /** Across-run learning: when set, the analyst's observe() pass appends trace-derived
-   *  facts here (the flywheel write side). Priming (the read side) is the caller's move —
-   *  query the corpus and fold facts into the task's systemPrompt before runAgentic. */
+   *  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
+   *  because unconditional priming can pollute context on some domains. */
   corpus?: Corpus
   /** Tags written onto learned facts (and used by the caller's priming query). */
   corpusTags?: string[]
+  /** In-context learning: when set, query `corpus` before each depth shot and inject
+   *  the top trace-derived facts as guidance for the active run. No corpus means no read-back. */
+  corpusReadback?: CorpusReadbackOptions
+}
+
+export interface CorpusReadbackOptions {
+  /** Minimum confidence for a fact to be injected. Default 0.7. */
+  minConfidence?: number
+  /** Extra tags a fact must carry, in addition to `corpusTags`. */
+  tags?: ReadonlyArray<string>
+  /** Max facts injected per shot. Default 3. */
+  maxFacts?: number
+  /** Default false: only facts tagged `audience:agent` are injected into the worker. */
+  includeOperatorFacts?: boolean
 }
 
 // ── The unit: one agentic shot (a bounded tool loop) over a handle ───────────────
@@ -379,6 +393,32 @@ async function analyze(
   return { steer: steer || 'COMPLETE', tokens }
 }
 
+async function renderCorpusReadback(opts: AgenticOptions): Promise<string> {
+  if (!opts.corpus || !opts.corpusReadback) return ''
+  const maxFacts = opts.corpusReadback.maxFacts ?? 3
+  if (!Number.isInteger(maxFacts) || maxFacts < 0) {
+    throw new Error(`corpusReadback.maxFacts must be a non-negative integer, got ${maxFacts}`)
+  }
+  if (maxFacts === 0) return ''
+
+  const tags = [
+    ...(opts.corpusTags ?? []),
+    ...(opts.corpusReadback.tags ?? []),
+    ...(opts.corpusReadback.includeOperatorFacts ? [] : ['audience:agent']),
+  ]
+  const facts = await opts.corpus.query({
+    ...(tags.length > 0 ? { tags } : {}),
+    minConfidence: opts.corpusReadback.minConfidence ?? 0.7,
+    limit: maxFacts,
+  })
+  if (facts.length === 0) return ''
+
+  const rendered = facts.map((fact) =>
+    fact.rationale ? `- ${fact.claim} (${fact.rationale})` : `- ${fact.claim}`,
+  )
+  return `Relevant learned facts from prior attempts:\n${rendered.join('\n')}`
+}
+
 // ── Leaf executors (one shot / one analyst), resolved per-spawn from the surface ──
 
 interface ShotResult {
@@ -592,7 +632,10 @@ export function depthStrategy(
       try {
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
           const child = leaf(`shot:${shots}`, 'shot')
-          const steer = shots === 0 ? undefined : pendingSteer
+          const memorySteer = await renderCorpusReadback(opts)
+          const steer = [shots === 0 ? undefined : pendingSteer, memorySteer]
+            .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+            .join('\n\n')
           const res = scope.spawn(child, { task, handle, messages, steer } as ShotTask, {
             budget: perChild(innerTurns),
             label: `shot:${shots}`,

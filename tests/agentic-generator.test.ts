@@ -44,6 +44,23 @@ const FINDINGS = [
   },
 ] as unknown as AnalystFinding[]
 
+const TRACE_PATH = '/tmp/run/gen-0/candidate-0/task_0/spans.jsonl'
+const RAW_TRACE_FINDINGS = [
+  {
+    schema_version: '1.0.0',
+    finding_id: 'rt1',
+    analyst_id: 'raw-trace-distiller',
+    produced_at: '2026-01-01',
+    severity: 'high',
+    area: 'raw-trace-context',
+    claim: 'candidate failed after reading stale state',
+    recommended_action: `grep/cat ${TRACE_PATH} before editing`,
+    evidence_refs: [{ kind: 'artifact', uri: TRACE_PATH }],
+    confidence: 1,
+    subject: 'candidate-hash',
+  },
+] as unknown as AnalystFinding[]
+
 const HARNESS_OK: LocalHarnessResult = {
   exitCode: 0,
   stdout: 'done',
@@ -262,5 +279,86 @@ describe('agenticGenerator — verify-in-session loop', () => {
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cmdmiss' })
     const v = commandVerifier('definitely-not-a-real-binary-xyz')
     expect(() => v(wt.path)).toThrow(/not found in PATH/)
+  })
+})
+
+describe('agenticGenerator — raw-trace evidence discipline', () => {
+  const writeDiagnosis = (cwd: string, body: string) => {
+    mkdirSync(join(cwd, '.improve'), { recursive: true })
+    writeFileSync(join(cwd, '.improve/raw-trace-diagnosis.md'), body)
+  }
+
+  it('retries and discards a raw-trace candidate that edits code without citing inspected traces', async () => {
+    const prompts: string[] = []
+    const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
+      prompts.push(taskPrompt)
+      writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+      return HARNESS_OK
+    })
+    const gen = agenticGenerator({ runHarness: runHarness as never })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-miss' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: RAW_TRACE_FINDINGS,
+      maxShots: 2,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(false)
+    expect(runHarness).toHaveBeenCalledTimes(2)
+    expect(prompts[0]).toContain('Raw trace evidence requirement')
+    expect(prompts[0]).toContain('.improve/raw-trace-diagnosis.md')
+    expect(prompts[1]).toContain('raw-trace mode requires .improve/raw-trace-diagnosis.md')
+  })
+
+  it('rejects a raw-trace candidate that only writes the diagnosis artifact', async () => {
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeDiagnosis(cwd, `inspected: ${TRACE_PATH}\nmechanism: stale state\nchange: none yet\n`)
+      return HARNESS_OK
+    })
+    const gen = agenticGenerator({ runHarness: runHarness as never })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-only' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: RAW_TRACE_FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(false)
+    expect(runHarness).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts a raw-trace candidate with a substantive edit and diagnosis citing a real trace path', async () => {
+    const runHarness = vi.fn(async ({ cwd }: { cwd: string }) => {
+      writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+      writeDiagnosis(
+        cwd,
+        [
+          `inspected: ${TRACE_PATH}`,
+          'mechanism: stale state was reused after a failed candidate',
+          'change: reset the state before reuse',
+          '',
+        ].join('\n'),
+      )
+      return HARNESS_OK
+    })
+    const gen = agenticGenerator({ runHarness: runHarness as never })
+
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'rt-ok' })
+    const out = await gen.generate({
+      worktreePath: wt.path,
+      report: undefined,
+      findings: RAW_TRACE_FINDINGS,
+      maxShots: 1,
+      signal: new AbortController().signal,
+    })
+
+    expect(out.applied).toBe(true)
+    expect(runHarness).toHaveBeenCalledTimes(1)
   })
 })

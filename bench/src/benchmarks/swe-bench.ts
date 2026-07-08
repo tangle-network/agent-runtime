@@ -58,10 +58,36 @@ export const swePatchOutput: OutputAdapter<string> = {
 }
 
 const DATASET = 'princeton-nlp/SWE-bench_Verified'
+const TEST_FILE_EXCLUDES = [
+  "':(exclude,glob)**/tests/**'",
+  "':(exclude,glob)**/test/**'",
+  "':(exclude,glob)test_*.py'",
+  "':(exclude,glob)**/test_*.py'",
+  "':(exclude,glob)*_test.py'",
+  "':(exclude,glob)**/*_test.py'",
+  "':(exclude,glob)conftest.py'",
+  "':(exclude,glob)**/conftest.py'",
+].join(' ')
 
 interface SweReport {
   resolved_instances?: number
   resolved_ids?: string[]
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function sweMetadata(task: BenchTask): { repo: string; base: string } {
+  const repo = String(task.metadata?.repo ?? '')
+  const base = String(task.metadata?.base_commit ?? '')
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+    throw new Error(`swe-bench: invalid repo metadata for ${task.id}: ${repo}`)
+  }
+  if (!/^[0-9a-f]{7,40}$/i.test(base)) {
+    throw new Error(`swe-bench: invalid base_commit metadata for ${task.id}: ${base}`)
+  }
+  return { repo, base }
 }
 
 export function createSweBenchAdapter(): BenchmarkAdapter {
@@ -79,15 +105,14 @@ export function createSweBenchAdapter(): BenchmarkAdapter {
     // agent only edits (the harness owns the checkout — a stochastic model can't be
     // trusted to clone to an exact path). `--quiet` keeps the exec output small.
     boxSetup(task) {
-      const repo = String(task.metadata?.repo ?? '')
-      const base = String(task.metadata?.base_commit ?? '')
+      const { repo, base } = sweMetadata(task)
       return {
-        command: `rm -rf ${SWE_REPO_DIR} && git clone --quiet https://github.com/${repo} ${SWE_REPO_DIR} && git -C ${SWE_REPO_DIR} checkout --quiet ${base}`,
+        command: `rm -rf ${shellQuote(SWE_REPO_DIR)} && git clone --quiet ${shellQuote(`https://github.com/${repo}`)} ${shellQuote(SWE_REPO_DIR)} && git -C ${shellQuote(SWE_REPO_DIR)} checkout --quiet ${shellQuote(base)}`,
       }
     },
     boxExtract() {
       return {
-        command: `git -C ${SWE_REPO_DIR} add -A && git -C ${SWE_REPO_DIR} diff --cached -- . ':(exclude)*/test*'`,
+        command: `git -C ${shellQuote(SWE_REPO_DIR)} add -A && git -C ${shellQuote(SWE_REPO_DIR)} diff --cached -- . ${TEST_FILE_EXCLUDES}`,
       }
     },
 

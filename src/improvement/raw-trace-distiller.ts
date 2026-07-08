@@ -31,7 +31,7 @@
  * @experimental
  */
 
-import { existsSync, readdirSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { type AnalystFinding, makeFinding } from '@tangle-network/agent-eval'
 import type { Scenario, SelfImproveOptions } from '@tangle-network/agent-eval/contract'
@@ -268,23 +268,30 @@ function artifactPathsForCell(
 }
 
 /** Real files directly under `dir` and one level of sub-directories (artifacts
- *  are sometimes nested). Absolute paths, sorted. `[]` when the dir is absent —
- *  an expected state for an in-memory or not-yet-flushed run, not an error. A
- *  readdir fault on a dir that DOES exist is genuinely broken and throws loud. */
+ *  are sometimes nested). Absolute paths, sorted. `[]` when the dir is absent,
+ *  stale, unreadable, or contains symlinked dirs — trace context is advisory and
+ *  the canonical anchors below still tell the proposer where to inspect. */
 function listTraceFiles(dir: string): string[] {
-  if (!existsSync(dir)) return []
   const out: string[] = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of safeReadDir(dir)) {
     const full = join(dir, entry.name)
     if (entry.isFile()) {
       out.push(full)
-    } else if (entry.isDirectory()) {
-      for (const sub of readdirSync(full, { withFileTypes: true })) {
+    } else if (!entry.isSymbolicLink() && entry.isDirectory()) {
+      for (const sub of safeReadDir(full)) {
         if (sub.isFile()) out.push(join(full, sub.name))
       }
     }
   }
   return out
+}
+
+function safeReadDir(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
 }
 
 /** Substrate cell-dir sanitization — must match agent-eval's

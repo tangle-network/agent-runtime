@@ -110,6 +110,15 @@ export interface SandboxRun<Out> {
  */
 export type OpenSandboxRunPromptOptions = Omit<PromptOptions, 'signal' | 'sessionId'>
 
+/** Context available after the box/session exists and before the first prompt is
+ * drained. Intended for benchmark-owned workspace setup such as cloning a repo
+ * into a fixed path. */
+export interface OpenSandboxRunBeforeStartContext {
+  readonly box: SandboxInstance
+  readonly sessionId: string
+  readonly signal: AbortSignal
+}
+
 /** @experimental */
 export interface OpenSandboxRunOptions {
   /** Profile + sandbox env/overrides. `sandboxOverrides.backend.type` is the harness. */
@@ -124,6 +133,10 @@ export interface OpenSandboxRunOptions {
   /** Per-prompt sandbox SDK options forwarded to both `start()` and `resume()`.
    *  The runtime still owns the session id and abort signal for each turn. */
   promptOptions?: OpenSandboxRunPromptOptions
+  /** Optional pre-start workspace setup. Runs after `lineage.start()` creates the
+   * box/session and before the first prompt stream is consumed. A thrown error
+   * fails the turn before the agent spends tokens. */
+  beforeStart?: (ctx: OpenSandboxRunBeforeStartContext) => Promise<void> | void
   /** Test seam for deterministic hook timestamps. Defaults to `Date.now`. */
   now?: () => number
   /** Bounds box-creation bursts inside lineage fanout. Default from lineage. */
@@ -303,6 +316,11 @@ export async function openSandboxRun<Out>(
           options.promptOptions,
         )
         handle = r.handle
+        await options.beforeStart?.({
+          box: handle.box,
+          sessionId: handle.sessionId,
+          signal: options.signal,
+        })
         const result = await settle(handle.box, r.events)
         turnCount += 1
         emit({

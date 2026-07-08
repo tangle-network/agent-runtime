@@ -137,6 +137,56 @@ async function main(): Promise<void> {
   assert.equal(leakyPrompts[1]!.includes(leakyGold), false, 'retry prompt redacts hidden gold fields')
   assert.match(leakyPrompts[1]!, /publicHint/)
 
+  const runtime = await import('@tangle-network/agent-runtime/loops')
+  if (runtime.openSandboxRun.toString().includes('beforeStart')) {
+    // The default shot path supports benchmark-owned box setup/extract without real sandbox infra.
+    const order: string[] = []
+    const fakeClient = {
+      async create() {
+        return {
+          id: 'box-default-shot',
+          async exec(command: string, options?: { sessionId?: string }) {
+            order.push(`exec:${command}:streams=${order.filter((x) => x.startsWith('stream:')).length}:session=${options?.sessionId ? 'yes' : 'no'}`)
+            return { exitCode: 0, stdout: command === 'extract-patch' ? 'PATCH' : '', stderr: '' }
+          },
+          async *streamPrompt(_prompt: string, options?: { sessionId?: string }) {
+            order.push(`stream:session=${options?.sessionId ? 'yes' : 'no'}`)
+            yield { type: 'result', data: { finalText: 'fallback text' } }
+          },
+          async delete() {
+            order.push('delete')
+          },
+        }
+      },
+      async criuStatus() {
+        return { available: false }
+      },
+    }
+    const boxAdapter: BenchmarkAdapter = {
+      name: 'boxy',
+      preflight: async () => {},
+      loadTasks: async () => [{ id: 'boxy-0', prompt: 'edit repo', metadata: {} }],
+      judge: async (_task, artifact) => ({ resolved: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0 }),
+      goldArtifact: async () => 'PATCH',
+      boxSetup: () => ({ command: 'setup-repo' }),
+      boxExtract: () => ({ command: 'extract-patch' }),
+    }
+    const boxy = await runBenchmarks({
+      benchmarks: ['boxy'],
+      cells: [{ label: 'default-shot', model: 'm', backend: 'sandbox' }],
+      routerBaseUrl: 'x',
+      routerKey: 'x',
+      resolveAdapter: () => boxAdapter,
+      resolveClient: () => fakeClient as never,
+    })
+    assert.equal(boxy.rows[0]!.resolveRate, 1, 'boxExtract artifact is judged instead of fallback text')
+    assert.deepEqual(
+      order.slice(0, 3),
+      ['exec:setup-repo:streams=0:session=yes', 'stream:session=yes', 'exec:extract-patch:streams=1:session=yes'],
+      'setup runs before the prompt stream, extract runs after the prompt stream, both in the same session',
+    )
+  }
+
   // An unavailable benchmark (preflight throws) is skipped, not fatal; the sweep still runs the rest.
   const flaky: Record<string, BenchmarkAdapter> = {
     ok: stubAdapter('ok', 2),

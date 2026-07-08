@@ -262,6 +262,47 @@ describe('openSandboxRun — resume continues the SAME session over the SAME box
 })
 
 describe('openSandboxRun — lifecycle guardrails', () => {
+  it('runs beforeStart after box/session creation and before the first prompt drains', async () => {
+    const { client, streamCalls } = createFakeClient()
+    const seen: Array<{ boxId: string; sessionId: string; streams: number }> = []
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal: new AbortController().signal,
+        beforeStart: ({ box, sessionId }) => {
+          seen.push({ boxId: box.id, sessionId, streams: streamCalls.length })
+        },
+      },
+      eventsDeliverable,
+    )
+
+    await run.start('turn 1')
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ boxId: 'box-0', streams: 0 })
+    expect(streamCalls).toHaveLength(1)
+    expect(streamCalls[0]!.sessionId).toBe(seen[0]!.sessionId)
+  })
+
+  it('fails the first turn before streaming when beforeStart throws', async () => {
+    const { client, streamCalls } = createFakeClient()
+    const run = await openSandboxRun(
+      client,
+      {
+        agentRun: spec(),
+        signal: new AbortController().signal,
+        beforeStart: () => {
+          throw new Error('setup failed')
+        },
+      },
+      eventsDeliverable,
+    )
+
+    await expect(run.start('turn 1')).rejects.toThrow(/setup failed/)
+    expect(streamCalls).toHaveLength(0)
+  })
+
   it('throws on a second start() (use resume to continue)', async () => {
     const { client } = createFakeClient()
     const run = await openSandboxRun(

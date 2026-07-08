@@ -14,6 +14,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { InMemoryCorpus } from '../../src/runtime/personify/corpus'
 import { promotionGate } from '../../src/runtime/promotion-gate'
 import {
   type BenchmarkReport,
@@ -21,9 +22,11 @@ import {
   runBenchmark,
 } from '../../src/runtime/run-benchmark'
 import {
+  type AgenticOptions,
   type AgenticSurface,
   type AgenticTask,
   defineStrategy,
+  refine,
   runAgentic,
 } from '../../src/runtime/strategy'
 import {
@@ -94,6 +97,43 @@ function stubRouter(): CapturedChatRequest[] {
   return captured
 }
 
+function memoryComplete(
+  capturedWorkers: CapturedChatRequest[],
+): NonNullable<AgenticOptions['complete']> {
+  return async (body) => {
+    const req = body as CapturedChatRequest & { model?: string }
+    const text = req.messages.map((m) => m.content).join('\n')
+    if (text.includes('third-person OBSERVER')) {
+      return {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                findings: [
+                  {
+                    area: 'process',
+                    severity: 'medium',
+                    claim: 'the trace shows the worker guessed before reading priority',
+                    recommended_action: 'Read the ticket priority before selecting SLA',
+                    audience: 'agent',
+                    confidence: 0.9,
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 7, completion_tokens: 3 },
+      }
+    }
+    capturedWorkers.push(req)
+    return {
+      choices: [{ message: { content: 'DONE' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 5 },
+    }
+  }
+}
+
 const worker = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
@@ -149,6 +189,64 @@ describe('shot messages handling', () => {
     const first = captured[0] as CapturedChatRequest
     expect(first.messages[0]).toMatchObject({ role: 'system', content: task.systemPrompt })
     expect(first.messages[1]?.content).toContain(task.userPrompt)
+  })
+})
+
+// ── Active in-context memory read-back ───────────────────────────────────────────
+
+describe('refine corpus read-back', () => {
+  function twoShotSurface(): AgenticSurface {
+    let scoreCalls = 0
+    return fixtureSurface(() => {
+      scoreCalls += 1
+      return scoreCalls === 1 ? { passes: 0, total: 1 } : { passes: 1, total: 1 }
+    })
+  }
+
+  it('injects trace-derived corpus facts into the next active attempt when opted in', async () => {
+    const corpus = new InMemoryCorpus()
+    const capturedWorkers: CapturedChatRequest[] = []
+    const result = await runAgentic({
+      surface: twoShotSurface(),
+      task,
+      ...worker,
+      complete: memoryComplete(capturedWorkers),
+      strategy: refine,
+      budget: 3,
+      innerTurns: 1,
+      corpus,
+      corpusTags: ['fixture-itsm'],
+      corpusReadback: { minConfidence: 0.5, maxFacts: 1 },
+    })
+
+    expect(result.resolved).toBe(true)
+    expect(capturedWorkers).toHaveLength(2)
+    const secondShot = capturedWorkers[1]?.messages.map((m) => m.content).join('\n')
+    expect(secondShot).toContain('Relevant learned facts from prior attempts')
+    expect(secondShot).toContain('Read the ticket priority before selecting SLA')
+    const stored = await corpus.query({ tags: ['fixture-itsm', 'audience:agent'] })
+    expect(stored).toHaveLength(1)
+  })
+
+  it('keeps corpus read-back disabled by default even when the observer writes facts', async () => {
+    const corpus = new InMemoryCorpus()
+    const capturedWorkers: CapturedChatRequest[] = []
+    await runAgentic({
+      surface: twoShotSurface(),
+      task,
+      ...worker,
+      complete: memoryComplete(capturedWorkers),
+      strategy: refine,
+      budget: 3,
+      innerTurns: 1,
+      corpus,
+      corpusTags: ['fixture-itsm'],
+    })
+
+    expect(capturedWorkers).toHaveLength(2)
+    const secondShot = capturedWorkers[1]?.messages.map((m) => m.content).join('\n')
+    expect(secondShot).not.toContain('Relevant learned facts from prior attempts')
+    expect(await corpus.query({ tags: ['fixture-itsm', 'audience:agent'] })).toHaveLength(1)
   })
 })
 
