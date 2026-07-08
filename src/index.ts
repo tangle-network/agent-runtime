@@ -115,6 +115,10 @@ export {
 // `improve` is the one pluggable RSI verb (facade over agent-eval's
 // `selfImprove`); the rest are the code-surface driver + its generators.
 export * from './improvement'
+// ── Knowledge orchestration ──────────────────────────────────────────
+// Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
+// These wrappers bridge the two without making agent-knowledge import runtime.
+export * from './knowledge'
 // ── Delegated loop-runner (configured code/research/review/audit/self-improve) ──
 export {
   auditLoopRunner,

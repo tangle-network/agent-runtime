@@ -49,6 +49,11 @@
       "import": "./dist/lifecycle.js",
       "default": "./dist/lifecycle.js"
     },
+    "./knowledge": {
+      "types": "./dist/knowledge.d.ts",
+      "import": "./dist/knowledge.js",
+      "default": "./dist/knowledge.js"
+    },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
       "import": "./dist/profiles.js",

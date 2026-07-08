@@ -8,6 +8,7 @@
     "src/runtime/environment-provider.ts",
     "src/analyst-loop/index.ts",
     "src/lifecycle/index.ts",
+    "src/knowledge/index.ts",
     "src/profiles/index.ts",
     "src/platform/index.ts",
     "src/mcp/index.ts"
