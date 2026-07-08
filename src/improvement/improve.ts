@@ -48,6 +48,7 @@ import type { LocalHarness } from '../mcp/local-harness'
 import { assertModelAllowed } from '../runtime/supervise/model-policy'
 import { agenticGenerator, type Verifier } from './agentic-generator'
 import { type CandidateGenerator, improvementDriver } from './improvement-driver'
+import { rawTraceDistiller } from './raw-trace-distiller'
 
 /** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  *  profile levers; `code` is the implementation-tier surface. */
@@ -94,6 +95,16 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
    *  and keep the static `findings` all the way through. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
+  /** META-HARNESS mode: instead of the ~400-char distilled findings, feed the
+   *  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
+   *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
+   *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
+   *  instruction — so the coding agent reads the actual failures itself rather than
+   *  a pre-summary. Requires a REAL `runDir` (that is where the traces live).
+   *  Ignored when `analyzeGeneration` is set explicitly (that wins) or is `null`
+   *  (disabled). Equivalent to `analyzeGeneration: rawTraceDistiller()`; this flag
+   *  is the one-line enable. Default `false` (the distiller stays the default). */
+  rawTraceContext?: boolean
   /** CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
    *  repo, and the facade assembles the whole candidate pipeline — git worktrees
    *  (`gitWorktreeAdapter`) driven by `improvementDriver` with the full agentic
@@ -384,7 +395,10 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       ? {}
       : {
           analyzeGeneration:
-            opts.analyzeGeneration ?? generationFailureDistiller<TScenario, TArtifact>(findings),
+            opts.analyzeGeneration ??
+            (opts.rawTraceContext
+              ? rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
+              : generationFailureDistiller<TScenario, TArtifact>(findings)),
         }),
   })
 
