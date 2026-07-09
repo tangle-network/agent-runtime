@@ -42,7 +42,12 @@ const HARNESS_INVOCATIONS: Record<
 > = {
   claude: {
     command: 'claude',
-    buildArgs: (taskPrompt) => ['--headless', '-p', taskPrompt],
+    // `-p` IS headless/print mode; the old `--headless` flag was removed from the CLI
+    // (a spawn with it exits 1 "unknown option", so the code-surface proposer could
+    // never edit a candidate worktree). `--dangerously-skip-permissions` lets the
+    // proposer apply file edits non-interactively inside its ISOLATED candidate
+    // worktree — the intended autonomous-improvement use.
+    buildArgs: (taskPrompt) => ['-p', taskPrompt, '--dangerously-skip-permissions'],
     modelArgs: (model) => ['-m', model],
   },
   codex: {
