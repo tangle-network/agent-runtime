@@ -306,17 +306,31 @@ async function consultAnalyst(
   const trajectory = compactTrajectory(messages)
   const analystModel = opts.analystModel ?? opts.model
   const chat = analystChat(opts, analystModel)
+  // With a trajectory, the analyst framing (instruction as system, behavior as the user
+  // turn) is the channel's shape. With NO trajectory (pre-task consults, e.g. authored
+  // check generation), that framing breaks: the user turn is then just the task, which
+  // reads as a solve request — measured on Llama-3-8B, the model ignores the system
+  // instruction and answers the task (authored-assert yield 6/18 reps vs 18/18 with the
+  // instruction and task fused into one user message, the proven rig shape).
+  const consultMessages = trajectory
+    ? [
+        { role: 'system' as const, content: instruction },
+        {
+          role: 'user' as const,
+          content: `TASK: ${task.userPrompt.slice(0, 1500)}\n\nTRAJECTORY:\n${trajectory}`,
+        },
+      ]
+    : [
+        {
+          role: 'user' as const,
+          content: `${instruction}\n\nTASK:\n${task.userPrompt.slice(0, 1500)}`,
+        },
+      ]
   const res = await chat.chat({
     model: analystModel,
     temperature: 0.2,
     maxTokens: 1024,
-    messages: [
-      { role: 'system', content: instruction },
-      {
-        role: 'user',
-        content: `TASK: ${task.userPrompt.slice(0, 1500)}\n\nTRAJECTORY:\n${trajectory}`,
-      },
-    ],
+    messages: consultMessages,
   })
   const usage = (
     res as {
