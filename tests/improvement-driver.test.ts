@@ -139,6 +139,41 @@ describe('improvementDriver — reflective generator', () => {
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
   })
 
+  it('still proposes populationSize candidates on EMPTY findings when the generator opts in (proposesWithoutFindings)', async () => {
+    // The meta-harness contract: an agentic coder draws its signal from the repo
+    // + raw traces on disk, so it must run even when the distiller yielded no
+    // findings and there is no report (the first-generation case — its seed
+    // findings are empty and rawTraceDistiller has not run yet). Regression for
+    // the "surface:'code' generates ZERO candidates" bug.
+    let generateCalls = 0
+    const seedDriver = improvementDriver({
+      generator: {
+        kind: 'agentic-stub',
+        proposesWithoutFindings: true,
+        async generate({ worktreePath }) {
+          generateCalls++
+          // Dirty the worktree so the driver finalizes it into a CodeSurface.
+          writeFileSync(join(worktreePath, 'prompt.md'), 'edited from raw traces\n')
+          return { applied: true, summary: 'from-seed edit' }
+        },
+      },
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+
+    const surfaces = await seedDriver.propose({ ...ctxWith([]), populationSize: 2 })
+
+    expect(generateCalls).toBe(2)
+    expect(surfaces).toHaveLength(2)
+    for (const surface of surfaces) {
+      if (typeof surface === 'string') throw new Error('expected CodeSurface')
+      expect(surface.kind).toBe('code')
+      expect(readFileSync(join(surface.worktreeRef, 'prompt.md'), 'utf8')).toBe(
+        'edited from raw traces\n',
+      )
+    }
+  })
+
   it('rethrows and leaves NO orphaned worktree when the generator throws', async () => {
     // A generator whose generate() throws mid-candidate must not leak the
     // already-created worktree (the try/finally cleanup in propose()).
