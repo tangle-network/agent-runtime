@@ -38,3 +38,14 @@ export {
   rawTraceDistiller,
 } from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
+export {
+  applyRolloutPolicyToProfile,
+  enumerateNeighborPolicies,
+  normalizeRolloutPolicy,
+  parseRolloutPolicy,
+  ROLLOUT_POLICY_BOUNDS,
+  ROLLOUT_POLICY_EXTENSION,
+  rolloutPolicyProposer,
+  serializeRolloutPolicy,
+  structuralRolloutPolicyFromProfile,
+} from './rollout-policy'
