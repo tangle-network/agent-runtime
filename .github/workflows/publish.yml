@@ -116,6 +116,9 @@ jobs:
       - name: Typecheck public entrypoint against installed packages
         run: pnpm run typecheck:public
 
+      - name: Test deterministic package paths
+        run: pnpm test
+
       - name: Verify packed package in a clean consumer
         run: pnpm run verify:package
 
@@ -147,6 +150,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: bench/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 

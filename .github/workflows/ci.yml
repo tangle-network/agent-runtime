@@ -62,5 +62,8 @@ jobs:
       - name: Typecheck public entrypoint against installed packages
         run: pnpm run typecheck:public
 
+      - name: Test deterministic package paths
+        run: pnpm test
+
       - name: Verify packed package in a clean consumer
         run: pnpm run verify:package
