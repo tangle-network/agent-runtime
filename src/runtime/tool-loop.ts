@@ -164,8 +164,15 @@ export async function runBrainLoop(opts: {
       opts.hooks?.onUsage?.(r.usage)
     }
     if (r.content) lastText = r.content
-    if (r.toolCalls.length === 0)
+    if (r.toolCalls.length === 0) {
+      // The stopping reply is part of the conversation (the contract on `messages`: seed +
+      // every assistant/tool turn). Without this push, a shot that answers WITHOUT tools
+      // returns a transcript missing its own answer — depth continuation criticizes a
+      // solution the model can't see, and candidate extraction (structural-rollout's
+      // fenced-code fallback) reads an empty conversation on non-tool-calling models.
+      if (r.content) messages.push({ role: 'assistant', content: r.content })
       return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
+    }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then run each
     // call and fold the result back as a `tool` message.
