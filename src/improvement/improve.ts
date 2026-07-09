@@ -12,6 +12,11 @@
  *
  *   - `surface: 'prompt'` → `gepaProposer` mutates `profile.prompt.systemPrompt`.
  *   - `surface: 'skills'` → `skillOptProposer` mutates a skills document string.
+ *   - `surface: 'rollout-policy'` → `rolloutPolicyProposer` mutates the
+ *     inference-time `StructuralRolloutPolicy` dials ({ k, repairRounds, testgen })
+ *     persisted in `profile.extensions['structural-rollout']` — deterministic
+ *     bounded neighbor enumeration; the held-out gate does the deciding. No-op
+ *     (nothing proposed, nothing shipped) when the profile has no such extension.
  *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `code`} → no zero-config default
  *     proposer exists (a code/config proposer needs caller-supplied wiring — a
  *     worktree repo root, a candidate generator, a serializer). The facade
@@ -49,10 +54,26 @@ import { assertModelAllowed } from '../runtime/supervise/model-policy'
 import { agenticGenerator, type Verifier } from './agentic-generator'
 import { type CandidateGenerator, improvementDriver } from './improvement-driver'
 import { rawTraceDistiller } from './raw-trace-distiller'
+import {
+  applyRolloutPolicyToProfile,
+  normalizeRolloutPolicy,
+  rolloutPolicyProposer,
+  serializeRolloutPolicy,
+  structuralRolloutPolicyFromProfile,
+} from './rollout-policy'
 
 /** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
- *  profile levers; `code` is the implementation-tier surface. */
-export type ImproveSurface = 'prompt' | 'skills' | 'tools' | 'mcp' | 'hooks' | 'code'
+ *  profile levers; `code` is the implementation-tier surface, `rollout-policy`
+ *  the inference-time structuralRollout dials
+ *  (`profile.extensions['structural-rollout']`). */
+export type ImproveSurface =
+  | 'prompt'
+  | 'skills'
+  | 'tools'
+  | 'mcp'
+  | 'hooks'
+  | 'code'
+  | 'rollout-policy'
 
 export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
   /** Which profile lever to optimize. Default `'prompt'`. Selects the default
@@ -188,6 +209,9 @@ function defaultGeneratorFor(
       return gepaProposer({ llm: llmClientOptions(llm), model, target: 'agent system prompt' })
     case 'skills':
       return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
+    case 'rollout-policy':
+      // Deterministic bounded enumeration — no LLM, so `llm` is unused here.
+      return rolloutPolicyProposer()
     default:
       return undefined
   }
@@ -214,6 +238,13 @@ function baselineSurfaceFor(
       return JSON.stringify(profile.mcp ?? {})
     case 'hooks':
       return JSON.stringify(profile.hooks ?? {})
+    case 'rollout-policy': {
+      // Empty surface when the profile never opted into structural rollout: the
+      // proposer reads it as "propose nothing", so the loop runs baseline-only and
+      // holds — tuning dials nothing consumes would ship dead config.
+      const policy = structuralRolloutPolicyFromProfile(profile)
+      return policy ? serializeRolloutPolicy(policy) : ''
+    }
     case 'code':
       // A code surface is produced by the caller's generator from a worktree;
       // the facade has no worktree ref to seed, so the baseline is the empty
@@ -337,6 +368,18 @@ function applyWinnerToProfile(
       return { ...profile, mcp: parseWinnerJson(winner, surface) }
     case 'hooks':
       return { ...profile, hooks: parseWinnerJson(winner, surface) }
+    case 'rollout-policy': {
+      // Parse + re-validate the winner against the policy's own invariants — a
+      // custom generator's malformed dial must fail loud, not persist silently.
+      const policy = normalizeRolloutPolicy(parseWinnerJson(winner, surface))
+      if (!policy) {
+        throw new ConfigError(
+          `improve(): the shipped 'rollout-policy' winner is not a valid StructuralRolloutPolicy ` +
+            `(integer k >= 1, repairRounds >= 0, testgen >= 0), so it cannot be applied: ${winner}`,
+        )
+      }
+      return applyRolloutPolicyToProfile(profile, policy)
+    }
     case 'code':
       return profile
   }
