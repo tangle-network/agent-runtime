@@ -1,7 +1,8 @@
 import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
 import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AppliedIntelligence, ProposedProfileDiff } from './with-intelligence'
+import type { ProposedProfileDiff } from './delivery'
+import type { AppliedIntelligence } from './with-intelligence'
 import { withIntelligence } from './with-intelligence'
 
 /** A valid, promoted profile diff — the previously-DROPPED typed artifact the

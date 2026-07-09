@@ -4436,7 +4436,7 @@ Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY.
 
 Defined in: [otel-export.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L599)
 
-Intelligence base. Reads INTELLIGENCE_BASE env, else prod.
+Intelligence base. Reads TANGLE_INTELLIGENCE_URL env, else prod.
 
 ##### idempotencyKey?
 

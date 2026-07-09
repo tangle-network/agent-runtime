@@ -61,7 +61,8 @@ try {
         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
         const expectedIntelligence = [
           'createIntelligenceClient',
-          'withTangleIntelligence',
+          'withIntelligence',
+          'pullCertified',
           'resolveEffort',
           'isIntelligenceOff',
           'defaultRedactor',

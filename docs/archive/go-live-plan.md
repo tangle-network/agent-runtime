@@ -31,7 +31,7 @@ The two replicated survivors, with provenance:
 | Certification rigor predicts transfer | Only a full-statistical-gate-certified artifact transfers: holdout cert-vs-prose **+31.7pp CI[+13.3,+48.3]** and **+36.7pp CI[+11.7,+66.7]**, twice | E3d (5-run, agent-lab) |
 | The cost flywheel | Certified memory + compression **HOLD quality at −12% to −31% cost**; steer+compress promoted ×2 on AIME; author lands near-parity at 30–55% cost, replicated ×3 | E3/E3b/E3d, cost-arc, powered run |
 
-**Mandatory provenance rider on every public claim** (both survivors are measured on EOPS/AIME via the agent-lab harness, **not yet through `withTangleIntelligence` in a product**):
+**Mandatory provenance rider on every public claim** (both survivors are measured on EOPS/AIME via the agent-lab harness, **not yet through `withIntelligence` in a product**):
 > *"Demonstrated on internal benchmarks; in-product replication in progress."*
 
 ---
@@ -89,7 +89,7 @@ This is where "take risks" stops. Boldness is allowed in *speed, scope, and dogf
 
 **First customer: gtm.tangle.tools** (NOT Harvey). Already deployed on agent-runtime, already on the platform billing rail, richest live tool surface, friendliest checks, named first in the playbook. Harvey is **external** — repo access + contract + trust risk *before the wrapper has ever run in production.* Harvey/legal is case study #2.
 
-**First PR / first turn (the go-live proof):** wrap gtm's production `handleChatTurn` with `withTangleIntelligence` in Observe mode, ship **one real user turn**, confirm the trace lands in `/v1/traces` AND live chat is unaffected when that endpoint is down. That single live trace + survived-outage = go-live.
+**First PR / first turn (the go-live proof):** wrap gtm's production `handleChatTurn` with `withIntelligence` in Observe mode, ship **one real user turn**, confirm the trace lands in `/v1/traces` AND live chat is unaffected when that endpoint is down. That single live trace + survived-outage = go-live.
 
 **Harvest, don't rebuild:** cherry-pick `origin/examples/tangle-intelligence-export` (`8fa16af`, 122 LOC) into `examples/intelligence-drop-in/`; reconcile `origin/feat/observe-closed-loop` (`37e373f`) into the Phase-1 PR. Both branches exist (verified) — pay the re-discovery tax once.
 
@@ -113,7 +113,7 @@ Ship Observe to gtm **only when all green:**
 ## 6. THE #1 BUILD AND THE #1 EXPERIMENT
 
 **#1 BUILD — `src/intelligence/index.ts` + the conserved-pool usd split.**
-`createIntelligenceClient` + `withTangleIntelligence(agent, config)` + `traceRun(meta, fn)` — a thin best-effort layer over the shipped `createOtelExporter` + the Mode-0 sandbox-stream base. Add the `./intelligence` export. **Cap at Observe + intelligence-off; do NOT bundle loops.** Bundle the `{inferenceUsd, intelligenceUsd}` split with it — without it there is no honest OFF tier, no billing boundary, no metered baseline for the cost claim. Everything in §4 depends on this one PR.
+`createIntelligenceClient` + `withIntelligence(agent, config)` + `traceRun(meta, fn)` — a thin best-effort layer over the shipped `createOtelExporter` + the Mode-0 sandbox-stream base. Add the `./intelligence` export. **Cap at Observe + intelligence-off; do NOT bundle loops.** Bundle the `{inferenceUsd, intelligenceUsd}` split with it — without it there is no honest OFF tier, no billing boundary, no metered baseline for the cost claim. Everything in §4 depends on this one PR.
 
 **#1 EXPERIMENT — E4: does the cost flywheel COMPOUND, or is it one-shot selection?**
 The surviving thesis hinges on this. Every cost win so far is single-step and partly *selection, not accumulation* (E3c/E3d killed in-stream admission). "Cost keeps falling as the certified store grows" is **unmeasured** (no E4 doc exists yet — it's the designed-not-launched NEXT in `current.json`).
