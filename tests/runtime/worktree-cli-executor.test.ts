@@ -171,6 +171,7 @@ describe('createWorktreeCliExecutor', () => {
     )
     // ... and the authored model reaches the harness `-m` selector.
     const args = seen?.invocation?.args ?? []
+    expect(args).toContain('--dangerously-skip-permissions')
     const mIdx = args.indexOf('-m')
     expect(mIdx).toBeGreaterThanOrEqual(0)
     expect(args[mIdx + 1]).toBe('deepseek/deepseek-v4-flash')

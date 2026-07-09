@@ -86,12 +86,23 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
   it('returns applied when the harness changes the worktree', async () => {
     // The harness "edits" by writing into its cwd (the worktree). We stub the
     // subprocess (the only process boundary) but use a REAL git dirty check.
-    const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
-      expect(taskPrompt).toContain('x should be 2')
-      expect(taskPrompt).toContain('set x to 2')
-      writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
-      return HARNESS_OK
-    })
+    const runHarness = vi.fn(
+      async ({
+        cwd,
+        taskPrompt,
+        dangerouslySkipPermissions,
+      }: {
+        cwd: string
+        taskPrompt: string
+        dangerouslySkipPermissions?: boolean
+      }) => {
+        expect(taskPrompt).toContain('x should be 2')
+        expect(taskPrompt).toContain('set x to 2')
+        expect(dangerouslySkipPermissions).toBe(true)
+        writeFileSync(join(cwd, 'app.ts'), 'export const x = 2\n')
+        return HARNESS_OK
+      },
+    )
     const gen = agenticGenerator({ runHarness: runHarness as never })
 
     const wt = await gitWorktreeAdapter({ repoRoot }).create({ baseRef: 'main', label: 'cand' })

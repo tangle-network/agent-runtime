@@ -127,11 +127,25 @@ describe('runLocalHarness', () => {
     }
     const calls = spawnSpy.mock.calls
     expect(calls[0][0]).toBe('claude')
-    expect(calls[0][1]).toEqual(['--headless', '-p', 'go'])
+    expect(calls[0][1]).toEqual(['-p', 'go'])
     expect(calls[1][0]).toBe('codex')
     expect(calls[1][1]).toEqual(['run', 'go'])
     expect(calls[2][0]).toBe('opencode')
     expect(calls[2][1]).toEqual(['run', 'go'])
+  })
+
+  it('adds Claude permission bypass only when the caller explicitly opts in', async () => {
+    const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
+      makeFakeChild({ exitCode: 0 }),
+    )
+    await runLocalHarness({
+      harness: 'claude',
+      cwd: '/tmp/isolated-worktree',
+      taskPrompt: 'go',
+      dangerouslySkipPermissions: true,
+      spawn: spawnSpy,
+    })
+    expect(spawnSpy.mock.calls[0][1]).toEqual(['-p', 'go', '--dangerously-skip-permissions'])
   })
 
   it('honors a pre-built invocation override (profile-aware args) without rebuilding from the prompt', async () => {
@@ -141,13 +155,13 @@ describe('runLocalHarness', () => {
     await runLocalHarness({
       harness: 'claude',
       cwd: '/tmp/wt',
-      // The prompt-only fallback path would emit ['--headless','-p','go'] — the override wins.
+      // The prompt-only fallback path would emit ['-p','go'] — the override wins exactly.
       taskPrompt: 'go',
-      invocation: { command: 'claude', args: ['--headless', '-p', 'sys\n\ngo', '-m', 'deepseek'] },
+      invocation: { command: 'claude', args: ['-p', 'sys\n\ngo', '-m', 'deepseek'] },
       spawn: spawnSpy,
     })
     expect(spawnSpy.mock.calls[0][0]).toBe('claude')
-    expect(spawnSpy.mock.calls[0][1]).toEqual(['--headless', '-p', 'sys\n\ngo', '-m', 'deepseek'])
+    expect(spawnSpy.mock.calls[0][1]).toEqual(['-p', 'sys\n\ngo', '-m', 'deepseek'])
   })
 })
 
@@ -183,17 +197,22 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   it('threads BOTH systemPrompt and model together', () => {
     const inv = harnessInvocation('claude', profileWith('SYS', 'kimi-k2.7'), 'task')
     expect(inv.command).toBe('claude')
-    expect(inv.args).toEqual(['--headless', '-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
+    expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
   })
 
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
-    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual([
-      '--headless',
-      '-p',
-      'go',
-    ])
+    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
     expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
     expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+  })
+
+  it('adds Claude permission bypass only when an isolated worktree explicitly opts in', () => {
+    expect(
+      harnessInvocation('claude', { name: 'x' }, 'go', {
+        dangerouslySkipPermissions: true,
+      }).args,
+    ).toEqual(['-p', 'go', '--dangerously-skip-permissions'])
+    expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
   })
 
   it('throws on an unknown harness', () => {

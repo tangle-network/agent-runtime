@@ -155,7 +155,11 @@ export async function runWorktreeHarness(
 
   try {
     // §1.5: the authored systemPrompt + model reach the harness (NOT the prompt-only path).
-    const { command, args } = harnessInvocation(opts.harness, opts.profile, opts.taskPrompt)
+    const { command, args } = harnessInvocation(opts.harness, opts.profile, opts.taskPrompt, {
+      // This helper created the candidate worktree above; autonomous Claude
+      // edits are permitted only inside that isolated checkout.
+      dangerouslySkipPermissions: opts.harness === 'claude',
+    })
     const harnessResult: LocalHarnessResult = await runHarness({
       harness: opts.harness,
       cwd: worktree.path,

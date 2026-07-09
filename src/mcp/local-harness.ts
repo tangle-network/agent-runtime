@@ -25,7 +25,7 @@ export type LocalHarness = 'claude' | 'codex' | 'opencode'
 
 /**
  * Default per-harness command + arg shape. `buildArgs` takes ONLY the task prompt and
- * emits the prompt-only invocation (no model, no system prompt) — the historical shape
+ * emits the prompt-only invocation (no model, no system prompt) — the safe default shape
  * the in-process executor's `streamPrompt` drives. `modelArgs` maps a resolved model to
  * the harness's selector flag (every supported harness takes `-m <model>`). The §1.5
  * profile-aware mapper `harnessInvocation` composes these to thread the full
@@ -42,7 +42,9 @@ const HARNESS_INVOCATIONS: Record<
 > = {
   claude: {
     command: 'claude',
-    buildArgs: (taskPrompt) => ['--headless', '-p', taskPrompt],
+    // `-p` IS headless/print mode; the old `--headless` flag was removed from the CLI.
+    // Permission bypass is an explicit per-run opt-in below, never the public default.
+    buildArgs: (taskPrompt) => ['-p', taskPrompt],
     modelArgs: (model) => ['-m', model],
   },
   codex: {
@@ -61,6 +63,24 @@ const HARNESS_INVOCATIONS: Record<
 export interface HarnessInvocation {
   command: string
   args: string[]
+}
+
+export interface HarnessInvocationOptions {
+  /** Allow an unattended Claude process to edit its isolated candidate worktree.
+   *  Ignored by harnesses that do not use Claude's permission prompt. */
+  dangerouslySkipPermissions?: boolean
+}
+
+function buildHarnessArgs(
+  harness: LocalHarness,
+  taskPrompt: string,
+  options: HarnessInvocationOptions = {},
+): string[] {
+  const args = HARNESS_INVOCATIONS[harness].buildArgs(taskPrompt)
+  if (harness === 'claude' && options.dangerouslySkipPermissions) {
+    args.push('--dangerously-skip-permissions')
+  }
+  return args
 }
 
 /**
@@ -82,6 +102,7 @@ export function harnessInvocation(
   harness: LocalHarness,
   profile: AgentProfile,
   taskPrompt: string,
+  options: HarnessInvocationOptions = {},
 ): HarnessInvocation {
   const invocation = HARNESS_INVOCATIONS[harness]
   if (!invocation) {
@@ -94,7 +115,7 @@ export function harnessInvocation(
       ? `${systemPrompt}\n\n${taskPrompt}`
       : taskPrompt
 
-  const args = invocation.buildArgs(composedPrompt)
+  const args = buildHarnessArgs(harness, composedPrompt, options)
 
   const model = profile.model?.default
   if (typeof model === 'string' && model.length > 0) {
@@ -119,6 +140,9 @@ export interface RunLocalHarnessOptions {
    * is used unchanged.
    */
   invocation?: { command?: string; args: ReadonlyArray<string> }
+  /** Allow autonomous Claude edits without an interactive permission prompt.
+   *  Use only when `cwd` is an isolated candidate worktree. */
+  dangerouslySkipPermissions?: boolean
   /** Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry. */
   timeoutMs?: number
   /** Caller cancellation. SIGTERM is sent on abort. */
@@ -190,7 +214,9 @@ export function runLocalHarness(options: RunLocalHarnessOptions): Promise<LocalH
 
   const startedAt = Date.now()
   const command = options.invocation?.command ?? invocation.command
-  const args = options.invocation ? [...options.invocation.args] : invocation.buildArgs(taskPrompt)
+  const args = options.invocation
+    ? [...options.invocation.args]
+    : buildHarnessArgs(harness, taskPrompt, options)
 
   return new Promise<LocalHarnessResult>((resolve, reject) => {
     let child: ChildProcess
