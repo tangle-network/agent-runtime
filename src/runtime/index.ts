@@ -397,6 +397,35 @@ export {
   type StreamAgentTurnOptions,
   streamAgentTurn,
 } from './stream-agent-turn'
+// The structural lever as a strategy-family member: k samples → select by task-visible checks
+// (official above authored, crash lowest) → guarded repair steered by the checks' failure output.
+// Measured +8..+21pp hidden-test lift (docs/design/structural-rollout-integration.md).
+export {
+  type CheckExecChannel,
+  type CheckOutcome,
+  type CheckRunContext,
+  type CheckRunner,
+  type CheckSource,
+  type CheckSourceCtx,
+  canDisplace,
+  compareCheckOutcomes,
+  composeCheckSources,
+  defaultExtractCandidate,
+  defaultStructuralRolloutPolicy,
+  filterAuthoredAsserts,
+  modelAuthoredChecks,
+  officialChecksFromMeta,
+  type RepairStop,
+  resolveEntrySymbol,
+  type StructuralRolloutConfig,
+  type StructuralRolloutPolicy,
+  type StructuralRolloutResult,
+  sandboxCheckRunner,
+  selectBestIndex,
+  structuralRollout,
+  type VisibleCheck,
+  visibleCheckScore,
+} from './structural-rollout'
 // The supervisor's intelligence: it AUTHORS each worker's profile (instructions + model) from a
 // SKILL (its own system prompt) — the optimizable self-improvement surface, not the plumbing.
 export {
