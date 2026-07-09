@@ -7860,7 +7860,7 @@ Default false: only facts tagged `audience:agent` are injected into the worker.
 
 ### AgenticRunResult
 
-Defined in: [runtime/strategy.ts:594](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L594)
+Defined in: [runtime/strategy.ts:608](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L608)
 
 #### Properties
 
@@ -7868,7 +7868,7 @@ Defined in: [runtime/strategy.ts:594](https://github.com/tangle-network/agent-ru
 
 > **mode**: `string`
 
-Defined in: [runtime/strategy.ts:596](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L596)
+Defined in: [runtime/strategy.ts:610](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L610)
 
 The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
@@ -7876,25 +7876,25 @@ The strategy name (built-in 'depth'/'breadth' or a custom strategy's name).
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:597](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L597)
+Defined in: [runtime/strategy.ts:611](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L611)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:598](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L598)
+Defined in: [runtime/strategy.ts:612](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L612)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:599](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L599)
+Defined in: [runtime/strategy.ts:613](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L613)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:601](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L601)
+Defined in: [runtime/strategy.ts:615](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L615)
 
 DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout.
 
@@ -7902,13 +7902,13 @@ DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-s
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:602](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L602)
+Defined in: [runtime/strategy.ts:616](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L616)
 
 ##### usd
 
 > **usd**: `number`
 
-Defined in: [runtime/strategy.ts:605](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L605)
+Defined in: [runtime/strategy.ts:619](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L619)
 
 The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms.
@@ -7917,13 +7917,13 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 > **ms**: `number`
 
-Defined in: [runtime/strategy.ts:606](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L606)
+Defined in: [runtime/strategy.ts:620](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L620)
 
 ##### tokens
 
 > **tokens**: `object`
 
-Defined in: [runtime/strategy.ts:607](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L607)
+Defined in: [runtime/strategy.ts:621](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L621)
 
 ###### input
 
@@ -7937,7 +7937,7 @@ Defined in: [runtime/strategy.ts:607](https://github.com/tangle-network/agent-ru
 
 ### Strategy
 
-Defined in: [runtime/strategy.ts:744](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L744)
+Defined in: [runtime/strategy.ts:758](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L758)
 
 A Strategy is HOW you spend the compute budget to beat the Environment's check — it
 builds the driver `Agent` the Supervisor runs. This is the OPEN extension point: a dev
@@ -7954,7 +7954,7 @@ the reference implementations to copy:
 
 > `readonly` **name**: `string`
 
-Defined in: [runtime/strategy.ts:745](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L745)
+Defined in: [runtime/strategy.ts:759](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L759)
 
 #### Methods
 
@@ -7962,7 +7962,7 @@ Defined in: [runtime/strategy.ts:745](https://github.com/tangle-network/agent-ru
 
 > **driver**(`surface`, `task`, `opts`, `budget`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:746](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L746)
+Defined in: [runtime/strategy.ts:760](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L760)
 
 ###### Parameters
 
@@ -7990,7 +7990,7 @@ Defined in: [runtime/strategy.ts:746](https://github.com/tangle-network/agent-ru
 
 ### ShotPersona
 
-Defined in: [runtime/strategy.ts:776](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L776)
+Defined in: [runtime/strategy.ts:790](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L790)
 
 A role for one shot — multi-agent loops (researcher + engineer, a panel of k
  researchers) give each shot its own system prompt and optionally its own model.
@@ -8001,7 +8001,7 @@ A role for one shot — multi-agent loops (researcher + engineer, a panel of k
 
 > `optional` **systemPrompt?**: `string`
 
-Defined in: [runtime/strategy.ts:779](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L779)
+Defined in: [runtime/strategy.ts:793](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L793)
 
 Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
  injected as a hand-off message (the transcript's earlier roles stay intact).
@@ -8010,7 +8010,7 @@ Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it 
 
 > `optional` **model?**: `string`
 
-Defined in: [runtime/strategy.ts:781](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L781)
+Defined in: [runtime/strategy.ts:795](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L795)
 
 Per-shot model override (e.g. a stronger model for the engineer shot).
 
@@ -8018,7 +8018,7 @@ Per-shot model override (e.g. a stronger model for the engineer shot).
 
 ### ShotSpec
 
-Defined in: [runtime/strategy.ts:784](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L784)
+Defined in: [runtime/strategy.ts:798](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L798)
 
 #### Properties
 
@@ -8026,7 +8026,7 @@ Defined in: [runtime/strategy.ts:784](https://github.com/tangle-network/agent-ru
 
 > `optional` **handle?**: [`ArtifactHandle`](#artifacthandle)
 
-Defined in: [runtime/strategy.ts:786](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L786)
+Defined in: [runtime/strategy.ts:800](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L800)
 
 present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart).
 
@@ -8034,25 +8034,25 @@ present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh on
 
 > `optional` **messages?**: `Msg`[]
 
-Defined in: [runtime/strategy.ts:787](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L787)
+Defined in: [runtime/strategy.ts:801](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L801)
 
 ##### steer?
 
 > `optional` **steer?**: `string`
 
-Defined in: [runtime/strategy.ts:788](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L788)
+Defined in: [runtime/strategy.ts:802](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L802)
 
 ##### persona?
 
 > `optional` **persona?**: [`ShotPersona`](#shotpersona)
 
-Defined in: [runtime/strategy.ts:789](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L789)
+Defined in: [runtime/strategy.ts:803](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L803)
 
 ##### tools?
 
 > `optional` **tools?**: `string`[]
 
-Defined in: [runtime/strategy.ts:792](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L792)
+Defined in: [runtime/strategy.ts:806](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L806)
 
 Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all.
@@ -8061,7 +8061,11 @@ Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot 
 
 ### StrategyResult
 
-Defined in: [runtime/strategy.ts:794](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L794)
+Defined in: [runtime/strategy.ts:808](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L808)
+
+#### Extended by
+
+- [`StructuralRolloutResult`](#structuralrolloutresult)
 
 #### Properties
 
@@ -8069,37 +8073,37 @@ Defined in: [runtime/strategy.ts:794](https://github.com/tangle-network/agent-ru
 
 > **score**: `number`
 
-Defined in: [runtime/strategy.ts:795](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L795)
+Defined in: [runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
 
 ##### resolved
 
 > **resolved**: `boolean`
 
-Defined in: [runtime/strategy.ts:796](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L796)
+Defined in: [runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
 
 ##### completions
 
 > **completions**: `number`
 
-Defined in: [runtime/strategy.ts:797](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L797)
+Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
 
 ##### progression
 
 > **progression**: `number`[]
 
-Defined in: [runtime/strategy.ts:798](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L798)
+Defined in: [runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
 
 ##### shots
 
 > **shots**: `number`
 
-Defined in: [runtime/strategy.ts:799](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L799)
+Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
 
 ***
 
 ### StrategyCtx
 
-Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
+Defined in: [runtime/strategy.ts:825](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L825)
 
 What a strategy body composes with: the artifact lifecycle, the budget, and the two steps.
 
@@ -8109,7 +8113,7 @@ What a strategy body composes with: the artifact lifecycle, the budget, and the 
 
 > `readonly` **surface**: `StrategyArtifacts`
 
-Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
+Defined in: [runtime/strategy.ts:827](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L827)
 
 Open/close artifacts the body manages itself (e.g. one persistent handle for depth).
 
@@ -8117,25 +8121,25 @@ Open/close artifacts the body manages itself (e.g. one persistent handle for dep
 
 > `readonly` **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:814](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L814)
+Defined in: [runtime/strategy.ts:828](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L828)
 
 ##### opts
 
 > `readonly` **opts**: [`AgenticOptions`](#agenticoptions)
 
-Defined in: [runtime/strategy.ts:815](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L815)
+Defined in: [runtime/strategy.ts:829](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L829)
 
 ##### budget
 
 > `readonly` **budget**: `number`
 
-Defined in: [runtime/strategy.ts:816](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L816)
+Defined in: [runtime/strategy.ts:830](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L830)
 
 ##### scope
 
 > `readonly` **scope**: [`Scope`](#scope-1)\<[`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:817](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L817)
+Defined in: [runtime/strategy.ts:831](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L831)
 
 #### Methods
 
@@ -8143,7 +8147,7 @@ Defined in: [runtime/strategy.ts:817](https://github.com/tangle-network/agent-ru
 
 > **shot**(`spec?`): `Promise`\<`ShotResult` \| `null`\>
 
-Defined in: [runtime/strategy.ts:819](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L819)
+Defined in: [runtime/strategy.ts:833](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L833)
 
 Run ONE worker shot; its harness-scored result, or null if it went down.
 
@@ -8161,7 +8165,7 @@ Run ONE worker shot; its harness-scored result, or null if it went down.
 
 > **critique**(`messages`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:821](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L821)
+Defined in: [runtime/strategy.ts:835](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L835)
 
 The firewalled critic reads the trajectory → a steer string, or null on COMPLETE/down.
 
@@ -8179,7 +8183,7 @@ The firewalled critic reads the trajectory → a steer string, or null on COMPLE
 
 > **consult**(`messages`, `instruction`): `Promise`\<`string` \| `null`\>
 
-Defined in: [runtime/strategy.ts:826](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L826)
+Defined in: [runtime/strategy.ts:840](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L840)
 
 The RAW analyst channel: the firewalled critic answers `instruction` over the
  trajectory verbatim — no findings extraction, so verdict-shaped formats
@@ -8204,7 +8208,7 @@ The RAW analyst channel: the firewalled critic answers `instruction` over the
 
 > **listTools**(`handle`): `Promise`\<`object`[]\>
 
-Defined in: [runtime/strategy.ts:830](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L830)
+Defined in: [runtime/strategy.ts:844](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L844)
 
 The tools THIS artifact's task actually offers (names + descriptions only — never
  the implementations). Tool sets vary per task on heterogeneous domains; a strategy
@@ -8224,7 +8228,7 @@ The tools THIS artifact's task actually offers (names + descriptions only — ne
 
 ### RunAgenticOptions
 
-Defined in: [runtime/strategy.ts:1059](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1059)
+Defined in: [runtime/strategy.ts:1073](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1073)
 
 #### Extends
 
@@ -8392,19 +8396,19 @@ In-context learning: when set, query `corpus` before each depth shot and inject
 
 > **surface**: [`AgenticSurface`](#agenticsurface)
 
-Defined in: [runtime/strategy.ts:1060](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1060)
+Defined in: [runtime/strategy.ts:1074](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1074)
 
 ##### task
 
 > **task**: [`AgenticTask`](#agentictask)
 
-Defined in: [runtime/strategy.ts:1061](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1061)
+Defined in: [runtime/strategy.ts:1075](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1075)
 
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-Defined in: [runtime/strategy.ts:1064](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1064)
+Defined in: [runtime/strategy.ts:1078](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1078)
 
 Lifecycle observability — every spawn/settle (shots, analysts) streams here live.
  The seam online watchdogs/route-auditors subscribe to.
@@ -8413,7 +8417,7 @@ Lifecycle observability — every spawn/settle (shots, analysts) streams here li
 
 > `optional` **strategy?**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:1066](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1066)
+Defined in: [runtime/strategy.ts:1080](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1080)
 
 A Strategy (the open way) — author/pass your own. Overrides `mode` when present.
 
@@ -8421,7 +8425,7 @@ A Strategy (the open way) — author/pass your own. Overrides `mode` when presen
 
 > `optional` **mode?**: `"depth"` \| `"breadth"`
 
-Defined in: [runtime/strategy.ts:1068](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1068)
+Defined in: [runtime/strategy.ts:1082](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1082)
 
 Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
@@ -8429,7 +8433,7 @@ Built-in shorthand: 'depth'→refine, 'breadth'→sample. Default 'depth'.
 
 > **budget**: `number`
 
-Defined in: [runtime/strategy.ts:1070](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1070)
+Defined in: [runtime/strategy.ts:1084](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1084)
 
 budget: refine→max shots; sample→rollout width.
 
@@ -8437,7 +8441,7 @@ budget: refine→max shots; sample→rollout width.
 
 > `optional` **rootBudget?**: [`Budget`](#budget-12)
 
-Defined in: [runtime/strategy.ts:1071](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1071)
+Defined in: [runtime/strategy.ts:1085](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1085)
 
 ***
 
@@ -8612,6 +8616,469 @@ Defined in: [runtime/stream-agent-turn.ts:197](https://github.com/tangle-network
 Defined in: [runtime/stream-agent-turn.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/stream-agent-turn.ts#L198)
 
 **`Experimental`**
+
+***
+
+### StructuralRolloutPolicy
+
+Defined in: [runtime/structural-rollout.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L45)
+
+The rollout's compute recipe — promoted from the proven rigs' env vars (K/REPAIRS/
+ TESTGEN/DIVERSE/TEMPERATURE). Defaults are the measured sweet spot: repair value
+ concentrates at low k (~+12pp at k=1, +1–3pp at k=5), so `k=5, repairRounds=2` is the
+ full recipe and `k=1, repairRounds=2` the low-compute preset.
+
+#### Properties
+
+##### k
+
+> **k**: `number`
+
+Defined in: [runtime/structural-rollout.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L47)
+
+Independent samples per task (selection breadth).
+
+##### repairRounds
+
+> **repairRounds**: `number`
+
+Defined in: [runtime/structural-rollout.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L49)
+
+Repair shots after selection, each steered by the checks' failure output.
+
+##### testgen
+
+> **testgen**: `number`
+
+Defined in: [runtime/structural-rollout.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L51)
+
+Model-authored visible checks requested per task; 0 disables authoring.
+
+##### diverse?
+
+> `optional` **diverse?**: `boolean`
+
+Defined in: [runtime/structural-rollout.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L54)
+
+Per-slot strategy-lens prefixes on the k samples (attacks the all-k-fail bucket).
+ Measured as a paired null (+0.6pp) — kept as an optional knob, off by default.
+
+##### temperature?
+
+> `optional` **temperature?**: `number`
+
+Defined in: [runtime/structural-rollout.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L56)
+
+Sampling temperature for every shot of this strategy; omitted ⇒ the worker default.
+
+***
+
+### VisibleCheck
+
+Defined in: [runtime/structural-rollout.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L87)
+
+One task-visible executable check (e.g. a single-line Python assert).
+
+#### Properties
+
+##### code
+
+> **code**: `string`
+
+Defined in: [runtime/structural-rollout.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L88)
+
+##### kind
+
+> **kind**: `"authored"` \| `"official"`
+
+Defined in: [runtime/structural-rollout.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L91)
+
+'official' = shown in the task itself (docstring example, shown assert);
+ 'authored' = the model's own guess. Official outranks authored in selection.
+
+***
+
+### CheckSourceCtx
+
+Defined in: [runtime/structural-rollout.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L97)
+
+What a CheckSource composes with. `consult` is the strategy family's raw analyst
+ channel (metered by the conserved pool, offline-injectable via `opts.complete`) —
+ check authoring goes through it rather than a bespoke model client.
+
+#### Properties
+
+##### count
+
+> **count**: `number`
+
+Defined in: [runtime/structural-rollout.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L99)
+
+Authored-check budget for this task (`policy.testgen`).
+
+##### entrySymbol?
+
+> `optional` **entrySymbol?**: `string`
+
+Defined in: [runtime/structural-rollout.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L102)
+
+The symbol authored checks must reference; undefined ⇒ authoring is skipped
+ (no guesses beats guesses pinned to nothing).
+
+#### Methods
+
+##### consult()
+
+> **consult**(`instruction`): `Promise`\<`string` \| `null`\>
+
+Defined in: [runtime/structural-rollout.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L105)
+
+One metered LLM call: instruction in, reply text out, null when the channel went
+ down. The task's visible prompt is included by the channel itself.
+
+###### Parameters
+
+###### instruction
+
+`string`
+
+###### Returns
+
+`Promise`\<`string` \| `null`\>
+
+***
+
+### CheckSource
+
+Defined in: [runtime/structural-rollout.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L111)
+
+Produces the task's visible checks. MUST derive them from agent-visible information
+ only, before any candidate exists — the strategy freezes the returned set for every
+ sample and repair round of the task.
+
+#### Methods
+
+##### generate()
+
+> **generate**(`task`, `ctx`): `Promise`\<[`VisibleCheck`](#visiblecheck)[]\>
+
+Defined in: [runtime/structural-rollout.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L112)
+
+###### Parameters
+
+###### task
+
+[`AgenticTask`](#agentictask)
+
+###### ctx
+
+[`CheckSourceCtx`](#checksourcectx)
+
+###### Returns
+
+`Promise`\<[`VisibleCheck`](#visiblecheck)[]\>
+
+***
+
+### CheckOutcome
+
+Defined in: [runtime/structural-rollout.ts:205](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L205)
+
+How one candidate fared against the frozen visible checks, split by check kind.
+
+#### Properties
+
+##### passedOfficial
+
+> **passedOfficial**: `number`
+
+Defined in: [runtime/structural-rollout.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L206)
+
+##### totalOfficial
+
+> **totalOfficial**: `number`
+
+Defined in: [runtime/structural-rollout.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L207)
+
+##### passedAuthored
+
+> **passedAuthored**: `number`
+
+Defined in: [runtime/structural-rollout.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L208)
+
+##### totalAuthored
+
+> **totalAuthored**: `number`
+
+Defined in: [runtime/structural-rollout.ts:209](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L209)
+
+##### failureOutput
+
+> **failureOutput**: `string`
+
+Defined in: [runtime/structural-rollout.ts:211](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L211)
+
+The checks' failure report — the ONLY feedback the repair loop may see.
+
+##### crashed?
+
+> `optional` **crashed?**: `boolean`
+
+Defined in: [runtime/structural-rollout.ts:214](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L214)
+
+True when the candidate crashed before any check could run — ranks below a
+ candidate that ran and failed everything.
+
+***
+
+### CheckExecChannel
+
+Defined in: [runtime/structural-rollout.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L219)
+
+Minimal exec channel the default runner needs. `SandboxInstance` (and therefore
+ `ValidationCtx.box`) satisfies it structurally.
+
+#### Methods
+
+##### exec()
+
+> **exec**(`command`, `options?`): `Promise`\<\{ `exitCode`: `number`; `stdout`: `string`; `stderr`: `string`; \}\>
+
+Defined in: [runtime/structural-rollout.ts:220](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L220)
+
+###### Parameters
+
+###### command
+
+`string`
+
+###### options?
+
+###### timeoutMs?
+
+`number`
+
+###### Returns
+
+`Promise`\<\{ `exitCode`: `number`; `stdout`: `string`; `stderr`: `string`; \}\>
+
+***
+
+### CheckRunContext
+
+Defined in: [runtime/structural-rollout.ts:226](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L226)
+
+#### Properties
+
+##### task
+
+> **task**: [`AgenticTask`](#agentictask)
+
+Defined in: [runtime/structural-rollout.ts:227](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L227)
+
+##### box?
+
+> `optional` **box?**: [`CheckExecChannel`](#checkexecchannel)
+
+Defined in: [runtime/structural-rollout.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L229)
+
+Live exec channel for this run (`ValidationCtx.box` / a sandbox instance).
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Defined in: [runtime/structural-rollout.ts:230](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L230)
+
+***
+
+### CheckRunner
+
+Defined in: [runtime/structural-rollout.ts:235](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L235)
+
+Executes the frozen checks against one candidate. Implementations MUST fail loud
+ (throw) when they cannot execute — a silent zero poisons selection.
+
+#### Methods
+
+##### run()
+
+> **run**(`candidate`, `checks`, `ctx`): `Promise`\<[`CheckOutcome`](#checkoutcome)\>
+
+Defined in: [runtime/structural-rollout.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L236)
+
+###### Parameters
+
+###### candidate
+
+`string`
+
+###### checks
+
+[`VisibleCheck`](#visiblecheck)[]
+
+###### ctx
+
+[`CheckRunContext`](#checkruncontext)
+
+###### Returns
+
+`Promise`\<[`CheckOutcome`](#checkoutcome)\>
+
+***
+
+### StructuralRolloutResult
+
+Defined in: [runtime/structural-rollout.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L489)
+
+The body's deliverable — a `StrategyResult` plus selection provenance. The extra
+ fields ride through `defineStrategy`'s deliverable spread onto `AgenticRunResult`
+ (score/resolved stay harness-verified, exactly as for every authored strategy).
+
+#### Extends
+
+- [`StrategyResult`](#strategyresult)
+
+#### Properties
+
+##### score
+
+> **score**: `number`
+
+Defined in: [runtime/strategy.ts:809](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L809)
+
+###### Inherited from
+
+[`StrategyResult`](#strategyresult).[`score`](#score-9)
+
+##### resolved
+
+> **resolved**: `boolean`
+
+Defined in: [runtime/strategy.ts:810](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L810)
+
+###### Inherited from
+
+[`StrategyResult`](#strategyresult).[`resolved`](#resolved-4)
+
+##### completions
+
+> **completions**: `number`
+
+Defined in: [runtime/strategy.ts:811](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L811)
+
+###### Inherited from
+
+[`StrategyResult`](#strategyresult).[`completions`](#completions-1)
+
+##### progression
+
+> **progression**: `number`[]
+
+Defined in: [runtime/strategy.ts:812](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L812)
+
+###### Inherited from
+
+[`StrategyResult`](#strategyresult).[`progression`](#progression-2)
+
+##### shots
+
+> **shots**: `number`
+
+Defined in: [runtime/strategy.ts:813](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L813)
+
+###### Inherited from
+
+[`StrategyResult`](#strategyresult).[`shots`](#shots-3)
+
+##### selection
+
+> **selection**: [`SelectionReceipt`](#selectionreceipt)[]
+
+Defined in: [runtime/structural-rollout.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L492)
+
+One receipt per scored candidate (k samples, then repairs), `SelectionReceipt`
+ shaped like the kernel's (`types.ts`), selector 'driver'.
+
+##### repairStop
+
+> **repairStop**: [`RepairStop`](#repairstop)
+
+Defined in: [runtime/structural-rollout.ts:493](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L493)
+
+##### officialChecks
+
+> **officialChecks**: `number`
+
+Defined in: [runtime/structural-rollout.ts:494](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L494)
+
+##### authoredChecks
+
+> **authoredChecks**: `number`
+
+Defined in: [runtime/structural-rollout.ts:495](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L495)
+
+***
+
+### StructuralRolloutConfig
+
+Defined in: [runtime/structural-rollout.ts:498](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L498)
+
+#### Properties
+
+##### policy?
+
+> `optional` **policy?**: `Partial`\<[`StructuralRolloutPolicy`](#structuralrolloutpolicy)\>
+
+Defined in: [runtime/structural-rollout.ts:500](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L500)
+
+Knobs; missing fields take the measured defaults (k=5, repairRounds=2, testgen=6).
+
+##### checkSource?
+
+> `optional` **checkSource?**: [`CheckSource`](#checksource)
+
+Defined in: [runtime/structural-rollout.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L503)
+
+Where the visible checks come from. Default: official checks from
+ `task.meta.visibleChecks` composed with `modelAuthoredChecks()`.
+
+##### checkRunner?
+
+> `optional` **checkRunner?**: [`CheckRunner`](#checkrunner)
+
+Defined in: [runtime/structural-rollout.ts:506](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L506)
+
+How candidates are measured. Default `sandboxCheckRunner()` — it needs an exec
+ channel (bind one to the runner, or pass `box` here) and fails loud without one.
+
+##### box?
+
+> `optional` **box?**: [`CheckExecChannel`](#checkexecchannel)
+
+Defined in: [runtime/structural-rollout.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L510)
+
+Exec channel threaded into every check run of this strategy (a sandbox instance /
+ `ValidationCtx.box`). The strategy seam itself carries no sandbox, so the caller
+ who owns one supplies it here or binds it into the runner.
+
+##### extractCandidate?
+
+> `optional` **extractCandidate?**: (`messages`) => `string`
+
+Defined in: [runtime/structural-rollout.ts:512](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L512)
+
+Candidate extraction from a shot's conversation. Default `defaultExtractCandidate`.
+
+###### Parameters
+
+###### messages
+
+readonly `Msg`[]
+
+###### Returns
+
+`string`
 
 ***
 
@@ -15058,6 +15525,14 @@ any custom backend): the turn is one `backend.stream()` call.
 
 ***
 
+### RepairStop
+
+> **RepairStop** = `"already-passing"` \| `"no-signal"` \| `"repaired-pass"` \| `"rounds-exhausted"` \| `"no-candidates"`
+
+Defined in: [runtime/structural-rollout.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L479)
+
+***
+
 ### BudgetReadout
 
 > **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `usdLeft`: `number`; `usdCapped`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
@@ -15496,7 +15971,7 @@ The compressed consumable a skill carries: everything an author needs to emit a 
 
 > `const` **sample**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:755](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L755)
+Defined in: [runtime/strategy.ts:769](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L769)
 
 Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample).
 
@@ -15506,7 +15981,7 @@ Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N 
 
 > `const` **refine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:760](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L760)
+Defined in: [runtime/strategy.ts:774](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L774)
 
 Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage).
 
@@ -15516,7 +15991,7 @@ Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next 
 
 > `const` **adaptiveRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:960](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L960)
+Defined in: [runtime/strategy.ts:974](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L974)
 
 A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot
  fails to improve the score it ABANDONS that line and restarts fresh (branch-when-stuck)
@@ -15530,11 +16005,21 @@ A NEW strategy, authored from the steps (~20 lines): refine, but when a steered 
 
 > `const` **sampleThenRefine**: [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:1003](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1003)
+Defined in: [runtime/strategy.ts:1017](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1017)
 
 The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open),
  then refine the best-verifying line with the remaining budget. Sample's basin escape +
  refine's accumulation — the third built-in, authored from the public steps.
+
+***
+
+### defaultStructuralRolloutPolicy
+
+> `const` **defaultStructuralRolloutPolicy**: [`StructuralRolloutPolicy`](#structuralrolloutpolicy)
+
+Defined in: [runtime/structural-rollout.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L60)
+
+The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored checks.
 
 ***
 
@@ -17767,7 +18252,7 @@ Multi-generation strategy search: author candidates from tournament losses, play
 
 > **depthStrategy**(`surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:616](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L616)
+Defined in: [runtime/strategy.ts:630](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L630)
 
 DEPTH: one persistent artifact, carried across analyst-steered shots.
 
@@ -17801,7 +18286,7 @@ DEPTH: one persistent artifact, carried across analyst-steered shots.
 
 > **breadthStrategy**(`_surface`, `task`, `opts`, `cfg`): [`Agent`](#agent)\<`unknown`, [`Outcome`](#outcome-1)\<`unknown`\>\>
 
-Defined in: [runtime/strategy.ts:687](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L687)
+Defined in: [runtime/strategy.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L701)
 
 BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
@@ -17835,7 +18320,7 @@ BREADTH: K independent rollouts (each own artifact), verifier picks the best.
 
 > **defineStrategy**(`name`, `run`): [`Strategy`](#strategy-3)
 
-Defined in: [runtime/strategy.ts:834](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L834)
+Defined in: [runtime/strategy.ts:848](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L848)
 
 Author a Strategy from the composable steps — the open, compact way.
 
@@ -17859,7 +18344,7 @@ Author a Strategy from the composable steps — the open, compact way.
 
 > **runAgentic**(`opts`): `Promise`\<[`AgenticRunResult`](#agenticrunresult)\>
 
-Defined in: [runtime/strategy.ts:1075](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1075)
+Defined in: [runtime/strategy.ts:1089](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/strategy.ts#L1089)
 
 Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope.
 
@@ -17932,6 +18417,306 @@ event — a stream that violates the contract must not read as an empty turn.
 #### Returns
 
 `Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
+
+***
+
+### filterAuthoredAsserts()
+
+> **filterAuthoredAsserts**(`reply`, `entrySymbol`, `count`): `string`[]
+
+Defined in: [runtime/structural-rollout.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L125)
+
+The proven authored-assert filter (lifted from the rigs' generateTests): keep only
+ single-line, paren-balanced asserts that reference the entry symbol — malformed lines
+ are dropped here rather than poisoning every candidate's score identically.
+
+#### Parameters
+
+##### reply
+
+`string`
+
+##### entrySymbol
+
+`string`
+
+##### count
+
+`number`
+
+#### Returns
+
+`string`[]
+
+***
+
+### modelAuthoredChecks()
+
+> **modelAuthoredChecks**(`overrides?`): [`CheckSource`](#checksource)
+
+Defined in: [runtime/structural-rollout.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L149)
+
+Default authored-check source: one metered LLM call per task, before sampling,
+ filtered through `filterAuthoredAsserts`. Returns [] (no signal, never a fabricated
+ check) when the budget is 0, no entry symbol resolves, or the channel went down.
+
+#### Parameters
+
+##### overrides?
+
+###### count?
+
+`number`
+
+#### Returns
+
+[`CheckSource`](#checksource)
+
+***
+
+### officialChecksFromMeta()
+
+> **officialChecksFromMeta**(`key?`): [`CheckSource`](#checksource)
+
+Defined in: [runtime/structural-rollout.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L167)
+
+Official checks the surface stashed on the task (e.g. MBPP's shown assert). Reads
+ `task.meta[key]` as a string array; anything else means no official checks.
+
+#### Parameters
+
+##### key?
+
+`string` = `'visibleChecks'`
+
+#### Returns
+
+[`CheckSource`](#checksource)
+
+***
+
+### composeCheckSources()
+
+> **composeCheckSources**(...`sources`): [`CheckSource`](#checksource)
+
+Defined in: [runtime/structural-rollout.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L181)
+
+Concatenate check sources (official first by convention — ordering does not affect
+ scoring, which reads each check's `kind`).
+
+#### Parameters
+
+##### sources
+
+...[`CheckSource`](#checksource)[]
+
+#### Returns
+
+[`CheckSource`](#checksource)
+
+***
+
+### resolveEntrySymbol()
+
+> **resolveEntrySymbol**(`task`): `string` \| `undefined`
+
+Defined in: [runtime/structural-rollout.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L194)
+
+The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface
+ provides it, else the LAST `def name(` in the visible prompt (a code-completion stub
+ lists helpers first, the entry stub last). Undefined ⇒ authoring is skipped.
+
+#### Parameters
+
+##### task
+
+[`AgenticTask`](#agentictask)
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
+### sandboxCheckRunner()
+
+> **sandboxCheckRunner**(`options?`): [`CheckRunner`](#checkrunner)
+
+Defined in: [runtime/structural-rollout.ts:279](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L279)
+
+Default CheckRunner backend: pipes the check program into `python3` over the sandbox
+ exec channel (`ctx.box`, or one bound at construction). Never shells out to docker
+ itself — the jail is the sandbox's concern. No channel ⇒ throws; it must never
+ silently score 0. Empty check sets short-circuit to a no-signal outcome (nothing to
+ execute, so no channel is required).
+
+#### Parameters
+
+##### options?
+
+###### box?
+
+[`CheckExecChannel`](#checkexecchannel)
+
+###### python?
+
+`string`
+
+###### timeoutMs?
+
+`number`
+
+#### Returns
+
+[`CheckRunner`](#checkrunner)
+
+***
+
+### compareCheckOutcomes()
+
+> **compareCheckOutcomes**(`a`, `b`): `number`
+
+Defined in: [runtime/structural-rollout.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L347)
+
+The selection order: crash < ran; then official pass-fraction; authored guesses only
+ break ties. Returns > 0 when `a` outranks `b`. Strictly lexicographic — on MBPP,
+ letting 6 noisy guesses outvote the one official check flipped selection negative.
+
+#### Parameters
+
+##### a
+
+[`CheckOutcome`](#checkoutcome)
+
+##### b
+
+[`CheckOutcome`](#checkoutcome)
+
+#### Returns
+
+`number`
+
+***
+
+### visibleCheckScore()
+
+> **visibleCheckScore**(`o`): `number`
+
+Defined in: [runtime/structural-rollout.ts:360](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L360)
+
+Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1,
+ else official fraction + 0.001 × authored fraction. Selection itself uses the exact
+ lexicographic comparator, never this scalar.
+
+#### Parameters
+
+##### o
+
+[`CheckOutcome`](#checkoutcome)
+
+#### Returns
+
+`number`
+
+***
+
+### selectBestIndex()
+
+> **selectBestIndex**(`outcomes`): `number`
+
+Defined in: [runtime/structural-rollout.ts:367](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L367)
+
+Argmax by `compareCheckOutcomes`, FIRST index wins ties (deterministic; with zero
+ visible coverage every candidate ties at no-signal and index 0 is the blind pick).
+
+#### Parameters
+
+##### outcomes
+
+readonly [`CheckOutcome`](#checkoutcome)[]
+
+#### Returns
+
+`number`
+
+***
+
+### canDisplace()
+
+> **canDisplace**(`challenger`, `incumbent`): `boolean`
+
+Defined in: [runtime/structural-rollout.ts:382](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L382)
+
+The repair keep-best guard: a challenger displaces the incumbent only when it is
+ strictly better in the selection order AND passes at least as many official checks.
+ The raw-count clause is deliberate belt-and-braces over the comparator (a custom
+ runner can report shifted totals): repair must NEVER replace a candidate that passes
+ more official checks with one that passes fewer.
+
+#### Parameters
+
+##### challenger
+
+[`CheckOutcome`](#checkoutcome)
+
+##### incumbent
+
+[`CheckOutcome`](#checkoutcome)
+
+#### Returns
+
+`boolean`
+
+***
+
+### defaultExtractCandidate()
+
+> **defaultExtractCandidate**(`messages`): `string`
+
+Defined in: [runtime/structural-rollout.ts:403](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L403)
+
+The candidate a shot produced, read from its conversation: the LAST `submit_answer`
+ tool-call argument (verifier environments submit the artifact explicitly), else the
+ latest assistant reply's fenced code block — preferring a block containing a `def`,
+ because repair replies echo the failure report in a bare fence BEFORE the fixed code
+ (the rigs' extractRepairCode lesson) — else the latest non-empty assistant text.
+
+#### Parameters
+
+##### messages
+
+readonly `Msg`[]
+
+#### Returns
+
+`string`
+
+***
+
+### structuralRollout()
+
+> **structuralRollout**(`config?`): [`Strategy`](#strategy-3)
+
+Defined in: [runtime/structural-rollout.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/structural-rollout.ts#L525)
+
+Build the structuralRollout `Strategy`: k shots → score each by the frozen visible
+checks (official above authored, crash lowest) → argmax with first-index tie-break →
+up to `repairRounds` repair shots steered by the failure output, keep-best under the
+official-check guard. Authored via `defineStrategy`, so the deliverable score stays
+harness-verified and every shot is metered by the conserved pool.
+
+Budget note: `runAgentic`'s `budget` sizes the pool — pass at least
+`k + repairRounds + 1` so the samples, repairs, and the check-author consult all admit.
+
+#### Parameters
+
+##### config?
+
+[`StructuralRolloutConfig`](#structuralrolloutconfig) = `{}`
+
+#### Returns
+
+[`Strategy`](#strategy-3)
 
 ***
 

@@ -2262,7 +2262,7 @@ Defined in: [runtime/types.ts:400](https://github.com/tangle-network/agent-runti
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-3)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-4)
 
 ##### sandboxId?
 
