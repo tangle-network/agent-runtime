@@ -17,7 +17,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -41,9 +41,17 @@ export interface HumanEvalTask {
  *  selects a deeper slice (the later tasks are harder) so the worker has a
  *  correctable middle band rather than a saturated easy prefix. */
 export async function loadHumanEval(limit: number, offset = 0): Promise<HumanEvalTask[]> {
-  const res = await fetch(humanevalUrl)
-  if (!res.ok) throw new Error(`HumanEval fetch HTTP ${res.status}: ${humanevalUrl}`)
-  const gz = Buffer.from(await res.arrayBuffer())
+  // Prefer a locally-cached .jsonl.gz (HUMANEVAL_GZ) — the GitHub raw URL rate-limits
+  // (429) under repeated runs. Fall back to the network fetch when unset.
+  const localGz = process.env.HUMANEVAL_GZ
+  let gz: Buffer
+  if (localGz) {
+    gz = readFileSync(localGz)
+  } else {
+    const res = await fetch(humanevalUrl)
+    if (!res.ok) throw new Error(`HumanEval fetch HTTP ${res.status}: ${humanevalUrl}`)
+    gz = Buffer.from(await res.arrayBuffer())
+  }
   const text = gunzipSync(gz).toString('utf8')
   const tasks: HumanEvalTask[] = []
   for (const line of text.split('\n')) {
