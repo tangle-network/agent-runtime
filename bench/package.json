@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "The unified benchmark suite for agent-runtime agents: 31 adapters (commit0, enterpriseops-gym, ragbench, crag, nomiracl, open-rag-bench, t2-ragbench, tau3-banking, bfcl, finresearchbench, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
   "main": "src/index.ts",
@@ -15,14 +15,18 @@
     "gate-cli": "tsx src/gate-cli.mts",
     "run-benchmarks": "tsx src/run-benchmarks-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
-    "terminal-compare": "tsx src/terminal-compare.ts"
+    "terminal-compare": "tsx src/terminal-compare.ts",
+    "test": "node scripts/run-package-tests.mjs",
+    "typecheck:public": "tsc -p tsconfig.public.json",
+    "verify:package": "node scripts/verify-packed-consumer.mjs"
   },
   "dependencies": {
-    "@tangle-network/agent-eval": "^0.106.3",
-    "@tangle-network/agent-runtime": "^0.89.0",
+    "@tangle-network/agent-eval": "^0.108.1",
+    "@tangle-network/agent-runtime": "^0.90.1",
     "@tangle-network/sandbox": "^0.9.7"
   },
   "devDependencies": {
+    "@types/node": "^25.0.0",
     "tsx": "^4.19.0",
     "typescript": "^6.0.3"
   },
