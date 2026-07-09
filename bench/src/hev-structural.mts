@@ -45,6 +45,7 @@ import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type HumanEvalTask, extractCode, loadHumanEval } from './benchmarks/humaneval'
+import { composeStrategies } from './directives'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
 const dockerImage = 'python:3.12-slim'
@@ -409,8 +410,11 @@ interface HarnessOutcome {
   tokensOut: number
 }
 
-async function runHarnessForTask(cfg: ClientCfg, task: HumanEvalTask, k: number, maxRepairs: number, testGen: number): Promise<HarnessOutcome> {
+async function runHarnessForTask(cfg: ClientCfg, task: HumanEvalTask, k: number, maxRepairs: number, testGen: number, diverse: boolean): Promise<HarnessOutcome> {
   const basePrompt = `${solveInstruction}\n\n\`\`\`python\n${task.prompt}\`\`\``
+  // DIVERSE mode: each sample slot gets a distinct strategy prefix — targets the
+  // all-k-samples-fail bucket, where iid resampling keeps drawing the same bug.
+  const slotPrompts = diverse ? composeStrategies(basePrompt, k) : Array.from({ length: k }, () => basePrompt)
   let llmCalls = 0
   let llmAttempts = 0
   let tokensIn = 0
@@ -433,7 +437,7 @@ async function runHarnessForTask(cfg: ClientCfg, task: HumanEvalTask, k: number,
 
   const samples: string[] = []
   for (let i = 0; i < k; i += 1) {
-    const c = await complete(cfg, [{ role: 'user', content: basePrompt }])
+    const c = await complete(cfg, [{ role: 'user', content: slotPrompts[i] as string }])
     track(c)
     samples.push(extractCode(c.content))
   }
@@ -561,6 +565,7 @@ async function main(): Promise<void> {
   const solveConc = Number(process.env.CONCURRENCY ?? 6)
   dockerSlots = Number(process.env.DOCKER_CONCURRENCY ?? 6)
   const testGen = Number(process.env.TESTGEN ?? 0)
+  const diverse = process.env.DIVERSE === '1'
   const out = process.env.OUT
 
   const tasks = await loadHumanEval(n, offset)
@@ -572,7 +577,7 @@ async function main(): Promise<void> {
 
   const cfg: ClientCfg = { base, key: must('TANGLE_API_KEY'), model, maxTokens: Number(process.env.MAX_TOKENS ?? 2500), temperature }
 
-  console.log(`=== HumanEval STRUCTURAL lever · honest docstring oracle · n=${tasks.length} k=${k} repairs<=${maxRepairs} temp=${temperature} testgen=${testGen} ===`)
+  console.log(`=== HumanEval STRUCTURAL lever · honest docstring oracle · n=${tasks.length} k=${k} repairs<=${maxRepairs} temp=${temperature} testgen=${testGen} diverse=${diverse ? 1 : 0} ===`)
   console.log(`  model=${model}  base=${base}  llm-conc=${solveConc}  docker-conc=${dockerSlots} (global semaphore)`)
   console.log(`  Phase A (harness: sample->honest-select->honest-repair) then Phase B (hidden grading)`)
 
@@ -583,7 +588,7 @@ async function main(): Promise<void> {
   let errCount = 0
   const outcomes = await pool(tasks, solveConc, async (task): Promise<HarnessOutcome | { taskId: string; error: string }> => {
     try {
-      const o = await runHarnessForTask(cfg, task, k, maxRepairs, testGen)
+      const o = await runHarnessForTask(cfg, task, k, maxRepairs, testGen, diverse)
       done += 1
       if (out) appendFileSync(`${out}.phaseA`, `${JSON.stringify({ model, temperature, k, maxRepairs, ...o })}\n`)
       process.stderr.write(
