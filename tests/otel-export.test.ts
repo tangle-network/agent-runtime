@@ -492,7 +492,7 @@ describe('otel-export', () => {
 describe('exportEvalRuns (Intelligence self-improvement provenance)', () => {
   afterEach(() => {
     delete process.env.TANGLE_API_KEY
-    delete process.env.INTELLIGENCE_BASE
+    delete process.env.TANGLE_INTELLIGENCE_URL
     vi.unstubAllGlobals()
   })
 

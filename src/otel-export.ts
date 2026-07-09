@@ -595,7 +595,7 @@ export interface EvalRunEvent {
 export interface EvalRunsExportConfig {
   /** Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY. */
   apiKey?: string
-  /** Intelligence base. Reads INTELLIGENCE_BASE env, else prod. */
+  /** Intelligence base. Reads TANGLE_INTELLIGENCE_URL env, else prod. */
   base?: string
   /** Idempotency-Key header (e.g. the runId) — safe retries + upsert. */
   idempotencyKey?: string
@@ -627,7 +627,7 @@ export async function exportEvalRuns(
     throw new Error('exportEvalRuns: apiKey required (pass config.apiKey or set TANGLE_API_KEY)')
   const base =
     config?.base ??
-    (typeof process !== 'undefined' ? process.env.INTELLIGENCE_BASE : undefined) ??
+    (typeof process !== 'undefined' ? process.env.TANGLE_INTELLIGENCE_URL : undefined) ??
     DEFAULT_INTELLIGENCE_BASE
   const url = `${base.replace(/\/+$/, '')}/v1/ingest/eval-runs`
   const res = await fetch(url, {

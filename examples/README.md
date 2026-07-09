@@ -84,7 +84,7 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 | 17b | [`self-improving-coder/`](./self-improving-coder/) | The flywheel on a contamination-proof coding task: an agent writes strategies from its training losses, graded by real pytest, promoted only if a fresh holdout confirms the gain. `CALIBRATE=1` is a $0 no-key check. |
 | 18 | [`self-improving-loop/`](./self-improving-loop/) | #17 unrolled step by step: v0 → judge → analyst → mutation → v1 → gate, showing which part owns each phase. Offline. |
 | 19 | [`intelligence-recommend/`](./intelligence-recommend/) | The improvement loop offline end to end: read a run's trace → derive findings → `improve()` → a gated candidate. |
-| 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | Wrap any agent with `withTangleIntelligence` to emit one trace per call — best-effort, and a proof that "off" is a zero-cost passthrough. |
+| 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | Wrap any agent with `withIntelligence` to send one RunRecord per call — best-effort, and a proof that "off" is a zero-cost passthrough. |
 | 20b | [`intelligence-webcode/`](./intelligence-webcode/) | The full observability SDK (billing boundary, effort tiers, per-tool cost breakdown, OTLP export) instrumented over every cell of the WebCode benchmark. Needs a sandbox key. |
 | 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | Proof that any framework's traces converge on one open telemetry contract and produce one insight report. CI-tested. Offline. |
 | 22 | [`product-eval/`](./product-eval/) | Test an agent against a simulated user: a persona holds a multi-round conversation, then the transcript is scored. Needs `TANGLE_API_KEY`. |

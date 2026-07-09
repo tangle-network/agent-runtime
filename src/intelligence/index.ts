@@ -30,6 +30,7 @@ import {
   type OtelExporter,
 } from '../otel-export'
 import type { LoopTraceEvent } from '../runtime/types'
+import { resolveIntelligenceBaseUrl } from './delivery'
 import {
   defaultEffortTier,
   type EffortOverrides,
@@ -60,22 +61,23 @@ export type {
 } from './capability'
 export { CapabilityNotAdmittedError, manifestFromProfile } from './capability'
 export type {
-  AppliedIntelligence,
   CertifiedArtifact,
+  CertifiedCapabilitySummary,
   CertifiedProfile,
   CertifiedPromptSource,
   CertifiedPromptSourceOptions,
   CertifiedPromptSurface,
-  DeliveredAgent,
-  DeliveryConfig,
+  DiffProvenance,
+  ProposedProfileDiff,
   PullCertifiedOptions,
   PullOutcome,
 } from './delivery'
 export {
   composeCertifiedPrompt,
   createCertifiedPromptSource,
+  normalizeCertifiedProfile,
   pullCertified,
-  withCertifiedDelivery,
+  resolveIntelligenceBaseUrl,
 } from './delivery'
 export type {
   CorpusAccess,
@@ -97,6 +99,13 @@ export {
   composeCertifiedProfile,
   composeCertifiedProfileFromWire,
 } from './resolver'
+export type {
+  AppliedIntelligence,
+  IntelligenceAgent,
+  IntelligenceHookConfig,
+  IntelligenceWrapped,
+} from './with-intelligence'
+export { withIntelligence } from './with-intelligence'
 
 /** Usage class for billing. Base-stream tokens bill `'inference'`; every
  *  intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The
@@ -113,6 +122,46 @@ export interface UsageSplit {
   inferenceUsd: number
   /** Intelligence-spawn spend in USD. Provably `0` at the OFF tier. */
   intelligenceUsd: number
+}
+
+/**
+ * The typed record `withIntelligence` sends per call — serialized through the
+ * shipped OTLP builders to the plane's `/v1/otlp` ingest. `input`/`output` are
+ * redacted on export; the per-class `usage` split carries the billing proof;
+ * `loopEvents`, when present, export as the nested loop→round→iteration span
+ * tree under the same `traceId`.
+ */
+export interface RunRecord {
+  runId: string
+  traceId: string
+  project: string
+  target: string
+  input: unknown
+  output: unknown
+  outcome: {
+    success?: boolean
+    score?: number
+    usage: UsageSplit
+  }
+  model?: string
+  provider?: string
+  loopEvents?: LoopTraceEvent[]
+}
+
+/**
+ * What an agent reports (via `applied.record`) to enrich the {@link RunRecord}
+ * sent for its call. All optional — an un-recorded run still sends input/output
+ * with an inference-only zero usage split. `costUsd` without a split is treated
+ * as pure inference (the base stream).
+ */
+export interface RunReport {
+  success?: boolean
+  score?: number
+  usage?: Partial<UsageSplit>
+  costUsd?: number
+  model?: string
+  provider?: string
+  loopEvents?: LoopTraceEvent[]
 }
 
 /** Repo coordinates a product may declare for the (later) Gated-PR mode. The
@@ -135,12 +184,13 @@ export interface IntelligenceConfig {
   /** Effort tier (default `'standard'`) plus optional per-field overrides. */
   effort?: EffortTier | { tier: EffortTier; overrides?: EffortOverrides }
   /**
-   * OTLP ingest base. The underlying exporter appends `/v1/traces`, so point
-   * this at the OTLP route (e.g. `https://intelligence.tangle.tools/v1/otlp`).
-   * Reads `INTELLIGENCE_OTLP_ENDPOINT` then `OTEL_EXPORTER_OTLP_ENDPOINT` when
-   * omitted; absent all three, export is a no-op (best-effort by construction).
+   * The ONE Tangle Intelligence base URL — both the send (OTLP `/v1/otlp`) and
+   * receive (`/v1/profiles/:target/composed`) paths derive from it. Reads
+   * `TANGLE_INTELLIGENCE_URL` when omitted, else `https://intelligence.tangle.tools`.
+   * Send is best-effort and only ships when an `apiKey` is present (the tenant
+   * key the ingest requires); absent a key, export is a no-op.
    */
-  endpoint?: string
+  baseUrl?: string
   /**
    * Redaction hook run over every exported input/output. A function replaces
    * the default scrubber; `false` opts out entirely (raw fidelity, caller has
@@ -242,6 +292,18 @@ export interface IntelligenceClient {
    */
   recordTrace(events: ReadonlyArray<LoopTraceEvent>, meta?: RecordTraceMeta): string
   /**
+   * Send one typed {@link RunRecord} — the run's flat span (input/output/outcome/
+   * usage/model/provider, redacted) plus, when `loopEvents` are present, the
+   * nested loop topology under the same `traceId`. Reuses the shipped
+   * `flatOtelSpan` + `buildLoopOtelSpans` builders (no second builder).
+   * Best-effort: export failures are swallowed. Returns the record's `traceId`.
+   */
+  exportRunRecord(record: RunRecord): string
+  /** Mint a fresh run id (`run-<hex>`). */
+  freshRunId(): string
+  /** Mint a fresh 32-hex trace id. */
+  freshTraceId(): string
+  /**
    * Network-free readiness report: which adoption modes are reachable given
    * this config. Observe is always reachable; Recommend needs outcomes; PR
    * needs checks + surfaces + repo.
@@ -275,12 +337,6 @@ function resolveEffortConfig(effort: IntelligenceConfig['effort']): EffortSettin
   if (effort === undefined) return resolveEffort(defaultEffortTier)
   if (typeof effort === 'string') return resolveEffort(effort)
   return resolveEffort(effort.tier, effort.overrides)
-}
-
-function resolveEndpoint(endpoint: string | undefined): string | undefined {
-  if (endpoint) return endpoint
-  if (typeof process === 'undefined') return undefined
-  return process.env.INTELLIGENCE_OTLP_ENDPOINT ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 }
 
 function freshTraceId(): string {
@@ -323,10 +379,10 @@ function randomHex(chars: number): string {
 }
 
 /**
- * Create an Observe-mode Intelligence client. Resolves effort, endpoint, and
- * redactor up front; the exporter is built lazily and is `undefined` when no
- * endpoint is configured (export becomes a no-op — best-effort by
- * construction).
+ * Create an Observe-mode Intelligence client. Resolves effort, the base URL, and
+ * the redactor up front; the exporter is built lazily and is `undefined` when no
+ * `apiKey` is present (send becomes a no-op — the ingest requires a tenant key,
+ * and best-effort export must never spam an unauthenticated plane).
  */
 export function createIntelligenceClient(config: IntelligenceConfig): IntelligenceClient {
   if (!config.project) {
@@ -337,18 +393,20 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   const redactor = resolveRedactor(config.redact)
   const apiKey =
     config.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
-  const endpoint = resolveEndpoint(config.endpoint)
+  // The ONE base URL drives both send and receive; the OTLP ingest lives at
+  // `${base}/v1/otlp` and the exporter appends `/v1/traces` → `${base}/v1/otlp/v1/traces`.
+  const otlpEndpoint = `${resolveIntelligenceBaseUrl(config.baseUrl)}/v1/otlp`
 
-  // Built lazily: a client with no endpoint never allocates an exporter timer.
+  // Built lazily: a client with no tenant key never allocates an exporter timer.
   let exporter: OtelExporter | undefined
   let exporterResolved = false
   function getExporter(): OtelExporter | undefined {
     if (exporterResolved) return exporter
     exporterResolved = true
-    if (!endpoint) return undefined
+    if (!apiKey) return undefined
     exporter = createOtelExporter({
-      endpoint,
-      headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
+      endpoint: otlpEndpoint,
+      headers: { authorization: `Bearer ${apiKey}` },
       serviceName: config.project,
       resourceAttributes: { 'tangle.project': config.project },
     })
@@ -392,9 +450,66 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
     }
   }
 
+  function exportRunRecord(record: RunRecord): string {
+    const ex = getExporter()
+    if (!ex) return record.traceId
+    // Clamp the OFF billing invariant on export — the proof holds even if a
+    // caller mis-reports an intelligence split at the OFF tier.
+    const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
+    const labels: Record<string, string | number | boolean> = {
+      project: record.project,
+      'tangle.target': record.target,
+      'tangle.effort.intelligence_off': intelligenceOff,
+      'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
+      'tangle.usage.intelligence_usd': intelligenceUsd,
+      ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
+      ...(record.provider ? { 'provider.name': record.provider } : {}),
+      ...(typeof record.outcome.success === 'boolean'
+        ? { 'tangle.outcome.success': record.outcome.success }
+        : {}),
+      ...(typeof record.outcome.score === 'number'
+        ? { 'tangle.outcome.score': record.outcome.score }
+        : {}),
+    }
+    const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
+    const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
+    if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
+    if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
+    try {
+      const runSpan = flatOtelSpan(
+        'tangle.intelligence.run',
+        { 'tangle.runId': record.runId, ...labels },
+        record.traceId,
+        Date.now(),
+      )
+      ex.exportSpan(runSpan)
+      // The loop topology (when present) exports under the SAME traceId, parented
+      // under the run span — reusing the shipped builder, never a second one.
+      if (record.loopEvents && record.loopEvents.length > 0) {
+        const spans = buildLoopOtelSpans(
+          record.loopEvents as ReadonlyArray<{
+            kind: string
+            runId: string
+            timestamp: number
+            payload: object
+          }>,
+          record.traceId,
+          runSpan.spanId,
+        )
+        for (const span of spans) ex.exportSpan(span)
+      }
+    } catch {
+      // Best-effort — a send failure must never fail the agent's turn.
+    }
+    return record.traceId
+  }
+
   return {
     project: config.project,
     effort,
+    exportRunRecord,
+    freshRunId,
+    freshTraceId,
 
     async traceRun<T>(meta: TraceMeta, fn: (trace: TraceHandle) => Promise<T>): Promise<T> {
       const runId = meta.runId ?? freshRunId()
@@ -491,7 +606,9 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
       return {
         project: config.project,
         effort,
-        exportConfigured: Boolean(endpoint),
+        // Send ships only with a tenant key — the honest "will export actually
+        // land" signal (the base URL always resolves to the plane default).
+        exportConfigured: Boolean(apiKey),
         modes: {
           observe: { ready: true, missing: [] },
           recommend: {
@@ -512,42 +629,5 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
         // Best-effort — a flush failure must not surface to the caller.
       }
     },
-  }
-}
-
-/** A generic agent: one async input → output. The shape `withTangleIntelligence`
- *  preserves exactly. */
-export type Agent<TInput, TOutput> = (input: TInput) => Promise<TOutput>
-
-/** Either a built client or the config to build one. */
-export type ClientOrConfig = IntelligenceClient | IntelligenceConfig
-
-function isClient(value: ClientOrConfig): value is IntelligenceClient {
-  return typeof (value as IntelligenceClient).traceRun === 'function'
-}
-
-/**
- * Wrap a generic `agent` with best-effort Observe-mode tracing, returning the
- * SAME shape. Each call runs the agent under a trace and exports one span; an
- * export failure is swallowed (the live agent never fails because Intelligence
- * is down) but an error from the agent itself propagates unchanged.
- *
- * At `effort: 'off'` this is pure passthrough plus best-effort telemetry —
- * zero intelligence spawns, `intelligenceUsd: 0` on the trace.
- */
-export function withTangleIntelligence<TInput, TOutput>(
-  agent: Agent<TInput, TOutput>,
-  clientOrConfig: ClientOrConfig,
-): Agent<TInput, TOutput> {
-  const client = isClient(clientOrConfig)
-    ? clientOrConfig
-    : createIntelligenceClient(clientOrConfig)
-
-  return async (input: TInput): Promise<TOutput> => {
-    return client.traceRun({ input }, async (trace) => {
-      const output = await agent(input)
-      trace.recordOutput(output)
-      return output
-    })
   }
 }

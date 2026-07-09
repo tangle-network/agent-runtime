@@ -198,7 +198,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 68 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -207,35 +207,39 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 | `composeCertifiedProfileFromWire` | function | Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via |
 | `composeCertifiedPrompt` | function | Fold the certified prompt surface (and any certified prompt-folding artifacts: |
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
-| `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, endpoint, and |
+| `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
+| `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
+| `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
 | `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook replaces the |
-| `withCertifiedDelivery` | function | Wrap an agent so it (a) Observes each run via the shipped Observe client and |
-| `withTangleIntelligence` | function | Wrap a generic `agent` with best-effort Observe-mode tracing, returning the |
+| `withIntelligence` | function | Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt |
 | `defaultEffortTier` | const | The default tier when a client declares no effort. `'standard'` turns |
 | `CapabilityNotAdmittedError` | class | A binding kind whose resolver case is typed but not yet admitted (rag-index, |
-| `AppliedIntelligence` | interface | What the delivery wrapper hands the agent each run. |
+| `AppliedIntelligence` | interface | What the hook hands the agent each run. Additive over the prompt-only |
 | `CapabilityManifest` | interface | The strict generalization of `CertifiedProfile`. `promptSurface` is kept |
 | `CertifiedArtifact` | interface | A promoted, certified artifact (one entry in the composed profile). |
 | `CertifiedCapability` | interface | One certified unit of agent power. |
+| `CertifiedCapabilitySummary` | interface | The composed endpoint's per-capability summary — the narrow shape on the |
 | `CertifiedProfile` | interface | The composed certified profile — exactly the shape the plane's |
 | `CertifiedPromptSource` | interface | A cached, self-refreshing source of a target's certified prompt additions — |
 | `CertifiedPromptSourceOptions` | interface | Options for {@link createCertifiedPromptSource} — the pull coordinates plus |
 | `CertifiedPromptSurface` | interface | The active promoted prompt surface for a target. |
 | `CertProvenance` | interface | The certify lane's held-out lift travelling WITH delivery. The shipped |
 | `CredentialRef` | interface | A named secret a binding requires — declared, never carried. |
-| `DeliveryConfig` | interface | Delivery config = the Observe config plus the pull target + refresh cadence. |
+| `DiffProvenance` | interface | The held-out provenance the plane's certify step stamps on a promoted diff. |
 | `DoctorReport` | interface | The `doctor()` readiness report — Mode-readiness without any network call. |
 | `EffortOverridesCompiled` | interface | The run-config overrides an `EffortSettings` compiles to — the bridge between the |
 | `EffortSettings` | interface | The flat, resolved settings a tier compiles to. Every field is individually |
 | `HostSpec` | interface | The host a `process-on-infra` binding provisions before its inner binding. |
 | `IntelligenceClient` | interface | The Observe-mode Intelligence client. |
 | `IntelligenceConfig` | interface | Client configuration. `project` + `apiKey` are the Observe minimum; the |
+| `IntelligenceHookConfig` | interface | `withIntelligence` config = the Observe config plus the pull target, refresh |
 | `ModeReadiness` | interface | One mode's readiness verdict. |
+| `ProposedProfileDiff` | interface | A gate-certified profile diff the plane has already promoted, plus the |
 | `ProvisionedHost` | interface | A live, provisioned host the resolver tore up for a `process-on-infra` arm. |
 | `RecordTraceMeta` | interface | Metadata for {@link IntelligenceClient.recordTrace}. |
 | `RepoConfig` | interface | Repo coordinates a product may declare for the (later) Gated-PR mode. The |
@@ -244,22 +248,23 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 | `ResolvedRetrieval` | interface | One retrieval handle. The agent never learns vector vs graph vs index. |
 | `ResolvedSubagent` | interface | One resolved subagent — folded into `AgentProfile.subagents`. |
 | `ResolvedSurface` | interface | What `composeCertifiedProfile` produces. Every binding fans into the same |
+| `RunRecord` | interface | The typed record `withIntelligence` sends per call — serialized through the |
+| `RunReport` | interface | What an agent reports (via `applied.record`) to enrich the {@link RunRecord} |
 | `TraceHandle` | interface | The trace handle a `traceRun` body records into. `recordOutput` captures the |
 | `TraceMeta` | interface | Metadata describing one traced run. `runId`/`traceId` default to fresh ids. |
 | `TraceOutcome` | interface | The resolved outcome of one traced run, surfaced on the export span and |
 | `UsageSplit` | interface | The per-class cost split carried by every trace and outcome. `off` ⇒ |
-| `Agent` | type | A generic agent: one async input → output. The shape `withTangleIntelligence` |
 | `CapabilityAuth` | type | How a binding authenticates at resolve time. Declared as a REQUIREMENT in the |
 | `CapabilityInterface` | type | What the agent consumes. CLOSED — a new runtime kind NEVER extends this. Each |
 | `CapabilitySurface` | type | Every interface surface tag — the closed set the resolver fans into slots. |
-| `ClientOrConfig` | type | Either a built client or the config to build one. |
 | `ContentRef` | type | Where a capability's bytes live. A leaked manifest carries no live secret and |
 | `CorpusAccess` | type | Corpus access an intelligence tier permits. `'off'` reads and writes |
-| `DeliveredAgent` | type | An agent wrapped by {@link withCertifiedDelivery}: receives the input plus |
 | `DeliveryBinding` | type | How a capability is backed. OPEN tagged union — THE extension point. All arms |
 | `DeliveryBindingKind` | type | Every binding kind — the open set the resolver dispatches over. |
 | `EffortOverrides` | type | Per-field overrides applied on top of a tier preset. Any subset of the |
 | `EffortTier` | type | The named effort tiers, lowest to highest. `'off'` is the honest floor |
+| `IntelligenceAgent` | type | An agent wrapped by {@link withIntelligence}: receives the input plus the |
+| `IntelligenceWrapped` | type | The wrapped agent — same `(input) => Promise<output>` shape, plus a manual |
 | `JsonSchema` | type | A JSON Schema object describing a tool's parameters. Kept structural — the |
 | `PullOutcome` | type | Typed outcome for the pull — inspect `succeeded` before `value`. A 404 |
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |

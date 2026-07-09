@@ -54,7 +54,7 @@ prompt after: <the rewritten system prompt>
 
 ## Going live
 
-To run this for real: point `createIntelligenceClient` at an OTLP trace collector (set
-`INTELLIGENCE_OTLP_ENDPOINT`) so traces actually export; replace the two hand-written findings with a
+To run this for real: give `createIntelligenceClient` a tenant `apiKey` (and, if not the prod plane, a
+`baseUrl` / `TANGLE_INTELLIGENCE_URL`) so traces actually export; replace the two hand-written findings with a
 real trace-analyst agent's output; and drop the scripted proposer for a model-backed one (pass an
 `llm` instead of a `generator`) so the rewrite is reflected from the findings rather than pre-canned.
