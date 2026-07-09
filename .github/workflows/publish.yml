@@ -94,6 +94,8 @@ jobs:
           fi
 
   verify-agent-bench:
+    # Manual dispatch remains root-only. Re-run a failed bench tag workflow so
+    # tag/version locking stays intact and the root package is never co-published.
     if: startsWith(github.ref, 'refs/tags/agent-bench-v')
     runs-on: ubuntu-latest
     defaults:
@@ -157,6 +159,8 @@ jobs:
 
       - name: Publish to npm (OIDC trusted publishing)
         run: |
+          # Requires the npmjs Trusted Publisher on @tangle-network/agent-bench:
+          # org tangle-network, repo agent-runtime, workflow publish.yml.
           npm install -g npm@11
           NAME=$(node -p "require('./package.json').name")
           VERSION=$(node -p "require('./package.json').version")

@@ -13,9 +13,11 @@ async function run(command, args, cwd) {
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 120_000 })
   } catch (error) {
-    if (error?.stdout) process.stderr.write(error.stdout)
+    if (error?.stdout) process.stdout.write(error.stdout)
     if (error?.stderr) process.stderr.write(error.stderr)
-    throw error
+    const invocation = [command, ...args].join(' ')
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${invocation} failed: ${message}`, { cause: error })
   }
 }
 
@@ -30,9 +32,16 @@ try {
   const tarball = path.join(packDir, filename)
   const manifest = JSON.parse(await readFile(path.join(benchDir, 'package.json'), 'utf8'))
   const devDependencies = manifest.devDependencies
-  if (!devDependencies?.['@types/node'] || !devDependencies.typescript) {
+  if (
+    typeof devDependencies?.['@types/node'] !== 'string' ||
+    typeof devDependencies.typescript !== 'string' ||
+    !devDependencies['@types/node'] ||
+    !devDependencies.typescript
+  ) {
     throw new Error('package verification requires @types/node and typescript devDependencies')
   }
+  const publicTsconfig = JSON.parse(await readFile(path.join(benchDir, 'tsconfig.public.json'), 'utf8'))
+  if (!publicTsconfig.compilerOptions) throw new Error('tsconfig.public.json must define compilerOptions')
 
   await writeFile(
     path.join(consumerDir, 'package.json'),
@@ -59,17 +68,7 @@ try {
     path.join(consumerDir, 'tsconfig.json'),
     `${JSON.stringify(
       {
-        compilerOptions: {
-          module: 'esnext',
-          target: 'es2023',
-          lib: ['es2023'],
-          moduleResolution: 'bundler',
-          allowImportingTsExtensions: true,
-          strict: true,
-          noEmit: true,
-          skipLibCheck: true,
-          types: ['node'],
-        },
+        compilerOptions: publicTsconfig.compilerOptions,
         files: ['index.ts'],
       },
       null,
