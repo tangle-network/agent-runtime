@@ -7,10 +7,9 @@ import {
   isIntelligenceOff,
   resolveEffort,
   type UsageSplit,
-  withTangleIntelligence,
 } from './index'
 
-const endpoint = 'https://intelligence.test/v1/otlp'
+const baseUrl = 'https://intelligence.test'
 const apiKey = 'sk-tan-test-key'
 
 /** Capture every OTLP POST body the exporter flushes. */
@@ -42,9 +41,9 @@ function installFetchSpy(mode: 'ok' | 'throw'): { calls: FetchCall[] } {
   return { calls }
 }
 
-function stubNoEndpointEnv(): void {
-  vi.stubEnv('INTELLIGENCE_OTLP_ENDPOINT', '')
-  vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+/** Stub away any ambient tenant key so a "no apiKey" client truly has none. */
+function stubNoApiKey(): void {
+  vi.stubEnv('TANGLE_API_KEY', '')
 }
 
 /** Pull every span attribute across an OTLP export body into one flat map. */
@@ -69,8 +68,24 @@ function attrsOf(body: unknown): Record<string, unknown> {
   return out
 }
 
+/** Pull every span's `name` + `traceId` across an OTLP export body. */
+function spansOf(body: unknown): Array<{ name: string; traceId: string }> {
+  const out: Array<{ name: string; traceId: string }> = []
+  const resourceSpans = (body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
+  for (const rs of resourceSpans) {
+    for (const ss of (rs as { scopeSpans?: unknown[] }).scopeSpans ?? []) {
+      for (const span of (ss as { spans?: unknown[] }).spans ?? []) {
+        const s = span as { name?: string; traceId?: string }
+        out.push({ name: String(s.name), traceId: String(s.traceId) })
+      }
+    }
+  }
+  return out
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
@@ -107,7 +122,6 @@ describe('resolveEffort', () => {
     const s = resolveEffort('off', { analysts: true, fanout: 4 })
     expect(s.analysts).toBe(true)
     expect(s.fanout).toBe(4)
-    // Overriding any axis lifts a run off the OFF floor.
     expect(isIntelligenceOff(s)).toBe(false)
   })
 
@@ -151,7 +165,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 
   it('exports one span on a successful run and returns the agent output', async () => {
     const { calls } = installFetchSpy('ok')
-    const client = createIntelligenceClient({ project: 'support-agent', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
     const result = await client.traceRun({ input: { q: 'hi' } }, async (trace) => {
       trace.recordOutput({ answer: 'hello' })
       trace.recordOutcome({ success: true, score: 0.9, costUsd: 0.002 })
@@ -168,7 +182,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 
   it('survives a dead endpoint — agent output is returned, no throw', async () => {
     installFetchSpy('throw')
-    const client = createIntelligenceClient({ project: 'support-agent', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
     const result = await client.traceRun({ input: { q: 'hi' } }, async (trace) => {
       trace.recordOutput({ answer: 'still here' })
       return 42
@@ -179,7 +193,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 
   it('propagates an error thrown by the agent body (not swallowed)', async () => {
     installFetchSpy('ok')
-    const client = createIntelligenceClient({ project: 'support-agent', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
     await expect(
       client.traceRun({ input: {} }, async () => {
         throw new Error('agent exploded')
@@ -189,7 +203,7 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
 
   it('redacts secrets in the exported input/output', async () => {
     const { calls } = installFetchSpy('ok')
-    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
     await client.traceRun(
       { input: { prompt: 'my key is sk-tan-leakedsecretvalue999' } },
       async (trace) => {
@@ -203,11 +217,11 @@ describe('createIntelligenceClient / traceRun — Observe', () => {
     expect(blob).not.toContain('alice@acme.com')
   })
 
-  it('is a no-op (no fetch) when no endpoint is configured', async () => {
-    stubNoEndpointEnv()
+  it('is a no-op (no fetch) when no tenant apiKey is present', async () => {
+    stubNoApiKey()
     const spy = vi.fn()
     vi.stubGlobal('fetch', spy)
-    const client = createIntelligenceClient({ project: 'p', apiKey })
+    const client = createIntelligenceClient({ project: 'p', baseUrl })
     const out = await client.traceRun({ input: {} }, async () => 'x')
     await client.flush()
     expect(out).toBe('x')
@@ -221,11 +235,10 @@ describe('billing classification — OFF proves inference-only', () => {
     const client = createIntelligenceClient({
       project: 'p',
       apiKey,
-      endpoint,
+      baseUrl,
       effort: 'off',
     })
     await client.traceRun({ input: { q: 'x' } }, async (trace) => {
-      // Even a caller that mis-reports intelligence spend at OFF is clamped.
       trace.recordOutcome({
         usage: { inferenceUsd: 0.01, intelligenceUsd: 0.05 } satisfies UsageSplit,
       })
@@ -235,13 +248,12 @@ describe('billing classification — OFF proves inference-only', () => {
     const attrs = attrsOf(calls[0]?.body)
     expect(attrs['tangle.effort.intelligence_off']).toBe(true)
     expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
-    // Inference is still billed — OFF is not "free", it is inference-only.
     expect(attrs['tangle.usage.inference_usd']).toBe(0.01)
   })
 
   it('a non-off tier preserves a reported intelligence split', async () => {
     const { calls } = installFetchSpy('ok')
-    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint, effort: 'standard' })
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl, effort: 'standard' })
     await client.traceRun({ input: {} }, async (trace) => {
       trace.recordOutcome({ usage: { inferenceUsd: 0.01, intelligenceUsd: 0.03 } })
       return 'ok'
@@ -253,38 +265,9 @@ describe('billing classification — OFF proves inference-only', () => {
   })
 })
 
-describe('withTangleIntelligence', () => {
-  it('preserves the agent shape and traces each call', async () => {
-    const { calls } = installFetchSpy('ok')
-    const agent = async (input: { name: string }) => `hi ${input.name}`
-    const wrapped = withTangleIntelligence(agent, { project: 'p', apiKey, endpoint })
-    const out = await wrapped({ name: 'drew' })
-    // Flush is internal to the client; force one export round.
-    expect(out).toBe('hi drew')
-    // The wrapper builds its own client; give the batch a manual flush via a fresh call path.
-    expect(calls.length).toBeGreaterThanOrEqual(0)
-  })
-
-  it('never fails the agent when telemetry export is down', async () => {
-    installFetchSpy('throw')
-    const agent = async () => 'result'
-    const wrapped = withTangleIntelligence(agent, { project: 'p', apiKey, endpoint })
-    await expect(wrapped(undefined)).resolves.toBe('result')
-  })
-
-  it('propagates an agent error through the wrapper', async () => {
-    installFetchSpy('ok')
-    const agent = async () => {
-      throw new Error('boom')
-    }
-    const wrapped = withTangleIntelligence(agent, { project: 'p', apiKey, endpoint })
-    await expect(wrapped(undefined)).rejects.toThrow('boom')
-  })
-})
-
 describe('doctor()', () => {
   it('reports observe always reachable, pr blocked without checks/surfaces/repo', () => {
-    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
     const report = client.doctor()
     expect(report.modes.observe.ready).toBe(true)
     expect(report.modes.pr.ready).toBe(false)
@@ -296,7 +279,7 @@ describe('doctor()', () => {
     const client = createIntelligenceClient({
       project: 'p',
       apiKey,
-      endpoint,
+      baseUrl,
       checks: ['pnpm test'],
       surfaces: ['src/**'],
       repo: { owner: 'acme', name: 'p', baseBranch: 'main' },
@@ -307,33 +290,18 @@ describe('doctor()', () => {
   })
 
   it('flags recommend as blocked at the off floor', () => {
-    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint, effort: 'off' })
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl, effort: 'off' })
     const report = client.doctor()
     expect(report.modes.recommend.ready).toBe(false)
     expect(report.modes.recommend.missing).toContain('effort above off')
   })
 
-  it('reports exportConfigured:false when no endpoint resolves', () => {
-    stubNoEndpointEnv()
-    const client = createIntelligenceClient({ project: 'p', apiKey })
+  it('reports exportConfigured:false when no tenant apiKey resolves', () => {
+    stubNoApiKey()
+    const client = createIntelligenceClient({ project: 'p', baseUrl })
     expect(client.doctor().exportConfigured).toBe(false)
   })
 })
-
-/** Pull every span's `name` + `traceId` across an OTLP export body. */
-function spansOf(body: unknown): Array<{ name: string; traceId: string }> {
-  const out: Array<{ name: string; traceId: string }> = []
-  const resourceSpans = (body as { resourceSpans?: unknown[] })?.resourceSpans ?? []
-  for (const rs of resourceSpans) {
-    for (const ss of (rs as { scopeSpans?: unknown[] }).scopeSpans ?? []) {
-      for (const span of (ss as { spans?: unknown[] }).spans ?? []) {
-        const s = span as { name?: string; traceId?: string }
-        out.push({ name: String(s.name), traceId: String(s.traceId) })
-      }
-    }
-  }
-  return out
-}
 
 /** A minimal but real loop event stream: a plan round over two iterations. */
 function loopStream(runId = 'loop-run'): LoopTraceEvent[] {
@@ -400,20 +368,16 @@ function loopStream(runId = 'loop-run'): LoopTraceEvent[] {
 describe('recordTrace — loop topology via buildLoopOtelSpans (gap 2)', () => {
   it('exports a nested loop→round→iteration span tree under ONE traceId', async () => {
     const { calls } = installFetchSpy('ok')
-    const client = createIntelligenceClient({ project: 'support-agent', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
     const traceId = client.recordTrace(loopStream(), { traceId: 'a'.repeat(32) })
     await client.flush()
 
     expect(traceId).toBe('a'.repeat(32))
     const spans = calls.flatMap((c) => spansOf(c.body))
     const names = spans.map((s) => s.name)
-    // The TREE builder emits topology-level names; a flat per-event builder would emit the
-    // raw event kinds (loop.started/loop.iteration.ended). Asserting these proves reuse of
-    // buildLoopOtelSpans, not a second span builder.
     expect(names).toContain('loop')
     expect(names).toContain('loop.round')
     expect(names.filter((n) => n === 'loop.iteration').length).toBe(2)
-    // Every span shares the supplied traceId (one trace, not N).
     const traceIds = new Set(spans.map((s) => s.traceId))
     expect(traceIds.size).toBe(1)
     expect([...traceIds][0]).toBe('a'.repeat(32))
@@ -421,23 +385,98 @@ describe('recordTrace — loop topology via buildLoopOtelSpans (gap 2)', () => {
 
   it('mints a fresh traceId when none is supplied and survives a dead endpoint', async () => {
     installFetchSpy('throw')
-    const client = createIntelligenceClient({ project: 'p', apiKey, endpoint })
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
     const traceId = client.recordTrace(loopStream())
     expect(traceId).toMatch(/^[0-9a-f]{32}$/)
-    // Export failure is swallowed — recordTrace never throws.
     await expect(client.flush()).resolves.toBeUndefined()
   })
 
-  it('is a no-op (no fetch) on an empty event stream or with no endpoint', async () => {
-    stubNoEndpointEnv()
+  it('is a no-op (no fetch) on an empty event stream or with no tenant key', async () => {
+    stubNoApiKey()
     const spy = vi.fn()
     vi.stubGlobal('fetch', spy)
-    const withEndpoint = createIntelligenceClient({ project: 'p', apiKey, endpoint })
-    withEndpoint.recordTrace([])
-    await withEndpoint.flush()
-    const noEndpoint = createIntelligenceClient({ project: 'p', apiKey })
-    noEndpoint.recordTrace(loopStream())
-    await noEndpoint.flush()
+    const withKey = createIntelligenceClient({ project: 'p', apiKey, baseUrl })
+    withKey.recordTrace([])
+    await withKey.flush()
+    const noKey = createIntelligenceClient({ project: 'p', baseUrl })
+    noKey.recordTrace(loopStream())
+    await noKey.flush()
+    expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+describe('exportRunRecord — typed RunRecord send (the withIntelligence SEND path)', () => {
+  it('ships one flat run span with target/usage/model + the loop topology under one traceId', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'support-agent', apiKey, baseUrl })
+    const traceId = client.exportRunRecord({
+      runId: 'run-1',
+      traceId: 'b'.repeat(32),
+      project: 'support-agent',
+      target: 'support-agent',
+      input: { q: 'hi' },
+      output: { a: 'ok' },
+      outcome: {
+        success: true,
+        score: 0.9,
+        usage: { inferenceUsd: 0.002, intelligenceUsd: 0.001 },
+      },
+      model: 'kimi-k2',
+      provider: 'moonshot',
+      loopEvents: loopStream(),
+    })
+    await client.flush()
+
+    expect(traceId).toBe('b'.repeat(32))
+    const attrs = attrsOf(calls[0]?.body)
+    expect(attrs['tangle.target']).toBe('support-agent')
+    expect(attrs['tangle.usage.inference_usd']).toBe(0.002)
+    expect(attrs['tangle.usage.intelligence_usd']).toBe(0.001)
+    expect(attrs['tangle.outcome.success']).toBe(true)
+    expect(attrs['gen_ai.request.model']).toBe('kimi-k2')
+
+    const spans = calls.flatMap((c) => spansOf(c.body))
+    const names = spans.map((s) => s.name)
+    expect(names).toContain('tangle.intelligence.run')
+    expect(names).toContain('loop')
+    const traceIds = new Set(spans.map((s) => s.traceId))
+    expect(traceIds.size).toBe(1)
+  })
+
+  it('clamps intelligence_usd to 0 at the OFF tier even if the record reports spend', async () => {
+    const { calls } = installFetchSpy('ok')
+    const client = createIntelligenceClient({ project: 'p', apiKey, baseUrl, effort: 'off' })
+    client.exportRunRecord({
+      runId: 'r',
+      traceId: 'c'.repeat(32),
+      project: 'p',
+      target: 'p',
+      input: {},
+      output: {},
+      outcome: { usage: { inferenceUsd: 0.01, intelligenceUsd: 0.05 } },
+    })
+    await client.flush()
+    const attrs = attrsOf(calls[0]?.body)
+    expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
+    expect(attrs['tangle.usage.inference_usd']).toBe(0.01)
+  })
+
+  it('is a no-op (no fetch) when no tenant apiKey is present', async () => {
+    stubNoApiKey()
+    const spy = vi.fn()
+    vi.stubGlobal('fetch', spy)
+    const client = createIntelligenceClient({ project: 'p', baseUrl })
+    const traceId = client.exportRunRecord({
+      runId: 'r',
+      traceId: 'd'.repeat(32),
+      project: 'p',
+      target: 'p',
+      input: {},
+      output: {},
+      outcome: { usage: { inferenceUsd: 0, intelligenceUsd: 0 } },
+    })
+    await client.flush()
+    expect(traceId).toBe('d'.repeat(32))
     expect(spy).not.toHaveBeenCalled()
   })
 })
@@ -451,7 +490,6 @@ describe('compileEffort — EffortSettings → run-config overrides (gap 3/4)', 
       withLoops: false,
       intelligenceBudgetUsd: 0,
     })
-    // The product fail-closed: at off the caller omits the analyst (degrade, not throw).
     expect(compiled.withAnalyst).toBe(false)
   })
 
@@ -470,7 +508,6 @@ describe('compileEffort — EffortSettings → run-config overrides (gap 3/4)', 
   })
 
   it('carries a per-field override through to the compiled overrides', () => {
-    // Overriding analysts back on at off lifts the analyst-construction gate.
     const compiled = compileEffort(resolveEffort('off', { analysts: true, fanout: 4 }))
     expect(compiled.withAnalyst).toBe(true)
     expect(compiled.fanout).toBe(4)

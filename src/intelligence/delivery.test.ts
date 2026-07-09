@@ -1,10 +1,10 @@
+import type { AgentProfileDiff } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type CertifiedProfile,
   composeCertifiedPrompt,
   createCertifiedPromptSource,
   pullCertified,
-  withCertifiedDelivery,
 } from './delivery'
 
 const CERTIFIED: CertifiedProfile = {
@@ -28,6 +28,9 @@ const CERTIFIED: CertifiedProfile = {
       },
     ],
   },
+  agentProfileDiffs: [],
+  capabilities: [],
+  agentProfile: null,
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -55,13 +58,7 @@ describe('composeCertifiedPrompt', () => {
   })
 
   it('returns base when the certified profile has no usable content', () => {
-    const empty: CertifiedProfile = {
-      target: 't',
-      generatedAt: 'x',
-      promptSurface: null,
-      artifacts: {},
-    }
-    expect(composeCertifiedPrompt('BASE', empty)).toBe('BASE')
+    expect(composeCertifiedPrompt('BASE', { promptSurface: null, artifacts: {} })).toBe('BASE')
   })
 })
 
@@ -82,6 +79,63 @@ describe('pullCertified', () => {
     ]
     expect(call[0]).toBe('https://plane.test/v1/profiles/support-agent/composed')
     expect(call[1].headers).toMatchObject({ authorization: 'Bearer k_test' })
+  })
+
+  it('deserializes the typed agentProfileDiffs the composed endpoint returns', async () => {
+    const diff: AgentProfileDiff = {
+      schemaVersion: 1,
+      kind: 'agent-profile-diff',
+      set: { tools: { refund: true } },
+    }
+    const composed = {
+      ...CERTIFIED,
+      agentProfileDiffs: [
+        {
+          diff,
+          provenance: {
+            version: 7,
+            lift: '+2.2pp',
+            contentHash: 'deadbeef',
+            promotedAt: '2026-06-12T00:00:00.000Z',
+          },
+        },
+      ],
+      agentProfile: { name: 'support-agent', tools: { refund: true } },
+    }
+    const fetchImpl = vi.fn(async () => jsonResponse(composed)) as unknown as typeof fetch
+    const outcome = await pullCertified({
+      target: 'support-agent',
+      apiKey: 'k',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+    expect(outcome.succeeded).toBe(true)
+    if (outcome.succeeded) {
+      expect(outcome.value.agentProfileDiffs).toEqual(composed.agentProfileDiffs)
+      expect(outcome.value.agentProfile).toEqual(composed.agentProfile)
+    }
+  })
+
+  it('normalizes a legacy response with no diffs to empty arrays (fail-closed)', async () => {
+    const legacy = {
+      target: 't',
+      generatedAt: 'x',
+      promptSurface: null,
+      artifacts: {},
+    }
+    const fetchImpl = vi.fn(async () => jsonResponse(legacy)) as unknown as typeof fetch
+    const outcome = await pullCertified({
+      target: 't',
+      apiKey: 'k',
+      baseUrl: 'https://plane.test',
+      fetchImpl,
+    })
+    expect(outcome.succeeded).toBe(true)
+    if (outcome.succeeded) {
+      expect(outcome.value.agentProfileDiffs).toEqual([])
+      expect(outcome.value.capabilities).toEqual([])
+      expect(outcome.value.agentProfile).toBeNull()
+    }
   })
 
   it('treats 404 (nothing promoted yet) as a non-error succeeded:false with status', async () => {
@@ -112,8 +166,6 @@ describe('pullCertified', () => {
   })
 
   it('errors loudly when no apiKey is available', async () => {
-    // Stub the env so the test holds on machines/CI where TANGLE_API_KEY is set
-    // (resolveApiKey falls back to it when the passed key is empty).
     vi.stubEnv('TANGLE_API_KEY', '')
     try {
       const fetchImpl = (async () => jsonResponse({})) as unknown as typeof fetch
@@ -130,8 +182,6 @@ describe('pullCertified', () => {
   })
 
   it('fails closed when the plane hangs past timeoutMs', async () => {
-    // A fetch that rejects when its abort signal fires (what a hung request +
-    // AbortSignal.timeout produces) must surface as a typed fail-closed result.
     const fetchImpl = ((_url: string, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () =>
@@ -147,86 +197,6 @@ describe('pullCertified', () => {
     })
     expect(outcome.succeeded).toBe(false)
     if (!outcome.succeeded) expect(outcome.error).toMatch(/abort|fail/i)
-  })
-})
-
-describe('withCertifiedDelivery', () => {
-  it('delivers the certified profile to the agent and composes it into the prompt', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
-    let seenPrompt = ''
-    const agent = withCertifiedDelivery(
-      async (input: { q: string }, applied) => {
-        seenPrompt = applied.composePrompt('BASE SYSTEM PROMPT')
-        return `answer:${input.q}:v${applied.certified?.promptSurface?.version}`
-      },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
-    )
-    const out = await agent({ q: 'refund' })
-    expect(out).toBe('answer:refund:v4')
-    expect(seenPrompt).toContain('confirm the invoice id before refunding')
-    expect(seenPrompt).toContain('BASE SYSTEM PROMPT')
-  })
-
-  it('runs fail-closed on the base surface when the pull 404s (nothing promoted)', async () => {
-    const fetchImpl = vi.fn(
-      async () => new Response('', { status: 404 }),
-    ) as unknown as typeof fetch
-    let seenPrompt = ''
-    let seenCertified: unknown = 'unset'
-    const agent = withCertifiedDelivery(
-      async (_input: null, applied) => {
-        seenPrompt = applied.composePrompt('BASE')
-        seenCertified = applied.certified
-        return 'ok'
-      },
-      { project: 'p', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
-    )
-    expect(await agent(null)).toBe('ok')
-    expect(seenPrompt).toBe('BASE')
-    expect(seenCertified).toBeNull()
-  })
-
-  it('does not break the agent when Intelligence is unreachable', async () => {
-    const fetchImpl = vi.fn(async () => {
-      throw new Error('network down')
-    }) as unknown as typeof fetch
-    const agent = withCertifiedDelivery(async (input: number) => input * 2, {
-      project: 'p',
-      apiKey: 'k',
-      baseUrl: 'https://plane.test',
-      fetchImpl,
-    })
-    await expect(agent(21)).resolves.toBe(42)
-  })
-
-  it('caches the certified pull across calls within refreshMs (one pull, N runs)', async () => {
-    const calls = { n: 0 }
-    const fetchImpl = vi.fn(async () => {
-      calls.n += 1
-      return jsonResponse(CERTIFIED)
-    }) as unknown as typeof fetch
-    const agent = withCertifiedDelivery(async (_i: null, _a) => 'ok', {
-      project: 'support-agent',
-      apiKey: 'k',
-      baseUrl: 'https://plane.test',
-      refreshMs: 60_000,
-      fetchImpl,
-    })
-    await agent(null)
-    await agent(null)
-    await agent(null)
-    expect(calls.n).toBe(1)
-  })
-
-  it('propagates the agent error (delivery never swallows the live path)', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(CERTIFIED)) as unknown as typeof fetch
-    const agent = withCertifiedDelivery(
-      async (_i: null) => {
-        throw new Error('agent boom')
-      },
-      { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl },
-    )
-    await expect(agent(null)).rejects.toThrow('agent boom')
   })
 })
 
