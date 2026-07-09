@@ -104,6 +104,10 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           harness,
           cwd: worktreePath,
           taskPrompt: attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt,
+          // The candidate worktree is isolated and must be editable without an
+          // interactive permission prompt. Other runLocalHarness callers remain
+          // permission-safe by default.
+          dangerouslySkipPermissions: harness === 'claude',
           timeoutMs: opts.timeoutMs,
           signal,
         })

@@ -2813,13 +2813,30 @@ The byte-producing seam — the ONE thing that differs between the cheap
 
 Defined in: [improvement/improvement-driver.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L37)
 
+##### proposesWithoutFindings?
+
+> `optional` **proposesWithoutFindings?**: `boolean`
+
+Defined in: [improvement/improvement-driver.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L48)
+
+Whether this generator can produce a candidate from an EMPTY findings set
+ and no phase-2 report — i.e. it draws its change signal from the repo and
+ the raw-trace filesystem context on disk, not only from pre-summarized
+ findings. An agentic coder (`agenticGenerator`) sets this: the seed repo +
+ raw traces ARE the signal, so it must still run the full `populationSize`
+ when the distiller yielded nothing (this is the meta-harness contract — the
+ agent diagnoses from the raw traces itself). A patch-applier
+ (`reflectiveGenerator`) leaves it unset — with no findings there is no
+ patch to draft, so the driver short-circuits rather than spin up worktrees
+ for a guaranteed no-op. Default `false`.
+
 #### Methods
 
 ##### generate()
 
 > **generate**(`args`): `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; \}\>
 
-Defined in: [improvement/improvement-driver.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L38)
+Defined in: [improvement/improvement-driver.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L49)
 
 ###### Parameters
 
@@ -2868,7 +2885,7 @@ DEPTH: max iterations the generator may take (agentic uses this; the
 
 ### ImprovementDriverOptions
 
-Defined in: [improvement/improvement-driver.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L54)
+Defined in: [improvement/improvement-driver.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L65)
 
 #### Properties
 
@@ -2876,19 +2893,19 @@ Defined in: [improvement/improvement-driver.ts:54](https://github.com/tangle-net
 
 > **worktree**: `WorktreeAdapter`
 
-Defined in: [improvement/improvement-driver.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L55)
+Defined in: [improvement/improvement-driver.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L66)
 
 ##### generator
 
 > **generator**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improvement-driver.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L56)
+Defined in: [improvement/improvement-driver.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L67)
 
 ##### baseRef?
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improvement-driver.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L58)
+Defined in: [improvement/improvement-driver.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L69)
 
 Base ref candidate worktrees fork from. Default `main`.
 
@@ -8460,7 +8477,7 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L237)
+Defined in: [improvement/agentic-generator.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L247)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
@@ -8585,7 +8602,7 @@ Optimize the system prompt, default holdout gate:
 
 > **improvementDriver**(`opts`): `SurfaceProposer`\<`AnalystFinding`\>
 
-Defined in: [improvement/improvement-driver.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L62)
+Defined in: [improvement/improvement-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L73)
 
 The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`.
 
