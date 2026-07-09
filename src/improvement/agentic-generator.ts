@@ -85,6 +85,12 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
 
   return {
     kind: `agentic:${harness}`,
+    // The seed repo + (in rawTraceContext mode) the raw-trace filesystem context
+    // are the change signal — an agentic coder proposes from them even when the
+    // distiller yielded zero findings. Without this, the improvementDriver's
+    // empty-findings guard short-circuits and generates ZERO candidates on the
+    // first (and, for a single-generation run, only) proposal round.
+    proposesWithoutFindings: true,
     async generate({ worktreePath, report, findings, maxShots, signal }) {
       const basePrompt = buildPrompt({ report, findings })
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)

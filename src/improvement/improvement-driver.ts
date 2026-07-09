@@ -35,6 +35,17 @@ import type {
  *  adapter's `finalize`. */
 export interface CandidateGenerator {
   kind: string
+  /** Whether this generator can produce a candidate from an EMPTY findings set
+   *  and no phase-2 report — i.e. it draws its change signal from the repo and
+   *  the raw-trace filesystem context on disk, not only from pre-summarized
+   *  findings. An agentic coder (`agenticGenerator`) sets this: the seed repo +
+   *  raw traces ARE the signal, so it must still run the full `populationSize`
+   *  when the distiller yielded nothing (this is the meta-harness contract — the
+   *  agent diagnoses from the raw traces itself). A patch-applier
+   *  (`reflectiveGenerator`) leaves it unset — with no findings there is no
+   *  patch to draft, so the driver short-circuits rather than spin up worktrees
+   *  for a guaranteed no-op. Default `false`. */
+  proposesWithoutFindings?: boolean
   generate(args: {
     /** The candidate worktree — a fresh checkout of baseRef. Write changes here. */
     worktreePath: string
@@ -66,8 +77,20 @@ export function improvementDriver(opts: ImprovementDriverOptions): SurfacePropos
     kind: `improvement:${opts.generator.kind}`,
     async propose(ctx: ProposeContext<AnalystFinding>) {
       const findings = resolveFindings(ctx)
-      // No signal to act on — propose nothing rather than spin up worktrees.
-      if (findings.length === 0 && ctx.report === undefined) return []
+      // No findings AND no report AND a generator that can only act on findings
+      // (the reflective patch-applier) — propose nothing rather than spin up
+      // worktrees for a guaranteed no-op. An agentic coder draws its signal from
+      // the repo + raw traces on disk, so it opts in via `proposesWithoutFindings`
+      // and still runs the full populationSize even on an empty findings set —
+      // otherwise the FIRST generation (whose seed findings are empty and whose
+      // rawTraceDistiller has not run yet) would always generate ZERO candidates.
+      if (
+        findings.length === 0 &&
+        ctx.report === undefined &&
+        !opts.generator.proposesWithoutFindings
+      ) {
+        return []
+      }
 
       const surfaces: CodeSurface[] = []
       for (let i = 0; i < ctx.populationSize; i++) {
