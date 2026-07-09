@@ -35,10 +35,12 @@ try {
   if (
     typeof devDependencies?.['@types/node'] !== 'string' ||
     typeof devDependencies.typescript !== 'string' ||
+    typeof devDependencies.tsx !== 'string' ||
     !devDependencies['@types/node'] ||
-    !devDependencies.typescript
+    !devDependencies.typescript ||
+    !devDependencies.tsx
   ) {
-    throw new Error('package verification requires @types/node and typescript devDependencies')
+    throw new Error('package verification requires @types/node, typescript, and tsx devDependencies')
   }
   const publicTsconfig = JSON.parse(await readFile(path.join(benchDir, 'tsconfig.public.json'), 'utf8'))
   if (!publicTsconfig.compilerOptions) throw new Error('tsconfig.public.json must define compilerOptions')
@@ -54,6 +56,7 @@ try {
         devDependencies: {
           '@types/node': devDependencies['@types/node'],
           typescript: devDependencies.typescript,
+          tsx: devDependencies.tsx,
         },
       },
       null,
@@ -76,8 +79,11 @@ try {
     )}\n`,
   )
 
+  // Intentionally resolve the declared ranges like a brand-new registry consumer.
+  // The preceding frozen install + public typecheck cover the exact bench lockfile.
   await run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumerDir)
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
+  await run('npm', ['exec', '--', 'tsx', 'index.ts'], consumerDir)
   let runtimeManifest
   try {
     runtimeManifest = JSON.parse(

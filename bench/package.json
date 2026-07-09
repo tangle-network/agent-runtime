@@ -16,7 +16,7 @@
     "run-benchmarks": "tsx src/run-benchmarks-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "terminal-compare": "tsx src/terminal-compare.ts",
-    "test": "TSX_TSCONFIG_PATH=tsconfig.public.json node --test --import tsx src/benchmarks/appworld.test.mts src/benchmarks/external-adapters.test.mts src/benchmarks/rag-benchmarks.test.mts src/corpus.test.mts src/gate.test.mts src/refine-loop.test.mts src/run-benchmarks.test.mts src/selector.test.mts",
+    "test": "node scripts/run-package-tests.mjs",
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "node scripts/verify-packed-consumer.mjs"
   },
