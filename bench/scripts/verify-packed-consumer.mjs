@@ -49,7 +49,7 @@ try {
   )
   await writeFile(
     path.join(consumerDir, 'index.ts'),
-    "import { resolveAdapter, type BenchmarkAdapter } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nvoid adapter\n",
+    "import { resolveAdapter, runBenchmarks, type BenchmarkAdapter } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nvoid adapter\nvoid runBenchmarks\n",
   )
   await writeFile(
     path.join(consumerDir, 'tsconfig.json'),
