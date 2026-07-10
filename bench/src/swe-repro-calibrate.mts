@@ -69,8 +69,12 @@ interface Completion {
 
 async function complete(messages: ChatMsg[]): Promise<Completion> {
   let lastErr = ''
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
-    if (attempt > 1) await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt))
+  // zai 429s arrive in sustained bursts (measured: 4 attempts over 56s of backoff lost 5/23
+  // instances at the tail of a conc-3 run), so rate-limit retries climb a much longer ladder
+  // (30s → 60s → 120s → 240s cap) than transient-error retries do.
+  let delayBase = 2_000
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    if (attempt > 1) await new Promise((r) => setTimeout(r, Math.min(delayBase * 2 ** (attempt - 2), 240_000)))
     const ctl = new AbortController()
     const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS)
     try {
@@ -82,6 +86,7 @@ async function complete(messages: ChatMsg[]): Promise<Completion> {
       })
       if (!res.ok) {
         lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
+        delayBase = res.status === 429 ? 30_000 : 2_000
         continue
       }
       const d = (await res.json()) as {
