@@ -208,7 +208,11 @@ function asReadRequests(block: string): string[] | null {
 }
 
 function extractScript(text: string): string | null {
-  const fences = [...text.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
+  // Collapse a doubled fence OPENER (observed live: "```python\n```python\nimport os…" — the
+  // non-greedy fence match otherwise captures the empty span between the two openers and a
+  // complete script is thrown away as authoring-failed).
+  const cleaned = text.replace(/```(?:python|py)?[ \t]*\n(?=```(?:python|py)?[ \t]*\n)/g, '')
+  const fences = [...cleaned.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
   const last = fences.at(-1)?.[1]?.trim()
   if (!last || asReadRequests(last)) return null
   return last
