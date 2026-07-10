@@ -30,6 +30,16 @@ import { promisify } from 'node:util'
 import type { AgenticTask, ArtifactHandle } from '@tangle-network/agent-runtime/loops'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata } from './swe-bench-env'
+import {
+  APPLY_SENTINEL,
+  cachedInstanceIds,
+  IMPORT_NAME,
+  importCanaryScript,
+  type JailRun,
+  runPyInJail,
+  tail,
+  zaiChatRaw,
+} from './swe-jail'
 
 const exec = promisify(execFile)
 
@@ -57,8 +67,8 @@ if (EXEC !== 'mount' && EXEC !== 'image') throw new Error(`REPRO_EXEC must be mo
  *  into the patched tree) across all instances with ZERO model calls. */
 const CANARY_ONLY = process.env.CANARY_ONLY === '1'
 
-// ---------- model client (plain fetch; retries transient HTTP AND empty content — the glm
-// reasoning path starves `content` when reasoning eats max_tokens; supervisor-arena pattern) ----------
+// ---------- model client (swe-jail's zaiChatRaw: patient 429 ladder + empty-content retry —
+// the glm reasoning path starves `content` when reasoning eats max_tokens) ----------
 
 interface ChatMsg {
   role: 'system' | 'user' | 'assistant'
@@ -73,114 +83,20 @@ interface Completion {
 }
 
 async function complete(messages: ChatMsg[]): Promise<Completion> {
-  let lastErr = ''
-  // zai 429s arrive in sustained bursts (measured: an overnight code-1305 storm zeroed 6/23
-  // instances even on the 30s ladder), so rate-limit retries climb a much longer ladder
-  // (60s → 120s → 240s cap) than transient-error retries do.
-  let delayBase = 2_000
-  for (let attempt = 1; attempt <= 7; attempt += 1) {
-    if (attempt > 1) await new Promise((r) => setTimeout(r, Math.min(delayBase * 2 ** (attempt - 2), 240_000)))
-    const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS)
-    try {
-      const res = await fetch(`${ZAI_BASE}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${ZAI_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, max_tokens: MAX_TOKENS, temperature: TEMP, messages }),
-        signal: ctl.signal,
-      })
-      if (!res.ok) {
-        lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-        delayBase = res.status === 429 ? 60_000 : 2_000
-        continue
-      }
-      const d = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
-      }
-      const content = d.choices?.[0]?.message?.content ?? ''
-      if (content.trim() === '') {
-        lastErr = 'empty content'
-        continue
-      }
-      return { content, attempts: attempt, tokensIn: d.usage?.prompt_tokens ?? 0, tokensOut: d.usage?.completion_tokens ?? 0 }
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e)
-    } finally {
-      clearTimeout(timer)
-    }
+  const { json, attempts } = await zaiChatRaw(
+    { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS },
+    { model: MODEL, max_tokens: MAX_TOKENS, temperature: TEMP, messages },
+  )
+  const d = json as {
+    choices?: Array<{ message?: { content?: string } }>
+    usage?: { prompt_tokens?: number; completion_tokens?: number }
   }
-  throw new Error(`completion failed after retries: ${lastErr}`)
-}
-
-// ---------- jailed repro execution (byte-copies the swe-bench-env `run` tool invocation:
-// conda testbed, cwd=/testbed, tree mounted :ro, --network none, dual timeout) ----------
-
-interface JailRun {
-  code: number
-  out: string
-  timedOut: boolean
-  infraError?: string
-}
-
-let runSeq = 0
-
-/** `treeDir === null` ⇒ run against the image's OWN built /testbed (the `image` substrate); a string
- *  ⇒ mount that host tree :ro over /testbed (the `mount` substrate — the run tool's exact pattern).
- *  `applyPatch` (image-substrate soundness) applies a patch to the container's writable layer before
- *  running; --rm discards it, so every run still starts from the pristine image. */
-async function runPyInJail(imageTag: string, treeDir: string | null, pyScript: string, applyPatch?: string): Promise<JailRun> {
-  const scriptDir = mkdtempSync(join(tmpdir(), 'swe-repro-'))
-  writeFileSync(join(scriptDir, 'repro.py'), pyScript)
-  if (applyPatch) writeFileSync(join(scriptDir, 'gold.patch'), applyPatch.endsWith('\n') ? applyPatch : `${applyPatch}\n`)
-  const T = REPRO_TIMEOUT_S
-  const containerName = `swe-repro-${process.pid}-${Date.now()}-${runSeq++}`
-  // Identical shape to swe-bench-env's run tool; the command is the fixed `python /repro/repro.py`,
-  // so no SWE_CMD env ride-along is needed. The script rides in on a SECOND :ro mount.
-  // PYTHONPATH=/testbed is LOAD-BEARING: `python /repro/repro.py` puts /repro (the script's dir), not
-  // the cwd, at sys.path[0], so without it `import <pkg>` resolves to the image's baked-in install —
-  // the UNPATCHED code — and the gold-patched mount is never exercised (verified on psf__requests-1142:
-  // post-gold run kept failing until PYTHONPATH pinned the mounted tree). The run tool never hits this
-  // because `python -c`/`python -m` put the cwd on sys.path.
-  // The __GOLD_APPLIED__ sentinel unambiguously separates "patch failed to apply" (no sentinel, git's
-  // error in the output) from "patched code still fails" (sentinel present, script's own nonzero exit).
-  const shell =
-    '{ source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /testbed && ' +
-    (applyPatch ? 'git apply --whitespace=nowarn /repro/gold.patch && echo __GOLD_APPLIED__ && ' : '') +
-    'timeout -s KILL "$SWE_T"s env PYTHONPATH=/testbed python /repro/repro.py; } 2>&1'
-  const dockerArgs = [
-    'run', '--rm', '--name', containerName, '--network', 'none',
-    ...(treeDir ? ['-v', `${treeDir}:/testbed:ro`] : []),
-    '-v', `${scriptDir}:/repro:ro`, '-w', '/testbed',
-    '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', `SWE_T=${T}`,
-    imageTag, 'bash', '-lc', shell,
-  ]
-  let code = 0
-  let out = ''
-  try {
-    const r = await exec('docker', dockerArgs, { timeout: (T + 20) * 1000, killSignal: 'SIGKILL', maxBuffer: 20_000_000 })
-    out = r.stdout
-  } catch (e) {
-    const err = e as { code?: number; killed?: boolean; stdout?: string; message?: string }
-    if (typeof err.code === 'number') {
-      code = err.code
-      out = err.stdout ?? ''
-    } else {
-      exec('docker', ['rm', '-f', containerName], { timeout: 20_000 }).catch(() => {})
-      if (err.killed) {
-        code = 124
-        out = `${err.stdout ?? ''}\n[host timeout: docker run exceeded ${T + 20}s and was killed]`
-      } else {
-        return { code: -1, out: '', timedOut: false, infraError: `run failed to execute (${String(err.message ?? e).slice(0, 200)})` }
-      }
-    }
-  } finally {
-    rmSync(scriptDir, { recursive: true, force: true })
+  return {
+    content: d.choices?.[0]?.message?.content ?? '',
+    attempts,
+    tokensIn: d.usage?.prompt_tokens ?? 0,
+    tokensOut: d.usage?.completion_tokens ?? 0,
   }
-  if (code === 125 || /Cannot connect to the Docker daemon/i.test(out)) {
-    return { code, out, timedOut: false, infraError: `docker: ${out.slice(0, 300)}` }
-  }
-  return { code, out, timedOut: code === 124 || code === 137 }
 }
 
 // ---------- authoring protocol (one optional read round, plain-text READ: lines) ----------
@@ -225,27 +141,6 @@ function extractScript(text: string): string | null {
 
 function extractReads(text: string): string[] {
   return [...text.matchAll(/^READ:\s*(\S+)\s*$/gm)].map((m) => m[1]).slice(0, 3)
-}
-
-const tail = (s: string, n: number): string => (s.length > n ? `…${s.slice(s.length - n)}` : s)
-
-/** Import name of the repo's primary package, used by the per-instance EXECUTION CANARY. The canary
- *  decides whether this substrate can grade this instance AT ALL: with the gold patch applied to the
- *  tree under test, `import <pkg>` must succeed AND resolve INTO that tree (/testbed — not the image's
- *  site-packages install, which never receives the patch). A canary failure means any grade produced
- *  here measures the harness, not the model, so the instance is marked env-unresolvable before a
- *  single model call is spent. Never shown to the model. */
-const IMPORT_NAME: Record<string, string> = {
-  'astropy/astropy': 'astropy',
-  'django/django': 'django',
-  'matplotlib/matplotlib': 'matplotlib',
-  'pallets/flask': 'flask',
-  'psf/requests': 'requests',
-  'pylint-dev/pylint': 'pylint',
-  'pytest-dev/pytest': 'pytest',
-  'scikit-learn/scikit-learn': 'sklearn',
-  'sphinx-doc/sphinx': 'sphinx',
-  'sympy/sympy': 'sympy',
 }
 
 // ---------- per-instance row ----------
@@ -357,17 +252,15 @@ async function calibrateInstance(
     // would grade code the patch never reaches — the instance is env-unresolvable in this mode.
     const pkg = IMPORT_NAME[md.repo]
     if (pkg) {
-      const canaryScript =
-        `import sys\nimport ${pkg}\nf = getattr(${pkg}, '__file__', '') or ''\nprint(f)\n` +
-        "sys.exit(0 if f.startswith('/testbed') else 3)\n"
+      const canaryScript = importCanaryScript(pkg)
       const c = EXEC === 'image'
-        ? await runPyInJail(img.tag, null, canaryScript, gold)
-        : await runPyInJail(img.tag, patchedDir, canaryScript)
+        ? await runPyInJail(img.tag, null, canaryScript, gold, { timeoutS: REPRO_TIMEOUT_S })
+        : await runPyInJail(img.tag, patchedDir, canaryScript, undefined, { timeoutS: REPRO_TIMEOUT_S })
       if (c.infraError) throw new Error(c.infraError)
       row.canaryExit = c.code
       row.canaryOut = tail(c.out, 200)
       if (EXEC === 'image') {
-        row.goldApplyOk = c.out.includes('__GOLD_APPLIED__')
+        row.goldApplyOk = c.out.includes(APPLY_SENTINEL)
         if (!row.goldApplyOk) {
           row.autoClass = 'gold-apply-failed'
           row.error = `gold patch failed to apply in-container: ${tail(c.out, 200)}`
@@ -445,7 +338,7 @@ async function calibrateInstance(
     row.script = script
 
     // 4. VALIDITY: the script must indicate bug-present (nonzero, non-timeout) on the UNPATCHED tree.
-    let pre = await runPyInJail(img.tag, execTree, script)
+    let pre = await runPyInJail(img.tag, execTree, script, undefined, { timeoutS: REPRO_TIMEOUT_S })
     if (pre.infraError) throw new Error(pre.infraError)
     row.preExitFirst = pre.code
     let detected = pre.code !== 0 && !pre.timedOut
@@ -463,7 +356,7 @@ async function calibrateInstance(
       if (script2) {
         script = script2
         row.script = script2
-        pre = await runPyInJail(img.tag, execTree, script2)
+        pre = await runPyInJail(img.tag, execTree, script2, undefined, { timeoutS: REPRO_TIMEOUT_S })
         if (pre.infraError) throw new Error(pre.infraError)
         detected = pre.code !== 0 && !pre.timedOut
       }
@@ -481,9 +374,9 @@ async function calibrateInstance(
     if (EXEC === 'image') {
       // Gold applied in-container to the image's built /testbed; a failed apply surfaces as exit≠0
       // with git's message in the output.
-      post = await runPyInJail(img.tag, null, script, gold)
+      post = await runPyInJail(img.tag, null, script, gold, { timeoutS: REPRO_TIMEOUT_S })
       if (post.infraError) throw new Error(post.infraError)
-      row.goldApplyOk = post.out.includes('__GOLD_APPLIED__')
+      row.goldApplyOk = post.out.includes(APPLY_SENTINEL)
       if (!row.goldApplyOk) {
         row.autoClass = 'gold-apply-failed'
         row.error = `gold patch failed to apply in-container: ${tail(post.out, 200)}`
@@ -491,7 +384,7 @@ async function calibrateInstance(
       }
     } else {
       // Mount substrate: gold was already applied host-side to the canary-verified copy up front.
-      post = await runPyInJail(img.tag, patchedDir as string, script)
+      post = await runPyInJail(img.tag, patchedDir as string, script, undefined, { timeoutS: REPRO_TIMEOUT_S })
       if (post.infraError) throw new Error(post.infraError)
     }
     row.postExit = post.code
@@ -515,18 +408,6 @@ async function calibrateInstance(
 }
 
 // ---------- driver ----------
-
-/** The 23-instance backbone: every instance whose swebench eval image is cached locally.
- *  Tag → id mapping inverts make_test_spec's `__` → `_1776_` name mangling. */
-async function cachedInstanceIds(): Promise<string[]> {
-  const { stdout } = await exec('docker', ['images', '--format', '{{.Repository}}'], { timeout: 30_000 })
-  const ids = new Set<string>()
-  for (const line of stdout.split('\n')) {
-    const m = /(?:^|\/)sweb\.eval\.x86_64\.(.+)$/.exec(line.trim())
-    if (m) ids.add(m[1].replace('_1776_', '__'))
-  }
-  return [...ids].sort()
-}
 
 async function main(): Promise<void> {
   if (!ZAI_KEY && !CANARY_ONLY) throw new Error('ZAI_API_KEY required (run under dotenvx: agent-state.env)')

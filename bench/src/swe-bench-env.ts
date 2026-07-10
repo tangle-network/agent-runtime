@@ -13,7 +13,7 @@
  * memorization. Always report this; never claim a "clean" frontier number from this arena alone.
  */
 import { execFile } from 'node:child_process'
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -169,7 +169,7 @@ async function resolveInstanceImage(ws: Ws): Promise<{ ok: true; tag: string } |
  *  [trainN+off,…) never overlap. Verified is loaded once; instances carry their repo/base_commit. */
 export async function createSweBenchEnvironment(
   poolN = 80,
-  opts: { ids?: readonly string[]; enableRun?: boolean } = {},
+  opts: { ids?: readonly string[]; enableRun?: boolean; cloneCache?: boolean } = {},
 ): Promise<{
   environment: AgenticSurface
   tasks: (offset: number, n: number) => Promise<AgenticTask[]>
@@ -187,6 +187,35 @@ export async function createSweBenchEnvironment(
   const byId = new Map(pool.map((t) => [t.id, t]))
   // Each environment owns its workspace registry so concurrent environments don't share state.
   const workspaces = new Map<string, Ws>()
+  // Opt-in per-instance clone cache: `open()` clones each instance from GitHub ONCE into a pristine
+  // dir and serves every subsequent open from a local copy. For drivers that open many workspaces
+  // per instance (k-candidate sampling + repair rounds), this removes the 6×-per-instance network
+  // dependency mid-run — a clone flake at hour 6 becomes impossible instead of fatal. Default OFF:
+  // the single-open paths (baseline runs, calibrator) keep their byte-identical behavior.
+  const cloneCache = opts.cloneCache ?? false
+  const pristine = new Map<string, Promise<string>>()
+  const clonedAt = async (md: Record<string, string>, dir: string): Promise<void> => {
+    await exec('git', ['clone', '--filter=blob:none', '--no-checkout', '--quiet', `https://github.com/${md.repo}.git`, dir], { timeout: 420_000 })
+    await exec('git', ['-C', dir, 'checkout', '--quiet', md.base_commit], { timeout: 300_000 })
+  }
+  const pristineClone = (id: string, md: Record<string, string>): Promise<string> => {
+    let p = pristine.get(id)
+    if (!p) {
+      p = (async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'swe-cache-'))
+        try {
+          await clonedAt(md, dir)
+          return dir
+        } catch (error) {
+          rmSync(dir, { recursive: true, force: true })
+          pristine.delete(id) // a failed clone must not poison every later open of this instance
+          throw error
+        }
+      })()
+      pristine.set(id, p)
+    }
+    return p
+  }
 
   const environment: AgenticSurface = {
     name: 'swe-bench-verified',
@@ -196,8 +225,11 @@ export async function createSweBenchEnvironment(
       const md = bt.metadata as Record<string, string>
       const dir = mkdtempSync(join(tmpdir(), 'swe-'))
       try {
-        await exec('git', ['clone', '--filter=blob:none', '--no-checkout', '--quiet', `https://github.com/${md.repo}.git`, dir], { timeout: 420_000 })
-        await exec('git', ['-C', dir, 'checkout', '--quiet', md.base_commit], { timeout: 300_000 })
+        if (cloneCache) {
+          cpSync(await pristineClone(task.id, md), dir, { recursive: true })
+        } else {
+          await clonedAt(md, dir)
+        }
         const handle: ArtifactHandle = { id: dir, surface: 'swe-bench-verified' }
         workspaces.set(dir, { dir, task: bt })
         return handle
