@@ -16,9 +16,11 @@
  *   cd ~/company/devops/secrets && dotenvx run -f agent-state.env -f tangle-router.env -- bash -c \
  *     'cd ~/code/agent-runtime-swe && OUT=/path/swe-stage0.jsonl node_modules/.bin/tsx bench/src/swe-repro-calibrate.mts'
  *
- * Env: ZAI_API_KEY (required), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, TEMP=0.2, CONC=3,
- *      REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list override, OUT=jsonl path,
- *      REPRO_EXEC=mount|image (execution substrate; see the constant below).
+ * Env: ZAI_API_KEY (required unless CANARY_ONLY), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, TEMP=0.2,
+ *      CONC=3, REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list override, OUT=jsonl path,
+ *      REPRO_EXEC=mount|image (execution substrate; see the constant below),
+ *      CANARY_ONLY=1 (run ONLY the per-instance execution canary — no model calls, no grading —
+ *      to decide which substrate is trustworthy per instance before spending on authoring).
  */
 import { execFile } from 'node:child_process'
 import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -51,6 +53,9 @@ const OUT = process.env.OUT ?? 'swe-stage0.jsonl'
  *  cannot avoid; the SAME scripts were all valid+sound under `image`. */
 const EXEC = process.env.REPRO_EXEC ?? 'mount'
 if (EXEC !== 'mount' && EXEC !== 'image') throw new Error(`REPRO_EXEC must be mount|image, got ${EXEC}`)
+/** Canary-only sweep: measure per-instance substrate trustworthiness (gold applied, import resolves
+ *  into the patched tree) across all instances with ZERO model calls. */
+const CANARY_ONLY = process.env.CANARY_ONLY === '1'
 
 // ---------- model client (plain fetch; retries transient HTTP AND empty content — the glm
 // reasoning path starves `content` when reasoning eats max_tokens; supervisor-arena pattern) ----------
@@ -69,11 +74,11 @@ interface Completion {
 
 async function complete(messages: ChatMsg[]): Promise<Completion> {
   let lastErr = ''
-  // zai 429s arrive in sustained bursts (measured: 4 attempts over 56s of backoff lost 5/23
-  // instances at the tail of a conc-3 run), so rate-limit retries climb a much longer ladder
-  // (30s → 60s → 120s → 240s cap) than transient-error retries do.
+  // zai 429s arrive in sustained bursts (measured: an overnight code-1305 storm zeroed 6/23
+  // instances even on the 30s ladder), so rate-limit retries climb a much longer ladder
+  // (60s → 120s → 240s cap) than transient-error retries do.
   let delayBase = 2_000
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
+  for (let attempt = 1; attempt <= 7; attempt += 1) {
     if (attempt > 1) await new Promise((r) => setTimeout(r, Math.min(delayBase * 2 ** (attempt - 2), 240_000)))
     const ctl = new AbortController()
     const timer = setTimeout(() => ctl.abort(), LLM_TIMEOUT_MS)
@@ -86,7 +91,7 @@ async function complete(messages: ChatMsg[]): Promise<Completion> {
       })
       if (!res.ok) {
         lastErr = `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`
-        delayBase = res.status === 429 ? 30_000 : 2_000
+        delayBase = res.status === 429 ? 60_000 : 2_000
         continue
       }
       const d = (await res.json()) as {
@@ -224,9 +229,12 @@ function extractReads(text: string): string[] {
 
 const tail = (s: string, n: number): string => (s.length > n ? `…${s.slice(s.length - n)}` : s)
 
-/** Import name of the repo's primary package — a pure DIAGNOSTIC canary that separates "model wrote
- *  a bad script" from "this substrate cannot import the package from the RO clone mount" (compiled
- *  extensions live in the image's own /testbed, which the mount shadows). Never shown to the model. */
+/** Import name of the repo's primary package, used by the per-instance EXECUTION CANARY. The canary
+ *  decides whether this substrate can grade this instance AT ALL: with the gold patch applied to the
+ *  tree under test, `import <pkg>` must succeed AND resolve INTO that tree (/testbed — not the image's
+ *  site-packages install, which never receives the patch). A canary failure means any grade produced
+ *  here measures the harness, not the model, so the instance is marked env-unresolvable before a
+ *  single model call is spent. Never shown to the model. */
 const IMPORT_NAME: Record<string, string> = {
   'astropy/astropy': 'astropy',
   'django/django': 'django',
@@ -250,6 +258,9 @@ interface Row {
   imagePresent: boolean
   canaryExit: number | null
   canaryOut: string
+  /** true = gold applied AND import resolved into the patched tree; false = this substrate cannot
+   *  grade this instance; null = repo not in IMPORT_NAME (canary not applicable). */
+  canaryPass: boolean | null
   readsRequested: string[]
   authorCalls: number
   retryUsed: boolean
@@ -279,7 +290,7 @@ async function calibrateInstance(
   const id = bt.id
   const row: Row = {
     instanceId: id, repo: '', execMode: EXEC, image: null, imagePresent: false, canaryExit: null, canaryOut: '',
-    readsRequested: [], authorCalls: 0, retryUsed: false, preExitFirst: null, preExitFinal: null,
+    canaryPass: null, readsRequested: [], authorCalls: 0, retryUsed: false, preExitFirst: null, preExitFinal: null,
     preOut: '', valid: false, goldApplyOk: null, postExit: null, postOut: '', sound: false,
     validAndSound: false, autoClass: 'infra-error', script: null, scriptFirst: null,
     tokensIn: 0, tokensOut: 0, wallMs: 0,
@@ -304,20 +315,77 @@ async function calibrateInstance(
     row.imagePresent = true
 
     // 2. Open the environment: host clone at base_commit. The `mount` substrate jails against this
-    // tree :ro; the `image` substrate uses it only for list_files/read_file during authoring.
-    const h = await env.environment.open({ id, systemPrompt: '', userPrompt: '', meta: {} } as AgenticTask)
-    handle = h
-    const treeDir = h.id
+    // tree :ro; the `image` substrate uses it only for list_files/read_file during authoring — so a
+    // canary-only image sweep skips the clone (and its network cost) entirely.
+    let treeDir: string | null = null
+    if (EXEC === 'mount' || !CANARY_ONLY) {
+      const h = await env.environment.open({ id, systemPrompt: '', userPrompt: '', meta: {} } as AgenticTask)
+      handle = h
+      treeDir = h.id
+    }
     const execTree = EXEC === 'image' ? null : treeDir
 
-    // Diagnostic canary: can the package be imported on the execution substrate, and does the import
-    // actually resolve INTO /testbed (vs the image's baked-in site-packages install)?
+    // Mount substrate: apply the gold patch host-side to a COPY of the tree UP FRONT — the canary
+    // must observe the tree exactly as the soundness run will mount it. A failed apply is terminal
+    // before any model call is spent.
+    if (EXEC === 'mount') {
+      patchedDir = mkdtempSync(join(tmpdir(), 'swe-gold-'))
+      cpSync(treeDir as string, patchedDir, { recursive: true })
+      const goldFile = join(patchedDir, '.swe-gold.patch')
+      writeFileSync(goldFile, gold.endsWith('\n') ? gold : `${gold}\n`)
+      try {
+        await exec('git', ['-C', patchedDir, 'apply', '--whitespace=nowarn', goldFile], { timeout: 60_000 })
+        row.goldApplyOk = true
+      } catch {
+        // Official-harness fallback: GNU patch with fuzz.
+        try {
+          await exec('patch', ['-p1', '--fuzz=5', '-i', goldFile], { cwd: patchedDir, timeout: 60_000 })
+          row.goldApplyOk = true
+        } catch (e2) {
+          row.goldApplyOk = false
+          row.autoClass = 'gold-apply-failed'
+          row.error = `gold patch failed to apply: ${(e2 as Error).message.slice(0, 200)}`
+          return row
+        }
+      }
+      rmSync(goldFile, { force: true })
+    }
+
+    // EXECUTION CANARY (mode-deciding, zero model calls): with the gold patch applied to the tree
+    // under test, `import <pkg>` must succeed AND resolve INTO that tree. PYTHONPATH=/testbed is
+    // already pinned by runPyInJail, so a site-packages resolution here (exit 3) means this substrate
+    // would grade code the patch never reaches — the instance is env-unresolvable in this mode.
     const pkg = IMPORT_NAME[md.repo]
     if (pkg) {
-      const c = await runPyInJail(img.tag, execTree, `import ${pkg}\nprint(getattr(${pkg}, '__file__', '?'))`)
-      row.canaryExit = c.infraError ? -1 : c.code
+      const canaryScript =
+        `import sys\nimport ${pkg}\nf = getattr(${pkg}, '__file__', '') or ''\nprint(f)\n` +
+        "sys.exit(0 if f.startswith('/testbed') else 3)\n"
+      const c = EXEC === 'image'
+        ? await runPyInJail(img.tag, null, canaryScript, gold)
+        : await runPyInJail(img.tag, patchedDir, canaryScript)
+      if (c.infraError) throw new Error(c.infraError)
+      row.canaryExit = c.code
       row.canaryOut = tail(c.out, 200)
+      if (EXEC === 'image') {
+        row.goldApplyOk = c.out.includes('__GOLD_APPLIED__')
+        if (!row.goldApplyOk) {
+          row.autoClass = 'gold-apply-failed'
+          row.error = `gold patch failed to apply in-container: ${tail(c.out, 200)}`
+          return row
+        }
+      }
+      row.canaryPass = c.code === 0
+      if (!row.canaryPass) {
+        row.autoClass = 'env-unresolvable'
+        row.error = `canary: import ${pkg} did not resolve into the patched tree (exit ${c.code})`
+        return row
+      }
     }
+    if (CANARY_ONLY) {
+      row.autoClass = row.canaryPass === true ? 'canary-pass' : 'canary-unknown'
+      return row
+    }
+    const h = handle as ArtifactHandle
 
     // 3. Author the repro: issue text + top-level listing; ONE optional read round (≤3 files).
     const listing = String(await env.environment.call(h, 'list_files', { dir: '' })).slice(0, 5_000)
@@ -422,28 +490,8 @@ async function calibrateInstance(
         return row
       }
     } else {
-      // Host-side apply onto a COPY of the tree, mounted the same way the env mounts the original.
-      patchedDir = mkdtempSync(join(tmpdir(), 'swe-gold-'))
-      cpSync(treeDir, patchedDir, { recursive: true })
-      const goldFile = join(patchedDir, '.swe-gold.patch')
-      writeFileSync(goldFile, gold.endsWith('\n') ? gold : `${gold}\n`)
-      try {
-        await exec('git', ['-C', patchedDir, 'apply', '--whitespace=nowarn', goldFile], { timeout: 60_000 })
-        row.goldApplyOk = true
-      } catch {
-        // Official-harness fallback: GNU patch with fuzz.
-        try {
-          await exec('patch', ['-p1', '--fuzz=5', '-i', goldFile], { cwd: patchedDir, timeout: 60_000 })
-          row.goldApplyOk = true
-        } catch (e2) {
-          row.goldApplyOk = false
-          row.autoClass = 'gold-apply-failed'
-          row.error = `gold patch failed to apply: ${(e2 as Error).message.slice(0, 200)}`
-          return row
-        }
-      }
-      rmSync(goldFile, { force: true })
-      post = await runPyInJail(img.tag, patchedDir, script)
+      // Mount substrate: gold was already applied host-side to the canary-verified copy up front.
+      post = await runPyInJail(img.tag, patchedDir as string, script)
       if (post.infraError) throw new Error(post.infraError)
     }
     row.postExit = post.code
@@ -481,13 +529,13 @@ async function cachedInstanceIds(): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
-  if (!ZAI_KEY) throw new Error('ZAI_API_KEY required (run under dotenvx: agent-state.env)')
+  if (!ZAI_KEY && !CANARY_ONLY) throw new Error('ZAI_API_KEY required (run under dotenvx: agent-state.env)')
   const ids = process.env.IDS
     ? process.env.IDS.split(',').map((s) => s.trim()).filter(Boolean)
     : await cachedInstanceIds()
   if (!ids.length) throw new Error('no cached sweb.eval images found and no IDS given')
 
-  console.log('═══ SWE-bench Stage 0 — reproduction-oracle calibration ═══')
+  console.log(`═══ SWE-bench Stage 0 — ${CANARY_ONLY ? 'execution-canary sweep (no model calls)' : 'reproduction-oracle calibration'} ═══`)
   console.log(`model=${MODEL} base=${ZAI_BASE} maxTokens=${MAX_TOKENS} temp=${TEMP} conc=${CONC} reproTimeout=${REPRO_TIMEOUT_S}s exec=${EXEC}`)
   console.log(`instances (${ids.length}): ${ids.join(', ')}`)
   console.log(`out=${OUT}`)
@@ -529,18 +577,21 @@ async function main(): Promise<void> {
   console.log('\n══ per-instance ══')
   console.log('instance | class | canary | pre1 | preF | valid | goldApply | post | sound | retry | calls | tokIn/out | wall_s')
   for (const r of [...rows].sort((a, b) => a.instanceId.localeCompare(b.instanceId))) {
+    const canary = r.canaryPass === null ? `?(${r.canaryExit ?? '-'})` : r.canaryPass ? 'pass' : `FAIL(${r.canaryExit})`
     console.log(
-      `${r.instanceId} | ${r.autoClass} | ${r.canaryExit ?? '-'} | ${r.preExitFirst ?? '-'} | ${r.preExitFinal ?? '-'} | ` +
+      `${r.instanceId} | ${r.autoClass} | ${canary} | ${r.preExitFirst ?? '-'} | ${r.preExitFinal ?? '-'} | ` +
         `${r.valid ? 1 : 0} | ${r.goldApplyOk === null ? '-' : r.goldApplyOk ? 1 : 0} | ${r.postExit ?? '-'} | ${r.sound ? 1 : 0} | ` +
         `${r.retryUsed ? 1 : 0} | ${r.authorCalls} | ${r.tokensIn}/${r.tokensOut} | ${Math.round(r.wallMs / 1000)}`,
     )
   }
   console.log('\n══ summary ══')
-  console.log(`n=${n} imagePresent=${present} valid(bug detected pre-patch)=${valid} valid+sound=${sound} retryUsed=${retried}`)
+  console.log(`n=${n} imagePresent=${present} canaryPass=${rows.filter((r) => r.canaryPass === true).length} valid(bug detected pre-patch)=${valid} valid+sound=${sound} retryUsed=${retried}`)
   console.log(`failure modes: ${[...classes.entries()].map(([k, v]) => `${k}=${v}`).join('  ')}`)
-  const rate = n ? sound / n : 0
-  const pct = (100 * rate).toFixed(1)
-  console.log(`\nSTAGE-0 GATE (>=60% valid+sound): ${rate >= 0.6 ? 'PASS' : 'FAIL'} — ${sound}/${n} = ${pct}%`)
+  if (!CANARY_ONLY) {
+    const rate = n ? sound / n : 0
+    const pct = (100 * rate).toFixed(1)
+    console.log(`\nSTAGE-0 GATE (>=60% valid+sound): ${rate >= 0.6 ? 'PASS' : 'FAIL'} — ${sound}/${n} = ${pct}%`)
+  }
 }
 
 main().catch((e) => {
