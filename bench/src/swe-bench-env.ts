@@ -125,34 +125,43 @@ interface Ws {
   image?: { ok: true; tag: string } | { ok: false; reason: string }
 }
 
-/** Resolve (once per workspace, memoized) the locally-present Docker image the `run` tool executes in.
+/** Resolve the locally-present Docker image for an instance's METADATA row (no workspace needed).
  *  Asks swebench for the candidate tags, then picks the first that `docker image inspect` finds locally.
- *  Fail-closed: docker down / no cached image / resolver error → `{ ok:false }` so the tool degrades to
- *  an `ERROR:` string (agent falls back to read/edit-only) instead of crashing or triggering a huge pull. */
-async function resolveInstanceImage(ws: Ws): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
-  if (ws.image) return ws.image
+ *  Fail-closed: docker down / no cached image / resolver error → `{ ok:false }`. Exported so script-side
+ *  calibrators (swe-repro-calibrate) hard-assert image presence through the SAME resolution the `run`
+ *  tool uses instead of hand-building tags. */
+export async function resolveImageForMetadata(
+  metadata: Record<string, unknown>,
+): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
   let tags: string[]
   try {
-    const out = await runVenvPython(IMAGE_KEY_SCRIPT, [JSON.stringify(ws.task.metadata ?? {})], 60_000)
+    const out = await runVenvPython(IMAGE_KEY_SCRIPT, [JSON.stringify(metadata)], 60_000)
     const lastLine = out.trim().split('\n').filter(Boolean).pop() ?? '[]'
     tags = JSON.parse(lastLine) as string[]
   } catch (e) {
-    return (ws.image = { ok: false, reason: `image-key resolution failed: ${(e as Error).message.slice(0, 160)}` })
+    return { ok: false, reason: `image-key resolution failed: ${(e as Error).message.slice(0, 160)}` }
   }
-  if (!tags.length) return (ws.image = { ok: false, reason: 'swebench produced no image key for this instance' })
+  if (!tags.length) return { ok: false, reason: 'swebench produced no image key for this instance' }
   for (const tag of tags) {
     try {
       await exec('docker', ['image', 'inspect', tag], { timeout: 20_000 })
-      return (ws.image = { ok: true, tag })
+      return { ok: true, tag }
     } catch (e) {
       const m = (e as { stderr?: string }).stderr ?? (e as Error).message ?? ''
       if (/Cannot connect to the Docker daemon|Is the docker daemon running/i.test(m)) {
-        return (ws.image = { ok: false, reason: 'docker daemon unavailable' })
+        return { ok: false, reason: 'docker daemon unavailable' }
       }
       // otherwise: this tag is just not cached locally — try the next candidate
     }
   }
-  return (ws.image = { ok: false, reason: `no cached image (tried: ${tags.join(', ')})` })
+  return { ok: false, reason: `no cached image (tried: ${tags.join(', ')})` }
+}
+
+/** Per-workspace memoization of `resolveImageForMetadata` for the `run` tool (degrades to an
+ *  `ERROR:` string so the agent falls back to read/edit-only instead of crashing). */
+async function resolveInstanceImage(ws: Ws): Promise<{ ok: true; tag: string } | { ok: false; reason: string }> {
+  if (ws.image) return ws.image
+  return (ws.image = await resolveImageForMetadata(ws.task.metadata ?? {}))
 }
 
 /** Build the SWE-bench Environment + a DISJOINT-slice task supplier over the Verified split. The
