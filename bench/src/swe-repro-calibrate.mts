@@ -17,7 +17,8 @@
  *     'cd ~/code/agent-runtime-swe && OUT=/path/swe-stage0.jsonl node_modules/.bin/tsx bench/src/swe-repro-calibrate.mts'
  *
  * Env: ZAI_API_KEY (required), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, TEMP=0.2, CONC=3,
- *      REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list override, OUT=jsonl path.
+ *      REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000, IDS=comma-list override, OUT=jsonl path,
+ *      REPRO_EXEC=mount|image (execution substrate; see the constant below).
  */
 import { execFile } from 'node:child_process'
 import { appendFileSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -42,6 +43,14 @@ const CONC = Math.max(1, Math.min(3, Number(process.env.CONC ?? 3)))
 const REPRO_TIMEOUT_S = Number(process.env.REPRO_TIMEOUT ?? 120)
 const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 480_000)
 const OUT = process.env.OUT ?? 'swe-stage0.jsonl'
+/** Repro EXECUTION substrate. `mount` (the prereg default) mounts the fresh host clone :ro over
+ *  /testbed — the run tool's exact pattern. `image` executes against the image's OWN /testbed
+ *  (base_commit, BUILT — compiled extensions and generated version files present), applying the
+ *  gold patch in-container instead of host-side. Measured on the 23 cached instances: `mount`
+ *  kills 6 (astropy×2/matplotlib/sklearn×2/pytest) with import errors a fresh un-built clone
+ *  cannot avoid; the SAME scripts were all valid+sound under `image`. */
+const EXEC = process.env.REPRO_EXEC ?? 'mount'
+if (EXEC !== 'mount' && EXEC !== 'image') throw new Error(`REPRO_EXEC must be mount|image, got ${EXEC}`)
 
 // ---------- model client (plain fetch; retries transient HTTP AND empty content — the glm
 // reasoning path starves `content` when reasoning eats max_tokens; supervisor-arena pattern) ----------
@@ -106,9 +115,14 @@ interface JailRun {
 
 let runSeq = 0
 
-async function runPyInJail(imageTag: string, treeDir: string, pyScript: string): Promise<JailRun> {
+/** `treeDir === null` ⇒ run against the image's OWN built /testbed (the `image` substrate); a string
+ *  ⇒ mount that host tree :ro over /testbed (the `mount` substrate — the run tool's exact pattern).
+ *  `applyPatch` (image-substrate soundness) applies a patch to the container's writable layer before
+ *  running; --rm discards it, so every run still starts from the pristine image. */
+async function runPyInJail(imageTag: string, treeDir: string | null, pyScript: string, applyPatch?: string): Promise<JailRun> {
   const scriptDir = mkdtempSync(join(tmpdir(), 'swe-repro-'))
   writeFileSync(join(scriptDir, 'repro.py'), pyScript)
+  if (applyPatch) writeFileSync(join(scriptDir, 'gold.patch'), applyPatch.endsWith('\n') ? applyPatch : `${applyPatch}\n`)
   const T = REPRO_TIMEOUT_S
   const containerName = `swe-repro-${process.pid}-${Date.now()}-${runSeq++}`
   // Identical shape to swe-bench-env's run tool; the command is the fixed `python /repro/repro.py`,
@@ -118,12 +132,16 @@ async function runPyInJail(imageTag: string, treeDir: string, pyScript: string):
   // the UNPATCHED code — and the gold-patched mount is never exercised (verified on psf__requests-1142:
   // post-gold run kept failing until PYTHONPATH pinned the mounted tree). The run tool never hits this
   // because `python -c`/`python -m` put the cwd on sys.path.
+  // The __GOLD_APPLIED__ sentinel unambiguously separates "patch failed to apply" (no sentinel, git's
+  // error in the output) from "patched code still fails" (sentinel present, script's own nonzero exit).
   const shell =
     '{ source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && cd /testbed && ' +
+    (applyPatch ? 'git apply --whitespace=nowarn /repro/gold.patch && echo __GOLD_APPLIED__ && ' : '') +
     'timeout -s KILL "$SWE_T"s env PYTHONPATH=/testbed python /repro/repro.py; } 2>&1'
   const dockerArgs = [
     'run', '--rm', '--name', containerName, '--network', 'none',
-    '-v', `${treeDir}:/testbed:ro`, '-v', `${scriptDir}:/repro:ro`, '-w', '/testbed',
+    ...(treeDir ? ['-v', `${treeDir}:/testbed:ro`] : []),
+    '-v', `${scriptDir}:/repro:ro`, '-w', '/testbed',
     '-e', 'PYTHONDONTWRITEBYTECODE=1', '-e', `SWE_T=${T}`,
     imageTag, 'bash', '-lc', shell,
   ]
@@ -218,6 +236,7 @@ const IMPORT_NAME: Record<string, string> = {
 interface Row {
   instanceId: string
   repo: string
+  execMode: string
   image: string | null
   imagePresent: boolean
   canaryExit: number | null
@@ -250,7 +269,7 @@ async function calibrateInstance(
   const t0 = Date.now()
   const id = bt.id
   const row: Row = {
-    instanceId: id, repo: '', image: null, imagePresent: false, canaryExit: null, canaryOut: '',
+    instanceId: id, repo: '', execMode: EXEC, image: null, imagePresent: false, canaryExit: null, canaryOut: '',
     readsRequested: [], authorCalls: 0, retryUsed: false, preExitFirst: null, preExitFinal: null,
     preOut: '', valid: false, goldApplyOk: null, postExit: null, postOut: '', sound: false,
     validAndSound: false, autoClass: 'infra-error', script: null, scriptFirst: null,
@@ -275,16 +294,18 @@ async function calibrateInstance(
     row.image = img.tag
     row.imagePresent = true
 
-    // 2. Open the environment: host clone at base_commit (the jail mounts this tree :ro).
+    // 2. Open the environment: host clone at base_commit. The `mount` substrate jails against this
+    // tree :ro; the `image` substrate uses it only for list_files/read_file during authoring.
     const h = await env.environment.open({ id, systemPrompt: '', userPrompt: '', meta: {} } as AgenticTask)
     handle = h
     const treeDir = h.id
+    const execTree = EXEC === 'image' ? null : treeDir
 
-    // Diagnostic canary: can the package be imported from the RO clone mount, and does the import
+    // Diagnostic canary: can the package be imported on the execution substrate, and does the import
     // actually resolve INTO /testbed (vs the image's baked-in site-packages install)?
     const pkg = IMPORT_NAME[md.repo]
     if (pkg) {
-      const c = await runPyInJail(img.tag, treeDir, `import ${pkg}\nprint(getattr(${pkg}, '__file__', '?'))`)
+      const c = await runPyInJail(img.tag, execTree, `import ${pkg}\nprint(getattr(${pkg}, '__file__', '?'))`)
       row.canaryExit = c.infraError ? -1 : c.code
       row.canaryOut = tail(c.out, 200)
     }
@@ -347,7 +368,7 @@ async function calibrateInstance(
     row.script = script
 
     // 4. VALIDITY: the script must indicate bug-present (nonzero, non-timeout) on the UNPATCHED tree.
-    let pre = await runPyInJail(img.tag, treeDir, script)
+    let pre = await runPyInJail(img.tag, execTree, script)
     if (pre.infraError) throw new Error(pre.infraError)
     row.preExitFirst = pre.code
     let detected = pre.code !== 0 && !pre.timedOut
@@ -365,7 +386,7 @@ async function calibrateInstance(
       if (script2) {
         script = script2
         row.script = script2
-        pre = await runPyInJail(img.tag, treeDir, script2)
+        pre = await runPyInJail(img.tag, execTree, script2)
         if (pre.infraError) throw new Error(pre.infraError)
         detected = pre.code !== 0 && !pre.timedOut
       }
@@ -378,29 +399,44 @@ async function calibrateInstance(
       return row
     }
 
-    // 5. SOUNDNESS (script-side only): gold patch onto a COPY of the tree, same jail, must exit 0.
-    patchedDir = mkdtempSync(join(tmpdir(), 'swe-gold-'))
-    cpSync(treeDir, patchedDir, { recursive: true })
-    const goldFile = join(patchedDir, '.swe-gold.patch')
-    writeFileSync(goldFile, gold.endsWith('\n') ? gold : `${gold}\n`)
-    try {
-      await exec('git', ['-C', patchedDir, 'apply', '--whitespace=nowarn', goldFile], { timeout: 60_000 })
-      row.goldApplyOk = true
-    } catch {
-      // Official-harness fallback: GNU patch with fuzz.
-      try {
-        await exec('patch', ['-p1', '--fuzz=5', '-i', goldFile], { cwd: patchedDir, timeout: 60_000 })
-        row.goldApplyOk = true
-      } catch (e2) {
-        row.goldApplyOk = false
+    // 5. SOUNDNESS (script-side only): gold patch applied, same jail, must exit 0.
+    let post: JailRun
+    if (EXEC === 'image') {
+      // Gold applied in-container to the image's built /testbed; a failed apply surfaces as exit≠0
+      // with git's message in the output.
+      post = await runPyInJail(img.tag, null, script, gold)
+      if (post.infraError) throw new Error(post.infraError)
+      row.goldApplyOk = post.out.includes('__GOLD_APPLIED__')
+      if (!row.goldApplyOk) {
         row.autoClass = 'gold-apply-failed'
-        row.error = `gold patch failed to apply: ${(e2 as Error).message.slice(0, 200)}`
+        row.error = `gold patch failed to apply in-container: ${tail(post.out, 200)}`
         return row
       }
+    } else {
+      // Host-side apply onto a COPY of the tree, mounted the same way the env mounts the original.
+      patchedDir = mkdtempSync(join(tmpdir(), 'swe-gold-'))
+      cpSync(treeDir, patchedDir, { recursive: true })
+      const goldFile = join(patchedDir, '.swe-gold.patch')
+      writeFileSync(goldFile, gold.endsWith('\n') ? gold : `${gold}\n`)
+      try {
+        await exec('git', ['-C', patchedDir, 'apply', '--whitespace=nowarn', goldFile], { timeout: 60_000 })
+        row.goldApplyOk = true
+      } catch {
+        // Official-harness fallback: GNU patch with fuzz.
+        try {
+          await exec('patch', ['-p1', '--fuzz=5', '-i', goldFile], { cwd: patchedDir, timeout: 60_000 })
+          row.goldApplyOk = true
+        } catch (e2) {
+          row.goldApplyOk = false
+          row.autoClass = 'gold-apply-failed'
+          row.error = `gold patch failed to apply: ${(e2 as Error).message.slice(0, 200)}`
+          return row
+        }
+      }
+      rmSync(goldFile, { force: true })
+      post = await runPyInJail(img.tag, patchedDir, script)
+      if (post.infraError) throw new Error(post.infraError)
     }
-    rmSync(goldFile, { force: true })
-    const post = await runPyInJail(img.tag, patchedDir, script)
-    if (post.infraError) throw new Error(post.infraError)
     row.postExit = post.code
     row.postOut = tail(post.out, 1_500)
     row.sound = post.code === 0
@@ -443,7 +479,7 @@ async function main(): Promise<void> {
   if (!ids.length) throw new Error('no cached sweb.eval images found and no IDS given')
 
   console.log('═══ SWE-bench Stage 0 — reproduction-oracle calibration ═══')
-  console.log(`model=${MODEL} base=${ZAI_BASE} maxTokens=${MAX_TOKENS} temp=${TEMP} conc=${CONC} reproTimeout=${REPRO_TIMEOUT_S}s`)
+  console.log(`model=${MODEL} base=${ZAI_BASE} maxTokens=${MAX_TOKENS} temp=${TEMP} conc=${CONC} reproTimeout=${REPRO_TIMEOUT_S}s exec=${EXEC}`)
   console.log(`instances (${ids.length}): ${ids.join(', ')}`)
   console.log(`out=${OUT}`)
 
