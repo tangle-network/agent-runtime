@@ -173,10 +173,22 @@ const AUTHOR_SYSTEM =
   'Be precise: the script must FAIL on the current buggy code and PASS once the underlying bug is properly fixed. Test the ' +
   'observable behavior the issue describes, not incidental implementation details that a legitimate fix might change.'
 
+/** All-READ-lines detector: models sometimes wrap their read requests in a python fence, which must
+ *  NOT be mistaken for a script (observed live: a "script" of `READ: astropy/timeseries/core.py`
+ *  reached the jail and crashed with NameError — measuring the parser, not the model). */
+function asReadRequests(block: string): string[] | null {
+  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length > 0 && lines.length <= 3 && lines.every((l) => /^READ:\s*\S+$/.test(l))) {
+    return lines.map((l) => l.replace(/^READ:\s*/, ''))
+  }
+  return null
+}
+
 function extractScript(text: string): string | null {
   const fences = [...text.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
   const last = fences.at(-1)?.[1]?.trim()
-  return last && last.length > 0 ? last : null
+  if (!last || asReadRequests(last)) return null
+  return last
 }
 
 function extractReads(text: string): string[] {
