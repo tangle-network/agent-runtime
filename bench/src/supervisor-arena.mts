@@ -295,7 +295,7 @@ async function complete(cfg: ClientCfg, messages: Array<{ role: string; content:
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     if (attempt > 1) await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt))
     const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), 240_000)
+    const timer = setTimeout(() => ctl.abort(), Number(process.env.LLM_TIMEOUT_MS ?? 240_000))
     try {
       const res = await fetch(`${cfg.base}/chat/completions`, {
         method: 'POST',
