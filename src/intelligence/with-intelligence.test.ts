@@ -206,6 +206,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
   it('ships one run span carrying target + usage split + model, best-effort', async () => {
     vi.useFakeTimers()
     try {
+      const longInput = 'x'.repeat(5000)
       const posts: unknown[] = []
       const otlpSpy = vi.fn(async (_url: unknown, init: unknown) => {
         const body = (init as { body?: string })?.body
@@ -217,11 +218,40 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
       const agent = withIntelligence(
         async (_input: { q: string }, a) => {
+          expect(a.runId).toMatch(/^run-/)
+          expect(a.traceId).toHaveLength(32)
           a.record({
             success: true,
             usage: { inferenceUsd: 0.002, intelligenceUsd: 0 },
             model: 'kimi-k2',
             provider: 'moonshot',
+            sessionId: 'session-1',
+            runtimeEvents: [
+              {
+                type: 'tool_call',
+                toolName: 'mcp__linear__linear_graphql',
+                toolCallId: 'call-1',
+                args: { query: longInput },
+              },
+              {
+                type: 'llm_call',
+                model: 'kimi-k2',
+                tokensIn: 11,
+                tokensOut: 7,
+                costUsd: 0.002,
+                latencyMs: 250,
+              },
+            ],
+            candidateExecution: {
+              proposalDigest: `sha256:${'1'.repeat(64)}`,
+              reviewDigest: `sha256:${'2'.repeat(64)}`,
+              bundleDigest: `sha256:${'3'.repeat(64)}`,
+              executionId: 'candidate-execution-1',
+              executionPlanDigest: `sha256:${'4'.repeat(64)}`,
+              materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+              succeeded: true,
+              runReceiptDigest: `sha256:${'6'.repeat(64)}`,
+            },
           })
           return 'answer'
         },
@@ -231,11 +261,19 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           apiKey: 'k',
           baseUrl: 'https://plane.test',
           fetchImpl: pull,
+          profile: {
+            name: 'support-agent',
+            prompt: { systemPrompt: 'Handle support requests.' },
+            tools: { mcp__linear__linear_graphql: true },
+          },
+          commitSha: 'a'.repeat(40),
+          repo: { owner: 'tangle-network', name: 'support', baseBranch: 'main' },
+          runtimeTelemetry: { includeControlPayloads: true },
+          payloadAttributes: 'full',
         },
       )
-      await agent({ q: 'refund please' })
-      // Force the exporter's interval flush so the batched span POSTs.
-      await vi.advanceTimersByTimeAsync(6000)
+      await agent({ q: longInput })
+      await agent.flush()
 
       expect(posts.length).toBeGreaterThan(0)
       const attrs = attrsOf(posts[0])
@@ -245,6 +283,25 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['tangle.usage.intelligence_usd']).toBe(0)
       expect(attrs['tangle.outcome.success']).toBe(true)
       expect(attrs['gen_ai.request.model']).toBe('kimi-k2')
+      expect(attrs['tangle.sessionId']).toBe('session-1')
+      expect(attrs['vcs.repository.name']).toBe('tangle-network/support')
+      expect(attrs['vcs.ref.head.revision']).toBe('a'.repeat(40))
+      expect(attrs['gen_ai.usage.input_tokens']).toBe(11)
+      expect(attrs['gen_ai.usage.output_tokens']).toBe(7)
+      expect(String(attrs['tangle.input'])).toContain(longInput)
+      expect(String(attrs['tangle.input'])).not.toContain('[truncated]')
+      expect(attrs['tangle.input_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.input_bytes']).toBeGreaterThan(5000)
+      expect(JSON.parse(String(attrs['tangle.agent.profile']))).toMatchObject({
+        name: 'support-agent',
+        tools: { mcp__linear__linear_graphql: true },
+      })
+      expect(attrs['tangle.agent.profile_hash']).toEqual(expect.any(String))
+      expect(attrs['tool.name']).toBe('mcp__linear__linear_graphql')
+      expect(String(attrs['tool.input'])).toContain(longInput)
+      expect(attrs['tangle.candidate.execution_id']).toBe('candidate-execution-1')
+      expect(attrs['tangle.candidate.proposal_digest']).toBe(`sha256:${'1'.repeat(64)}`)
+      expect(attrs['tangle.candidate.run_receipt_digest']).toBe(`sha256:${'6'.repeat(64)}`)
     } finally {
       vi.useRealTimers()
     }
@@ -265,6 +322,76 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(otlpSpy).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllEnvs()
+    }
+  })
+
+  it('exports payload hashes and byte counts without content by default', async () => {
+    vi.useFakeTimers()
+    try {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: unknown) => {
+          const body = (init as { body?: string })?.body
+          if (body) posts.push(JSON.parse(body))
+          return { ok: true, status: 200, async json() {} } as unknown as Response
+        }),
+      )
+      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const agent = withIntelligence(async () => 'private output', {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: pull,
+        profile: { name: 'support-agent' },
+      })
+
+      await agent('private input')
+      await agent.flush()
+
+      const attrs = attrsOf(posts[0])
+      expect(attrs['tangle.input']).toBeUndefined()
+      expect(attrs['tangle.output']).toBeUndefined()
+      expect(attrs['tangle.agent.profile']).toBeUndefined()
+      expect(attrs['tangle.input_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.input_bytes']).toBeGreaterThan(0)
+      expect(attrs['tangle.output_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.agent.profile_hash']).toEqual(expect.any(String))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('exports a failed run before rethrowing the agent error', async () => {
+    vi.useFakeTimers()
+    try {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: unknown) => {
+          const body = (init as { body?: string })?.body
+          if (body) posts.push(JSON.parse(body))
+          return { ok: true, status: 200, async json() {} } as unknown as Response
+        }),
+      )
+      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const agent = withIntelligence(
+        async () => {
+          throw Object.assign(new Error('provider exhausted'), { code: 'rate_limit' })
+        },
+        { project: 'support-agent', apiKey: 'k', baseUrl: 'https://plane.test', fetchImpl: pull },
+      )
+
+      await expect(agent(null)).rejects.toThrow('provider exhausted')
+      await agent.flush()
+
+      const attrs = attrsOf(posts[0])
+      expect(attrs['tangle.outcome.success']).toBe(false)
+      expect(attrs['error.type']).toBe('rate_limit')
+      expect(attrs['error.message']).toBe('provider exhausted')
+      expect(attrs['tangle.duration_ms']).toEqual(expect.any(Number))
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

@@ -26,6 +26,7 @@ import type {
   LabeledScenarioStore,
   ProposeContext,
   SurfaceProposer,
+  Worktree,
   WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 
@@ -69,9 +70,15 @@ export interface ImprovementDriverOptions {
   baseRef?: string
 }
 
+export interface ManagedImprovementDriver extends SurfaceProposer<AnalystFinding> {
+  /** Remove every finalized candidate except explicitly retained winners. */
+  cleanup(retainWorktreeRefs?: readonly string[]): Promise<void>
+}
+
 /** The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. */
-export function improvementDriver(opts: ImprovementDriverOptions): SurfaceProposer<AnalystFinding> {
+export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprovementDriver {
   const baseRef = opts.baseRef ?? 'main'
+  const finalized = new Map<string, Worktree>()
 
   return {
     kind: `improvement:${opts.generator.kind}`,
@@ -115,7 +122,9 @@ export function improvementDriver(opts: ImprovementDriverOptions): SurfacePropos
             await opts.worktree.discard(wt)
             continue
           }
-          surfaces.push(await opts.worktree.finalize(wt, summary))
+          const surface = await opts.worktree.finalize(wt, summary)
+          surfaces.push(surface)
+          finalized.set(surface.worktreeRef, wt)
         } catch (err) {
           // Best-effort cleanup; never mask the original failure.
           await opts.worktree.discard(wt).catch(() => {})
@@ -123,6 +132,22 @@ export function improvementDriver(opts: ImprovementDriverOptions): SurfacePropos
         }
       }
       return surfaces
+    },
+    async cleanup(retainWorktreeRefs = []) {
+      const retained = new Set(retainWorktreeRefs)
+      const errors: unknown[] = []
+      for (const [worktreeRef, worktree] of finalized) {
+        if (retained.has(worktreeRef)) continue
+        try {
+          await opts.worktree.discard(worktree)
+          finalized.delete(worktreeRef)
+        } catch (cause) {
+          errors.push(cause)
+        }
+      }
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'improvementDriver: failed to discard candidate worktrees')
+      }
     },
   }
 }

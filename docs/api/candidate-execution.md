@@ -1,0 +1,475 @@
+[**@tangle-network/agent-runtime**](README.md)
+
+***
+
+[@tangle-network/agent-runtime](README.md) / candidate-execution
+
+# candidate-execution
+
+## References
+
+### AgentCandidateExecutionAttemptRecord
+
+Re-exports [AgentCandidateExecutionAttemptRecord](index.md#agentcandidateexecutionattemptrecord)
+
+***
+
+### AgentCandidateExecutionAttemptRef
+
+Re-exports [AgentCandidateExecutionAttemptRef](index.md#agentcandidateexecutionattemptref)
+
+***
+
+### AgentCandidateExecutionClaim
+
+Re-exports [AgentCandidateExecutionClaim](index.md#agentcandidateexecutionclaim)
+
+***
+
+### AgentCandidateExecutionClaimResult
+
+Re-exports [AgentCandidateExecutionClaimResult](index.md#agentcandidateexecutionclaimresult)
+
+***
+
+### AgentCandidateExecutionClaimStore
+
+Re-exports [AgentCandidateExecutionClaimStore](index.md#agentcandidateexecutionclaimstore)
+
+***
+
+### AgentCandidateExecutionCleanupHandles
+
+Re-exports [AgentCandidateExecutionCleanupHandles](index.md#agentcandidateexecutioncleanuphandles)
+
+***
+
+### AgentCandidateExecutionFailureClass
+
+Re-exports [AgentCandidateExecutionFailureClass](index.md#agentcandidateexecutionfailureclass)
+
+***
+
+### AgentCandidateExecutionFinishResult
+
+Re-exports [AgentCandidateExecutionFinishResult](index.md#agentcandidateexecutionfinishresult)
+
+***
+
+### AgentCandidateExecutionLease
+
+Re-exports [AgentCandidateExecutionLease](index.md#agentcandidateexecutionlease)
+
+***
+
+### AgentCandidateExecutionPhase
+
+Re-exports [AgentCandidateExecutionPhase](index.md#agentcandidateexecutionphase)
+
+***
+
+### AgentCandidateExecutionPhaseResult
+
+Re-exports [AgentCandidateExecutionPhaseResult](index.md#agentcandidateexecutionphaseresult)
+
+***
+
+### AgentCandidateExecutionRecoveryEvidence
+
+Re-exports [AgentCandidateExecutionRecoveryEvidence](index.md#agentcandidateexecutionrecoveryevidence)
+
+***
+
+### AgentCandidateExecutionStageResult
+
+Re-exports [AgentCandidateExecutionStageResult](index.md#agentcandidateexecutionstageresult)
+
+***
+
+### AgentCandidateExecutionTerminalRecord
+
+Re-exports [AgentCandidateExecutionTerminalRecord](index.md#agentcandidateexecutionterminalrecord)
+
+***
+
+### AgentCandidateExecutionTerminalResult
+
+Re-exports [AgentCandidateExecutionTerminalResult](index.md#agentcandidateexecutionterminalresult)
+
+***
+
+### AgentCandidateExecutionUsage
+
+Re-exports [AgentCandidateExecutionUsage](index.md#agentcandidateexecutionusage)
+
+***
+
+### AgentCandidateRetryRejection
+
+Re-exports [AgentCandidateRetryRejection](index.md#agentcandidateretryrejection)
+
+***
+
+### InMemoryAgentCandidateExecutionClaimStore
+
+Re-exports [InMemoryAgentCandidateExecutionClaimStore](index.md#inmemoryagentcandidateexecutionclaimstore)
+
+***
+
+### FileAgentCandidateExecutionClaimStore
+
+Re-exports [FileAgentCandidateExecutionClaimStore](index.md#fileagentcandidateexecutionclaimstore)
+
+***
+
+### FileAgentCandidateExecutionClaimStoreOptions
+
+Re-exports [FileAgentCandidateExecutionClaimStoreOptions](index.md#fileagentcandidateexecutionclaimstoreoptions)
+
+***
+
+### candidateExecutionClaim
+
+Re-exports [candidateExecutionClaim](index.md#candidateexecutionclaim)
+
+***
+
+### DisposePreparedAgentCandidateOptions
+
+Re-exports [DisposePreparedAgentCandidateOptions](index.md#disposepreparedagentcandidateoptions)
+
+***
+
+### disposePreparedAgentCandidateExecution
+
+Re-exports [disposePreparedAgentCandidateExecution](index.md#disposepreparedagentcandidateexecution)
+
+***
+
+### ExecutePreparedAgentCandidateOptions
+
+Re-exports [ExecutePreparedAgentCandidateOptions](index.md#executepreparedagentcandidateoptions)
+
+***
+
+### executePreparedAgentCandidate
+
+Re-exports [executePreparedAgentCandidate](index.md#executepreparedagentcandidate)
+
+***
+
+### persistCandidateOutputArtifact
+
+Re-exports [persistCandidateOutputArtifact](index.md#persistcandidateoutputartifact)
+
+***
+
+### PrepareAgentCandidateExecutionOptions
+
+Re-exports [PrepareAgentCandidateExecutionOptions](index.md#prepareagentcandidateexecutionoptions)
+
+***
+
+### prepareAgentCandidateExecution
+
+Re-exports [prepareAgentCandidateExecution](index.md#prepareagentcandidateexecution)
+
+***
+
+### AgentCandidateModelGrantActivateInput
+
+Re-exports [AgentCandidateModelGrantActivateInput](index.md#agentcandidatemodelgrantactivateinput)
+
+***
+
+### AgentCandidateModelGrantClient
+
+Re-exports [AgentCandidateModelGrantClient](index.md#agentcandidatemodelgrantclient)
+
+***
+
+### AgentCandidateModelGrantReservation
+
+Re-exports [AgentCandidateModelGrantReservation](index.md#agentcandidatemodelgrantreservation)
+
+***
+
+### AgentCandidateModelGrantReserveInput
+
+Re-exports [AgentCandidateModelGrantReserveInput](index.md#agentcandidatemodelgrantreserveinput)
+
+***
+
+### AgentCandidateModelGrantSettleInput
+
+Re-exports [AgentCandidateModelGrantSettleInput](index.md#agentcandidatemodelgrantsettleinput)
+
+***
+
+### CreateProtectedAgentCandidateModelPortOptions
+
+Re-exports [CreateProtectedAgentCandidateModelPortOptions](index.md#createprotectedagentcandidatemodelportoptions)
+
+***
+
+### createProtectedAgentCandidateModelPort
+
+Re-exports [createProtectedAgentCandidateModelPort](index.md#createprotectedagentcandidatemodelport)
+
+***
+
+### RecoverExpiredAgentCandidateOptions
+
+Re-exports [RecoverExpiredAgentCandidateOptions](index.md#recoverexpiredagentcandidateoptions)
+
+***
+
+### recoverExpiredAgentCandidateExecution
+
+Re-exports [recoverExpiredAgentCandidateExecution](index.md#recoverexpiredagentcandidateexecution)
+
+***
+
+### AgentCandidateArtifactPort
+
+Re-exports [AgentCandidateArtifactPort](index.md#agentcandidateartifactport)
+
+***
+
+### AgentCandidateBenchmarkGraderIdentity
+
+Re-exports [AgentCandidateBenchmarkGraderIdentity](index.md#agentcandidatebenchmarkgraderidentity)
+
+***
+
+### AgentCandidateBenchmarkGraderPort
+
+Re-exports [AgentCandidateBenchmarkGraderPort](index.md#agentcandidatebenchmarkgraderport)
+
+***
+
+### AgentCandidateContainerPort
+
+Re-exports [AgentCandidateContainerPort](index.md#agentcandidatecontainerport)
+
+***
+
+### AgentCandidateExecutionPorts
+
+Re-exports [AgentCandidateExecutionPorts](index.md#agentcandidateexecutionports)
+
+***
+
+### AgentCandidateExecutorFinalCapture
+
+Re-exports [AgentCandidateExecutorFinalCapture](index.md#agentcandidateexecutorfinalcapture)
+
+***
+
+### AgentCandidateExecutorMemoryCapture
+
+Re-exports [AgentCandidateExecutorMemoryCapture](index.md#agentcandidateexecutormemorycapture)
+
+***
+
+### AgentCandidateExecutorPort
+
+Re-exports [AgentCandidateExecutorPort](index.md#agentcandidateexecutorport)
+
+***
+
+### AgentCandidateExecutorProfileFile
+
+Re-exports [AgentCandidateExecutorProfileFile](index.md#agentcandidateexecutorprofilefile)
+
+***
+
+### AgentCandidateExecutorRequest
+
+Re-exports [AgentCandidateExecutorRequest](index.md#agentcandidateexecutorrequest)
+
+***
+
+### AgentCandidateExecutorStopRequest
+
+Re-exports [AgentCandidateExecutorStopRequest](index.md#agentcandidateexecutorstoprequest)
+
+***
+
+### AgentCandidateExecutorTaskOutcomeCapture
+
+Re-exports [AgentCandidateExecutorTaskOutcomeCapture](index.md#agentcandidateexecutortaskoutcomecapture)
+
+***
+
+### AgentCandidateExecutorWorkspaceFile
+
+Re-exports [AgentCandidateExecutorWorkspaceFile](index.md#agentcandidateexecutorworkspacefile)
+
+***
+
+### AgentCandidateExecutorWorkspaceInput
+
+Re-exports [AgentCandidateExecutorWorkspaceInput](index.md#agentcandidateexecutorworkspaceinput)
+
+***
+
+### AgentCandidateMemoryPort
+
+Re-exports [AgentCandidateMemoryPort](index.md#agentcandidatememoryport)
+
+***
+
+### AgentCandidateMemoryResetResult
+
+Re-exports [AgentCandidateMemoryResetResult](index.md#agentcandidatememoryresetresult)
+
+***
+
+### AgentCandidateModelLimits
+
+Re-exports [AgentCandidateModelLimits](index.md#agentcandidatemodellimits)
+
+***
+
+### AgentCandidateModelPort
+
+Re-exports [AgentCandidateModelPort](index.md#agentcandidatemodelport)
+
+***
+
+### AgentCandidateOutputArtifactPort
+
+Re-exports [AgentCandidateOutputArtifactPort](index.md#agentcandidateoutputartifactport)
+
+***
+
+### AgentCandidateOutputPurpose
+
+Re-exports [AgentCandidateOutputPurpose](index.md#agentcandidateoutputpurpose)
+
+***
+
+### AgentCandidateProtectedModelActivation
+
+Re-exports [AgentCandidateProtectedModelActivation](index.md#agentcandidateprotectedmodelactivation)
+
+***
+
+### AgentCandidateProtectedModelCall
+
+Re-exports [AgentCandidateProtectedModelCall](index.md#agentcandidateprotectedmodelcall)
+
+***
+
+### AgentCandidateProtectedModelReservation
+
+Re-exports [AgentCandidateProtectedModelReservation](index.md#agentcandidateprotectedmodelreservation)
+
+***
+
+### AgentCandidateProtectedModelSettlement
+
+Re-exports [AgentCandidateProtectedModelSettlement](index.md#agentcandidateprotectedmodelsettlement)
+
+***
+
+### AgentCandidateProtectedRunCapture
+
+Re-exports [AgentCandidateProtectedRunCapture](index.md#agentcandidateprotectedruncapture)
+
+***
+
+### AgentCandidateRepositoryPort
+
+Re-exports [AgentCandidateRepositoryPort](index.md#agentcandidaterepositoryport)
+
+***
+
+### AgentCandidateRunFinalization
+
+Re-exports [AgentCandidateRunFinalization](index.md#agentcandidaterunfinalization)
+
+***
+
+### AgentCandidateTaskExecution
+
+Re-exports [AgentCandidateTaskExecution](index.md#agentcandidatetaskexecution)
+
+***
+
+### AgentCandidateVerificationPorts
+
+Re-exports [AgentCandidateVerificationPorts](index.md#agentcandidateverificationports)
+
+***
+
+### AgentCandidateWorkspacePort
+
+Re-exports [AgentCandidateWorkspacePort](index.md#agentcandidateworkspaceport)
+
+***
+
+### CANDIDATE\_TRACE\_ENV
+
+Re-exports [CANDIDATE_TRACE_ENV](index.md#candidate_trace_env)
+
+***
+
+### CANDIDATE\_TRACE\_TAGS
+
+Re-exports [CANDIDATE_TRACE_TAGS](index.md#candidate_trace_tags)
+
+***
+
+### CanonicalCandidateDocument
+
+Re-exports [CanonicalCandidateDocument](index.md#canonicalcandidatedocument)
+
+***
+
+### PreparedAgentCandidateExecution
+
+Re-exports [PreparedAgentCandidateExecution](index.md#preparedagentcandidateexecution)
+
+***
+
+### PreparedAgentCandidateInstruction
+
+Re-exports [PreparedAgentCandidateInstruction](index.md#preparedagentcandidateinstruction)
+
+***
+
+### PreparedAgentCandidateLaunch
+
+Re-exports [PreparedAgentCandidateLaunch](index.md#preparedagentcandidatelaunch)
+
+***
+
+### PreparedAgentCandidateTrace
+
+Re-exports [PreparedAgentCandidateTrace](index.md#preparedagentcandidatetrace)
+
+***
+
+### ResolvedAgentCandidateContainer
+
+Re-exports [ResolvedAgentCandidateContainer](index.md#resolvedagentcandidatecontainer)
+
+***
+
+### VerifiedAgentCandidate
+
+Re-exports [VerifiedAgentCandidate](index.md#verifiedagentcandidate)
+
+***
+
+### VerifiedAgentCandidateTaskOutcome
+
+Re-exports [VerifiedAgentCandidateTaskOutcome](index.md#verifiedagentcandidatetaskoutcome)
+
+***
+
+### verifyAgentCandidateBundle
+
+Re-exports [verifyAgentCandidateBundle](index.md#verifyagentcandidatebundle)

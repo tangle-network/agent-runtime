@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.91.0",
+  "version": "0.92.1",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -64,6 +64,11 @@
       "import": "./dist/platform.js",
       "default": "./dist/platform.js"
     },
+    "./candidate-execution": {
+      "types": "./dist/candidate-execution/index.d.ts",
+      "import": "./dist/candidate-execution/index.js",
+      "default": "./dist/candidate-execution/index.js"
+    },
     "./mcp": {
       "types": "./dist/mcp/index.d.ts",
       "import": "./dist/mcp/index.js",
@@ -99,8 +104,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "^0.108.1",
-    "@tangle-network/agent-interface": "^0.24.0",
+    "@tangle-network/agent-eval": "^0.113.0",
+    "@tangle-network/agent-interface": "^0.25.0",
     "@tangle-network/sandbox": "^0.9.7",
     "@types/node": "^25.9.3",
     "playwright": "^1.61.0",
@@ -130,7 +135,7 @@
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.101.0 <1.0.0",
-    "@tangle-network/agent-interface": ">=0.24.0 <1.0.0",
+    "@tangle-network/agent-interface": ">=0.25.0 <1.0.0",
     "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
     "playwright": "^1.40.0"
   },
@@ -143,7 +148,7 @@
     }
   },
   "dependencies": {
-    "@tangle-network/agent-knowledge": "^1.11.1",
-    "@tangle-network/agent-profile-materialize": "0.3.0"
+    "@tangle-network/agent-knowledge": "^1.11.2",
+    "@tangle-network/agent-profile-materialize": "0.3.1"
   }
 }

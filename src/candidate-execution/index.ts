@@ -51,6 +51,7 @@ export {
 } from './recover'
 export {
   type AgentCandidateArtifactPort,
+  type AgentCandidateBenchmarkGraderIdentity,
   type AgentCandidateBenchmarkGraderPort,
   type AgentCandidateContainerPort,
   type AgentCandidateExecutionPorts,

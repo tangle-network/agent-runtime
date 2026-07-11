@@ -9,6 +9,9 @@
  * (which get converted to OTLP spans automatically).
  */
 
+import { type RuntimeTelemetryOptions, sanitizeRuntimeStreamEvent } from './sanitize'
+import type { RuntimeStreamEvent } from './types'
+
 export interface OtelExportConfig {
   /** OTLP endpoint. Reads OTEL_EXPORTER_OTLP_ENDPOINT env by default. */
   endpoint?: string
@@ -207,19 +210,119 @@ export function flatOtelSpan(
   traceId: string,
   timestampMs: number,
   parentSpanId?: string,
+  endTimestampMs = timestampMs,
 ): OtelSpan {
-  const ts = msToNs(timestampMs)
+  const start = msToNs(timestampMs)
+  const end = msToNs(Math.max(timestampMs, endTimestampMs))
   return {
     traceId: padTraceId(traceId),
     spanId: generateSpanId(),
     parentSpanId: parentSpanId ? padSpanId(parentSpanId) : undefined,
     name,
     kind: 1,
-    startTimeUnixNano: ts,
-    endTimeUnixNano: ts,
+    startTimeUnixNano: start,
+    endTimeUnixNano: end,
     attributes: toAttributes(attributes),
     status: { code: 1 },
   }
+}
+
+export interface RuntimeEventOtelOptions extends RuntimeTelemetryOptions {
+  /** Final customer redactor applied after the schema-aware runtime sanitizer. */
+  redact?: (value: unknown) => unknown
+}
+
+function eventTimestampMs(event: RuntimeStreamEvent): number {
+  if ('timestamp' in event && typeof event.timestamp === 'string') {
+    const parsed = Date.parse(event.timestamp)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return Date.now()
+}
+
+function serialized(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function mcpIdentity(toolName: string): { server?: string; tool?: string } {
+  if (!toolName.startsWith('mcp__')) return {}
+  const [, server, ...toolParts] = toolName.split('__')
+  return {
+    ...(server ? { server } : {}),
+    ...(toolParts.length > 0 ? { tool: toolParts.join('__') } : {}),
+  }
+}
+
+/** Convert normalized runtime events into lossless, redacted child spans. */
+export function buildRuntimeEventOtelSpans(
+  events: ReadonlyArray<RuntimeStreamEvent>,
+  traceId: string,
+  parentSpanId?: string,
+  options: RuntimeEventOtelOptions = {},
+): OtelSpan[] {
+  return events.map((event) => {
+    const sanitized = sanitizeRuntimeStreamEvent(event, options)
+    const safe = options.redact ? options.redact(sanitized) : sanitized
+    const record =
+      safe && typeof safe === 'object' && !Array.isArray(safe)
+        ? (safe as Record<string, unknown>)
+        : { value: safe }
+    const attrs: Record<string, string | number | boolean> = {
+      'tangle.runtime.event_type': event.type,
+      'tangle.runtime.event': serialized(record),
+    }
+    let name = `tangle.runtime.${event.type}`
+
+    if (event.type === 'tool_call' || event.type === 'tool_result') {
+      name = `agent.${event.type}`
+      attrs['tool.name'] = event.toolName
+      if (event.toolCallId) attrs['tool.call_id'] = event.toolCallId
+      const mcp = mcpIdentity(event.toolName)
+      if (mcp.server) attrs['mcp.server'] = mcp.server
+      if (mcp.tool) attrs['mcp.tool.name'] = mcp.tool
+      const payload = event.type === 'tool_call' ? record.args : record.result
+      if (payload !== undefined) {
+        attrs[event.type === 'tool_call' ? 'tool.input' : 'tool.output'] = serialized(payload)
+      }
+    } else if (event.type === 'llm_call') {
+      name = 'gen_ai.client.inference'
+      attrs['gen_ai.request.model'] = event.model
+      if (event.tokensIn !== undefined) attrs['gen_ai.usage.input_tokens'] = event.tokensIn
+      if (event.tokensOut !== undefined) attrs['gen_ai.usage.output_tokens'] = event.tokensOut
+      if (event.costUsd !== undefined) attrs['tangle.cost.usd'] = event.costUsd
+      if (event.latencyMs !== undefined) attrs['tangle.latency_ms'] = event.latencyMs
+      if (event.finishReason !== undefined)
+        attrs['gen_ai.response.finish_reasons'] = event.finishReason
+    } else if (event.type === 'backend_error') {
+      attrs['error.type'] = event.error?.kind ?? 'backend'
+      attrs['error.message'] = event.message
+    } else if (event.type === 'final') {
+      attrs['tangle.outcome.status'] = event.status
+      attrs['tangle.outcome.reason'] = event.reason
+      if (event.error) {
+        attrs['error.type'] = event.error.kind
+        attrs['error.message'] = event.error.message
+      }
+    }
+
+    const startMs = eventTimestampMs(event)
+    const endMs =
+      event.type === 'llm_call' && event.latencyMs !== undefined && Number.isFinite(event.latencyMs)
+        ? startMs + event.latencyMs
+        : startMs
+    const span = flatOtelSpan(name, attrs, traceId, startMs, parentSpanId, endMs)
+    if (
+      event.type === 'backend_error' ||
+      (event.type === 'final' && event.status !== 'completed')
+    ) {
+      span.status = { code: 2, message: attrs['error.message']?.toString() ?? event.type }
+    }
+    return span
+  })
 }
 
 /**
@@ -503,21 +606,27 @@ function parseHeadersFromEnv(): Record<string, string> {
 }
 
 function toAttributes(record: Record<string, string | number | boolean>): OtelAttribute[] {
-  return Object.entries(record).map(([key, value]) => ({
-    key,
-    value:
-      typeof value === 'number'
-        ? Number.isInteger(value)
-          ? { intValue: value.toString() }
-          : { doubleValue: value }
-        : typeof value === 'boolean'
-          ? { boolValue: value }
-          : { stringValue: value },
-  }))
+  return Object.entries(record).flatMap(([key, value]) => {
+    if (typeof value === 'number' && !Number.isFinite(value)) return []
+    return [
+      {
+        key,
+        value:
+          typeof value === 'number'
+            ? Number.isInteger(value)
+              ? { intValue: value.toString() }
+              : { doubleValue: value }
+            : typeof value === 'boolean'
+              ? { boolValue: value }
+              : { stringValue: value },
+      },
+    ]
+  })
 }
 
 function msToNs(ms: number): string {
-  return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
+  const safeMs = Number.isFinite(ms) ? ms : Date.now()
+  return (BigInt(Math.floor(safeMs)) * 1_000_000n).toString()
 }
 
 function padSpanId(id: string): string {

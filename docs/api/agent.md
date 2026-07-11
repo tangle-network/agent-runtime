@@ -865,7 +865,7 @@ Required for `mode === 'open-pr'` — the GH owner/repo (`tangle-network/tax-age
 
 ##### allowCreateForKinds?
 
-> `optional` **allowCreateForKinds?**: readonly (`"memory"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"tool-doc"` \| `"new-tool"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
+> `optional` **allowCreateForKinds?**: readonly (`"code"` \| `"mcp"` \| `"memory"` \| `"workflow"` \| `"agent-profile"` \| `"rollout-policy"` \| `"skill"` \| `"hook"` \| `"subagent"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"tool-doc"` \| `"new-tool"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
 Defined in: [agent/improvement-adapter.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L100)
 
@@ -1544,11 +1544,75 @@ Defined in: [agent/surfaces.ts:55](https://github.com/tangle-network/agent-runti
 
 Optional: single file defining the output schema (Zod / JSON Schema).
 
+##### skills?
+
+> `optional` **skills?**: `string`
+
+Defined in: [agent/surfaces.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L57)
+
+Optional: directory containing Agent Skill packages.
+
+##### mcp?
+
+> `optional` **mcp?**: `string`
+
+Defined in: [agent/surfaces.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L59)
+
+Optional: directory containing MCP server/tool configuration.
+
+##### hooks?
+
+> `optional` **hooks?**: `string`
+
+Defined in: [agent/surfaces.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L61)
+
+Optional: directory containing hook definitions.
+
+##### subagents?
+
+> `optional` **subagents?**: `string`
+
+Defined in: [agent/surfaces.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L63)
+
+Optional: directory containing subagent definitions.
+
+##### workflows?
+
+> `optional` **workflows?**: `string`
+
+Defined in: [agent/surfaces.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L65)
+
+Optional: directory containing orchestration/workflow policies.
+
+##### rolloutPolicy?
+
+> `optional` **rolloutPolicy?**: `string`
+
+Defined in: [agent/surfaces.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L67)
+
+Optional: single file containing rollout-policy settings.
+
+##### agentProfile?
+
+> `optional` **agentProfile?**: `string`
+
+Defined in: [agent/surfaces.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L69)
+
+Optional: single canonical AgentProfile file.
+
+##### code?
+
+> `optional` **code?**: `string`
+
+Defined in: [agent/surfaces.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L71)
+
+Optional: source root for code findings.
+
 ***
 
 ### ResolvedSurface
 
-Defined in: [agent/surfaces.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L58)
+Defined in: [agent/surfaces.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L74)
 
 #### Properties
 
@@ -1556,7 +1620,7 @@ Defined in: [agent/surfaces.ts:58](https://github.com/tangle-network/agent-runti
 
 > **absolutePath**: `string`
 
-Defined in: [agent/surfaces.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L60)
+Defined in: [agent/surfaces.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L76)
 
 Absolute filesystem path the operator can `cat` / `vim`.
 
@@ -1564,7 +1628,7 @@ Absolute filesystem path the operator can `cat` / `vim`.
 
 > **repoRelativePath**: `string`
 
-Defined in: [agent/surfaces.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L62)
+Defined in: [agent/surfaces.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L78)
 
 Repo-relative path for PR descriptions, diffs, audit logs.
 
@@ -1572,7 +1636,7 @@ Repo-relative path for PR descriptions, diffs, audit logs.
 
 > **exists**: `boolean`
 
-Defined in: [agent/surfaces.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L64)
+Defined in: [agent/surfaces.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L80)
 
 Whether the path currently exists on disk.
 
@@ -1580,7 +1644,7 @@ Whether the path currently exists on disk.
 
 > **intent**: `"edit-existing"` \| `"create-new"`
 
-Defined in: [agent/surfaces.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L66)
+Defined in: [agent/surfaces.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L82)
 
 The substrate's intent: edit an existing file or create a new one.
 
@@ -1588,7 +1652,7 @@ The substrate's intent: edit an existing file or create a new one.
 
 ### SurfaceValidationIssue
 
-Defined in: [agent/surfaces.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L191)
+Defined in: [agent/surfaces.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L264)
 
 Validate that every declared surface exists on disk under `repoRoot`.
 
@@ -1603,19 +1667,19 @@ the loop produces 20 minutes later).
 
 > **surface**: keyof [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: [agent/surfaces.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L192)
+Defined in: [agent/surfaces.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L265)
 
 ##### path
 
 > **path**: `string`
 
-Defined in: [agent/surfaces.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L193)
+Defined in: [agent/surfaces.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L266)
 
 ##### reason
 
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
 
-Defined in: [agent/surfaces.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L194)
+Defined in: [agent/surfaces.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L267)
 
 ## Type Aliases
 
@@ -1993,7 +2057,7 @@ resolves only after the iterator drains.
 
 > **resolveSubjectPath**(`subject`, `surfaces`, `repoRoot`): [`ResolvedSurface`](#resolvedsurface) \| `null`
 
-Defined in: [agent/surfaces.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L86)
+Defined in: [agent/surfaces.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L102)
 
 Resolve a parsed `FindingSubject` to the file path the substrate
 should edit (or create) on disk.
@@ -2035,7 +2099,7 @@ it's the whole point.
 
 > **validateSurfaces**(`surfaces`, `repoRoot`): readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
-Defined in: [agent/surfaces.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L198)
+Defined in: [agent/surfaces.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L271)
 
 Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits.
 
@@ -2059,7 +2123,7 @@ readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
 > **renderSurfaceIssues**(`issues`, `repoRoot`): `string`
 
-Defined in: [agent/surfaces.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L247)
+Defined in: [agent/surfaces.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L345)
 
 Format a list of surface validation issues into a human-readable error string.
 

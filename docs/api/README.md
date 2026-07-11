@@ -8,6 +8,7 @@
 
 - [agent](agent.md)
 - [analyst-loop](analyst-loop.md)
+- [candidate-execution](candidate-execution.md)
 - [index](index.md)
 - [intelligence](intelligence.md)
 - [knowledge](knowledge.md)

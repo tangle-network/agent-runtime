@@ -1,10 +1,10 @@
 /**
  *
- * Tangle Intelligence SDK — the Observe + Mode-0 product layer.
+ * Tangle Intelligence SDK — trace capture plus reviewable improvement.
  *
- * A thin, best-effort wrapper over the shipped trace-export substrate
- * (`createOtelExporter` in `../otel-export`). It does exactly two things in
- * this slice:
+ * The client keeps live-agent trace delivery best-effort. The separate
+ * improvement-cycle exports analyze completed traces, measure one candidate,
+ * bind human review, and execute only an approved immutable bundle.
  *
  *   1. OBSERVE — wrap a generic agent and export one trace span per call to
  *      Tangle Intelligence, swallowing every export failure so a live agent
@@ -15,21 +15,21 @@
  *      and at OFF `intelligenceUsd` is provably `0` — the mechanism that proves
  *      an OFF customer paid inference-only.
  *
- * Behavior-changing intelligence (analyst steer, candidate promotion, loops)
- * is a LATER phase and is NOT built here. This wrapper only Observes and passes
- * through; there is no abort path, so the only fail-soft surface is the
- * telemetry export.
- *
  * @experimental
  */
 
+import { contentHash } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   buildLoopOtelSpans,
+  buildRuntimeEventOtelSpans,
   createOtelExporter,
   flatOtelSpan,
   type OtelExporter,
 } from '../otel-export'
 import type { LoopTraceEvent } from '../runtime/types'
+import type { RuntimeTelemetryOptions } from '../sanitize'
+import type { RuntimeStreamEvent } from '../types'
 import { resolveIntelligenceBaseUrl } from './delivery'
 import {
   defaultEffortTier,
@@ -39,6 +39,7 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
+import type { CandidateExecutionEvidence } from './improvement-cycle'
 import { type Redactor, resolveRedactor } from './redact'
 
 export type {
@@ -92,6 +93,25 @@ export {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
+export type {
+  AgentImprovementEvaluation,
+  AgentImprovementProposal,
+  AgentImprovementReview,
+  AgentImprovementReviewDecision,
+  CandidateExecutionEvidence,
+  ExecuteApprovedAgentCandidateOptions,
+  ExecuteApprovedAgentCandidateResult,
+  ProposeAgentImprovementOptions,
+  ProposeAgentImprovementResult,
+  ReviewAgentImprovementInput,
+} from './improvement-cycle'
+export {
+  executeApprovedAgentCandidate,
+  proposeAgentImprovement,
+  reviewAgentImprovementProposal,
+  verifyAgentImprovementProposal,
+  verifyAgentImprovementReview,
+} from './improvement-cycle'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
 export type { ProvisionedHost, ResolveCtx } from './resolver'
@@ -146,6 +166,22 @@ export interface RunRecord {
   model?: string
   provider?: string
   loopEvents?: LoopTraceEvent[]
+  runtimeEvents?: RuntimeStreamEvent[]
+  profile?: AgentProfile
+  sessionId?: string
+  harness?: string
+  repository?: string
+  commitSha?: string
+  timing?: { startedAt: number; completedAt: number; durationMs: number }
+  tokens?: {
+    input: number
+    output: number
+    cachedInput?: number
+    reasoning?: number
+  }
+  error?: { name: string; message: string; code?: string }
+  /** Exact proposal → review → execution → receipt linkage for candidate runs. */
+  candidateExecution?: CandidateExecutionEvidence
 }
 
 /**
@@ -162,6 +198,14 @@ export interface RunReport {
   model?: string
   provider?: string
   loopEvents?: LoopTraceEvent[]
+  runtimeEvents?: RuntimeStreamEvent[]
+  profile?: AgentProfile
+  sessionId?: string
+  harness?: string
+  commitSha?: string
+  tokens?: RunRecord['tokens']
+  error?: RunRecord['error']
+  candidateExecution?: CandidateExecutionEvidence
 }
 
 /** Repo coordinates a product may declare for the (later) Gated-PR mode. The
@@ -203,6 +247,19 @@ export interface IntelligenceConfig {
   checks?: string[]
   /** Repo access a later PR mode would need. Recorded for `doctor()` only. */
   repo?: RepoConfig
+  /** Full canonical profile used for this agent. Exported redacted with a stable hash. */
+  profile?: AgentProfile
+  /** Commit that produced the running agent, when known. */
+  commitSha?: string
+  /** Runtime-event payload policy. Tool inputs/results remain off unless explicitly enabled. */
+  runtimeTelemetry?: RuntimeTelemetryOptions
+  /**
+   * Payloads are metadata-only by default: the run span carries a stable hash
+   * and UTF-8 byte count, but not the redacted content. Set `full` only when
+   * the configured OTLP destination is approved to receive complete redacted
+   * inputs, outputs, and profiles.
+   */
+  payloadAttributes?: 'metadata' | 'full'
 }
 
 /** Metadata describing one traced run. `runId`/`traceId` default to fresh ids. */
@@ -347,12 +404,8 @@ function freshRunId(): string {
   return `run-${randomHex(16)}`
 }
 
-/** Serialize a redacted value to a bounded string for a span attribute.
- *  `loopEventToOtelSpan` only stamps string/number/boolean payload fields, so a
- *  structured input/output must be flattened here. Bounded to keep span
- *  attributes small; the full payload is the consumer's own store, not the span. */
-const previewMaxChars = 4096
-function previewJson(value: unknown): string {
+/** Serialize a redacted value without dropping customer trace content. */
+function serializeJson(value: unknown): string {
   let s: string
   if (typeof value === 'string') s = value
   else {
@@ -362,7 +415,19 @@ function previewJson(value: unknown): string {
       s = String(value)
     }
   }
-  return s.length > previewMaxChars ? `${s.slice(0, previewMaxChars)}…[truncated]` : s
+  return s
+}
+
+function addPayloadAttributes(
+  labels: Record<string, string | number | boolean>,
+  key: string,
+  value: unknown,
+  includeFullPayload: boolean,
+): void {
+  const serialized = serializeJson(value)
+  labels[`${key}_hash`] = contentHash(serialized)
+  labels[`${key}_bytes`] = Buffer.byteLength(serialized, 'utf8')
+  if (includeFullPayload) labels[key] = serialized
 }
 
 function randomHex(chars: number): string {
@@ -391,6 +456,7 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   const effort = resolveEffortConfig(config.effort)
   const intelligenceOff = isIntelligenceOff(effort)
   const redactor = resolveRedactor(config.redact)
+  const includeFullPayload = config.payloadAttributes === 'full'
   const apiKey =
     config.apiKey ?? (typeof process !== 'undefined' ? process.env.TANGLE_API_KEY : undefined)
   // The ONE base URL drives both send and receive; the OTLP ingest lives at
@@ -416,24 +482,28 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   function exportTrace(meta: TraceMeta, outcome: TraceOutcome, output: unknown): void {
     const ex = getExporter()
     if (!ex) return
-    const labels: Record<string, string | number | boolean> = {
-      project: config.project,
-      'tangle.effort.intelligence_off': outcome.intelligenceOff,
-      'tangle.usage.inference_usd': outcome.usage.inferenceUsd,
-      'tangle.usage.intelligence_usd': outcome.usage.intelligenceUsd,
-      ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
-      ...(meta.provider ? { 'provider.name': meta.provider } : {}),
-      ...(typeof outcome.success === 'boolean'
-        ? { 'tangle.outcome.success': outcome.success }
-        : {}),
-      ...(typeof outcome.score === 'number' ? { 'tangle.outcome.score': outcome.score } : {}),
-      ...(meta.labels ?? {}),
-    }
-    const redactedInput = meta.input !== undefined ? redactor(meta.input) : undefined
-    const redactedOutput = output !== undefined ? redactor(output) : undefined
-    if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
-    if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
     try {
+      const labels: Record<string, string | number | boolean> = {
+        project: config.project,
+        'tangle.effort.intelligence_off': outcome.intelligenceOff,
+        'tangle.usage.inference_usd': outcome.usage.inferenceUsd,
+        'tangle.usage.intelligence_usd': outcome.usage.intelligenceUsd,
+        ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
+        ...(meta.provider ? { 'provider.name': meta.provider } : {}),
+        ...(typeof outcome.success === 'boolean'
+          ? { 'tangle.outcome.success': outcome.success }
+          : {}),
+        ...(typeof outcome.score === 'number' ? { 'tangle.outcome.score': outcome.score } : {}),
+        ...(meta.labels ?? {}),
+      }
+      const redactedInput = meta.input !== undefined ? redactor(meta.input) : undefined
+      const redactedOutput = output !== undefined ? redactor(output) : undefined
+      if (redactedInput !== undefined) {
+        addPayloadAttributes(labels, 'tangle.input', redactedInput, includeFullPayload)
+      }
+      if (redactedOutput !== undefined) {
+        addPayloadAttributes(labels, 'tangle.output', redactedOutput, includeFullPayload)
+      }
       // Flat span with VERBATIM attribute keys — the plane's session/model/
       // cost readers exact-match `tangle.sessionId` / `gen_ai.request.model`,
       // so the loop-namespacing builder must not be used here.
@@ -453,36 +523,119 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   function exportRunRecord(record: RunRecord): string {
     const ex = getExporter()
     if (!ex) return record.traceId
-    // Clamp the OFF billing invariant on export — the proof holds even if a
-    // caller mis-reports an intelligence split at the OFF tier.
-    const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
-    const labels: Record<string, string | number | boolean> = {
-      project: record.project,
-      'tangle.target': record.target,
-      'tangle.effort.intelligence_off': intelligenceOff,
-      'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
-      'tangle.usage.intelligence_usd': intelligenceUsd,
-      ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
-      ...(record.provider ? { 'provider.name': record.provider } : {}),
-      ...(typeof record.outcome.success === 'boolean'
-        ? { 'tangle.outcome.success': record.outcome.success }
-        : {}),
-      ...(typeof record.outcome.score === 'number'
-        ? { 'tangle.outcome.score': record.outcome.score }
-        : {}),
-    }
-    const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
-    const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
-    if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
-    if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
     try {
+      // Clamp the OFF billing invariant on export — the proof holds even if a
+      // caller mis-reports an intelligence split at the OFF tier.
+      const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
+      const repository =
+        record.repository ?? (config.repo ? `${config.repo.owner}/${config.repo.name}` : undefined)
+      const labels: Record<string, string | number | boolean> = {
+        project: record.project,
+        'tangle.target': record.target,
+        'tangle.effort.intelligence_off': intelligenceOff,
+        'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
+        'tangle.usage.intelligence_usd': intelligenceUsd,
+        ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
+        ...(record.provider ? { 'provider.name': record.provider } : {}),
+        ...(record.sessionId
+          ? {
+              'tangle.sessionId': record.sessionId,
+              'gen_ai.conversation.id': record.sessionId,
+            }
+          : {}),
+        ...(record.harness ? { 'tangle.agent.harness': record.harness } : {}),
+        ...(repository ? { 'vcs.repository.name': repository } : {}),
+        ...(record.commitSha ? { 'vcs.ref.head.revision': record.commitSha } : {}),
+        ...(record.timing
+          ? {
+              'tangle.started_at_ms': record.timing.startedAt,
+              'tangle.completed_at_ms': record.timing.completedAt,
+              'tangle.duration_ms': record.timing.durationMs,
+            }
+          : {}),
+        ...(record.tokens
+          ? {
+              'gen_ai.usage.input_tokens': record.tokens.input,
+              'gen_ai.usage.output_tokens': record.tokens.output,
+              ...(record.tokens.cachedInput !== undefined
+                ? { 'gen_ai.usage.cache_read_input_tokens': record.tokens.cachedInput }
+                : {}),
+              ...(record.tokens.reasoning !== undefined
+                ? { 'gen_ai.usage.reasoning_tokens': record.tokens.reasoning }
+                : {}),
+            }
+          : {}),
+        ...(typeof record.outcome.success === 'boolean'
+          ? { 'tangle.outcome.success': record.outcome.success }
+          : {}),
+        ...(typeof record.outcome.score === 'number'
+          ? { 'tangle.outcome.score': record.outcome.score }
+          : {}),
+        ...(record.error
+          ? {
+              'error.type': record.error.code ?? record.error.name,
+              'error.message': serializeJson(redactor(record.error.message)),
+            }
+          : {}),
+        ...(record.runtimeEvents
+          ? { 'tangle.runtime.event_count': record.runtimeEvents.length }
+          : {}),
+        ...(record.candidateExecution
+          ? {
+              'tangle.candidate.proposal_digest': record.candidateExecution.proposalDigest,
+              'tangle.candidate.review_digest': record.candidateExecution.reviewDigest,
+              'tangle.candidate.bundle_digest': record.candidateExecution.bundleDigest,
+              'tangle.candidate.execution_id': record.candidateExecution.executionId,
+              'tangle.candidate.execution_plan_digest':
+                record.candidateExecution.executionPlanDigest,
+              'tangle.candidate.materialization_receipt_digest':
+                record.candidateExecution.materializationReceiptDigest,
+              'tangle.candidate.succeeded': record.candidateExecution.succeeded,
+              ...(record.candidateExecution.runReceiptDigest
+                ? {
+                    'tangle.candidate.run_receipt_digest':
+                      record.candidateExecution.runReceiptDigest,
+                  }
+                : {}),
+            }
+          : {}),
+      }
+      if (record.profile) {
+        addPayloadAttributes(
+          labels,
+          'tangle.agent.profile',
+          redactor(record.profile),
+          includeFullPayload,
+        )
+        if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
+      }
+      const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
+      const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
+      if (redactedInput !== undefined) {
+        addPayloadAttributes(labels, 'tangle.input', redactedInput, includeFullPayload)
+      }
+      if (redactedOutput !== undefined) {
+        addPayloadAttributes(labels, 'tangle.output', redactedOutput, includeFullPayload)
+      }
+      const now = Date.now()
       const runSpan = flatOtelSpan(
         'tangle.intelligence.run',
         { 'tangle.runId': record.runId, ...labels },
         record.traceId,
-        Date.now(),
+        record.timing?.startedAt ?? now,
+        undefined,
+        record.timing?.completedAt ?? now,
       )
       ex.exportSpan(runSpan)
+      if (record.runtimeEvents && record.runtimeEvents.length > 0) {
+        const spans = buildRuntimeEventOtelSpans(
+          record.runtimeEvents,
+          record.traceId,
+          runSpan.spanId,
+          { ...config.runtimeTelemetry, redact: redactor },
+        )
+        for (const span of spans) ex.exportSpan(span)
+      }
       // The loop topology (when present) exports under the SAME traceId, parented
       // under the run span — reusing the shipped builder, never a second one.
       if (record.loopEvents && record.loopEvents.length > 0) {

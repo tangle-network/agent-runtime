@@ -11,6 +11,7 @@
     "src/knowledge/index.ts",
     "src/profiles/index.ts",
     "src/platform/index.ts",
+    "src/candidate-execution/index.ts",
     "src/mcp/index.ts"
   ],
   "entryPointStrategy": "resolve",

@@ -110,7 +110,7 @@ describe('improve() — facade over selfImprove', () => {
     await expect(
       improve(profile, [], {
         surface: 'prompt',
-        generator: scriptedWinner,
+        gate: 'none',
         scenarios,
         judge,
         agent,
@@ -125,7 +125,6 @@ describe('improve() — facade over selfImprove', () => {
     const out = await improve(profile, [], {
       surface: 'prompt',
       gate: 'none',
-      generator: scriptedWinner,
       scenarios,
       judge,
       agent,

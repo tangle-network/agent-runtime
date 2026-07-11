@@ -97,8 +97,8 @@ execution state.
 
 ## The agent manifest
 
-`defineAgent(...)` is how a vertical declares the **surfaces** (prompt,
-skills, tools — the levers `agent-eval`'s analyst loop can edit), the
+`defineAgent(...)` is how a vertical declares the **surfaces** (the full
+`AgentProfile`: prompt, skills, tools, MCP, hooks, subagents, and extensions), the
 **knowledge** requirements, the **rubric**, and the **run** function
 that ties it all together. The manifest is what the eval harness
 benchmarks, what the analyst loop improves, and (in time) what the
