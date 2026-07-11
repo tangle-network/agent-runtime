@@ -32,6 +32,7 @@ try {
   const requiredExports = {
     '.': ['import', 'types'],
     './agent': ['import', 'types'],
+    './candidate-execution': ['import', 'types'],
     './intelligence': ['import', 'types'],
     './loops': ['import', 'types'],
     './environment-provider': ['import', 'types'],
@@ -73,6 +74,51 @@ try {
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const candidates = await import('@tangle-network/agent-runtime/candidate-execution')
+        for (const name of [
+          'buildAgentCandidateBundle',
+          'sealAgentCandidateBundle',
+          'verifyAgentCandidateBundle',
+        ]) {
+          if (typeof candidates[name] !== 'function') throw new Error('missing candidate export ' + name)
+        }
+        const bundle = candidates.buildAgentCandidateBundle({
+          profile: {
+            kind: 'profile',
+            profile: { name: 'packed-consumer', harness: 'codex' },
+          },
+          code: { kind: 'disabled', reason: 'control' },
+          execution: {
+            harness: 'codex',
+            harnessVersion: '1.0.0',
+            launch: { kind: 'container-command', executable: 'codex' },
+            instructionDelivery: { kind: 'stdin-utf8' },
+            cwd: { workspace: 'task', path: '.' },
+            environment: { kind: 'evaluator-task-container' },
+            isolation: {
+              network: 'disabled',
+              remoteIntegrations: 'disabled',
+              candidateSecrets: 'disabled',
+            },
+          },
+          memory: { mode: 'disabled' },
+          lineage: { source: 'human' },
+        })
+        const verified = await candidates.verifyAgentCandidateBundle(bundle, {
+          artifacts: { read: async () => { throw new Error('unexpected artifact read') } },
+          repositories: { resolve: async () => { throw new Error('unexpected repository read') } },
+        })
+        if (verified.bundle.digest !== bundle.digest) throw new Error('packed candidate digest drift')
       `,
     ],
     appDir,

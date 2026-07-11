@@ -1332,7 +1332,7 @@ Defined in: [intelligence/improvement-cycle.ts:109](https://github.com/tangle-ne
 
 ##### buildCandidate?
 
-> `optional` **buildCandidate?**: (`input`) => `AgentCandidateBundleInput` \| `Promise`\<`AgentCandidateBundleInput`\>
+> `optional` **buildCandidate?**: (`input`) => [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<[`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 Defined in: [intelligence/improvement-cycle.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L115)
 
@@ -1354,7 +1354,7 @@ computes the bundle digest; adapters never implement hashing themselves.
 
 ###### Returns
 
-`AgentCandidateBundleInput` \| `Promise`\<`AgentCandidateBundleInput`\>
+[`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<[`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 ##### now?
 

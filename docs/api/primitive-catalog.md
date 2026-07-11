@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 323 exports.
+Import from `@tangle-network/agent-runtime` — 330 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -23,6 +23,7 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `applyRolloutPolicyToProfile` | function | Persist a policy into the profile's extensions namespace. Shallow copy; never |
 | `applyRunRecordDefaults` | function | Stamp cross-cutting defaults onto adapter-projected RunRecords without |
 | `auditLoopRunner` | function | `audit` mode — analyst loop over captured trace/run data. |
+| `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
@@ -97,6 +98,7 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
 | `sanitizeKnowledgeReadinessReport` | function | Strip PII and large blobs from a `KnowledgeReadinessReport` for safe telemetry emission. |
 | `sanitizeRuntimeStreamEvent` | function | Reduce a `RuntimeStreamEvent` to a PII-safe, serializable plain object for telemetry. |
+| `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `selfImproveLoopRunner` | function | `self-improve` mode — agent-eval's one-call closed improvement loop (held-out gated). |
 | `serializeRolloutPolicy` | function | Stable serialization — dial order is fixed so identical policies produce |
 | `sleep` | function | Resolve after `ms` milliseconds — used for retry backoff in conversation call policy. |
@@ -139,6 +141,7 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `AgentCandidateArtifactPort` | interface | Reads one content-addressed object from the closed S3/IPFS locator set. |
 | `AgentCandidateBenchmarkGraderPort` | interface | Evaluator-owned executable grader, pinned by immutable implementation bytes. |
+| `AgentCandidateCodeSurfaceSource` | interface | The only accepted path from an agent-eval code candidate to executable bytes. |
 | `AgentCandidateExecutionAttemptRecord` | interface | Persisted state available to a fresh trusted recovery worker after a crash. |
 | `AgentCandidateExecutionClaim` | interface | Immutable signed identity stored for one execution attempt. |
 | `AgentCandidateExecutionClaimStore` | interface | Atomic one-shot store for candidate execution attempts. |
@@ -158,6 +161,7 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
+| `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `CandidateGenerator` | interface | The byte-producing seam — the ONE thing that differs between the cheap |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
@@ -181,6 +185,8 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `VerifiedAgentCandidateTaskOutcome` | interface | Branded task outcome that has survived independent patch and tree verification. |
 | `VerifyResult` | interface | Outcome of verifying a candidate worktree. `feedback` (compiler errors, |
 | `AgentBackendKind` | type | The transport a chat backend runs on. |
+| `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
+| `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
 | `AgentCandidateExecutionFailureClass` | type | Only the first class is retryable, and only when the closed model ledger has zero calls. |
 | `AgentCandidateExecutionFinishResult` | type | Result of atomically recording an attempt's terminal facts. |
@@ -191,6 +197,7 @@ Import from `@tangle-network/agent-runtime` — 323 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
+| `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
 | `ImproveSurface` | type | The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law |
 | `OpenAIChatResponseFormat` | type | `response_format` parameter for OpenAI-compatible chat endpoints. Use |
@@ -863,10 +870,11 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 78 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 85 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |
@@ -874,6 +882,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 78 exports.
 | `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
 | `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
 | `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |
+| `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `CANDIDATE_TRACE_ENV` | const | Environment keys used to propagate immutable candidate trace identity. |
 | `CANDIDATE_TRACE_TAGS` | const | Protected trace tags that bind a run to one prepared candidate execution. |
@@ -881,6 +890,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 78 exports.
 | `InMemoryAgentCandidateExecutionClaimStore` | class | Single-process lifecycle implementation. |
 | `AgentCandidateArtifactPort` | interface | Reads one content-addressed object from the closed S3/IPFS locator set. |
 | `AgentCandidateBenchmarkGraderPort` | interface | Evaluator-owned executable grader, pinned by immutable implementation bytes. |
+| `AgentCandidateCodeSurfaceSource` | interface | The only accepted path from an agent-eval code candidate to executable bytes. |
 | `AgentCandidateExecutionAttemptRecord` | interface | Persisted state available to a fresh trusted recovery worker after a crash. |
 | `AgentCandidateExecutionClaim` | interface | Immutable signed identity stored for one execution attempt. |
 | `AgentCandidateExecutionClaimStore` | interface | Atomic one-shot store for candidate execution attempts. |
@@ -899,7 +909,10 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 78 exports.
 | `AgentCandidateProtectedModelCall` | interface | One evaluator-gateway call in the final, revoked model-access ledger. |
 | `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
+| `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `VerifiedAgentCandidateTaskOutcome` | interface | Branded task outcome that has survived independent patch and tree verification. |
+| `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
+| `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
 | `AgentCandidateExecutionFailureClass` | type | Only the first class is retryable, and only when the closed model ledger has zero calls. |
 | `AgentCandidateExecutionFinishResult` | type | Result of atomically recording an attempt's terminal facts. |
@@ -910,6 +923,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 78 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
+| `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentCandidateBenchmarkGraderIdentity`, `AgentCandidateContainerPort`, `AgentCandidateExecutionAttemptRef`, `AgentCandidateExecutionPorts`, `AgentCandidateExecutorProfileFile`, `AgentCandidateExecutorWorkspaceFile`, `AgentCandidateExecutorWorkspaceInput`, `AgentCandidateMemoryPort`, `AgentCandidateMemoryResetResult`, `AgentCandidateModelPort`, `AgentCandidateProtectedModelActivation`, `AgentCandidateProtectedModelReservation`, `AgentCandidateProtectedModelSettlement`, `AgentCandidateProtectedRunCapture`, `AgentCandidateTaskExecution`, `AgentCandidateVerificationPorts`, `CanonicalCandidateDocument`, `CreateProtectedAgentCandidateModelPortOptions`, `DisposePreparedAgentCandidateOptions`, `ExecutePreparedAgentCandidateOptions`, `FileAgentCandidateExecutionClaimStoreOptions`, `PrepareAgentCandidateExecutionOptions`, `PreparedAgentCandidateExecution`, `PreparedAgentCandidateInstruction`, `PreparedAgentCandidateLaunch`, `PreparedAgentCandidateTrace`, `RecoverExpiredAgentCandidateOptions`, `ResolvedAgentCandidateContainer`, `VerifiedAgentCandidate`, `AgentCandidateModelGrantActivateInput`, `AgentCandidateModelGrantReserveInput`, `AgentCandidateModelGrantSettleInput`, `AgentCandidateOutputPurpose`, `AgentCandidateRetryRejection`, `AgentCandidateRunFinalization`.
 

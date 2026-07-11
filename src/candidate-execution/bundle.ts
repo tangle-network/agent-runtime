@@ -3,6 +3,7 @@ import { agentCandidateBundleSchema } from '@tangle-network/agent-interface'
 
 import { canonicalCandidateDigest, immutableCandidateValue, omitTopLevelDigest } from './digest'
 
+/** Exact candidate wire shape before the runtime computes its canonical digest. */
 export type AgentCandidateBundleInput = Omit<AgentCandidateBundle, 'digest'>
 
 /** Validate and content-address a candidate bundle before it crosses an approval boundary. */
