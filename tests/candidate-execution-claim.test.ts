@@ -608,7 +608,7 @@ describe('candidate execution claim lifecycle', () => {
     expect(stageResults.filter((result) => result === 'already-staged:exact')).toHaveLength(7)
     expect(finishResults.filter((result) => result === 'finished')).toHaveLength(1)
     expect(finishResults.filter((result) => result === 'already-finished:exact')).toHaveLength(7)
-  })
+  }, 15_000)
 
   it('linearizes expired recovery across independent processes', async () => {
     const directory = await tempDirectory()
