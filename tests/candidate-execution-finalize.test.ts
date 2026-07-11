@@ -73,11 +73,16 @@ async function finalizePrepared(
         calls: [
           {
             callId: 'call-1',
+            generationId: 'llm-1',
             traceSpanId: 'llm-1',
+            status: 'succeeded',
             model: execution.resolvedModel.model,
+            startedAtMs: 120,
+            endedAtMs: 200,
             inputTokens: 10,
             outputTokens: 5,
             cachedInputTokens: 2,
+            reasoningTokens: 0,
             costUsdNanos: 10_000_000,
           },
         ],
@@ -162,6 +167,11 @@ async function traceStore(
       startedAt: 120,
       endedAt: 200,
       status: 'ok',
+      attributes: {
+        'tangle.protected_model.source': 'router-settlement',
+        'tangle.router.call_id': 'call-1',
+        'tangle.router.generation_id': 'llm-1',
+      },
       ...(overrides.omitUsage
         ? {}
         : { inputTokens: 10, outputTokens: 5, cachedTokens: 2, costUsd: 0.01 }),
@@ -388,6 +398,11 @@ describe('protected candidate run finalization', () => {
         startedAt: 120 + index * 100,
         endedAt: 180 + index * 100,
         status: 'ok',
+        attributes: {
+          'tangle.protected_model.source': 'router-settlement',
+          'tangle.router.call_id': `call-${index + 1}`,
+          'tangle.router.generation_id': `llm-${index + 1}`,
+        },
       })
     }
     const settlement = sealAgentCandidateModelSettlement(
@@ -398,18 +413,30 @@ describe('protected candidate run finalization', () => {
         calls: [
           {
             callId: 'call-1',
+            generationId: 'llm-1',
             traceSpanId: 'llm-1',
+            status: 'succeeded',
             model: execution.resolvedModel.model,
+            startedAtMs: 120,
+            endedAtMs: 180,
             inputTokens: 5,
             outputTokens: 2,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
             costUsdNanos: 100_000_000,
           },
           {
             callId: 'call-2',
+            generationId: 'llm-2',
             traceSpanId: 'llm-2',
+            status: 'succeeded',
             model: execution.resolvedModel.model,
+            startedAtMs: 220,
+            endedAtMs: 280,
             inputTokens: 5,
             outputTokens: 2,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
             costUsdNanos: 200_000_000,
           },
         ],

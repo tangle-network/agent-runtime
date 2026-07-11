@@ -157,6 +157,98 @@ describe('atomic prepared candidate execution', () => {
     ).resolves.toEqual(result.receipt.bytes)
   })
 
+  it('authors paid model spans only from the closed router ledger', async () => {
+    const fixture = createCandidateExecutionFixture()
+    fixture.ports.models.settleGrant = async ({ preparationId }) => ({
+      preparationId,
+      grantDigest: candidateSha('c'),
+      closed: true,
+      calls: [
+        {
+          callId: 'call-paid-success',
+          generationId: 'generation-paid-success',
+          traceSpanId: 'generation-paid-success',
+          status: 'succeeded',
+          model: 'model-snapshot',
+          startedAtMs: 120,
+          endedAtMs: 180,
+          inputTokens: 10,
+          outputTokens: 5,
+          cachedInputTokens: 2,
+          reasoningTokens: 1,
+          costUsdNanos: 10_000_000,
+        },
+      ],
+    })
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
+      fixture.task,
+      fixture.ports,
+    )
+    const traceStore = new InMemoryTraceStore()
+    const result = await executePreparedAgentCandidate(
+      prepared,
+      options(
+        {
+          execute: async (request, context) => {
+            await expect(
+              context.traceStore.appendSpan({
+                runId: request.trace.runId,
+                spanId: 'candidate-authored-model-span',
+                kind: 'llm',
+                name: 'untrusted model usage',
+                model: request.resolvedModel.model,
+                messages: [],
+                startedAt: 120,
+              }),
+            ).rejects.toThrow(/cannot author protected model spans/)
+            await terminalTrace(request, context.traceStore)
+            return {
+              executionId: request.executionId,
+              termination: { kind: 'exit', exitCode: 0 },
+            }
+          },
+          stopAndCapture: async () => ({ stopped: true }),
+        },
+        traceStore,
+      ),
+    )
+    if (!result.succeeded) throw new Error(result.reason)
+    expect(result.receipt.value).toMatchObject({
+      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
+      modelSettlement: {
+        material: {
+          schemaVersion: 2,
+          calls: [
+            {
+              generationId: 'generation-paid-success',
+              traceSpanId: 'generation-paid-success',
+              startedAtMs: 120,
+              endedAtMs: 180,
+              costUsdNanos: 10_000_000,
+            },
+          ],
+        },
+      },
+    })
+    expect(await traceStore.spans({ runId: prepared.trace.runId })).toEqual([
+      expect.objectContaining({
+        spanId: 'generation-paid-success',
+        kind: 'llm',
+        inputTokens: 10,
+        outputTokens: 5,
+        cachedTokens: 2,
+        reasoningTokens: 1,
+        costUsd: 0.01,
+        startedAt: 120,
+        endedAt: 180,
+        attributes: expect.objectContaining({
+          'tangle.protected_model.source': 'router-settlement',
+        }),
+      }),
+    ])
+  })
+
   it('rejects pre-launch staging mutation before activation or executor access', async () => {
     const fixture = createCandidateExecutionFixture(true)
     const prepared = await prepareAgentCandidateExecution(
@@ -863,10 +955,16 @@ describe('atomic prepared candidate execution', () => {
         calls: [
           {
             callId: 'call-paid-1',
-            traceSpanId: 'llm-paid-1',
+            generationId: 'generation-paid-1',
+            traceSpanId: 'generation-paid-1',
+            status: 'failed',
             model: 'model-snapshot',
+            startedAtMs: 100,
+            endedAtMs: 150,
             inputTokens: 10,
             outputTokens: 5,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
             costUsdNanos: 10_000_000,
           },
         ],

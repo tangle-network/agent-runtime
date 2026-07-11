@@ -1,7 +1,8 @@
-import type { LlmSpan } from '@tangle-network/agent-eval'
+import { InMemoryTraceStore, type LlmSpan } from '@tangle-network/agent-eval'
 import type { AgentCandidateResolvedModel, Sha256Digest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
+  appendAuthoritativeModelSettlementSpans,
   assertTraceMatchesModelSettlement,
   sealAgentCandidateModelSettlement,
 } from '../src/candidate-execution/model-settlement'
@@ -97,9 +98,13 @@ function modelCall(
   overrides: Partial<AgentCandidateProtectedModelCall> = {},
 ): AgentCandidateProtectedModelCall {
   return {
-    callId: `generation-${index}`,
-    traceSpanId: `agent-eval-span-${index}`,
+    callId: `call-${index}`,
+    generationId: `generation-${index}`,
+    traceSpanId: `generation-${index}`,
+    status: 'succeeded',
     model: resolvedModel.model,
+    startedAtMs: 1_000 + index * 100,
+    endedAtMs: 1_050 + index * 100,
     inputTokens: 10,
     outputTokens: 5,
     cachedInputTokens: 0,
@@ -487,12 +492,12 @@ describe('protected candidate model port', () => {
   it.each([
     [
       'duplicate call ids',
-      [modelCall(1), modelCall(2, { callId: 'generation-1' })],
+      [modelCall(1), modelCall(2, { callId: 'call-1' })],
       /duplicate call ids/,
     ],
     [
       'duplicate trace span ids',
-      [modelCall(1), modelCall(2, { traceSpanId: 'agent-eval-span-1' })],
+      [modelCall(1), modelCall(2, { generationId: 'generation-1', traceSpanId: 'generation-1' })],
       /duplicate trace span ids/,
     ],
   ])('rejects %s in the final ledger', async (_name, calls, pattern) => {
@@ -505,6 +510,11 @@ describe('protected candidate model port', () => {
   it.each([
     ['preparation', { ...settlement(), preparationId: 'other-preparation' }, /preparation/],
     ['grant', { ...settlement(), grantDigest: sha('c') }, /grant digest/],
+    [
+      'router generation',
+      settlement([modelCall(1, { traceSpanId: 'caller-chosen-span' })]),
+      /router generationId/,
+    ],
     ['model', settlement([modelCall(1, { model: 'openai/other-snapshot' })]), /unexpected model/],
   ])('rejects a mismatched %s in the final ledger', async (_name, value, pattern) => {
     const client = fakeClient({ settle: async () => value })
@@ -556,11 +566,13 @@ describe('protected candidate model port', () => {
       model: resolvedModel.model,
     })
     const span = (index: number): LlmSpan => ({
-      spanId: `agent-eval-span-${index}`,
+      spanId: `generation-${index}`,
       runId: 'run-1',
       kind: 'llm',
-      name: `model-call-${index}`,
-      startedAt: index,
+      name: 'protected model call',
+      startedAt: 1_000 + index * 100,
+      endedAt: 1_050 + index * 100,
+      status: 'ok',
       model: resolvedModel.model,
       messages: [],
       inputTokens: 10,
@@ -568,6 +580,11 @@ describe('protected candidate model port', () => {
       cachedTokens: 0,
       reasoningTokens: 0,
       costUsd: 0.01,
+      attributes: {
+        'tangle.protected_model.source': 'router-settlement',
+        'tangle.router.call_id': `call-${index}`,
+        'tangle.router.generation_id': `generation-${index}`,
+      },
     })
 
     expect(() => assertTraceMatchesModelSettlement([], sealed)).toThrow(/do not match/)
@@ -575,5 +592,20 @@ describe('protected candidate model port', () => {
       /do not match/,
     )
     expect(() => assertTraceMatchesModelSettlement([span(1)], sealed)).not.toThrow()
+
+    const store = new InMemoryTraceStore()
+    await store.appendRun({
+      runId: 'run-1',
+      scenarioId: 'candidate-model-port',
+      startedAt: 900,
+      endedAt: 1_200,
+      status: 'completed',
+    })
+    await appendAuthoritativeModelSettlementSpans(store, 'run-1', sealed)
+    const protectedSpans = (await store.spans({ runId: 'run-1' })).filter(
+      (candidate): candidate is LlmSpan => candidate.kind === 'llm',
+    )
+    expect(protectedSpans).toEqual([span(1)])
+    expect(() => assertTraceMatchesModelSettlement(protectedSpans, sealed)).not.toThrow()
   })
 })

@@ -170,13 +170,18 @@ export interface AgentCandidateProtectedModelActivation {
 /** One evaluator-gateway call in the final, revoked model-access ledger. */
 export interface AgentCandidateProtectedModelCall {
   callId: string
-  /** Exact protected agent-eval LLM span produced for this call. */
+  /** Router-generated public response identity. */
+  generationId: string
+  /** Exact protected agent-eval LLM span produced from the router ledger. */
   traceSpanId: string
+  status: 'succeeded' | 'failed'
   model: string
+  startedAtMs: number
+  endedAtMs: number
   inputTokens: number
   outputTokens: number
-  cachedInputTokens?: number
-  reasoningTokens?: number
+  cachedInputTokens: number
+  reasoningTokens: number
   /** Integer billionths of one US dollar; avoids floating-point ledger drift. */
   costUsdNanos: number
 }
