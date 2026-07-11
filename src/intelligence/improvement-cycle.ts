@@ -159,8 +159,15 @@ export interface ExecuteApprovedAgentCandidateResult {
 export async function proposeAgentImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentImprovementResult<TScenario, TArtifact>> {
-  if (options.improvement.skills?.writeBack) {
-    throw new Error('proposeAgentImprovement cannot write a skill before human approval')
+  const writeBackSurface = options.improvement.skills?.writeBack
+    ? 'skill'
+    : options.improvement.memory?.writeBack
+      ? 'memory'
+      : null
+  if (writeBackSurface) {
+    throw new Error(
+      `proposeAgentImprovement cannot write ${writeBackSurface} before human approval`,
+    )
   }
   const analysis = await runAnalystLoop({
     ...options.analysis,

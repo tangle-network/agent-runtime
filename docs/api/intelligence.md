@@ -3564,7 +3564,7 @@ Analyze one run and produce one measured, review-only improvement proposal.
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L201)
+Defined in: [intelligence/improvement-cycle.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L208)
 
 Persist an approve/reject/change-request decision bound to one exact proposal.
 
@@ -3588,7 +3588,7 @@ Persist an approve/reject/change-request decision bound to one exact proposal.
 
 > **executeApprovedAgentCandidate**(`options`): `Promise`\<[`ExecuteApprovedAgentCandidateResult`](#executeapprovedagentcandidateresult)\>
 
-Defined in: [intelligence/improvement-cycle.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L231)
+Defined in: [intelligence/improvement-cycle.ts:238](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L238)
 
 Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
@@ -3608,7 +3608,7 @@ Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
 > **verifyAgentImprovementProposal**(`input`): [`AgentImprovementProposal`](#agentimprovementproposal)
 
-Defined in: [intelligence/improvement-cycle.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L273)
+Defined in: [intelligence/improvement-cycle.ts:280](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L280)
 
 Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
@@ -3628,7 +3628,7 @@ Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
 > **verifyAgentImprovementReview**(`input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L317)
+Defined in: [intelligence/improvement-cycle.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L324)
 
 Validate a review's decision fields and canonical digest.
 

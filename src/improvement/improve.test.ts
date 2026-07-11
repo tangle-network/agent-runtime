@@ -2,8 +2,8 @@
  * `improve()` default-proposer resolution proof.
  *
  * The regression this guards: `improve()` maps each surface to a default
- * `SurfaceProposer` — `prompt → gepaProposer`, `skills → skillOptProposer`.
- * Both proposers are factories exported from `@tangle-network/agent-eval/campaign`.
+ * `SurfaceProposer` — `prompt → gepaProposer`, `skills → skillOptProposer`,
+ * `memory → memoryCurationProposer`.
  * If either import resolves to `undefined` (a substrate export drift), the facade
  * does not fail at module load — it fails at CALL time, the first time a caller
  * names that surface. So a green typecheck is not enough; this test drives the
@@ -17,7 +17,13 @@
  * sees a real backend rather than a silent-zero stub.
  */
 
-import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import type {
+  CodeSurface,
+  DispatchContext,
+  JudgeConfig,
+  Scenario,
+  SurfaceProposer,
+} from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
@@ -115,6 +121,145 @@ describe('improve() — default proposer resolution (substrate export drift guar
         agent: stubAgent,
       }),
     ).rejects.toThrow(/requires opts\.skills\.document/)
+  })
+
+  it("surface 'memory' resolves memoryCurationProposer and requires a real baseline", async () => {
+    const result = await improve(promptProfile(), [], {
+      surface: 'memory',
+      gate: 'none',
+      scenarios,
+      judge,
+      agent: stubAgent,
+      memory: { document: '# Durable memory\n' },
+    })
+
+    expect(result.gateDecision).toBe('hold')
+    expect(result.shipped).toBe(false)
+    await expect(
+      improve(promptProfile(), [], {
+        surface: 'memory',
+        gate: 'none',
+        scenarios,
+        judge,
+        agent: stubAgent,
+      }),
+    ).rejects.toThrow(/requires opts\.memory\.document/)
+  })
+
+  it("surface 'memory' curates seed findings and awaits persistence of the promoted document", async () => {
+    const baseline = '# Durable memory\n'
+    let writtenBack: string | null = null
+    const result = await improve(promptProfile(), [{ claim: 'improved verification lesson' }], {
+      surface: 'memory',
+      scenarios,
+      judge: improvementJudge,
+      agent: stubAgent,
+      memory: {
+        document: baseline,
+        writeBack: async (winner) => {
+          await Promise.resolve()
+          writtenBack = winner
+        },
+      },
+      promotionGate: {
+        name: 'test-ship',
+        decide: async () => ({
+          decision: 'ship',
+          reasons: ['test candidate'],
+          contributingGates: [],
+        }),
+      },
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+    })
+
+    expect(result.shipped).toBe(true)
+    expect(writtenBack).toContain('improved verification lesson')
+    expect(result.profile).toEqual(promptProfile())
+  })
+
+  it("surface 'memory' rejects a shipped non-text winner before persistence", async () => {
+    let writeCalls = 0
+    const nonTextSurface: CodeSurface = {
+      kind: 'code',
+      worktreeRef: 'not-a-memory-document',
+      baseRef: 'main',
+      baseCommit: 'a'.repeat(40),
+      baseTree: 'b'.repeat(40),
+      candidateCommit: 'c'.repeat(40),
+      candidateTree: 'd'.repeat(40),
+      patch: {
+        format: 'git-diff-binary',
+        sha256: `sha256:${'e'.repeat(64)}`,
+        byteLength: 1,
+      },
+    }
+    const surfaceKindJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'surface-kind-judge',
+      dimensions: [{ key: 'q', description: 'candidate is code-tier' }],
+      score: ({ artifact }) => {
+        const score = artifact.text === 'code' ? 1 : 0
+        return { dimensions: { q: score }, composite: score, notes: '' }
+      },
+    }
+    const malformedMemory: SurfaceProposer = {
+      kind: 'malformed-memory',
+      propose: async () => [
+        {
+          surface: nonTextSurface,
+          label: 'wrong-tier',
+          rationale: 'test malformed winner',
+        },
+      ],
+    }
+    await expect(
+      improve(promptProfile(), [], {
+        surface: 'memory',
+        scenarios,
+        judge: surfaceKindJudge,
+        agent: async (surface, _scenario, ctx) => {
+          ctx.cost.observe(0.0001, 'stub-agent')
+          ctx.cost.observeTokens({ input: 1, output: 1 })
+          return { text: typeof surface === 'string' ? 'text' : surface.kind }
+        },
+        memory: {
+          document: '# Durable memory\n',
+          writeBack: () => {
+            writeCalls += 1
+          },
+        },
+        generator: malformedMemory,
+        promotionGate: {
+          name: 'test-ship',
+          decide: async () => ({
+            decision: 'ship',
+            reasons: ['test candidate'],
+            contributingGates: [],
+          }),
+        },
+        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      }),
+    ).rejects.toThrow(/winner must be text/)
+    expect(writeCalls).toBe(0)
+  })
+
+  it("surface 'memory' never writes back a held candidate", async () => {
+    let writeCalls = 0
+    const result = await improve(promptProfile(), [], {
+      surface: 'memory',
+      gate: 'none',
+      scenarios,
+      judge,
+      agent: stubAgent,
+      memory: {
+        document: '# Durable memory\n',
+        writeBack: () => {
+          writeCalls += 1
+        },
+      },
+    })
+
+    expect(result.shipped).toBe(false)
+    expect(writeCalls).toBe(0)
   })
 
   it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
@@ -329,8 +474,8 @@ describe('improve() — default proposer resolution (substrate export drift guar
   })
 
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
-    // The default-proposer map covers prompt + skills only; the config surfaces
-    // (tools/mcp/hooks/code) require a caller-supplied generator. This is the
+    // Prompt, skills, memory, and rollout policy have defaults; config surfaces
+    // require a caller-supplied generator. This is the
     // designed boundary the proposer migration must NOT erase.
     const configSurfaces: ImproveSurface[] = [
       'tools',

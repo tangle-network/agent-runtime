@@ -151,6 +151,30 @@ afterEach(() => {
 })
 
 describe('agent improvement lifecycle', () => {
+  it('refuses memory persistence before human approval', async () => {
+    const writeBack = vi.fn()
+    await expect(
+      proposeAgentImprovement({
+        runId: 'analysis-run-memory-writeback',
+        profile: fixtureProfile(),
+        analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
+        improvement: {
+          surface: 'memory',
+          memory: {
+            document: '# Durable memory\n',
+            writeBack,
+          },
+          generator: proposer,
+          scenarios,
+          judge,
+          agent,
+          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.5 },
+        },
+      }),
+    ).rejects.toThrow('cannot write memory before human approval')
+    expect(writeBack).not.toHaveBeenCalled()
+  })
+
   it('binds typed candidate hooks to their equivalent measured profile commands', () => {
     expect(() =>
       assertCandidateProfileBinding(
