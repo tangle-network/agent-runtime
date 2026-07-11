@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime'
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 
-import type { StagedPierCandidateExecution } from '../src/pier-agent'
+import { createStagedPierCandidateExecutionFixture } from '../src/pier-agent.test-fixtures.mts'
 import { FilePierCandidateTrialController } from '../src/pier-trial-controller'
 
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -59,7 +59,7 @@ try {
     }),
   })
   handle = controller.start(
-    { executionId, evaluatorEnv: {} } as StagedPierCandidateExecution,
+    createStagedPierCandidateExecutionFixture(executionId),
     {
       request: {
         executionId,

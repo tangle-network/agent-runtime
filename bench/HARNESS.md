@@ -238,21 +238,27 @@ That command runs a no-change candidate that must score 0/1, proves a fresh eval
 It then checks that each official result and exact task patch is bound into its own runtime receipt with zero model usage.
 
 For a real frozen candidate, use `FilePierCandidateTrialController`, append `agentArgs` and `attemptArgs`, and pass each executor-only `evaluatorEnv` entry through Pier's evaluator-owned environment mechanism.
+The launch callback's second argument carries the signed runtime `request`, protected `traceStore`, cancellation `signal`, and absolute `deadlineAtMs`; production launchers must use that context rather than reconstructing it.
 The controller sends secrets to its supervisor over a pipe, while its durable files contain only process and Docker-project identities:
+The supervisor never inherits `process.env`; non-default Docker connections use a stable `dockerConnection.id` plus the exact environment injected into both Pier and cleanup.
+Fresh recovery workers must reconstruct that same named connection; `terminate-pier-trial.mts` selects only the comma-delimited variables named by `PIER_DOCKER_ENV_NAMES` when `PIER_DOCKER_CONNECTION_ID` is set.
 `jobName` must be unique per prepared execution; the controller atomically reserves that job directory so recovery can remove only containers owned by that execution.
 
 ```ts
 const controller = new FilePierCandidateTrialController({
   directory: '/var/lib/tangle/pier-control',
-  launch: (staged) => ({
-    command: 'uv',
-    args: ['run', 'pier', 'run', ...staged.agentArgs, ...staged.attemptArgs],
-    cwd: pierCheckout,
-    env: { ...evaluatorEnvironment, ...staged.evaluatorEnv },
-    jobsDirectory,
-    jobName,
-    readResult: () => readOfficialPierResult(jobsDirectory, jobName),
-  }),
+  launch: (staged, { request }) => {
+    const jobName = request.executionId
+    return {
+      command: 'uv',
+      args: ['run', 'pier', 'run', ...staged.agentArgs, ...staged.attemptArgs],
+      cwd: pierCheckout,
+      env: { ...evaluatorEnvironment, ...staged.evaluatorEnv },
+      jobsDirectory,
+      jobName,
+      readResult: () => readOfficialPierResult(jobsDirectory, jobName),
+    }
+  },
 })
 
 const result = await executePreparedPierCandidate({

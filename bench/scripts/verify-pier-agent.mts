@@ -43,9 +43,9 @@ const pinnedPierVersion = '0.3.0'
 const modelRequest = 'openai/gpt-5.4'
 const fixtureImage = 'ghcr.io/tangle-network/devcontainers/universal:latest'
 const prepareOnly = process.env.PIER_PREPARE_ONLY === '1'
-const proofArm = process.env.PIER_PROOF_ARM ?? (prepareOnly ? 'failure' : undefined)
+const proofArm = process.env.PIER_PROOF_ARM
 if (proofArm !== 'failure' && proofArm !== 'success') {
-  throw new Error('PIER_PROOF_ARM must be failure or success')
+  throw new Error('PIER_PROOF_ARM must be explicitly set to failure or success')
 }
 const expectedReward = proofArm === 'success' ? 1 : 0
 const expectedPatchApplied = proofArm === 'success' ? 1 : 0

@@ -32,6 +32,11 @@
     "tsx": "^4.19.0",
     "typescript": "^6.0.3"
   },
+  "pnpm": {
+    "overrides": {
+      "@tangle-network/agent-eval": "0.114.0"
+    }
+  },
   "files": [
     "src",
     "fixtures",

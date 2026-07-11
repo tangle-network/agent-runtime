@@ -452,6 +452,32 @@ class CandidateContractTest(unittest.TestCase):
                     fixture["receipt_digest"],
                 )
 
+    def test_rejects_extra_utf8_file_delivery_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["plan"]["task"]["instruction"]["delivery"] = {
+                "kind": "utf8-file",
+                "env": "TANGLE_CANDIDATE_TASK_PATH",
+                "path": "/tangle/input/task.txt",
+                "ignored": "unsigned-semantics",
+            }
+            fixture["plan"]["launch"]["env"] = {
+                "TANGLE_CANDIDATE_TASK_PATH": {
+                    "kind": "public",
+                    "value": "/tangle/input/task.txt",
+                }
+            }
+            _rewrite_signed_plan(fixture)
+
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError, "unexpected fields"
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
     def test_accepts_only_frozen_public_model_gateway_domains(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))

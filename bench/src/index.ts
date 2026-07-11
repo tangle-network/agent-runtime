@@ -70,6 +70,7 @@ export {
   FilePierCandidateTrialController,
   type FilePierCandidateTrialControllerOptions,
   type PierCandidateProcessSpec,
+  type PierDockerConnection,
 } from './pier-trial-controller'
 export { createPierResultGrader } from './pier-result-grader'
 export {

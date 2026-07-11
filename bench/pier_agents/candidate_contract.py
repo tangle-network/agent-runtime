@@ -323,11 +323,12 @@ def _instruction(value: Any) -> InstructionEvidence:
         env = path = None
     elif kind == "utf8-file":
         if (
-            delivery.get("env") != "TANGLE_CANDIDATE_TASK_PATH"
+            set(delivery) != {"kind", "env", "path"}
+            or delivery.get("env") != "TANGLE_CANDIDATE_TASK_PATH"
             or delivery.get("path") != "/tangle/input/task.txt"
         ):
             raise CandidateContractError(
-                "utf8-file delivery must use the fixed env and path"
+                "utf8-file delivery has unexpected fields or does not use the fixed env and path"
             )
         env = "TANGLE_CANDIDATE_TASK_PATH"
         path = "/tangle/input/task.txt"

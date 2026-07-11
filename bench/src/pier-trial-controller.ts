@@ -37,6 +37,7 @@ const identityFile = 'identity.json'
 const terminalFile = 'terminal.json'
 const stopFile = 'stop-requested'
 const sha256Pattern = /^sha256:[a-f0-9]{64}$/
+const defaultDockerConnectionId = 'local-default'
 
 interface ProcessIdentity {
   readonly pid: number
@@ -56,6 +57,7 @@ interface PersistedTrialIdentity {
   readonly jobsDirectory: string
   readonly jobName: string
   readonly dockerCommand: string
+  readonly dockerConnectionId: string
 }
 
 interface PersistedTrialTerminal {
@@ -68,6 +70,7 @@ interface PersistedTrialTerminal {
   readonly exitCode?: number | null
   readonly signal?: NodeJS.Signals | null
   readonly error?: string
+  readonly recoveredByPid?: number
 }
 
 export interface PierCandidateProcessSpec {
@@ -75,7 +78,7 @@ export interface PierCandidateProcessSpec {
   readonly command: string
   readonly args: readonly string[]
   readonly cwd: string
-  /** Complete evaluator-owned environment. It is sent over a pipe and never persisted. */
+  /** Exact Pier child environment. The controller adds its Docker connection variables. */
   readonly env: Readonly<Record<string, string | undefined>>
   readonly jobsDirectory: string
   /** Must be unique: the controller atomically reserves this Pier job directory. */
@@ -83,6 +86,13 @@ export interface PierCandidateProcessSpec {
   readonly dockerCommand?: string
   /** Called only by the originating process after the supervisor reports clean exit. */
   readonly readResult: () => Promise<PierCandidateTrialResult>
+}
+
+export interface PierDockerConnection {
+  /** Stable, non-secret name that every recovery worker maps to the same Docker endpoint. */
+  readonly id: string
+  /** Exact variables needed by both Pier and Docker cleanup; values are never persisted. */
+  readonly env: Readonly<Record<string, string | undefined>>
 }
 
 export interface FilePierCandidateTrialControllerOptions {
@@ -97,6 +107,8 @@ export interface FilePierCandidateTrialControllerOptions {
       readonly deadlineAtMs: number
     },
   ) => PierCandidateProcessSpec
+  /** Omit only for the default local Docker socket with no environment variables. */
+  readonly dockerConnection?: PierDockerConnection
   readonly supervisorPath?: string
   readonly pollIntervalMs?: number
 }
@@ -106,9 +118,27 @@ function nonEmpty(value: string, label: string): string {
   return value
 }
 
+function stableDockerConnectionId(value: string): string {
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(value)) {
+    throw new Error('Docker connection id must be a non-secret stable name')
+  }
+  return value
+}
+
 function absolutePath(value: string, label: string): string {
   if (!isAbsolute(value)) throw new Error(`${label} must be an absolute path`)
   return resolve(value)
+}
+
+function validateEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+  label: string,
+): void {
+  for (const [name, value] of Object.entries(environment)) {
+    if (!name || name.includes('\0') || value?.includes('\0')) {
+      throw new Error(`${label} contains an invalid name or value`)
+    }
+  }
 }
 
 function resolveExecutable(command: string, searchPath: string | undefined, label: string): string {
@@ -215,7 +245,8 @@ function parsePersistedIdentity(path: string): PersistedTrialIdentity {
     !sha256Pattern.test(record.executionPlanDigest) ||
     typeof record.jobsDirectory !== 'string' ||
     typeof record.jobName !== 'string' ||
-    typeof record.dockerCommand !== 'string'
+    typeof record.dockerCommand !== 'string' ||
+    typeof record.dockerConnectionId !== 'string'
   ) {
     throw new Error('Pier trial identity is malformed')
   }
@@ -232,21 +263,63 @@ function parsePersistedIdentity(path: string): PersistedTrialIdentity {
     jobsDirectory: absolutePath(record.jobsDirectory, 'persisted jobs directory'),
     jobName: nonEmpty(record.jobName, 'persisted job name'),
     dockerCommand: nonEmpty(record.dockerCommand, 'persisted Docker command'),
+    dockerConnectionId: stableDockerConnectionId(record.dockerConnectionId),
   }
 }
 
 function parseTerminal(path: string): PersistedTrialTerminal {
   const record = readJson(path, 'Pier trial terminal')
+  const allowedKeys = new Set([
+    'schemaVersion',
+    'kind',
+    'status',
+    'processExited',
+    'containersRemoved',
+    'removedContainers',
+    'exitCode',
+    'signal',
+    'error',
+    'recoveredByPid',
+  ])
+  const hasMalformedOptionalField =
+    (record.removedContainers !== undefined &&
+      (!Number.isSafeInteger(record.removedContainers) || (record.removedContainers as number) < 0)) ||
+    (record.exitCode !== undefined &&
+      record.exitCode !== null &&
+      !Number.isSafeInteger(record.exitCode)) ||
+    (record.signal !== undefined &&
+      record.signal !== null &&
+      (typeof record.signal !== 'string' || !/^SIG[A-Z0-9]+$/.test(record.signal))) ||
+    (record.error !== undefined && typeof record.error !== 'string') ||
+    (record.recoveredByPid !== undefined &&
+      (!Number.isSafeInteger(record.recoveredByPid) || (record.recoveredByPid as number) < 1))
   if (
+    Object.keys(record).some((key) => !allowedKeys.has(key)) ||
     record.schemaVersion !== 1 ||
     record.kind !== 'pier-trial-terminal' ||
     !['completed', 'stopped', 'failed'].includes(record.status as string) ||
     typeof record.processExited !== 'boolean' ||
-    typeof record.containersRemoved !== 'boolean'
+    typeof record.containersRemoved !== 'boolean' ||
+    hasMalformedOptionalField
   ) {
     throw new Error('Pier trial terminal is malformed')
   }
-  return record as unknown as PersistedTrialTerminal
+  return {
+    schemaVersion: 1,
+    kind: 'pier-trial-terminal',
+    status: record.status as PersistedTrialTerminal['status'],
+    processExited: record.processExited,
+    containersRemoved: record.containersRemoved,
+    ...(record.removedContainers !== undefined
+      ? { removedContainers: record.removedContainers as number }
+      : {}),
+    ...(record.exitCode !== undefined ? { exitCode: record.exitCode as number | null } : {}),
+    ...(record.signal !== undefined ? { signal: record.signal as NodeJS.Signals | null } : {}),
+    ...(record.error !== undefined ? { error: record.error as string } : {}),
+    ...(record.recoveredByPid !== undefined
+      ? { recoveredByPid: record.recoveredByPid as number }
+      : {}),
+  }
 }
 
 function processIdentity(pid: number): ProcessIdentity {
@@ -334,13 +407,21 @@ function trialProjects(identity: PersistedTrialIdentity): string[] {
     .map((entry) => sanitizeProject(entry.name))
 }
 
-function matchingContainers(identity: PersistedTrialIdentity): string[] {
+function matchingContainers(
+  identity: PersistedTrialIdentity,
+  dockerEnvironment: Readonly<Record<string, string | undefined>>,
+): string[] {
   const projects = trialProjects(identity)
   if (projects.length === 0) return []
   const output = execFileSync(
     identity.dockerCommand,
     ['ps', '-a', '--format', '{{.ID}}\t{{.Label "com.docker.compose.project"}}'],
-    { encoding: 'utf8', timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    {
+      encoding: 'utf8',
+      env: dockerEnvironment,
+      timeout: 30_000,
+      maxBuffer: 4 * 1024 * 1024,
+    },
   )
   return output
     .split('\n')
@@ -359,20 +440,24 @@ function matchingContainers(identity: PersistedTrialIdentity): string[] {
     })
 }
 
-function removeTrialContainers(identity: PersistedTrialIdentity): number {
-  const containers = matchingContainers(identity)
+function removeTrialContainers(
+  identity: PersistedTrialIdentity,
+  dockerEnvironment: Readonly<Record<string, string | undefined>>,
+): number {
+  const containers = matchingContainers(identity, dockerEnvironment)
   if (containers.length > 0) {
     try {
       execFileSync(identity.dockerCommand, ['rm', '-f', ...containers], {
         encoding: 'utf8',
+        env: dockerEnvironment,
         timeout: 30_000,
         maxBuffer: 4 * 1024 * 1024,
       })
     } catch (error) {
-      if (matchingContainers(identity).length > 0) throw error
+      if (matchingContainers(identity, dockerEnvironment).length > 0) throw error
     }
   }
-  const remaining = matchingContainers(identity)
+  const remaining = matchingContainers(identity, dockerEnvironment)
   if (remaining.length > 0) {
     throw new Error(`Pier task containers survived removal: ${remaining.join(', ')}`)
   }
@@ -411,12 +496,27 @@ function assertRealDirectory(path: string, label: string): void {
 export class FilePierCandidateTrialController implements PierCandidateTrialController {
   private readonly directory: string
   private readonly launch?: NonNullable<FilePierCandidateTrialControllerOptions['launch']>
+  private readonly dockerConnection: PierDockerConnection
   private readonly supervisorPath: string
   private readonly pollIntervalMs: number
 
   constructor(options: FilePierCandidateTrialControllerOptions) {
     this.directory = absolutePath(options.directory, 'Pier controller directory')
     this.launch = options.launch
+    const configuredDocker = options.dockerConnection
+    if (configuredDocker?.id === defaultDockerConnectionId) {
+      throw new Error(`${defaultDockerConnectionId} is reserved for the implicit local connection`)
+    }
+    const dockerConnection = configuredDocker ?? {
+      id: defaultDockerConnectionId,
+      env: {},
+    }
+    const connectionId = stableDockerConnectionId(dockerConnection.id)
+    validateEnvironment(dockerConnection.env, 'Docker connection environment')
+    this.dockerConnection = Object.freeze({
+      id: connectionId,
+      env: Object.freeze({ ...dockerConnection.env }),
+    })
     this.supervisorPath = absolutePath(
       options.supervisorPath ??
         fileURLToPath(new URL('./pier-trial-supervisor.mjs', import.meta.url)),
@@ -452,6 +552,18 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     // before reserving durable identities or starting a process.
     const spec = this.launch(staged, context)
     this.validateSpec(spec)
+    for (const [name, value] of Object.entries(this.dockerConnection.env)) {
+      if (
+        Object.prototype.hasOwnProperty.call(spec.env, name) &&
+        spec.env[name] !== value
+      ) {
+        throw new Error(`Pier child environment conflicts with Docker connection variable ${name}`)
+      }
+    }
+    const pierEnvironment = Object.freeze({
+      ...spec.env,
+      ...this.dockerConnection.env,
+    })
     mkdirSync(spec.jobsDirectory, { recursive: true, mode: 0o700 })
     assertRealDirectory(spec.jobsDirectory, 'Pier jobs directory')
     const dockerCommand = resolveExecutable(
@@ -459,7 +571,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
       process.env.PATH,
       'Docker command',
     )
-    const pierCommand = resolveExecutable(spec.command, spec.env.PATH, 'Pier command')
+    const pierCommand = resolveExecutable(spec.command, pierEnvironment.PATH, 'Pier command')
 
     const controlDirectory = this.controlDirectory(identity)
     try {
@@ -498,6 +610,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
       jobsDirectory: absolutePath(spec.jobsDirectory, 'Pier jobs directory'),
       jobName: nonEmpty(spec.jobName, 'Pier job name'),
       dockerCommand: nonEmpty(dockerCommand, 'Docker command'),
+      dockerConnectionId: this.dockerConnection.id,
     }
     try {
       writeJsonAtomic(controlDirectory, identityFile, allocating)
@@ -510,6 +623,9 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
 
     const supervisor = spawn(process.execPath, [this.supervisorPath, controlDirectory], {
       detached: true,
+      // Launch data arrives over fd 3. The trusted supervisor receives only
+      // explicitly declared process variables, never the evaluator environment.
+      env: { ...this.dockerConnection.env },
       stdio: ['ignore', 'ignore', 'ignore', 'pipe'],
     })
     if (supervisor.pid === undefined) throw new Error('Pier supervisor started without a pid')
@@ -530,7 +646,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
           command: pierCommand,
           args: spec.args,
           cwd: spec.cwd,
-          env: spec.env,
+          env: pierEnvironment,
           jobsDirectory: spec.jobsDirectory,
           jobName: spec.jobName,
           dockerCommand,
@@ -571,6 +687,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     ) {
       throw new Error('persisted Pier trial identity differs from the stop request')
     }
+    this.assertDockerConnection(persisted)
 
     touchDurable(controlDirectory, stopFile)
     if (!existsSync(join(controlDirectory, terminalFile))) {
@@ -586,7 +703,8 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     let terminal = parseTerminal(join(controlDirectory, terminalFile))
     const latest = parsePersistedIdentity(join(controlDirectory, identityFile))
     const liveProcesses = latest.pier ? sessionMembers(latest.pier.sessionId).length : 0
-    const liveContainers = matchingContainers(latest).length
+    this.assertDockerConnection(latest)
+    const liveContainers = matchingContainers(latest, this.dockerConnection.env).length
     if (liveProcesses > 0 || liveContainers > 0) {
       await this.forceRecovery(controlDirectory)
       terminal = parseTerminal(join(controlDirectory, terminalFile))
@@ -603,6 +721,14 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     return join(this.directory, trialKey(identity))
   }
 
+  private assertDockerConnection(identity: PersistedTrialIdentity): void {
+    if (identity.dockerConnectionId !== this.dockerConnection.id) {
+      throw new Error(
+        `Pier trial requires Docker connection ${identity.dockerConnectionId}; configured ${this.dockerConnection.id}`,
+      )
+    }
+  }
+
   private validateSpec(spec: PierCandidateProcessSpec): void {
     nonEmpty(spec.command, 'Pier command')
     if (!Array.isArray(spec.args) || spec.args.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) {
@@ -613,11 +739,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     if (!/^[A-Za-z0-9._-]{1,200}$/.test(spec.jobName)) {
       throw new Error('Pier job name must be filesystem-neutral')
     }
-    for (const [name, value] of Object.entries(spec.env)) {
-      if (!name || name.includes('\0') || value?.includes('\0')) {
-        throw new Error('Pier environment contains an invalid name or value')
-      }
-    }
+    validateEnvironment(spec.env, 'Pier child environment')
   }
 
   private async waitForResult(
@@ -625,7 +747,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     spec: PierCandidateProcessSpec,
     deadlineAtMs: number,
   ): Promise<PierCandidateTrialResult> {
-    const waitMs = Math.max(1, deadlineAtMs - Date.now() + 15_000)
+    const waitMs = Math.max(0, deadlineAtMs - Date.now())
     const appeared = await waitUntil(
       () => existsSync(join(controlDirectory, terminalFile)),
       waitMs,
@@ -646,6 +768,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     controlDirectory: string,
   ): Promise<void> {
     const latest = parsePersistedIdentity(join(controlDirectory, identityFile))
+    this.assertDockerConnection(latest)
     const errors: string[] = []
     if (latest.pier) {
       try {
@@ -682,7 +805,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
     }
     let removedContainers = 0
     try {
-      removedContainers = removeTrialContainers(latest)
+      removedContainers = removeTrialContainers(latest, this.dockerConnection.env)
     } catch (error) {
       errors.push(`could not remove Pier containers: ${error instanceof Error ? error.message : String(error)}`)
     }

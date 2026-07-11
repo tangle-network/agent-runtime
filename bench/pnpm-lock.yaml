@@ -4,12 +4,15 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@tangle-network/agent-eval': 0.114.0
+
 importers:
 
   .:
     dependencies:
       '@tangle-network/agent-eval':
-        specifier: ^0.114.0
+        specifier: 0.114.0
         version: 0.114.0(typescript@6.0.3)
       '@tangle-network/agent-interface':
         specifier: ^0.25.0
@@ -260,11 +263,6 @@ packages:
   '@tangle-network/agent-core@0.4.9':
     resolution: {integrity: sha512-BFU4WV12Y6D28PX+o8LIVkIMD+cXwrL1uyV182l12Bn9zEu7VHt2oVMEEzbsN8L+X0xM9baEfMCHTFKFNJv7Aw==}
 
-  '@tangle-network/agent-eval@0.113.0':
-    resolution: {integrity: sha512-1KhW6l69arpanK8vamnvJueD+ZwEO4A7BMF5qpkPLXUVVNcrUail0GWp3M5SpAjQdACa3HTuVdexXuEpZt5sQg==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   '@tangle-network/agent-eval@0.114.0':
     resolution: {integrity: sha512-pIZCLkKsHeKDpLOpRXRhnc2HaREcHduHm4u3jw0nN73B1BWe6Jaqh2wlNHTPnPUA1qQl5sCl1K6XF1p9R7eTZw==}
     engines: {node: '>=20'}
@@ -301,7 +299,7 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
     peerDependencies:
-      '@tangle-network/agent-eval': '>=0.101.0 <1.0.0'
+      '@tangle-network/agent-eval': 0.114.0
       '@tangle-network/agent-interface': '>=0.25.0 <1.0.0'
       '@tangle-network/sandbox': '>=0.8.0 <1.0.0'
       playwright: ^1.40.0
@@ -605,24 +603,6 @@ snapshots:
       '@tangle-network/agent-interface': 0.24.0
       zod: 4.4.3
 
-  '@tangle-network/agent-eval@0.113.0(typescript@6.0.3)':
-    dependencies:
-      '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
-      '@ax-llm/ax': 19.0.45(zod@4.4.3)
-      '@hono/node-server': 2.0.4(hono@4.12.23)
-      '@tangle-network/agent-interface': 0.22.0
-      '@tangle-network/tcloud': 0.4.14(typescript@6.0.3)(zod@4.4.3)
-      hono: 4.12.23
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - '@mastra/core'
-      - '@modelcontextprotocol/sdk'
-      - ai
-      - bufferutil
-      - openai
-      - typescript
-      - utf-8-validate
-
   '@tangle-network/agent-eval@0.114.0(typescript@6.0.3)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
@@ -667,7 +647,7 @@ snapshots:
 
   '@tangle-network/agent-knowledge@1.11.2(typescript@6.0.3)':
     dependencies:
-      '@tangle-network/agent-eval': 0.113.0(typescript@6.0.3)
+      '@tangle-network/agent-eval': 0.114.0(typescript@6.0.3)
       zod: 4.4.3
     transitivePeerDependencies:
       - '@mastra/core'

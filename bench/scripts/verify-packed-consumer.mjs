@@ -83,7 +83,7 @@ try {
   )
   await writeFile(
     path.join(consumerDir, 'index.ts'),
-    "import { executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, type BenchmarkAdapter, type PierCandidateTrialController, type PierCandidateTrialHandle, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nvoid adapter\nvoid staged\nvoid trial\nvoid controller\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\n",
+    "import { executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, type BenchmarkAdapter, type PierCandidateTrialController, type PierCandidateTrialHandle, type PierDockerConnection, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nconst dockerConnection = undefined as PierDockerConnection | undefined\nvoid adapter\nvoid staged\nvoid trial\nvoid controller\nvoid dockerConnection\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\n",
   )
   await writeFile(
     path.join(consumerDir, 'tsconfig.json'),
@@ -97,38 +97,26 @@ try {
     )}\n`,
   )
   await writeFile(
-    path.join(consumerDir, 'verify_pier_import.py'),
-    `import sys
-import types
+    path.join(consumerDir, 'verify_pier_payload.py'),
+    `import py_compile
+from pathlib import Path
 
-modules = {
-    name: types.ModuleType(name)
-    for name in (
-        "pier",
-        "pier.agents",
-        "pier.agents.base",
-        "pier.agents.installed",
-        "pier.agents.installed.base",
-        "pier.environments",
-        "pier.environments.base",
-        "pier.models",
-        "pier.models.agent",
-        "pier.models.agent.context",
-        "pier.models.agent.network",
-    )
+import pier_agents
+from pier_agents import candidate_contract
+
+root = Path(pier_agents.__file__).parent
+expected = {
+    "__init__.py",
+    "candidate_contract.py",
+    "process_boundary.py",
+    "tangle_candidate.py",
+    "workspace_boundary.py",
 }
-modules["pier.agents.base"].BaseAgent = type("BaseAgent", (), {})
-modules["pier.agents.installed.base"].NonZeroAgentExitCodeError = type(
-    "NonZeroAgentExitCodeError", (RuntimeError,), {}
-)
-modules["pier.environments.base"].BaseEnvironment = type("BaseEnvironment", (), {})
-modules["pier.models.agent.context"].AgentContext = type("AgentContext", (), {})
-modules["pier.models.agent.network"].NetworkAllowlist = type("NetworkAllowlist", (), {})
-sys.modules.update(modules)
-
-from pier_agents.tangle_candidate import TangleCandidateAgent
-
-assert TangleCandidateAgent.__module__ == "pier_agents.tangle_candidate"
+observed = {path.name for path in root.glob("*.py")}
+assert observed == expected, (observed, expected)
+assert candidate_contract.PreparedCandidateContract.__module__ == "pier_agents.candidate_contract"
+for name in sorted(expected):
+    py_compile.compile(root / name, doraise=True)
 `,
   )
 
@@ -151,7 +139,7 @@ assert TangleCandidateAgent.__module__ == "pier_agents.tangle_candidate"
       path.join(installedPackage, 'scripts', 'verify-pier-agent.mts'),
     ],
     consumerDir,
-    { ...process.env, PIER_PREPARE_ONLY: '1' },
+    { ...process.env, PIER_PREPARE_ONLY: '1', PIER_PROOF_ARM: 'failure' },
   )
   const prepareProof = JSON.parse(prepared.stdout)
   if (
@@ -162,7 +150,7 @@ assert TangleCandidateAgent.__module__ == "pier_agents.tangle_candidate"
   ) {
     throw new Error(`packed consumer did not prepare a real candidate: ${prepared.stdout}`)
   }
-  await run('python3', ['verify_pier_import.py'], consumerDir, {
+  await run('python3', ['verify_pier_payload.py'], consumerDir, {
     ...process.env,
     PYTHONPATH: installedPackage,
   })

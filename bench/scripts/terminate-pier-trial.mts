@@ -15,8 +15,37 @@ if (!/^sha256:[a-f0-9]{64}$/.test(executionPlanDigest)) {
   throw new Error('execution-plan-digest must be a SHA-256 digest')
 }
 
+const dockerConnectionId = process.env.PIER_DOCKER_CONNECTION_ID
+const dockerEnvironmentNames = process.env.PIER_DOCKER_ENV_NAMES
+if ((dockerConnectionId === undefined) !== (dockerEnvironmentNames === undefined)) {
+  throw new Error(
+    'PIER_DOCKER_CONNECTION_ID and PIER_DOCKER_ENV_NAMES must be set together',
+  )
+}
+const dockerConnection = (() => {
+  if (dockerConnectionId === undefined || dockerEnvironmentNames === undefined) return undefined
+  const names = dockerEnvironmentNames
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+  if (new Set(names).size !== names.length) {
+    throw new Error('PIER_DOCKER_ENV_NAMES must not contain duplicates')
+  }
+  const env: Record<string, string> = {}
+  for (const name of names) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error('PIER_DOCKER_ENV_NAMES contains an invalid environment name')
+    }
+    const value = process.env[name]
+    if (value === undefined) throw new Error(`required Docker environment variable ${name} is unset`)
+    env[name] = value
+  }
+  return { id: dockerConnectionId, env }
+})()
+
 const controller = new FilePierCandidateTrialController({
   directory: path.resolve(directoryArg),
+  ...(dockerConnection ? { dockerConnection } : {}),
 })
 const executor = createPierCandidateRecoveryExecutor(controller)
 const recovered = await executor.stopAndCapture(
