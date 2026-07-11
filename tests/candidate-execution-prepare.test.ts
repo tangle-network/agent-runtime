@@ -266,6 +266,15 @@ function fixture(active = false): {
     },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: 'provider/model', reasoningEffort: 'high' },
+    grader: {
+      name: 'fixture-executable-grader',
+      version: '1.0.0',
+      artifact: {
+        locator: { kind: 's3', bucket: 'candidate-test-artifacts', key: 'grader/fixture' },
+        sha256: sha('a'),
+        byteLength: 1,
+      },
+    },
     executionRoots: {
       taskRoot: '/workspace/task',
       ...(active ? { candidateRoot: '/opt/candidate' } : {}),

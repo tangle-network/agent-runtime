@@ -51,6 +51,9 @@ import {
  *  `proposals`/`applyProfile` surface the promoted profile DIFFS — never
  *  auto-applied; `record` enriches the {@link RunRecord} that is sent. */
 export interface AppliedIntelligence {
+  /** Stable ids shared by the run span and every nested runtime/loop span. */
+  runId: string
+  traceId: string
   /** The certified profile in effect (null when none promoted / pull failed —
    *  fail-closed: the agent runs on its base surface). */
   certified: CertifiedProfile | null
@@ -96,6 +99,62 @@ export interface IntelligenceHookConfig extends IntelligenceConfig {
 export type IntelligenceWrapped<I, O> = ((input: I) => Promise<O>) & {
   refresh(): Promise<void>
   proposals(): ProposedProfileDiff[]
+  /** Flush buffered trace spans before a short-lived process exits. */
+  flush(): Promise<void>
+}
+
+interface RuntimeEventSummary {
+  inferenceUsd: number
+  inputTokens: number
+  outputTokens: number
+  model?: string
+  sessionId?: string
+  success?: boolean
+  error?: RunRecord['error']
+}
+
+function summarizeRuntimeEvents(
+  events: NonNullable<RunReport['runtimeEvents']>,
+): RuntimeEventSummary {
+  const summary: RuntimeEventSummary = { inferenceUsd: 0, inputTokens: 0, outputTokens: 0 }
+  for (const event of events) {
+    if ('session' in event && event.session) summary.sessionId = event.session.id
+    if (event.type === 'llm_call') {
+      summary.model = event.model
+      summary.inferenceUsd += event.costUsd ?? 0
+      summary.inputTokens += event.tokensIn ?? 0
+      summary.outputTokens += event.tokensOut ?? 0
+    } else if (event.type === 'backend_error') {
+      summary.success = false
+      summary.error = {
+        name: event.error?.kind ?? 'BackendError',
+        message: event.message,
+        ...(event.error?.status !== undefined ? { code: String(event.error.status) } : {}),
+      }
+    } else if (event.type === 'final') {
+      summary.success = event.status === 'completed'
+      if (event.error) {
+        summary.error = {
+          name: event.error.kind,
+          message: event.error.message,
+          ...(event.error.status !== undefined ? { code: String(event.error.status) } : {}),
+        }
+      }
+    }
+  }
+  return summary
+}
+
+function runError(cause: unknown): NonNullable<RunRecord['error']> {
+  if (cause instanceof Error) {
+    const code = (cause as Error & { code?: unknown }).code
+    return {
+      name: cause.name || 'Error',
+      message: cause.message,
+      ...(typeof code === 'string' || typeof code === 'number' ? { code: String(code) } : {}),
+    }
+  }
+  return { name: 'Error', message: String(cause) }
 }
 
 /**
@@ -142,11 +201,16 @@ export function withIntelligence<I, O>(
   }
 
   const wrapped = (async (input: I): Promise<O> => {
+    const runId = client.freshRunId()
+    const traceId = client.freshTraceId()
+    const startedAt = Date.now()
     await refresh()
     const certified = source.current()
     const proposals = currentProposals()
     const report: RunReport = {}
     const applied: AppliedIntelligence = {
+      runId,
+      traceId,
       certified,
       composePrompt: (base: string) => composeCertifiedPrompt(base, certified),
       proposals,
@@ -155,34 +219,68 @@ export function withIntelligence<I, O>(
       record: (r: RunReport) => Object.assign(report, r),
     }
 
-    const output = await agent(input, applied)
+    function exportCompleted(output: unknown, caught?: unknown): void {
+      const completedAt = Date.now()
+      const eventSummary = summarizeRuntimeEvents(report.runtimeEvents ?? [])
+      const error = report.error ?? (caught !== undefined ? runError(caught) : eventSummary.error)
+      const tokens =
+        report.tokens ??
+        (eventSummary.inputTokens > 0 || eventSummary.outputTokens > 0
+          ? { input: eventSummary.inputTokens, output: eventSummary.outputTokens }
+          : undefined)
+      const profile = report.profile ?? config.profile
+      const record: RunRecord = {
+        runId,
+        traceId,
+        project: config.project,
+        target,
+        input,
+        output,
+        outcome: {
+          success:
+            report.success ??
+            (caught !== undefined ? false : (eventSummary.success ?? error === undefined)),
+          ...(report.score !== undefined ? { score: report.score } : {}),
+          usage: {
+            inferenceUsd: report.usage?.inferenceUsd ?? report.costUsd ?? eventSummary.inferenceUsd,
+            intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
+          },
+        },
+        timing: { startedAt, completedAt, durationMs: completedAt - startedAt },
+        ...((report.model ?? eventSummary.model)
+          ? { model: report.model ?? eventSummary.model }
+          : {}),
+        ...(report.provider !== undefined ? { provider: report.provider } : {}),
+        ...(report.loopEvents !== undefined ? { loopEvents: report.loopEvents } : {}),
+        ...(report.runtimeEvents !== undefined ? { runtimeEvents: report.runtimeEvents } : {}),
+        ...(profile !== undefined ? { profile } : {}),
+        ...((report.sessionId ?? eventSummary.sessionId)
+          ? { sessionId: report.sessionId ?? eventSummary.sessionId }
+          : {}),
+        ...((report.harness ?? profile?.harness)
+          ? { harness: report.harness ?? profile?.harness }
+          : {}),
+        ...((report.commitSha ?? config.commitSha)
+          ? { commitSha: report.commitSha ?? config.commitSha }
+          : {}),
+        ...(tokens !== undefined ? { tokens } : {}),
+        ...(error !== undefined ? { error } : {}),
+      }
+      client.exportRunRecord(record)
+    }
 
-    const usage = {
-      inferenceUsd: report.usage?.inferenceUsd ?? report.costUsd ?? 0,
-      intelligenceUsd: report.usage?.intelligenceUsd ?? 0,
+    try {
+      const output = await agent(input, applied)
+      exportCompleted(output)
+      return output
+    } catch (cause) {
+      exportCompleted(undefined, cause)
+      throw cause
     }
-    const record: RunRecord = {
-      runId: client.freshRunId(),
-      traceId: client.freshTraceId(),
-      project: config.project,
-      target,
-      input,
-      output,
-      outcome: {
-        ...(report.success !== undefined ? { success: report.success } : {}),
-        ...(report.score !== undefined ? { score: report.score } : {}),
-        usage,
-      },
-      ...(report.model !== undefined ? { model: report.model } : {}),
-      ...(report.provider !== undefined ? { provider: report.provider } : {}),
-      ...(report.loopEvents !== undefined ? { loopEvents: report.loopEvents } : {}),
-    }
-    // Best-effort: a send failure never fails the agent's turn.
-    client.exportRunRecord(record)
-    return output
   }) as IntelligenceWrapped<I, O>
 
   wrapped.refresh = refresh
   wrapped.proposals = currentProposals
+  wrapped.flush = client.flush
   return wrapped
 }

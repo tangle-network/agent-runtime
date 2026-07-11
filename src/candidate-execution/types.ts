@@ -151,6 +151,12 @@ export type AgentCandidateModelLimits = Pick<
   'maxModelCalls' | 'maxInputTokens' | 'maxOutputTokens' | 'maxCostUsd'
 >
 
+export interface AgentCandidateBenchmarkGraderIdentity {
+  name: string
+  version: string
+  artifact: AgentCandidateArtifactRef
+}
+
 export interface AgentCandidateProtectedModelReservation {
   preparationId: string
   digest: Sha256Digest
@@ -267,6 +273,7 @@ export interface AgentCandidateTaskExecution {
     requested: string
     reasoningEffort: ReasoningEffort
   }
+  grader: AgentCandidateBenchmarkGraderIdentity
   /** Absolute paths inside the evaluator-owned execution environment. */
   executionRoots: {
     taskRoot: string

@@ -71,6 +71,7 @@ const ownSurfaceLabels = {
   './knowledge': 'Knowledge orchestration — supervised KB updates',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
+  './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
 }
 // ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,

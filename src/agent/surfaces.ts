@@ -13,7 +13,7 @@
  * refuses to route those subjects rather than fabricating a target.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import type { FindingSubject } from '@tangle-network/agent-eval'
 
@@ -53,6 +53,22 @@ export interface AgentSurfaces {
   rag?: string
   /** Optional: single file defining the output schema (Zod / JSON Schema). */
   outputSchema?: string
+  /** Optional: directory containing Agent Skill packages. */
+  skills?: string
+  /** Optional: directory containing MCP server/tool configuration. */
+  mcp?: string
+  /** Optional: directory containing hook definitions. */
+  hooks?: string
+  /** Optional: directory containing subagent definitions. */
+  subagents?: string
+  /** Optional: directory containing orchestration/workflow policies. */
+  workflows?: string
+  /** Optional: single file containing rollout-policy settings. */
+  rolloutPolicy?: string
+  /** Optional: single canonical AgentProfile file. */
+  agentProfile?: string
+  /** Optional: source root for code findings. */
+  code?: string
 }
 
 export interface ResolvedSurface {
@@ -123,7 +139,7 @@ function candidatePathsForSubject(
       // Claims land in a per-topic claims directory under the knowledge root.
       return [join(surfaces.knowledge, 'claims', `${slugify(subject.topic)}.md`)]
     case 'knowledge.raw':
-      return [join(surfaces.knowledge, 'raw', `${subject.sourceId}.md`)]
+      return optionalPath(safeJoin(join(surfaces.knowledge, 'raw'), `${subject.sourceId}.md`))
     case 'system-prompt': {
       const slug = slugify(subject.section)
       // Prefer flat layout for create-new (canonical); probe skill-dir layout
@@ -133,6 +149,13 @@ function candidatePathsForSubject(
         join(surfaces.systemPrompt, `${slug}.md`),
         join(surfaces.systemPrompt, slug, 'SKILL.md'),
         join(surfaces.systemPrompt, slug, 'index.md'),
+      ]
+    }
+    case 'skill': {
+      if (!surfaces.skills) return []
+      return [
+        join(surfaces.skills, subject.name, 'SKILL.md'),
+        join(surfaces.skills, `${subject.name}.md`),
       ]
     }
     case 'tool-doc':
@@ -147,9 +170,46 @@ function candidatePathsForSubject(
       ]
     case 'new-tool':
       return [join(surfaces.tools, subject.name, 'README.md')]
+    case 'mcp':
+      if (!surfaces.mcp) return []
+      return subject.tool
+        ? [join(surfaces.mcp, subject.server, `${subject.tool}.md`)]
+        : [
+            join(surfaces.mcp, `${subject.server}.json`),
+            join(surfaces.mcp, subject.server, 'README.md'),
+          ]
+    case 'hook':
+      if (!surfaces.hooks) return []
+      return [
+        join(surfaces.hooks, `${subject.name}.md`),
+        join(surfaces.hooks, `${subject.name}.json`),
+      ]
+    case 'subagent':
+      if (!surfaces.subagents) return []
+      return [
+        join(surfaces.subagents, `${subject.name}.md`),
+        join(surfaces.subagents, `${subject.name}.yaml`),
+        join(surfaces.subagents, `${subject.name}.json`),
+      ]
+    case 'workflow':
+      if (!surfaces.workflows) return []
+      return [
+        join(surfaces.workflows, `${subject.name}.md`),
+        join(surfaces.workflows, `${subject.name}.yaml`),
+        join(surfaces.workflows, `${subject.name}.json`),
+      ]
+    case 'rollout-policy':
+      return surfaces.rolloutPolicy ? [surfaces.rolloutPolicy] : []
+    case 'agent-profile':
+      return surfaces.agentProfile ? [surfaces.agentProfile] : []
+    case 'code': {
+      if (!surfaces.code) return []
+      const path = safeJoin(surfaces.code, subject.path)
+      return path ? [path] : []
+    }
     case 'rag':
       if (!surfaces.rag) return []
-      return [join(surfaces.rag, subject.corpus, `${subject.docId}.md`)]
+      return optionalPath(safeJoin(join(surfaces.rag, subject.corpus), `${subject.docId}.md`))
     case 'memory':
       if (!surfaces.memory) return []
       return [join(surfaces.memory, `${slugify(subject.key)}.json`)]
@@ -168,6 +228,17 @@ function candidatePathsForSubject(
       // failure-mode cluster labels are evidence, not mutations.
       return []
   }
+}
+
+function safeJoin(root: string, child: string): string | null {
+  if (child.includes('\0') || isAbsolute(child)) return null
+  const segments = child.replace(/\\/g, '/').split('/')
+  if (segments.some((segment) => segment === '..')) return null
+  return join(root, ...segments)
+}
+
+function optionalPath(path: string | null): string[] {
+  return path ? [path] : []
 }
 
 function slugify(s: string): string {
@@ -207,8 +278,22 @@ export function validateSurfaces(
     'knowledge',
   ]
   const fileSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['rubric']
-  const optionalDirSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['scaffolding', 'memory', 'rag']
-  const optionalFileSurfaces: ReadonlyArray<keyof AgentSurfaces> = ['outputSchema']
+  const optionalDirSurfaces: ReadonlyArray<keyof AgentSurfaces> = [
+    'scaffolding',
+    'memory',
+    'rag',
+    'skills',
+    'mcp',
+    'hooks',
+    'subagents',
+    'workflows',
+    'code',
+  ]
+  const optionalFileSurfaces: ReadonlyArray<keyof AgentSurfaces> = [
+    'outputSchema',
+    'rolloutPolicy',
+    'agentProfile',
+  ]
 
   for (const key of dirSurfaces) {
     const p = surfaces[key] as string | undefined
@@ -219,6 +304,8 @@ export function validateSurfaces(
     const abs = isAbsolute(p) ? p : join(repoRoot, p)
     if (!existsSync(abs)) {
       issues.push({ surface: key, path: p, reason: 'missing' })
+    } else if (!statSync(abs).isDirectory()) {
+      issues.push({ surface: key, path: p, reason: 'not-directory' })
     }
   }
   for (const key of fileSurfaces) {
@@ -230,6 +317,8 @@ export function validateSurfaces(
     const abs = isAbsolute(p) ? p : join(repoRoot, p)
     if (!existsSync(abs)) {
       issues.push({ surface: key, path: p, reason: 'missing' })
+    } else if (!statSync(abs).isFile()) {
+      issues.push({ surface: key, path: p, reason: 'not-file' })
     }
   }
   for (const key of [...optionalDirSurfaces, ...optionalFileSurfaces]) {
@@ -238,6 +327,13 @@ export function validateSurfaces(
     const abs = isAbsolute(p) ? p : join(repoRoot, p)
     if (!existsSync(abs)) {
       issues.push({ surface: key, path: p, reason: 'missing' })
+      continue
+    }
+    const expectedDirectory = optionalDirSurfaces.includes(key)
+    if (expectedDirectory && !statSync(abs).isDirectory()) {
+      issues.push({ surface: key, path: p, reason: 'not-directory' })
+    } else if (!expectedDirectory && !statSync(abs).isFile()) {
+      issues.push({ surface: key, path: p, reason: 'not-file' })
     }
   }
   return issues

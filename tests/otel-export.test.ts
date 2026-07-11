@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildLoopOtelSpans,
+  buildRuntimeEventOtelSpans,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,
@@ -20,6 +21,62 @@ function attrMap(span: OtelSpan): Record<string, string | number | boolean | und
   }
   return out
 }
+
+describe('buildRuntimeEventOtelSpans', () => {
+  it('preserves opted-in MCP tool payloads and LLM usage without truncation', () => {
+    const longQuery = 'q'.repeat(5000)
+    const spans = buildRuntimeEventOtelSpans(
+      [
+        {
+          type: 'tool_call',
+          toolName: 'mcp__linear__linear_graphql',
+          toolCallId: 'call-1',
+          args: { query: longQuery },
+          timestamp: '2026-07-10T00:00:00.000Z',
+        },
+        {
+          type: 'llm_call',
+          model: 'anthropic/claude-sonnet-4.6',
+          tokensIn: 12,
+          tokensOut: 7,
+          costUsd: 0.004,
+          latencyMs: 350,
+          timestamp: '2026-07-10T00:00:01.000Z',
+        },
+      ],
+      'a'.repeat(32),
+      'b'.repeat(16),
+      { includeControlPayloads: true },
+    )
+
+    const tool = attrMap(spans[0]!)
+    expect(tool['tool.name']).toBe('mcp__linear__linear_graphql')
+    expect(tool['mcp.server']).toBe('linear')
+    expect(tool['mcp.tool.name']).toBe('linear_graphql')
+    expect(String(tool['tool.input'])).toContain(longQuery)
+    expect(String(tool['tangle.runtime.event'])).not.toContain('[truncated]')
+
+    const llm = attrMap(spans[1]!)
+    expect(llm['gen_ai.request.model']).toBe('anthropic/claude-sonnet-4.6')
+    expect(llm['gen_ai.usage.input_tokens']).toBe(12)
+    expect(llm['gen_ai.usage.output_tokens']).toBe(7)
+    expect(llm['tangle.cost.usd']).toBe(0.004)
+    expect(BigInt(spans[1]!.endTimeUnixNano) - BigInt(spans[1]!.startTimeUnixNano)).toBe(
+      350_000_000n,
+    )
+  })
+
+  it('omits control payloads by default while retaining tool identity', () => {
+    const [span] = buildRuntimeEventOtelSpans(
+      [{ type: 'tool_call', toolName: 'search', args: { secret: 'value' } }],
+      'a'.repeat(32),
+    )
+    const attrs = attrMap(span!)
+    expect(attrs['tool.name']).toBe('search')
+    expect(attrs['tool.input']).toBeUndefined()
+    expect(String(attrs['tangle.runtime.event'])).not.toContain('value')
+  })
+})
 
 describe('buildLoopOtelSpans — nested GenAI topology tree', () => {
   // One dynamic-loop run: round 0 fans out 2 branches (with rationale), then stops.

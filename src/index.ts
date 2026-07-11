@@ -176,11 +176,13 @@ export type {
   OtelExportConfig,
   OtelExporter,
   OtelSpan,
+  RuntimeEventOtelOptions,
 } from './otel-export'
 // ── OTEL export + trace propagation + eval-run provenance ────────────
 export {
   buildLoopOtelSpans,
   buildLoopSpanNodes,
+  buildRuntimeEventOtelSpans,
   createOtelExporter,
   exportEvalRuns,
   INTELLIGENCE_WIRE_VERSION,

@@ -40,6 +40,15 @@ const judge: JudgeConfig<{ text: string }, Scenario> = {
   score: () => ({ dimensions: { q: 0.5 }, composite: 0.5, notes: '' }),
 }
 
+const improvementJudge: JudgeConfig<{ text: string }, Scenario> = {
+  name: 'improvement-judge',
+  dimensions: [{ key: 'q', description: 'contains the measured improvement marker' }],
+  score: ({ artifact }) => {
+    const score = artifact.text.includes('improved') ? 1 : 0
+    return { dimensions: { q: score }, composite: score, notes: '' }
+  },
+}
+
 // The agent reports a token-bearing cost so the backend-integrity guard treats
 // it as a real backend. Without `ctx.cost.observeTokens`, the default
 // `expectUsage: 'assert'` reads the cell as a silent-zero stub and throws.
@@ -88,11 +97,24 @@ describe('improve() — default proposer resolution (substrate export drift guar
       scenarios,
       judge,
       agent: stubAgent,
+      skills: { document: '# Fixture skill\n\nCheck the result.\n' },
     })
 
     expect(result.gateDecision).toBe('hold')
     expect(result.shipped).toBe(false)
     expect(result.profile.resources?.skills).toEqual([])
+  })
+
+  it("surface 'skills' fails loud when the default document optimizer receives only resource refs", async () => {
+    await expect(
+      improve(skillProfile(), [], {
+        surface: 'skills',
+        gate: 'none',
+        scenarios,
+        judge,
+        agent: stubAgent,
+      }),
+    ).rejects.toThrow(/requires opts\.skills\.document/)
   })
 
   it('a real runDir makes the loop durable: provenance lands on the filesystem', async () => {
@@ -149,7 +171,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
     const skillProfileWithRef = (): AgentProfile => ({
       name: 'fixture-agent',
-      resources: { skills: [{ path: 'or-skills.md' } as never] },
+      resources: { skills: [{ kind: 'github', path: 'or-skills.md' }] },
     })
 
     const result = await improve(skillProfileWithRef(), [], {
@@ -180,11 +202,145 @@ describe('improve() — default proposer resolution (substrate export drift guar
     }
   })
 
+  it.each([
+    {
+      surface: 'subagents' as const,
+      profile: { name: 'fixture-agent', subagents: {} },
+      winner: JSON.stringify({ reviewer: { prompt: 'improved review instructions' } }),
+      read: (profile: AgentProfile) => profile.subagents?.reviewer?.prompt,
+      expected: 'improved review instructions',
+    },
+    {
+      surface: 'workflow' as const,
+      profile: { name: 'fixture-agent', extensions: { 'tangle.workflow': {} } },
+      winner: JSON.stringify({ marker: 'improved', phases: ['inspect', 'implement', 'verify'] }),
+      read: (profile: AgentProfile) => profile.extensions?.['tangle.workflow']?.phases,
+      expected: ['inspect', 'implement', 'verify'],
+    },
+    {
+      surface: 'agent-profile' as const,
+      profile: { name: 'fixture-agent', prompt: { systemPrompt: 'baseline' } },
+      winner: JSON.stringify({
+        name: 'fixture-agent',
+        prompt: { systemPrompt: 'improved whole profile' },
+      }),
+      read: (profile: AgentProfile) => profile.prompt?.systemPrompt,
+      expected: 'improved whole profile',
+    },
+  ])('applies a valid shipped $surface winner to the AgentProfile', async (fixture) => {
+    const result = await improve(fixture.profile, [{ finding: 'surface needs improvement' }], {
+      surface: fixture.surface,
+      scenarios,
+      judge: improvementJudge,
+      agent: stubAgent,
+      generator: {
+        kind: `stub-${fixture.surface}`,
+        propose: async () => [
+          { surface: fixture.winner, label: 'candidate', rationale: 'test candidate' },
+        ],
+      },
+      promotionGate: {
+        name: 'test-ship',
+        decide: async () => ({
+          decision: 'ship',
+          reasons: ['test candidate'],
+          contributingGates: [],
+        }),
+      },
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+    })
+
+    expect(result.shipped).toBe(true)
+    expect(fixture.read(result.profile)).toEqual(fixture.expected)
+  })
+
+  it('rejects a shipped config that cannot form a valid AgentProfile', async () => {
+    await expect(
+      improve(
+        { name: 'fixture-agent', subagents: {} },
+        [{ finding: 'surface needs improvement' }],
+        {
+          surface: 'subagents',
+          scenarios,
+          judge: improvementJudge,
+          agent: stubAgent,
+          generator: {
+            kind: 'stub-invalid-subagent',
+            propose: async () => [
+              {
+                surface: JSON.stringify({ reviewer: { prompt: 'improved', maxSteps: 'many' } }),
+                label: 'candidate',
+                rationale: 'invalid candidate',
+              },
+            ],
+          },
+          promotionGate: {
+            name: 'test-ship',
+            decide: async () => ({
+              decision: 'ship',
+              reasons: ['exercise validation'],
+              contributingGates: [],
+            }),
+          },
+          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+        },
+      ),
+    ).rejects.toThrow(/valid AgentProfile/)
+  })
+
+  it('forwards evaluation controls to the shared self-improvement loop', async () => {
+    const progressKinds: string[] = []
+    let provenanceCalls = 0
+    let decisionCalls = 0
+    const result = await improve(promptProfile(), [{ finding: 'prompt needs improvement' }], {
+      surface: 'prompt',
+      scenarios,
+      judge: improvementJudge,
+      agent: stubAgent,
+      generator: {
+        kind: 'stub-controls',
+        propose: async () => [
+          { surface: 'improved prompt', label: 'candidate', rationale: 'test candidate' },
+        ],
+      },
+      promotionGate: {
+        name: 'test-hold',
+        decide: async () => {
+          decisionCalls += 1
+          return { decision: 'hold', reasons: ['test hold'], contributingGates: [] }
+        },
+      },
+      onProgress: (event) => progressKinds.push(event.kind),
+      onProvenance: () => {
+        provenanceCalls += 1
+      },
+      collectWorkerRecords: () => [],
+      expectUsage: 'assert',
+      captureSource: 'eval-run',
+      autoOnPromote: 'none',
+      budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+    })
+
+    expect(result.gateDecision).toBe('hold')
+    expect(decisionCalls).toBe(1)
+    expect(provenanceCalls).toBe(1)
+    expect(progressKinds).toContain('baseline.completed')
+    expect(progressKinds).toContain('gate.decided')
+  })
+
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
     // The default-proposer map covers prompt + skills only; the config surfaces
     // (tools/mcp/hooks/code) require a caller-supplied generator. This is the
     // designed boundary the proposer migration must NOT erase.
-    const configSurfaces: ImproveSurface[] = ['tools', 'mcp', 'hooks', 'code']
+    const configSurfaces: ImproveSurface[] = [
+      'tools',
+      'mcp',
+      'hooks',
+      'subagents',
+      'workflow',
+      'agent-profile',
+      'code',
+    ]
     for (const surface of configSurfaces) {
       await expect(
         improve(promptProfile(), [], { surface, gate: 'none', scenarios, judge, agent: stubAgent }),
@@ -221,12 +377,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
     })
     expect(typeof result.gateDecision).toBe('string')
     expect(findingsSeen.length).toBeGreaterThanOrEqual(2)
-    // Generation 1 proposes from the static seed; generation 2 must propose from the
-    // DISTILLED failures of generation 1's cells (scenario 'b' + the judge's reason).
-    expect(JSON.stringify(findingsSeen[0])).toContain('static-seed-finding')
-    const secondRound = JSON.stringify(findingsSeen[1])
-    expect(secondRound).toContain('"scenario":"b"')
-    expect(secondRound).toContain('not a permutation')
+    // Current selfImprove analyzes the baseline before generation 1, so every
+    // proposal round starts from measured failures instead of wasting a round
+    // on the static seed.
+    for (const seen of findingsSeen) {
+      const round = JSON.stringify(seen)
+      expect(round).toContain('"scenario":"b"')
+      expect(round).toContain('not a permutation')
+    }
   })
 
   it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {
@@ -276,13 +434,20 @@ describe('improve() — default proposer resolution (substrate export drift guar
       // loop measured them (code surfaces reached the agent), and the gate decided.
       expect(generatorCalls).toBeGreaterThanOrEqual(1)
       expect(typeof result.gateDecision).toBe('string')
-      const sawCodeSurface = measured.some(
+      const codeSurfaces = measured.filter(
         (m) =>
           typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
       )
-      expect(sawCodeSurface).toBe(true)
+      expect(codeSurfaces.length).toBeGreaterThanOrEqual(2)
+      expect(
+        codeSurfaces.some((surface) =>
+          String((surface as { worktreeRef: string }).worktreeRef).includes('incumbent-baseline'),
+        ),
+      ).toBe(true)
       // A code winner is a worktree ref, not a profile field — profile unchanged.
       expect(result.profile.prompt?.systemPrompt).toBe('be careful')
+      expect(result.shipped).toBe(false)
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }

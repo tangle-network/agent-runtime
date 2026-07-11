@@ -29,6 +29,8 @@ const roots: string[] = []
 
 export const candidateSha = (character: string): Sha256Digest => `sha256:${character.repeat(64)}`
 
+const fixtureGraderBytes = Buffer.from('fixture executable grader', 'utf8')
+
 export function cleanupCandidateFixtures(): void {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 }
@@ -228,7 +230,7 @@ export function createCandidateOutputFixture(): {
     stored.set(sha256, detached)
     return ref
   }
-  const graderArtifact = put(Buffer.from('fixture executable grader', 'utf8'), 'grader')
+  const graderArtifact = put(fixtureGraderBytes, 'grader')
   return {
     outputArtifacts: {
       put: async ({ bytes, purpose }) => put(bytes, purpose),
@@ -357,6 +359,15 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
     },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: 'provider/model', reasoningEffort: 'high' },
+    grader: {
+      name: 'fixture-executable-grader',
+      version: '1.0.0',
+      artifact: {
+        locator: { kind: 's3', bucket: 'candidate-test-artifacts', key: 'grader/fixture' },
+        sha256: sha256Bytes(fixtureGraderBytes),
+        byteLength: fixtureGraderBytes.byteLength,
+      },
+    },
     executionRoots: {
       taskRoot: '/workspace/task',
       ...(active ? { candidateRoot: '/opt/candidate' } : {}),

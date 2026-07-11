@@ -289,6 +289,7 @@ export async function prepareAgentCandidateExecution(
         },
         routes,
       },
+      grader: task.grader,
       launch: {
         executable: baseLaunch.executable,
         args: baseLaunch.args,
@@ -567,6 +568,13 @@ function assertTaskInput(
   }
   usdToNanos(limits.maxCostUsd, 'task maxCostUsd')
   if (!task.model.requested.trim()) throw new Error('evaluator model request must be non-empty')
+  if (!task.grader.name.trim() || !task.grader.version.trim()) {
+    throw new Error('evaluator benchmark grader identity must be non-empty')
+  }
+  if (!Number.isInteger(task.grader.artifact.byteLength) || task.grader.artifact.byteLength <= 0) {
+    throw new Error('evaluator benchmark grader artifact must be non-empty')
+  }
+  sha256DigestSchema.parse(task.grader.artifact.sha256)
   if (task.evaluatorTaskContainer) {
     if (
       task.evaluatorTaskContainer.source !== 'evaluator-task-container' ||

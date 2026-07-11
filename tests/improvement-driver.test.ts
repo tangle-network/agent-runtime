@@ -194,4 +194,36 @@ describe('improvementDriver — reflective generator', () => {
     // worktree remains.
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
   })
+
+  it('attempts every candidate cleanup even when one discard fails', async () => {
+    let created = 0
+    const discardAttempts: string[] = []
+    const driver = improvementDriver({
+      generator: {
+        kind: 'cleanup-stub',
+        proposesWithoutFindings: true,
+        async generate() {
+          return { applied: true, summary: 'candidate' }
+        },
+      },
+      worktree: {
+        async create({ baseRef }) {
+          const id = String(created++)
+          return { path: `/tmp/candidate-${id}`, branch: `candidate-${id}`, baseRef }
+        },
+        async finalize(worktree) {
+          return { kind: 'code', worktreeRef: worktree.path, baseRef: worktree.baseRef }
+        },
+        async discard(worktree) {
+          discardAttempts.push(worktree.path)
+          if (worktree.path.endsWith('-0')) throw new Error('first discard failed')
+        },
+      },
+      baseRef: 'main',
+    })
+
+    await driver.propose({ ...ctxWith([]), populationSize: 2 })
+    await expect(driver.cleanup()).rejects.toThrow(/failed to discard candidate worktrees/)
+    expect(discardAttempts).toEqual(['/tmp/candidate-0', '/tmp/candidate-1'])
+  })
 })

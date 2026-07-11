@@ -68,13 +68,15 @@ const result = await supervise(
 
 ### Improve an agent
 
-`improve` optimizes one part of an agent (its prompt, skills, or code) and **only ships a change if it beats the current agent on tasks it never practiced on**. Registering an agent for self-improvement cannot ship a worse candidate unless the caller supplies a bad measurement.
+`improve` optimizes one part of an agent and **only ships a change if it beats the current agent on tasks it never practiced on**.
+It accepts prompt, skill document, tool, MCP, hook, subagent, workflow, rollout-policy, whole-profile, and code surfaces through one call.
+Prompt and skill-document optimization have built-in generators; structured surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
 
 ```ts
 import { improve } from '@tangle-network/agent-runtime'
 
 const { profile, shipped, lift } = await improve(baseProfile, findings, {
-  surface: 'prompt',        // what to optimize: prompt | skills | code
+  surface: 'prompt',        // or skills/tools/mcp/hooks/subagents/workflow/agent-profile/code
   gate: 'holdout',          // certified on a held-back exam, never the practice set
   scenarios, judge, agent,  // how to measure a candidate
 })

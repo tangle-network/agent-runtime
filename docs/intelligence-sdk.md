@@ -47,6 +47,8 @@ The delivery code enforces the same framing: a `CertifiedArtifact` carries its h
 - `effort` — a tier name or `{ tier, overrides }`; default `standard`. See [Effort tiers](#effort-tiers-and-the-off-billing-floor).
 - `baseUrl` — the ONE Tangle Intelligence base URL both send (`/v1/otlp`) and receive (`/v1/profiles/:target/composed`) derive from. Reads `TANGLE_INTELLIGENCE_URL` when omitted, else `https://intelligence.tangle.tools`. Send ships only when an `apiKey` is present; absent a tenant key, export is a no-op — best-effort by construction.
 - `redact` — a `Redactor` replaces the default scrubber; `false` opts out loudly; omitted ⇒ `defaultRedactor`. See [Redaction](#redaction).
+- `profile` / `commitSha` — the canonical agent configuration and code revision to attach to every run.
+- `runtimeTelemetry` — controls whether raw tool inputs/results and other sensitive runtime payloads are included; identities, status, token use, cost, and failures are always retained.
 - `surfaces` / `checks` / `repo` — declared for `IntelligenceClient.doctor()` readiness only.
 
 The client surface:
@@ -57,7 +59,7 @@ The client surface:
 - `client.flush()` — flush pending spans; resolves even if export fails.
 
 The best-effort law: telemetry-export failures are swallowed — a live agent never fails because Intelligence is down — but an error thrown by the agent itself propagates unchanged.
-Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs/outputs pass through the redactor and are bounded to a 4 KB preview on the span.
+Every span carries the billing split as attributes (`tangle.usage.inference_usd`, `tangle.usage.intelligence_usd`, `tangle.effort.intelligence_off`); inputs, outputs, and opted-in runtime payloads pass through the redactor and are exported without content truncation.
 
 ## Two lanes: traces UP, certified artifacts DOWN
 
@@ -88,7 +90,8 @@ export const agent = withIntelligence(
 )
 ```
 
-Each call refreshes the certified profile (window-respecting), hands the agent an `AppliedIntelligence` handle (`certified`, `composePrompt`, `proposals`, `applyProfile`, `record`), and SENDs a typed `RunRecord` for the run.
+Each call refreshes the certified profile (window-respecting), hands the agent an `AppliedIntelligence` handle (`runId`, `traceId`, `certified`, `composePrompt`, `proposals`, `applyProfile`, `record`), and SENDs a typed `RunRecord` for the run.
+The run record includes timing, failures, profile/config hash, repository revision, model, tokens, costs, runtime events, and loop events when supplied; thrown agent errors are exported before being rethrown.
 The promoted profile diffs surface as `agent.proposals()` / the `onProposals` callback — the hook NEVER auto-applies them; `applied.applyProfile(base)` folds them only when the caller explicitly asks.
 When the plane promotes a new gate-certified surface, the next refresh delivers it to the running agent; when the plane is unreachable, the agent runs on its base surface.
 

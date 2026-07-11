@@ -23,13 +23,18 @@
  * @experimental
  */
 
+import { contentHash } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   buildLoopOtelSpans,
+  buildRuntimeEventOtelSpans,
   createOtelExporter,
   flatOtelSpan,
   type OtelExporter,
 } from '../otel-export'
 import type { LoopTraceEvent } from '../runtime/types'
+import type { RuntimeTelemetryOptions } from '../sanitize'
+import type { RuntimeStreamEvent } from '../types'
 import { resolveIntelligenceBaseUrl } from './delivery'
 import {
   defaultEffortTier,
@@ -146,6 +151,20 @@ export interface RunRecord {
   model?: string
   provider?: string
   loopEvents?: LoopTraceEvent[]
+  runtimeEvents?: RuntimeStreamEvent[]
+  profile?: AgentProfile
+  sessionId?: string
+  harness?: string
+  repository?: string
+  commitSha?: string
+  timing?: { startedAt: number; completedAt: number; durationMs: number }
+  tokens?: {
+    input: number
+    output: number
+    cachedInput?: number
+    reasoning?: number
+  }
+  error?: { name: string; message: string; code?: string }
 }
 
 /**
@@ -162,6 +181,13 @@ export interface RunReport {
   model?: string
   provider?: string
   loopEvents?: LoopTraceEvent[]
+  runtimeEvents?: RuntimeStreamEvent[]
+  profile?: AgentProfile
+  sessionId?: string
+  harness?: string
+  commitSha?: string
+  tokens?: RunRecord['tokens']
+  error?: RunRecord['error']
 }
 
 /** Repo coordinates a product may declare for the (later) Gated-PR mode. The
@@ -203,6 +229,12 @@ export interface IntelligenceConfig {
   checks?: string[]
   /** Repo access a later PR mode would need. Recorded for `doctor()` only. */
   repo?: RepoConfig
+  /** Full canonical profile used for this agent. Exported redacted with a stable hash. */
+  profile?: AgentProfile
+  /** Commit that produced the running agent, when known. */
+  commitSha?: string
+  /** Runtime-event payload policy. Tool inputs/results remain off unless explicitly enabled. */
+  runtimeTelemetry?: RuntimeTelemetryOptions
 }
 
 /** Metadata describing one traced run. `runId`/`traceId` default to fresh ids. */
@@ -347,12 +379,8 @@ function freshRunId(): string {
   return `run-${randomHex(16)}`
 }
 
-/** Serialize a redacted value to a bounded string for a span attribute.
- *  `loopEventToOtelSpan` only stamps string/number/boolean payload fields, so a
- *  structured input/output must be flattened here. Bounded to keep span
- *  attributes small; the full payload is the consumer's own store, not the span. */
-const previewMaxChars = 4096
-function previewJson(value: unknown): string {
+/** Serialize a redacted value without dropping customer trace content. */
+function serializeJson(value: unknown): string {
   let s: string
   if (typeof value === 'string') s = value
   else {
@@ -362,7 +390,7 @@ function previewJson(value: unknown): string {
       s = String(value)
     }
   }
-  return s.length > previewMaxChars ? `${s.slice(0, previewMaxChars)}…[truncated]` : s
+  return s
 }
 
 function randomHex(chars: number): string {
@@ -416,24 +444,24 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   function exportTrace(meta: TraceMeta, outcome: TraceOutcome, output: unknown): void {
     const ex = getExporter()
     if (!ex) return
-    const labels: Record<string, string | number | boolean> = {
-      project: config.project,
-      'tangle.effort.intelligence_off': outcome.intelligenceOff,
-      'tangle.usage.inference_usd': outcome.usage.inferenceUsd,
-      'tangle.usage.intelligence_usd': outcome.usage.intelligenceUsd,
-      ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
-      ...(meta.provider ? { 'provider.name': meta.provider } : {}),
-      ...(typeof outcome.success === 'boolean'
-        ? { 'tangle.outcome.success': outcome.success }
-        : {}),
-      ...(typeof outcome.score === 'number' ? { 'tangle.outcome.score': outcome.score } : {}),
-      ...(meta.labels ?? {}),
-    }
-    const redactedInput = meta.input !== undefined ? redactor(meta.input) : undefined
-    const redactedOutput = output !== undefined ? redactor(output) : undefined
-    if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
-    if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
     try {
+      const labels: Record<string, string | number | boolean> = {
+        project: config.project,
+        'tangle.effort.intelligence_off': outcome.intelligenceOff,
+        'tangle.usage.inference_usd': outcome.usage.inferenceUsd,
+        'tangle.usage.intelligence_usd': outcome.usage.intelligenceUsd,
+        ...(meta.model ? { 'gen_ai.request.model': meta.model } : {}),
+        ...(meta.provider ? { 'provider.name': meta.provider } : {}),
+        ...(typeof outcome.success === 'boolean'
+          ? { 'tangle.outcome.success': outcome.success }
+          : {}),
+        ...(typeof outcome.score === 'number' ? { 'tangle.outcome.score': outcome.score } : {}),
+        ...(meta.labels ?? {}),
+      }
+      const redactedInput = meta.input !== undefined ? redactor(meta.input) : undefined
+      const redactedOutput = output !== undefined ? redactor(output) : undefined
+      if (redactedInput !== undefined) labels['tangle.input'] = serializeJson(redactedInput)
+      if (redactedOutput !== undefined) labels['tangle.output'] = serializeJson(redactedOutput)
       // Flat span with VERBATIM attribute keys — the plane's session/model/
       // cost readers exact-match `tangle.sessionId` / `gen_ai.request.model`,
       // so the loop-namespacing builder must not be used here.
@@ -453,36 +481,92 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
   function exportRunRecord(record: RunRecord): string {
     const ex = getExporter()
     if (!ex) return record.traceId
-    // Clamp the OFF billing invariant on export — the proof holds even if a
-    // caller mis-reports an intelligence split at the OFF tier.
-    const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
-    const labels: Record<string, string | number | boolean> = {
-      project: record.project,
-      'tangle.target': record.target,
-      'tangle.effort.intelligence_off': intelligenceOff,
-      'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
-      'tangle.usage.intelligence_usd': intelligenceUsd,
-      ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
-      ...(record.provider ? { 'provider.name': record.provider } : {}),
-      ...(typeof record.outcome.success === 'boolean'
-        ? { 'tangle.outcome.success': record.outcome.success }
-        : {}),
-      ...(typeof record.outcome.score === 'number'
-        ? { 'tangle.outcome.score': record.outcome.score }
-        : {}),
-    }
-    const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
-    const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
-    if (redactedInput !== undefined) labels['tangle.input'] = previewJson(redactedInput)
-    if (redactedOutput !== undefined) labels['tangle.output'] = previewJson(redactedOutput)
     try {
+      // Clamp the OFF billing invariant on export — the proof holds even if a
+      // caller mis-reports an intelligence split at the OFF tier.
+      const intelligenceUsd = intelligenceOff ? 0 : record.outcome.usage.intelligenceUsd
+      const repository =
+        record.repository ?? (config.repo ? `${config.repo.owner}/${config.repo.name}` : undefined)
+      const labels: Record<string, string | number | boolean> = {
+        project: record.project,
+        'tangle.target': record.target,
+        'tangle.effort.intelligence_off': intelligenceOff,
+        'tangle.usage.inference_usd': record.outcome.usage.inferenceUsd,
+        'tangle.usage.intelligence_usd': intelligenceUsd,
+        ...(record.model ? { 'gen_ai.request.model': record.model } : {}),
+        ...(record.provider ? { 'provider.name': record.provider } : {}),
+        ...(record.sessionId
+          ? {
+              'tangle.sessionId': record.sessionId,
+              'gen_ai.conversation.id': record.sessionId,
+            }
+          : {}),
+        ...(record.harness ? { 'tangle.agent.harness': record.harness } : {}),
+        ...(repository ? { 'vcs.repository.name': repository } : {}),
+        ...(record.commitSha ? { 'vcs.ref.head.revision': record.commitSha } : {}),
+        ...(record.timing
+          ? {
+              'tangle.started_at_ms': record.timing.startedAt,
+              'tangle.completed_at_ms': record.timing.completedAt,
+              'tangle.duration_ms': record.timing.durationMs,
+            }
+          : {}),
+        ...(record.tokens
+          ? {
+              'gen_ai.usage.input_tokens': record.tokens.input,
+              'gen_ai.usage.output_tokens': record.tokens.output,
+              ...(record.tokens.cachedInput !== undefined
+                ? { 'gen_ai.usage.cache_read_input_tokens': record.tokens.cachedInput }
+                : {}),
+              ...(record.tokens.reasoning !== undefined
+                ? { 'gen_ai.usage.reasoning_tokens': record.tokens.reasoning }
+                : {}),
+            }
+          : {}),
+        ...(typeof record.outcome.success === 'boolean'
+          ? { 'tangle.outcome.success': record.outcome.success }
+          : {}),
+        ...(typeof record.outcome.score === 'number'
+          ? { 'tangle.outcome.score': record.outcome.score }
+          : {}),
+        ...(record.error
+          ? {
+              'error.type': record.error.code ?? record.error.name,
+              'error.message': serializeJson(redactor(record.error.message)),
+            }
+          : {}),
+        ...(record.runtimeEvents
+          ? { 'tangle.runtime.event_count': record.runtimeEvents.length }
+          : {}),
+      }
+      if (record.profile) {
+        labels['tangle.agent.profile'] = serializeJson(redactor(record.profile))
+        labels['tangle.agent.profile_hash'] = contentHash(record.profile)
+        if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
+      }
+      const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
+      const redactedOutput = record.output !== undefined ? redactor(record.output) : undefined
+      if (redactedInput !== undefined) labels['tangle.input'] = serializeJson(redactedInput)
+      if (redactedOutput !== undefined) labels['tangle.output'] = serializeJson(redactedOutput)
+      const now = Date.now()
       const runSpan = flatOtelSpan(
         'tangle.intelligence.run',
         { 'tangle.runId': record.runId, ...labels },
         record.traceId,
-        Date.now(),
+        record.timing?.startedAt ?? now,
+        undefined,
+        record.timing?.completedAt ?? now,
       )
       ex.exportSpan(runSpan)
+      if (record.runtimeEvents && record.runtimeEvents.length > 0) {
+        const spans = buildRuntimeEventOtelSpans(
+          record.runtimeEvents,
+          record.traceId,
+          runSpan.spanId,
+          { ...config.runtimeTelemetry, redact: redactor },
+        )
+        for (const span of spans) ex.exportSpan(span)
+      }
       // The loop topology (when present) exports under the SAME traceId, parented
       // under the run span — reusing the shipped builder, never a second one.
       if (record.loopEvents && record.loopEvents.length > 0) {
