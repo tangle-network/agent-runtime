@@ -6,9 +6,17 @@ import { mcpServeVerifier } from '../src/improvement/mcp-serve-verifier'
 
 // A minimal stdio MCP server (newline-delimited JSON-RPC 2.0) used as the
 // "built server" the verifier boots. Variants exercise each outcome.
-function serverScript(variant: 'ok' | 'no-tools' | 'crash' | 'hang'): string {
+function serverScript(variant: 'ok' | 'no-tools' | 'crash' | 'hang' | 'closed-stdin'): string {
   if (variant === 'crash') return 'process.exit(1)\n'
   if (variant === 'hang') return 'setInterval(() => {}, 1000)\n' // never answers
+  if (variant === 'closed-stdin') {
+    return [
+      'import { closeSync } from "node:fs"',
+      'closeSync(0)',
+      'process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "0" } } }) + "\\n")',
+      'setInterval(() => {}, 1000)',
+    ].join('\n')
+  }
   const tools =
     variant === 'no-tools'
       ? '[]'
@@ -31,7 +39,7 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-function write(variant: 'ok' | 'no-tools' | 'crash' | 'hang'): string {
+function write(variant: 'ok' | 'no-tools' | 'crash' | 'hang' | 'closed-stdin'): string {
   const path = join(dir, `server-${variant}.mjs`)
   writeFileSync(path, serverScript(variant))
   return path
@@ -55,6 +63,17 @@ describe('mcpServeVerifier — boot-and-probe', () => {
     const res = await verify(dir)
     expect(res.ok).toBe(false)
     expect(res.feedback).toMatch(/exited|serving/)
+  })
+
+  it('fails when the server closes stdin during the handshake', async () => {
+    const verify = mcpServeVerifier({
+      command: 'node',
+      args: [write('closed-stdin')],
+      timeoutMs: 800,
+    })
+    const res = await verify(dir)
+    expect(res.ok).toBe(false)
+    expect(res.feedback).toContain('writing to MCP server stdin failed')
   })
 
   it('fails (does not hang) a server that never answers, via timeout', async () => {

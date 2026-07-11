@@ -100,6 +100,10 @@ export function mcpServeVerifier(spec: McpServeSpec): Verifier {
         // server crashed on boot); after we settle, our own SIGKILL fires here.
         failCandidate(`MCP server exited (code ${code}, signal ${signal}) before serving`)
       })
+      child.stdin.on('error', (err) => {
+        // Pipe failures arrive asynchronously, outside send()'s try/catch.
+        failCandidate(`writing to MCP server stdin failed: ${err.message}`)
+      })
       child.stderr.on('data', (d) => stderr.push(String(d)))
 
       const rl = createInterface({ input: child.stdout })
