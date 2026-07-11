@@ -74,7 +74,7 @@ export async function persistCandidateModelSettlementEvidence(
   outputArtifacts: AgentCandidateOutputArtifactPort,
 ): Promise<PersistedAgentCandidateModelSettlement> {
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-model-settlement-material' as const,
     executionPlanDigest: identity.executionPlanDigest,
     preparationId: settlement.value.preparationId,
@@ -83,8 +83,12 @@ export async function persistCandidateModelSettlementEvidence(
     resolved: identity.resolvedModel,
     calls: settlement.value.calls.map((call) => ({
       callId: call.callId,
+      generationId: call.generationId,
       traceSpanId: call.traceSpanId,
+      status: call.status,
       model: call.model,
+      startedAtMs: call.startedAtMs,
+      endedAtMs: call.endedAtMs,
       inputTokens: call.inputTokens,
       outputTokens: call.outputTokens,
       cachedInputTokens: call.cachedInputTokens ?? 0,

@@ -37,6 +37,15 @@ export {
   prepareAgentCandidateExecution,
 } from './prepare'
 export {
+  type AgentCandidateModelGrantActivateInput,
+  type AgentCandidateModelGrantClient,
+  type AgentCandidateModelGrantReservation,
+  type AgentCandidateModelGrantReserveInput,
+  type AgentCandidateModelGrantSettleInput,
+  type CreateProtectedAgentCandidateModelPortOptions,
+  createProtectedAgentCandidateModelPort,
+} from './protected-model-port'
+export {
   type RecoverExpiredAgentCandidateOptions,
   recoverExpiredAgentCandidateExecution,
 } from './recover'

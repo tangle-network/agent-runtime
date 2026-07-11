@@ -23,6 +23,7 @@ import {
 } from './executor-capture'
 import { failedAgentCandidateRun, finalizeAgentCandidateRun } from './finalize'
 import {
+  appendAuthoritativeModelSettlementSpans,
   type SealedAgentCandidateModelSettlement,
   sealAgentCandidateModelSettlement,
 } from './model-settlement'
@@ -375,6 +376,11 @@ export async function executePreparedAgentCandidate(
       )
       result = await withinCandidateResultDeadline(
         async (signal) => {
+          await appendAuthoritativeModelSettlementSpans(
+            options.traceStore,
+            state.trace.runId,
+            settlementResult.settlement as SealedAgentCandidateModelSettlement,
+          )
           const taskOutcome = await persistVerifiedCandidateTaskOutcome(
             state,
             execution.finalCapture.taskOutcome!,

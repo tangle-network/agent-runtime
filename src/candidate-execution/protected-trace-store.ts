@@ -35,6 +35,9 @@ export class ProtectedAgentCandidateTraceStore implements TraceStore {
   }
 
   async appendSpan(span: Parameters<TraceStore['appendSpan']>[0]): Promise<void> {
+    if (span.kind === 'llm') {
+      throw new Error('candidate executors cannot author protected model spans')
+    }
     await this.inner.appendSpan(this.redact(span))
   }
 
@@ -42,6 +45,9 @@ export class ProtectedAgentCandidateTraceStore implements TraceStore {
     spanId: Parameters<TraceStore['updateSpan']>[0],
     patch: Parameters<TraceStore['updateSpan']>[1],
   ): Promise<void> {
+    if (patch.kind === 'llm') {
+      throw new Error('candidate executors cannot author protected model spans')
+    }
     await this.inner.updateSpan(this.redact(spanId), this.redact(patch))
   }
 

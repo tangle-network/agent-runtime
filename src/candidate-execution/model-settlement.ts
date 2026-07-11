@@ -1,4 +1,4 @@
-import type { LlmSpan } from '@tangle-network/agent-eval'
+import { isLlmSpan, type LlmSpan, type TraceStore } from '@tangle-network/agent-eval'
 import type { AgentCandidateSpend } from '@tangle-network/agent-interface'
 import type { AgentCandidateExecutionUsage } from './claim'
 import { assertExactObjectKeys } from './exact-object'
@@ -48,12 +48,31 @@ export function sealAgentCandidateModelSettlement(
   const calls = settlement.calls.map((source, index) => {
     assertExactObjectKeys(
       source,
-      ['callId', 'traceSpanId', 'model', 'inputTokens', 'outputTokens', 'costUsdNanos'],
+      [
+        'callId',
+        'generationId',
+        'traceSpanId',
+        'status',
+        'model',
+        'startedAtMs',
+        'endedAtMs',
+        'inputTokens',
+        'outputTokens',
+        'cachedInputTokens',
+        'reasoningTokens',
+        'costUsdNanos',
+      ],
       `model settlement call ${index}`,
-      ['cachedInputTokens', 'reasoningTokens'],
     )
     assertIdentifier(source.callId, `model settlement call ${index} callId`)
+    assertIdentifier(source.generationId, `model settlement call ${index} generationId`)
     assertIdentifier(source.traceSpanId, `model settlement call ${index} traceSpanId`)
+    if (source.traceSpanId !== source.generationId) {
+      throw new Error(`model settlement call ${index} traceSpanId is not its router generationId`)
+    }
+    if (source.status !== 'succeeded' && source.status !== 'failed') {
+      throw new Error(`model settlement call ${index} has an invalid status`)
+    }
     if (callIds.has(source.callId))
       throw new Error('protected model settlement has duplicate call ids')
     if (spanIds.has(source.traceSpanId)) {
@@ -64,21 +83,22 @@ export function sealAgentCandidateModelSettlement(
     if (source.model !== expected.model) {
       throw new Error(`protected model settlement call ${index} has an unexpected model`)
     }
+    assertTimestamp(source.startedAtMs, `model settlement call ${index} startedAtMs`)
+    assertTimestamp(source.endedAtMs, `model settlement call ${index} endedAtMs`)
+    if (source.endedAtMs < source.startedAtMs) {
+      throw new Error(`model settlement call ${index} ended before it started`)
+    }
     assertCount(source.inputTokens, `model settlement call ${index} inputTokens`)
     assertCount(source.outputTokens, `model settlement call ${index} outputTokens`)
-    if (source.cachedInputTokens !== undefined) {
-      assertCount(source.cachedInputTokens, `model settlement call ${index} cachedInputTokens`)
-      cachedInputTokens = safeAdd(
-        cachedInputTokens,
-        source.cachedInputTokens,
-        'cached input token total',
-      )
-      hasCachedInput = true
-    }
-    if (source.reasoningTokens !== undefined) {
-      assertCount(source.reasoningTokens, `model settlement call ${index} reasoningTokens`)
-      reasoningTokens = safeAdd(reasoningTokens, source.reasoningTokens, 'reasoning token total')
-    }
+    assertCount(source.cachedInputTokens, `model settlement call ${index} cachedInputTokens`)
+    cachedInputTokens = safeAdd(
+      cachedInputTokens,
+      source.cachedInputTokens,
+      'cached input token total',
+    )
+    hasCachedInput = true
+    assertCount(source.reasoningTokens, `model settlement call ${index} reasoningTokens`)
+    reasoningTokens = safeAdd(reasoningTokens, source.reasoningTokens, 'reasoning token total')
     assertCount(source.costUsdNanos, `model settlement call ${index} costUsdNanos`)
     inputTokens = safeAdd(inputTokens, source.inputTokens, 'input token total')
     outputTokens = safeAdd(outputTokens, source.outputTokens, 'output token total')
@@ -114,6 +134,57 @@ export function sealAgentCandidateModelSettlement(
   })
 }
 
+/**
+ * Append the only accepted LLM spans from the router's closed ledger.
+ * Candidate and executor code may write tool/process spans, but never model usage.
+ */
+export async function appendAuthoritativeModelSettlementSpans(
+  traceStore: TraceStore,
+  runId: string,
+  settlement: SealedAgentCandidateModelSettlement,
+): Promise<void> {
+  const run = await traceStore.getRun(runId)
+  if (!run) throw new Error(`protected trace run is missing before model settlement: ${runId}`)
+  if (run.status === 'running' || run.endedAt === undefined) {
+    throw new Error('protected trace run must be terminal before model spans are appended')
+  }
+  const existing = await traceStore.spans({ runId })
+  if (existing.some(isLlmSpan)) {
+    throw new Error(
+      'protected trace contains a model span not authored from the closed router ledger',
+    )
+  }
+  const occupiedIds = new Set(existing.map((span) => span.spanId))
+  for (const call of settlement.value.calls) {
+    if (occupiedIds.has(call.traceSpanId)) {
+      throw new Error(
+        `protected trace span identity collides with router generation ${call.generationId}`,
+      )
+    }
+    await traceStore.appendSpan({
+      runId,
+      spanId: call.traceSpanId,
+      kind: 'llm',
+      name: 'protected model call',
+      model: call.model,
+      messages: [],
+      startedAt: call.startedAtMs,
+      endedAt: call.endedAtMs,
+      status: call.status === 'succeeded' ? 'ok' : 'error',
+      inputTokens: call.inputTokens,
+      outputTokens: call.outputTokens,
+      cachedTokens: call.cachedInputTokens,
+      reasoningTokens: call.reasoningTokens,
+      costUsd: call.costUsdNanos / USD_NANOS,
+      attributes: {
+        'tangle.protected_model.source': 'router-settlement',
+        'tangle.router.call_id': call.callId,
+        'tangle.router.generation_id': call.generationId,
+      },
+    })
+  }
+}
+
 /** Match every protected trace span one-for-one against gateway call evidence. */
 export function assertTraceMatchesModelSettlement(
   spans: readonly LlmSpan[],
@@ -146,11 +217,27 @@ function assertTraceCall(span: LlmSpan, call: AgentCandidateProtectedModelCall):
   if (span.model !== call.model) {
     throw new Error(`protected trace span ${span.spanId} model does not match model ledger`)
   }
+  if (
+    span.startedAt !== call.startedAtMs ||
+    span.endedAt !== call.endedAtMs ||
+    span.status !== (call.status === 'succeeded' ? 'ok' : 'error')
+  ) {
+    throw new Error(
+      `protected trace span ${span.spanId} timing or status does not match model ledger`,
+    )
+  }
+  if (
+    span.attributes?.['tangle.protected_model.source'] !== 'router-settlement' ||
+    span.attributes?.['tangle.router.call_id'] !== call.callId ||
+    span.attributes?.['tangle.router.generation_id'] !== call.generationId
+  ) {
+    throw new Error(`protected trace span ${span.spanId} lacks router settlement provenance`)
+  }
   for (const [name, traced, settled] of [
     ['inputTokens', span.inputTokens, call.inputTokens],
     ['outputTokens', span.outputTokens, call.outputTokens],
-    ['cachedInputTokens', span.cachedTokens ?? 0, call.cachedInputTokens ?? 0],
-    ['reasoningTokens', span.reasoningTokens ?? 0, call.reasoningTokens ?? 0],
+    ['cachedInputTokens', span.cachedTokens ?? 0, call.cachedInputTokens],
+    ['reasoningTokens', span.reasoningTokens ?? 0, call.reasoningTokens],
   ] as const) {
     if (traced === undefined || traced !== settled) {
       throw new Error(
@@ -178,6 +265,12 @@ function assertIdentifier(value: unknown, label: string): asserts value is strin
 function assertCount(value: unknown, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new Error(`${label} must be a nonnegative safe integer`)
+  }
+}
+
+function assertTimestamp(value: unknown, label: string): asserts value is number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new Error(`${label} must be a positive safe integer`)
   }
 }
 

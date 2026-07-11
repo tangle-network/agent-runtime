@@ -22,8 +22,8 @@ importers:
         specifier: ^0.108.1
         version: 0.108.1(typescript@5.9.3)
       '@tangle-network/agent-interface':
-        specifier: ^0.22.0
-        version: 0.22.0
+        specifier: ^0.24.0
+        version: 0.24.0
       '@tangle-network/sandbox':
         specifier: ^0.9.7
         version: 0.9.7(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))
@@ -660,8 +660,8 @@ packages:
   '@tangle-network/agent-interface@0.21.0':
     resolution: {integrity: sha512-jDxhVJgxymrvU1RLWxWKueuaWQIpBAfrW8BuVTB5m2Y4eFMLo1SawDBEMDLdZN4/Gf34xrFrsRk+PAj9brGKMQ==}
 
-  '@tangle-network/agent-interface@0.22.0':
-    resolution: {integrity: sha512-7fsJhNdvTmOB1X9E2owl06jzyrqaN+jMkOPVKbK7dvNqQvf627PowCtL/edhUqEEv+K0FWtkwG3R3xqjX7VNZg==}
+  '@tangle-network/agent-interface@0.24.0':
+    resolution: {integrity: sha512-iaHWNTYne49cBYXwb72NjGDw5bjT2KVJlfawXygbvkqnfUsQG57BS++Yjf/XYvwJJdDeEaGs+Xvy8SWYkvu0qA==}
 
   '@tangle-network/agent-knowledge@1.11.1':
     resolution: {integrity: sha512-2vvNHHsb4TQFnY+SrL7rYaMhwTxTK8R/lD9IAteonmgwcE5amhpPQZqftw+UDMl1d6OBe4QX+Qv1pNmWQDXzqQ==}
@@ -1659,7 +1659,7 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@tangle-network/agent-interface@0.22.0':
+  '@tangle-network/agent-interface@0.24.0':
     dependencies:
       zod: 4.4.3
 
