@@ -9,18 +9,10 @@ import type {
   AgentCandidateLineage,
   AgentCandidateMemoryPolicy,
   AgentCandidateProfile,
-  AgentCandidateResourceRef,
   AgentProfile,
   AgentProfileDiff,
-  AgentProfileMcpServer,
-  AgentProfileResourceRef,
 } from '@tangle-network/agent-interface'
-import {
-  agentCandidateProfileSchema,
-  agentProfileDiffSchema,
-  agentProfileSchema,
-  applyAgentProfileDiff,
-} from '@tangle-network/agent-interface'
+import { agentProfileDiffSchema, applyAgentProfileDiff } from '@tangle-network/agent-interface'
 
 import { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
 import {
@@ -28,6 +20,11 @@ import {
   canonicalCandidateDigest,
   embeddedCandidateArtifact,
 } from './digest'
+import {
+  freezeGenericAgentCandidateProfile,
+  parseExactAgentProfile,
+  parseExactCandidateProfile,
+} from './profile'
 
 /** A complete profile that can be frozen without losing behavior. */
 export type AgentCandidateProfileSource =
@@ -117,7 +114,7 @@ function compileCandidateProfile(source: AgentCandidateProfileSource): {
   }
 
   if (source.kind === 'profile') {
-    return { profile: freezeGenericProfile(source.profile), profileDiffIds: [] }
+    return { profile: freezeGenericAgentCandidateProfile(source.profile), profileDiffIds: [] }
   }
 
   if (source.kind !== 'profile-diffs') {
@@ -135,7 +132,7 @@ function compileCandidateProfile(source: AgentCandidateProfileSource): {
     profile = omitUndefinedObjectFields(applyAgentProfileDiff(profile, diff)) as AgentProfile
     profileDiffIds.push(canonicalCandidateDigest(diff))
   }
-  return { profile: freezeGenericProfile(profile), profileDiffIds }
+  return { profile: freezeGenericAgentCandidateProfile(profile), profileDiffIds }
 }
 
 function compileCandidateCode(source: AgentCandidateCodeSource): AgentCandidateBundleInput['code'] {
@@ -164,140 +161,9 @@ function compileCandidateCode(source: AgentCandidateCodeSource): AgentCandidateB
   }
 }
 
-function freezeGenericProfile(input: AgentProfile): AgentCandidateProfile {
-  const profile = parseExactAgentProfile(input, 'profile')
-  if (profile.connections !== undefined) unsupportedProfileField('connections')
-  if (profile.metadata !== undefined) unsupportedProfileField('metadata')
-  if (profile.extensions !== undefined) unsupportedProfileField('extensions')
-  if (profile.model?.metadata !== undefined) unsupportedProfileField('model.metadata')
-
-  const candidate: Record<string, unknown> = {}
-  copyDefined(candidate, profile as Record<string, unknown>, [
-    'name',
-    'description',
-    'version',
-    'tags',
-    'prompt',
-    'harness',
-    'permissions',
-    'tools',
-    'confidential',
-  ])
-  if (profile.model) {
-    const { metadata: _metadata, ...model } = profile.model
-    candidate.model = model
-  }
-  if (profile.mcp) candidate.mcp = freezeMcpServers(profile.mcp)
-  if (profile.subagents) {
-    candidate.subagents = Object.fromEntries(
-      Object.entries(profile.subagents).map(([name, subagent]) => {
-        if (subagent.metadata !== undefined) unsupportedProfileField(`subagents.${name}.metadata`)
-        const { metadata: _metadata, ...value } = subagent
-        return [name, value]
-      }),
-    )
-  }
-  if (profile.resources) candidate.resources = freezeResources(profile.resources)
-  if (profile.hooks && Object.values(profile.hooks).some((commands) => commands.length > 0)) {
-    throw new Error(
-      'generic AgentProfile hooks cannot be safely tokenized; use a candidate-profile source with executable/args',
-    )
-  }
-  if (profile.hooks) candidate.hooks = profile.hooks
-  if (profile.modes) {
-    candidate.modes = Object.fromEntries(
-      Object.entries(profile.modes).map(([name, mode]) => {
-        if (mode.metadata !== undefined) unsupportedProfileField(`modes.${name}.metadata`)
-        const { metadata: _metadata, ...value } = mode
-        return [name, value]
-      }),
-    )
-  }
-  return parseExactCandidateProfile(candidate)
-}
-
-function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(servers).map(([name, server]) => {
-      if (server.transport !== undefined && server.transport !== 'stdio') {
-        unsupportedProfileField(`mcp.${name}.transport=${server.transport}`)
-      }
-      if (server.url !== undefined) unsupportedProfileField(`mcp.${name}.url`)
-      if (server.headers !== undefined) unsupportedProfileField(`mcp.${name}.headers`)
-      if (server.metadata !== undefined) unsupportedProfileField(`mcp.${name}.metadata`)
-      return [
-        name,
-        {
-          ...(server.transport ? { transport: server.transport } : {}),
-          ...(server.command ? { command: server.command } : {}),
-          ...(server.args ? { args: server.args.map(publicValue) } : {}),
-          ...(server.env ? { env: mapPublicValues(server.env) } : {}),
-          ...(server.cwd ? { cwd: server.cwd } : {}),
-          ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
-        },
-      ]
-    }),
-  )
-}
-
-function freezeResources(resources: NonNullable<AgentProfile['resources']>): unknown {
-  if (resources.failOnError !== true) {
-    throw new Error('candidate profile resources require failOnError: true')
-  }
-  return {
-    failOnError: true,
-    ...(resources.files
-      ? {
-          files: resources.files.map((file) => ({
-            ...file,
-            resource: freezeResource(file.resource),
-          })),
-        }
-      : {}),
-    ...(resources.tools ? { tools: resources.tools.map(freezeResource) } : {}),
-    ...(resources.skills ? { skills: resources.skills.map(freezeResource) } : {}),
-    ...(resources.agents ? { agents: resources.agents.map(freezeResource) } : {}),
-    ...(resources.commands ? { commands: resources.commands.map(freezeResource) } : {}),
-    ...(resources.instructions === undefined
-      ? {}
-      : {
-          instructions:
-            typeof resources.instructions === 'string'
-              ? resources.instructions
-              : freezeResource(resources.instructions),
-        }),
-  }
-}
-
-function freezeResource(resource: AgentProfileResourceRef): AgentCandidateResourceRef {
-  if (resource.kind === 'github') {
-    throw new Error(
-      'generic GitHub profile resources do not carry byte identity; use a candidate-profile source with a pinned commit, digest, and byte length',
-    )
-  }
-  const bytes = Buffer.from(resource.content, 'utf8')
-  return {
-    ...resource,
-    sha256: embeddedCandidateArtifact(bytes).sha256,
-    byteLength: bytes.byteLength,
-  }
-}
-
-function parseExactAgentProfile(input: unknown, label: string): AgentProfile {
-  const parsed = agentProfileSchema.parse(input) as AgentProfile
-  assertCanonicalParse(input, parsed, label)
-  return parsed
-}
-
 function parseExactProfileDiff(input: unknown, index: number): AgentProfileDiff {
   const parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
   assertCanonicalParse(input, parsed, `profile diff ${index}`)
-  return parsed
-}
-
-function parseExactCandidateProfile(input: unknown): AgentCandidateProfile {
-  const parsed = agentCandidateProfileSchema.parse(input)
-  assertCanonicalParse(input, parsed, 'candidate profile')
   return parsed
 }
 
@@ -321,33 +187,5 @@ function omitUndefinedObjectFields(value: unknown): unknown {
     Object.entries(value as Record<string, unknown>)
       .filter(([, entry]) => entry !== undefined)
       .map(([key, entry]) => [key, omitUndefinedObjectFields(entry)]),
-  )
-}
-
-function publicValue(value: string): { kind: 'public'; value: string } {
-  return { kind: 'public', value }
-}
-
-function mapPublicValues(
-  values: Record<string, string>,
-): Record<string, { kind: 'public'; value: string }> {
-  return Object.fromEntries(
-    Object.entries(values).map(([name, value]) => [name, publicValue(value)]),
-  )
-}
-
-function copyDefined(
-  target: Record<string, unknown>,
-  source: Record<string, unknown>,
-  keys: readonly string[],
-): void {
-  for (const key of keys) {
-    if (source[key] !== undefined) target[key] = source[key]
-  }
-}
-
-function unsupportedProfileField(path: string): never {
-  throw new Error(
-    `generic AgentProfile field ${path} is not representable in a sealed candidate profile`,
   )
 }

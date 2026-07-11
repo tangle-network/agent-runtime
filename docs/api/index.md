@@ -1245,7 +1245,7 @@ Defined in: [sessions.ts:59](https://github.com/tangle-network/agent-runtime/blo
 
 ### AgentCandidateCodeSurfaceSource
 
-Defined in: [candidate-execution/builder.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L51)
+Defined in: [candidate-execution/builder.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L48)
 
 The only accepted path from an agent-eval code candidate to executable bytes.
 
@@ -1255,25 +1255,25 @@ The only accepted path from an agent-eval code candidate to executable bytes.
 
 > **kind**: `"code-surface"`
 
-Defined in: [candidate-execution/builder.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L52)
+Defined in: [candidate-execution/builder.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L49)
 
 ##### surface
 
 > **surface**: `CodeSurface`
 
-Defined in: [candidate-execution/builder.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L53)
+Defined in: [candidate-execution/builder.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L50)
 
 ##### repository
 
 > **repository**: `AgentCandidateGitHubRepository`
 
-Defined in: [candidate-execution/builder.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L54)
+Defined in: [candidate-execution/builder.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L51)
 
 ##### worktreeDir?
 
 > `optional` **worktreeDir?**: `string`
 
-Defined in: [candidate-execution/builder.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L56)
+Defined in: [candidate-execution/builder.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L53)
 
 Optional parent directory used to resolve a relative `surface.worktreeRef`.
 
@@ -1281,7 +1281,7 @@ Optional parent directory used to resolve a relative `surface.worktreeRef`.
 
 ### BuildAgentCandidateBundleInput
 
-Defined in: [candidate-execution/builder.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L66)
+Defined in: [candidate-execution/builder.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L63)
 
 Complete measured surfaces and execution policy compiled into one candidate bundle.
 
@@ -1291,37 +1291,37 @@ Complete measured surfaces and execution policy compiled into one candidate bund
 
 > **profile**: [`AgentCandidateProfileSource`](#agentcandidateprofilesource)
 
-Defined in: [candidate-execution/builder.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L67)
+Defined in: [candidate-execution/builder.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L64)
 
 ##### code
 
 > **code**: [`AgentCandidateCodeSource`](#agentcandidatecodesource)
 
-Defined in: [candidate-execution/builder.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L68)
+Defined in: [candidate-execution/builder.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L65)
 
 ##### execution
 
 > **execution**: `AgentCandidateExecution`
 
-Defined in: [candidate-execution/builder.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L69)
+Defined in: [candidate-execution/builder.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L66)
 
 ##### knowledge?
 
 > `optional` **knowledge?**: `AgentCandidateKnowledge`
 
-Defined in: [candidate-execution/builder.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L70)
+Defined in: [candidate-execution/builder.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L67)
 
 ##### memory
 
 > **memory**: `AgentCandidateMemoryPolicy`
 
-Defined in: [candidate-execution/builder.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L71)
+Defined in: [candidate-execution/builder.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L68)
 
 ##### lineage
 
 > **lineage**: `Omit`\<`AgentCandidateLineage`, `"profileDiffIds"`\>
 
-Defined in: [candidate-execution/builder.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L73)
+Defined in: [candidate-execution/builder.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L70)
 
 `profileDiffIds` is derived from `profile`; callers cannot contradict it.
 
@@ -10132,7 +10132,7 @@ Defined in: [types.ts:571](https://github.com/tangle-network/agent-runtime/blob/
 
 > **AgentCandidateProfileSource** = \{ `kind`: `"profile"`; `profile`: `AgentProfile`; \} \| \{ `kind`: `"profile-diffs"`; `base`: `AgentProfile`; `diffs`: readonly `AgentProfileDiff`[]; \} \| \{ `kind`: `"candidate-profile"`; `profile`: `AgentCandidateProfile`; \}
 
-Defined in: [candidate-execution/builder.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L33)
+Defined in: [candidate-execution/builder.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L30)
 
 A complete profile that can be frozen without losing behavior.
 
@@ -10184,7 +10184,7 @@ Already converted to the closed, secret-free candidate profile contract.
 
 > **AgentCandidateCodeSource** = `AgentCandidateCodeDisabled` \| `AgentCandidateCodeNoOp` \| [`AgentCandidateCodeSurfaceSource`](#agentcandidatecodesurfacesource)
 
-Defined in: [candidate-execution/builder.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L60)
+Defined in: [candidate-execution/builder.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L57)
 
 Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify.
 
@@ -11764,7 +11764,7 @@ Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for prov
 
 > **buildAgentCandidateBundle**(`input`): `AgentCandidateBundleV1`
 
-Defined in: [candidate-execution/builder.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L83)
+Defined in: [candidate-execution/builder.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/builder.ts#L80)
 
 Compile one measured profile/code candidate into the immutable execution
 contract. Code bytes are re-read and verified by agent-eval before they are
