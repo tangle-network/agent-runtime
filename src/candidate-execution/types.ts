@@ -12,6 +12,7 @@ import type {
   AgentCandidateInstructionDelivery,
   AgentCandidateMaterializationReceipt,
   AgentCandidateMemoryReceipt,
+  AgentCandidateModelAccessNetwork,
   AgentCandidateOciPlatform,
   AgentCandidateProfilePlanEvidence,
   AgentCandidateResolvedModel,
@@ -157,6 +158,8 @@ export interface AgentCandidateProtectedModelReservation {
   expiresAtMs: number
   /** The gateway must stop calls before any one of these limits is exceeded. */
   enforcedLimits: AgentCandidateModelLimits
+  /** Exact public endpoint exception; every other candidate destination stays blocked. */
+  network: AgentCandidateModelAccessNetwork
 }
 
 export interface AgentCandidateProtectedModelActivation {

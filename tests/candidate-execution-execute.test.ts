@@ -111,6 +111,10 @@ describe('atomic prepared candidate execution', () => {
         expect(request.launch.env.PATH).toBeUndefined()
         expect(request.hardLimits).toEqual({ timeoutMs: fixture.task.limits.timeoutMs })
         expect(request.observedLimits).toEqual({ maxSteps: fixture.task.limits.maxSteps })
+        expect(request.executionPlan.value.material.model.access.network).toEqual({
+          mode: 'gateway-only',
+          domains: ['router.tangle.tools'],
+        })
         expect(Buffer.from(request.inputs.task.files[0]?.bytes ?? []).toString('utf8')).toBe(
           'export const value = 1\n',
         )
@@ -760,6 +764,10 @@ describe('atomic prepared candidate execution', () => {
         digest: candidateSha('c'),
         expiresAtMs,
         enforcedLimits: limits,
+        network:
+          limits.maxModelCalls === 0
+            ? { mode: 'disabled' as const }
+            : { mode: 'gateway-only' as const, domains: ['router.tangle.tools'] },
       }
     }
     fixture.ports.models.activateGrant = async ({ preparationId }) => {

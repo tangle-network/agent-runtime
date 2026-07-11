@@ -317,6 +317,10 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
         digest: candidateSha('c'),
         expiresAtMs,
         enforcedLimits: limits,
+        network:
+          limits.maxModelCalls === 0
+            ? { mode: 'disabled' as const }
+            : { mode: 'gateway-only' as const, domains: ['router.tangle.tools'] },
       }),
       activateGrant: async () => ({ env: { MODEL_GATEWAY_TOKEN: 'protected' } }),
       settleGrant: async ({ preparationId }) => ({

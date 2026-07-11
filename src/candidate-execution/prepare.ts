@@ -9,6 +9,7 @@ import type {
   AgentCandidateExecutionPlanEvidence,
   AgentCandidateExecutionPlanMaterialV1,
   AgentCandidateMaterializationReceipt,
+  AgentCandidateModelAccessNetwork,
   AgentCandidateResolvedModel,
   HarnessType,
 } from '@tangle-network/agent-interface'
@@ -18,6 +19,7 @@ import {
   agentCandidateExecutionPlanEvidenceSchema,
   agentCandidateExecutionPlanMaterialSchema,
   agentCandidateMaterializationReceiptSchema,
+  agentCandidateModelAccessNetworkSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
@@ -280,7 +282,11 @@ export async function prepareAgentCandidateExecution(
       model: {
         policy: 'single',
         resolved: resolvedModel,
-        access: { kind: 'evaluator-mediated', grantDigest: modelReservation.digest },
+        access: {
+          kind: 'evaluator-mediated',
+          grantDigest: modelReservation.digest,
+          network: modelReservation.network,
+        },
         routes,
       },
       launch: {
@@ -383,6 +389,7 @@ export async function prepareAgentCandidateExecution(
         digest: modelReservation.digest,
         expiresAtMs: modelReservation.expiresAtMs,
         enforcedLimits: modelReservation.enforcedLimits,
+        network: modelReservation.network,
       },
       executorInputs: {
         taskFiles: taskExecutorFiles,
@@ -875,6 +882,7 @@ function validateProtectedModelReservation(
       maxOutputTokens: number
       maxCostUsd: number
     }
+    network: AgentCandidateModelAccessNetwork
   },
   expectedLimits: AgentCandidateExecutionLimits,
   preparationId: string,
@@ -889,6 +897,11 @@ function validateProtectedModelReservation(
   const limits = modelLimits(expectedLimits)
   if (canonicalCandidateDigest(reservation.enforcedLimits) !== canonicalCandidateDigest(limits)) {
     throw new Error('protected model reservation does not enforce the frozen model limits')
+  }
+  const expectedNetworkMode = limits.maxModelCalls === 0 ? 'disabled' : 'gateway-only'
+  const network = agentCandidateModelAccessNetworkSchema.parse(reservation.network)
+  if (network.mode !== expectedNetworkMode) {
+    throw new Error('protected model reservation has the wrong network policy for its call limit')
   }
 }
 

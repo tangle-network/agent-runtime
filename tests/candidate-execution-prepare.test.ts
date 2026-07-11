@@ -226,6 +226,10 @@ function fixture(active = false): {
         digest: sha('c'),
         expiresAtMs,
         enforcedLimits: limits,
+        network:
+          limits.maxModelCalls === 0
+            ? { mode: 'disabled' as const }
+            : { mode: 'gateway-only' as const, domains: ['router.tangle.tools'] },
       }),
       activateGrant: async () => ({ env: { MODEL_GATEWAY_TOKEN: 'protected' } }),
       settleGrant: async ({ preparationId }) => ({
@@ -329,6 +333,10 @@ describe('candidate execution preparation', () => {
     expect(JSON.stringify(plan)).not.toContain(value.task.instruction)
     expect(JSON.stringify(prepared)).not.toContain('MODEL_GATEWAY_TOKEN')
     expect(JSON.stringify(prepared)).not.toContain('protected')
+    expect(plan.model.access.network).toEqual({
+      mode: 'gateway-only',
+      domains: ['router.tangle.tools'],
+    })
   })
 
   it('keeps argv task bytes out of fixed args and exposes deterministic delivery separately', async () => {
@@ -389,6 +397,7 @@ describe('candidate execution preparation', () => {
       digest: sha('c'),
       expiresAtMs,
       enforcedLimits: { ...limits, maxCostUsd: limits.maxCostUsd + 1 },
+      network: { mode: 'gateway-only', domains: ['router.tangle.tools'] },
     })
     unenforced.ports.models.settleGrant = async ({ preparationId }) => {
       settledReservations++
@@ -404,6 +413,47 @@ describe('candidate execution preparation', () => {
     expect(settledReservations).toBe(1)
   })
 
+  it('requires a frozen model gateway only when model calls are allowed', async () => {
+    const invalid = fixture()
+    let settledReservations = 0
+    invalid.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
+      preparationId,
+      digest: sha('c'),
+      expiresAtMs,
+      enforcedLimits: limits,
+      network: { mode: 'disabled' },
+    })
+    invalid.ports.models.settleGrant = async ({ preparationId }) => {
+      settledReservations++
+      return { preparationId, grantDigest: sha('c'), closed: true, calls: [] }
+    }
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(invalid.bundle, invalid.ports),
+        invalid.task,
+        invalid.ports,
+      ),
+    ).rejects.toThrow(/wrong network policy/)
+    expect(settledReservations).toBe(1)
+
+    const zeroCall = fixture()
+    zeroCall.task.limits = {
+      ...zeroCall.task.limits,
+      maxModelCalls: 0,
+      maxInputTokens: 0,
+      maxOutputTokens: 0,
+      maxCostUsd: 0,
+    }
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(zeroCall.bundle, zeroCall.ports),
+      zeroCall.task,
+      zeroCall.ports,
+    )
+    expect(prepared.executionPlan.value.material.model.access.network).toEqual({
+      mode: 'disabled',
+    })
+  })
+
   it('bounds failed-preparation cleanup and rejects another preparation settlement', async () => {
     const hanging = fixture()
     hanging.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
@@ -411,6 +461,7 @@ describe('candidate execution preparation', () => {
       digest: sha('c'),
       expiresAtMs,
       enforcedLimits: { ...limits, maxModelCalls: limits.maxModelCalls + 1 },
+      network: { mode: 'gateway-only', domains: ['router.tangle.tools'] },
     })
     hanging.ports.models.settleGrant = async () => await new Promise<never>(() => undefined)
     const startedAt = Date.now()
@@ -430,6 +481,7 @@ describe('candidate execution preparation', () => {
       digest: sha('c'),
       expiresAtMs,
       enforcedLimits: { ...limits, maxModelCalls: limits.maxModelCalls + 1 },
+      network: { mode: 'gateway-only', domains: ['router.tangle.tools'] },
     })
     mismatched.ports.models.settleGrant = async () => ({
       preparationId: `candidate-preparation-v1.${'A'.repeat(43)}`,
