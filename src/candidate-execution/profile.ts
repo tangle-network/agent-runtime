@@ -1,0 +1,301 @@
+import type {
+  AgentCandidateConfigValue,
+  AgentCandidateProfile,
+  AgentCandidateResourceRef,
+  AgentProfile,
+  AgentProfileMcpServer,
+  AgentProfileResourceRef,
+} from '@tangle-network/agent-interface'
+import { agentCandidateProfileSchema, agentProfileSchema } from '@tangle-network/agent-interface'
+
+import {
+  canonicalCandidateBytes,
+  canonicalCandidateDigest,
+  embeddedCandidateArtifact,
+} from './digest'
+
+const CANDIDATE_PROFILE_DIRECT_FIELDS = [
+  'name',
+  'description',
+  'version',
+  'tags',
+  'prompt',
+  'harness',
+  'permissions',
+  'tools',
+  'confidential',
+] as const
+
+/** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
+export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCandidateProfile {
+  const profile = parseExactAgentProfile(input, 'profile')
+  if (profile.connections !== undefined) unsupportedProfileField('connections')
+  if (profile.metadata !== undefined) unsupportedProfileField('metadata')
+  if (profile.extensions !== undefined) unsupportedProfileField('extensions')
+  if (profile.model?.metadata !== undefined) unsupportedProfileField('model.metadata')
+
+  const candidate: Record<string, unknown> = {}
+  copyDirectProfileFields(candidate, profile as Record<string, unknown>)
+  if (profile.model) {
+    const { metadata: _metadata, ...model } = profile.model
+    candidate.model = model
+  }
+  if (profile.mcp) candidate.mcp = freezeMcpServers(profile.mcp)
+  if (profile.subagents) {
+    candidate.subagents = Object.fromEntries(
+      Object.entries(profile.subagents).map(([name, subagent]) => {
+        if (subagent.metadata !== undefined) unsupportedProfileField(`subagents.${name}.metadata`)
+        const { metadata: _metadata, ...value } = subagent
+        return [name, value]
+      }),
+    )
+  }
+  if (profile.resources) candidate.resources = freezeResources(profile.resources)
+  if (profile.hooks && Object.values(profile.hooks).some((commands) => commands.length > 0)) {
+    throw new Error(
+      'generic AgentProfile hooks cannot be safely tokenized; use a candidate-profile source with executable/args',
+    )
+  }
+  if (profile.hooks) candidate.hooks = profile.hooks
+  if (profile.modes) {
+    candidate.modes = Object.fromEntries(
+      Object.entries(profile.modes).map(([name, mode]) => {
+        if (mode.metadata !== undefined) unsupportedProfileField(`modes.${name}.metadata`)
+        const { metadata: _metadata, ...value } = mode
+        return [name, value]
+      }),
+    )
+  }
+  const parsed = parseExactCandidateProfile(candidate)
+  assertCandidateProfileBinding(profile, parsed)
+  return parsed
+}
+
+/** Prove the measured generic profile and sealed candidate profile describe the same behavior. */
+export function assertCandidateProfileBinding(
+  measuredInput: AgentProfile,
+  bundled: AgentCandidateProfile,
+): void {
+  const measured = parseExactAgentProfile(measuredInput, 'proposal candidate profile')
+  if (measured.connections || measured.metadata || measured.extensions) {
+    throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
+  }
+  const normalized = candidateProfileAsAgentProfile(bundled)
+  if (canonicalCandidateDigest(measured) !== canonicalCandidateDigest(normalized)) {
+    throw new Error('proposal candidateProfile does not match candidateBundle.profile')
+  }
+}
+
+export function parseExactAgentProfile(input: unknown, label: string): AgentProfile {
+  const parsed = agentProfileSchema.parse(input) as AgentProfile
+  assertCanonicalParse(input, parsed, label)
+  return parsed
+}
+
+export function parseExactCandidateProfile(input: unknown): AgentCandidateProfile {
+  const parsed = agentCandidateProfileSchema.parse(input)
+  assertCanonicalParse(input, parsed, 'candidate profile')
+  return parsed
+}
+
+function candidateProfileAsAgentProfile(candidate: AgentCandidateProfile): AgentProfile {
+  const output: Record<string, unknown> = {}
+  copyDirectProfileFields(output, candidate as unknown as Record<string, unknown>)
+  if (candidate.model) output.model = { ...candidate.model }
+  if (candidate.mcp) {
+    output.mcp = Object.fromEntries(
+      Object.entries(candidate.mcp).map(([name, server]) => [
+        name,
+        {
+          ...server,
+          ...(server.args ? { args: server.args.map(publicValue) } : {}),
+          ...(server.env ? { env: mapPublicValues(server.env) } : {}),
+        },
+      ]),
+    )
+  }
+  if (candidate.subagents) output.subagents = cloneRecord(candidate.subagents)
+  if (candidate.modes) output.modes = cloneRecord(candidate.modes)
+  if (candidate.hooks) {
+    output.hooks = Object.fromEntries(
+      Object.entries(candidate.hooks).map(([event, hooks]) => [
+        event,
+        hooks.map(({ executable, args, env, ...hook }) => ({
+          ...hook,
+          command: [executable, ...(args ?? []).map(publicValue)].map(shellQuote).join(' '),
+          ...(env ? { env: mapPublicValues(env) } : {}),
+        })),
+      ]),
+    )
+  }
+  if (candidate.resources) {
+    if (candidate.resources.failOnError !== true) {
+      throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
+    }
+    output.resources = {
+      failOnError: true,
+      ...(candidate.resources.files
+        ? {
+            files: candidate.resources.files.map((file) => ({
+              ...file,
+              resource: publicResource(file.resource),
+            })),
+          }
+        : {}),
+      ...(candidate.resources.tools
+        ? { tools: candidate.resources.tools.map(publicResource) }
+        : {}),
+      ...(candidate.resources.skills
+        ? { skills: candidate.resources.skills.map(publicResource) }
+        : {}),
+      ...(candidate.resources.agents
+        ? { agents: candidate.resources.agents.map(publicResource) }
+        : {}),
+      ...(candidate.resources.commands
+        ? { commands: candidate.resources.commands.map(publicResource) }
+        : {}),
+      ...(candidate.resources.instructions !== undefined
+        ? {
+            instructions:
+              typeof candidate.resources.instructions === 'string'
+                ? candidate.resources.instructions
+                : publicResource(candidate.resources.instructions),
+          }
+        : {}),
+    }
+  }
+  return output as AgentProfile
+}
+
+function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => {
+      if (server.transport !== undefined && server.transport !== 'stdio') {
+        unsupportedProfileField(`mcp.${name}.transport=${server.transport}`)
+      }
+      if (server.url !== undefined) unsupportedProfileField(`mcp.${name}.url`)
+      if (server.headers !== undefined) unsupportedProfileField(`mcp.${name}.headers`)
+      if (server.metadata !== undefined) unsupportedProfileField(`mcp.${name}.metadata`)
+      return [
+        name,
+        {
+          ...(server.transport ? { transport: server.transport } : {}),
+          ...(server.command ? { command: server.command } : {}),
+          ...(server.args ? { args: server.args.map(candidatePublicValue) } : {}),
+          ...(server.env ? { env: mapCandidatePublicValues(server.env) } : {}),
+          ...(server.cwd ? { cwd: server.cwd } : {}),
+          ...(server.enabled === undefined ? {} : { enabled: server.enabled }),
+        },
+      ]
+    }),
+  )
+}
+
+function freezeResources(resources: NonNullable<AgentProfile['resources']>): unknown {
+  if (resources.failOnError !== true) {
+    throw new Error('candidate profile resources require failOnError: true')
+  }
+  return {
+    failOnError: true,
+    ...(resources.files
+      ? {
+          files: resources.files.map((file) => ({
+            ...file,
+            resource: freezeResource(file.resource),
+          })),
+        }
+      : {}),
+    ...(resources.tools ? { tools: resources.tools.map(freezeResource) } : {}),
+    ...(resources.skills ? { skills: resources.skills.map(freezeResource) } : {}),
+    ...(resources.agents ? { agents: resources.agents.map(freezeResource) } : {}),
+    ...(resources.commands ? { commands: resources.commands.map(freezeResource) } : {}),
+    ...(resources.instructions === undefined
+      ? {}
+      : {
+          instructions:
+            typeof resources.instructions === 'string'
+              ? resources.instructions
+              : freezeResource(resources.instructions),
+        }),
+  }
+}
+
+function freezeResource(resource: AgentProfileResourceRef): AgentCandidateResourceRef {
+  if (resource.kind === 'github') {
+    throw new Error(
+      'generic GitHub profile resources do not carry byte identity; use a candidate-profile source with a pinned commit, digest, and byte length',
+    )
+  }
+  const bytes = Buffer.from(resource.content, 'utf8')
+  return {
+    ...resource,
+    sha256: embeddedCandidateArtifact(bytes).sha256,
+    byteLength: bytes.byteLength,
+  }
+}
+
+function copyDirectProfileFields(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>,
+): void {
+  for (const key of CANDIDATE_PROFILE_DIRECT_FIELDS) {
+    if (source[key] !== undefined) target[key] = source[key]
+  }
+}
+
+function assertCanonicalParse(input: unknown, parsed: unknown, label: string): void {
+  if (!Buffer.from(canonicalCandidateBytes(input)).equals(canonicalCandidateBytes(parsed))) {
+    throw new Error(`${label} contains unsupported or non-canonical fields`)
+  }
+}
+
+function publicResource(resource: AgentCandidateResourceRef): unknown {
+  if (resource.kind === 'inline') {
+    return { kind: 'inline', name: resource.name, content: resource.content }
+  }
+  return {
+    kind: 'github',
+    repository: `${resource.repository.owner}/${resource.repository.repo}`,
+    path: resource.path,
+    ref: resource.commit,
+    ...(resource.name ? { name: resource.name } : {}),
+  }
+}
+
+function candidatePublicValue(value: string): { kind: 'public'; value: string } {
+  return { kind: 'public', value }
+}
+
+function mapCandidatePublicValues(
+  values: Record<string, string>,
+): Record<string, { kind: 'public'; value: string }> {
+  return Object.fromEntries(
+    Object.entries(values).map(([name, value]) => [name, candidatePublicValue(value)]),
+  )
+}
+
+function publicValue(value: AgentCandidateConfigValue): string {
+  return value.value
+}
+
+function mapPublicValues(
+  values: Record<string, AgentCandidateConfigValue>,
+): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, publicValue(value)]))
+}
+
+function cloneRecord<T>(values: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key, { ...value }]),
+  ) as Record<string, T>
+}
+
+function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`
+}
+
+function unsupportedProfileField(path: string): never {
+  throw new Error(
+    `generic AgentProfile field ${path} is not representable in a sealed candidate profile`,
+  )
+}

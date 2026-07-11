@@ -8,7 +8,9 @@ import type {
 } from '@tangle-network/agent-eval/contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnalystRegistryLike } from '../src/analyst-loop/types'
+import { buildAgentCandidateBundle } from '../src/candidate-execution/builder'
 import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
+import { assertCandidateProfileBinding } from '../src/candidate-execution/profile'
 import type {
   AgentCandidateExecutorPort,
   AgentCandidateExecutorRequest,
@@ -21,6 +23,7 @@ import {
   verifyAgentImprovementReview,
 } from '../src/intelligence/improvement-cycle'
 import {
+  candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   createCandidateOutputFixture,
@@ -126,12 +129,58 @@ function alignedBundle(
   }
 }
 
+function alignedSealedBundle(
+  bundle: Omit<ReturnType<typeof createCandidateExecutionFixture>['bundle'], 'digest'>,
+  profile: { prompt?: { systemPrompt?: string } },
+) {
+  const aligned = alignedBundle(bundle, profile)
+  const { profileDiffIds: _profileDiffIds, ...lineage } = aligned.lineage
+  return buildAgentCandidateBundle({
+    profile: { kind: 'candidate-profile', profile: aligned.profile },
+    code: aligned.code,
+    execution: aligned.execution,
+    ...(aligned.knowledge ? { knowledge: aligned.knowledge } : {}),
+    memory: aligned.memory,
+    lineage,
+  })
+}
+
 afterEach(() => {
   cleanupCandidateFixtures()
   vi.restoreAllMocks()
 })
 
 describe('agent improvement lifecycle', () => {
+  it('binds typed candidate hooks to their equivalent measured profile commands', () => {
+    expect(() =>
+      assertCandidateProfileBinding(
+        {
+          hooks: {
+            beforeTool: [
+              {
+                command: "node 'path with space.js'",
+                timeoutMs: 1_000,
+                env: { MODE: 'check' },
+              },
+            ],
+          },
+        },
+        {
+          hooks: {
+            beforeTool: [
+              {
+                executable: 'node',
+                args: [{ kind: 'public', value: 'path with space.js' }],
+                timeoutMs: 1_000,
+                env: { MODE: { kind: 'public', value: 'check' } },
+              },
+            ],
+          },
+        },
+      ),
+    ).not.toThrow()
+  })
+
   it('analyzes, measures, approves, executes, grades, and links one exact receipt', async () => {
     const fixture = createCandidateExecutionFixture()
     const { digest: _digest, ...bundleInput } = fixture.bundle
@@ -148,7 +197,7 @@ describe('agent improvement lifecycle', () => {
         agent,
         budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
       },
-      buildCandidate: ({ improvement }) => alignedBundle(bundleInput, improvement.profile),
+      buildCandidate: ({ improvement }) => alignedSealedBundle(bundleInput, improvement.profile),
       now: () => new Date('2026-07-10T01:00:00.000Z'),
     })
 
@@ -258,6 +307,31 @@ describe('agent improvement lifecycle', () => {
         },
       }),
     ).rejects.toThrow('not an approval')
+  })
+
+  it('rejects a sealed build candidate whose digest was tampered', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const { digest: _digest, ...bundleInput } = fixture.bundle
+
+    await expect(
+      proposeAgentImprovement({
+        runId: 'analysis-run-tampered-bundle',
+        profile: fixtureProfile(),
+        analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
+        improvement: {
+          surface: 'prompt',
+          generator: proposer,
+          scenarios,
+          judge,
+          agent,
+          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        },
+        buildCandidate: ({ improvement }) => ({
+          ...alignedSealedBundle(bundleInput, improvement.profile),
+          digest: candidateSha('0'),
+        }),
+      }),
+    ).rejects.toThrow('built candidate bundle digest is invalid')
   })
 
   it('refuses a structurally valid approval that its authority does not recognize', async () => {

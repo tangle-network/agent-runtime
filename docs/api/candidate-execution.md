@@ -8,6 +8,48 @@
 
 ## References
 
+### AgentCandidateCodeSource
+
+Re-exports [AgentCandidateCodeSource](index.md#agentcandidatecodesource)
+
+***
+
+### AgentCandidateCodeSurfaceSource
+
+Re-exports [AgentCandidateCodeSurfaceSource](index.md#agentcandidatecodesurfacesource)
+
+***
+
+### AgentCandidateProfileSource
+
+Re-exports [AgentCandidateProfileSource](index.md#agentcandidateprofilesource)
+
+***
+
+### BuildAgentCandidateBundleInput
+
+Re-exports [BuildAgentCandidateBundleInput](index.md#buildagentcandidatebundleinput)
+
+***
+
+### buildAgentCandidateBundle
+
+Re-exports [buildAgentCandidateBundle](index.md#buildagentcandidatebundle)
+
+***
+
+### AgentCandidateBundleInput
+
+Re-exports [AgentCandidateBundleInput](index.md#agentcandidatebundleinput)
+
+***
+
+### sealAgentCandidateBundle
+
+Re-exports [sealAgentCandidateBundle](index.md#sealagentcandidatebundle)
+
+***
+
 ### AgentCandidateExecutionAttemptRecord
 
 Re-exports [AgentCandidateExecutionAttemptRecord](index.md#agentcandidateexecutionattemptrecord)

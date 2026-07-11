@@ -2,13 +2,10 @@ import { type AnalystFinding, assertNoJudgeVerdict } from '@tangle-network/agent
 import type { Scenario, SelfImproveResult } from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateBundle,
-  AgentCandidateConfigValue,
-  AgentCandidateProfile,
-  AgentCandidateResourceRef,
   AgentProfile,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
-import { agentCandidateBundleSchema, agentProfileSchema } from '@tangle-network/agent-interface'
+import { agentCandidateBundleSchema } from '@tangle-network/agent-interface'
 import { runAnalystLoop } from '../analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from '../analyst-loop/types'
 import {
@@ -16,7 +13,6 @@ import {
   sealAgentCandidateBundle,
 } from '../candidate-execution/bundle'
 import {
-  canonicalCandidateBytes,
   canonicalCandidateDigest,
   canonicalCandidateDocument,
   immutableCandidateValue,
@@ -30,6 +26,10 @@ import {
   type PrepareAgentCandidateExecutionOptions,
   prepareAgentCandidateExecution,
 } from '../candidate-execution/prepare'
+import {
+  assertCandidateProfileBinding,
+  parseExactAgentProfile,
+} from '../candidate-execution/profile'
 import type {
   AgentCandidateExecutionPorts,
   AgentCandidateRunFinalization,
@@ -109,13 +109,16 @@ export interface ProposeAgentImprovementOptions<TScenario extends Scenario, TArt
   improvement: ImproveOptions<TScenario, TArtifact>
   /**
    * Optional environment adapter that freezes an executable bundle after the
-   * measured comparison recommends the candidate. Runtime validates and
-   * computes the bundle digest; adapters never implement hashing themselves.
+   * measured comparison recommends the candidate. Return the sealed output of
+   * `buildAgentCandidateBundle` directly, or a low-level digest-free input.
    */
   buildCandidate?: (input: {
     analysis: RunAnalystLoopResult
     improvement: ImproveResult<TScenario, TArtifact>
-  }) => AgentCandidateBundleInput | Promise<AgentCandidateBundleInput>
+  }) =>
+    | AgentCandidateBundleInput
+    | AgentCandidateBundle
+    | Promise<AgentCandidateBundleInput | AgentCandidateBundle>
   now?: () => Date
 }
 
@@ -170,7 +173,7 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
   const improvement = await improve(options.profile, [...findings], options.improvement)
   const candidateBundle =
     improvement.shipped && options.buildCandidate
-      ? sealAgentCandidateBundle(await options.buildCandidate({ analysis, improvement }))
+      ? sealBuiltCandidate(await options.buildCandidate({ analysis, improvement }))
       : undefined
   if (candidateBundle) assertCandidateProfileBinding(improvement.profile, candidateBundle.profile)
   const surface = options.improvement.surface ?? 'prompt'
@@ -276,7 +279,10 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
     throw new Error('invalid agent improvement proposal')
   }
   const proposal = input as unknown as AgentImprovementProposal
-  const parsedProfile = parseExactAgentProfile(proposal.candidateProfile)
+  const parsedProfile = parseExactAgentProfile(
+    proposal.candidateProfile,
+    'proposal candidate profile',
+  )
   if (proposal.candidateProfileHash !== canonicalCandidateDigest(parsedProfile)) {
     throw new Error('proposal candidateProfileHash does not match candidateProfile')
   }
@@ -295,147 +301,16 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
   return immutableCandidateValue(proposal)
 }
 
-function parseExactAgentProfile(input: unknown): AgentProfile {
-  const parsed = agentProfileSchema.parse(input) as AgentProfile
-  if (
-    !Buffer.from(canonicalCandidateBytes(input)).equals(
-      Buffer.from(canonicalCandidateBytes(parsed)),
-    )
-  ) {
-    throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
+function sealBuiltCandidate(
+  input: AgentCandidateBundleInput | AgentCandidateBundle,
+): AgentCandidateBundle {
+  if (!('digest' in input)) return sealAgentCandidateBundle(input)
+  const parsed = agentCandidateBundleSchema.parse(input)
+  const sealed = sealAgentCandidateBundle(omitTopLevelDigest(parsed))
+  if (sealed.digest !== parsed.digest) {
+    throw new Error('built candidate bundle digest is invalid')
   }
-  return parsed
-}
-
-function assertCandidateProfileBinding(
-  measuredInput: AgentProfile,
-  bundled: AgentCandidateProfile,
-): void {
-  const measured = parseExactAgentProfile(measuredInput)
-  if (measured.connections || measured.metadata || measured.extensions) {
-    throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
-  }
-  const normalized = candidateProfileAsAgentProfile(bundled)
-  if (canonicalCandidateDigest(measured) !== canonicalCandidateDigest(normalized)) {
-    throw new Error('proposal candidateProfile does not match candidateBundle.profile')
-  }
-}
-
-function candidateProfileAsAgentProfile(candidate: AgentCandidateProfile): AgentProfile {
-  const value = candidate as unknown as Record<string, unknown>
-  const output: Record<string, unknown> = {}
-  for (const key of [
-    'name',
-    'description',
-    'version',
-    'tags',
-    'prompt',
-    'harness',
-    'permissions',
-    'tools',
-    'confidential',
-  ]) {
-    if (value[key] !== undefined) output[key] = value[key]
-  }
-  if (candidate.model) output.model = { ...candidate.model }
-  if (candidate.mcp) {
-    output.mcp = Object.fromEntries(
-      Object.entries(candidate.mcp).map(([name, server]) => [
-        name,
-        {
-          ...server,
-          ...(server.args ? { args: server.args.map(publicValue) } : {}),
-          ...(server.env ? { env: mapPublicValues(server.env) } : {}),
-        },
-      ]),
-    )
-  }
-  if (candidate.subagents) output.subagents = mapRecord(candidate.subagents)
-  if (candidate.modes) output.modes = mapRecord(candidate.modes)
-  if (candidate.hooks) {
-    output.hooks = Object.fromEntries(
-      Object.entries(candidate.hooks).map(([event, hooks]) => [
-        event,
-        hooks.map((hook) => ({
-          ...hook,
-          command: [hook.executable, ...(hook.args ?? []).map(publicValue)]
-            .map(shellQuote)
-            .join(' '),
-          ...(hook.env ? { env: mapPublicValues(hook.env) } : {}),
-        })),
-      ]),
-    )
-  }
-  if (candidate.resources) {
-    if (candidate.resources.failOnError !== true) {
-      throw new Error('proposal candidate profile contains fields unsupported by sealed candidates')
-    }
-    output.resources = {
-      failOnError: true,
-      ...(candidate.resources.files
-        ? {
-            files: candidate.resources.files.map((file) => ({
-              ...file,
-              resource: publicResource(file.resource),
-            })),
-          }
-        : {}),
-      ...(candidate.resources.tools
-        ? { tools: candidate.resources.tools.map(publicResource) }
-        : {}),
-      ...(candidate.resources.skills
-        ? { skills: candidate.resources.skills.map(publicResource) }
-        : {}),
-      ...(candidate.resources.agents
-        ? { agents: candidate.resources.agents.map(publicResource) }
-        : {}),
-      ...(candidate.resources.commands
-        ? { commands: candidate.resources.commands.map(publicResource) }
-        : {}),
-      ...(candidate.resources.instructions !== undefined
-        ? {
-            instructions:
-              typeof candidate.resources.instructions === 'string'
-                ? candidate.resources.instructions
-                : publicResource(candidate.resources.instructions),
-          }
-        : {}),
-    }
-  }
-  return output as AgentProfile
-}
-
-function publicResource(resource: AgentCandidateResourceRef): unknown {
-  if (resource.kind === 'inline') {
-    return { kind: 'inline', name: resource.name, content: resource.content }
-  }
-  return {
-    kind: 'github',
-    repository: `${resource.repository.owner}/${resource.repository.repo}`,
-    path: resource.path,
-    ref: resource.commit,
-    ...(resource.name ? { name: resource.name } : {}),
-  }
-}
-
-function publicValue(value: AgentCandidateConfigValue): string {
-  return value.value
-}
-
-function mapPublicValues(
-  values: Record<string, AgentCandidateConfigValue>,
-): Record<string, string> {
-  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, publicValue(value)]))
-}
-
-function mapRecord<T>(values: Record<string, T>): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(values).map(([key, value]) => [key, { ...value }]),
-  ) as Record<string, T>
-}
-
-function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`
+  return sealed
 }
 
 /** Validate a review's decision fields and canonical digest. */

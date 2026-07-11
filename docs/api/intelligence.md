@@ -1332,13 +1332,13 @@ Defined in: [intelligence/improvement-cycle.ts:109](https://github.com/tangle-ne
 
 ##### buildCandidate?
 
-> `optional` **buildCandidate?**: (`input`) => `AgentCandidateBundleInput` \| `Promise`\<`AgentCandidateBundleInput`\>
+> `optional` **buildCandidate?**: (`input`) => `AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 Defined in: [intelligence/improvement-cycle.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L115)
 
 Optional environment adapter that freezes an executable bundle after the
-measured comparison recommends the candidate. Runtime validates and
-computes the bundle digest; adapters never implement hashing themselves.
+measured comparison recommends the candidate. Return the sealed output of
+`buildAgentCandidateBundle` directly, or a low-level digest-free input.
 
 ###### Parameters
 
@@ -1354,13 +1354,13 @@ computes the bundle digest; adapters never implement hashing themselves.
 
 ###### Returns
 
-`AgentCandidateBundleInput` \| `Promise`\<`AgentCandidateBundleInput`\>
+`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput) \| `Promise`\<`AgentCandidateBundleV1` \| [`AgentCandidateBundleInput`](index.md#agentcandidatebundleinput)\>
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L119)
+Defined in: [intelligence/improvement-cycle.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L122)
 
 ###### Returns
 
@@ -1370,7 +1370,7 @@ Defined in: [intelligence/improvement-cycle.ts:119](https://github.com/tangle-ne
 
 ### ProposeAgentImprovementResult
 
-Defined in: [intelligence/improvement-cycle.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L122)
+Defined in: [intelligence/improvement-cycle.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L125)
 
 #### Type Parameters
 
@@ -1388,25 +1388,25 @@ Defined in: [intelligence/improvement-cycle.ts:122](https://github.com/tangle-ne
 
 > **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
 
-Defined in: [intelligence/improvement-cycle.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L123)
+Defined in: [intelligence/improvement-cycle.ts:126](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L126)
 
 ##### improvement
 
 > **improvement**: [`ImproveResult`](index.md#improveresult)\<`TScenario`, `TArtifact`\>
 
-Defined in: [intelligence/improvement-cycle.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L124)
+Defined in: [intelligence/improvement-cycle.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L127)
 
 ##### proposal
 
 > **proposal**: [`AgentImprovementProposal`](#agentimprovementproposal)\<`TScenario`, `TArtifact`\>
 
-Defined in: [intelligence/improvement-cycle.ts:125](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L125)
+Defined in: [intelligence/improvement-cycle.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L128)
 
 ***
 
 ### ReviewAgentImprovementInput
 
-Defined in: [intelligence/improvement-cycle.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L128)
+Defined in: [intelligence/improvement-cycle.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L131)
 
 #### Properties
 
@@ -1414,31 +1414,31 @@ Defined in: [intelligence/improvement-cycle.ts:128](https://github.com/tangle-ne
 
 > **decision**: [`AgentImprovementReviewDecision`](#agentimprovementreviewdecision)
 
-Defined in: [intelligence/improvement-cycle.ts:129](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L129)
+Defined in: [intelligence/improvement-cycle.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L132)
 
 ##### reviewedBy
 
 > **reviewedBy**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L130)
+Defined in: [intelligence/improvement-cycle.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L133)
 
 ##### reason
 
 > **reason**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L131)
+Defined in: [intelligence/improvement-cycle.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L134)
 
 ##### feedback?
 
 > `optional` **feedback?**: `string`
 
-Defined in: [intelligence/improvement-cycle.ts:132](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L132)
+Defined in: [intelligence/improvement-cycle.ts:135](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L135)
 
 ##### now?
 
 > `optional` **now?**: () => `Date`
 
-Defined in: [intelligence/improvement-cycle.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L133)
+Defined in: [intelligence/improvement-cycle.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L136)
 
 ###### Returns
 
@@ -1448,7 +1448,7 @@ Defined in: [intelligence/improvement-cycle.ts:133](https://github.com/tangle-ne
 
 ### ExecuteApprovedAgentCandidateOptions
 
-Defined in: [intelligence/improvement-cycle.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L136)
+Defined in: [intelligence/improvement-cycle.ts:139](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L139)
 
 #### Properties
 
@@ -1456,19 +1456,19 @@ Defined in: [intelligence/improvement-cycle.ts:136](https://github.com/tangle-ne
 
 > **proposal**: [`AgentImprovementProposal`](#agentimprovementproposal)
 
-Defined in: [intelligence/improvement-cycle.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L137)
+Defined in: [intelligence/improvement-cycle.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L140)
 
 ##### review
 
 > **review**: [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L138)
+Defined in: [intelligence/improvement-cycle.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L141)
 
 ##### authorizeReview
 
 > **authorizeReview**: (`review`, `proposal`) => `boolean` \| `Promise`\<`boolean`\>
 
-Defined in: [intelligence/improvement-cycle.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L140)
+Defined in: [intelligence/improvement-cycle.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L143)
 
 Product-owned authentication check for the persisted approval record.
 
@@ -1490,31 +1490,31 @@ Product-owned authentication check for the persisted approval record.
 
 > **task**: [`AgentCandidateTaskExecution`](index.md#agentcandidatetaskexecution)
 
-Defined in: [intelligence/improvement-cycle.ts:144](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L144)
+Defined in: [intelligence/improvement-cycle.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L147)
 
 ##### ports
 
 > **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
 
-Defined in: [intelligence/improvement-cycle.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L145)
+Defined in: [intelligence/improvement-cycle.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L148)
 
 ##### preparation?
 
 > `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:146](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L146)
+Defined in: [intelligence/improvement-cycle.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L149)
 
 ##### execution
 
 > **execution**: [`ExecutePreparedAgentCandidateOptions`](index.md#executepreparedagentcandidateoptions)
 
-Defined in: [intelligence/improvement-cycle.ts:147](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L147)
+Defined in: [intelligence/improvement-cycle.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L150)
 
 ***
 
 ### ExecuteApprovedAgentCandidateResult
 
-Defined in: [intelligence/improvement-cycle.ts:150](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L150)
+Defined in: [intelligence/improvement-cycle.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L153)
 
 #### Properties
 
@@ -1522,13 +1522,13 @@ Defined in: [intelligence/improvement-cycle.ts:150](https://github.com/tangle-ne
 
 > **finalization**: [`AgentCandidateRunFinalization`](index.md#agentcandidaterunfinalization)
 
-Defined in: [intelligence/improvement-cycle.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L151)
+Defined in: [intelligence/improvement-cycle.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L154)
 
 ##### evidence
 
 > **evidence**: [`CandidateExecutionEvidence`](#candidateexecutionevidence)
 
-Defined in: [intelligence/improvement-cycle.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L152)
+Defined in: [intelligence/improvement-cycle.ts:155](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L155)
 
 ***
 
@@ -3534,7 +3534,7 @@ compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
 
 > **proposeAgentImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentImprovementResult`](#proposeagentimprovementresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [intelligence/improvement-cycle.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L156)
+Defined in: [intelligence/improvement-cycle.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L159)
 
 Analyze one run and produce one measured, review-only improvement proposal.
 
@@ -3564,7 +3564,7 @@ Analyze one run and produce one measured, review-only improvement proposal.
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L198)
+Defined in: [intelligence/improvement-cycle.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L201)
 
 Persist an approve/reject/change-request decision bound to one exact proposal.
 
@@ -3588,7 +3588,7 @@ Persist an approve/reject/change-request decision bound to one exact proposal.
 
 > **executeApprovedAgentCandidate**(`options`): `Promise`\<[`ExecuteApprovedAgentCandidateResult`](#executeapprovedagentcandidateresult)\>
 
-Defined in: [intelligence/improvement-cycle.ts:228](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L228)
+Defined in: [intelligence/improvement-cycle.ts:231](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L231)
 
 Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
@@ -3608,7 +3608,7 @@ Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
 > **verifyAgentImprovementProposal**(`input`): [`AgentImprovementProposal`](#agentimprovementproposal)
 
-Defined in: [intelligence/improvement-cycle.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L270)
+Defined in: [intelligence/improvement-cycle.ts:273](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L273)
 
 Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
@@ -3628,7 +3628,7 @@ Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
 > **verifyAgentImprovementReview**(`input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:442](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L442)
+Defined in: [intelligence/improvement-cycle.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L317)
 
 Validate a review's decision fields and canonical digest.
 
