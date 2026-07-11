@@ -12,8 +12,12 @@ function serverScript(variant: 'ok' | 'no-tools' | 'crash' | 'hang' | 'closed-st
   if (variant === 'closed-stdin') {
     return [
       'import { closeSync } from "node:fs"',
-      'closeSync(0)',
-      'process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "0" } } }) + "\\n")',
+      'process.stdin.on("error", () => {})',
+      'process.stdin.once("data", (chunk) => {',
+      '  const request = JSON.parse(String(chunk).trim())',
+      '  closeSync(0)',
+      '  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake", version: "0" } } }) + "\\n")',
+      '})',
       'setInterval(() => {}, 1000)',
     ].join('\n')
   }
