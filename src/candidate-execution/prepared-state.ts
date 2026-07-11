@@ -350,8 +350,8 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     state.modelReservation.digest !== state.executionPlan.value.material.model.access.grantDigest ||
     state.modelReservation.preparationId !== state.preparationId ||
     state.modelReservation.expiresAtMs !== state.reservationExpiresAtMs ||
-    JSON.stringify(state.modelReservation.network) !==
-      JSON.stringify(state.executionPlan.value.material.model.access.network) ||
+    canonicalCandidateDigest(state.modelReservation.network) !==
+      canonicalCandidateDigest(state.executionPlan.value.material.model.access.network) ||
     canonicalCandidateDigest(state.modelReservation.enforcedLimits) !==
       canonicalCandidateDigest(modelLimits(state.executionPlan.value.material.limits))
   ) {
