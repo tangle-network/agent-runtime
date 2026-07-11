@@ -51,4 +51,6 @@ await run(process.execPath, ['--test', '--import', 'tsx', ...relativeTests], {
   TSX_TSCONFIG_PATH: 'tsconfig.public.json',
 })
 
-console.log(`package tests passed: ${tests.length}/${tests.length} files`)
+await run(python, ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'])
+
+console.log(`package tests passed: ${tests.length}/${tests.length} TypeScript files + Pier bridge`)

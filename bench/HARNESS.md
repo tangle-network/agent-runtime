@@ -3,7 +3,7 @@
 If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
-Verified against source 2026-07-07 · agent-eval pinned `^0.106.1`. The CANONICAL surface is now
+Verified against source 2026-07-09 · agent-eval pinned `^0.108.1`. The CANONICAL surface is now
 the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
 `Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST. The recursive
 diverse-vs-blind gate runs through the keystone (`gate-cli.mts` → `runGate`);
@@ -134,6 +134,7 @@ the gate + measurement tools:
   run-benchmarks-cli.mts  runBenchmarks: any subset of the ADAPTERS registry × model/harness cells, one combined ranked report (#420)
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
   terminal-compare.ts  Terminal-Bench compare (own main)
+  pnpm verify:pier  zero-model failure/pass Pier controls through a separate verifier
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
   node --test --import tsx src/{selector,refine-loop}.test.mts
   tsx src/gate.test.mts   # offline plumbing test (no creds)
@@ -214,6 +215,48 @@ stdin-piping runner (`runVenvScriptStdin`).
 - **goldArtifact:** aec-bench returns the task's real `golden_pass.md` (verify-judge works fully offline). commit0 / programbench / appworld return `undefined` — the oracle is a git ref / stripped source / engine-bundled solution, not a portable string; judge correctness is proven by a real solve through the harness, not a synthetic gold (documented + fail-loud, not a fake).
 - **Absent (not built):** swe-gym, swe-bench-multimodal, and the rest of the survey set.
 Every unbuilt/scaffold adapter fails LOUD (throws with the integration step) rather than faking a score — no silent zeros in any corpus. Offline fixture tests: `benchmarks/{aec-bench,commit0,programbench,appworld,rag-benchmarks}.test.mts` (`tsx --test`).
+
+## Pier candidate bridge
+
+`pier_agents.tangle_candidate:TangleCandidateAgent` is the reusable Pier custom-agent path for frozen Tangle candidates.
+`executePreparedPierCandidate()` is the only public entry point; its private staging step writes the runtime's execution-plan and materialization-receipt bytes verbatim.
+The Python bridge rechecks those bytes and their signed task, candidate, profile, repository, instruction, and workspace identities before launch.
+It rejects a raw candidate bundle, never projects an `AgentProfile`, and leaves task isolation, patch transfer, verification, retries, and result storage to Pier.
+
+The adapter fails the trial when any prepared identity drifts, when the task checkout or immutable OCI image differs from the signed identity, or when the candidate exits nonzero or exceeds its signed deadline.
+Candidate code runs as an unprivileged numeric user, while evaluator inputs and timeout evidence remain root-owned.
+It never accepts candidate-authored token, cost, or trace receipts; `executePreparedPierCandidate()` uses the runtime's atomic execution path and reconciles the protected `TraceStore` with the model-gateway ledger before returning a gradable receipt.
+The prepared object contains no credentials.
+The runtime passes model and trace bindings only to the trusted executor request.
+The Pier launcher inherits their values through its protected process environment and passes only `${NAME}` references on the command line, so credentials never enter prepared bytes, CLI arguments, or job files.
+The executor builds fresh task, candidate, and profile trees from the request's exact verified file bytes; prepared staging directories are never launch authority.
+Isolated memory and knowledge-bearing candidates currently fail closed until Pier has executor-owned mount and after-state capture.
+The signed wall deadline is a hard stop: the runtime aborts, Pier kills the process tree, and the executor acknowledges process and container death.
+The signed tool-step count is a post-run validity check over protected traces, not a pre-tool stop; generic black-box Pier processes cannot honestly prevent step N+1.
+The executable zero-model fixture is `fixtures/pier-agent/`; run it against the R360 Pier checkout with `PIER_REPO=/path/to/pier pnpm verify:pier`.
+That command runs both a no-change candidate that must score 0/1 and a known-good candidate that must score 1/1, then checks that each official result and exact task patch is bound into its own runtime receipt with zero model usage.
+
+For a real frozen candidate, start Pier synchronously inside the atomic callback, append `agentArgs` and `attemptArgs`, pass each executor-only `evaluatorEnv` entry through Pier's evaluator-owned environment mechanism, and return a handle that can kill and reap the process and remove its task container:
+
+```ts
+const result = await executePreparedPierCandidate({
+  prepared,
+  directory: '/sealed/candidate',
+  pierVersion: '0.3.0',
+  traceStore,
+  claimStore,
+  outputArtifacts,
+  grader,
+  start: (staged, context) => startOnePierTrial(staged, context),
+})
+```
+
+The handle's result resolves only after normal process/container cleanup.
+On a signed deadline or external abort, the adapter waits for `terminateAndWait()` to acknowledge both process exit and container removal before it returns control to the runtime.
+
+One prepared execution always maps to one Pier attempt (`--n-attempts 1 --max-retries 0`).
+Production callers pass a long-lived `FileAgentCandidateExecutionClaimStore`; an in-memory claim store is test-only and cannot prevent a second process from replaying the same attempt.
+Any allowed pre-model infrastructure retry is a new prepared execution with its own counted attempt identity.
 
 ## Is it runnable RIGHT NOW? (verify the map, don't trust it blindly)
 ```

@@ -18,10 +18,12 @@
     "terminal-compare": "tsx src/terminal-compare.ts",
     "test": "node scripts/run-package-tests.mjs",
     "typecheck:public": "tsc -p tsconfig.public.json",
-    "verify:package": "node scripts/verify-packed-consumer.mjs"
+    "verify:package": "node scripts/verify-packed-consumer.mjs",
+    "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
   "dependencies": {
     "@tangle-network/agent-eval": "^0.108.1",
+    "@tangle-network/agent-interface": "^0.23.0",
     "@tangle-network/agent-runtime": "^0.90.1",
     "@tangle-network/sandbox": "^0.9.7"
   },
@@ -34,9 +36,15 @@
     "src",
     "fixtures",
     "scripts",
+    "pier_agents/__init__.py",
+    "pier_agents/candidate_contract.py",
+    "pier_agents/process_boundary.py",
+    "pier_agents/tangle_candidate.py",
+    "pier_agents/workspace_boundary.py",
     "tb_agents/*.py",
     "steerers",
-    "README.md"
+    "README.md",
+    "HARNESS.md"
   ],
   "publishConfig": {
     "access": "public"

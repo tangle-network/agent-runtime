@@ -53,3 +53,21 @@ export {
   type RunBenchmarksOptions,
   type RunBenchmarksReport,
 } from './run-benchmarks'
+export {
+  executePreparedPierCandidate,
+  type ExecutePreparedPierCandidateOptions,
+  type PierCandidateGraderPort,
+  type PierCandidateOfficialResult,
+  type PierCandidateTerminationAcknowledgement,
+  type PierCandidateTrialHandle,
+  type PierCandidateTrialResult,
+  type StagedPierCandidateExecution,
+} from './pier-agent'
+export { createPierResultGrader } from './pier-result-grader'
+export {
+  createPierWorkspaceArchive,
+  materializePierWorkspaceArchive,
+  type PierWorkspaceArchiveFile,
+  type PierWorkspaceArchiveV1,
+  type PierWorkspaceFile,
+} from './pier-workspace-archive'
