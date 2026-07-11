@@ -8,6 +8,7 @@ import type {
   AgentCandidateBenchmarkGraderPort,
   AgentCandidateExecutionClaimStore,
   AgentCandidateExecutorRequest,
+  AgentCandidateExecutorStopRequest,
   AgentCandidateExecutorPort,
   AgentCandidateOutputArtifactPort,
   AgentCandidateProtectedRunCapture,
@@ -53,10 +54,33 @@ export interface PierCandidateTerminationAcknowledgement {
 }
 
 export interface PierCandidateTrialHandle {
+  /** Non-secret durable identity shared with a fresh evaluator process. */
+  readonly identity: PierCandidateTrialIdentity
   /** Resolves only after the Pier process exits and its task container is gone. */
   readonly result: Promise<PierCandidateTrialResult>
   /** Idempotently kill/reap Pier and remove its task container, then acknowledge their death. */
   readonly terminateAndWait: () => Promise<PierCandidateTerminationAcknowledgement>
+}
+
+export type PierCandidateTrialIdentity = Readonly<AgentCandidateExecutorStopRequest>
+
+/**
+ * Evaluator-owned lifecycle whose stop path works without the process-local
+ * handle returned by `start`.
+ */
+export interface PierCandidateTrialController {
+  start(
+    staged: StagedPierCandidateExecution,
+    context: {
+      readonly request: AgentCandidateExecutorRequest
+      readonly traceStore: TraceStore
+      readonly signal: AbortSignal
+      readonly deadlineAtMs: number
+    },
+  ): PierCandidateTrialHandle
+  terminateAndWait(
+    identity: PierCandidateTrialIdentity,
+  ): Promise<PierCandidateTerminationAcknowledgement>
 }
 
 /** Evaluator-owned bytes captured from one completed official Pier trial. */
@@ -94,18 +118,30 @@ export interface ExecutePreparedPierCandidateOptions extends StagePreparedPierCa
   readonly outputArtifacts: AgentCandidateOutputArtifactPort
   readonly grader: PierCandidateGraderPort
   /**
-   * Start exactly one Pier trial synchronously so an abort cannot race an unowned process.
-   * The returned handle owns process/container termination for the whole trial.
+   * Starts exactly one Pier trial synchronously and persists its non-secret
+   * process/container identity before returning.
    */
-  readonly start: (
-    staged: StagedPierCandidateExecution,
-    context: {
-      readonly request: AgentCandidateExecutorRequest
-      readonly traceStore: TraceStore
-      readonly signal: AbortSignal
-      readonly deadlineAtMs: number
+  readonly controller: PierCandidateTrialController
+}
+
+/** Recovery-only runtime executor for an expired attempt owned by another process. */
+export function createPierCandidateRecoveryExecutor(
+  controller: PierCandidateTrialController,
+): AgentCandidateExecutorPort {
+  return {
+    execute: async () => {
+      throw new Error('recovery-only Pier executor cannot start a candidate')
     },
-  ) => PierCandidateTrialHandle
+    stopAndCapture: async (request) => {
+      assertTerminationAcknowledged(
+        await controller.terminateAndWait({
+          executionId: request.executionId,
+          executionPlanDigest: request.executionPlanDigest,
+        }),
+      )
+      return { stopped: true }
+    },
+  }
 }
 
 interface PierResultLike {
@@ -506,12 +542,19 @@ export async function executePreparedPierCandidate(
       context.signal.throwIfAborted()
       const identity = trialIdentity(request.executionId, request.executionPlan.value.digest)
       if (trials.has(identity)) throw new Error('Pier trial identity is already active')
-      const trial = options.start(staged, {
+      const trial = options.controller.start(staged, {
         request,
         traceStore: context.traceStore,
         signal: context.signal,
         deadlineAtMs: context.deadlineAtMs,
       })
+      if (
+        trial.identity.executionId !== request.executionId ||
+        trial.identity.executionPlanDigest !== request.executionPlan.value.digest
+      ) {
+        assertTerminationAcknowledged(await trial.terminateAndWait())
+        throw new Error('Pier controller returned a different durable trial identity')
+      }
       const active = { handle: trial } as {
         readonly handle: PierCandidateTrialHandle
         result?: PierCandidateTrialResult
@@ -525,8 +568,13 @@ export async function executePreparedPierCandidate(
     stopAndCapture: async (request) => {
       const identity = trialIdentity(request.executionId, request.executionPlanDigest)
       const active = trials.get(identity)
+      assertTerminationAcknowledged(
+        await options.controller.terminateAndWait({
+          executionId: request.executionId,
+          executionPlanDigest: request.executionPlanDigest,
+        }),
+      )
       if (!active) return { stopped: true }
-      assertTerminationAcknowledged(await active.handle.terminateAndWait())
       let result = active.result
       if (!result) {
         try {

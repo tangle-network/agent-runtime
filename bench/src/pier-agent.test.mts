@@ -314,6 +314,10 @@ test('waits for process and container death acknowledgement after abort', async 
   let terminated = false
   const waiting = awaitAbortableTrial(
     {
+      identity: {
+        executionId: 'abort-test',
+        executionPlanDigest: `sha256:${'a'.repeat(64)}`,
+      },
       result: new Promise(() => undefined),
       terminateAndWait: async () => {
         await new Promise((resolve) => setTimeout(resolve, 5))
@@ -332,6 +336,10 @@ test('fails closed when termination does not acknowledge container removal', asy
   const controller = new AbortController()
   const waiting = awaitAbortableTrial(
     {
+      identity: {
+        executionId: 'bad-ack-test',
+        executionPlanDigest: `sha256:${'b'.repeat(64)}`,
+      },
       result: new Promise(() => undefined),
       terminateAndWait: async () => ({ processExited: true, containersRemoved: false }) as never,
     },

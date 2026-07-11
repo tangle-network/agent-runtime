@@ -3,7 +3,7 @@
 If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
-Verified against source 2026-07-09 · agent-eval pinned `^0.108.1`. The CANONICAL surface is now
+Verified against source 2026-07-11 · agent-eval pinned `^0.114.0`. The CANONICAL surface is now
 the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
 `Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST. The recursive
 diverse-vs-blind gate runs through the keystone (`gate-cli.mts` → `runGate`);
@@ -234,11 +234,27 @@ Isolated memory and knowledge-bearing candidates currently fail closed until Pie
 The signed wall deadline is a hard stop: the runtime aborts, Pier kills the process tree, and the executor acknowledges process and container death.
 The signed tool-step count is a post-run validity check over protected traces, not a pre-tool stop; generic black-box Pier processes cannot honestly prevent step N+1.
 The executable zero-model fixture is `fixtures/pier-agent/`; run it against the R360 Pier checkout with `PIER_REPO=/path/to/pier pnpm verify:pier`.
-That command runs both a no-change candidate that must score 0/1 and a known-good candidate that must score 1/1, then checks that each official result and exact task patch is bound into its own runtime receipt with zero model usage.
+That command runs a no-change candidate that must score 0/1, proves a fresh evaluator process can kill a persisted child and remove its real Docker container, and runs a known-good candidate that must score 1/1.
+It then checks that each official result and exact task patch is bound into its own runtime receipt with zero model usage.
 
-For a real frozen candidate, start Pier synchronously inside the atomic callback, append `agentArgs` and `attemptArgs`, pass each executor-only `evaluatorEnv` entry through Pier's evaluator-owned environment mechanism, and return a handle that can kill and reap the process and remove its task container:
+For a real frozen candidate, use `FilePierCandidateTrialController`, append `agentArgs` and `attemptArgs`, and pass each executor-only `evaluatorEnv` entry through Pier's evaluator-owned environment mechanism.
+The controller sends secrets to its supervisor over a pipe, while its durable files contain only process and Docker-project identities:
+`jobName` must be unique per prepared execution; the controller atomically reserves that job directory so recovery can remove only containers owned by that execution.
 
 ```ts
+const controller = new FilePierCandidateTrialController({
+  directory: '/var/lib/tangle/pier-control',
+  launch: (staged) => ({
+    command: 'uv',
+    args: ['run', 'pier', 'run', ...staged.agentArgs, ...staged.attemptArgs],
+    cwd: pierCheckout,
+    env: { ...evaluatorEnvironment, ...staged.evaluatorEnv },
+    jobsDirectory,
+    jobName,
+    readResult: () => readOfficialPierResult(jobsDirectory, jobName),
+  }),
+})
+
 const result = await executePreparedPierCandidate({
   prepared,
   directory: '/sealed/candidate',
@@ -247,12 +263,12 @@ const result = await executePreparedPierCandidate({
   claimStore,
   outputArtifacts,
   grader,
-  start: (staged, context) => startOnePierTrial(staged, context),
+  controller,
 })
 ```
 
-The handle's result resolves only after normal process/container cleanup.
-On a signed deadline or external abort, the adapter waits for `terminateAndWait()` to acknowledge both process exit and container removal before it returns control to the runtime.
+The controller's result resolves only after normal process/container cleanup.
+On a signed deadline, external abort, or recovery by another evaluator process, the adapter waits for `terminateAndWait()` to acknowledge both process exit and container removal before it returns control to the runtime.
 
 One prepared execution always maps to one Pier attempt (`--n-attempts 1 --max-retries 0`).
 Production callers pass a long-lived `FileAgentCandidateExecutionClaimStore`; an in-memory claim store is test-only and cannot prevent a second process from replaying the same attempt.

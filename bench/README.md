@@ -19,5 +19,6 @@ The judge needs only Docker; workers need a model key (Tangle router `TANGLE_API
 The package executes a branded `PreparedAgentCandidateExecution` from `@tangle-network/agent-runtime` through one atomic API and ships `pier_agents.tangle_candidate:TangleCandidateAgent` as its thin Pier transport.
 The executor recreates every input from runtime-verified file bytes and reveals model credentials only inside the claimed execution callback.
 Pier owns the task container and verifier; protected model usage and traces stay in `@tangle-network/agent-eval` and are finalized by the shared runtime.
-Run `PIER_REPO=/path/to/pier pnpm verify:pier` for the zero-model failure/pass proof, and see `HARNESS.md` for the exact invocation and failure contract.
+`FilePierCandidateTrialController` atomically reserves a unique Pier job, then persists the supervisor PID, process-session identity, and that job's exact Docker projects so a fresh evaluator process can stop and remove an abandoned trial.
+Run `PIER_REPO=/path/to/pier pnpm verify:pier` for the zero-model failure/pass and fresh-process recovery proof, and see `HARNESS.md` for the exact invocation and failure contract.
 From an installed npm package, expose the shipped Python module with `export PYTHONPATH="$(npm root)/@tangle-network/agent-bench${PYTHONPATH:+:$PYTHONPATH}"` before invoking Pier.

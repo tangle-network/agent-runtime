@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
@@ -23,6 +23,7 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
+  disposePreparedAgentCandidateExecution,
   FileAgentCandidateExecutionClaimStore,
   prepareAgentCandidateExecution,
   type AgentCandidateExecutionPorts,
@@ -34,13 +35,15 @@ import {
 
 import { executePreparedPierCandidate } from '../src/pier-agent'
 import { createPierResultGrader } from '../src/pier-result-grader'
+import { FilePierCandidateTrialController } from '../src/pier-trial-controller'
 import { materializePierWorkspaceArchive } from '../src/pier-workspace-archive'
 
 const pinnedPierCommit = 'e69a20e4e0ac073ec71fde0274bab3d9f40bac87'
 const pinnedPierVersion = '0.3.0'
 const modelRequest = 'openai/gpt-5.4'
 const fixtureImage = 'ghcr.io/tangle-network/devcontainers/universal:latest'
-const proofArm = process.env.PIER_PROOF_ARM
+const prepareOnly = process.env.PIER_PREPARE_ONLY === '1'
+const proofArm = process.env.PIER_PROOF_ARM ?? (prepareOnly ? 'failure' : undefined)
 if (proofArm !== 'failure' && proofArm !== 'success') {
   throw new Error('PIER_PROOF_ARM must be failure or success')
 }
@@ -70,110 +73,6 @@ function output(
     timeout: 10 * 60_000,
     maxBuffer: 20 * 1024 * 1024,
   }).trim()
-}
-
-function containerIdsForImage(image: string): Set<string> {
-  const ids = output('docker', ['ps', '-aq', '--filter', `ancestor=${image}`])
-  return new Set(ids ? ids.split('\n').filter(Boolean) : [])
-}
-
-function newContainerIds(image: string, before: ReadonlySet<string>): string[] {
-  return [...containerIdsForImage(image)].filter((id) => !before.has(id))
-}
-
-function killProcessGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-  }
-}
-
-function startPierProcess(
-  args: readonly string[],
-  env: NodeJS.ProcessEnv,
-  taskImage: string,
-  protectedValues: readonly string[],
-) {
-  const containersBefore = containerIdsForImage(taskImage)
-  const child = spawn('uv', [...args], {
-    cwd: pierRepo,
-    env,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  if (child.pid === undefined) throw new Error('Pier process started without a pid')
-  const pid = child.pid
-  const stdout: Buffer[] = []
-  const stderr: Buffer[] = []
-  child.stdout.on('data', (chunk: Buffer) => stdout.push(Buffer.from(chunk)))
-  child.stderr.on('data', (chunk: Buffer) => stderr.push(Buffer.from(chunk)))
-  const exited = new Promise<{
-    code: number | null
-    signal: NodeJS.Signals | null
-    error?: Error
-  }>((resolveExit) => {
-    let settled = false
-    child.once('error', (error) => {
-      if (settled) return
-      settled = true
-      resolveExit({ code: null, signal: null, error })
-    })
-    child.once('close', (code, signal) => {
-      if (settled) return
-      settled = true
-      resolveExit({ code, signal })
-    })
-  })
-
-  const removeTaskContainers = (): void => {
-    const containers = newContainerIds(taskImage, containersBefore)
-    if (containers.length > 0) output('docker', ['rm', '-f', ...containers])
-    const remaining = newContainerIds(taskImage, containersBefore)
-    if (remaining.length > 0) {
-      throw new Error(`Pier task containers survived removal: ${remaining.join(', ')}`)
-    }
-  }
-
-  const result = exited.then((exit) => {
-    removeTaskContainers()
-    if (exit.error) throw new Error(`Pier process failed to start: ${exit.error.message}`)
-    if (exit.code !== 0) {
-      let safeStderr = Buffer.concat(stderr).toString('utf8')
-      for (const value of protectedValues) safeStderr = safeStderr.replaceAll(value, '[redacted]')
-      throw new Error(`Pier process failed (${exit.signal ?? exit.code}): ${safeStderr}`)
-    }
-    return {
-      stdout: Buffer.concat(stdout).toString('utf8'),
-      stderr: Buffer.concat(stderr).toString('utf8'),
-    }
-  })
-
-  let terminating: Promise<{ processExited: true; containersRemoved: true }> | undefined
-  return {
-    result,
-    terminateAndWait: () => {
-      terminating ??= (async () => {
-        killProcessGroup(pid, 'SIGTERM')
-        const graceful = await Promise.race([
-          exited.then(() => true),
-          new Promise<false>((resolveTimeout) => setTimeout(() => resolveTimeout(false), 2_000)),
-        ])
-        if (!graceful) {
-          killProcessGroup(pid, 'SIGKILL')
-          const killed = await Promise.race([
-            exited.then(() => true),
-            new Promise<false>((resolveTimeout) => setTimeout(() => resolveTimeout(false), 5_000)),
-          ])
-          if (!killed) throw new Error(`Pier process group ${pid} survived SIGKILL`)
-        }
-
-        removeTaskContainers()
-        return { processExited: true as const, containersRemoved: true as const }
-      })()
-      return terminating
-    },
-  }
 }
 
 function sha256(bytes: Uint8Array): Sha256Digest {
@@ -355,15 +254,17 @@ function outputArtifactStore(graderBytes: Uint8Array): {
 }
 
 try {
-  const pierHead = output('git', ['rev-parse', 'HEAD'], pierRepo)
-  if (pierHead !== pinnedPierCommit) {
-    throw new Error(`Pier checkout mismatch: expected ${pinnedPierCommit}, got ${pierHead}`)
-  }
-  const pierStatus = output('git', ['status', '--porcelain'], pierRepo)
-  if (pierStatus !== '') throw new Error(`Pier checkout must be clean: ${pierStatus}`)
-  const pierVersion = output('uv', ['run', 'pier', '--version'], pierRepo)
-  if (pierVersion !== pinnedPierVersion) {
-    throw new Error(`Pier version mismatch: expected ${pinnedPierVersion}, got ${pierVersion}`)
+  if (!prepareOnly) {
+    const pierHead = output('git', ['rev-parse', 'HEAD'], pierRepo)
+    if (pierHead !== pinnedPierCommit) {
+      throw new Error(`Pier checkout mismatch: expected ${pinnedPierCommit}, got ${pierHead}`)
+    }
+    const pierStatus = output('git', ['status', '--porcelain'], pierRepo)
+    if (pierStatus !== '') throw new Error(`Pier checkout must be clean: ${pierStatus}`)
+    const pierVersion = output('uv', ['run', 'pier', '--version'], pierRepo)
+    if (pierVersion !== pinnedPierVersion) {
+      throw new Error(`Pier version mismatch: expected ${pinnedPierVersion}, got ${pierVersion}`)
+    }
   }
 
   cpSync(fixtureSource, taskDir, { recursive: true })
@@ -380,16 +281,23 @@ try {
       readFileSync(path.join(taskDir, 'environment', 'seed', 'src', 'status.txt')),
     ]),
   ).slice(7, 23)
-  const identity = publicOciIdentity(fixtureImage)
+  const identity = prepareOnly
+    ? {
+        indexDigest: `sha256:${'1'.repeat(64)}` as Sha256Digest,
+        manifestDigest: `sha256:${'2'.repeat(64)}` as Sha256Digest,
+      }
+    : publicOciIdentity(fixtureImage)
   const pinnedImage = `${fixtureImage}@${identity.indexDigest}`
-  output('docker', ['pull', '--platform', 'linux/amd64', pinnedImage])
-  const platform = output('docker', [
-    'image',
-    'inspect',
-    '--format',
-    '{{.Os}}/{{.Architecture}}',
-    pinnedImage,
-  ])
+  if (!prepareOnly) output('docker', ['pull', '--platform', 'linux/amd64', pinnedImage])
+  const platform = prepareOnly
+    ? 'linux/amd64'
+    : output('docker', [
+        'image',
+        'inspect',
+        '--format',
+        '{{.Os}}/{{.Architecture}}',
+        pinnedImage,
+      ])
   if (platform !== 'linux/amd64') throw new Error(`fixture image platform drifted: ${platform}`)
 
   const configPath = path.join(taskDir, 'task.toml')
@@ -492,6 +400,13 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     manifestDigest: identity.manifestDigest,
     platform: { os: 'linux', architecture: 'amd64' },
   }
+  const graderBytes = readFileSync(new URL('../src/pier-result-grader.mjs', import.meta.url))
+  const { outputArtifacts, graderArtifact } = outputArtifactStore(graderBytes)
+  const grader = createPierResultGrader({
+    name: 'pier-official-result',
+    version: '1.0.0',
+    artifact: graderArtifact,
+  })
   const executionId = `pier-no-model-${proofArm}-${contextDigest}`
   const task: AgentCandidateTaskExecution = {
     executionId,
@@ -508,6 +423,11 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: modelRequest, reasoningEffort: 'xhigh' },
+    grader: {
+      name: grader.name,
+      version: grader.version,
+      artifact: grader.artifact,
+    },
     executionRoots: { taskRoot: '/app', candidateRoot: '/opt/tangle-candidate' },
     stagingRoots: { taskRoot, candidateRoot, profileRoot },
     workspace: taskWorkspace,
@@ -578,34 +498,35 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
 
   const verified = await verifyAgentCandidateBundle(bundle, ports)
   const prepared = await prepareAgentCandidateExecution(verified, task, ports)
+  if (prepareOnly) {
+    const disposal = await disposePreparedAgentCandidateExecution(prepared)
+    if (disposal.disposed !== true) throw new Error('prepared candidate was not disposed')
+    process.stdout.write(
+      `${JSON.stringify({
+        prepared: true,
+        disposed: true,
+        executionPlanDigest: prepared.executionPlan.value.digest,
+        graderDigest: task.grader.artifact.sha256,
+      })}\n`,
+    )
+  } else {
   const traceStore = new InMemoryTraceStore()
   const claimStore = new FileAgentCandidateExecutionClaimStore({
     directory: path.join(scratch, 'claims'),
   })
-  const graderBytes = readFileSync(new URL('../src/pier-result-grader.mjs', import.meta.url))
-  const { outputArtifacts, graderArtifact } = outputArtifactStore(graderBytes)
-  const grader = createPierResultGrader({
-    name: 'pier-official-result',
-    version: '1.0.0',
-    artifact: graderArtifact,
-  })
   let acceptedRewards: { reward: number; patch_applied: number } | undefined
   let acceptedTrialPath: string | undefined
-  const finalized = await executePreparedPierCandidate({
-    prepared,
-    directory: path.join(scratch, 'sealed'),
-    pierVersion: pinnedPierVersion,
-    traceStore,
-    claimStore,
-    outputArtifacts,
-    grader,
-    start: (staged, { request }) => {
+  const jobName = `tangle-runtime-candidate-no-model-${proofArm}`
+  const controller = new FilePierCandidateTrialController({
+    directory: path.join(scratch, 'trial-control'),
+    launch: (staged, { request }) => {
       const evaluatorArgs = Object.keys(staged.evaluatorEnv).flatMap((name) => [
         '--agent-env',
         `${name}=\${${name}}`,
       ])
-      const trial = startPierProcess(
-        [
+      return {
+        command: 'uv',
+        args: [
           'run',
           'pier',
           'run',
@@ -617,7 +538,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
           '--env',
           'docker',
           '--job-name',
-          `tangle-runtime-candidate-no-model-${proofArm}`,
+          jobName,
           '--jobs-dir',
           jobsDir,
           '--n-concurrent',
@@ -626,14 +547,11 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
           '2',
           '--quiet',
         ],
-        { ...process.env, PYTHONPATH: benchDir, ...staged.evaluatorEnv },
-        pinnedImage,
-        Object.values(staged.evaluatorEnv),
-      )
-
-      return {
-        ...trial,
-        result: trial.result.then(async () => {
+        cwd: pierRepo,
+        env: { ...process.env, PYTHONPATH: benchDir, ...staged.evaluatorEnv },
+        jobsDirectory: jobsDir,
+        jobName,
+        readResult: async () => {
           const trialResult = findTrialResult(jobsDir)
           if (!trialResult) throw new Error(`Pier emitted no trial result under ${jobsDir}`)
           const result = trialResult.value
@@ -681,9 +599,19 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
               path.join(path.dirname(trialResult.path), 'artifacts', 'model.patch'),
             ),
           }
-        }),
+        },
       }
     },
+  })
+  const finalized = await executePreparedPierCandidate({
+    prepared,
+    directory: path.join(scratch, 'sealed'),
+    pierVersion: pinnedPierVersion,
+    traceStore,
+    claimStore,
+    outputArtifacts,
+    grader,
+    controller,
   })
   if (!finalized.succeeded) {
     throw new Error(`runtime rejected the protected Pier capture: ${finalized.reason}`)
@@ -738,6 +666,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       2,
     ),
   )
+  }
 } finally {
   if (process.env.KEEP_PIER_FIXTURE !== '1') rmSync(scratch, { recursive: true, force: true })
   else console.error(`Pier runtime fixture retained at ${scratch}`)

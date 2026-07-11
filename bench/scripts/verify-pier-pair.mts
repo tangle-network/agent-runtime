@@ -15,6 +15,7 @@ interface PierProofResult {
 
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const script = path.join(benchDir, 'scripts', 'verify-pier-agent.mts')
+const recoveryScript = path.join(benchDir, 'scripts', 'verify-pier-recovery.mts')
 
 function runArm(arm: PierProofResult['arm']): PierProofResult {
   const stdout = execFileSync(process.execPath, ['--import', 'tsx', script], {
@@ -29,6 +30,22 @@ function runArm(arm: PierProofResult['arm']): PierProofResult {
 }
 
 const failure = runArm('failure')
+const recovery = JSON.parse(
+  execFileSync(process.execPath, ['--import', 'tsx', recoveryScript], {
+    cwd: benchDir,
+    env: { ...process.env },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+    timeout: 120_000,
+  }),
+) as { freshProcess?: boolean; processExited?: boolean; containersRemoved?: boolean }
+if (
+  recovery.freshProcess !== true ||
+  recovery.processExited !== true ||
+  recovery.containersRemoved !== true
+) {
+  throw new Error(`Pier fresh-process recovery failed: ${JSON.stringify(recovery)}`)
+}
 const success = runArm('success')
 if (
   failure.arm !== 'failure' ||
@@ -54,4 +71,4 @@ for (const result of [failure, success]) {
   }
 }
 
-console.log(JSON.stringify({ controls: [failure, success] }, null, 2))
+console.log(JSON.stringify({ recovery, controls: [failure, success] }, null, 2))

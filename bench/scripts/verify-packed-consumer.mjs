@@ -83,7 +83,7 @@ try {
   )
   await writeFile(
     path.join(consumerDir, 'index.ts'),
-    "import { executePreparedPierCandidate, resolveAdapter, runBenchmarks, type BenchmarkAdapter, type PierCandidateTrialHandle, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nvoid adapter\nvoid staged\nvoid trial\nvoid executePreparedPierCandidate\nvoid runBenchmarks\n",
+    "import { executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, type BenchmarkAdapter, type PierCandidateTrialController, type PierCandidateTrialHandle, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nvoid adapter\nvoid staged\nvoid trial\nvoid controller\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\n",
   )
   await writeFile(
     path.join(consumerDir, 'tsconfig.json'),
@@ -142,6 +142,26 @@ assert TangleCandidateAgent.__module__ == "pier_agents.tangle_candidate"
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
   await run('npm', ['exec', '--', 'tsx', 'index.ts'], consumerDir)
   const installedPackage = path.join(consumerDir, 'node_modules', '@tangle-network', 'agent-bench')
+  const prepared = await run(
+    'npm',
+    [
+      'exec',
+      '--',
+      'tsx',
+      path.join(installedPackage, 'scripts', 'verify-pier-agent.mts'),
+    ],
+    consumerDir,
+    { ...process.env, PIER_PREPARE_ONLY: '1' },
+  )
+  const prepareProof = JSON.parse(prepared.stdout)
+  if (
+    prepareProof.prepared !== true ||
+    prepareProof.disposed !== true ||
+    !/^sha256:[a-f0-9]{64}$/.test(prepareProof.executionPlanDigest) ||
+    !/^sha256:[a-f0-9]{64}$/.test(prepareProof.graderDigest)
+  ) {
+    throw new Error(`packed consumer did not prepare a real candidate: ${prepared.stdout}`)
+  }
   await run('python3', ['verify_pier_import.py'], consumerDir, {
     ...process.env,
     PYTHONPATH: installedPackage,
@@ -160,7 +180,7 @@ assert TangleCandidateAgent.__module__ == "pier_agents.tangle_candidate"
     })
   }
   console.log(
-    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}`,
+    `packed consumer verified: ${manifest.name}@${manifest.version} with @tangle-network/agent-runtime@${runtimeManifest.version}; prepared ${prepareProof.executionPlanDigest}`,
   )
 } finally {
   await rm(scratch, { recursive: true, force: true })
