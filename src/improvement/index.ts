@@ -20,6 +20,7 @@ export {
 export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
   type ImproveCodeOptions,
+  type ImproveMemoryOptions,
   type ImproveOptions,
   type ImproveResult,
   type ImproveSkillsOptions,

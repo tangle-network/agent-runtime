@@ -12,6 +12,8 @@
  *
  *   - `surface: 'prompt'` → `gepaProposer` mutates `profile.prompt.systemPrompt`.
  *   - `surface: 'skills'` → `skillOptProposer` mutates a skills document string.
+ *   - `surface: 'memory'` → `memoryCurationProposer` curates a bounded durable
+ *     lesson document supplied through `opts.memory`.
  *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
  *     canonical AgentProfile JSON in one candidate.
  *   - `surface: 'rollout-policy'` → `rolloutPolicyProposer` mutates the
@@ -36,6 +38,7 @@
 import {
   gepaProposer,
   gitWorktreeAdapter,
+  memoryCurationProposer,
   skillOptProposer,
 } from '@tangle-network/agent-eval/campaign'
 import {
@@ -81,6 +84,7 @@ export type ImproveSurface =
   | 'subagents'
   | 'workflow'
   | 'agent-profile'
+  | 'memory'
   | 'code'
   | 'rollout-policy'
 
@@ -92,8 +96,8 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  generator + the baseline-surface extraction shape. */
   surface?: ImproveSurface
   /** The `SurfaceProposer` that mutates the surface. When unset, the facade
-   *  picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
-   *  for skills); surfaces with no default REQUIRE this (fail-loud otherwise). */
+   *  picks the default for prompt, skills, memory, and rollout policy; surfaces
+   *  with no default REQUIRE this (fail-loud otherwise). */
   generator?: SurfaceProposer
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
    *  `'none'` is a baseline-only run (`budget.generations = 0`). */
@@ -135,6 +139,10 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  shipped winner (the profile ref points at a file the caller owns). This is
    *  what makes skillOpt reachable through improve(). */
   skills?: ImproveSkillsOptions
+  /** MEMORY-surface wiring for a curated durable memory document. The default
+   *  deterministic proposer deduplicates and ranks lessons from findings, then
+   *  replaces its managed block instead of growing memory without bound. */
+  memory?: ImproveMemoryOptions
   /** Custom held-back-exam decision. The string `gate` above controls whether
    *  the exam runs; this callback controls how its evidence decides promotion. */
   promotionGate?: SelfImproveOptions<TScenario, TArtifact>['gate']
@@ -146,7 +154,14 @@ export interface ImproveSkillsOptions {
   /** Persist the shipped winner document (write the file the profile ref points at).
    *  Called only on a ship verdict. When omitted, the winner is still returned in
    *  `result.raw.winner.surface` for the caller to materialize. */
-  writeBack?: (winnerDocument: string) => void
+  writeBack?: (winnerDocument: string) => void | Promise<void>
+}
+
+export interface ImproveMemoryOptions {
+  /** Current durable memory text used as the measured baseline. */
+  document: string
+  /** Persist the promoted memory document. Never called on hold or error. */
+  writeBack?: (winnerDocument: string) => void | Promise<void>
 }
 
 export interface ImproveCodeOptions {
@@ -205,6 +220,8 @@ function defaultGeneratorFor(
       return gepaProposer({ llm: llmClientOptions(llm), model, target: 'agent system prompt' })
     case 'skills':
       return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
+    case 'memory':
+      return memoryCurationProposer()
     case 'rollout-policy':
       // Deterministic bounded enumeration — no LLM, so `llm` is unused here.
       return rolloutPolicyProposer()
@@ -214,12 +231,13 @@ function defaultGeneratorFor(
 }
 
 /** Extract the baseline surface a driver mutates from the profile field that
- *  backs `surface`. `prompt`/`skills` are string surfaces; the config surfaces
- *  serialize the matching profile record. */
+ *  backs `surface`. Prompt, skills, and memory are text surfaces; config
+ *  surfaces serialize the matching profile record. */
 function baselineSurfaceFor(
   profile: AgentProfile,
   surface: ImproveSurface,
   skills?: ImproveSkillsOptions,
+  memory?: ImproveMemoryOptions,
 ): MutableSurface {
   switch (surface) {
     case 'prompt':
@@ -240,6 +258,11 @@ function baselineSurfaceFor(
       return JSON.stringify(profile.extensions?.[workflowExtension] ?? {})
     case 'agent-profile':
       return JSON.stringify(profile)
+    case 'memory':
+      if (!memory) {
+        throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
+      }
+      return memory.document
     case 'rollout-policy': {
       // Empty surface when the profile never opted into structural rollout: the
       // proposer reads it as "propose nothing", so the loop runs baseline-only and
@@ -265,8 +288,13 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
   const CAP = 12
   return async (input) => {
-    const failures: Array<{ scenario: string; composite: number; notes: string; error?: string }> =
-      []
+    const failures: Array<{
+      scenario: string
+      composite: number
+      notes: string
+      claim?: string
+      error?: string
+    }> = []
     for (const candidate of input.candidates) {
       for (const rawCell of candidate.campaign.cells) {
         const cell = rawCell as unknown as Record<string, unknown>
@@ -288,10 +316,12 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
           .filter((n): n is string => typeof n === 'string' && n.length > 0)
           .join('; ')
           .slice(0, 400)
+        const claim = notes || (error ? `Scenario ${scenario} failed: ${error.slice(0, 200)}` : '')
         failures.push({
           scenario,
           composite: Number(composite.toFixed(3)),
           notes,
+          ...(claim ? { claim } : {}),
           ...(error ? { error: error.slice(0, 200) } : {}),
         })
       }
@@ -299,6 +329,19 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
     if (failures.length === 0) return staticFindings
     failures.sort((a, b) => a.composite - b.composite)
     return failures.slice(0, CAP)
+  }
+}
+
+/** Memory accumulates durable lessons, so keep the caller's seed findings while
+ * adding fresh judge failures. Curator proposers consume `claim`; the generic
+ * distiller retains the richer diagnostic fields for reflective proposers. */
+function memoryGenerationDistiller<TScenario extends Scenario, TArtifact>(
+  staticFindings: unknown[],
+): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
+  const distillFailures = generationFailureDistiller<TScenario, TArtifact>(staticFindings)
+  return async (input) => {
+    const fresh = await distillFailures(input)
+    return fresh === staticFindings ? staticFindings : [...staticFindings, ...fresh]
   }
 }
 
@@ -424,6 +467,8 @@ function applyWinnerToProfile(
     case 'agent-profile':
       candidate = parseWinnerJson(winner, surface)
       break
+    case 'memory':
+      return profile
     case 'rollout-policy': {
       // Parse + re-validate the winner against the policy's own invariants — a
       // custom generator's malformed dial must fail loud, not persist silently.
@@ -475,6 +520,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     rawTraceContext,
     code,
     skills,
+    memory,
     promotionGate,
     analyzeGeneration,
     ...sharedOptions
@@ -490,6 +536,9 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     throw new ConfigError(
       'improve(): the default skills optimizer requires opts.skills.document; pass the skill text or an explicit generator that understands resource refs',
     )
+  }
+  if (surface === 'memory' && !memory) {
+    throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
   }
   const usesReflectionModel = !generator && (surface === 'prompt' || surface === 'skills')
   if (usesReflectionModel) {
@@ -520,7 +569,8 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   try {
     raw = await selfImprove<TScenario, TArtifact>({
       ...sharedOptions,
-      baselineSurface: preparedCode?.baseline ?? baselineSurfaceFor(profile, surface, skills),
+      baselineSurface:
+        preparedCode?.baseline ?? baselineSurfaceFor(profile, surface, skills, memory),
       proposer,
       budget,
       findings,
@@ -532,7 +582,9 @@ export async function improve<TScenario extends Scenario, TArtifact>(
               analyzeGeneration ??
               (rawTraceContext
                 ? rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
-                : generationFailureDistiller<TScenario, TArtifact>(findings)),
+                : surface === 'memory'
+                  ? memoryGenerationDistiller<TScenario, TArtifact>(findings)
+                  : generationFailureDistiller<TScenario, TArtifact>(findings)),
           }),
     })
   } catch (cause) {
@@ -549,18 +601,23 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   }
 
   const shipped = raw.gateDecision === 'ship'
-  await preparedCode?.cleanup(shipped ? raw.winner.surface : undefined)
+  const winnerSurface = raw.winner.surface
+  await preparedCode?.cleanup(shipped ? winnerSurface : undefined)
   // When a skill DOCUMENT was optimized, the winner is document text — persist it
   // via writeBack (the profile ref points at the caller's file, unchanged) rather
   // than parsing it as a refs array. Otherwise use the standard field write-back.
-  const usedSkillDocument = surface === 'skills' && skills !== undefined
-  if (shipped && usedSkillDocument && typeof raw.winner.surface === 'string') {
-    skills?.writeBack?.(raw.winner.surface)
+  const externalDocument =
+    surface === 'skills' && skills ? skills : surface === 'memory' && memory ? memory : undefined
+  if (shipped && externalDocument) {
+    if (typeof winnerSurface !== 'string') {
+      throw new ConfigError(
+        `improve(): the shipped '${surface}' winner must be text before it can be persisted`,
+      )
+    }
+    await externalDocument.writeBack?.(winnerSurface)
   }
   const nextProfile =
-    shipped && !usedSkillDocument
-      ? applyWinnerToProfile(profile, surface, raw.winner.surface)
-      : profile
+    shipped && !externalDocument ? applyWinnerToProfile(profile, surface, winnerSurface) : profile
 
   return { profile: nextProfile, shipped, lift: raw.lift, gateDecision: raw.gateDecision, raw }
 }

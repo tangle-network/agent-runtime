@@ -69,22 +69,32 @@ const result = await supervise(
 ### Improve an agent
 
 `improve` optimizes one part of an agent and **only ships a change if it beats the current agent on tasks it never practiced on**.
-It accepts prompt, skill document, tool, MCP, hook, subagent, workflow, rollout-policy, whole-profile, and code surfaces through one call.
-Prompt and skill-document optimization have built-in generators; structured surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
+It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, workflow, rollout-policy, whole-profile, and code surfaces through one call.
+Prompt, skill-document, memory, and rollout-policy optimization have built-in generators; structured surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
 
 ```ts
 import { improve } from '@tangle-network/agent-runtime'
 
 const { profile, shipped, lift } = await improve(baseProfile, findings, {
-  surface: 'prompt',        // or skills/tools/mcp/hooks/subagents/workflow/agent-profile/code
+  surface: 'prompt',        // or skills/memory/tools/mcp/hooks/subagents/workflow/agent-profile/rollout-policy/code
   gate: 'holdout',          // certified on a held-back exam, never the practice set
   scenarios, judge, agent,  // how to measure a candidate
 })
 ```
 
+Curated memory is an external lesson document, not a knowledge store. Supply its current text and persist only the promoted winner:
+
+```ts
+await improve(baseProfile, findings, {
+  surface: 'memory',
+  memory: { document: currentLessons, writeBack: saveLessons },
+  scenarios, judge, agent,
+})
+```
+
 ### Improve a knowledge base
 
-`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, measures spend and timing, and promotes only when the candidate passes.
+`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, measures spend and timing, and promotes only when the candidate passes. Use `improve(..., { surface: 'memory' })` for the agent's curated lesson document; use this job for source, retrieval, and knowledge-store changes.
 
 ```ts
 import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'

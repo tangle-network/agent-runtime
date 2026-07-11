@@ -5688,7 +5688,7 @@ Test seam — inject the worktree-dirty check (defaults to `git status`).
 
 ### ImproveSkillsOptions
 
-Defined in: [improvement/improve.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L143)
+Defined in: [improvement/improve.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L151)
 
 #### Properties
 
@@ -5696,15 +5696,15 @@ Defined in: [improvement/improve.ts:143](https://github.com/tangle-network/agent
 
 > **document**: `string`
 
-Defined in: [improvement/improve.ts:145](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L145)
+Defined in: [improvement/improve.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L153)
 
 The skill document's current text — the baseline `skillOptProposer` patches.
 
 ##### writeBack?
 
-> `optional` **writeBack?**: (`winnerDocument`) => `void`
+> `optional` **writeBack?**: (`winnerDocument`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [improvement/improve.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L149)
+Defined in: [improvement/improve.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L157)
 
 Persist the shipped winner document (write the file the profile ref points at).
  Called only on a ship verdict. When omitted, the winner is still returned in
@@ -5718,13 +5718,47 @@ Persist the shipped winner document (write the file the profile ref points at).
 
 ###### Returns
 
-`void`
+`void` \| `Promise`\<`void`\>
+
+***
+
+### ImproveMemoryOptions
+
+Defined in: [improvement/improve.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L160)
+
+#### Properties
+
+##### document
+
+> **document**: `string`
+
+Defined in: [improvement/improve.ts:162](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L162)
+
+Current durable memory text used as the measured baseline.
+
+##### writeBack?
+
+> `optional` **writeBack?**: (`winnerDocument`) => `void` \| `Promise`\<`void`\>
+
+Defined in: [improvement/improve.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L164)
+
+Persist the promoted memory document. Never called on hold or error.
+
+###### Parameters
+
+###### winnerDocument
+
+`string`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
 
 ***
 
 ### ImproveCodeOptions
 
-Defined in: [improvement/improve.ts:152](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L152)
+Defined in: [improvement/improve.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L167)
 
 #### Properties
 
@@ -5732,7 +5766,7 @@ Defined in: [improvement/improve.ts:152](https://github.com/tangle-network/agent
 
 > **repoRoot**: `string`
 
-Defined in: [improvement/improve.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L154)
+Defined in: [improvement/improve.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L169)
 
 Repo root candidate worktrees fork from.
 
@@ -5740,7 +5774,7 @@ Repo root candidate worktrees fork from.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improve.ts:156](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L156)
+Defined in: [improvement/improve.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L171)
 
 Base ref candidates fork from. Default `main`.
 
@@ -5748,7 +5782,7 @@ Base ref candidates fork from. Default `main`.
 
 > `optional` **worktreeDir?**: `string`
 
-Defined in: [improvement/improve.ts:158](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L158)
+Defined in: [improvement/improve.ts:173](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L173)
 
 Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 
@@ -5756,7 +5790,7 @@ Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/improve.ts:160](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L160)
+Defined in: [improvement/improve.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L175)
 
 Coding harness the agentic generator runs in each worktree. Default `claude`.
 
@@ -5764,7 +5798,7 @@ Coding harness the agentic generator runs in each worktree. Default `claude`.
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/improve.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L163)
+Defined in: [improvement/improve.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L178)
 
 Verify a candidate worktree before it becomes a measurable surface; failures
  feed the next shot (see `agenticGenerator.verify` / `commandVerifier`).
@@ -5773,7 +5807,7 @@ Verify a candidate worktree before it becomes a measurable surface; failures
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/improve.ts:165](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L165)
+Defined in: [improvement/improve.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L180)
 
 Per-shot wall-clock timeout for the harness (ms).
 
@@ -5781,7 +5815,7 @@ Per-shot wall-clock timeout for the harness (ms).
 
 > `optional` **generator?**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improve.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L168)
+Defined in: [improvement/improve.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L183)
 
 Byte-producer override — the test seam and the escape hatch for custom
  candidate production. When set, `harness`/`verify`/`timeoutMs` are unused.
@@ -5790,7 +5824,7 @@ Byte-producer override — the test seam and the escape hatch for custom
 
 ### ImproveResult
 
-Defined in: [improvement/improve.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L171)
+Defined in: [improvement/improve.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L186)
 
 #### Type Parameters
 
@@ -5808,7 +5842,7 @@ Defined in: [improvement/improve.ts:171](https://github.com/tangle-network/agent
 
 > **profile**: `AgentProfile`
 
-Defined in: [improvement/improve.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L174)
+Defined in: [improvement/improve.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L189)
 
 The profile after improvement: the winner surface applied back into the
  matching field when the gate shipped, else the input profile unchanged.
@@ -5817,7 +5851,7 @@ The profile after improvement: the winner surface applied back into the
 
 > **shipped**: `boolean`
 
-Defined in: [improvement/improve.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L176)
+Defined in: [improvement/improve.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L191)
 
 True when `gateDecision === 'ship'`.
 
@@ -5825,7 +5859,7 @@ True when `gateDecision === 'ship'`.
 
 > **lift**: `number`
 
-Defined in: [improvement/improve.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L178)
+Defined in: [improvement/improve.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L193)
 
 Held-out lift (`winner − baseline` composite).
 
@@ -5833,7 +5867,7 @@ Held-out lift (`winner − baseline` composite).
 
 > **gateDecision**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [improvement/improve.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L180)
+Defined in: [improvement/improve.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L195)
 
 The five-valued gate verdict from `selfImprove`.
 
@@ -5841,7 +5875,7 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L182)
+Defined in: [improvement/improve.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L197)
 
 Full `selfImprove` result for advanced inspection.
 
@@ -10632,9 +10666,9 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 ### ImproveSurface
 
-> **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"subagents"` \| `"workflow"` \| `"agent-profile"` \| `"code"` \| `"rollout-policy"`
+> **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"subagents"` \| `"workflow"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
 
-Defined in: [improvement/improve.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L75)
+Defined in: [improvement/improve.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L78)
 
 The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
  profile levers; `code` is the implementation-tier surface, `rollout-policy`
@@ -10647,7 +10681,7 @@ The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
 
 > **ImproveOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<`SelfImproveOptions`\<`TScenario`, `TArtifact`\>, `"analyzeGeneration"` \| `"baselineSurface"` \| `"findings"` \| `"gate"` \| `"proposer"`\> & `object`
 
-Defined in: [improvement/improve.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L87)
+Defined in: [improvement/improve.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L91)
 
 #### Type Declaration
 
@@ -10663,8 +10697,8 @@ Which profile lever to optimize. Default `'prompt'`. Selects the default
 > `optional` **generator?**: `SurfaceProposer`
 
 The `SurfaceProposer` that mutates the surface. When unset, the facade
- picks the default for `surface` (`gepaProposer` for prompt, `skillOptProposer`
- for skills); surfaces with no default REQUIRE this (fail-loud otherwise).
+ picks the default for prompt, skills, memory, and rollout policy; surfaces
+ with no default REQUIRE this (fail-loud otherwise).
 
 ##### gate?
 
@@ -10729,6 +10763,14 @@ SKILLS-surface wiring for real skill-DOCUMENT optimization. Without this,
  Provide the document CONTENT to optimize + a `writeBack` to persist the
  shipped winner (the profile ref points at a file the caller owns). This is
  what makes skillOpt reachable through improve().
+
+##### memory?
+
+> `optional` **memory?**: [`ImproveMemoryOptions`](#improvememoryoptions)
+
+MEMORY-surface wiring for a curated durable memory document. The default
+ deterministic proposer deduplicates and ranks lessons from findings, then
+ replaces its managed block instead of growing memory without bound.
 
 ##### promotionGate?
 
@@ -12592,7 +12634,7 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L465)
+Defined in: [improvement/improve.ts:510](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L510)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 
