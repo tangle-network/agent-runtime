@@ -57,11 +57,11 @@ export interface BenchmarkAdapter {
    *  fenced diff in its reply. Empty stdout ⇒ the runner falls back to `output` (the
    *  event-stream parse). `cwd` defaults to the box root. */
   boxExtract?(task: BenchTask): { command: string; cwd?: string }
-  /** Optional workspace pre-stage run in the box BEFORE the agent shot (same
-   *  session as `boxExtract`). For repo-state benchmarks (SWE-bench) this clones
-   *  the instance repo at `base_commit` into a fixed path so the agent only edits
-   *  — the harness owns the checkout, not the (stochastic) model. A non-zero exit
-   *  fails the shot loud rather than letting the agent run against an empty box. */
+  /** Optional workspace pre-stage run in the same box BEFORE the first agent
+   *  prompt. For repo-state benchmarks (SWE-bench) this clones the instance repo
+   *  at `base_commit` into a fixed path so the agent only edits — the harness owns
+   *  the checkout, not the (stochastic) model. A non-zero exit fails the shot loud
+   *  rather than letting the agent run against an empty box. */
   boxSetup?(task: BenchTask): { command: string; cwd?: string }
   /** Benchmark-owned worker leaf. Set when the benchmark's native protocol IS the
    *  worker (e.g. AppWorld's interactive ReAct episode runs inside the engine,

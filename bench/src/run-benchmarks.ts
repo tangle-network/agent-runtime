@@ -33,7 +33,6 @@ import type {
   AgentProfile,
   AgentRunSpec,
   Deliverable,
-  OpenSandboxRunOptions,
 } from '@tangle-network/agent-runtime/loops'
 import { openSandboxRun } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
@@ -190,10 +189,28 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
   // name and runId must not collide.
   const uniq = Math.random().toString(36).slice(2, 8)
+  const boxSetup = adapter.boxSetup
   const agentRun: AgentRunSpec<string> = {
     profile,
     name: cell.label,
     taskToPrompt: () => '',
+    ...(boxSetup
+      ? {
+          async prepareBox(box, { signal }) {
+            signal.throwIfAborted()
+            const setup = boxSetup(task)
+            const result = await box.exec(setup.command, {
+              timeoutMs: 300_000,
+              ...(setup.cwd ? { cwd: setup.cwd } : {}),
+            })
+            if (result.exitCode !== 0) {
+              throw new Error(
+                `boxSetup failed (exit ${result.exitCode}): ${(result.stderr ?? '').slice(0, 200)}`,
+              )
+            }
+          },
+        }
+      : {}),
     sandboxOverrides: {
       name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
@@ -206,28 +223,16 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   }
   const controller = new AbortController()
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
-  const runOptions: OpenSandboxRunOptions = {
-    agentRun,
-    signal: controller.signal,
-    runId: `bench:${adapter.name}:${task.id}:${uniq}`,
-    scenarioId: task.id,
-  }
-  const boxSetup = adapter.boxSetup
-  if (boxSetup) {
-    runOptions.beforeStart = async ({ box, sessionId }) => {
-      const setup = boxSetup(task)
-      const sres = await box.exec(setup.command, {
-        timeoutMs: 300_000,
-        sessionId,
-        ...(setup.cwd ? { cwd: setup.cwd } : {}),
-      })
-      if (sres.exitCode !== 0)
-        throw new Error(
-          `boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
-        )
-    }
-  }
-  const run = await openSandboxRun(client, runOptions, deliverable)
+  const run = await openSandboxRun(
+    client,
+    {
+      agentRun,
+      signal: controller.signal,
+      runId: `bench:${adapter.name}:${task.id}:${uniq}`,
+      scenarioId: task.id,
+    },
+    deliverable,
+  )
   try {
     const turn = await run.start(prompt ?? task.prompt)
     // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
