@@ -2667,7 +2667,7 @@ The worker's trace — any event array (sandbox events, tool-call records).
 
 ##### outcome?
 
-> `optional` **outcome?**: `"failed"` \| `"passed"` \| `"unknown"`
+> `optional` **outcome?**: `"failed"` \| `"unknown"` \| `"passed"`
 
 Defined in: [runtime/observe.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/observe.ts#L32)
 
@@ -12977,7 +12977,7 @@ Why this candidate was (or was not) selected, when the selector states it.
 
 ##### selector
 
-> **selector**: `"driver"` \| `"caller"` \| `"default"`
+> **selector**: `"default"` \| `"driver"` \| `"caller"`
 
 Defined in: [runtime/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/types.ts#L172)
 
@@ -17408,7 +17408,7 @@ One OpenAI-compatible chat completion through the Tangle router, returning text 
 
 ###### reasoningEffort?
 
-`"none"` \| `"high"` \| `"medium"` \| `"low"`
+`"none"` \| `"low"` \| `"medium"` \| `"high"`
 
 Reasoning control for thinking models, forwarded as `reasoning_effort`.
 'none' is the load-bearing value: binary/single-token decisions (routing,

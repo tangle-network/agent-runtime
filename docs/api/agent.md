@@ -865,7 +865,7 @@ Required for `mode === 'open-pr'` — the GH owner/repo (`tangle-network/tax-age
 
 ##### allowCreateForKinds?
 
-> `optional` **allowCreateForKinds?**: readonly (`"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"tool-doc"` \| `"new-tool"` \| `"rag"` \| `"memory"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
+> `optional` **allowCreateForKinds?**: readonly (`"memory"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"tool-doc"` \| `"new-tool"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
 Defined in: [agent/improvement-adapter.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/improvement-adapter.ts#L100)
 

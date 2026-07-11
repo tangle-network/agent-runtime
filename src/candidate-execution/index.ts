@@ -1,0 +1,84 @@
+export {
+  type AgentCandidateExecutionAttemptRecord,
+  type AgentCandidateExecutionAttemptRef,
+  type AgentCandidateExecutionClaim,
+  type AgentCandidateExecutionClaimResult,
+  type AgentCandidateExecutionClaimStore,
+  type AgentCandidateExecutionCleanupHandles,
+  type AgentCandidateExecutionFailureClass,
+  type AgentCandidateExecutionFinishResult,
+  type AgentCandidateExecutionLease,
+  type AgentCandidateExecutionPhase,
+  type AgentCandidateExecutionPhaseResult,
+  type AgentCandidateExecutionRecoveryEvidence,
+  type AgentCandidateExecutionStageResult,
+  type AgentCandidateExecutionTerminalRecord,
+  type AgentCandidateExecutionTerminalResult,
+  type AgentCandidateExecutionUsage,
+  type AgentCandidateRetryRejection,
+  InMemoryAgentCandidateExecutionClaimStore,
+} from './claim'
+export {
+  FileAgentCandidateExecutionClaimStore,
+  type FileAgentCandidateExecutionClaimStoreOptions,
+} from './claim-file-store'
+export { candidateExecutionClaim } from './claim-plan'
+export {
+  type DisposePreparedAgentCandidateOptions,
+  disposePreparedAgentCandidateExecution,
+} from './dispose'
+export {
+  type ExecutePreparedAgentCandidateOptions,
+  executePreparedAgentCandidate,
+} from './execute'
+export { persistCandidateOutputArtifact } from './output-artifacts'
+export {
+  type PrepareAgentCandidateExecutionOptions,
+  prepareAgentCandidateExecution,
+} from './prepare'
+export {
+  type RecoverExpiredAgentCandidateOptions,
+  recoverExpiredAgentCandidateExecution,
+} from './recover'
+export {
+  type AgentCandidateArtifactPort,
+  type AgentCandidateBenchmarkGraderPort,
+  type AgentCandidateContainerPort,
+  type AgentCandidateExecutionPorts,
+  type AgentCandidateExecutorFinalCapture,
+  type AgentCandidateExecutorMemoryCapture,
+  type AgentCandidateExecutorPort,
+  type AgentCandidateExecutorProfileFile,
+  type AgentCandidateExecutorRequest,
+  type AgentCandidateExecutorStopRequest,
+  type AgentCandidateExecutorTaskOutcomeCapture,
+  type AgentCandidateExecutorWorkspaceFile,
+  type AgentCandidateExecutorWorkspaceInput,
+  type AgentCandidateMemoryPort,
+  type AgentCandidateMemoryResetResult,
+  type AgentCandidateModelLimits,
+  type AgentCandidateModelPort,
+  type AgentCandidateOutputArtifactPort,
+  type AgentCandidateOutputPurpose,
+  type AgentCandidateProtectedModelActivation,
+  type AgentCandidateProtectedModelCall,
+  type AgentCandidateProtectedModelReservation,
+  type AgentCandidateProtectedModelSettlement,
+  type AgentCandidateProtectedRunCapture,
+  type AgentCandidateRepositoryPort,
+  type AgentCandidateRunFinalization,
+  type AgentCandidateTaskExecution,
+  type AgentCandidateVerificationPorts,
+  type AgentCandidateWorkspacePort,
+  CANDIDATE_TRACE_ENV,
+  CANDIDATE_TRACE_TAGS,
+  type CanonicalCandidateDocument,
+  type PreparedAgentCandidateExecution,
+  type PreparedAgentCandidateInstruction,
+  type PreparedAgentCandidateLaunch,
+  type PreparedAgentCandidateTrace,
+  type ResolvedAgentCandidateContainer,
+  type VerifiedAgentCandidate,
+  type VerifiedAgentCandidateTaskOutcome,
+} from './types'
+export { verifyAgentCandidateBundle } from './verify'
