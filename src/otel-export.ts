@@ -311,7 +311,7 @@ export function buildRuntimeEventOtelSpans(
 
     const startMs = eventTimestampMs(event)
     const endMs =
-      event.type === 'llm_call' && event.latencyMs !== undefined
+      event.type === 'llm_call' && event.latencyMs !== undefined && Number.isFinite(event.latencyMs)
         ? startMs + event.latencyMs
         : startMs
     const span = flatOtelSpan(name, attrs, traceId, startMs, parentSpanId, endMs)
@@ -606,21 +606,27 @@ function parseHeadersFromEnv(): Record<string, string> {
 }
 
 function toAttributes(record: Record<string, string | number | boolean>): OtelAttribute[] {
-  return Object.entries(record).map(([key, value]) => ({
-    key,
-    value:
-      typeof value === 'number'
-        ? Number.isInteger(value)
-          ? { intValue: value.toString() }
-          : { doubleValue: value }
-        : typeof value === 'boolean'
-          ? { boolValue: value }
-          : { stringValue: value },
-  }))
+  return Object.entries(record).flatMap(([key, value]) => {
+    if (typeof value === 'number' && !Number.isFinite(value)) return []
+    return [
+      {
+        key,
+        value:
+          typeof value === 'number'
+            ? Number.isInteger(value)
+              ? { intValue: value.toString() }
+              : { doubleValue: value }
+            : typeof value === 'boolean'
+              ? { boolValue: value }
+              : { stringValue: value },
+      },
+    ]
+  })
 }
 
 function msToNs(ms: number): string {
-  return (BigInt(Math.floor(ms)) * 1_000_000n).toString()
+  const safeMs = Number.isFinite(ms) ? ms : Date.now()
+  return (BigInt(Math.floor(safeMs)) * 1_000_000n).toString()
 }
 
 function padSpanId(id: string): string {

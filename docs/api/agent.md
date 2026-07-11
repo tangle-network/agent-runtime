@@ -1652,7 +1652,7 @@ The substrate's intent: edit an existing file or create a new one.
 
 ### SurfaceValidationIssue
 
-Defined in: [agent/surfaces.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L262)
+Defined in: [agent/surfaces.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L264)
 
 Validate that every declared surface exists on disk under `repoRoot`.
 
@@ -1667,19 +1667,19 @@ the loop produces 20 minutes later).
 
 > **surface**: keyof [`AgentSurfaces`](#agentsurfaces)
 
-Defined in: [agent/surfaces.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L263)
+Defined in: [agent/surfaces.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L265)
 
 ##### path
 
 > **path**: `string`
 
-Defined in: [agent/surfaces.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L264)
+Defined in: [agent/surfaces.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L266)
 
 ##### reason
 
 > **reason**: `"missing"` \| `"not-directory"` \| `"not-file"`
 
-Defined in: [agent/surfaces.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L265)
+Defined in: [agent/surfaces.ts:267](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L267)
 
 ## Type Aliases
 
@@ -2099,7 +2099,7 @@ it's the whole point.
 
 > **validateSurfaces**(`surfaces`, `repoRoot`): readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
-Defined in: [agent/surfaces.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L269)
+Defined in: [agent/surfaces.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L271)
 
 Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits.
 
@@ -2123,7 +2123,7 @@ readonly [`SurfaceValidationIssue`](#surfacevalidationissue)[]
 
 > **renderSurfaceIssues**(`issues`, `repoRoot`): `string`
 
-Defined in: [agent/surfaces.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L343)
+Defined in: [agent/surfaces.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/agent/surfaces.ts#L345)
 
 Format a list of surface validation issues into a human-readable error string.
 

@@ -14,7 +14,7 @@
  */
 
 import { existsSync, statSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FindingSubject } from '@tangle-network/agent-eval'
 
 /**
@@ -134,70 +134,70 @@ function candidatePathsForSubject(
   switch (subject.kind) {
     case 'knowledge.wiki':
     case 'knowledge.stale':
-      return [join(surfaces.knowledge, `${subject.slug}.md`)]
+      return optionalPath(safeJoin(surfaces.knowledge, `${subject.slug}.md`))
     case 'knowledge.claim':
       // Claims land in a per-topic claims directory under the knowledge root.
-      return [join(surfaces.knowledge, 'claims', `${slugify(subject.topic)}.md`)]
+      return optionalPath(safeJoin(surfaces.knowledge, 'claims', `${slugify(subject.topic)}.md`))
     case 'knowledge.raw':
-      return optionalPath(safeJoin(join(surfaces.knowledge, 'raw'), `${subject.sourceId}.md`))
+      return optionalPath(safeJoin(surfaces.knowledge, 'raw', `${subject.sourceId}.md`))
     case 'system-prompt': {
       const slug = slugify(subject.section)
       // Prefer flat layout for create-new (canonical); probe skill-dir layout
       // in case the existing repo (tax/legal/gtm/creative) uses
       // `<section>/SKILL.md` already.
       return [
-        join(surfaces.systemPrompt, `${slug}.md`),
-        join(surfaces.systemPrompt, slug, 'SKILL.md'),
-        join(surfaces.systemPrompt, slug, 'index.md'),
-      ]
+        safeJoin(surfaces.systemPrompt, `${slug}.md`),
+        safeJoin(surfaces.systemPrompt, slug, 'SKILL.md'),
+        safeJoin(surfaces.systemPrompt, slug, 'index.md'),
+      ].filter((path): path is string => path !== null)
     }
     case 'skill': {
       if (!surfaces.skills) return []
       return [
-        join(surfaces.skills, subject.name, 'SKILL.md'),
-        join(surfaces.skills, `${subject.name}.md`),
-      ]
+        safeJoin(surfaces.skills, subject.name, 'SKILL.md'),
+        safeJoin(surfaces.skills, `${subject.name}.md`),
+      ].filter((path): path is string => path !== null)
     }
     case 'tool-doc':
       if (subject.aspect) {
-        return [join(surfaces.tools, subject.tool, `${slugify(subject.aspect)}.md`)]
+        return optionalPath(safeJoin(surfaces.tools, subject.tool, `${slugify(subject.aspect)}.md`))
       }
       // tool-doc default: `<tool>/README.md`; also probe `<tool>.md` for flat
       // tool-list repos.
       return [
-        join(surfaces.tools, subject.tool, 'README.md'),
-        join(surfaces.tools, `${subject.tool}.md`),
-      ]
+        safeJoin(surfaces.tools, subject.tool, 'README.md'),
+        safeJoin(surfaces.tools, `${subject.tool}.md`),
+      ].filter((path): path is string => path !== null)
     case 'new-tool':
-      return [join(surfaces.tools, subject.name, 'README.md')]
+      return optionalPath(safeJoin(surfaces.tools, subject.name, 'README.md'))
     case 'mcp':
       if (!surfaces.mcp) return []
       return subject.tool
-        ? [join(surfaces.mcp, subject.server, `${subject.tool}.md`)]
+        ? optionalPath(safeJoin(surfaces.mcp, subject.server, `${subject.tool}.md`))
         : [
-            join(surfaces.mcp, `${subject.server}.json`),
-            join(surfaces.mcp, subject.server, 'README.md'),
-          ]
+            safeJoin(surfaces.mcp, `${subject.server}.json`),
+            safeJoin(surfaces.mcp, subject.server, 'README.md'),
+          ].filter((path): path is string => path !== null)
     case 'hook':
       if (!surfaces.hooks) return []
       return [
-        join(surfaces.hooks, `${subject.name}.md`),
-        join(surfaces.hooks, `${subject.name}.json`),
-      ]
+        safeJoin(surfaces.hooks, `${subject.name}.md`),
+        safeJoin(surfaces.hooks, `${subject.name}.json`),
+      ].filter((path): path is string => path !== null)
     case 'subagent':
       if (!surfaces.subagents) return []
       return [
-        join(surfaces.subagents, `${subject.name}.md`),
-        join(surfaces.subagents, `${subject.name}.yaml`),
-        join(surfaces.subagents, `${subject.name}.json`),
-      ]
+        safeJoin(surfaces.subagents, `${subject.name}.md`),
+        safeJoin(surfaces.subagents, `${subject.name}.yaml`),
+        safeJoin(surfaces.subagents, `${subject.name}.json`),
+      ].filter((path): path is string => path !== null)
     case 'workflow':
       if (!surfaces.workflows) return []
       return [
-        join(surfaces.workflows, `${subject.name}.md`),
-        join(surfaces.workflows, `${subject.name}.yaml`),
-        join(surfaces.workflows, `${subject.name}.json`),
-      ]
+        safeJoin(surfaces.workflows, `${subject.name}.md`),
+        safeJoin(surfaces.workflows, `${subject.name}.yaml`),
+        safeJoin(surfaces.workflows, `${subject.name}.json`),
+      ].filter((path): path is string => path !== null)
     case 'rollout-policy':
       return surfaces.rolloutPolicy ? [surfaces.rolloutPolicy] : []
     case 'agent-profile':
@@ -209,13 +209,13 @@ function candidatePathsForSubject(
     }
     case 'rag':
       if (!surfaces.rag) return []
-      return optionalPath(safeJoin(join(surfaces.rag, subject.corpus), `${subject.docId}.md`))
+      return optionalPath(safeJoin(surfaces.rag, subject.corpus, `${subject.docId}.md`))
     case 'memory':
       if (!surfaces.memory) return []
-      return [join(surfaces.memory, `${slugify(subject.key)}.json`)]
+      return optionalPath(safeJoin(surfaces.memory, `${slugify(subject.key)}.json`))
     case 'scaffolding':
       if (!surfaces.scaffolding) return []
-      return [join(surfaces.scaffolding, `${slugify(subject.concern)}.md`)]
+      return optionalPath(safeJoin(surfaces.scaffolding, `${slugify(subject.concern)}.md`))
     case 'output-schema':
       if (!surfaces.outputSchema) return []
       return [surfaces.outputSchema]
@@ -230,11 +230,13 @@ function candidatePathsForSubject(
   }
 }
 
-function safeJoin(root: string, child: string): string | null {
-  if (child.includes('\0') || isAbsolute(child)) return null
-  const segments = child.replace(/\\/g, '/').split('/')
-  if (segments.some((segment) => segment === '..')) return null
-  return join(root, ...segments)
+function safeJoin(root: string, ...children: string[]): string | null {
+  if (children.some((child) => child.includes('\0') || isAbsolute(child))) return null
+  const rootAbsolute = resolve(root)
+  const targetAbsolute = resolve(rootAbsolute, ...children)
+  const escaped = relative(rootAbsolute, targetAbsolute)
+  if (escaped === '..' || escaped.startsWith(`..${sep}`) || isAbsolute(escaped)) return null
+  return join(root, ...children)
 }
 
 function optionalPath(path: string | null): string[] {

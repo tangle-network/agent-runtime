@@ -234,6 +234,23 @@ describe('resolveSubjectPath', () => {
     ).toBeNull()
   })
 
+  it('rejects traversal in every profile surface derived from findings', () => {
+    const escaped = [
+      { kind: 'skill', name: '../secrets' } as const,
+      { kind: 'tool-doc', tool: '../secrets' } as const,
+      { kind: 'new-tool', name: '../secrets' } as const,
+      { kind: 'mcp', server: '../secrets' } as const,
+      { kind: 'mcp', server: 'safe', tool: '../../secrets' } as const,
+      { kind: 'hook', name: '../secrets' } as const,
+      { kind: 'subagent', name: '../secrets' } as const,
+      { kind: 'workflow', name: '../secrets' } as const,
+      { kind: 'rag', corpus: '../../secrets', docId: 'entry' } as const,
+    ]
+    for (const subject of escaped) {
+      expect(resolveSubjectPath(subject, surfaces, tmpRoot)).toBeNull()
+    }
+  })
+
   it('returns null when subject targets an undeclared optional surface', () => {
     const noRag = { ...surfaces, rag: undefined }
     const r = resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: 'foo' }, noRag, tmpRoot)

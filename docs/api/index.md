@@ -7398,7 +7398,7 @@ True when the iteration carried an error — maps to OTEL status code 2.
 
 ### EvalRunGeneration
 
-Defined in: [otel-export.ts:661](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L661)
+Defined in: [otel-export.ts:667](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L667)
 
 #### Properties
 
@@ -7406,7 +7406,7 @@ Defined in: [otel-export.ts:661](https://github.com/tangle-network/agent-runtime
 
 > **index**: `number`
 
-Defined in: [otel-export.ts:663](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L663)
+Defined in: [otel-export.ts:669](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L669)
 
 0-based ordinal of this generation within the run (required by ingest).
 
@@ -7414,7 +7414,7 @@ Defined in: [otel-export.ts:663](https://github.com/tangle-network/agent-runtime
 
 > **surfaceHash**: `string`
 
-Defined in: [otel-export.ts:665](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L665)
+Defined in: [otel-export.ts:671](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L671)
 
 Identity of the proposed surface change (content-addressed hash).
 
@@ -7422,7 +7422,7 @@ Identity of the proposed surface change (content-addressed hash).
 
 > `optional` **surface?**: `unknown`
 
-Defined in: [otel-export.ts:667](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L667)
+Defined in: [otel-export.ts:673](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L673)
 
 Arbitrary provenance for this generation (rationale, evidence, source).
 
@@ -7430,7 +7430,7 @@ Arbitrary provenance for this generation (rationale, evidence, source).
 
 > `optional` **cells?**: `unknown`[]
 
-Defined in: [otel-export.ts:669](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L669)
+Defined in: [otel-export.ts:675](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L675)
 
 Per-scenario results; empty until the generation is measured.
 
@@ -7438,7 +7438,7 @@ Per-scenario results; empty until the generation is measured.
 
 > **compositeMean**: `number`
 
-Defined in: [otel-export.ts:671](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L671)
+Defined in: [otel-export.ts:677](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L677)
 
 Mean composite score (0 when unmeasured — pair with labels.measured).
 
@@ -7446,19 +7446,19 @@ Mean composite score (0 when unmeasured — pair with labels.measured).
 
 > **costUsd**: `number`
 
-Defined in: [otel-export.ts:672](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L672)
+Defined in: [otel-export.ts:678](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L678)
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-Defined in: [otel-export.ts:673](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L673)
+Defined in: [otel-export.ts:679](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L679)
 
 ***
 
 ### EvalRunEvent
 
-Defined in: [otel-export.ts:676](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L676)
+Defined in: [otel-export.ts:682](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L682)
 
 #### Properties
 
@@ -7466,19 +7466,19 @@ Defined in: [otel-export.ts:676](https://github.com/tangle-network/agent-runtime
 
 > **runId**: `string`
 
-Defined in: [otel-export.ts:677](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L677)
+Defined in: [otel-export.ts:683](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L683)
 
 ##### runDir
 
 > **runDir**: `string`
 
-Defined in: [otel-export.ts:678](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L678)
+Defined in: [otel-export.ts:684](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L684)
 
 ##### timestamp
 
 > **timestamp**: `string`
 
-Defined in: [otel-export.ts:680](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L680)
+Defined in: [otel-export.ts:686](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L686)
 
 ISO timestamp.
 
@@ -7486,61 +7486,61 @@ ISO timestamp.
 
 > **status**: `"started"` \| `"baseline-complete"` \| `"generation-complete"` \| `"gate-decided"` \| `"finished"` \| `"errored"`
 
-Defined in: [otel-export.ts:681](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L681)
+Defined in: [otel-export.ts:687](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L687)
 
 ##### labels?
 
 > `optional` **labels?**: `Record`\<`string`, `string`\>
 
-Defined in: [otel-export.ts:688](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L688)
+Defined in: [otel-export.ts:694](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L694)
 
 ##### baseline?
 
 > `optional` **baseline?**: [`EvalRunGeneration`](#evalrungeneration)
 
-Defined in: [otel-export.ts:689](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L689)
+Defined in: [otel-export.ts:695](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L695)
 
 ##### generations?
 
 > `optional` **generations?**: [`EvalRunGeneration`](#evalrungeneration)[]
 
-Defined in: [otel-export.ts:690](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L690)
+Defined in: [otel-export.ts:696](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L696)
 
 ##### gateDecision?
 
 > `optional` **gateDecision?**: `"ship"` \| `"hold"` \| `"need_more_work"` \| `"model_ceiling"` \| `"arch_ceiling"`
 
-Defined in: [otel-export.ts:691](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L691)
+Defined in: [otel-export.ts:697](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L697)
 
 ##### holdoutLift?
 
 > `optional` **holdoutLift?**: `number`
 
-Defined in: [otel-export.ts:692](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L692)
+Defined in: [otel-export.ts:698](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L698)
 
 ##### totalCostUsd
 
 > **totalCostUsd**: `number`
 
-Defined in: [otel-export.ts:693](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L693)
+Defined in: [otel-export.ts:699](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L699)
 
 ##### totalDurationMs
 
 > **totalDurationMs**: `number`
 
-Defined in: [otel-export.ts:694](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L694)
+Defined in: [otel-export.ts:700](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L700)
 
 ##### errorMessage?
 
 > `optional` **errorMessage?**: `string`
 
-Defined in: [otel-export.ts:695](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L695)
+Defined in: [otel-export.ts:701](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L701)
 
 ***
 
 ### EvalRunsExportConfig
 
-Defined in: [otel-export.ts:698](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L698)
+Defined in: [otel-export.ts:704](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L704)
 
 #### Properties
 
@@ -7548,7 +7548,7 @@ Defined in: [otel-export.ts:698](https://github.com/tangle-network/agent-runtime
 
 > `optional` **apiKey?**: `string`
 
-Defined in: [otel-export.ts:700](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L700)
+Defined in: [otel-export.ts:706](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L706)
 
 Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY.
 
@@ -7556,7 +7556,7 @@ Bearer key — tenant is resolved server-side from it. Reads TANGLE_API_KEY.
 
 > `optional` **base?**: `string`
 
-Defined in: [otel-export.ts:702](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L702)
+Defined in: [otel-export.ts:708](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L708)
 
 Intelligence base. Reads TANGLE_INTELLIGENCE_URL env, else prod.
 
@@ -7564,7 +7564,7 @@ Intelligence base. Reads TANGLE_INTELLIGENCE_URL env, else prod.
 
 > `optional` **idempotencyKey?**: `string`
 
-Defined in: [otel-export.ts:704](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L704)
+Defined in: [otel-export.ts:710](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L710)
 
 Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 
@@ -7572,7 +7572,7 @@ Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 
 ### EvalRunsExportResult
 
-Defined in: [otel-export.ts:707](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L707)
+Defined in: [otel-export.ts:713](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L713)
 
 #### Properties
 
@@ -7580,25 +7580,25 @@ Defined in: [otel-export.ts:707](https://github.com/tangle-network/agent-runtime
 
 > **ok**: `boolean`
 
-Defined in: [otel-export.ts:708](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L708)
+Defined in: [otel-export.ts:714](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L714)
 
 ##### status
 
 > **status**: `number`
 
-Defined in: [otel-export.ts:709](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L709)
+Defined in: [otel-export.ts:715](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L715)
 
 ##### accepted
 
 > **accepted**: `number`
 
-Defined in: [otel-export.ts:710](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L710)
+Defined in: [otel-export.ts:716](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L716)
 
 ##### rejected
 
 > **rejected**: `object`[]
 
-Defined in: [otel-export.ts:711](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L711)
+Defined in: [otel-export.ts:717](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L717)
 
 ###### index
 
@@ -11391,7 +11391,7 @@ Default Tangle Router base URL used when no env override is set.
 
 > `const` **INTELLIGENCE\_WIRE\_VERSION**: `"2026-05-26.v1"` = `'2026-05-26.v1'`
 
-Defined in: [otel-export.ts:659](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L659)
+Defined in: [otel-export.ts:665](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L665)
 
 Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body).
 
@@ -13342,7 +13342,7 @@ readonly `object`[]
 
 > **exportEvalRuns**(`events`, `config?`): `Promise`\<[`EvalRunsExportResult`](#evalrunsexportresult)\>
 
-Defined in: [otel-export.ts:722](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L722)
+Defined in: [otel-export.ts:728](https://github.com/tangle-network/agent-runtime/blob/main/src/otel-export.ts#L728)
 
 Ship self-improvement eval-run events to Tangle Intelligence. Unlike the
 best-effort span exporter, this RESOLVES with the ingest verdict (accepted /

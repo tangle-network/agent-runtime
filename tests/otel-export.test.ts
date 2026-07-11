@@ -76,6 +76,24 @@ describe('buildRuntimeEventOtelSpans', () => {
     expect(attrs['tool.input']).toBeUndefined()
     expect(String(attrs['tangle.runtime.event'])).not.toContain('value')
   })
+
+  it('omits non-finite numeric attributes instead of emitting invalid OTLP JSON', () => {
+    const [span] = buildRuntimeEventOtelSpans(
+      [
+        {
+          type: 'llm_call',
+          model: 'test',
+          costUsd: Number.NaN,
+          latencyMs: Number.POSITIVE_INFINITY,
+        },
+      ],
+      'a'.repeat(32),
+    )
+    const attrs = attrMap(span!)
+    expect(attrs['tangle.cost.usd']).toBeUndefined()
+    expect(attrs['tangle.latency_ms']).toBeUndefined()
+    expect(JSON.stringify(span)).not.toContain('NaN')
+  })
 })
 
 describe('buildLoopOtelSpans — nested GenAI topology tree', () => {

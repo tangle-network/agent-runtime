@@ -607,7 +607,6 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           redactor(record.profile),
           includeFullPayload,
         )
-        labels['tangle.agent.profile_hash'] = contentHash(record.profile)
         if (record.profile.name) labels['gen_ai.agent.name'] = record.profile.name
       }
       const redactedInput = record.input !== undefined ? redactor(record.input) : undefined
