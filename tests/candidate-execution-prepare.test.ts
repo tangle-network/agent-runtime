@@ -10,7 +10,7 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
-
+import { MAX_CANDIDATE_TIMER_INTERVAL_MS } from '../src/candidate-execution/cleanup'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -221,11 +221,29 @@ function fixture(active = false): {
         snapshot: 'model-snapshot-2026-07-01',
         reasoningEffort,
       }),
-      grant: async () => ({ digest: sha('c'), env: { MODEL_GATEWAY_TOKEN: 'protected' } }),
+      reserveGrant: async ({ preparationId, expiresAtMs, limits }) => ({
+        preparationId,
+        digest: sha('c'),
+        expiresAtMs,
+        enforcedLimits: limits,
+      }),
+      activateGrant: async () => ({ env: { MODEL_GATEWAY_TOKEN: 'protected' } }),
+      settleGrant: async ({ preparationId }) => ({
+        preparationId,
+        grantDigest: sha('c'),
+        closed: true,
+        calls: [],
+      }),
     },
     memory: {
       reset: async () => {
         throw new Error('disabled memory must not reset')
+      },
+      activate: async () => {
+        throw new Error('disabled memory must not activate')
+      },
+      close: async () => {
+        throw new Error('disabled memory must not close')
       },
     },
   }
@@ -309,7 +327,8 @@ describe('candidate execution preparation', () => {
     )
     expect(prepared.materializationReceipt.bytes.byteLength).toBeGreaterThan(0)
     expect(JSON.stringify(plan)).not.toContain(value.task.instruction)
-    expect(prepared.protectedModelAccess.env).toEqual({ MODEL_GATEWAY_TOKEN: 'protected' })
+    expect(JSON.stringify(prepared)).not.toContain('MODEL_GATEWAY_TOKEN')
+    expect(JSON.stringify(prepared)).not.toContain('protected')
   })
 
   it('keeps argv task bytes out of fixed args and exposes deterministic delivery separately', async () => {
@@ -342,7 +361,7 @@ describe('candidate execution preparation', () => {
     )
   })
 
-  it('rejects task Git drift, dirty profile staging, and protected env collisions', async () => {
+  it('rejects task Git drift, dirty profile staging, and unenforced model limits', async () => {
     const gitDrift = fixture()
     gitDrift.task.repository.baseTree = '0'.repeat(40)
     await expect(
@@ -363,19 +382,107 @@ describe('candidate execution preparation', () => {
       ),
     ).rejects.toThrow(/must be empty/)
 
-    const collision = fixture()
-    collision.bundle = bundle({ env: { PUBLIC_ROUTE: { kind: 'public', value: 'public' } } })
-    collision.ports.models.grant = async () => ({
+    const unenforced = fixture()
+    let settledReservations = 0
+    unenforced.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
+      preparationId,
       digest: sha('c'),
-      env: { PUBLIC_ROUTE: 'protected' },
+      expiresAtMs,
+      enforcedLimits: { ...limits, maxCostUsd: limits.maxCostUsd + 1 },
+    })
+    unenforced.ports.models.settleGrant = async ({ preparationId }) => {
+      settledReservations++
+      return { preparationId, grantDigest: sha('c'), closed: true, calls: [] }
+    }
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(unenforced.bundle, unenforced.ports),
+        unenforced.task,
+        unenforced.ports,
+      ),
+    ).rejects.toThrow(/does not enforce/)
+    expect(settledReservations).toBe(1)
+  })
+
+  it('bounds failed-preparation cleanup and rejects another preparation settlement', async () => {
+    const hanging = fixture()
+    hanging.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
+      preparationId,
+      digest: sha('c'),
+      expiresAtMs,
+      enforcedLimits: { ...limits, maxModelCalls: limits.maxModelCalls + 1 },
+    })
+    hanging.ports.models.settleGrant = async () => await new Promise<never>(() => undefined)
+    const startedAt = Date.now()
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(hanging.bundle, hanging.ports),
+        hanging.task,
+        hanging.ports,
+        { cleanupTimeoutMs: 20 },
+      ),
+    ).rejects.toThrow(/cleanup failed/)
+    expect(Date.now() - startedAt).toBeLessThan(250)
+
+    const mismatched = fixture()
+    mismatched.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
+      preparationId,
+      digest: sha('c'),
+      expiresAtMs,
+      enforcedLimits: { ...limits, maxModelCalls: limits.maxModelCalls + 1 },
+    })
+    mismatched.ports.models.settleGrant = async () => ({
+      preparationId: `candidate-preparation-v1.${'A'.repeat(43)}`,
+      grantDigest: sha('c'),
+      closed: true,
+      calls: [],
     })
     await expect(
       prepareAgentCandidateExecution(
-        await verifyAgentCandidateBundle(collision.bundle, collision.ports),
-        collision.task,
-        collision.ports,
+        await verifyAgentCandidateBundle(mismatched.bundle, mismatched.ports),
+        mismatched.task,
+        mismatched.ports,
       ),
-    ).rejects.toThrow(/collides/)
+    ).rejects.toThrow(/cleanup failed/)
+  })
+
+  it('rejects a cost limit that cannot be represented by the protected integer ledger', async () => {
+    const value = fixture()
+    value.task.limits = { ...value.task.limits, maxCostUsd: 10 ** 20 }
+    let reservations = 0
+    value.ports.models.reserveGrant = async () => {
+      reservations++
+      throw new Error('must not reserve')
+    }
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/fixed-point range/)
+    expect(reservations).toBe(0)
+  })
+
+  it('rejects a wall-time limit that Node would clamp to an immediate timer', async () => {
+    const value = fixture()
+    value.task.limits = {
+      ...value.task.limits,
+      timeoutMs: MAX_CANDIDATE_TIMER_INTERVAL_MS + 1,
+    }
+    let reservations = 0
+    value.ports.models.reserveGrant = async () => {
+      reservations++
+      throw new Error('must not reserve')
+    }
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/limits are invalid/)
+    expect(reservations).toBe(0)
   })
 
   it('rejects unsigned hidden bytes in an active candidate workspace', async () => {
@@ -394,6 +501,7 @@ describe('candidate execution preparation', () => {
 
   it('resets task memory into an execution-scoped namespace and carries verified knowledge', async () => {
     const value = fixture()
+    value.task.executionId = '..'
     const seedBytes = Buffer.from('seed-memory')
     const knowledgeBytes = Buffer.from('{"documents":[]}')
     const seed = {
@@ -419,10 +527,12 @@ describe('candidate execution preparation', () => {
     value.ports.memory.reset = async (input) => {
       resetInput = input
       return {
+        preparationId: input.preparationId,
+        accessDigest: sha('8'),
+        expiresAtMs: input.expiresAtMs,
         evidence: embeddedCandidateArtifact(Buffer.from('fresh-reset')),
         emptyStateDigest: sha('7'),
         beforeState: emptySnapshot('before'),
-        env: { TANGLE_MEMORY_NAMESPACE: input.effectiveNamespace },
       }
     }
     const prepared = await prepareAgentCandidateExecution(
@@ -431,18 +541,47 @@ describe('candidate execution preparation', () => {
       value.ports,
     )
     expect(Buffer.from(resetInput?.seed ?? [])).toEqual(seedBytes)
-    expect(resetInput?.effectiveNamespace).toContain('execution-1')
+    expect(resetInput?.effectiveNamespace).not.toContain('..')
+    expect(resetInput?.effectiveNamespace.split('/')).toHaveLength(5)
     expect(prepared.memory).toMatchObject({
       mode: 'isolated',
       seedDigest: seed.sha256,
     })
-    expect(prepared.protectedMemoryAccess).toEqual({
-      TANGLE_MEMORY_NAMESPACE: resetInput?.effectiveNamespace,
-    })
+    expect(JSON.stringify(prepared)).not.toContain('TANGLE_MEMORY_NAMESPACE')
     expect(prepared.knowledge).toMatchObject({
       snapshotId: 'knowledge-1',
       manifestDigest: knowledge.sha256,
     })
     expect(Buffer.from(prepared.knowledge?.manifest ?? [])).toEqual(knowledgeBytes)
+  })
+
+  it('closes memory immediately when reset evidence fails before preparation can retain it', async () => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      memory: { mode: 'isolated', scope: 'task' },
+    })
+    const before = emptySnapshot('malformed-reset')
+    const closed: string[] = []
+    value.ports.memory.reset = async ({ preparationId, expiresAtMs }) => ({
+      preparationId,
+      accessDigest: 'sha256:not-a-digest' as `sha256:${string}`,
+      expiresAtMs,
+      evidence: before.manifest,
+      emptyStateDigest: before.digest,
+      beforeState: before,
+    })
+    value.ports.memory.close = async ({ preparationId, reason }) => {
+      closed.push(`${preparationId}:${reason}`)
+      return { closed: true }
+    }
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/not scoped/)
+    expect(closed).toHaveLength(1)
+    expect(closed[0]).toMatch(/candidate-preparation-v1\..+:preparation-failed/)
   })
 })

@@ -17,6 +17,13 @@ export function canonicalCandidateDigest(value: unknown): Sha256Digest {
   return contentAddress(value) as Sha256Digest
 }
 
+/** Returns a detached, deeply frozen JSON value with canonical number normalization. */
+export function immutableCandidateValue<T>(value: T): T {
+  return deepFreezeCandidate(
+    JSON.parse(Buffer.from(canonicalCandidateBytes(value)).toString('utf8')) as T,
+  )
+}
+
 export function canonicalCandidateDocument<T extends { digest: Sha256Digest }>(
   valueWithoutDigest: Omit<T, 'digest'>,
 ): CanonicalCandidateDocument<T> {
@@ -25,11 +32,15 @@ export function canonicalCandidateDocument<T extends { digest: Sha256Digest }>(
   if (sha256Bytes(bytes) !== digest) {
     throw new Error('canonical candidate serializers disagree on document digest')
   }
-  return {
-    value: { ...valueWithoutDigest, digest } as T,
-    bytes,
+  const storedBytes = Uint8Array.from(bytes)
+  const value = immutableCandidateValue({ ...valueWithoutDigest, digest }) as T
+  return Object.freeze({
+    value,
+    get bytes(): Uint8Array {
+      return Uint8Array.from(storedBytes)
+    },
     digest,
-  }
+  })
 }
 
 export function embeddedCandidateArtifact(bytes: Uint8Array): AgentCandidateEmbeddedArtifact {
@@ -46,4 +57,20 @@ export function omitTopLevelDigest<T extends { digest: Sha256Digest }>(
 ): Omit<T, 'digest'> {
   const { digest: _digest, ...rest } = value
   return rest
+}
+
+export function deepFreezeCandidate<T>(value: T, seen = new Set<object>()): T {
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    ArrayBuffer.isView(value) ||
+    seen.has(value as object)
+  ) {
+    return value
+  }
+  seen.add(value as object)
+  for (const child of Object.values(value as Record<string, unknown>)) {
+    deepFreezeCandidate(child, seen)
+  }
+  return Object.freeze(value)
 }

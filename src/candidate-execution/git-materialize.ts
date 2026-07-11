@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -7,9 +7,11 @@ import type {
   AgentCandidateCode,
   AgentCandidateGitHubRepository,
   AgentCandidateGitHubResource,
+  AgentCandidateWorkspaceManifestMaterialV1,
 } from '@tangle-network/agent-interface'
 
 import { verifyBytes } from './artifacts'
+import { canonicalCandidateBytes, sha256Bytes } from './digest'
 import type { AgentCandidateRepositoryPort } from './types'
 
 interface GitResult {
@@ -103,6 +105,96 @@ export async function verifyTaskCheckout(
   }
 }
 
+/**
+ * Apply an evaluator-captured binary diff in a detached object database and
+ * prove its result tree exactly matches the captured after-state manifest.
+ */
+export async function verifyTaskOutcomePatch(input: {
+  repositoryRoot: string
+  baseCommit: string
+  baseTree: string
+  resultTree: string
+  patch: Uint8Array
+  afterState: AgentCandidateWorkspaceManifestMaterialV1
+}): Promise<{ resultTree: string; resultCommit: string }> {
+  const repositoryRoot = resolve(input.repositoryRoot)
+  await verifyTaskCheckout(repositoryRoot, input)
+  const gitDir = resolve(
+    (await git(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout.toString('utf8').trim(),
+  )
+  if ((await realpath(gitDir)) !== gitDir || gitDir.includes(':')) {
+    throw new Error('task Git object store has an unsupported path')
+  }
+  await assertNoGitIndirection(repositoryRoot, gitDir, 'task repository')
+
+  const temporary = await mkdtemp(join(tmpdir(), 'agent-candidate-task-outcome-'))
+  try {
+    const objectDirectory = join(temporary, 'objects')
+    const indexFile = join(temporary, 'index')
+    await mkdir(objectDirectory)
+    const gitEnvironment = {
+      GIT_INDEX_FILE: indexFile,
+      GIT_OBJECT_DIRECTORY: objectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, 'objects'),
+    }
+    await git(repositoryRoot, ['read-tree', input.baseTree], undefined, gitEnvironment)
+    if (input.patch.byteLength > 0) {
+      await git(
+        repositoryRoot,
+        ['apply', '--cached', '--binary', '--whitespace=nowarn', '-'],
+        input.patch,
+        gitEnvironment,
+      )
+    }
+    const resultTree = (await git(repositoryRoot, ['write-tree'], undefined, gitEnvironment)).stdout
+      .toString('utf8')
+      .trim()
+    if (resultTree !== input.resultTree) {
+      throw new Error(
+        `task outcome patch materialized tree ${resultTree} does not match ${input.resultTree}`,
+      )
+    }
+    await assertSafeTree(repositoryRoot, resultTree, gitEnvironment)
+    const observed = await workspaceManifestFromGitTree(repositoryRoot, resultTree, gitEnvironment)
+    if (
+      !Buffer.from(canonicalCandidateBytes(observed)).equals(
+        Buffer.from(canonicalCandidateBytes(input.afterState)),
+      )
+    ) {
+      throw new Error('task outcome after-state does not match the materialized result tree')
+    }
+    const resultCommit = (
+      await git(
+        repositoryRoot,
+        ['commit-tree', resultTree, '-p', input.baseCommit],
+        Buffer.from('candidate task outcome\n', 'utf8'),
+        {
+          ...gitEnvironment,
+          GIT_AUTHOR_NAME: 'Tangle Evaluator',
+          GIT_AUTHOR_EMAIL: 'evaluator@tangle.tools',
+          GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+          GIT_COMMITTER_NAME: 'Tangle Evaluator',
+          GIT_COMMITTER_EMAIL: 'evaluator@tangle.tools',
+          GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z',
+        },
+      )
+    ).stdout
+      .toString('utf8')
+      .trim()
+    const committedTree = (
+      await git(repositoryRoot, ['rev-parse', `${resultCommit}^{tree}`], undefined, gitEnvironment)
+    ).stdout
+      .toString('utf8')
+      .trim()
+    if (committedTree !== resultTree) {
+      throw new Error('task outcome evaluator commit does not bind the verified result tree')
+    }
+    return { resultTree, resultCommit }
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
+}
+
 async function verifiedRepositoryRoot(
   repository: AgentCandidateGitHubRepository,
   repositories: AgentCandidateRepositoryPort,
@@ -121,27 +213,34 @@ async function verifiedRepositoryRoot(
     )
   }
 
+  const gitDirText = (await git(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout
+    .toString('utf8')
+    .trim()
+  const gitDir = resolve(gitDirText)
+  await assertNoGitIndirection(repositoryRoot, gitDir, 'candidate repository')
+  return repositoryRoot
+}
+
+async function assertNoGitIndirection(
+  repositoryRoot: string,
+  gitDir: string,
+  label: string,
+): Promise<void> {
   const replacements = (
     await git(repositoryRoot, ['for-each-ref', '--format=%(refname)', 'refs/replace'])
   ).stdout
     .toString('utf8')
     .trim()
-  if (replacements) throw new Error('candidate repository contains Git replace refs')
-
-  const gitDirText = (await git(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout
-    .toString('utf8')
-    .trim()
-  const gitDir = resolve(gitDirText)
+  if (replacements) throw new Error(`${label} contains Git replace refs`)
   for (const name of ['alternates', 'http-alternates']) {
     const path = join(gitDir, 'objects', 'info', name)
     try {
       const contents = await readFile(path, 'utf8')
-      if (contents.trim()) throw new Error(`candidate repository uses forbidden Git ${name}`)
+      if (contents.trim()) throw new Error(`${label} uses forbidden Git ${name}`)
     } catch (error) {
       if (!isNoEntry(error)) throw error
     }
   }
-  return repositoryRoot
 }
 
 async function assertCommitAndBaseTree(
@@ -161,8 +260,14 @@ async function assertCommitAndBaseTree(
   }
 }
 
-async function assertSafeTree(repositoryRoot: string, tree: string): Promise<void> {
-  const listing = (await git(repositoryRoot, ['ls-tree', '-rz', '--full-tree', tree])).stdout
+async function assertSafeTree(
+  repositoryRoot: string,
+  tree: string,
+  environment: Record<string, string> = {},
+): Promise<void> {
+  const listing = (
+    await git(repositoryRoot, ['ls-tree', '-rz', '--full-tree', tree], undefined, environment)
+  ).stdout
   const entries = parseTreeEntries(listing)
   if (entries.length === 0) throw new Error('candidate Git tree cannot be empty')
   for (const entry of entries) {
@@ -172,6 +277,39 @@ async function assertSafeTree(repositoryRoot: string, tree: string): Promise<voi
       )
     }
     assertSafeGitPath(entry.path)
+  }
+}
+
+async function workspaceManifestFromGitTree(
+  repositoryRoot: string,
+  tree: string,
+  environment: Record<string, string>,
+): Promise<AgentCandidateWorkspaceManifestMaterialV1> {
+  const listing = (
+    await git(repositoryRoot, ['ls-tree', '-rz', '--full-tree', tree], undefined, environment)
+  ).stdout
+  const entries = parseTreeEntries(listing)
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
+        throw new Error(`task outcome tree contains a non-regular file: ${entry.path}`)
+      }
+      const bytes = (
+        await git(repositoryRoot, ['cat-file', 'blob', entry.object], undefined, environment)
+      ).stdout
+      return {
+        path: entry.path,
+        mode: entry.mode === '100755' ? (0o755 as const) : (0o644 as const),
+        sha256: sha256Bytes(bytes),
+        byteLength: bytes.byteLength,
+      }
+    }),
+  )
+  files.sort((left, right) => left.path.localeCompare(right.path))
+  return {
+    schemaVersion: 1,
+    kind: 'agent-candidate-workspace-manifest',
+    files,
   }
 }
 

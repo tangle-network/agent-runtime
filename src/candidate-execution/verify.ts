@@ -12,7 +12,12 @@ import {
   verifyBytes,
   verifyWorkspaceSnapshotArtifacts,
 } from './artifacts'
-import { canonicalCandidateBytes, canonicalCandidateDigest, omitTopLevelDigest } from './digest'
+import {
+  canonicalCandidateBytes,
+  canonicalCandidateDigest,
+  deepFreezeCandidate,
+  omitTopLevelDigest,
+} from './digest'
 import { readCandidateGitHubResource, verifyCandidateCode } from './git-materialize'
 import {
   type AgentCandidateVerificationPorts,
@@ -86,12 +91,12 @@ export async function verifyAgentCandidateBundle(
   if (parsed.memory.mode === 'isolated' && parsed.memory.seed)
     await readArtifact(parsed.memory.seed)
 
-  deepFreeze(parsed)
-  const verified = {
+  deepFreezeCandidate(parsed)
+  const verified = Object.freeze({
     bundle: parsed,
     ...(materializedTree === undefined ? {} : { materializedTree }),
     [verifiedCandidateBrand]: true as const,
-  }
+  })
   verifiedCandidateState.set(verified, { ports, artifactBytes, resourceBytes })
   return verified
 }
@@ -159,11 +164,4 @@ function candidateResources(bundle: AgentCandidateBundle): AgentCandidateResourc
 
 function resourceKey(resource: AgentCandidateResourceRef): string {
   return canonicalCandidateDigest(resource)
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-  if (value === null || typeof value !== 'object' || seen.has(value as object)) return value
-  seen.add(value as object)
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen)
-  return Object.freeze(value)
 }

@@ -1,5 +1,5 @@
 import { constants as fsConstants } from 'node:fs'
-import { lstat, open, readdir } from 'node:fs/promises'
+import { lstat, open, readdir, realpath } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 
 import type {
@@ -68,7 +68,27 @@ export async function verifyMaterializedWorkspace(
   options: { ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[] } = {},
 ): Promise<void> {
   const observed = await scanWorkspace(root, new Set(options.ignoredProtectedRootEntries ?? []))
-  if (JSON.stringify(observed) !== JSON.stringify(expected)) {
+  assertWorkspaceManifest(observed.manifest, expected)
+}
+
+/** Capture exact verified regular-file bytes for fresh isolated materialization. */
+export async function readMaterializedWorkspaceFiles(
+  root: string,
+  expected: AgentCandidateWorkspaceManifestMaterialV1,
+  options: { ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[] } = {},
+): Promise<ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>> {
+  const observed = await scanWorkspace(root, new Set(options.ignoredProtectedRootEntries ?? []))
+  assertWorkspaceManifest(observed.manifest, expected)
+  return observed.files.map((file) =>
+    Object.freeze({ path: file.path, mode: file.mode, bytes: Uint8Array.from(file.bytes) }),
+  )
+}
+
+function assertWorkspaceManifest(
+  observed: AgentCandidateWorkspaceManifestMaterialV1,
+  expected: AgentCandidateWorkspaceManifestMaterialV1,
+): void {
+  if (!Buffer.from(canonicalCandidateBytes(observed)).equals(canonicalCandidateBytes(expected))) {
     throw new Error(
       'materialized workspace files, modes, or bytes do not match the signed manifest',
     )
@@ -80,12 +100,16 @@ export async function verifyMaterializedProfileWorkspace(
   expected: AgentCandidateProfilePlanMaterialV1,
 ): Promise<void> {
   const observed = await scanWorkspace(root, new Set())
-  const observedProfile = observed.files.map(({ path, mode, sha256 }) => ({
+  const observedProfile = observed.manifest.files.map(({ path, mode, sha256 }) => ({
     relPath: path,
     mode,
     contentSha256: sha256,
   }))
-  if (JSON.stringify(observedProfile) !== JSON.stringify(expected.files)) {
+  if (
+    !Buffer.from(canonicalCandidateBytes(observedProfile)).equals(
+      canonicalCandidateBytes(expected.files),
+    )
+  ) {
     throw new Error('profile staging files, modes, or bytes do not match the signed profile plan')
   }
 }
@@ -93,13 +117,20 @@ export async function verifyMaterializedProfileWorkspace(
 async function scanWorkspace(
   root: string,
   ignoredProtectedRootEntries: ReadonlySet<string>,
-): Promise<AgentCandidateWorkspaceManifestMaterialV1> {
+): Promise<{
+  manifest: AgentCandidateWorkspaceManifestMaterialV1
+  files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+}> {
   const absoluteRoot = resolve(root)
   const rootStats = await lstat(absoluteRoot)
   if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
     throw new Error('workspace root must be a real directory')
   }
+  if ((await realpath(absoluteRoot)) !== absoluteRoot) {
+    throw new Error('workspace root has a symlinked path component')
+  }
   const files: AgentCandidateWorkspaceManifestMaterialV1['files'] = []
+  const capturedFiles: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> = []
 
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true })
@@ -142,12 +173,14 @@ async function scanWorkspace(
           throw new Error(`workspace file has unsupported mode ${mode.toString(8)}: ${relPath}`)
         }
         const bytes = await descriptor.readFile()
+        const supportedMode = mode as 0o644 | 0o755
         files.push({
           path: relPath,
-          mode,
+          mode: supportedMode,
           sha256: sha256Bytes(bytes),
           byteLength: bytes.byteLength,
         })
+        capturedFiles.push({ path: relPath, mode: supportedMode, bytes: Uint8Array.from(bytes) })
       } finally {
         await descriptor.close()
       }
@@ -156,9 +189,13 @@ async function scanWorkspace(
 
   await visit(absoluteRoot)
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  capturedFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   return {
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-manifest',
-    files,
+    manifest: {
+      schemaVersion: 1,
+      kind: 'agent-candidate-workspace-manifest',
+      files,
+    },
+    files: capturedFiles,
   }
 }

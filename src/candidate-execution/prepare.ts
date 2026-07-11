@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto'
 import { lstat, readdir } from 'node:fs/promises'
 import { isAbsolute, posix, relative, resolve as resolveHostPath } from 'node:path'
 
 import type {
   AgentCandidateConfigValue,
   AgentCandidateEffectiveMemory,
+  AgentCandidateExecutionLimits,
   AgentCandidateExecutionPlanEvidence,
   AgentCandidateExecutionPlanMaterialV1,
   AgentCandidateMaterializationReceipt,
@@ -26,11 +28,19 @@ import {
 } from '@tangle-network/agent-profile-materialize'
 
 import {
+  readMaterializedWorkspaceFiles,
   readVerifiedArtifact,
   verifyMaterializedProfileWorkspace,
   verifyMaterializedWorkspace,
   verifyWorkspaceSnapshotArtifacts,
 } from './artifacts'
+import {
+  candidateCleanupDeadline,
+  candidateCleanupTimeout,
+  candidateResultTimeout,
+  MAX_CANDIDATE_TIMER_INTERVAL_MS,
+  withinCandidateCleanupDeadline,
+} from './cleanup'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -38,15 +48,16 @@ import {
   embeddedCandidateArtifact,
   sha256Bytes,
 } from './digest'
+import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
-import { recordPreparedCandidateState } from './prepared-state'
+import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
+import { createPreparedCandidateExecution } from './prepared-state'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
   CANDIDATE_TRACE_ENV,
   CANDIDATE_TRACE_TAGS,
   type PreparedAgentCandidateExecution,
-  preparedCandidateBrand,
   type ResolvedAgentCandidateContainer,
   type VerifiedAgentCandidate,
 } from './types'
@@ -71,17 +82,38 @@ const MATERIALIZER_HARNESSES = new Set<HarnessType>([
   'openclaw',
 ])
 
+const MIN_RESERVATION_TTL_MS = 15 * 60_000
+const PREPARED_HOLD_MARGIN_MS = 5 * 60_000
+
+export interface PrepareAgentCandidateExecutionOptions {
+  cleanupTimeoutMs?: number
+  /** Maximum time for task verification, executable grading, and receipt construction. */
+  resultTimeoutMs?: number
+}
+
 /** Materializes a verified candidate into one immutable evaluator-owned execution plan. */
 export async function prepareAgentCandidateExecution(
   candidate: VerifiedAgentCandidate,
   task: AgentCandidateTaskExecution,
   ports: AgentCandidateExecutionPorts,
+  options: PrepareAgentCandidateExecutionOptions = {},
 ): Promise<PreparedAgentCandidateExecution> {
+  const cleanupTimeoutMs = candidateCleanupTimeout(options.cleanupTimeoutMs)
   const verifiedState = getVerifiedCandidateState(candidate)
   assertSameVerificationPorts(verifiedState.ports, ports)
   const bundle = candidate.bundle
   const harness = materializerHarness(bundle.execution.harness)
   assertTaskInput(task, bundle.execution.instructionDelivery)
+  const resultTimeoutMs = candidateResultTimeout(options.resultTimeoutMs, task.limits.timeoutMs)
+  const ownerWindowMs = candidateExecutionOwnerWindowMs(
+    task.limits.timeoutMs,
+    cleanupTimeoutMs,
+    resultTimeoutMs,
+  )
+  const reservationWindowMs = ownerWindowMs + PREPARED_HOLD_MARGIN_MS
+  if (reservationWindowMs > MAX_CANDIDATE_TIMER_INTERVAL_MS) {
+    throw new Error('candidate reservation window exceeds the supported timer range')
+  }
   assertDisjointHostStagingRoots(task)
 
   const instructionBytes = Buffer.from(task.instruction, 'utf8')
@@ -98,8 +130,16 @@ export async function prepareAgentCandidateExecution(
     ignoredProtectedRootEntries: ['.git', '.sidecar'],
   })
   await verifyTaskCheckout(task.stagingRoots.taskRoot, task.repository)
+  const taskExecutorFiles = await readMaterializedWorkspaceFiles(
+    task.stagingRoots.taskRoot,
+    task.workspace.material,
+    { ignoredProtectedRootEntries: ['.git', '.sidecar'] },
+  )
 
   let candidateArchive: Uint8Array | undefined
+  let candidateExecutorFiles:
+    | ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+    | undefined
   if (bundle.execution.workspace) {
     if (!task.stagingRoots.candidateRoot || !task.executionRoots.candidateRoot) {
       throw new Error('active candidate execution requires host and container candidate roots')
@@ -112,6 +152,10 @@ export async function prepareAgentCandidateExecution(
       destination: task.stagingRoots.candidateRoot,
     })
     await verifyMaterializedWorkspace(
+      task.stagingRoots.candidateRoot,
+      bundle.execution.workspace.material,
+    )
+    candidateExecutorFiles = await readMaterializedWorkspaceFiles(
       task.stagingRoots.candidateRoot,
       bundle.execution.workspace.material,
     )
@@ -146,180 +190,285 @@ export async function prepareAgentCandidateExecution(
 
   const container = await resolveContainer(candidate, task, ports)
   const resolvedModel = await resolveModel(candidate, task, ports)
-  const protectedModelAccess = await ports.models.grant({
-    executionId: task.executionId,
-    resolved: resolvedModel,
-    limits: task.limits,
-  })
-  validateProtectedModelGrant(protectedModelAccess)
-  const preparedMemory = await prepareMemory(candidate, task, ports)
-  const memory = preparedMemory.value
-  const knowledge = bundle.knowledge
-    ? {
-        snapshotId: bundle.knowledge.snapshotId,
-        manifestDigest: bundle.knowledge.manifest.sha256,
-        manifest: await verifiedArtifactBytes(candidate, bundle.knowledge.manifest),
-      }
-    : undefined
-
-  const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
-  const publicEnv = mergePublicEnvironment(
-    bundle.execution.env ?? {},
-    profileApplication.env,
-    bundle.execution.instructionDelivery.kind === 'utf8-file'
-      ? {
-          [bundle.execution.instructionDelivery.env]: {
-            kind: 'public',
-            value: bundle.execution.instructionDelivery.path,
-          },
-        }
-      : {},
+  const preparationId = `candidate-preparation-v1.${randomBytes(32).toString('base64url')}`
+  const reservationExpiresAtMs = Date.now() + Math.max(MIN_RESERVATION_TTL_MS, reservationWindowMs)
+  const modelReservation = await withinCandidateCleanupDeadline(
+    () =>
+      ports.models.reserveGrant({
+        executionId: task.executionId,
+        preparationId,
+        expiresAtMs: reservationExpiresAtMs,
+        attempt: task.attempt,
+        bundleDigest: bundle.digest,
+        resolved: resolvedModel,
+        limits: modelLimits(task.limits),
+      }),
+    candidateCleanupDeadline(cleanupTimeoutMs),
+    'protected model reservation',
   )
-  const routes = modelRoutes(bundle.profile, task.model.requested)
-  const executionMaterial: AgentCandidateExecutionPlanMaterialV1 = {
-    schemaVersion: 1,
-    kind: 'agent-candidate-execution-plan-material',
-    bundleDigest: bundle.digest,
-    executionId: task.executionId,
-    attempt: task.attempt,
-    task: {
-      benchmark: task.benchmark,
-      benchmarkVersion: task.benchmarkVersion,
-      taskId: task.taskId,
-      splitDigest: task.splitDigest,
+  let preparedMemory: Awaited<ReturnType<typeof prepareMemory>> | undefined
+  try {
+    validateProtectedModelReservation(
+      modelReservation,
+      task.limits,
+      preparationId,
+      reservationExpiresAtMs,
+    )
+    preparedMemory = await prepareMemory(
+      candidate,
+      task,
+      ports,
+      preparationId,
+      reservationExpiresAtMs,
+      cleanupTimeoutMs,
+    )
+    const memory = preparedMemory.value
+    const knowledge = bundle.knowledge
+      ? {
+          snapshotId: bundle.knowledge.snapshotId,
+          manifestDigest: bundle.knowledge.manifest.sha256,
+          manifest: await verifiedArtifactBytes(candidate, bundle.knowledge.manifest),
+        }
+      : undefined
+
+    const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
+    const publicEnv = mergePublicEnvironment(
+      bundle.execution.env ?? {},
+      profileApplication.env,
+      bundle.execution.instructionDelivery.kind === 'utf8-file'
+        ? {
+            [bundle.execution.instructionDelivery.env]: {
+              kind: 'public',
+              value: bundle.execution.instructionDelivery.path,
+            },
+          }
+        : {},
+    )
+    const routes = modelRoutes(bundle.profile, task.model.requested)
+    const executionMaterial: AgentCandidateExecutionPlanMaterialV1 = {
+      schemaVersion: 1,
+      kind: 'agent-candidate-execution-plan-material',
+      bundleDigest: bundle.digest,
+      executionId: task.executionId,
+      attempt: task.attempt,
+      task: {
+        benchmark: task.benchmark,
+        benchmarkVersion: task.benchmarkVersion,
+        taskId: task.taskId,
+        splitDigest: task.splitDigest,
+        instruction: {
+          encoding: 'utf8',
+          sha256: instructionDigest,
+          byteLength: instructionBytes.byteLength,
+          delivery: bundle.execution.instructionDelivery,
+        },
+        repository: task.repository,
+        workspace: task.workspace,
+      },
+      workspaces: {
+        taskRoot: task.executionRoots.taskRoot,
+        ...(task.executionRoots.candidateRoot
+          ? { candidateRoot: task.executionRoots.candidateRoot }
+          : {}),
+      },
+      codeKind: bundle.code.kind,
+      ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
+      profile: profileApplication.application,
+      harness: bundle.execution.harness,
+      harnessVersion: bundle.execution.harnessVersion,
+      container,
+      model: {
+        policy: 'single',
+        resolved: resolvedModel,
+        access: { kind: 'evaluator-mediated', grantDigest: modelReservation.digest },
+        routes,
+      },
+      launch: {
+        executable: baseLaunch.executable,
+        args: baseLaunch.args,
+        env: publicEnv,
+        cwd: bundle.execution.cwd,
+      },
+      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
+      memory,
+      limits: task.limits,
+      network: { mode: 'disabled' },
+    }
+    agentCandidateExecutionPlanMaterialSchema.parse(executionMaterial)
+    const executionBytes = canonicalCandidateBytes(executionMaterial)
+    const executionDigest = canonicalCandidateDigest(executionMaterial)
+    if (sha256Bytes(executionBytes) !== executionDigest) {
+      throw new Error('execution plan canonical serializers disagree')
+    }
+    const executionPlan: AgentCandidateExecutionPlanEvidence =
+      agentCandidateExecutionPlanEvidenceSchema.parse({
+        schemaVersion: 1,
+        kind: 'agent-candidate-execution-plan',
+        digest: executionDigest,
+        material: executionMaterial,
+        artifact: embeddedCandidateArtifact(executionBytes),
+      })
+
+    const entrypoint = candidateEntrypointReceipt(candidate)
+    const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>(
+      {
+        schemaVersion: 1,
+        kind: 'agent-candidate-materialization',
+        digestAlgorithm: 'rfc8785-sha256',
+        bundleDigest: bundle.digest,
+        profilePlan: profileApplication.profilePlan,
+        executionPlan,
+        ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
+        codeKind: bundle.code.kind,
+        ...(candidate.materializedTree ? { materializedTree: candidate.materializedTree } : {}),
+        harness: bundle.execution.harness,
+        harnessVersion: bundle.execution.harnessVersion,
+        container,
+        resolvedModel,
+        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
+        ...(entrypoint ? { entrypoint } : {}),
+      },
+    )
+    agentCandidateMaterializationReceiptSchema.parse(materializationReceipt.value)
+
+    const traceRunId = `${task.executionId}:attempt-${task.attempt.number}:${canonicalCandidateDigest({ preparationId }).slice(7, 23)}`
+    const traceTags = {
+      [CANDIDATE_TRACE_TAGS.executionId]: task.executionId,
+      [CANDIDATE_TRACE_TAGS.bundleDigest]: bundle.digest,
+      [CANDIDATE_TRACE_TAGS.executionPlanDigest]: executionPlan.digest,
+      [CANDIDATE_TRACE_TAGS.materializationReceiptDigest]: materializationReceipt.digest,
+    }
+    const traceEnv = {
+      [CANDIDATE_TRACE_ENV.executionId]: task.executionId,
+      [CANDIDATE_TRACE_ENV.bundleDigest]: bundle.digest,
+      [CANDIDATE_TRACE_ENV.executionPlanDigest]: executionPlan.digest,
+      [CANDIDATE_TRACE_ENV.materializationReceiptDigest]: materializationReceipt.digest,
+      [CANDIDATE_TRACE_ENV.traceRunId]: traceRunId,
+    }
+    assertEnvironmentDisjoint(publicEnv, traceEnv)
+
+    return createPreparedCandidateExecution({
+      ports,
+      bundle,
+      executionId: task.executionId,
+      roots: {
+        execution: { ...task.executionRoots },
+        staging: { ...task.stagingRoots },
+      },
+      profilePlan: {
+        value: profileApplication.profilePlan,
+        bytes: profilePlanBytes,
+        written: [...profileApplication.application.mountPaths],
+      },
+      executionPlan: { value: executionPlan, bytes: executionBytes },
+      materializationReceipt,
+      launch: {
+        executable: baseLaunch.executable,
+        args: baseLaunch.args.map((value) => value.value),
+        env: unwrapPublicEnvironment(publicEnv),
+        flags: profileApplication.flags.map((value) => value.value),
+        cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
+      },
       instruction: {
-        encoding: 'utf8',
-        sha256: instructionDigest,
-        byteLength: instructionBytes.byteLength,
+        bytes: Uint8Array.from(instructionBytes),
         delivery: bundle.execution.instructionDelivery,
       },
-      repository: task.repository,
-      workspace: task.workspace,
-    },
-    workspaces: {
-      taskRoot: task.executionRoots.taskRoot,
-      ...(task.executionRoots.candidateRoot
-        ? { candidateRoot: task.executionRoots.candidateRoot }
+      resolvedModel,
+      preparationId,
+      reservationExpiresAtMs,
+      cleanupTimeoutMs,
+      resultTimeoutMs,
+      modelReservation: {
+        preparationId: modelReservation.preparationId,
+        digest: modelReservation.digest,
+        expiresAtMs: modelReservation.expiresAtMs,
+        enforcedLimits: modelReservation.enforcedLimits,
+      },
+      executorInputs: {
+        taskFiles: taskExecutorFiles,
+        ...(candidateExecutorFiles ? { candidateFiles: candidateExecutorFiles } : {}),
+        profileFiles: exactProfileExecutorFiles(
+          profileWorkspacePlan.files,
+          profileApplication.profilePlan.material.files,
+        ),
+      },
+      ...(preparedMemory.accessDigest && preparedMemory.value.mode === 'isolated'
+        ? {
+            memoryReservation: {
+              preparationId,
+              accessDigest: preparedMemory.accessDigest,
+              expiresAtMs: reservationExpiresAtMs,
+              effectiveNamespace: preparedMemory.value.effectiveNamespace,
+            },
+          }
         : {}),
-    },
-    codeKind: bundle.code.kind,
-    ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
-    profile: profileApplication.application,
-    harness: bundle.execution.harness,
-    harnessVersion: bundle.execution.harnessVersion,
-    container,
-    model: {
-      policy: 'single',
-      resolved: resolvedModel,
-      access: { kind: 'evaluator-mediated', grantDigest: protectedModelAccess.digest },
-      routes,
-    },
-    launch: {
-      executable: baseLaunch.executable,
-      args: baseLaunch.args,
-      env: publicEnv,
-      cwd: bundle.execution.cwd,
-    },
-    ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
-    memory,
-    limits: task.limits,
-    network: { mode: 'disabled' },
-  }
-  agentCandidateExecutionPlanMaterialSchema.parse(executionMaterial)
-  const executionBytes = canonicalCandidateBytes(executionMaterial)
-  const executionDigest = canonicalCandidateDigest(executionMaterial)
-  if (sha256Bytes(executionBytes) !== executionDigest) {
-    throw new Error('execution plan canonical serializers disagree')
-  }
-  const executionPlan: AgentCandidateExecutionPlanEvidence =
-    agentCandidateExecutionPlanEvidenceSchema.parse({
-      schemaVersion: 1,
-      kind: 'agent-candidate-execution-plan',
-      digest: executionDigest,
-      material: executionMaterial,
-      artifact: embeddedCandidateArtifact(executionBytes),
+      ...(knowledge ? { knowledge } : {}),
+      trace: { runId: traceRunId, tags: traceTags, env: traceEnv },
+      memory,
     })
-
-  const entrypoint = candidateEntrypointReceipt(candidate)
-  const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>({
-    schemaVersion: 1,
-    kind: 'agent-candidate-materialization',
-    digestAlgorithm: 'rfc8785-sha256',
-    bundleDigest: bundle.digest,
-    profilePlan: profileApplication.profilePlan,
-    executionPlan,
-    ...(bundle.execution.workspace ? { candidateWorkspace: bundle.execution.workspace } : {}),
-    codeKind: bundle.code.kind,
-    ...(candidate.materializedTree ? { materializedTree: candidate.materializedTree } : {}),
-    harness: bundle.execution.harness,
-    harnessVersion: bundle.execution.harnessVersion,
-    container,
-    resolvedModel,
-    ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
-    ...(entrypoint ? { entrypoint } : {}),
-  })
-  agentCandidateMaterializationReceiptSchema.parse(materializationReceipt.value)
-
-  const traceTags = {
-    [CANDIDATE_TRACE_TAGS.executionId]: task.executionId,
-    [CANDIDATE_TRACE_TAGS.bundleDigest]: bundle.digest,
-    [CANDIDATE_TRACE_TAGS.executionPlanDigest]: executionPlan.digest,
-    [CANDIDATE_TRACE_TAGS.materializationReceiptDigest]: materializationReceipt.digest,
+  } catch (error) {
+    const cleanupDeadlineAtMs = candidateCleanupDeadline(cleanupTimeoutMs)
+    const cleanup: Array<Promise<unknown>> = []
+    if (preparedMemory?.value.mode === 'isolated') {
+      const accessDigest = preparedMemory.accessDigest
+      const effectiveNamespace = preparedMemory.value.effectiveNamespace
+      if (!accessDigest) throw new Error('isolated memory preparation is missing access identity')
+      cleanup.push(
+        withinCandidateCleanupDeadline(
+          async () => {
+            const closed = await ports.memory.close({
+              executionId: task.executionId,
+              preparationId,
+              accessDigest,
+              effectiveNamespace,
+              reason: 'preparation-failed',
+            })
+            if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
+              throw new Error('failed preparation did not close isolated memory access')
+            }
+          },
+          cleanupDeadlineAtMs,
+          'failed preparation memory cleanup',
+        ),
+      )
+    }
+    cleanup.push(
+      withinCandidateCleanupDeadline(
+        async () => {
+          const settlement = sealAgentCandidateModelSettlement(
+            await ports.models.settleGrant({
+              executionId: task.executionId,
+              preparationId,
+              grantDigest: modelReservation.digest,
+              resolved: resolvedModel,
+              reason: 'preparation-failed',
+            }),
+            {
+              preparationId,
+              grantDigest: modelReservation.digest,
+              model: resolvedModel.model,
+            },
+          )
+          if (settlement.usage.modelCalls !== 0) {
+            throw new Error('failed preparation unexpectedly contains model calls')
+          }
+        },
+        cleanupDeadlineAtMs,
+        'failed preparation model cleanup',
+      ),
+    )
+    const cleanupResults = await Promise.allSettled(cleanup)
+    const cleanupErrors = cleanupResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason)
+    if (cleanupErrors.length > 0) {
+      throw new Error(
+        `candidate preparation failed and protected access cleanup failed: ${cleanupErrors.map(errorMessage).join('; ')}`,
+        { cause: error },
+      )
+    }
+    throw error
   }
-  const traceEnv = {
-    [CANDIDATE_TRACE_ENV.executionId]: task.executionId,
-    [CANDIDATE_TRACE_ENV.bundleDigest]: bundle.digest,
-    [CANDIDATE_TRACE_ENV.executionPlanDigest]: executionPlan.digest,
-    [CANDIDATE_TRACE_ENV.materializationReceiptDigest]: materializationReceipt.digest,
-    [CANDIDATE_TRACE_ENV.traceRunId]: task.executionId,
-  }
-  assertEnvironmentDisjoint(
-    publicEnv,
-    protectedModelAccess.env,
-    preparedMemory.protectedEnv,
-    traceEnv,
-  )
-
-  const prepared: PreparedAgentCandidateExecution = {
-    bundle,
-    executionId: task.executionId,
-    roots: {
-      execution: { ...task.executionRoots },
-      staging: { ...task.stagingRoots },
-    },
-    profilePlan: {
-      value: profileApplication.profilePlan,
-      bytes: profilePlanBytes,
-      written: [...profileApplication.application.mountPaths],
-    },
-    executionPlan: { value: executionPlan, bytes: executionBytes },
-    materializationReceipt,
-    launch: {
-      executable: baseLaunch.executable,
-      args: baseLaunch.args.map((value) => value.value),
-      env: unwrapPublicEnvironment(publicEnv),
-      flags: profileApplication.flags.map((value) => value.value),
-      cwd: absoluteExecutionCwd(bundle.execution.cwd, task.executionRoots),
-    },
-    instruction: {
-      bytes: Uint8Array.from(instructionBytes),
-      delivery: bundle.execution.instructionDelivery,
-    },
-    resolvedModel,
-    protectedModelAccess: {
-      digest: protectedModelAccess.digest,
-      env: Object.freeze({ ...protectedModelAccess.env }),
-    },
-    ...(preparedMemory.protectedEnv
-      ? { protectedMemoryAccess: Object.freeze({ ...preparedMemory.protectedEnv }) }
-      : {}),
-    ...(knowledge ? { knowledge } : {}),
-    trace: { runId: task.executionId, tags: traceTags, env: traceEnv },
-    memory,
-    [preparedCandidateBrand]: true,
-  }
-  recordPreparedCandidateState(prepared, { ports })
-  return prepared
 }
 
 function assertSameVerificationPorts(
@@ -395,6 +544,7 @@ function assertTaskInput(
   if (
     !Number.isInteger(limits.timeoutMs) ||
     limits.timeoutMs <= 0 ||
+    limits.timeoutMs > MAX_CANDIDATE_TIMER_INTERVAL_MS ||
     !Number.isInteger(limits.maxSteps) ||
     limits.maxSteps <= 0 ||
     !Number.isInteger(limits.maxModelCalls) ||
@@ -408,6 +558,7 @@ function assertTaskInput(
   ) {
     throw new Error('task execution limits are invalid')
   }
+  usdToNanos(limits.maxCostUsd, 'task maxCostUsd')
   if (!task.model.requested.trim()) throw new Error('evaluator model request must be non-empty')
   if (task.evaluatorTaskContainer) {
     if (
@@ -550,37 +701,81 @@ async function prepareMemory(
   candidate: VerifiedAgentCandidate,
   task: AgentCandidateTaskExecution,
   ports: AgentCandidateExecutionPorts,
+  preparationId: string,
+  expiresAtMs: number,
+  cleanupTimeoutMs: number,
 ): Promise<{
   value: AgentCandidateEffectiveMemory
-  protectedEnv?: Readonly<Record<string, string>>
+  accessDigest?: `sha256:${string}`
 }> {
   const policy = candidate.bundle.memory
   if (policy.mode === 'disabled') return { value: { mode: 'disabled' } }
   const seed = policy.seed ? await verifiedArtifactBytes(candidate, policy.seed) : undefined
-  const effectiveNamespace = `candidate/${candidate.bundle.digest.slice(7, 23)}/${task.executionId}/${canonicalCandidateDigest({ taskId: task.taskId }).slice(7)}`
-  const reset = await ports.memory.reset({
-    executionId: task.executionId,
-    effectiveNamespace,
-    ...(seed ? { seed } : {}),
-    ...(policy.seed ? { seedDigest: policy.seed.sha256 } : {}),
-  })
-  await readVerifiedArtifact(reset.evidence, ports.artifacts)
-  await verifyWorkspaceSnapshotArtifacts(reset.beforeState, ports.artifacts)
-  validateProtectedEnvironment(reset.env, 'memory')
-  return {
-    value: {
-      mode: 'isolated',
-      scope: 'task',
-      effectiveNamespace,
-      reset: {
-        kind: 'fresh',
-        evidence: reset.evidence,
-        emptyStateDigest: reset.emptyStateDigest,
+  const executionSegment = canonicalCandidateDigest({ executionId: task.executionId }).slice(7)
+  const taskSegment = canonicalCandidateDigest({ taskId: task.taskId }).slice(7)
+  const preparationSegment = canonicalCandidateDigest({ preparationId }).slice(7, 23)
+  const effectiveNamespace = `candidate/${candidate.bundle.digest.slice(7, 23)}/${executionSegment}/${taskSegment}/${preparationSegment}`
+  const reset = await withinCandidateCleanupDeadline(
+    () =>
+      ports.memory.reset({
+        executionId: task.executionId,
+        preparationId,
+        expiresAtMs,
+        effectiveNamespace,
+        ...(seed ? { seed } : {}),
+        ...(policy.seed ? { seedDigest: policy.seed.sha256 } : {}),
+      }),
+    candidateCleanupDeadline(cleanupTimeoutMs),
+    'isolated memory reset',
+  )
+  try {
+    if (
+      reset.preparationId !== preparationId ||
+      reset.expiresAtMs !== expiresAtMs ||
+      !/^sha256:[a-f0-9]{64}$/.test(reset.accessDigest)
+    ) {
+      throw new Error('isolated memory reservation is not scoped to this preparation')
+    }
+    await readVerifiedArtifact(reset.evidence, ports.artifacts)
+    await verifyWorkspaceSnapshotArtifacts(reset.beforeState, ports.artifacts)
+    return {
+      value: {
+        mode: 'isolated',
+        scope: 'task',
+        effectiveNamespace,
+        reset: {
+          kind: 'fresh',
+          evidence: reset.evidence,
+          emptyStateDigest: reset.emptyStateDigest,
+        },
+        beforeState: reset.beforeState,
+        ...(policy.seed ? { seedDigest: policy.seed.sha256 } : {}),
       },
-      beforeState: reset.beforeState,
-      ...(policy.seed ? { seedDigest: policy.seed.sha256 } : {}),
-    },
-    protectedEnv: reset.env,
+      accessDigest: reset.accessDigest,
+    }
+  } catch (error) {
+    try {
+      const closed = await withinCandidateCleanupDeadline(
+        () =>
+          ports.memory.close({
+            executionId: task.executionId,
+            preparationId,
+            accessDigest: reset.accessDigest,
+            effectiveNamespace,
+            reason: 'preparation-failed',
+          }),
+        candidateCleanupDeadline(cleanupTimeoutMs),
+        'invalid isolated memory reset cleanup',
+      )
+      if (closed.closed !== true || Object.keys(closed).some((key) => key !== 'closed')) {
+        throw new Error('invalid isolated memory reset did not acknowledge closure')
+      }
+    } catch (closeError) {
+      throw new Error('isolated memory preparation and cleanup both failed', {
+        cause: new AggregateError([error, closeError]),
+      })
+    }
+    throw error
   }
 }
 
@@ -669,39 +864,81 @@ function absoluteExecutionCwd(
   return absolute
 }
 
-function validateProtectedModelGrant(grant: {
-  digest: string
-  env: Readonly<Record<string, string>>
-}): void {
-  if (!/^sha256:[a-f0-9]{64}$/.test(grant.digest)) {
-    throw new Error('protected model grant has an invalid identity digest')
-  }
-  validateProtectedEnvironment(grant.env, 'model grant')
-}
-
-function validateProtectedEnvironment(env: Readonly<Record<string, string>>, label: string): void {
-  for (const [name, value] of Object.entries(env)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== 'string') {
-      throw new Error(`protected ${label} contains an invalid environment binding`)
+function validateProtectedModelReservation(
+  reservation: {
+    preparationId: string
+    digest: string
+    expiresAtMs: number
+    enforcedLimits: {
+      maxModelCalls: number
+      maxInputTokens: number
+      maxOutputTokens: number
+      maxCostUsd: number
     }
+  },
+  expectedLimits: AgentCandidateExecutionLimits,
+  preparationId: string,
+  expiresAtMs: number,
+): void {
+  if (!/^sha256:[a-f0-9]{64}$/.test(reservation.digest)) {
+    throw new Error('protected model reservation has an invalid identity digest')
+  }
+  if (reservation.preparationId !== preparationId || reservation.expiresAtMs !== expiresAtMs) {
+    throw new Error('protected model reservation is not scoped to this preparation')
+  }
+  const limits = modelLimits(expectedLimits)
+  if (canonicalCandidateDigest(reservation.enforcedLimits) !== canonicalCandidateDigest(limits)) {
+    throw new Error('protected model reservation does not enforce the frozen model limits')
   }
 }
 
 function assertEnvironmentDisjoint(
   publicEnv: Record<string, AgentCandidateConfigValue>,
-  protectedEnv: Readonly<Record<string, string>>,
-  protectedMemoryEnv: Readonly<Record<string, string>> | undefined,
   traceEnv: Record<string, string>,
 ): void {
   const seen = new Set(Object.keys(publicEnv))
-  for (const name of [
-    ...Object.keys(protectedEnv),
-    ...Object.keys(protectedMemoryEnv ?? {}),
-    ...Object.keys(traceEnv),
-  ]) {
+  for (const name of Object.keys(traceEnv)) {
     if (seen.has(name)) throw new Error(`evaluator environment binding collides with ${name}`)
     seen.add(name)
   }
+}
+
+function modelLimits(limits: AgentCandidateExecutionLimits): {
+  maxModelCalls: number
+  maxInputTokens: number
+  maxOutputTokens: number
+  maxCostUsd: number
+} {
+  return {
+    maxModelCalls: limits.maxModelCalls,
+    maxInputTokens: limits.maxInputTokens,
+    maxOutputTokens: limits.maxOutputTokens,
+    maxCostUsd: limits.maxCostUsd,
+  }
+}
+
+function exactProfileExecutorFiles(
+  sourceFiles: ReadonlyArray<{ relPath: string; content: string; mode?: number }>,
+  expectedFiles: ReadonlyArray<{ relPath: string; mode: number; contentSha256: string }>,
+): Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> {
+  const byPath = new Map(sourceFiles.map((file) => [file.relPath, file]))
+  if (byPath.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
+    throw new Error('profile source files do not match the signed profile plan')
+  }
+  return expectedFiles.map((expected) => {
+    const source = byPath.get(expected.relPath)
+    const mode = source?.mode ?? 0o644
+    const bytes = Buffer.from(source?.content ?? '', 'utf8')
+    if (
+      !source ||
+      (mode !== 0o644 && mode !== 0o755) ||
+      mode !== expected.mode ||
+      sha256Bytes(bytes) !== expected.contentSha256
+    ) {
+      throw new Error('profile source files do not match the signed profile plan')
+    }
+    return { path: expected.relPath, mode, bytes: Uint8Array.from(bytes) }
+  })
 }
 
 function isWellFormedUnicode(value: string): boolean {
@@ -716,4 +953,8 @@ function isWellFormedUnicode(value: string): boolean {
     }
   }
   return true
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
