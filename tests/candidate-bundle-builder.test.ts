@@ -243,6 +243,90 @@ describe('public agent candidate bundle builder', () => {
     ).toThrow(/profileDiffIds.*derived/)
   })
 
+  it('round-trips every currently representable generic profile surface', () => {
+    const fixture = createCandidateExecutionFixture(false)
+    const profile: AgentProfile = {
+      name: 'complete-candidate',
+      description: 'Exercises every closed profile surface.',
+      version: '1.0.0',
+      tags: ['coding', 'review'],
+      prompt: {
+        systemPrompt: 'Solve the task.',
+        instructions: ['Read the tests first.'],
+      },
+      model: {
+        default: 'provider/model',
+        small: 'provider/model',
+        provider: 'provider',
+        reasoningEffort: 'high',
+      },
+      harness: 'codex',
+      permissions: { shell: 'deny', files: { read: 'allow', write: 'ask' } },
+      tools: { shell: false, editor: true },
+      mcp: {
+        review: {
+          transport: 'stdio',
+          command: 'node',
+          args: ['scripts/review.mjs'],
+          env: { MODE: 'check' },
+          cwd: 'tools',
+          enabled: true,
+        },
+      },
+      subagents: {
+        reviewer: {
+          description: 'Reviews the candidate.',
+          prompt: 'Find correctness defects.',
+          model: 'provider/model',
+          tools: { editor: true },
+          permissions: { shell: 'deny' },
+          maxSteps: 4,
+        },
+      },
+      resources: {
+        failOnError: true,
+        files: [
+          {
+            path: 'notes/instructions.md',
+            resource: { kind: 'inline', name: 'instructions.md', content: 'Check invariants.\n' },
+          },
+        ],
+        tools: [{ kind: 'inline', name: 'review-tool.md', content: 'Review tool.\n' }],
+        skills: [{ kind: 'inline', name: 'review-skill.md', content: 'Review skill.\n' }],
+        agents: [{ kind: 'inline', name: 'review-agent.md', content: 'Review agent.\n' }],
+        commands: [{ kind: 'inline', name: 'review-command.md', content: 'Review command.\n' }],
+        instructions: { kind: 'inline', name: 'extra.md', content: 'Extra instructions.\n' },
+      },
+      hooks: { Stop: [] },
+      modes: {
+        review: {
+          description: 'Review mode.',
+          model: 'provider/model',
+          prompt: 'Review only.',
+          tools: { editor: true },
+          permissions: { shell: 'deny' },
+        },
+      },
+      confidential: { tee: 'tdx', sealed: true },
+    }
+
+    const bundle = buildAgentCandidateBundle({
+      profile: { kind: 'profile', profile },
+      code: { kind: 'disabled', reason: 'control' },
+      execution: fixture.bundle.execution,
+      memory: { mode: 'disabled' },
+      lineage: { source: 'human' },
+    })
+
+    expect(bundle.profile).toMatchObject({
+      name: profile.name,
+      mcp: { review: { command: 'node' } },
+      subagents: { reviewer: { model: 'provider/model' } },
+      modes: { review: { model: 'provider/model' } },
+      confidential: { tee: 'tdx', sealed: true },
+    })
+  })
+
   it('accepts an already closed candidate profile for behavior generic profiles cannot encode', () => {
     const fixture = createCandidateExecutionFixture(false)
     const bundle = buildAgentCandidateBundle({

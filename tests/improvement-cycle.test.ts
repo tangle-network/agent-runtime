@@ -23,6 +23,7 @@ import {
   verifyAgentImprovementReview,
 } from '../src/intelligence/improvement-cycle'
 import {
+  candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
   createCandidateOutputFixture,
@@ -306,6 +307,31 @@ describe('agent improvement lifecycle', () => {
         },
       }),
     ).rejects.toThrow('not an approval')
+  })
+
+  it('rejects a sealed build candidate whose digest was tampered', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const { digest: _digest, ...bundleInput } = fixture.bundle
+
+    await expect(
+      proposeAgentImprovement({
+        runId: 'analysis-run-tampered-bundle',
+        profile: fixtureProfile(),
+        analysis: { registry: registry([finding]), inputs: {}, findingsStore: null, log: () => {} },
+        improvement: {
+          surface: 'prompt',
+          generator: proposer,
+          scenarios,
+          judge,
+          agent,
+          budget: { generations: 1, populationSize: 2, reps: 3, holdoutFraction: 0.5 },
+        },
+        buildCandidate: ({ improvement }) => ({
+          ...alignedSealedBundle(bundleInput, improvement.profile),
+          digest: candidateSha('0'),
+        }),
+      }),
+    ).rejects.toThrow('built candidate bundle digest is invalid')
   })
 
   it('refuses a structurally valid approval that its authority does not recognize', async () => {

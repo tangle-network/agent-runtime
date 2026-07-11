@@ -66,7 +66,9 @@ export function freezeGenericAgentCandidateProfile(input: AgentProfile): AgentCa
       }),
     )
   }
-  return parseExactCandidateProfile(candidate)
+  const parsed = parseExactCandidateProfile(candidate)
+  assertCandidateProfileBinding(profile, parsed)
+  return parsed
 }
 
 /** Prove the measured generic profile and sealed candidate profile describe the same behavior. */
