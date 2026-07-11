@@ -242,6 +242,16 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
                 latencyMs: 250,
               },
             ],
+            candidateExecution: {
+              proposalDigest: `sha256:${'1'.repeat(64)}`,
+              reviewDigest: `sha256:${'2'.repeat(64)}`,
+              bundleDigest: `sha256:${'3'.repeat(64)}`,
+              executionId: 'candidate-execution-1',
+              executionPlanDigest: `sha256:${'4'.repeat(64)}`,
+              materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+              succeeded: true,
+              runReceiptDigest: `sha256:${'6'.repeat(64)}`,
+            },
           })
           return 'answer'
         },
@@ -259,6 +269,7 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
           commitSha: 'a'.repeat(40),
           repo: { owner: 'tangle-network', name: 'support', baseBranch: 'main' },
           runtimeTelemetry: { includeControlPayloads: true },
+          payloadAttributes: 'full',
         },
       )
       await agent({ q: longInput })
@@ -279,6 +290,8 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['gen_ai.usage.output_tokens']).toBe(7)
       expect(String(attrs['tangle.input'])).toContain(longInput)
       expect(String(attrs['tangle.input'])).not.toContain('[truncated]')
+      expect(attrs['tangle.input_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.input_bytes']).toBeGreaterThan(5000)
       expect(JSON.parse(String(attrs['tangle.agent.profile']))).toMatchObject({
         name: 'support-agent',
         tools: { mcp__linear__linear_graphql: true },
@@ -286,6 +299,9 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(attrs['tangle.agent.profile_hash']).toEqual(expect.any(String))
       expect(attrs['tool.name']).toBe('mcp__linear__linear_graphql')
       expect(String(attrs['tool.input'])).toContain(longInput)
+      expect(attrs['tangle.candidate.execution_id']).toBe('candidate-execution-1')
+      expect(attrs['tangle.candidate.proposal_digest']).toBe(`sha256:${'1'.repeat(64)}`)
+      expect(attrs['tangle.candidate.run_receipt_digest']).toBe(`sha256:${'6'.repeat(64)}`)
     } finally {
       vi.useRealTimers()
     }
@@ -306,6 +322,43 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
       expect(otlpSpy).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllEnvs()
+    }
+  })
+
+  it('exports payload hashes and byte counts without content by default', async () => {
+    vi.useFakeTimers()
+    try {
+      const posts: unknown[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: unknown, init: unknown) => {
+          const body = (init as { body?: string })?.body
+          if (body) posts.push(JSON.parse(body))
+          return { ok: true, status: 200, async json() {} } as unknown as Response
+        }),
+      )
+      const pull = vi.fn(async () => jsonResponse(COMPOSED)) as unknown as typeof fetch
+      const agent = withIntelligence(async () => 'private output', {
+        project: 'support-agent',
+        apiKey: 'k',
+        baseUrl: 'https://plane.test',
+        fetchImpl: pull,
+        profile: { name: 'support-agent' },
+      })
+
+      await agent('private input')
+      await agent.flush()
+
+      const attrs = attrsOf(posts[0])
+      expect(attrs['tangle.input']).toBeUndefined()
+      expect(attrs['tangle.output']).toBeUndefined()
+      expect(attrs['tangle.agent.profile']).toBeUndefined()
+      expect(attrs['tangle.input_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.input_bytes']).toBeGreaterThan(0)
+      expect(attrs['tangle.output_hash']).toEqual(expect.any(String))
+      expect(attrs['tangle.agent.profile_hash']).toEqual(expect.any(String))
+    } finally {
+      vi.useRealTimers()
     }
   })
 

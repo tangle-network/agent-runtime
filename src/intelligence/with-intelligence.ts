@@ -265,6 +265,9 @@ export function withIntelligence<I, O>(
           : {}),
         ...(tokens !== undefined ? { tokens } : {}),
         ...(error !== undefined ? { error } : {}),
+        ...(report.candidateExecution !== undefined
+          ? { candidateExecution: report.candidateExecution }
+          : {}),
       }
       client.exportRunRecord(record)
     }

@@ -833,7 +833,7 @@ Gate: only approved candidates are eligible to win.
 
 ##### recommendation
 
-> **recommendation**: `"ship"` \| `"approve-with-nits"` \| `"changes-requested"` \| `"reject"`
+> **recommendation**: `"ship"` \| `"reject"` \| `"approve-with-nits"` \| `"changes-requested"`
 
 Defined in: [mcp/delegates.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/delegates.ts#L102)
 

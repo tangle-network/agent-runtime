@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.91.0` and `@tangle-network/agent-eval@0.113.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.92.0` and `@tangle-network/agent-eval@0.113.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -251,7 +251,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Intelligence SDK — Observe + provable-OFF billing
 
-Import from `@tangle-network/agent-runtime/intelligence` — 68 exports.
+Import from `@tangle-network/agent-runtime/intelligence` — 83 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -262,13 +262,18 @@ Import from `@tangle-network/agent-runtime/intelligence` — 68 exports.
 | `createCertifiedPromptSource` | function | Create the cached certified-prompt source — the ONE module-scope-cache + |
 | `createIntelligenceClient` | function | Create an Observe-mode Intelligence client. Resolves effort, the base URL, and |
 | `defaultRedactor` | function | The built-in redactor. Walks objects and arrays; replaces values under |
+| `executeApprovedAgentCandidate` | function | Verify, materialize, run, grade, and receipt only the exact approved bundle. |
 | `isIntelligenceOff` | function | True when these settings admit NO intelligence spawn — the passthrough |
 | `manifestFromProfile` | function | Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`. |
 | `normalizeCertifiedProfile` | function | Deserialize the composed-endpoint response into a `CertifiedProfile`. The |
+| `proposeAgentImprovement` | function | Analyze one run and produce one measured, review-only improvement proposal. |
 | `pullCertified` | function | Pull the certified composed profile for a target. Fail-closed: a network |
 | `resolveEffort` | function | Compile a named tier (plus optional per-field overrides) into the flat |
 | `resolveIntelligenceBaseUrl` | function | Resolve the ONE Intelligence base URL — the single knob both the send and |
 | `resolveRedactor` | function | Resolve the redactor a client uses. A caller-supplied hook replaces the |
+| `reviewAgentImprovementProposal` | function | Persist an approve/reject/change-request decision bound to one exact proposal. |
+| `verifyAgentImprovementProposal` | function | Validate a proposal's schema, profile, sealed bundle, and canonical digest. |
+| `verifyAgentImprovementReview` | function | Validate a review's decision fields and canonical digest. |
 | `withIntelligence` | function | Wrap an agent so it (a) RECEIVES the tenant's certified profile — the prompt |
 | `defaultEffortTier` | const | The default tier when a client declares no effort. `'standard'` turns |
 | `CapabilityNotAdmittedError` | class | A binding kind whose resolver case is typed but not yet admitted (rag-index, |
@@ -323,7 +328,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 68 exports.
 | `Redactor` | type | A redactor maps an arbitrary trace value to a safe-to-export value. Pure; |
 | `UsageClass` | type | Usage class for billing. Base-stream tokens bill `'inference'`; every |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PullCertifiedOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentImprovementProposal`, `AgentImprovementReview`, `CandidateExecutionEvidence`, `ExecuteApprovedAgentCandidateOptions`, `ExecuteApprovedAgentCandidateResult`, `ProposeAgentImprovementOptions`, `ProposeAgentImprovementResult`, `PullCertifiedOptions`, `ReviewAgentImprovementInput`, `AgentImprovementEvaluation`, `AgentImprovementReviewDecision`.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
