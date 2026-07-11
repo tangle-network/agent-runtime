@@ -33,6 +33,7 @@ import {
 } from './claim-terminal'
 import { candidateCleanupTimeout, candidateResultTimeout } from './cleanup'
 import { canonicalCandidateDigest, immutableCandidateValue } from './digest'
+import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 
 /** Non-secret identities a trusted recovery worker needs to close an abandoned attempt. */
 export interface AgentCandidateExecutionCleanupHandles {
@@ -901,17 +902,6 @@ function assertUnexpiredLease(expiresAtMs: number, nowMs: number): void {
 function assertExpiredLease(expiresAtMs: number, nowMs: number): void {
   assertClock(nowMs)
   if (nowMs < expiresAtMs) throw new Error('candidate execution lease has not expired')
-}
-
-function assertExactKeys(value: unknown, expected: readonly string[], label: string): void {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`)
-  }
-  const actual = Object.keys(value).sort()
-  const wanted = [...expected].sort()
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
-    throw new Error(`${label} has unexpected or missing fields`)
-  }
 }
 
 function sha256(value: string): Sha256Digest {

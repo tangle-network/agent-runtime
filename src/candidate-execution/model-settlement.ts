@@ -1,6 +1,7 @@
 import type { LlmSpan } from '@tangle-network/agent-eval'
 import type { AgentCandidateSpend } from '@tangle-network/agent-interface'
 import type { AgentCandidateExecutionUsage } from './claim'
+import { assertExactObjectKeys } from './exact-object'
 import type {
   AgentCandidateProtectedModelCall,
   AgentCandidateProtectedModelSettlement,
@@ -20,7 +21,7 @@ export function sealAgentCandidateModelSettlement(
   settlement: AgentCandidateProtectedModelSettlement,
   expected: { preparationId: string; grantDigest: string; model: string },
 ): SealedAgentCandidateModelSettlement {
-  assertExactKeys(
+  assertExactObjectKeys(
     settlement,
     ['preparationId', 'grantDigest', 'closed', 'calls'],
     'model settlement',
@@ -45,20 +46,11 @@ export function sealAgentCandidateModelSettlement(
   let hasCachedInput = false
   let costUsdNanos = 0
   const calls = settlement.calls.map((source, index) => {
-    assertExactKeys(
+    assertExactObjectKeys(
       source,
-      [
-        'callId',
-        'traceSpanId',
-        'model',
-        'inputTokens',
-        'outputTokens',
-        'cachedInputTokens',
-        'reasoningTokens',
-        'costUsdNanos',
-      ],
+      ['callId', 'traceSpanId', 'model', 'inputTokens', 'outputTokens', 'costUsdNanos'],
       `model settlement call ${index}`,
-      true,
+      ['cachedInputTokens', 'reasoningTokens'],
     )
     assertIdentifier(source.callId, `model settlement call ${index} callId`)
     assertIdentifier(source.traceSpanId, `model settlement call ${index} traceSpanId`)
@@ -193,21 +185,4 @@ function safeAdd(left: number, right: number, label: string): number {
   const total = left + right
   if (!Number.isSafeInteger(total)) throw new Error(`${label} exceeds safe integer range`)
   return total
-}
-
-function assertExactKeys(
-  value: object,
-  allowedKeys: readonly string[],
-  label: string,
-  optionalAllowed = false,
-): void {
-  const allowed = new Set(allowedKeys)
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new Error(`${label} contains unknown field ${key}`)
-  }
-  if (!optionalAllowed) {
-    for (const key of allowedKeys) {
-      if (!(key in value)) throw new Error(`${label} is missing field ${key}`)
-    }
-  }
 }

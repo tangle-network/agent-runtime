@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  CandidateCleanupTimeoutError,
+  CandidateResultTimeoutError,
   candidateCleanupTimeout,
   MAX_CANDIDATE_TIMER_INTERVAL_MS,
+  withinCandidateCleanupDeadline,
+  withinCandidateResultDeadline,
 } from '../src/candidate-execution/cleanup'
 import {
   CANDIDATE_TERMINAL_PERSISTENCE_MARGIN_MS,
@@ -11,6 +15,8 @@ import {
 } from '../src/candidate-execution/execution-window'
 
 describe('candidate cleanup timer bounds', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('accepts the Node timer boundary and rejects values that would clamp', () => {
     expect(candidateCleanupTimeout(MAX_CANDIDATE_TIMER_INTERVAL_MS)).toBe(
       MAX_CANDIDATE_TIMER_INTERVAL_MS,
@@ -31,5 +37,33 @@ describe('candidate cleanup timer bounds', () => {
     expect(() => candidatePostRunWindowMs(MAX_CANDIDATE_TIMER_INTERVAL_MS, 1)).toThrow(
       /post-run window/,
     )
+  })
+
+  it('rejects results observed exactly at their frozen deadline', async () => {
+    vi.useFakeTimers({ now: 100 })
+    await expect(
+      withinCandidateCleanupDeadline(
+        async () => {
+          vi.setSystemTime(110)
+          return 'ambiguous'
+        },
+        110,
+        'cleanup',
+      ),
+    ).rejects.toBeInstanceOf(CandidateCleanupTimeoutError)
+
+    let observedSignal: AbortSignal | undefined
+    await expect(
+      withinCandidateResultDeadline(
+        async (signal) => {
+          observedSignal = signal
+          vi.setSystemTime(120)
+          return 'ambiguous'
+        },
+        120,
+        'result',
+      ),
+    ).rejects.toBeInstanceOf(CandidateResultTimeoutError)
+    expect(observedSignal?.aborted).toBe(true)
   })
 })

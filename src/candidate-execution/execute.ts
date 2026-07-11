@@ -567,6 +567,8 @@ async function runAndStopExecutor(
     executionError = new Error('candidate execution capture id does not match the request')
     capture = undefined
   } else if (!timedOut && capture && Date.now() >= deadlineAtMs) {
+    // Promise resolution at the boundary is ambiguous under event-loop delay.
+    // Fail closed unless completion is observed strictly before the deadline.
     timedOut = true
     executionError = timeoutError
     capture = undefined

@@ -53,7 +53,8 @@ export async function withinCandidateCleanupDeadline<T>(
         timer = setTimeout(() => reject(new CandidateCleanupTimeoutError(label)), remainingMs)
       }),
     ])
-    if (Date.now() > deadlineAtMs) throw new CandidateCleanupTimeoutError(label)
+    // Exact-boundary completion is ambiguous under event-loop delay.
+    if (Date.now() >= deadlineAtMs) throw new CandidateCleanupTimeoutError(label)
     return result
   } finally {
     if (timer) clearTimeout(timer)
@@ -87,7 +88,8 @@ export async function withinCandidateResultDeadline<T>(
         }, remainingMs)
       }),
     ])
-    if (Date.now() > deadlineAtMs) {
+    // Exact-boundary completion is ambiguous under event-loop delay.
+    if (Date.now() >= deadlineAtMs) {
       controller.abort(timeoutError)
       throw timeoutError
     }

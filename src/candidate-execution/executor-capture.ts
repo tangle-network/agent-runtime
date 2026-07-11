@@ -2,7 +2,7 @@ import {
   agentCandidateTerminationSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
 } from '@tangle-network/agent-interface'
-
+import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 import type { AgentCandidateExecutorFinalCapture, AgentCandidateProtectedRunCapture } from './types'
 
 /** Validate and detach the only candidate-authored fields accepted from execution. */
@@ -25,10 +25,7 @@ export function sealAgentCandidateExecutorFinalCapture(
   value: unknown,
 ): AgentCandidateExecutorFinalCapture {
   const capture = requireRecord(value, 'candidate final capture')
-  assertExactKeys(capture, ['stopped', 'taskOutcome', 'memoryAfter'], 'candidate final capture', [
-    'taskOutcome',
-    'memoryAfter',
-  ])
+  assertExactKeys(capture, ['stopped'], 'candidate final capture', ['taskOutcome', 'memoryAfter'])
   if (capture.stopped !== true) {
     throw new Error('candidate final capture does not prove process death')
   }
@@ -90,22 +87,4 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} must be an object`)
   }
   return value as Record<string, unknown>
-}
-
-function assertExactKeys(
-  value: Record<string, unknown>,
-  expected: readonly string[],
-  label: string,
-  optional: readonly string[] = [],
-): void {
-  const allowed = new Set(expected)
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new Error(`${label} contains unknown field ${key}`)
-  }
-  const optionalKeys = new Set(optional)
-  for (const key of expected) {
-    if (!optionalKeys.has(key) && !(key in value)) {
-      throw new Error(`${label} is missing field ${key}`)
-    }
-  }
 }

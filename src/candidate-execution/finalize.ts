@@ -241,6 +241,9 @@ function enforceLimits(
 ): void {
   const limits = state.executionPlan.value.material.limits
   const usage = settlement.usage
+  // The runtime-owned Date.now deadline decides when the process must stop.
+  // This separately rejects a receipt whose evaluator-owned trace claims a
+  // longer run; neither clock can make an over-limit execution admissible.
   const wallMs = endedAt - startedAt
   if (!Number.isFinite(wallMs) || wallMs < 0 || wallMs > limits.timeoutMs) {
     throw new Error(`protected trace wall time ${wallMs} exceeds ${limits.timeoutMs}`)

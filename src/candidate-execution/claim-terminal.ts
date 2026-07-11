@@ -13,6 +13,7 @@ import type {
   AgentCandidateExecutionUsage,
 } from './claim'
 import { canonicalCandidateDigest, immutableCandidateValue } from './digest'
+import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/
 
@@ -511,16 +512,5 @@ function assertSha256Digest(value: string, field: string): void {
 function assertCount(value: unknown, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new Error(`candidate execution ${label} must be a non-negative safe integer`)
-  }
-}
-
-function assertExactKeys(value: unknown, expected: readonly string[], label: string): void {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`)
-  }
-  const actual = Object.keys(value).sort()
-  const wanted = [...expected].sort()
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
-    throw new Error(`${label} has unexpected or missing fields`)
   }
 }
