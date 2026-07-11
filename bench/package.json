@@ -1,8 +1,13 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "The unified benchmark suite for agent-runtime agents: 31 adapters (commit0, enterpriseops-gym, ragbench, crag, nomiracl, open-rag-bench, t2-ragbench, tau3-banking, bfcl, finresearchbench, …) behind one resolveAdapter registry, each with a real judge or fail-loud unsupported scorer. Score any profile/skill/prompt change against them. Map: bench/HARNESS.md.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangle-network/agent-runtime.git",
+    "directory": "bench"
+  },
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
