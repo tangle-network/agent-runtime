@@ -137,6 +137,8 @@ export interface CliWorktreeSeam {
   harnessTimeoutMs?: number
   /** Isolated, network-off Codex execution with terminal JSONL usage capture. */
   codexReproducible?: boolean
+  /** Absolute host paths denied to reproducible Codex. */
+  codexReadDeniedPaths?: ReadonlyArray<string>
   testCmd?: string
   typecheckCmd?: string
   checkTimeoutMs?: number
@@ -1517,6 +1519,7 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
     ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
     ...(seam.codexReproducible ? { codexReproducible: true } : {}),
+    ...(seam.codexReadDeniedPaths ? { codexReadDeniedPaths: seam.codexReadDeniedPaths } : {}),
     ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
     ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
     ...(seam.checkTimeoutMs !== undefined ? { checkTimeoutMs: seam.checkTimeoutMs } : {}),

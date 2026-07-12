@@ -18,11 +18,23 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
-import { access, chmod, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { constants, createReadStream } from 'node:fs'
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 
 /** Local coding harness available inside the sandbox. */
@@ -236,6 +248,9 @@ export interface RunLocalHarnessOptions {
   /** Isolate Codex from ambient configuration/instructions and require JSONL token usage.
    *  The invocation should come from `harnessInvocation(..., { codexReproducible: true })`. */
   codexReproducible?: boolean
+  /** Absolute host paths that reproducible Codex must not read. The normalized set is compiled
+   *  into the controlled permission profile and its digest is returned in execution evidence. */
+  codexReadDeniedPaths?: ReadonlyArray<string>
   /** Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry. */
   timeoutMs?: number
   /** Caller cancellation. SIGTERM is sent on abort. */
@@ -253,8 +268,11 @@ export interface RunLocalHarnessOptions {
       cwd: string
       env: NodeJS.ProcessEnv
       stdio: 'pipe'
+      detached: boolean
     },
   ) => ChildProcess
+  /** Test seam for locating the native Codex executable before it is staged in the worktree. */
+  resolveCodexExecutable?: (command: string, env: NodeJS.ProcessEnv) => Promise<string>
 }
 
 /** Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. */
@@ -284,18 +302,28 @@ export interface CodexExecutionPolicy {
   shellEnvironment: 'core-filtered'
   loginShell: false
   credentialsReadable: false
+  hostHomeReadable: false
+  procEnvironment: 'private-sanitized'
+  sensitiveEnvironmentNamesVisible: false
   parentRepoRead: false
   gitMetadata: false
   temporaryDirectory: 'workspace-private'
+  stagedExecutable: 'static-elf-read-only'
+  callerReadDeniedPaths: 'enforced'
   containerSockets: false
 }
 
 /** Zero-model-call evidence for the exact Codex process about to run. */
 export interface CodexExecutionEvidence {
   cliVersion: string
+  executableSha256: string
   effectivePromptSha256: string
   nonPromptArgsSha256: string
   controlledConfigSha256: string
+  /** Sorted normalized paths compiled into the permission profile. */
+  readDeniedPaths: string[]
+  readDeniedPathsSha256: string
+  readDeniedPathCount: number
   policy: CodexExecutionPolicy
 }
 
@@ -320,6 +348,7 @@ export interface LocalHarnessResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+const processKillGraceMs = 250
 
 /**
  * Spawn a local coding harness CLI as a subprocess + collect its output.
@@ -350,6 +379,9 @@ export async function runLocalHarness(
   if (options.codexReproducible && process.platform !== 'linux') {
     throw new Error('runLocalHarness: codexReproducible currently requires Linux')
   }
+  if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
+    throw new Error('runLocalHarness: codexReadDeniedPaths requires codexReproducible')
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const spawnImpl = options.spawn ?? spawn
 
@@ -359,24 +391,39 @@ export async function runLocalHarness(
   }
 
   const startedAt = Date.now()
-  const command = options.invocation?.command ?? invocation.command
+  const requestedCommand = options.invocation?.command ?? invocation.command
   const args = options.invocation
     ? [...options.invocation.args]
     : buildHarnessArgs(harness, taskPrompt, options)
-  if (options.codexReproducible) assertCodexReproducibleInvocation(command, args)
+  if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
 
   const baseEnv = options.env ?? process.env
   const isolated = options.codexReproducible
-    ? await isolateCodexHome(baseEnv, cwd)
+    ? await isolateCodexHome({
+        baseEnv,
+        cwd,
+        command: requestedCommand,
+        readDeniedPaths: options.codexReadDeniedPaths ?? [],
+        resolveExecutable: options.resolveCodexExecutable ?? resolveCodexNativeExecutable,
+      })
     : {
         env: baseEnv,
+        command: requestedCommand,
         cleanup: async () => undefined,
         controlledConfigSha256: '',
+        executableSha256: '',
+        readDeniedPathsSha256: '',
+        readDeniedPathCount: 0,
+        readDeniedPaths: [] as string[],
         ambientAuth: '',
         isolatedAuth: '',
         writeProbe: '',
+        stagedWriteProbe: '',
+        deniedProbePaths: [] as string[],
       }
   const env = isolated.env
+  const command = isolated.command
+  if (options.codexReproducible) assertCodexReproducibleInvocation(command, args)
 
   try {
     const evidence = options.codexReproducible
@@ -387,16 +434,27 @@ export async function runLocalHarness(
           env,
           spawn: spawnImpl,
           controlledConfigSha256: isolated.controlledConfigSha256,
+          executableSha256: isolated.executableSha256,
+          readDeniedPathsSha256: isolated.readDeniedPathsSha256,
+          readDeniedPathCount: isolated.readDeniedPathCount,
+          readDeniedPaths: isolated.readDeniedPaths,
           ambientAuth: isolated.ambientAuth,
           isolatedAuth: isolated.isolatedAuth,
           writeProbe: isolated.writeProbe,
+          stagedWriteProbe: isolated.stagedWriteProbe,
+          deniedProbePaths: isolated.deniedProbePaths,
           ...(options.signal ? { signal: options.signal } : {}),
         })
       : undefined
     return await new Promise<LocalHarnessResult>((resolve, reject) => {
       let child: ChildProcess
       try {
-        child = spawnImpl(command, args, { cwd, env, stdio: 'pipe' })
+        child = spawnImpl(command, args, {
+          cwd,
+          env,
+          stdio: 'pipe',
+          detached: process.platform !== 'win32',
+        })
       } catch (err) {
         reject(err instanceof Error ? err : new Error(String(err)))
         return
@@ -413,12 +471,22 @@ export async function runLocalHarness(
       let stderr = ''
       let timedOut = false
       let settled = false
+      let forceKillTimer: ReturnType<typeof setTimeout> | null = null
+      let terminationStarted = false
+
+      const terminate = () => {
+        if (terminationStarted) return
+        terminationStarted = true
+        signalProcessTree(child, 'SIGTERM')
+        forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
+        forceKillTimer.unref?.()
+      }
 
       const timer =
         timeoutMs > 0
           ? setTimeout(() => {
               timedOut = true
-              if (!child.killed) child.kill('SIGTERM')
+              terminate()
             }, timeoutMs)
           : null
       if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
@@ -426,7 +494,7 @@ export async function runLocalHarness(
       }
 
       const onAbort = () => {
-        if (!child.killed) child.kill('SIGTERM')
+        terminate()
       }
       if (options.signal) {
         if (options.signal.aborted) onAbort()
@@ -444,6 +512,7 @@ export async function runLocalHarness(
         if (settled) return
         settled = true
         if (timer) clearTimeout(timer)
+        if (forceKillTimer) clearTimeout(forceKillTimer)
         options.signal?.removeEventListener('abort', onAbort)
         resolve(result)
       }
@@ -452,6 +521,7 @@ export async function runLocalHarness(
         if (settled) return
         settled = true
         if (timer) clearTimeout(timer)
+        if (forceKillTimer) clearTimeout(forceKillTimer)
         options.signal?.removeEventListener('abort', onAbort)
         reject(err)
       })
@@ -473,6 +543,7 @@ export async function runLocalHarness(
           if (settled) return
           settled = true
           if (timer) clearTimeout(timer)
+          if (forceKillTimer) clearTimeout(forceKillTimer)
           options.signal?.removeEventListener('abort', onAbort)
           reject(err instanceof Error ? err : new Error(String(err)))
         }
@@ -501,9 +572,14 @@ const CODEX_EXECUTION_POLICY: CodexExecutionPolicy = {
   shellEnvironment: 'core-filtered',
   loginShell: false,
   credentialsReadable: false,
+  hostHomeReadable: false,
+  procEnvironment: 'private-sanitized',
+  sensitiveEnvironmentNamesVisible: false,
   parentRepoRead: false,
   gitMetadata: false,
   temporaryDirectory: 'workspace-private',
+  stagedExecutable: 'static-elf-read-only',
+  callerReadDeniedPaths: 'enforced',
   containerSockets: false,
 }
 
@@ -523,9 +599,15 @@ async function collectCodexExecutionEvidence(opts: {
   env: NodeJS.ProcessEnv
   spawn: NonNullable<RunLocalHarnessOptions['spawn']>
   controlledConfigSha256: string
+  readDeniedPaths: string[]
+  executableSha256: string
+  readDeniedPathsSha256: string
+  readDeniedPathCount: number
   ambientAuth: string
   isolatedAuth: string
   writeProbe: string
+  stagedWriteProbe: string
+  deniedProbePaths: string[]
   signal?: AbortSignal
 }): Promise<CodexExecutionEvidence> {
   assertCodexReproducibleInvocation(opts.command, opts.args)
@@ -551,11 +633,16 @@ async function collectCodexExecutionEvidence(opts: {
   const sandboxProof = [
     hiddenEnvironmentChecks,
     'test -r .',
+    '! test -r .git',
     'touch "$1"',
     'rm "$1"',
-    '! test -r "$2"',
-    '! test -r "$3"',
-    '! test -r "$4"',
+    'staged_dir=$(dirname "$2")',
+    'test -x "$staged_dir/codex"',
+    '! chmod 700 "$staged_dir" 2>/dev/null',
+    '! rm "$staged_dir/codex" 2>/dev/null',
+    '! touch "$2" 2>/dev/null',
+    'shift 2',
+    'for path in "$@"; do ! test -r "$path" || exit 1; done',
     'touch "$TMPDIR/.agent-runtime-tmp-proof"',
     'rm "$TMPDIR/.agent-runtime-tmp-proof"',
   ].join(' && ')
@@ -570,9 +657,24 @@ async function collectCodexExecutionEvidence(opts: {
     sandboxProof,
     'sh',
     opts.writeProbe,
-    opts.ambientAuth,
-    opts.isolatedAuth,
-    join(homedir(), 'code'),
+    opts.stagedWriteProbe,
+    ...opts.deniedProbePaths,
+  ])
+  await runCodexProbe(opts, [
+    'sandbox',
+    '-P',
+    CODEX_PERMISSION_PROFILE,
+    '-C',
+    opts.cwd,
+    'python3',
+    '-c',
+    `import os,re
+pattern=re.compile(br'(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE|CODEX_HOME)', re.I)
+paths=('/proc/1/environ', '/proc/self/environ', f'/proc/{os.getppid()}/environ')
+for path in dict.fromkeys(paths):
+ data=open(path,'rb').read().split(b'\\0')
+ names=(item.split(b'=',1)[0] for item in data if b'=' in item)
+ assert not any(pattern.search(name) for name in names), path`,
   ])
   await runCodexProbe(opts, [
     'sandbox',
@@ -613,14 +715,18 @@ async function collectCodexExecutionEvidence(opts: {
   }
 
   const nonPromptArgs = [
-    opts.command,
+    'codex',
     ...opts.args.map((arg, index) => (index === 1 ? '<PROMPT>' : arg)),
   ]
   return {
     cliVersion,
+    executableSha256: opts.executableSha256,
     effectivePromptSha256: sha256(renderedPrompt),
     nonPromptArgsSha256: sha256(JSON.stringify(nonPromptArgs)),
     controlledConfigSha256: opts.controlledConfigSha256,
+    readDeniedPathsSha256: opts.readDeniedPathsSha256,
+    readDeniedPathCount: opts.readDeniedPathCount,
+    readDeniedPaths: [...opts.readDeniedPaths],
     policy: { ...CODEX_EXECUTION_POLICY },
   }
 }
@@ -686,7 +792,12 @@ function runCodexProbe(
   return new Promise((resolve, reject) => {
     let child: ChildProcess
     try {
-      child = opts.spawn(opts.command, args, { cwd: opts.cwd, env: opts.env, stdio: 'pipe' })
+      child = opts.spawn(opts.command, args, {
+        cwd: opts.cwd,
+        env: opts.env,
+        stdio: 'pipe',
+        detached: process.platform !== 'win32',
+      })
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)))
       return
@@ -695,12 +806,19 @@ function runCodexProbe(
     let stdout = ''
     let stderr = ''
     let settled = false
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null
     const timer = setTimeout(() => {
-      if (!child.killed) child.kill('SIGTERM')
+      signalProcessTree(child, 'SIGTERM')
+      forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
+      forceKillTimer.unref?.()
     }, 10_000)
     timer.unref?.()
     const onAbort = () => {
-      if (!child.killed) child.kill('SIGTERM')
+      signalProcessTree(child, 'SIGTERM')
+      if (!forceKillTimer) {
+        forceKillTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), processKillGraceMs)
+        forceKillTimer.unref?.()
+      }
     }
     if (opts.signal) {
       if (opts.signal.aborted) onAbort()
@@ -716,6 +834,7 @@ function runCodexProbe(
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (forceKillTimer) clearTimeout(forceKillTimer)
       opts.signal?.removeEventListener('abort', onAbort)
       reject(err)
     })
@@ -723,6 +842,7 @@ function runCodexProbe(
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (forceKillTimer) clearTimeout(forceKillTimer)
       opts.signal?.removeEventListener('abort', onAbort)
       if (code !== 0) {
         const safeStderr = redactCodexHome(stderr, opts.env.CODEX_HOME)
@@ -765,63 +885,160 @@ function redactJsonText(value: unknown, text: string): unknown {
 }
 
 const CODEX_AUTH_ENV = ['CODEX_ACCESS_TOKEN', 'CODEX_API_KEY', 'OPENAI_API_KEY'] as const
+const sensitiveEnvironmentName = /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE)/i
 
 const CODEX_PERMISSION_PROFILE = 'agent_runtime_reproducible'
 
-async function isolateCodexHome(
-  baseEnv: NodeJS.ProcessEnv,
-  cwd: string,
-): Promise<{
+async function isolateCodexHome(opts: {
+  baseEnv: NodeJS.ProcessEnv
+  cwd: string
+  command: string
+  readDeniedPaths: ReadonlyArray<string>
+  resolveExecutable: (command: string, env: NodeJS.ProcessEnv) => Promise<string>
+}): Promise<{
   env: NodeJS.ProcessEnv
+  command: string
   cleanup: () => Promise<void>
   controlledConfigSha256: string
+  executableSha256: string
+  readDeniedPaths: string[]
+  readDeniedPathsSha256: string
+  readDeniedPathCount: number
   ambientAuth: string
   isolatedAuth: string
   writeProbe: string
+  stagedWriteProbe: string
+  deniedProbePaths: string[]
 }> {
   const isolatedHome = await mkdtemp(join(tmpdir(), 'agent-runtime-codex-'))
   await chmod(isolatedHome, 0o700)
   let workspaceTemp = ''
-  const writeProbe = join(cwd, '.agent-runtime-sandbox-write-proof')
+  let stagedExecutableDir = ''
+  let ownsStagedExecutableDir = false
+  let writeProbe = ''
   const cleanup = async () => {
+    if (ownsStagedExecutableDir) {
+      await chmod(stagedExecutableDir, 0o700).catch(() => undefined)
+    }
     await Promise.all([
-      rm(writeProbe, { force: true }),
+      ...(writeProbe ? [rm(writeProbe, { force: true })] : []),
       ...(workspaceTemp ? [rm(workspaceTemp, { recursive: true, force: true })] : []),
+      ...(ownsStagedExecutableDir
+        ? [rm(stagedExecutableDir, { recursive: true, force: true })]
+        : []),
       rm(isolatedHome, { recursive: true, force: true }),
     ])
   }
   try {
-    workspaceTemp = await mkdtemp(join(cwd, '.agent-runtime-tmp-'))
+    const readDeniedPaths = await normalizeReadDeniedPaths(opts.readDeniedPaths)
+    const candidateRoot = await realpath(opts.cwd)
+    writeProbe = join(candidateRoot, `.agent-runtime-write-proof-${randomUUID()}`)
+    const stagedPath = join(candidateRoot, '.agent-runtime-bin')
+    if (
+      readDeniedPaths.some(
+        (path) =>
+          isSameOrDescendant(candidateRoot, path) ||
+          isSameOrDescendant(stagedPath, path) ||
+          isSameOrDescendant(path, stagedPath),
+      )
+    ) {
+      throw new Error(
+        'runLocalHarness: codexReadDeniedPaths cannot contain the candidate root or staged executable',
+      )
+    }
+    const nativeExecutable = await opts.resolveExecutable(opts.command, opts.baseEnv)
+    if (!(await isStaticElfExecutable(nativeExecutable))) {
+      throw new Error(
+        'runLocalHarness: reproducible Codex mode requires a statically linked Linux Codex ELF',
+      )
+    }
+    const sourceExecutableSha256 = await sha256File(nativeExecutable)
+
+    stagedExecutableDir = stagedPath
+    try {
+      await mkdir(stagedExecutableDir, { mode: 0o700 })
+      ownsStagedExecutableDir = true
+    } catch (err) {
+      throw new Error(
+        `runLocalHarness: candidate-private .agent-runtime-bin must not already exist: ${String((err as NodeJS.ErrnoException).code ?? err)}`,
+      )
+    }
+    const stagedExecutable = join(stagedExecutableDir, 'codex')
+    await copyFile(nativeExecutable, stagedExecutable, constants.COPYFILE_FICLONE)
+    await chmod(stagedExecutable, 0o500)
+    const executableSha256 = await sha256File(stagedExecutable)
+    if (
+      executableSha256 !== sourceExecutableSha256 ||
+      !(await isStaticElfExecutable(stagedExecutable))
+    ) {
+      throw new Error('runLocalHarness: staged Codex executable digest mismatch')
+    }
+    await chmod(stagedExecutableDir, 0o500)
+
+    workspaceTemp = await mkdtemp(join(candidateRoot, '.agent-runtime-tmp-'))
     await chmod(workspaceTemp, 0o700)
-    const ambientHome = baseEnv.CODEX_HOME?.trim() || join(homedir(), '.codex')
+    const ambientHome = resolve(opts.baseEnv.CODEX_HOME?.trim() || join(homedir(), '.codex'))
     const ambientAuth = join(ambientHome, 'auth.json')
     const isolatedAuth = join(isolatedHome, 'auth.json')
-    let linkedAuth = false
     try {
       await access(ambientAuth, constants.R_OK)
       await symlink(ambientAuth, isolatedAuth)
-      linkedAuth = true
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-    }
-    if (!linkedAuth && !CODEX_AUTH_ENV.some((name) => Boolean(baseEnv[name]))) {
       throw new Error(
-        'runLocalHarness: reproducible Codex mode requires readable auth.json or an API token environment variable',
+        `runLocalHarness: reproducible Codex mode requires readable auth.json: ${String((err as NodeJS.ErrnoException).code ?? err)}`,
       )
     }
+    const deniedHostRoots = [homedir(), opts.baseEnv.HOME?.trim(), ambientHome]
+      .filter((path): path is string => Boolean(path))
+      .map((path) => resolve(path))
+      .filter((path, index, paths) => paths.indexOf(path) === index)
     const controlledConfig = codexControlledConfig({
-      ambientHome,
-      ambientTmp: baseEnv.TMPDIR?.trim() || tmpdir(),
+      ambientTmp: opts.baseEnv.TMPDIR?.trim() || tmpdir(),
+      deniedHostRoots,
       workspaceTemp,
+      stagedExecutableDir,
+      readDeniedPaths,
     })
     await writeFile(join(isolatedHome, 'config.toml'), controlledConfig, { mode: 0o600 })
+    const env = { ...opts.baseEnv }
+    for (const name of Object.keys(env)) {
+      if (
+        sensitiveEnvironmentName.test(name) ||
+        CODEX_AUTH_ENV.some((authName) => authName === name)
+      ) {
+        delete env[name]
+      }
+    }
+    env.CODEX_HOME = isolatedHome
+    const home = homedir()
+    const deniedProbePaths = [
+      ...deniedHostRoots,
+      ambientAuth,
+      isolatedAuth,
+      join(home, '.claude', '.credentials.json'),
+      join(home, '.claude.json'),
+      join(home, '.local', 'share', 'opencode', 'auth.json'),
+      join(home, '.agents'),
+      join(home, 'Documents'),
+      join(home, 'Downloads'),
+      join(home, '.npm'),
+      join(home, 'code'),
+      ...readDeniedPaths,
+    ].filter((path, index, paths) => paths.indexOf(path) === index)
     return {
-      env: { ...baseEnv, CODEX_HOME: isolatedHome },
+      env,
+      command: stagedExecutable,
       cleanup,
       controlledConfigSha256: sha256(controlledConfig),
+      executableSha256,
+      readDeniedPaths,
+      readDeniedPathsSha256: sha256(JSON.stringify(readDeniedPaths)),
+      readDeniedPathCount: readDeniedPaths.length,
       ambientAuth,
       isolatedAuth,
       writeProbe,
+      stagedWriteProbe: join(stagedExecutableDir, 'write-proof'),
+      deniedProbePaths,
     }
   } catch (err) {
     await cleanup()
@@ -830,35 +1047,34 @@ async function isolateCodexHome(
 }
 
 function codexControlledConfig(opts: {
-  ambientHome: string
   ambientTmp: string
+  deniedHostRoots: string[]
   workspaceTemp: string
+  stagedExecutableDir: string
+  readDeniedPaths: string[]
 }): string {
-  const home = homedir()
-  const deniedPaths = [
-    opts.ambientHome,
+  const rules = new Map<string, 'deny' | 'read' | 'write'>()
+  const broadDeniedPaths = minimalPathRoots([
+    ...opts.deniedHostRoots.map((path) => resolve(path)),
+    tmpdir(),
     opts.ambientTmp,
-    join(home, 'code'),
-    join(home, 'company'),
-    join(home, '.ssh'),
-    join(home, '.aws'),
-    join(home, '.config'),
-    join(home, '.cache'),
-    join(home, '.docker'),
-    join(home, '.kube'),
-    join(home, '.gnupg'),
-    join(home, '.pki'),
-    join(home, '.npmrc'),
-    join(home, '.netrc'),
-    join(home, '.git-credentials'),
+    '/proc',
     '/run/docker',
     '/run/containerd',
-    opts.workspaceTemp,
-  ]
-  const filesystemRules = deniedPaths
-    .map(
-      (path) => `${JSON.stringify(path)} = ${path === opts.workspaceTemp ? '"write"' : '"deny"'}`,
-    )
+  ])
+  for (const path of broadDeniedPaths) {
+    rules.set(path, 'deny')
+  }
+  const workspaceRoot = dirname(opts.workspaceTemp)
+  for (const path of opts.readDeniedPaths) {
+    const alreadyDenied = broadDeniedPaths.some((root) => isSameOrDescendant(path, root))
+    if (!alreadyDenied || isSameOrDescendant(path, workspaceRoot)) rules.set(path, 'deny')
+  }
+  if (!rules.has(opts.workspaceTemp)) rules.set(opts.workspaceTemp, 'write')
+  if (!rules.has(opts.stagedExecutableDir)) rules.set(opts.stagedExecutableDir, 'read')
+  const filesystemRules = [...rules]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([path, access]) => `${JSON.stringify(path)} = ${JSON.stringify(access)}`)
     .join('\n')
   return `default_permissions = "${CODEX_PERMISSION_PROFILE}"
 approval_policy = "never"
@@ -871,15 +1087,14 @@ ignore_default_excludes = false
 exclude = ["^CODEX_HOME$", "(?i).*TOKEN.*", "(?i).*KEY.*", "(?i).*SECRET.*", "(?i).*PASSWORD.*", "(?i).*CREDENTIAL.*", "(?i).*AUTH.*", "(?i).*COOKIE.*"]
 set = { TMPDIR = ${JSON.stringify(opts.workspaceTemp)} }
 
-[permissions.${CODEX_PERMISSION_PROFILE}]
-extends = ":workspace"
-
 [permissions.${CODEX_PERMISSION_PROFILE}.filesystem]
+":minimal" = "read"
 ${filesystemRules}
 ":slash_tmp" = "deny"
 
 [permissions.${CODEX_PERMISSION_PROFILE}.filesystem.":workspace_roots"]
 "." = "write"
+".git" = "deny"
 
 [permissions.${CODEX_PERMISSION_PROFILE}.network]
 enabled = false
@@ -890,6 +1105,198 @@ enabled = false
 "/var/run/containerd/containerd.sock" = "deny"
 "/run/containerd/containerd.sock" = "deny"
 `
+}
+
+function isSameOrDescendant(path: string, root: string): boolean {
+  const normalizedPath = resolve(path)
+  const normalizedRoot = resolve(root)
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}${sep}`)
+}
+
+function minimalPathRoots(paths: ReadonlyArray<string>): string[] {
+  const ordered = [...new Set(paths.map((path) => resolve(path)))].sort(
+    (a, b) => a.length - b.length || a.localeCompare(b),
+  )
+  return ordered.filter(
+    (path, index) => !ordered.slice(0, index).some((root) => isSameOrDescendant(path, root)),
+  )
+}
+
+async function normalizeReadDeniedPaths(paths: ReadonlyArray<string>): Promise<string[]> {
+  if (!Array.isArray(paths)) {
+    throw new Error('runLocalHarness: codexReadDeniedPaths must be an array of absolute paths')
+  }
+  const normalized = new Set<string>()
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.length === 0 || path.includes('\0') || !isAbsolute(path)) {
+      throw new Error('runLocalHarness: codexReadDeniedPaths must contain absolute paths')
+    }
+    const absolute = resolve(path)
+    normalized.add(absolute)
+    try {
+      normalized.add(await realpath(absolute))
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+  }
+  return [...normalized].sort()
+}
+
+async function resolveCodexNativeExecutable(
+  command: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string> {
+  const candidates =
+    command.includes(sep) || isAbsolute(command)
+      ? [resolve(command)]
+      : (env.PATH ?? '')
+          .split(delimiter)
+          .filter(Boolean)
+          .map((entry) => join(entry, command))
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    let resolved: string
+    try {
+      await access(candidate, constants.X_OK)
+      resolved = await realpath(candidate)
+    } catch {
+      continue
+    }
+    if (seen.has(resolved)) continue
+    seen.add(resolved)
+    if (await isStaticElfExecutable(resolved)) return resolved
+    const packageRoot = await findCodexPackageRoot(resolved)
+    if (!packageRoot) continue
+    const bundled = await findBundledCodexExecutable(packageRoot)
+    if (bundled) return bundled
+  }
+  throw new Error(
+    'runLocalHarness: could not resolve the native Codex executable from the requested command',
+  )
+}
+
+async function findCodexPackageRoot(file: string): Promise<string | undefined> {
+  let cursor = dirname(file)
+  while (true) {
+    try {
+      const parsed = JSON.parse(await readFile(join(cursor, 'package.json'), 'utf8')) as {
+        name?: unknown
+      }
+      if (parsed.name === '@openai/codex') return cursor
+    } catch {
+      // Keep walking; PATH wrappers commonly live outside the package directory.
+    }
+    const parent = dirname(cursor)
+    if (parent === cursor) return undefined
+    cursor = parent
+  }
+}
+
+async function findBundledCodexExecutable(packageRoot: string): Promise<string | undefined> {
+  const target = linuxCodexTarget()
+  const candidates = [
+    join(
+      packageRoot,
+      'node_modules',
+      '@openai',
+      target.packageName,
+      'vendor',
+      target.triple,
+      'bin',
+      'codex',
+    ),
+    join(packageRoot, 'vendor', target.triple, 'bin', 'codex'),
+  ]
+  for (const executable of candidates) {
+    if (await isStaticElfExecutable(executable)) return executable
+  }
+  return undefined
+}
+
+function linuxCodexTarget(): { packageName: string; triple: string } {
+  if (process.platform !== 'linux') {
+    throw new Error('runLocalHarness: reproducible Codex mode requires Linux')
+  }
+  if (process.arch === 'x64') {
+    return { packageName: 'codex-linux-x64', triple: 'x86_64-unknown-linux-musl' }
+  }
+  if (process.arch === 'arm64') {
+    return { packageName: 'codex-linux-arm64', triple: 'aarch64-unknown-linux-musl' }
+  }
+  throw new Error(`runLocalHarness: unsupported Linux architecture ${process.arch}`)
+}
+
+async function isStaticElfExecutable(path: string): Promise<boolean> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    await access(path, constants.X_OK)
+    handle = await open(path, 'r')
+    const header = Buffer.alloc(64)
+    const { bytesRead } = await handle.read(header, 0, header.length, 0)
+    if (
+      bytesRead !== header.length ||
+      !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
+      header[4] !== 2 ||
+      header[5] !== 1
+    ) {
+      return false
+    }
+    const programHeaderOffset = Number(header.readBigUInt64LE(32))
+    const programHeaderSize = header.readUInt16LE(54)
+    const programHeaderCount = header.readUInt16LE(56)
+    const expectedMachine = process.arch === 'x64' ? 62 : process.arch === 'arm64' ? 183 : -1
+    if (
+      ![2, 3].includes(header.readUInt16LE(16)) ||
+      header.readUInt16LE(18) !== expectedMachine ||
+      !Number.isSafeInteger(programHeaderOffset) ||
+      programHeaderOffset < 64 ||
+      programHeaderSize < 56 ||
+      programHeaderSize > 1024 ||
+      programHeaderCount === 0 ||
+      programHeaderCount > 1024
+    ) {
+      return false
+    }
+    const tableSize = programHeaderSize * programHeaderCount
+    const table = Buffer.alloc(tableSize)
+    const tableRead = await handle.read(table, 0, tableSize, programHeaderOffset)
+    if (tableRead.bytesRead !== tableSize) return false
+    for (let index = 0; index < programHeaderCount; index += 1) {
+      const type = table.readUInt32LE(index * programHeaderSize)
+      if (type === 3) return false
+    }
+    return true
+  } catch {
+    return false
+  } finally {
+    await handle?.close()
+  }
+}
+
+function sha256File(path: string): Promise<string> {
+  return new Promise((resolveDigest, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('error', reject)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolveDigest(hash.digest('hex')))
+  })
+}
+
+function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (process.platform !== 'win32' && typeof child.pid === 'number') {
+    try {
+      process.kill(-child.pid, signal)
+      return
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return
+    }
+  }
+  try {
+    child.kill(signal)
+  } catch {
+    // The process may have exited between the timer and signal delivery.
+  }
 }
 
 /** Parse and validate the one terminal usage event emitted by `codex exec --json`. */

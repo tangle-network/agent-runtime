@@ -59,6 +59,9 @@ export interface WorktreeCliExecutorOptions {
   /** Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
    *  JSONL usage capture. Requires `harness: 'codex'`; metered by default. */
   codexReproducible?: boolean
+  /** Absolute host paths denied to reproducible Codex (for benchmark answer copies, credentials,
+   *  or other task-specific ambient state). */
+  codexReadDeniedPaths?: ReadonlyArray<string>
   /**
    * Shell command run in the live worktree to derive the tests-PASS signal (e.g. `pnpm test`).
    * Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal derived).
@@ -114,6 +117,11 @@ export function createWorktreeCliExecutor(
   if (options.codexReproducible && options.budgetExempt === true) {
     throw new ValidationError('createWorktreeCliExecutor: codexReproducible cannot be budgetExempt')
   }
+  if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
+    throw new ValidationError(
+      'createWorktreeCliExecutor: codexReadDeniedPaths requires codexReproducible',
+    )
+  }
 
   const runId = options.runId ?? randomUUID()
   const controller = new AbortController()
@@ -142,6 +150,9 @@ export function createWorktreeCliExecutor(
           ? { harnessTimeoutMs: options.harnessTimeoutMs }
           : {}),
         ...(options.codexReproducible ? { codexReproducible: true } : {}),
+        ...(options.codexReadDeniedPaths
+          ? { codexReadDeniedPaths: options.codexReadDeniedPaths }
+          : {}),
         ...(options.checkTimeoutMs !== undefined ? { checkTimeoutMs: options.checkTimeoutMs } : {}),
         ...(options.checkOutputCap !== undefined ? { checkOutputCap: options.checkOutputCap } : {}),
         ...(linked ? { signal: linked } : {}),

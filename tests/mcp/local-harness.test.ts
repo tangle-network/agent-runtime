@@ -1,6 +1,16 @@
 import type { ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/sandbox'
@@ -45,6 +55,24 @@ function makeFakeChild(opts: {
   return emitter
 }
 
+function makeStaticElfFixture(directory: string): string {
+  const path = join(directory, 'codex-static-fixture')
+  const elf = Buffer.alloc(120)
+  Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(elf)
+  elf[4] = 2
+  elf[5] = 1
+  elf.writeUInt16LE(3, 16)
+  elf.writeUInt16LE(process.arch === 'arm64' ? 183 : 62, 18)
+  elf.writeBigUInt64LE(64n, 32)
+  elf.writeUInt16LE(64, 52)
+  elf.writeUInt16LE(56, 54)
+  elf.writeUInt16LE(1, 56)
+  elf.writeUInt32LE(1, 64)
+  writeFileSync(path, elf)
+  chmodSync(path, 0o700)
+  return path
+}
+
 describe('runLocalHarness', () => {
   it('runs the harness, captures stdout + stderr, returns exit code', async () => {
     const result = await runLocalHarness({
@@ -73,6 +101,10 @@ describe('runLocalHarness', () => {
 
   it('isolates Codex, proves the effective prompt, and captures terminal JSONL usage', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+    writeFileSync(join(authHome, 'auth.json'), '{}')
+    const staticCodex = makeStaticElfFixture(cwd)
+    const deniedGold = '/usr/lib/python3/dist-packages/oauthlib'
     const profile: AgentProfile = {
       name: 'reproducible',
       prompt: { systemPrompt: 'SYS', instructions: ['RULE ONE', 'RULE TWO'] },
@@ -86,15 +118,30 @@ describe('runLocalHarness', () => {
       (
         _command: string,
         args: ReadonlyArray<string>,
-        opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'pipe' },
+        opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'pipe'; detached: boolean },
       ) => {
         isolatedHome = opts.env.CODEX_HOME ?? ''
+        expect(_command).toBe(join(cwd, '.agent-runtime-bin', 'codex'))
         expect(existsSync(isolatedHome)).toBe(true)
+        expect(opts.detached).toBe(process.platform !== 'win32')
+        expect(opts.env.OPENAI_API_KEY).toBeUndefined()
         if (args[0] === '--version') {
           return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
         }
         if (args[0] === 'sandbox') {
           expect(args).toContain('agent_runtime_reproducible')
+          const config = readFileSync(join(isolatedHome, 'config.toml'), 'utf8')
+          expect(config).toContain('":minimal" = "read"')
+          expect(config).not.toContain('extends = ":workspace"')
+          expect(config).toContain(`${JSON.stringify(deniedGold)} = "deny"`)
+          expect(config).toContain('"/proc" = "deny"')
+          expect(config).toContain('".git" = "deny"')
+          expect(config).not.toContain(`${JSON.stringify(authHome)} = "deny"`)
+          const probe = args[7]
+          if (typeof probe === 'string' && probe.includes('/proc/1/environ')) {
+            expect(probe).toContain('/proc/self/environ')
+            expect(probe).toContain('os.getppid()')
+          }
           return makeFakeChild({ exitCode: 0 })
         }
         if (args[0] === 'debug') {
@@ -132,11 +179,13 @@ describe('runLocalHarness', () => {
       taskPrompt: 'task',
       invocation,
       codexReproducible: true,
-      env: { CODEX_HOME: '/definitely/missing', OPENAI_API_KEY: 'test-only' },
+      codexReadDeniedPaths: [deniedGold],
+      env: { CODEX_HOME: authHome, OPENAI_API_KEY: 'must-not-reach-child' },
       spawn: spawnSpy,
+      resolveCodexExecutable: async () => staticCodex,
     })
 
-    expect(spawnSpy).toHaveBeenCalledTimes(5)
+    expect(spawnSpy).toHaveBeenCalledTimes(6)
     expect(isolatedHome).toMatch(/agent-runtime-codex-/)
     expect(existsSync(isolatedHome)).toBe(false)
     expect(result.stderr).toContain('<ISOLATED_CODEX_HOME>/auth.json')
@@ -148,9 +197,18 @@ describe('runLocalHarness', () => {
       reasoningOutputTokens: 191,
     })
     expect(result.evidence?.cliVersion).toBe('codex-cli 0.144.1')
+    expect(result.evidence?.executableSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.evidence?.effectivePromptSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.evidence?.nonPromptArgsSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.evidence?.controlledConfigSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.readDeniedPathsSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.readDeniedPathCount).toBe(1)
+    expect(result.evidence?.readDeniedPaths).toEqual([deniedGold])
+    expect(result.evidence?.readDeniedPathsSha256).toBe(
+      createHash('sha256')
+        .update(JSON.stringify([deniedGold]))
+        .digest('hex'),
+    )
     expect(result.evidence?.policy).toEqual({
       sessionPersistence: 'ephemeral',
       userConfig: false,
@@ -169,18 +227,27 @@ describe('runLocalHarness', () => {
       shellEnvironment: 'core-filtered',
       loginShell: false,
       credentialsReadable: false,
+      hostHomeReadable: false,
+      procEnvironment: 'private-sanitized',
+      sensitiveEnvironmentNamesVisible: false,
       parentRepoRead: false,
       gitMetadata: false,
       temporaryDirectory: 'workspace-private',
+      stagedExecutable: 'static-elf-read-only',
+      callerReadDeniedPaths: 'enforced',
       containerSockets: false,
     })
     expect(existsSync(cwd)).toBe(true)
     expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
     rmSync(cwd, { recursive: true, force: true })
+    rmSync(authHome, { recursive: true, force: true })
   })
 
   it('rejects a reproducible Codex result without exactly one terminal usage event', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+    writeFileSync(join(authHome, 'auth.json'), '{}')
+    const staticCodex = makeStaticElfFixture(cwd)
     const profile: AgentProfile = {
       name: 'reproducible',
       model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
@@ -195,7 +262,8 @@ describe('runLocalHarness', () => {
         taskPrompt: 'task',
         invocation,
         codexReproducible: true,
-        env: { CODEX_HOME: '/definitely/missing', OPENAI_API_KEY: 'test-only' },
+        env: { CODEX_HOME: authHome },
+        resolveCodexExecutable: async () => staticCodex,
         spawn: (_command, args) => {
           if (args[0] === '--version') {
             return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
@@ -221,6 +289,131 @@ describe('runLocalHarness', () => {
         },
       }),
     ).rejects.toThrow(/exactly one Codex turn\.completed usage event/)
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(authHome, { recursive: true, force: true })
+  })
+
+  it('rejects caller read-denial paths outside reproducible Codex mode', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/requires codexReproducible/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('rejects relative caller read-denial paths before spawning Codex', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        codexReadDeniedPaths: ['relative/gold.py'],
+        resolveCodexExecutable: async () => '/bin/true',
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/must contain absolute paths/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('requires file-based Codex auth so credentials never enter the process environment', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const staticCodex = makeStaticElfFixture(cwd)
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        env: { CODEX_HOME: join(cwd, 'missing-auth'), OPENAI_API_KEY: 'must-not-be-used' },
+        resolveCodexExecutable: async () => staticCodex,
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/requires readable auth\.json/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('rejects a dynamically linked executable before any Codex probe or model call', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        resolveCodexExecutable: async () => '/bin/true',
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/statically linked Linux Codex ELF/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(existsSync(join(cwd, '.agent-runtime-bin'))).toBe(false)
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('does not overwrite or remove a candidate-owned .agent-runtime-bin directory', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const staticCodex = makeStaticElfFixture(cwd)
+    const stagedDirectory = join(cwd, '.agent-runtime-bin')
+    const marker = join(stagedDirectory, 'candidate-owned')
+    mkdirSync(stagedDirectory)
+    writeFileSync(marker, 'keep')
+    const invocation = harnessInvocation(
+      'codex',
+      { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+      'task',
+      { codexReproducible: true },
+    )
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        resolveCodexExecutable: async () => staticCodex,
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/\.agent-runtime-bin must not already exist/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+    expect(readFileSync(marker, 'utf8')).toBe('keep')
     rmSync(cwd, { recursive: true, force: true })
   })
 
@@ -250,6 +443,39 @@ describe('runLocalHarness', () => {
     const result = await promise
     expect(result.timedOut).toBe(true)
     expect(result.killedBySignal).toBe('SIGTERM')
+  })
+
+  it('SIGKILLs the entire process group when it ignores SIGTERM', async () => {
+    vi.useFakeTimers()
+    const child = makeFakeChild({
+      delayCloseMs: 10_000,
+      exitCode: 0,
+    })
+    Object.defineProperty(child, 'pid', { value: 43210 })
+    const processKill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      expect(pid).toBe(-43210)
+      if (signal === 'SIGKILL') child.emit('close', null, 'SIGKILL')
+      return true
+    })
+    try {
+      const promise = runLocalHarness({
+        harness: 'claude',
+        cwd: '/tmp/wt',
+        taskPrompt: 'ignore termination',
+        timeoutMs: 20,
+        spawn: () => child,
+      })
+      await vi.advanceTimersByTimeAsync(300)
+      const result = await promise
+      expect(result.timedOut).toBe(true)
+      expect(result.killedBySignal).toBe('SIGKILL')
+      expect(processKill).toHaveBeenNthCalledWith(1, -43210, 'SIGTERM')
+      expect(processKill).toHaveBeenNthCalledWith(2, -43210, 'SIGKILL')
+      expect(child.kill).not.toHaveBeenCalled()
+    } finally {
+      processKill.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   it('kills subprocess on AbortSignal', async () => {
