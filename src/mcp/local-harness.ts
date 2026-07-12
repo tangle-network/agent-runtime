@@ -23,6 +23,28 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 /** Local coding harness available inside the sandbox. */
 export type LocalHarness = 'claude' | 'codex' | 'opencode'
 
+type ReasoningEffort = NonNullable<NonNullable<AgentProfile['model']>['reasoningEffort']>
+
+const codexReasoningEffort: Record<ReasoningEffort, string> = {
+  none: 'none',
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  ultracode: 'xhigh',
+}
+
+function codexReasoningArgs(reasoningEffort: ReasoningEffort): string[] {
+  const mapped = codexReasoningEffort[reasoningEffort]
+  if (mapped === undefined) {
+    throw new Error(
+      `harnessInvocation: unsupported Codex reasoning effort ${String(reasoningEffort)}`,
+    )
+  }
+  return ['-c', `model_reasoning_effort="${mapped}"`]
+}
+
 /**
  * Default per-harness command + arg shape. `buildArgs` takes ONLY the task prompt and
  * emits the prompt-only invocation (no model, no system prompt) — the safe default shape
@@ -38,6 +60,8 @@ const HARNESS_INVOCATIONS: Record<
     buildArgs: (taskPrompt: string) => string[]
     /** Map a resolved model to the harness's model-selector flag. */
     modelArgs: (model: string) => string[]
+    /** Map portable reasoning effort when the harness exposes a native control. */
+    reasoningArgs?: (reasoningEffort: ReasoningEffort) => string[]
   }
 > = {
   claude: {
@@ -51,6 +75,7 @@ const HARNESS_INVOCATIONS: Record<
     command: 'codex',
     buildArgs: (taskPrompt) => ['exec', taskPrompt],
     modelArgs: (model) => ['-m', model],
+    reasoningArgs: codexReasoningArgs,
   },
   opencode: {
     command: 'opencode',
@@ -120,6 +145,11 @@ export function harnessInvocation(
   const model = profile.model?.default
   if (typeof model === 'string' && model.length > 0) {
     args.push(...invocation.modelArgs(model))
+  }
+
+  const reasoningEffort = profile.model?.reasoningEffort
+  if (reasoningEffort !== undefined && invocation.reasoningArgs) {
+    args.push(...invocation.reasoningArgs(reasoningEffort))
   }
 
   return { command: invocation.command, args }

@@ -201,9 +201,40 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('maps the complete Codex profile onto the noninteractive exec command', () => {
-    const inv = harnessInvocation('codex', profileWith('SYS', 'gpt-5.4'), 'task')
+    const inv = harnessInvocation(
+      'codex',
+      {
+        name: 'authored',
+        prompt: { systemPrompt: 'SYS' },
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      'task',
+    )
     expect(inv.command).toBe('codex')
-    expect(inv.args).toEqual(['exec', 'SYS\n\ntask', '-m', 'gpt-5.4'])
+    expect(inv.args).toEqual([
+      'exec',
+      'SYS\n\ntask',
+      '-m',
+      'gpt-5.4',
+      '-c',
+      'model_reasoning_effort="xhigh"',
+    ])
+  })
+
+  it('clamps the portable ultracode effort to Codex xhigh', () => {
+    const inv = harnessInvocation('codex', { model: { reasoningEffort: 'ultracode' } }, 'task')
+    expect(inv.args).toEqual(['exec', 'task', '-c', 'model_reasoning_effort="xhigh"'])
+  })
+
+  it('rejects an unknown Codex reasoning effort instead of emitting invalid config', () => {
+    expect(() =>
+      harnessInvocation(
+        'codex',
+        // @ts-expect-error testing runtime validation
+        { model: { reasoningEffort: 'unbounded' } },
+        'task',
+      ),
+    ).toThrow(/unsupported Codex reasoning effort unbounded/)
   })
 
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
