@@ -89,8 +89,15 @@ export {
   type FactJudgeVerdict,
   type KbGateResult,
 } from './kb-gate'
-export type { LocalHarness, LocalHarnessResult, RunLocalHarnessOptions } from './local-harness'
-export { runLocalHarness } from './local-harness'
+export type {
+  CodexExecutionEvidence,
+  CodexExecutionPolicy,
+  CodexTokenUsage,
+  LocalHarness,
+  LocalHarnessResult,
+  RunLocalHarnessOptions,
+} from './local-harness'
+export { parseCodexTokenUsage, runLocalHarness } from './local-harness'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
 export type {
   JsonRpcMessage,
