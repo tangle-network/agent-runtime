@@ -168,28 +168,37 @@ export async function runPyInJail(
   ]
   let code = 0
   let out = ''
-  try {
-    const r = await exec('docker', dockerArgs, { timeout: (T + 20) * 1000, killSignal: 'SIGKILL', maxBuffer: 20_000_000 })
-    out = r.stdout
-  } catch (e) {
-    const err = e as { code?: number; killed?: boolean; stdout?: string; message?: string }
-    if (typeof err.code === 'number') {
-      code = err.code
-      out = err.stdout ?? ''
-    } else {
-      exec('docker', ['rm', '-f', containerName], { timeout: 20_000 }).catch(() => {})
-      if (err.killed) {
+  // docker exit 125 (the daemon refused to start the container — transient resource pressure,
+  // a momentary daemon hiccup) is NOT a test result. Retry a few times with backoff before
+  // surfacing it as an infra error, so one bad daemon window can't nuke an instance (or, when it
+  // hits the canary of every instance in a fast error-loop, the whole stream).
+  for (let attempt = 0; ; attempt += 1) {
+    code = 0
+    out = ''
+    try {
+      const r = await exec('docker', dockerArgs, { timeout: (T + 20) * 1000, killSignal: 'SIGKILL', maxBuffer: 20_000_000 })
+      out = r.stdout
+    } catch (e) {
+      const err = e as { code?: number; killed?: boolean; stdout?: string; stderr?: string; message?: string }
+      if (typeof err.code === 'number') {
+        code = err.code
+        out = `${err.stdout ?? ''}${err.stderr ?? ''}`
+      } else if (err.killed) {
         code = 124
         out = `${err.stdout ?? ''}\n[host timeout: docker run exceeded ${T + 20}s and was killed]`
       } else {
+        rmSync(scriptDir, { recursive: true, force: true })
         return { code: -1, out: '', timedOut: false, infraError: `run failed to execute (${String(err.message ?? e).slice(0, 200)})` }
       }
     }
-  } finally {
-    rmSync(scriptDir, { recursive: true, force: true })
+    const transient = code === 125 || /Cannot connect to the Docker daemon|error creating overlay mount|no space left/i.test(out)
+    if (!transient || attempt >= 4) break
+    await exec('docker', ['rm', '-f', containerName], { timeout: 20_000 }).catch(() => {})
+    await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt))
   }
+  rmSync(scriptDir, { recursive: true, force: true })
   if (code === 125 || /Cannot connect to the Docker daemon/i.test(out)) {
-    return { code, out, timedOut: false, infraError: `docker: ${out.slice(0, 300)}` }
+    return { code, out, timedOut: false, infraError: `docker: ${out.slice(0, 300)} (persisted through 5 attempts)` }
   }
   return { code, out, timedOut: code === 124 || code === 137 }
 }
