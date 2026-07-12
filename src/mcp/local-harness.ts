@@ -731,10 +731,11 @@ for path in dict.fromkeys(paths):
   } catch {
     throw new Error('runLocalHarness: codex debug prompt-input returned invalid JSON')
   }
-  if (!Array.isArray(parsedPrompt) || !jsonTextContains(parsedPrompt, prompt)) {
+  const promptEvidenceText = normalizeCodexDebugPromptNewlines(prompt)
+  if (!Array.isArray(parsedPrompt) || !jsonTextContains(parsedPrompt, promptEvidenceText)) {
     throw new Error('runLocalHarness: Codex prompt evidence did not contain the exact task prompt')
   }
-  const promptContextWithoutTask = JSON.stringify(redactJsonText(parsedPrompt, prompt))
+  const promptContextWithoutTask = JSON.stringify(redactJsonText(parsedPrompt, promptEvidenceText))
   for (const marker of FORBIDDEN_CODEX_PROMPT_MARKERS) {
     if (promptContextWithoutTask.includes(marker)) {
       throw new Error(`runLocalHarness: Codex prompt evidence contains forbidden marker ${marker}`)
@@ -893,6 +894,11 @@ function runCodexProbe(
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex')
+}
+
+/** Codex's debug renderer converts CRLF pairs to LF. No other whitespace is equivalent. */
+function normalizeCodexDebugPromptNewlines(value: string): string {
+  return value.replaceAll('\r\n', '\n')
 }
 
 function jsonTextContains(value: unknown, needle: string): boolean {

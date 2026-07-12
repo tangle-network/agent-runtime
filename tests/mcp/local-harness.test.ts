@@ -148,6 +148,64 @@ async function captureReproducibleCodexFailure(opts: {
   throw new Error('expected reproducible Codex execution to fail')
 }
 
+async function runCodexPromptEvidenceFixture(
+  requestedPrompt: string,
+  renderPrompt: (prompt: string) => string,
+) {
+  const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-prompt-'))
+  const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+  writeFileSync(join(authHome, 'auth.json'), '{}')
+  const staticCodex = makeStaticElfFixture(cwd)
+  const profile: AgentProfile = {
+    name: 'reproducible',
+    model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+  }
+  const invocation = harnessInvocation('codex', profile, requestedPrompt, {
+    codexReproducible: true,
+  })
+  try {
+    return await runLocalHarness({
+      harness: 'codex',
+      cwd,
+      taskPrompt: requestedPrompt,
+      invocation,
+      codexReproducible: true,
+      env: { CODEX_HOME: authHome },
+      resolveCodexExecutable: async () => staticCodex,
+      spawn: (_command, args) => {
+        if (args[0] === '--version') {
+          return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
+        }
+        if (args[0] === 'sandbox') return makeFakeChild({ exitCode: 0 })
+        if (args[0] === 'debug') {
+          return makeFakeChild({
+            stdoutChunks: [
+              JSON.stringify([
+                {
+                  content: [
+                    {
+                      text: '<permissions instructions>x</permissions instructions><environment_context>x</environment_context>',
+                    },
+                  ],
+                },
+                { content: [{ text: renderPrompt(String(args.at(-1))) }] },
+              ]),
+            ],
+          })
+        }
+        return makeFakeChild({
+          stdoutChunks: [
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n',
+          ],
+        })
+      },
+    })
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(authHome, { recursive: true, force: true })
+  }
+}
+
 describe('runLocalHarness', () => {
   it('runs the harness, captures stdout + stderr, returns exit code', async () => {
     const result = await runLocalHarness({
@@ -182,7 +240,10 @@ describe('runLocalHarness', () => {
     const deniedGold = '/usr/lib/python3/dist-packages/oauthlib'
     const profile: AgentProfile = {
       name: 'reproducible',
-      prompt: { systemPrompt: 'SYS', instructions: ['RULE ONE', 'RULE TWO'] },
+      prompt: {
+        systemPrompt: 'SYS\r\nSECOND LINE',
+        instructions: ['RULE ONE', '# AGENTS.md instructions\r\nTASK-OWNED MARKER'],
+      },
       model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
     }
     const invocation = harnessInvocation('codex', profile, 'task', {
@@ -220,7 +281,7 @@ describe('runLocalHarness', () => {
           return makeFakeChild({ exitCode: 0 })
         }
         if (args[0] === 'debug') {
-          const prompt = args.at(-1)
+          const prompt = args.at(-1)?.replaceAll('\r\n', '\n')
           return makeFakeChild({
             stdoutChunks: [
               JSON.stringify([
@@ -273,7 +334,8 @@ describe('runLocalHarness', () => {
     })
     expect(result.evidence?.cliVersion).toBe('codex-cli 0.144.1')
     expect(result.evidence?.executableSha256).toMatch(/^[a-f0-9]{64}$/)
-    const composedPrompt = 'SYS\n\nRULE ONE\n\nRULE TWO\n\ntask'
+    const composedPrompt =
+      'SYS\r\nSECOND LINE\n\nRULE ONE\n\n# AGENTS.md instructions\r\nTASK-OWNED MARKER\n\ntask'
     expect(invocation.args[1]).toBe(composedPrompt)
     expect(result.evidence?.requestedPromptSha256).toBe(
       createHash('sha256').update(composedPrompt).digest('hex'),
@@ -322,6 +384,23 @@ describe('runLocalHarness', () => {
     expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
     rmSync(cwd, { recursive: true, force: true })
     rmSync(authHome, { recursive: true, force: true })
+  })
+
+  it.each([
+    {
+      name: 'lone carriage return',
+      prompt: 'alpha\rbravo',
+      render: (prompt: string) => prompt.replaceAll('\r', '\n'),
+    },
+    {
+      name: 'non-newline whitespace',
+      prompt: 'alpha  bravo',
+      render: (prompt: string) => prompt.replaceAll('  ', ' '),
+    },
+  ])('rejects a Codex prompt rewrite of $name', async ({ prompt, render }) => {
+    await expect(runCodexPromptEvidenceFixture(prompt, render)).rejects.toThrow(
+      /prompt evidence did not contain the exact task prompt/,
+    )
   })
 
   it('rejects a reproducible Codex result without exactly one terminal usage event', async () => {
