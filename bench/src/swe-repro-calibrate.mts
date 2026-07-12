@@ -33,9 +33,12 @@ import { createSweBenchEnvironment, resolveImageForMetadata } from './swe-bench-
 import {
   APPLY_SENTINEL,
   cachedInstanceIds,
+  extractReadRequests as extractReads,
+  extractReproScript as extractScript,
   IMPORT_NAME,
   importCanaryScript,
   type JailRun,
+  reproAuthorSystem,
   runPyInJail,
   tail,
   zaiChatRaw,
@@ -100,48 +103,10 @@ async function complete(messages: ChatMsg[]): Promise<Completion> {
 }
 
 // ---------- authoring protocol (one optional read round, plain-text READ: lines) ----------
+// The protocol constants/parsers now live in swe-jail.ts (shared with the stream driver);
+// behavior here is byte-identical to the in-file originals.
 
-const AUTHOR_SYSTEM =
-  'You are an expert Python engineer writing a REPRODUCTION script for a reported bug in an open-source repository.\n\n' +
-  'Contract for the script you produce:\n' +
-  '- A single self-contained Python file, executed as: python /repro/repro.py with cwd=/testbed, where /testbed is the ' +
-  "repository checkout. The project's own environment is active, so the repository package and its dependencies are importable.\n" +
-  '- Exit code 0 means the bug is FIXED. A nonzero exit (sys.exit(1), a failing assert, or an uncaught exception) means the ' +
-  'bug is PRESENT. The script must exercise the EXACT behavior described in the issue.\n' +
-  '- The repository tree is READ-ONLY: never modify, create, or delete files inside it. If you genuinely need a scratch ' +
-  'file, use the tempfile module (system tmp is writable).\n' +
-  `- No network access. Deterministic. Must finish well under ${REPRO_TIMEOUT_S} seconds.\n` +
-  "- Prefer plain Python with assert statements. Do not invoke the repository's test-suite runner and do not depend on " +
-  'pytest fixtures; importing the repository package directly is the way.\n' +
-  '- Print one short line describing what was checked before exiting.\n\n' +
-  'Be precise: the script must FAIL on the current buggy code and PASS once the underlying bug is properly fixed. Test the ' +
-  'observable behavior the issue describes, not incidental implementation details that a legitimate fix might change.'
-
-/** All-READ-lines detector: models sometimes wrap their read requests in a python fence, which must
- *  NOT be mistaken for a script (observed live: a "script" of `READ: astropy/timeseries/core.py`
- *  reached the jail and crashed with NameError — measuring the parser, not the model). */
-function asReadRequests(block: string): string[] | null {
-  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines.length > 0 && lines.length <= 3 && lines.every((l) => /^READ:\s*\S+$/.test(l))) {
-    return lines.map((l) => l.replace(/^READ:\s*/, ''))
-  }
-  return null
-}
-
-function extractScript(text: string): string | null {
-  // Collapse a doubled fence OPENER (observed live: "```python\n```python\nimport os…" — the
-  // non-greedy fence match otherwise captures the empty span between the two openers and a
-  // complete script is thrown away as authoring-failed).
-  const cleaned = text.replace(/```(?:python|py)?[ \t]*\n(?=```(?:python|py)?[ \t]*\n)/g, '')
-  const fences = [...cleaned.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
-  const last = fences.at(-1)?.[1]?.trim()
-  if (!last || asReadRequests(last)) return null
-  return last
-}
-
-function extractReads(text: string): string[] {
-  return [...text.matchAll(/^READ:\s*(\S+)\s*$/gm)].map((m) => m[1]).slice(0, 3)
-}
+const AUTHOR_SYSTEM = reproAuthorSystem(REPRO_TIMEOUT_S)
 
 // ---------- per-instance row ----------
 

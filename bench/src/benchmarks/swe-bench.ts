@@ -200,7 +200,12 @@ print(json.dumps(out))
           '--run_id', runId,
           '--instance_ids', task.id,
           '--max_workers', '1',
-          '--cache_level', 'env',
+          // 'env' (the default) REMOVES the per-instance image after each run — measured: it
+          // silently pruned the 23-image fingerprint cache between sessions, and it forces a
+          // re-pull between back-to-back judges of the same instance (the stream judges F then L).
+          // Drivers that manage image rotation themselves set SWEBENCH_CACHE_LEVEL=instance and
+          // delete images explicitly.
+          '--cache_level', process.env.SWEBENCH_CACHE_LEVEL ?? 'env',
         ],
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json

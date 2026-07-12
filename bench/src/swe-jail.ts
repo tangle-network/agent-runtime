@@ -23,6 +23,10 @@ export interface ZaiCfg {
   base: string
   key: string
   timeoutMs: number
+  /** Optional hard wall-clock stop (epoch ms). No HTTP attempt starts — and no retry-ladder sleep
+   *  runs — past this instant, so a per-instance deadline reaches INTO the 429 ladder instead of
+   *  letting a doomed retry sleep for another 240s after the instance was already written off. */
+  deadlineAt?: number
 }
 
 export interface ZaiRaw {
@@ -44,9 +48,20 @@ export async function zaiChatRaw(cfg: ZaiCfg, body: Record<string, unknown>): Pr
   let lastErr = ''
   let delayBase = 2_000
   for (let attempt = 1; attempt <= 7; attempt += 1) {
-    if (attempt > 1) await new Promise((r) => setTimeout(r, Math.min(delayBase * 2 ** (attempt - 2), 240_000)))
+    if (attempt > 1) {
+      const delay = Math.min(delayBase * 2 ** (attempt - 2), 240_000)
+      if (cfg.deadlineAt !== undefined && Date.now() + delay >= cfg.deadlineAt) {
+        throw new Error(`completion abandoned at deadline (attempt ${attempt}): ${lastErr}`)
+      }
+      await new Promise((r) => setTimeout(r, delay))
+    }
+    if (cfg.deadlineAt !== undefined && Date.now() >= cfg.deadlineAt) {
+      throw new Error(`completion abandoned at deadline (attempt ${attempt}): ${lastErr || 'no attempt made'}`)
+    }
+    const perCallTimeout =
+      cfg.deadlineAt !== undefined ? Math.max(1, Math.min(cfg.timeoutMs, cfg.deadlineAt - Date.now())) : cfg.timeoutMs
     const ctl = new AbortController()
-    const timer = setTimeout(() => ctl.abort(), cfg.timeoutMs)
+    const timer = setTimeout(() => ctl.abort(), perCallTimeout)
     try {
       const res = await fetch(`${cfg.base}/chat/completions`, {
         method: 'POST',
@@ -191,7 +206,9 @@ export const IMPORT_NAME: Record<string, string> = {
   'astropy/astropy': 'astropy',
   'django/django': 'django',
   'matplotlib/matplotlib': 'matplotlib',
+  'mwaskom/seaborn': 'seaborn',
   'pallets/flask': 'flask',
+  'pydata/xarray': 'xarray',
   'psf/requests': 'requests',
   'pylint-dev/pylint': 'pylint',
   'pytest-dev/pytest': 'pytest',
@@ -204,6 +221,53 @@ export const IMPORT_NAME: Record<string, string> = {
 export const importCanaryScript = (pkg: string): string =>
   `import sys\nimport ${pkg}\nf = getattr(${pkg}, '__file__', '') or ''\nprint(f)\n` +
   "sys.exit(0 if f.startswith('/testbed') else 3)\n"
+
+// ---------- repro-authoring protocol (extracted from swe-repro-calibrate.mts, byte-identical
+// behavior, so the stream driver authors fresh repros with the SAME calibrated protocol instead
+// of forking one) ----------
+
+/** The authoring system prompt, parameterized only on the jail's script timeout. */
+export const reproAuthorSystem = (reproTimeoutS: number): string =>
+  'You are an expert Python engineer writing a REPRODUCTION script for a reported bug in an open-source repository.\n\n' +
+  'Contract for the script you produce:\n' +
+  '- A single self-contained Python file, executed as: python /repro/repro.py with cwd=/testbed, where /testbed is the ' +
+  "repository checkout. The project's own environment is active, so the repository package and its dependencies are importable.\n" +
+  '- Exit code 0 means the bug is FIXED. A nonzero exit (sys.exit(1), a failing assert, or an uncaught exception) means the ' +
+  'bug is PRESENT. The script must exercise the EXACT behavior described in the issue.\n' +
+  '- The repository tree is READ-ONLY: never modify, create, or delete files inside it. If you genuinely need a scratch ' +
+  'file, use the tempfile module (system tmp is writable).\n' +
+  `- No network access. Deterministic. Must finish well under ${reproTimeoutS} seconds.\n` +
+  "- Prefer plain Python with assert statements. Do not invoke the repository's test-suite runner and do not depend on " +
+  'pytest fixtures; importing the repository package directly is the way.\n' +
+  '- Print one short line describing what was checked before exiting.\n\n' +
+  'Be precise: the script must FAIL on the current buggy code and PASS once the underlying bug is properly fixed. Test the ' +
+  'observable behavior the issue describes, not incidental implementation details that a legitimate fix might change.'
+
+/** All-READ-lines detector: models sometimes wrap their read requests in a python fence, which must
+ *  NOT be mistaken for a script (observed live: a "script" of `READ: astropy/timeseries/core.py`
+ *  reached the jail and crashed with NameError — measuring the parser, not the model). */
+export function asReadRequests(block: string): string[] | null {
+  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length > 0 && lines.length <= 3 && lines.every((l) => /^READ:\s*\S+$/.test(l))) {
+    return lines.map((l) => l.replace(/^READ:\s*/, ''))
+  }
+  return null
+}
+
+export function extractReproScript(text: string): string | null {
+  // Collapse a doubled fence OPENER (observed live: "```python\n```python\nimport os…" — the
+  // non-greedy fence match otherwise captures the empty span between the two openers and a
+  // complete script is thrown away as authoring-failed).
+  const cleaned = text.replace(/```(?:python|py)?[ \t]*\n(?=```(?:python|py)?[ \t]*\n)/g, '')
+  const fences = [...cleaned.matchAll(/```(?:python|py)?\s*\n([\s\S]*?)```/g)]
+  const last = fences.at(-1)?.[1]?.trim()
+  if (!last || asReadRequests(last)) return null
+  return last
+}
+
+export function extractReadRequests(text: string): string[] {
+  return [...text.matchAll(/^READ:\s*(\S+)\s*$/gm)].map((m) => m[1]).slice(0, 3)
+}
 
 // ---------- backbone enumeration ----------
 
