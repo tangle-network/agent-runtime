@@ -54,6 +54,7 @@ import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
+import { assertCandidateProfileExecutionSupport } from './profile'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -104,6 +105,7 @@ export async function prepareAgentCandidateExecution(
   const verifiedState = getVerifiedCandidateState(candidate)
   assertSameVerificationPorts(verifiedState.ports, ports)
   const bundle = candidate.bundle
+  assertCandidateProfileExecutionSupport(bundle.profile)
   const harness = materializerHarness(bundle.execution.harness)
   assertTaskInput(task, bundle.execution.instructionDelivery)
   const resultTimeoutMs = candidateResultTimeout(options.resultTimeoutMs, task.limits.timeoutMs)
