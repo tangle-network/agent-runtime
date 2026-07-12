@@ -258,6 +258,20 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(true)
   })
 
+  it('rejects caller read-denial paths outside reproducible Codex mode', () => {
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: authoredProfile,
+        harness: 'codex',
+        taskPrompt: 'x',
+        codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
+        runGit: makeFakeGit(freshGitState()),
+        runHarness: vi.fn(),
+      }),
+    ).toThrow(/requires codexReproducible/)
+  })
+
   it('meters reproducible Codex usage and surfaces isolation evidence', async () => {
     const state = freshGitState()
     let seen: RunLocalHarnessOptions | undefined
@@ -267,6 +281,7 @@ describe('createWorktreeCliExecutor', () => {
       harness: 'codex',
       taskPrompt: 'fix the bug',
       codexReproducible: true,
+      codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async (options) => {
         seen = options
@@ -285,9 +300,13 @@ describe('createWorktreeCliExecutor', () => {
           },
           evidence: {
             cliVersion: 'codex-cli 0.144.1',
+            executableSha256: 'd'.repeat(64),
             effectivePromptSha256: 'a'.repeat(64),
             nonPromptArgsSha256: 'b'.repeat(64),
             controlledConfigSha256: 'c'.repeat(64),
+            readDeniedPaths: ['/usr/lib/example/gold.py'],
+            readDeniedPathsSha256: 'e'.repeat(64),
+            readDeniedPathCount: 1,
             policy: {
               sessionPersistence: 'ephemeral',
               userConfig: false,
@@ -306,9 +325,14 @@ describe('createWorktreeCliExecutor', () => {
               shellEnvironment: 'core-filtered',
               loginShell: false,
               credentialsReadable: false,
+              hostHomeReadable: false,
+              procEnvironment: 'private-sanitized',
+              sensitiveEnvironmentNamesVisible: false,
               parentRepoRead: false,
               gitMetadata: false,
               temporaryDirectory: 'workspace-private',
+              stagedExecutable: 'static-elf-read-only',
+              callerReadDeniedPaths: 'enforced',
               containerSockets: false,
             },
           },
@@ -319,6 +343,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(false)
     const result = await exec.execute(undefined, new AbortController().signal)
     expect(seen?.codexReproducible).toBe(true)
+    expect(seen?.codexReadDeniedPaths).toEqual(['/usr/lib/example/gold.py'])
     expect(seen?.invocation?.args).toContain('--ephemeral')
     expect(seen?.invocation?.args).toContain('--ignore-rules')
     expect(seen?.invocation?.args).toContain('web_search="disabled"')
@@ -333,9 +358,13 @@ describe('createWorktreeCliExecutor', () => {
     })
     expect(result.out.harness).toMatchObject({
       cliVersion: 'codex-cli 0.144.1',
+      executableSha256: 'd'.repeat(64),
       effectivePromptSha256: 'a'.repeat(64),
       nonPromptArgsSha256: 'b'.repeat(64),
       controlledConfigSha256: 'c'.repeat(64),
+      readDeniedPaths: ['/usr/lib/example/gold.py'],
+      readDeniedPathsSha256: 'e'.repeat(64),
+      readDeniedPathCount: 1,
       executionPolicy: {
         sessionPersistence: 'ephemeral',
         userConfig: false,
@@ -354,9 +383,14 @@ describe('createWorktreeCliExecutor', () => {
         shellEnvironment: 'core-filtered',
         loginShell: false,
         credentialsReadable: false,
+        hostHomeReadable: false,
+        procEnvironment: 'private-sanitized',
+        sensitiveEnvironmentNamesVisible: false,
         parentRepoRead: false,
         gitMetadata: false,
         temporaryDirectory: 'workspace-private',
+        stagedExecutable: 'static-elf-read-only',
+        callerReadDeniedPaths: 'enforced',
         containerSockets: false,
       },
     })

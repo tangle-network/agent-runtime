@@ -71,12 +71,20 @@ export interface WorktreeHarnessResult {
     usage?: CodexTokenUsage
     /** Installed CLI version captured immediately before execution. */
     cliVersion?: string
+    /** SHA-256 of the native Codex executable staged read-only in the candidate worktree. */
+    executableSha256?: string
     /** SHA-256 of `codex debug prompt-input` output for the exact isolated prompt. */
     effectivePromptSha256?: string
     /** SHA-256 of the exact executable + argv with prompt content replaced by `<PROMPT>`. */
     nonPromptArgsSha256?: string
     /** SHA-256 of the isolated config that fixes permissions and shell environment. */
     controlledConfigSha256?: string
+    /** SHA-256 of the normalized caller-supplied host read-denial paths. */
+    readDeniedPathsSha256?: string
+    /** Sorted normalized caller-supplied host read-denial paths. */
+    readDeniedPaths?: string[]
+    /** Number of normalized caller-supplied host read-denial paths. */
+    readDeniedPathCount?: number
     /** Explicit isolation claims checked before model execution. */
     executionPolicy?: CodexExecutionPolicy
   }
@@ -117,6 +125,8 @@ export interface RunWorktreeHarnessOptions {
   harnessTimeoutMs?: number
   /** Run Codex in isolated, network-off JSONL mode and require real token usage. */
   codexReproducible?: boolean
+  /** Absolute host paths the reproducible Codex process must not read. */
+  codexReadDeniedPaths?: ReadonlyArray<string>
   /** Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 min. */
   checkTimeoutMs?: number
   /** Cap on each check's captured output. Default 16k. */
@@ -183,6 +193,7 @@ export async function runWorktreeHarness(
       taskPrompt: opts.taskPrompt,
       invocation: { command, args },
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
+      ...(opts.codexReadDeniedPaths ? { codexReadDeniedPaths: opts.codexReadDeniedPaths } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
@@ -219,9 +230,13 @@ export async function runWorktreeHarness(
         ...(harnessResult.evidence
           ? {
               cliVersion: harnessResult.evidence.cliVersion,
+              executableSha256: harnessResult.evidence.executableSha256,
               effectivePromptSha256: harnessResult.evidence.effectivePromptSha256,
               nonPromptArgsSha256: harnessResult.evidence.nonPromptArgsSha256,
               controlledConfigSha256: harnessResult.evidence.controlledConfigSha256,
+              readDeniedPaths: [...harnessResult.evidence.readDeniedPaths],
+              readDeniedPathsSha256: harnessResult.evidence.readDeniedPathsSha256,
+              readDeniedPathCount: harnessResult.evidence.readDeniedPathCount,
               executionPolicy: harnessResult.evidence.policy,
             }
           : {}),
