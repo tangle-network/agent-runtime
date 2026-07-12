@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createSweBenchAdapter, scoreSweReport } from './swe-bench'
+import { createSweBenchAdapter, scoreSweReport, sweEvaluationArgv } from './swe-bench'
 
 const taskId = 'django__django-12345'
 
@@ -40,4 +40,19 @@ test('createSweBenchAdapter accepts only positive integer evaluation timeouts', 
   assert.doesNotThrow(() => createSweBenchAdapter({ timeoutMs: 1_200_000 }))
   assert.throws(() => createSweBenchAdapter({ timeoutMs: 0 }), /positive integer/)
   assert.throws(() => createSweBenchAdapter({ timeoutMs: 1.5 }), /positive integer/)
+})
+
+test('SWE evaluation command preserves the requested instance image', () => {
+  const argv = sweEvaluationArgv({
+    predictionsPath: '/tmp/preds.json',
+    runId: 'r364',
+    instanceId: taskId,
+    cacheLevel: 'instance',
+  })
+  const cacheIndex = argv.indexOf('--cache_level')
+  assert.equal(argv[cacheIndex + 1], 'instance')
+  assert.throws(
+    () => createSweBenchAdapter({ cacheLevel: 'invalid' as 'instance' }),
+    /invalid cacheLevel/,
+  )
 })

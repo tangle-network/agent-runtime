@@ -58,6 +58,8 @@ export const swePatchOutput: OutputAdapter<string> = {
 }
 
 const DATASET = 'princeton-nlp/SWE-bench_Verified'
+export type SweBenchCacheLevel = 'none' | 'base' | 'env' | 'instance'
+const SWE_CACHE_LEVELS = new Set<SweBenchCacheLevel>(['none', 'base', 'env', 'instance'])
 const TEST_FILE_EXCLUDES = [
   "':(exclude,glob)**/tests/**'",
   "':(exclude,glob)**/test/**'",
@@ -129,6 +131,23 @@ export function scoreSweReport(taskId: string, value: unknown): BenchScore {
   return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
 }
 
+export function sweEvaluationArgv(args: {
+  readonly predictionsPath: string
+  readonly runId: string
+  readonly instanceId: string
+  readonly cacheLevel: SweBenchCacheLevel
+}): string[] {
+  return [
+    '-m', 'swebench.harness.run_evaluation',
+    '--dataset_name', DATASET,
+    '--predictions_path', args.predictionsPath,
+    '--run_id', args.runId,
+    '--instance_ids', args.instanceId,
+    '--max_workers', '1',
+    '--cache_level', args.cacheLevel,
+  ]
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
@@ -145,11 +164,16 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
   return { repo, base }
 }
 
-export function createSweBenchAdapter(options: { readonly timeoutMs?: number } = {}): BenchmarkAdapter {
+export function createSweBenchAdapter(options: {
+  readonly timeoutMs?: number
+  readonly cacheLevel?: SweBenchCacheLevel
+} = {}): BenchmarkAdapter {
   if (
     options.timeoutMs !== undefined
     && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
   ) throw new Error('swe-bench: timeoutMs must be a positive integer')
+  const cacheLevel = options.cacheLevel ?? 'env'
+  if (!SWE_CACHE_LEVELS.has(cacheLevel)) throw new Error('swe-bench: invalid cacheLevel')
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
@@ -253,15 +277,12 @@ print(json.dumps(out))
         },
         // The official evaluation harness. Pulls/builds the instance image, applies
         // the patch, runs the test spec, writes a per-run report JSON in cwd.
-        argv: (dir) => [
-          '-m', 'swebench.harness.run_evaluation',
-          '--dataset_name', DATASET,
-          '--predictions_path', join(dir, 'preds.json'),
-          '--run_id', runId,
-          '--instance_ids', task.id,
-          '--max_workers', '1',
-          '--cache_level', 'env',
-        ],
+        argv: (dir) => sweEvaluationArgv({
+          predictionsPath: join(dir, 'preds.json'),
+          runId,
+          instanceId: task.id,
+          cacheLevel,
+        }),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
           const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
