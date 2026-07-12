@@ -209,6 +209,9 @@ export interface Budget {
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
+  /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
+   *  when enforcing a dollar-denominated comparison or limit. */
+  usdKnown?: boolean
   usd: number
   ms: number
 }

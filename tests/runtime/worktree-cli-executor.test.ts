@@ -93,6 +93,15 @@ const authoredProfile: AgentProfile = {
   model: { default: 'deepseek/deepseek-v4-flash' },
 }
 
+const reproducibleCodexProfile: AgentProfile = {
+  name: 'reproducible-codex',
+  prompt: {
+    systemPrompt: 'You are a careful refactorer.',
+    instructions: ['Never search for a public solution.'],
+  },
+  model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+}
+
 function bridgeSseResponse(content: string): Readable {
   const payload = [
     `data: ${JSON.stringify({
@@ -249,6 +258,156 @@ describe('createWorktreeCliExecutor', () => {
     expect(exec.budgetExempt).toBe(true)
   })
 
+  it('meters reproducible Codex usage and surfaces isolation evidence', async () => {
+    const state = freshGitState()
+    let seen: RunLocalHarnessOptions | undefined
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: reproducibleCodexProfile,
+      harness: 'codex',
+      taskPrompt: 'fix the bug',
+      codexReproducible: true,
+      runGit: makeFakeGit(state),
+      runHarness: vi.fn(async (options) => {
+        seen = options
+        return {
+          exitCode: 0,
+          stdout: '{"type":"turn.completed"}',
+          stderr: '',
+          killedBySignal: null,
+          durationMs: 12,
+          timedOut: false,
+          usage: {
+            inputTokens: 41935,
+            cachedInputTokens: 19200,
+            outputTokens: 273,
+            reasoningOutputTokens: 191,
+          },
+          evidence: {
+            cliVersion: 'codex-cli 0.144.1',
+            effectivePromptSha256: 'a'.repeat(64),
+            nonPromptArgsSha256: 'b'.repeat(64),
+            controlledConfigSha256: 'c'.repeat(64),
+            policy: {
+              sessionPersistence: 'ephemeral',
+              userConfig: false,
+              rules: false,
+              projectInstructions: false,
+              skillInstructions: false,
+              appInstructions: false,
+              toolSuggestions: false,
+              multiAgentInstructions: false,
+              sandbox: 'workspace-write',
+              permissionProfile: 'agent_runtime_reproducible',
+              approvalPolicy: 'never',
+              shellNetwork: false,
+              webSearch: false,
+              serviceTier: 'default',
+              shellEnvironment: 'core-filtered',
+              loginShell: false,
+              credentialsReadable: false,
+              parentRepoRead: false,
+              gitMetadata: false,
+              temporaryDirectory: 'workspace-private',
+              containerSockets: false,
+            },
+          },
+        }
+      }),
+    })
+
+    expect(exec.budgetExempt).toBe(false)
+    const result = await exec.execute(undefined, new AbortController().signal)
+    expect(seen?.codexReproducible).toBe(true)
+    expect(seen?.invocation?.args).toContain('--ephemeral')
+    expect(seen?.invocation?.args).toContain('--ignore-rules')
+    expect(seen?.invocation?.args).toContain('web_search="disabled"')
+    expect(seen?.invocation?.args[1]).toBe(
+      'You are a careful refactorer.\n\nNever search for a public solution.\n\nfix the bug',
+    )
+    expect(result.spent).toMatchObject({
+      iterations: 1,
+      tokens: { input: 41935, output: 273 },
+      usd: 0,
+      usdKnown: false,
+    })
+    expect(result.out.harness).toMatchObject({
+      cliVersion: 'codex-cli 0.144.1',
+      effectivePromptSha256: 'a'.repeat(64),
+      nonPromptArgsSha256: 'b'.repeat(64),
+      controlledConfigSha256: 'c'.repeat(64),
+      executionPolicy: {
+        sessionPersistence: 'ephemeral',
+        userConfig: false,
+        rules: false,
+        projectInstructions: false,
+        skillInstructions: false,
+        appInstructions: false,
+        toolSuggestions: false,
+        multiAgentInstructions: false,
+        sandbox: 'workspace-write',
+        permissionProfile: 'agent_runtime_reproducible',
+        approvalPolicy: 'never',
+        shellNetwork: false,
+        webSearch: false,
+        serviceTier: 'default',
+        shellEnvironment: 'core-filtered',
+        loginShell: false,
+        credentialsReadable: false,
+        parentRepoRead: false,
+        gitMetadata: false,
+        temporaryDirectory: 'workspace-private',
+        containerSockets: false,
+      },
+    })
+  })
+
+  it('rejects contradictory reproducible Codex configuration', () => {
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: reproducibleCodexProfile,
+        harness: 'claude',
+        taskPrompt: 'x',
+        codexReproducible: true,
+      }),
+    ).toThrow(/requires harness "codex"/)
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: reproducibleCodexProfile,
+        harness: 'codex',
+        taskPrompt: 'x',
+        codexReproducible: true,
+        budgetExempt: true,
+      }),
+    ).toThrow(/cannot be budgetExempt/)
+  })
+
+  it('fails and removes the worktree when a metered run returns no usage', async () => {
+    const state = freshGitState()
+    const exec = createWorktreeCliExecutor({
+      repoRoot: '/workspace',
+      profile: reproducibleCodexProfile,
+      harness: 'codex',
+      taskPrompt: 'x',
+      codexReproducible: true,
+      runGit: makeFakeGit(state),
+      runHarness: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        killedBySignal: null,
+        durationMs: 1,
+        timedOut: false,
+      })),
+    })
+    await expect(exec.execute(undefined, new AbortController().signal)).rejects.toThrow(
+      /returned no token usage/,
+    )
+    expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
+  })
+
   it('budgetExempt: false opts the leaf into metering (explicit, not a buried hardcode)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
@@ -259,6 +418,22 @@ describe('createWorktreeCliExecutor', () => {
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
     })
+    expect(exec.budgetExempt).toBe(false)
+  })
+
+  it('threads reproducible Codex through the backend-as-data factory', () => {
+    const factory = createExecutor({
+      backend: 'cli-worktree',
+      repoRoot: '/workspace',
+      harness: 'codex',
+      taskPrompt: 'x',
+      codexReproducible: true,
+    })
+    const exec = factory(
+      { profile: reproducibleCodexProfile, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    expect(exec.runtime).toBe('cli')
     expect(exec.budgetExempt).toBe(false)
   })
 

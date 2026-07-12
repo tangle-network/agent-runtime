@@ -191,6 +191,11 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
     open.delete(ticket.id)
 
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
+    if (usdCapped && spent.usdKnown === false) {
+      throw new Error(
+        `budget pool: ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`,
+      )
+    }
 
     // Clamp actual spend to the reservation: a child must never commit more than it
     // reserved (that would overdraw the conserved pool). Over-spend is a fail-loud bug.
@@ -235,6 +240,11 @@ export function createBudgetPool(root: Budget, now: () => number = Date.now): Bu
   }
 
   function observe(spend: Spend): void {
+    if (usdCapped && spend.usdKnown === false) {
+      throw new Error(
+        'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
+      )
+    }
     const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.

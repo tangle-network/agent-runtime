@@ -1,8 +1,15 @@
 import type { ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
-import { harnessInvocation, runLocalHarness } from '../../src/mcp/local-harness'
+import {
+  harnessInvocation,
+  parseCodexTokenUsage,
+  runLocalHarness,
+} from '../../src/mcp/local-harness'
 
 function makeFakeChild(opts: {
   stdoutChunks?: string[]
@@ -62,6 +69,159 @@ describe('runLocalHarness', () => {
     })
     expect(result.exitCode).toBe(2)
     expect(result.stderr).toContain('error')
+  })
+
+  it('isolates Codex, proves the effective prompt, and captures terminal JSONL usage', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const profile: AgentProfile = {
+      name: 'reproducible',
+      prompt: { systemPrompt: 'SYS', instructions: ['RULE ONE', 'RULE TWO'] },
+      model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+    }
+    const invocation = harnessInvocation('codex', profile, 'task', {
+      codexReproducible: true,
+    })
+    let isolatedHome = ''
+    const spawnSpy = vi.fn(
+      (
+        _command: string,
+        args: ReadonlyArray<string>,
+        opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'pipe' },
+      ) => {
+        isolatedHome = opts.env.CODEX_HOME ?? ''
+        expect(existsSync(isolatedHome)).toBe(true)
+        if (args[0] === '--version') {
+          return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
+        }
+        if (args[0] === 'sandbox') {
+          expect(args).toContain('agent_runtime_reproducible')
+          return makeFakeChild({ exitCode: 0 })
+        }
+        if (args[0] === 'debug') {
+          const prompt = args.at(-1)
+          return makeFakeChild({
+            stdoutChunks: [
+              JSON.stringify([
+                {
+                  role: 'developer',
+                  content: [
+                    {
+                      type: 'input_text',
+                      text: '<permissions instructions>fixed</permissions instructions>\n<environment_context>fixed</environment_context>',
+                    },
+                  ],
+                },
+                { role: 'user', content: [{ type: 'input_text', text: prompt }] },
+              ]),
+            ],
+          })
+        }
+        return makeFakeChild({
+          stdoutChunks: [
+            '{"type":"thread.started","thread_id":"t1"}\n',
+            '{"type":"turn.completed","usage":{"input_tokens":41935,"cached_input_tokens":19200,"output_tokens":273,"reasoning_output_tokens":191}}\n',
+          ],
+          stderrChunks: [`warning: ${opts.env.CODEX_HOME}/auth.json\n`],
+        })
+      },
+    )
+
+    const result = await runLocalHarness({
+      harness: 'codex',
+      cwd,
+      taskPrompt: 'task',
+      invocation,
+      codexReproducible: true,
+      env: { CODEX_HOME: '/definitely/missing', OPENAI_API_KEY: 'test-only' },
+      spawn: spawnSpy,
+    })
+
+    expect(spawnSpy).toHaveBeenCalledTimes(5)
+    expect(isolatedHome).toMatch(/agent-runtime-codex-/)
+    expect(existsSync(isolatedHome)).toBe(false)
+    expect(result.stderr).toContain('<ISOLATED_CODEX_HOME>/auth.json')
+    expect(result.stderr).not.toContain(isolatedHome)
+    expect(result.usage).toEqual({
+      inputTokens: 41935,
+      cachedInputTokens: 19200,
+      outputTokens: 273,
+      reasoningOutputTokens: 191,
+    })
+    expect(result.evidence?.cliVersion).toBe('codex-cli 0.144.1')
+    expect(result.evidence?.effectivePromptSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.nonPromptArgsSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.controlledConfigSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.policy).toEqual({
+      sessionPersistence: 'ephemeral',
+      userConfig: false,
+      rules: false,
+      projectInstructions: false,
+      skillInstructions: false,
+      appInstructions: false,
+      toolSuggestions: false,
+      multiAgentInstructions: false,
+      sandbox: 'workspace-write',
+      permissionProfile: 'agent_runtime_reproducible',
+      approvalPolicy: 'never',
+      shellNetwork: false,
+      webSearch: false,
+      serviceTier: 'default',
+      shellEnvironment: 'core-filtered',
+      loginShell: false,
+      credentialsReadable: false,
+      parentRepoRead: false,
+      gitMetadata: false,
+      temporaryDirectory: 'workspace-private',
+      containerSockets: false,
+    })
+    expect(existsSync(cwd)).toBe(true)
+    expect(readdirSync(cwd).some((name) => name.startsWith('.agent-runtime-'))).toBe(false)
+    rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it('rejects a reproducible Codex result without exactly one terminal usage event', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const profile: AgentProfile = {
+      name: 'reproducible',
+      model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+    }
+    const invocation = harnessInvocation('codex', profile, 'task', {
+      codexReproducible: true,
+    })
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd,
+        taskPrompt: 'task',
+        invocation,
+        codexReproducible: true,
+        env: { CODEX_HOME: '/definitely/missing', OPENAI_API_KEY: 'test-only' },
+        spawn: (_command, args) => {
+          if (args[0] === '--version') {
+            return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
+          }
+          if (args[0] === 'sandbox') return makeFakeChild({ exitCode: 0 })
+          if (args[0] === 'debug') {
+            return makeFakeChild({
+              stdoutChunks: [
+                JSON.stringify([
+                  {
+                    content: [
+                      {
+                        text: '<permissions instructions>x</permissions instructions><environment_context>x</environment_context>',
+                      },
+                    ],
+                  },
+                  { content: [{ text: args.at(-1) }] },
+                ]),
+              ],
+            })
+          }
+          return makeFakeChild({ stdoutChunks: ['{"type":"turn.started"}\n'] })
+        },
+      }),
+    ).rejects.toThrow(/exactly one Codex turn\.completed usage event/)
+    rmSync(cwd, { recursive: true, force: true })
   })
 
   it('throws on spawn error (binary not found)', async () => {
@@ -200,6 +360,18 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
   })
 
+  it('composes systemPrompt, every authored instruction, then the task in order', () => {
+    const inv = harnessInvocation(
+      'codex',
+      {
+        name: 'authored',
+        prompt: { systemPrompt: 'SYS', instructions: ['FIRST', 'SECOND'] },
+      },
+      'task',
+    )
+    expect(inv.args).toEqual(['exec', 'SYS\n\nFIRST\n\nSECOND\n\ntask'])
+  })
+
   it('maps the complete Codex profile onto the noninteractive exec command', () => {
     const inv = harnessInvocation(
       'codex',
@@ -224,6 +396,104 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   it('clamps the portable ultracode effort to Codex xhigh', () => {
     const inv = harnessInvocation('codex', { model: { reasoningEffort: 'ultracode' } }, 'task')
     expect(inv.args).toEqual(['exec', 'task', '-c', 'model_reasoning_effort="xhigh"'])
+  })
+
+  it('builds the exact reproducible Codex isolation argv', () => {
+    const inv = harnessInvocation(
+      'codex',
+      {
+        name: 'authored',
+        prompt: { systemPrompt: 'SYS', instructions: ['INSTRUCTION'] },
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      'task',
+      { codexReproducible: true },
+    )
+    expect(inv.args).toEqual([
+      'exec',
+      'SYS\n\nINSTRUCTION\n\ntask',
+      '--ephemeral',
+      '--ignore-rules',
+      '--json',
+      '-c',
+      'approval_policy="never"',
+      '-c',
+      'web_search="disabled"',
+      '-c',
+      'project_doc_max_bytes=0',
+      '-c',
+      'skills.include_instructions=false',
+      '-c',
+      'include_apps_instructions=false',
+      '--disable',
+      'tool_suggest',
+      '-c',
+      'features.multi_agent_v2.root_agent_usage_hint_text=""',
+      '-c',
+      'features.multi_agent_v2.subagent_usage_hint_text=""',
+      '-c',
+      'features.multi_agent_v2.multi_agent_mode_hint_text=""',
+      '--strict-config',
+      '-m',
+      'gpt-5.4',
+      '-c',
+      'model_reasoning_effort="xhigh"',
+    ])
+  })
+
+  it('rejects a custom invocation that weakens reproducible Codex isolation', async () => {
+    const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
+    await expect(
+      runLocalHarness({
+        harness: 'codex',
+        cwd: '/tmp/wt',
+        taskPrompt: 'task',
+        invocation: {
+          command: 'codex',
+          args: [
+            'exec',
+            'task',
+            '--ephemeral',
+            '--ignore-user-config',
+            '--ignore-rules',
+            '--json',
+            '-s',
+            'workspace-write',
+            '-c',
+            'web_search="cached"',
+            '-m',
+            'gpt-5.4',
+            '-c',
+            'model_reasoning_effort="xhigh"',
+          ],
+        },
+        codexReproducible: true,
+        env: { CODEX_HOME: '/definitely/missing', OPENAI_API_KEY: 'test-only' },
+        spawn: spawnSpy,
+      }),
+    ).rejects.toThrow(/does not match the required isolated argv/)
+    expect(spawnSpy).not.toHaveBeenCalled()
+  })
+
+  it('requires an explicit model and reasoning effort for reproducible Codex', () => {
+    expect(() =>
+      harnessInvocation('codex', { name: 'missing-model' }, 'task', {
+        codexReproducible: true,
+      }),
+    ).toThrow(/requires profile\.model\.default/)
+    expect(() =>
+      harnessInvocation('codex', { model: { default: 'gpt-5.4' } }, 'task', {
+        codexReproducible: true,
+      }),
+    ).toThrow(/requires profile\.model\.reasoningEffort/)
+    expect(() =>
+      harnessInvocation(
+        'claude',
+        { model: { default: 'claude-opus-4-1', reasoningEffort: 'high' } },
+        'task',
+        { codexReproducible: true },
+      ),
+    ).toThrow(/requires the Codex harness/)
   })
 
   it('rejects an unknown Codex reasoning effort instead of emitting invalid config', () => {
@@ -257,6 +527,17 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
       // @ts-expect-error testing runtime validation
       harnessInvocation('gemini-cli', { name: 'x' }, 'go'),
     ).toThrow(/unknown harness/)
+  })
+})
+
+describe('parseCodexTokenUsage', () => {
+  it('rejects malformed or internally inconsistent usage', () => {
+    expect(() => parseCodexTokenUsage('not json')).toThrow(/not valid JSON/)
+    expect(() =>
+      parseCodexTokenUsage(
+        '{"type":"turn.completed","usage":{"input_tokens":2,"cached_input_tokens":3,"output_tokens":1,"reasoning_output_tokens":0}}',
+      ),
+    ).toThrow(/cached_input_tokens exceeds input_tokens/)
   })
 })
 

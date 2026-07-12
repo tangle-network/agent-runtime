@@ -929,7 +929,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 85 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 174 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -964,6 +964,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `makeCheckRunner` | function | Build a `run_analyst` runner over a kind directory. |
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
+| `parseCodexTokenUsage` | function | Parse and validate the one terminal usage event emitted by `codex exec --json`. |
 | `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
 | `removeWorktree` | function | Remove a git worktree and delete its branch; tolerates already-removed paths. |
@@ -1003,6 +1004,9 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `InMemoryDelegationStore` | class | In-memory `DelegationStore` — suitable for single-process use and tests. |
 | `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
+| `CodexExecutionEvidence` | interface | Zero-model-call evidence for the exact Codex process about to run. |
+| `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
+| `CodexTokenUsage` | interface | Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
 | `DelegateCodeConfig` | interface | Minimal `CoderTask` overrides exposed over the MCP wire. The full |

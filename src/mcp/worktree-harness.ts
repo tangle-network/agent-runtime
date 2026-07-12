@@ -23,6 +23,8 @@
 import { spawn } from 'node:child_process'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
+  type CodexExecutionPolicy,
+  type CodexTokenUsage,
   harnessInvocation,
   type LocalHarness,
   type LocalHarnessResult,
@@ -65,6 +67,18 @@ export interface WorktreeHarnessResult {
     durationMs: number
     stdout: string
     stderr: string
+    /** Exact Codex JSONL usage when reproducible mode is enabled. */
+    usage?: CodexTokenUsage
+    /** Installed CLI version captured immediately before execution. */
+    cliVersion?: string
+    /** SHA-256 of `codex debug prompt-input` output for the exact isolated prompt. */
+    effectivePromptSha256?: string
+    /** SHA-256 of the exact executable + argv with prompt content replaced by `<PROMPT>`. */
+    nonPromptArgsSha256?: string
+    /** SHA-256 of the isolated config that fixes permissions and shell environment. */
+    controlledConfigSha256?: string
+    /** Explicit isolation claims checked before model execution. */
+    executionPolicy?: CodexExecutionPolicy
   }
   /** Verification signals derived in the live worktree (present only when commands were given). */
   checks?: {
@@ -101,6 +115,8 @@ export interface RunWorktreeHarnessOptions {
   typecheckCmd?: string
   /** Wall-clock cap per harness subprocess (ms). */
   harnessTimeoutMs?: number
+  /** Run Codex in isolated, network-off JSONL mode and require real token usage. */
+  codexReproducible?: boolean
   /** Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 min. */
   checkTimeoutMs?: number
   /** Cap on each check's captured output. Default 16k. */
@@ -159,12 +175,14 @@ export async function runWorktreeHarness(
       // This helper created the candidate worktree above; autonomous Claude
       // edits are permitted only inside that isolated checkout.
       dangerouslySkipPermissions: opts.harness === 'claude',
+      ...(opts.codexReproducible ? { codexReproducible: true } : {}),
     })
     const harnessResult: LocalHarnessResult = await runHarness({
       harness: opts.harness,
       cwd: worktree.path,
       taskPrompt: opts.taskPrompt,
       invocation: { command, args },
+      ...(opts.codexReproducible ? { codexReproducible: true } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
@@ -197,6 +215,16 @@ export async function runWorktreeHarness(
         durationMs: harnessResult.durationMs,
         stdout: harnessResult.stdout,
         stderr: harnessResult.stderr,
+        ...(harnessResult.usage ? { usage: harnessResult.usage } : {}),
+        ...(harnessResult.evidence
+          ? {
+              cliVersion: harnessResult.evidence.cliVersion,
+              effectivePromptSha256: harnessResult.evidence.effectivePromptSha256,
+              nonPromptArgsSha256: harnessResult.evidence.nonPromptArgsSha256,
+              controlledConfigSha256: harnessResult.evidence.controlledConfigSha256,
+              executionPolicy: harnessResult.evidence.policy,
+            }
+          : {}),
       },
       ...(checks ? { checks } : {}),
     }

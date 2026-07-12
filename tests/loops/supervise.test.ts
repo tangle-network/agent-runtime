@@ -218,6 +218,21 @@ describe('conserved budget pool', () => {
     expect(pool.readout().usdLeft).toBe(0)
   })
 
+  it('never interprets explicitly unknown dollar cost as $0 under a dollar limit', () => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const r = pool.reserve({ maxIterations: 1, maxTokens: 500, maxUsd: 1 } as Budget)
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        tokens: { input: 40, output: 60 },
+        usd: 0,
+        usdKnown: false,
+        ms: 0,
+      }),
+    ).toThrow(/unknown dollar cost/)
+  })
+
   it('spendFromUsageEvents folds tokens + usd on separate channels', () => {
     const spend = spendFromUsageEvents([
       { kind: 'iteration' },
