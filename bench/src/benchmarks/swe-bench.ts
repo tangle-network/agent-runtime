@@ -72,6 +72,53 @@ const TEST_FILE_EXCLUDES = [
 interface SweReport {
   resolved_instances?: number
   resolved_ids?: string[]
+  unresolved_ids?: string[]
+  empty_patch_ids?: string[]
+  incomplete_ids?: string[]
+  error_ids?: string[]
+  submitted_ids?: string[]
+}
+
+function stringIds(report: Record<string, unknown>, key: keyof SweReport): string[] {
+  const value = report[key]
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`swe-bench: malformed ${key}`)
+  }
+  return value
+}
+
+/** Convert one official report into a score without turning evaluator failures into agent failures. */
+export function scoreSweReport(taskId: string, value: unknown): BenchScore {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('swe-bench: report must be an object')
+  }
+  const report = value as Record<string, unknown>
+  const statusIds = {
+    resolved: stringIds(report, 'resolved_ids'),
+    unresolved: stringIds(report, 'unresolved_ids'),
+    emptyPatch: stringIds(report, 'empty_patch_ids'),
+    incomplete: stringIds(report, 'incomplete_ids'),
+    error: stringIds(report, 'error_ids'),
+  }
+  const submitted = stringIds(report, 'submitted_ids')
+  const mentioned = Object.values(statusIds).flat()
+  if (mentioned.some((id) => id !== taskId) || (submitted.length > 0 && !submitted.includes(taskId))) {
+    throw new Error(`swe-bench: report identity mismatch for ${taskId}`)
+  }
+  if (statusIds.error.includes(taskId) || statusIds.incomplete.includes(taskId)) {
+    throw new Error(`swe-bench: evaluator failed for ${taskId}`)
+  }
+  const outcomes = [
+    statusIds.resolved.includes(taskId),
+    statusIds.unresolved.includes(taskId),
+    statusIds.emptyPatch.includes(taskId),
+  ]
+  if (outcomes.filter(Boolean).length !== 1) {
+    throw new Error(`swe-bench: report has no unique outcome for ${taskId}`)
+  }
+  const resolved = outcomes[0]
+  return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
 }
 
 function shellQuote(value: string): string {
@@ -205,8 +252,7 @@ print(json.dumps(out))
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
           const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
-          const resolved = (report.resolved_ids ?? []).includes(task.id)
-          return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+          return scoreSweReport(task.id, report)
         },
       })
     },
