@@ -74,6 +74,7 @@ interface SweReport {
   resolved_ids?: string[]
   unresolved_ids?: string[]
   empty_patch_ids?: string[]
+  completed_ids?: string[]
   incomplete_ids?: string[]
   error_ids?: string[]
   submitted_ids?: string[]
@@ -98,12 +99,16 @@ export function scoreSweReport(taskId: string, value: unknown): BenchScore {
     resolved: stringIds(report, 'resolved_ids'),
     unresolved: stringIds(report, 'unresolved_ids'),
     emptyPatch: stringIds(report, 'empty_patch_ids'),
+    completed: stringIds(report, 'completed_ids'),
     incomplete: stringIds(report, 'incomplete_ids'),
     error: stringIds(report, 'error_ids'),
   }
   const submitted = stringIds(report, 'submitted_ids')
   const mentioned = Object.values(statusIds).flat()
-  if (mentioned.some((id) => id !== taskId) || (submitted.length > 0 && !submitted.includes(taskId))) {
+  if (
+    mentioned.some((id) => id !== taskId)
+    || (submitted.length > 0 && (submitted.length !== 1 || submitted[0] !== taskId))
+  ) {
     throw new Error(`swe-bench: report identity mismatch for ${taskId}`)
   }
   if (statusIds.error.includes(taskId) || statusIds.incomplete.includes(taskId)) {
@@ -116,6 +121,9 @@ export function scoreSweReport(taskId: string, value: unknown): BenchScore {
   ]
   if (outcomes.filter(Boolean).length !== 1) {
     throw new Error(`swe-bench: report has no unique outcome for ${taskId}`)
+  }
+  if ((outcomes[0] || outcomes[1]) && !statusIds.completed.includes(taskId)) {
+    throw new Error(`swe-bench: report lacks a completed evaluation for ${taskId}`)
   }
   const resolved = outcomes[0]
   return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }

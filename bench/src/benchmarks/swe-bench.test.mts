@@ -5,8 +5,14 @@ import { createSweBenchAdapter, scoreSweReport } from './swe-bench'
 const taskId = 'django__django-12345'
 
 test('scoreSweReport preserves official resolved, unresolved, and empty-patch outcomes', () => {
-  assert.equal(scoreSweReport(taskId, { submitted_ids: [taskId], resolved_ids: [taskId] }).score, 1)
-  assert.equal(scoreSweReport(taskId, { submitted_ids: [taskId], unresolved_ids: [taskId] }).score, 0)
+  assert.equal(
+    scoreSweReport(taskId, { submitted_ids: [taskId], completed_ids: [taskId], resolved_ids: [taskId] }).score,
+    1,
+  )
+  assert.equal(
+    scoreSweReport(taskId, { submitted_ids: [taskId], completed_ids: [taskId], unresolved_ids: [taskId] }).score,
+    0,
+  )
   assert.equal(scoreSweReport(taskId, { submitted_ids: [taskId], empty_patch_ids: [taskId] }).score, 0)
 })
 
@@ -23,6 +29,11 @@ test('scoreSweReport rejects missing, ambiguous, malformed, and mismatched outco
   )
   assert.throws(() => scoreSweReport(taskId, { resolved_ids: taskId }), /malformed resolved_ids/)
   assert.throws(() => scoreSweReport(taskId, { resolved_ids: ['other__repo-1'] }), /identity mismatch/)
+  assert.throws(() => scoreSweReport(taskId, { resolved_ids: [taskId] }), /lacks a completed evaluation/)
+  assert.throws(
+    () => scoreSweReport(taskId, { submitted_ids: [taskId, 'other__repo-1'], empty_patch_ids: [taskId] }),
+    /identity mismatch/,
+  )
 })
 
 test('createSweBenchAdapter accepts only positive integer evaluation timeouts', () => {
