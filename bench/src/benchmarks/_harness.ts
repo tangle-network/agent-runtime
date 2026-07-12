@@ -19,7 +19,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { BenchScore } from './types'
@@ -54,7 +54,7 @@ export const bigBuffer = 1024 * 1024 * 256
 
 /** Path to a named executable inside the bench venv (e.g. `venvBin('tb')`). */
 export function venvBin(name: string): string {
-  return join(dirname(venvPython), name)
+  return join(benchRoot, '.venv', 'bin', name)
 }
 
 /**
