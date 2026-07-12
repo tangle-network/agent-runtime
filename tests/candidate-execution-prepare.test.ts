@@ -378,6 +378,60 @@ describe('candidate execution preparation', () => {
     )
   })
 
+  it.each([
+    { field: 'tools', profileValue: { shell: false } },
+    { field: 'permissions', profileValue: { shell: 'deny' } },
+    { field: 'modes', profileValue: { review: { model: 'provider/model' } } },
+    { field: 'confidential', profileValue: { tee: 'tdx', sealed: true } },
+  ] as const)('rejects non-empty $field before staging or reserving protected access', async ({
+    field,
+    profileValue,
+  }) => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        [field]: profileValue,
+      } as AgentCandidateBundle['profile'],
+    })
+    const verified = await verifyAgentCandidateBundle(value.bundle, value.ports)
+    let stagingCalls = 0
+    let reservationCalls = 0
+    value.ports.workspaces.materialize = async () => {
+      stagingCalls++
+    }
+    value.ports.models.reserveGrant = async () => {
+      reservationCalls++
+      throw new Error('candidate must fail before reserving protected access')
+    }
+
+    await expect(prepareAgentCandidateExecution(verified, value.task, value.ports)).rejects.toThrow(
+      new RegExp(`non-empty AgentProfile fields: ${field}`),
+    )
+    expect(stagingCalls).toBe(0)
+    expect(reservationCalls).toBe(0)
+  })
+
+  it('accepts explicit empty unsupported fields', async () => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        tools: {},
+        permissions: {},
+        modes: {},
+        confidential: {},
+      },
+    })
+
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+    expect(prepared.bundle.digest).toBe(value.bundle.digest)
+  })
+
   it('rejects task Git drift, dirty profile staging, and unenforced model limits', async () => {
     const gitDrift = fixture()
     gitDrift.task.repository.baseTree = '0'.repeat(40)

@@ -1916,7 +1916,7 @@ Maximum time for task verification, executable grading, and receipt construction
 
 ### PrepareAgentCandidateExecutionOptions
 
-Defined in: [candidate-execution/prepare.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L90)
+Defined in: [candidate-execution/prepare.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L91)
 
 #### Properties
 
@@ -1924,13 +1924,13 @@ Defined in: [candidate-execution/prepare.ts:90](https://github.com/tangle-networ
 
 > `optional` **cleanupTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L91)
+Defined in: [candidate-execution/prepare.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L92)
 
 ##### resultTimeoutMs?
 
 > `optional` **resultTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L93)
+Defined in: [candidate-execution/prepare.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L94)
 
 Maximum time for task verification, executable grading, and receipt construction.
 
@@ -11882,7 +11882,7 @@ Persist evaluator evidence, read it back, and bind the returned locator to the e
 
 > **prepareAgentCandidateExecution**(`candidate`, `task`, `ports`, `options?`): `Promise`\<[`PreparedAgentCandidateExecution`](#preparedagentcandidateexecution)\>
 
-Defined in: [candidate-execution/prepare.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L97)
+Defined in: [candidate-execution/prepare.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L98)
 
 Materializes a verified candidate into one immutable evaluator-owned execution plan.
 
