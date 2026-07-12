@@ -30,6 +30,7 @@
  * @experimental
  */
 
+import { canonicalJson } from '@tangle-network/agent-eval'
 import {
   gepaProposer,
   gitWorktreeAdapter,
@@ -81,7 +82,7 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
    *  generator + the baseline-surface extraction shape. */
   surface?: ImproveSurface
   /** The `SurfaceProposer` that mutates the surface. When unset, the facade
-   *  picks the default for prompt, skills, memory, and rollout policy; surfaces
+   *  picks the default for prompt, skills, and memory; surfaces
    *  with no default REQUIRE this (fail-loud otherwise). */
   generator?: SurfaceProposer
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
@@ -236,7 +237,7 @@ function baselineSurfaceFor(
     case 'subagents':
       return JSON.stringify(profile.subagents ?? {})
     case 'agent-profile':
-      return JSON.stringify(profile)
+      return canonicalJson(profile)
     case 'memory':
       if (!memory) {
         throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
@@ -394,7 +395,7 @@ function parseWinnerJson<T>(winner: string, surface: ImproveSurface): T {
 
 /** Apply a promoted winner surface back into the profile field for `surface`.
  *  Returns a shallow copy; never mutates the input profile. */
-function applyWinnerToProfile(
+export function applyImprovementWinnerToProfile(
   profile: AgentProfile,
   surface: ImproveSurface,
   winner: MutableSurface,
@@ -567,7 +568,9 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     await externalDocument.writeBack?.(winnerSurface)
   }
   const nextProfile =
-    shipped && !externalDocument ? applyWinnerToProfile(profile, surface, winnerSurface) : profile
+    shipped && !externalDocument
+      ? applyImprovementWinnerToProfile(profile, surface, winnerSurface)
+      : profile
 
   return { profile: nextProfile, shipped, lift: raw.lift, gateDecision: raw.gateDecision, raw }
 }

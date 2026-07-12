@@ -37,6 +37,7 @@ import type {
 } from '../candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../candidate-execution/verify'
 import {
+  applyImprovementWinnerToProfile,
   type ImproveOptions,
   type ImproveResult,
   type ImproveSurface,
@@ -67,6 +68,7 @@ export interface AgentImprovementProposal<
   runId: string
   surface: ImproveSurface
   proposedAt: string
+  baselineProfile: AgentProfile
   baselineProfileHash: string
   candidateProfile: AgentProfile
   candidateProfileHash: string
@@ -221,11 +223,26 @@ export function createAgentImprovementProposal<TScenario extends Scenario, TArti
   const candidateBundle = options.candidateBundle
     ? sealBuiltCandidate(options.candidateBundle)
     : undefined
+  const baselineProfile = parseExactAgentProfile(
+    options.baselineProfile,
+    'proposal baseline profile',
+  )
+  const candidateProfile = parseExactAgentProfile(
+    options.candidateProfile,
+    'proposal candidate profile',
+  )
+  assertMeasuredProfileBinding({
+    surface: options.surface,
+    baselineProfile,
+    candidateProfile,
+    evaluation: options.evaluation,
+    hasExecutableBundle: candidateBundle !== undefined,
+  })
   if (candidateBundle) {
     if (options.evaluation.gateDecision !== 'ship') {
       throw new Error('executable candidate bundle requires a passing measured comparison')
     }
-    assertCandidateProfileBinding(options.candidateProfile, candidateBundle.profile)
+    assertCandidateProfileBinding(candidateProfile, candidateBundle.profile)
   }
   const withoutDigest = {
     schemaVersion: 1 as const,
@@ -233,9 +250,10 @@ export function createAgentImprovementProposal<TScenario extends Scenario, TArti
     runId: options.runId,
     surface: options.surface,
     proposedAt: (options.now ?? (() => new Date()))().toISOString(),
-    baselineProfileHash: canonicalCandidateDigest(options.baselineProfile),
-    candidateProfile: options.candidateProfile,
-    candidateProfileHash: canonicalCandidateDigest(options.candidateProfile),
+    baselineProfile,
+    baselineProfileHash: canonicalCandidateDigest(baselineProfile),
+    candidateProfile,
+    candidateProfileHash: canonicalCandidateDigest(candidateProfile),
     findings: canonicalJsonValue([...findings]),
     evaluation: canonicalJsonValue(improvementEvaluation(options.evaluation)),
     ...(candidateBundle ? { candidateBundle } : {}),
@@ -326,6 +344,13 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
     throw new Error('invalid agent improvement proposal')
   }
   const proposal = input as unknown as AgentImprovementProposal
+  const parsedBaselineProfile = parseExactAgentProfile(
+    proposal.baselineProfile,
+    'proposal baseline profile',
+  )
+  if (proposal.baselineProfileHash !== canonicalCandidateDigest(parsedBaselineProfile)) {
+    throw new Error('proposal baselineProfileHash does not match baselineProfile')
+  }
   const parsedProfile = parseExactAgentProfile(
     proposal.candidateProfile,
     'proposal candidate profile',
@@ -333,6 +358,13 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
   if (proposal.candidateProfileHash !== canonicalCandidateDigest(parsedProfile)) {
     throw new Error('proposal candidateProfileHash does not match candidateProfile')
   }
+  assertMeasuredProfileBinding({
+    surface: proposal.surface,
+    baselineProfile: parsedBaselineProfile,
+    candidateProfile: parsedProfile,
+    evaluation: proposal.evaluation,
+    hasExecutableBundle: proposal.candidateBundle !== undefined,
+  })
   if (!Array.isArray(proposal.findings)) throw new Error('proposal findings must be an array')
   if (!isSha256Digest(proposal.digest)) throw new Error('proposal digest is invalid')
   if (proposal.candidateBundle) {
@@ -346,6 +378,65 @@ export function verifyAgentImprovementProposal(input: unknown): AgentImprovement
   if (actual !== proposal.digest)
     throw new Error('agent improvement proposal digest does not match')
   return immutableCandidateValue(proposal)
+}
+
+function assertMeasuredProfileBinding(input: {
+  surface: ImproveSurface
+  baselineProfile: AgentProfile
+  candidateProfile: AgentProfile
+  evaluation: Pick<AgentImprovementEvaluation<Scenario, unknown>, 'gateDecision' | 'winner'>
+  hasExecutableBundle: boolean
+}): void {
+  const baselineDigest = canonicalCandidateDigest(input.baselineProfile)
+  if (input.evaluation.gateDecision !== 'ship') {
+    if (canonicalCandidateDigest(input.candidateProfile) !== baselineDigest) {
+      throw new Error('non-shipping evaluation must retain the baseline candidate profile')
+    }
+    return
+  }
+
+  const measured = measuredWinnerProfile(
+    input.baselineProfile,
+    input.surface,
+    input.evaluation.winner.surface,
+  )
+  if (!measured) {
+    if (input.hasExecutableBundle) {
+      throw new Error(
+        `executable '${input.surface}' candidate cannot be bound to its measured winner surface`,
+      )
+    }
+    if (canonicalCandidateDigest(input.candidateProfile) !== baselineDigest) {
+      throw new Error(
+        `unbound '${input.surface}' improvement must retain the baseline candidate profile`,
+      )
+    }
+    return
+  }
+  if (canonicalCandidateDigest(input.candidateProfile) !== canonicalCandidateDigest(measured)) {
+    throw new Error('proposal candidate profile does not match the measured winner surface')
+  }
+}
+
+function measuredWinnerProfile(
+  baselineProfile: AgentProfile,
+  surface: ImproveSurface,
+  winner: unknown,
+): AgentProfile | null {
+  if (surface === 'code' || surface === 'memory') return null
+  if (typeof winner !== 'string') {
+    throw new Error(`measured '${surface}' winner is not a serializable profile surface`)
+  }
+  if (surface !== 'skills') {
+    return applyImprovementWinnerToProfile(baselineProfile, surface, winner)
+  }
+  try {
+    return applyImprovementWinnerToProfile(baselineProfile, surface, winner)
+  } catch {
+    // A skill document is text stored outside the profile; a skill-ref array is
+    // JSON stored on the profile. Only the latter can bind to a profile bundle.
+    return null
+  }
 }
 
 function sealBuiltCandidate(

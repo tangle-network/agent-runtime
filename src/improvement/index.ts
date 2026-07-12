@@ -19,6 +19,7 @@ export {
 } from './agentic-generator'
 export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
+  applyImprovementWinnerToProfile,
   type ImproveCodeOptions,
   type ImproveMemoryOptions,
   type ImproveOptions,
@@ -34,6 +35,12 @@ export {
   type ManagedImprovementDriver,
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
+export {
+  type AgentProfileDiffProposal,
+  type ProfileDiffProposerContext,
+  type ProfileDiffProposerOptions,
+  profileDiffProposer,
+} from './profile-diff-proposer'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,

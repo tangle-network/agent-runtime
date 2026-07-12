@@ -48,6 +48,11 @@ export {
   prepareAgentCandidateExecution,
 } from './prepare'
 export {
+  applyExactAgentProfileDiff,
+  parseExactAgentProfile,
+  parseExactAgentProfileDiff,
+} from './profile'
+export {
   type AgentCandidateModelGrantActivateInput,
   type AgentCandidateModelGrantClient,
   type AgentCandidateModelGrantReservation,
