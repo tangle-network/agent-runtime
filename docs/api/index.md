@@ -6074,7 +6074,7 @@ Minimum tools the server must expose to pass. Default 1.
 
 ### AgentProfileDiffProposal
 
-Defined in: improvement/profile-diff-proposer.ts:20
+Defined in: [improvement/profile-diff-proposer.ts:20](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L20)
 
 #### Properties
 
@@ -6082,25 +6082,25 @@ Defined in: improvement/profile-diff-proposer.ts:20
 
 > **diff**: `AgentProfileDiff`
 
-Defined in: improvement/profile-diff-proposer.ts:21
+Defined in: [improvement/profile-diff-proposer.ts:21](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L21)
 
 ##### label?
 
 > `optional` **label?**: `string`
 
-Defined in: improvement/profile-diff-proposer.ts:22
+Defined in: [improvement/profile-diff-proposer.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L22)
 
 ##### rationale?
 
 > `optional` **rationale?**: `string`
 
-Defined in: improvement/profile-diff-proposer.ts:23
+Defined in: [improvement/profile-diff-proposer.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L23)
 
 ***
 
 ### ProfileDiffProposerOptions
 
-Defined in: improvement/profile-diff-proposer.ts:30
+Defined in: [improvement/profile-diff-proposer.ts:30](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L30)
 
 #### Type Parameters
 
@@ -6114,7 +6114,7 @@ Defined in: improvement/profile-diff-proposer.ts:30
 
 > **proposeDiffs**(`context`): readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[] \| `Promise`\<readonly [`AgentProfileDiffProposal`](#agentprofilediffproposal)[]\>
 
-Defined in: improvement/profile-diff-proposer.ts:31
+Defined in: [improvement/profile-diff-proposer.ts:31](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L31)
 
 ###### Parameters
 
@@ -10850,7 +10850,7 @@ Custom held-back-exam decision. The string `gate` above controls whether
 
 > **ProfileDiffProposerContext**\<`TFindings`\> = `ProposeContext`\<`TFindings`\> & `object`
 
-Defined in: improvement/profile-diff-proposer.ts:26
+Defined in: [improvement/profile-diff-proposer.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L26)
 
 #### Type Declaration
 
@@ -12833,7 +12833,7 @@ Build a `Verifier` that boots a generated MCP server over stdio and checks it ex
 
 > **profileDiffProposer**\<`TFindings`\>(`options`): `SurfaceProposer`\<`TFindings`\>
 
-Defined in: improvement/profile-diff-proposer.ts:41
+Defined in: [improvement/profile-diff-proposer.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/profile-diff-proposer.ts#L41)
 
 Turn exact AgentProfileDiffs from any source into full profile candidates for
 the shared optimization loop. Research, catalogs, humans, and trace miners
