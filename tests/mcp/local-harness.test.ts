@@ -129,7 +129,7 @@ describe('runLocalHarness', () => {
     expect(calls[0][0]).toBe('claude')
     expect(calls[0][1]).toEqual(['-p', 'go'])
     expect(calls[1][0]).toBe('codex')
-    expect(calls[1][1]).toEqual(['run', 'go'])
+    expect(calls[1][1]).toEqual(['exec', 'go'])
     expect(calls[2][0]).toBe('opencode')
     expect(calls[2][1]).toEqual(['run', 'go'])
   })
@@ -200,9 +200,15 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
   })
 
+  it('maps the complete Codex profile onto the noninteractive exec command', () => {
+    const inv = harnessInvocation('codex', profileWith('SYS', 'gpt-5.4'), 'task')
+    expect(inv.command).toBe('codex')
+    expect(inv.args).toEqual(['exec', 'SYS\n\ntask', '-m', 'gpt-5.4'])
+  })
+
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
     expect(harnessInvocation('claude', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
-    expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+    expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['exec', 'go'])
     expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
   })
 

@@ -49,7 +49,7 @@ const HARNESS_INVOCATIONS: Record<
   },
   codex: {
     command: 'codex',
-    buildArgs: (taskPrompt) => ['run', taskPrompt],
+    buildArgs: (taskPrompt) => ['exec', taskPrompt],
     modelArgs: (model) => ['-m', model],
   },
   opencode: {
