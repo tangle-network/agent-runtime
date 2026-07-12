@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { PassThrough, type Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/sandbox'
@@ -275,6 +276,9 @@ describe('createWorktreeCliExecutor', () => {
   it('meters reproducible Codex usage and surfaces isolation evidence', async () => {
     const state = freshGitState()
     let seen: RunLocalHarnessOptions | undefined
+    const composedPrompt =
+      'You are a careful refactorer.\n\nNever search for a public solution.\n\nfix the bug'
+    const requestedPromptSha256 = createHash('sha256').update(composedPrompt).digest('hex')
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: reproducibleCodexProfile,
@@ -301,6 +305,7 @@ describe('createWorktreeCliExecutor', () => {
           evidence: {
             cliVersion: 'codex-cli 0.144.1',
             executableSha256: 'd'.repeat(64),
+            requestedPromptSha256,
             effectivePromptSha256: 'a'.repeat(64),
             nonPromptArgsSha256: 'b'.repeat(64),
             controlledConfigSha256: 'c'.repeat(64),
@@ -347,9 +352,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(seen?.invocation?.args).toContain('--ephemeral')
     expect(seen?.invocation?.args).toContain('--ignore-rules')
     expect(seen?.invocation?.args).toContain('web_search="disabled"')
-    expect(seen?.invocation?.args[1]).toBe(
-      'You are a careful refactorer.\n\nNever search for a public solution.\n\nfix the bug',
-    )
+    expect(seen?.invocation?.args[1]).toBe(composedPrompt)
     expect(result.spent).toMatchObject({
       iterations: 1,
       tokens: { input: 41935, output: 273 },
@@ -359,6 +362,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(result.out.harness).toMatchObject({
       cliVersion: 'codex-cli 0.144.1',
       executableSha256: 'd'.repeat(64),
+      requestedPromptSha256,
       effectivePromptSha256: 'a'.repeat(64),
       nonPromptArgsSha256: 'b'.repeat(64),
       controlledConfigSha256: 'c'.repeat(64),

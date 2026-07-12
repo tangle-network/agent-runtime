@@ -327,6 +327,8 @@ export interface CodexExecutionPolicy {
 export interface CodexExecutionEvidence {
   cliVersion: string
   executableSha256: string
+  /** SHA-256 of the exact composed prompt argument proved present in the rendered prompt. */
+  requestedPromptSha256: string
   effectivePromptSha256: string
   nonPromptArgsSha256: string
   controlledConfigSha256: string
@@ -751,6 +753,7 @@ for path in dict.fromkeys(paths):
   return {
     cliVersion,
     executableSha256: opts.executableSha256,
+    requestedPromptSha256: sha256(prompt),
     effectivePromptSha256: sha256(renderedPrompt),
     nonPromptArgsSha256: sha256(JSON.stringify(nonPromptArgs)),
     controlledConfigSha256: opts.controlledConfigSha256,

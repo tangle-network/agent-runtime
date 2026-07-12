@@ -73,6 +73,8 @@ export interface WorktreeHarnessResult {
     cliVersion?: string
     /** SHA-256 of the native Codex executable staged read-only in the candidate worktree. */
     executableSha256?: string
+    /** SHA-256 of the exact composed prompt argument proved present in Codex's rendered prompt. */
+    requestedPromptSha256?: string
     /** SHA-256 of `codex debug prompt-input` output for the exact isolated prompt. */
     effectivePromptSha256?: string
     /** SHA-256 of the exact executable + argv with prompt content replaced by `<PROMPT>`. */
@@ -231,6 +233,7 @@ export async function runWorktreeHarness(
           ? {
               cliVersion: harnessResult.evidence.cliVersion,
               executableSha256: harnessResult.evidence.executableSha256,
+              requestedPromptSha256: harnessResult.evidence.requestedPromptSha256,
               effectivePromptSha256: harnessResult.evidence.effectivePromptSha256,
               nonPromptArgsSha256: harnessResult.evidence.nonPromptArgsSha256,
               controlledConfigSha256: harnessResult.evidence.controlledConfigSha256,

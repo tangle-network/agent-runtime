@@ -273,7 +273,13 @@ describe('runLocalHarness', () => {
     })
     expect(result.evidence?.cliVersion).toBe('codex-cli 0.144.1')
     expect(result.evidence?.executableSha256).toMatch(/^[a-f0-9]{64}$/)
+    const composedPrompt = 'SYS\n\nRULE ONE\n\nRULE TWO\n\ntask'
+    expect(invocation.args[1]).toBe(composedPrompt)
+    expect(result.evidence?.requestedPromptSha256).toBe(
+      createHash('sha256').update(composedPrompt).digest('hex'),
+    )
     expect(result.evidence?.effectivePromptSha256).toMatch(/^[a-f0-9]{64}$/)
+    expect(result.evidence?.effectivePromptSha256).not.toBe(result.evidence?.requestedPromptSha256)
     expect(result.evidence?.nonPromptArgsSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.evidence?.controlledConfigSha256).toMatch(/^[a-f0-9]{64}$/)
     expect(result.evidence?.readDeniedPathsSha256).toMatch(/^[a-f0-9]{64}$/)
