@@ -98,6 +98,17 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
   return parsed
 }
 
+/** Reject profile fields whose behavioral effect is not yet proven by candidate executors. */
+export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
+  const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
+  const unsupported = fields.filter((field) => hasEntries(profile[field]))
+  if (unsupported.length > 0) {
+    throw new Error(
+      `candidate execution cannot prove in-session effects for non-empty AgentProfile fields: ${unsupported.join(', ')}`,
+    )
+  }
+}
+
 function candidateProfileAsAgentProfile(candidate: AgentCandidateProfile): AgentProfile {
   const output: Record<string, unknown> = {}
   copyDirectProfileFields(output, candidate as unknown as Record<string, unknown>)
@@ -288,6 +299,12 @@ function cloneRecord<T>(values: Record<string, T>): Record<string, T> {
   return Object.fromEntries(
     Object.entries(values).map(([key, value]) => [key, { ...value }]),
   ) as Record<string, T>
+}
+
+function hasEntries(value: unknown): boolean {
+  return value !== undefined && value !== null && typeof value === 'object'
+    ? Object.keys(value).length > 0
+    : false
 }
 
 function shellQuote(value: string): string {
