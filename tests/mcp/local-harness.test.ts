@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/sandbox'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  CodexExecutionDiagnosticError,
   harnessInvocation,
   parseCodexTokenUsage,
   runLocalHarness,
@@ -71,6 +72,80 @@ function makeStaticElfFixture(directory: string): string {
   writeFileSync(path, elf)
   chmodSync(path, 0o700)
   return path
+}
+
+async function captureReproducibleCodexFailure(opts: {
+  stdoutChunks?: string[]
+  stderrChunks?: string[]
+  exitCode?: number | null
+  signal?: NodeJS.Signals | null
+  delayCloseMs?: number
+  timeoutMs?: number
+  auth?: unknown
+  envSecret?: string
+}): Promise<CodexExecutionDiagnosticError> {
+  const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-failure-'))
+  const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
+  writeFileSync(join(authHome, 'auth.json'), JSON.stringify(opts.auth ?? {}))
+  const staticCodex = makeStaticElfFixture(cwd)
+  const invocation = harnessInvocation(
+    'codex',
+    { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
+    'task',
+    { codexReproducible: true },
+  )
+  try {
+    await runLocalHarness({
+      harness: 'codex',
+      cwd,
+      taskPrompt: 'task',
+      invocation,
+      codexReproducible: true,
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      env: {
+        CODEX_HOME: authHome,
+        ...(opts.envSecret ? { OPENAI_API_KEY: opts.envSecret } : {}),
+      },
+      resolveCodexExecutable: async () => staticCodex,
+      // The injected child is the Codex CLI process boundary; filesystem/config logic stays real.
+      spawn: (_command, args) => {
+        if (args[0] === '--version') {
+          return makeFakeChild({ stdoutChunks: ['codex-cli 0.144.1\n'] })
+        }
+        if (args[0] === 'sandbox') return makeFakeChild({ exitCode: 0 })
+        if (args[0] === 'debug') {
+          return makeFakeChild({
+            stdoutChunks: [
+              JSON.stringify([
+                {
+                  content: [
+                    {
+                      text: '<permissions instructions>x</permissions instructions><environment_context>x</environment_context>',
+                    },
+                  ],
+                },
+                { content: [{ text: args.at(-1) }] },
+              ]),
+            ],
+          })
+        }
+        return makeFakeChild({
+          stdoutChunks: opts.stdoutChunks,
+          stderrChunks: opts.stderrChunks,
+          exitCode: opts.exitCode,
+          signal: opts.signal,
+          delayCloseMs: opts.delayCloseMs,
+        })
+      },
+    })
+  } catch (error) {
+    if (error instanceof CodexExecutionDiagnosticError) return error
+    throw error
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+    rmSync(authHome, { recursive: true, force: true })
+  }
+  throw new Error('expected reproducible Codex execution to fail')
 }
 
 describe('runLocalHarness', () => {
@@ -291,6 +366,92 @@ describe('runLocalHarness', () => {
     ).rejects.toThrow(/exactly one Codex turn\.completed usage event/)
     rmSync(cwd, { recursive: true, force: true })
     rmSync(authHome, { recursive: true, force: true })
+  })
+
+  it('preserves auth error JSONL without leaking file or environment credentials', async () => {
+    const authSecret = 'sk-auth-proof-1234567890'
+    const envSecret = 'sk-env-proof-0987654321'
+    const unknownBearer = 'unknown-bearer-proof-123456'
+    const encodedAuthSecret = Buffer.from(authSecret, 'utf8').toString('base64')
+    const ansiSplitAuthSecret = `${authSecret.slice(0, 8)}\u001b[31m${authSecret.slice(8)}`
+    const error = await captureReproducibleCodexFailure({
+      auth: { auth_mode: 'chatgpt', tokens: { access_token: authSecret } },
+      envSecret,
+      exitCode: 1,
+      stdoutChunks: [`${JSON.stringify({ type: 'error', message: `401 Bearer ${authSecret}` })}\n`],
+      stderrChunks: [
+        `OPENAI_API_KEY=${envSecret}\nAuthorization: Bearer ${unknownBearer}\nencoded=${encodedAuthSecret}\nansi=${ansiSplitAuthSecret}\n`,
+      ],
+    })
+
+    expect(error.code).toBe('CODEX_EXECUTION_DIAGNOSTIC')
+    expect(error.reason).toMatch(/exactly one Codex turn\.completed/)
+    expect(error.cause).toBeInstanceOf(Error)
+    expect((error.cause as Error).stack).toContain('parseCodexTokenUsage')
+    expect(error.diagnostic).toMatchObject({
+      exitCode: 1,
+      killedBySignal: null,
+      timedOut: false,
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    })
+    expect(error.diagnostic.stdout).toContain('"type":"error"')
+    expect(error.diagnostic.stderr).toContain('<REDACTED_CREDENTIAL>')
+    const serialized = JSON.stringify({
+      message: error.message,
+      reason: error.reason,
+      diagnostic: error.diagnostic,
+    })
+    for (const secret of [authSecret, envSecret, unknownBearer, encodedAuthSecret]) {
+      expect(serialized).not.toContain(secret)
+    }
+    expect(serialized).not.toContain('\u001b')
+  })
+
+  it('preserves configuration stderr and exact exit metadata', async () => {
+    const configSecret = 'config-secret-proof-123456'
+    const error = await captureReproducibleCodexFailure({
+      exitCode: 78,
+      stderrChunks: [`Error loading config.toml: api_key="${configSecret}"\n`],
+    })
+
+    expect(error.diagnostic.exitCode).toBe(78)
+    expect(error.diagnostic.killedBySignal).toBeNull()
+    expect(error.diagnostic.timedOut).toBe(false)
+    expect(error.diagnostic.durationMs).toBeGreaterThanOrEqual(0)
+    expect(error.diagnostic.stderr).toContain('Error loading config.toml')
+    expect(error.diagnostic.stderr).toContain('<REDACTED_CREDENTIAL>')
+    expect(error.message).not.toContain(configSecret)
+  })
+
+  it('bounds error JSONL while retaining both the opening event and terminal error', async () => {
+    const padding = 'x'.repeat(12_000)
+    const stdout = [
+      JSON.stringify({ type: 'thread.started', padding }),
+      JSON.stringify({ type: 'error', message: 'provider request failed before turn completion' }),
+      '',
+    ].join('\n')
+    const error = await captureReproducibleCodexFailure({
+      exitCode: 1,
+      stdoutChunks: [stdout],
+    })
+
+    expect(error.diagnostic.stdoutTruncated).toBe(true)
+    expect(error.diagnostic.stdout.length).toBeLessThanOrEqual(4096)
+    expect(error.diagnostic.stdout).toContain('thread.started')
+    expect(error.diagnostic.stdout).toContain('<... OUTPUT TRUNCATED ...>')
+    expect(error.diagnostic.stdout).toContain('provider request failed before turn completion')
+  })
+
+  it('preserves timeout and termination signal when usage is absent', async () => {
+    const error = await captureReproducibleCodexFailure({
+      delayCloseMs: 100,
+      timeoutMs: 1,
+    })
+
+    expect(error.diagnostic.exitCode).toBeNull()
+    expect(error.diagnostic.killedBySignal).toBe('SIGTERM')
+    expect(error.diagnostic.timedOut).toBe(true)
   })
 
   it('rejects caller read-denial paths outside reproducible Codex mode', async () => {

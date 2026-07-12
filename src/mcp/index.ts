@@ -91,13 +91,18 @@ export {
 } from './kb-gate'
 export type {
   CodexExecutionEvidence,
+  CodexExecutionFailureDiagnostic,
   CodexExecutionPolicy,
   CodexTokenUsage,
   LocalHarness,
   LocalHarnessResult,
   RunLocalHarnessOptions,
 } from './local-harness'
-export { parseCodexTokenUsage, runLocalHarness } from './local-harness'
+export {
+  CodexExecutionDiagnosticError,
+  parseCodexTokenUsage,
+  runLocalHarness,
+} from './local-harness'
 export { mcpToolsForRuntimeMcp, mcpToolsForRuntimeMcpSubset } from './openai-tools'
 export type {
   JsonRpcMessage,
