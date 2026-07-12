@@ -137,7 +137,11 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
   return { repo, base }
 }
 
-export function createSweBenchAdapter(): BenchmarkAdapter {
+export function createSweBenchAdapter(options: { readonly timeoutMs?: number } = {}): BenchmarkAdapter {
+  if (
+    options.timeoutMs !== undefined
+    && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
+  ) throw new Error('swe-bench: timeoutMs must be a positive integer')
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
@@ -227,6 +231,7 @@ print(json.dumps(out))
       const runId = safeRunId('bench', task.id)
       return runStagedJudge({
         tmpPrefix: 'swebench-',
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
         // Debug: retain the staged dir (holds swebench's per-instance apply/run
         // logs) for post-mortem when SWEBENCH_KEEP_TMP is set. Off by default.
         ...(process.env.SWEBENCH_KEEP_TMP ? { keepTmp: true } : {}),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { scoreSweReport } from './swe-bench'
+import { createSweBenchAdapter, scoreSweReport } from './swe-bench'
 
 const taskId = 'django__django-12345'
 
@@ -23,4 +23,10 @@ test('scoreSweReport rejects missing, ambiguous, malformed, and mismatched outco
   )
   assert.throws(() => scoreSweReport(taskId, { resolved_ids: taskId }), /malformed resolved_ids/)
   assert.throws(() => scoreSweReport(taskId, { resolved_ids: ['other__repo-1'] }), /identity mismatch/)
+})
+
+test('createSweBenchAdapter accepts only positive integer evaluation timeouts', () => {
+  assert.doesNotThrow(() => createSweBenchAdapter({ timeoutMs: 1_200_000 }))
+  assert.throws(() => createSweBenchAdapter({ timeoutMs: 0 }), /positive integer/)
+  assert.throws(() => createSweBenchAdapter({ timeoutMs: 1.5 }), /positive integer/)
 })
