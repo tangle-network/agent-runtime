@@ -19,7 +19,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { BenchScore } from './types'
@@ -28,8 +28,22 @@ const execFileAsync = promisify(execFile)
 
 /** Repo root for the bench package (…/bench), so `.venv` and `fixtures` resolve. */
 export const benchRoot = fileURLToPath(new URL('../..', import.meta.url))
-/** The bench venv interpreter every python-backed evaluator runs through. */
-export const venvPython = join(benchRoot, '.venv', 'bin', 'python')
+
+/** Resolve the shared interpreter without requiring an installed package to contain a venv. */
+export function resolveBenchPython(
+  env: Readonly<{ AGENT_BENCH_PYTHON?: string }> = process.env,
+  root: string = benchRoot,
+): string {
+  const configured = env.AGENT_BENCH_PYTHON
+  if (configured === undefined) return join(root, '.venv', 'bin', 'python')
+  if (!isAbsolute(configured)) {
+    throw new Error('AGENT_BENCH_PYTHON must be an absolute path')
+  }
+  return configured
+}
+
+/** The shared interpreter every Python-backed evaluator runs through. */
+export const venvPython = resolveBenchPython()
 
 /** Interpreter for a NAMED isolated venv (e.g. `.venv-commit0`). Benches whose pip
  *  deps conflict with the shared `.venv` (commit0 downgrades pydantic/sqlalchemy)
@@ -40,7 +54,7 @@ export const bigBuffer = 1024 * 1024 * 256
 
 /** Path to a named executable inside the bench venv (e.g. `venvBin('tb')`). */
 export function venvBin(name: string): string {
-  return join(benchRoot, '.venv', 'bin', name)
+  return join(dirname(venvPython), name)
 }
 
 /**
