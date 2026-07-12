@@ -929,7 +929,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 88 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 174 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 176 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -997,6 +997,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 174 exports.
 | `DELEGATION_STATUS_TOOL_NAME` | const | MCP tool name for the `delegation_status` synchronous-poll tool. |
 | `DELEGATION_TRACE_MAX_BYTES` | const | Default cap on the serialized trace payload per record, in bytes. |
 | `DELEGATION_TRACE_MAX_SPANS` | const | Default cap on spans retained per delegation record. |
+| `CodexExecutionDiagnosticError` | class | Thrown when reproducible Codex exits without one valid terminal usage event. |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
 | `DelegationTaskQueue` | class | In-process queue for async delegation tasks — submit, cancel, poll status, and read history. |
@@ -1005,6 +1006,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 174 exports.
 | `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
 | `CodexExecutionEvidence` | interface | Zero-model-call evidence for the exact Codex process about to run. |
+| `CodexExecutionFailureDiagnostic` | interface | Bounded, credential-redacted process context attached when reproducible Codex output fails |
 | `CodexExecutionPolicy` | interface | Isolation settings asserted before a reproducible Codex run is allowed to start. |
 | `CodexTokenUsage` | interface | Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |

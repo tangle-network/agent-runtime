@@ -36,6 +36,16 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  codexSensitiveEnvironmentName,
+  collectCodexDiagnosticRedactionValues,
+  createCodexExecutionDiagnosticError,
+  readCodexAuthRedactionText,
+  redactCodexHome,
+} from './codex-diagnostics'
+
+export type { CodexExecutionFailureDiagnostic } from './codex-diagnostics'
+export { CodexExecutionDiagnosticError } from './codex-diagnostics'
 
 /** Local coding harness available inside the sandbox. */
 export type LocalHarness = 'claude' | 'codex' | 'opencode'
@@ -415,6 +425,7 @@ export async function runLocalHarness(
         readDeniedPathsSha256: '',
         readDeniedPathCount: 0,
         readDeniedPaths: [] as string[],
+        diagnosticRedactionValues: [] as string[],
         ambientAuth: '',
         isolatedAuth: '',
         writeProbe: '',
@@ -527,6 +538,7 @@ export async function runLocalHarness(
       })
 
       child.on('close', (code, signal) => {
+        const durationMs = Date.now() - startedAt
         try {
           const usage = options.codexReproducible ? parseCodexTokenUsage(stdout) : undefined
           finalize({
@@ -534,7 +546,7 @@ export async function runLocalHarness(
             stdout,
             stderr: redactCodexHome(stderr, env.CODEX_HOME),
             killedBySignal: signal,
-            durationMs: Date.now() - startedAt,
+            durationMs,
             timedOut,
             ...(usage ? { usage } : {}),
             ...(evidence ? { evidence } : {}),
@@ -545,7 +557,25 @@ export async function runLocalHarness(
           if (timer) clearTimeout(timer)
           if (forceKillTimer) clearTimeout(forceKillTimer)
           options.signal?.removeEventListener('abort', onAbort)
-          reject(err instanceof Error ? err : new Error(String(err)))
+          const reason = err instanceof Error ? err.message : String(err)
+          reject(
+            options.codexReproducible
+              ? createCodexExecutionDiagnosticError({
+                  reason,
+                  exitCode: code,
+                  killedBySignal: signal,
+                  timedOut,
+                  durationMs,
+                  stdout,
+                  stderr,
+                  codexHome: env.CODEX_HOME,
+                  redactionValues: isolated.diagnosticRedactionValues,
+                  cause: err,
+                })
+              : err instanceof Error
+                ? err
+                : new Error(reason),
+          )
         }
       })
     })
@@ -858,10 +888,6 @@ function runCodexProbe(
   })
 }
 
-function redactCodexHome(value: string, codexHome: string | undefined): string {
-  return codexHome ? value.replaceAll(codexHome, '<ISOLATED_CODEX_HOME>') : value
-}
-
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
@@ -885,7 +911,6 @@ function redactJsonText(value: unknown, text: string): unknown {
 }
 
 const CODEX_AUTH_ENV = ['CODEX_ACCESS_TOKEN', 'CODEX_API_KEY', 'OPENAI_API_KEY'] as const
-const sensitiveEnvironmentName = /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH|COOKIE)/i
 
 const CODEX_PERMISSION_PROFILE = 'agent_runtime_reproducible'
 
@@ -904,6 +929,7 @@ async function isolateCodexHome(opts: {
   readDeniedPaths: string[]
   readDeniedPathsSha256: string
   readDeniedPathCount: number
+  diagnosticRedactionValues: string[]
   ambientAuth: string
   isolatedAuth: string
   writeProbe: string
@@ -980,8 +1006,10 @@ async function isolateCodexHome(opts: {
     const ambientHome = resolve(opts.baseEnv.CODEX_HOME?.trim() || join(homedir(), '.codex'))
     const ambientAuth = join(ambientHome, 'auth.json')
     const isolatedAuth = join(isolatedHome, 'auth.json')
+    let authText = ''
     try {
       await access(ambientAuth, constants.R_OK)
+      authText = await readCodexAuthRedactionText(ambientAuth)
       await symlink(ambientAuth, isolatedAuth)
     } catch (err) {
       throw new Error(
@@ -1003,7 +1031,7 @@ async function isolateCodexHome(opts: {
     const env = { ...opts.baseEnv }
     for (const name of Object.keys(env)) {
       if (
-        sensitiveEnvironmentName.test(name) ||
+        codexSensitiveEnvironmentName.test(name) ||
         CODEX_AUTH_ENV.some((authName) => authName === name)
       ) {
         delete env[name]
@@ -1034,6 +1062,7 @@ async function isolateCodexHome(opts: {
       readDeniedPaths,
       readDeniedPathsSha256: sha256(JSON.stringify(readDeniedPaths)),
       readDeniedPathCount: readDeniedPaths.length,
+      diagnosticRedactionValues: collectCodexDiagnosticRedactionValues(opts.baseEnv, authText),
       ambientAuth,
       isolatedAuth,
       writeProbe,
