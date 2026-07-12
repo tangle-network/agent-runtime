@@ -12,17 +12,13 @@ import type {
   AgentProfile,
   AgentProfileDiff,
 } from '@tangle-network/agent-interface'
-import { agentProfileDiffSchema, applyAgentProfileDiff } from '@tangle-network/agent-interface'
-
 import { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
+import { canonicalCandidateDigest, embeddedCandidateArtifact } from './digest'
 import {
-  canonicalCandidateBytes,
-  canonicalCandidateDigest,
-  embeddedCandidateArtifact,
-} from './digest'
-import {
+  applyExactAgentProfileDiff,
   freezeGenericAgentCandidateProfile,
   parseExactAgentProfile,
+  parseExactAgentProfileDiff,
   parseExactCandidateProfile,
 } from './profile'
 
@@ -128,8 +124,8 @@ function compileCandidateProfile(source: AgentCandidateProfileSource): {
   let profile = parseExactAgentProfile(source.base, 'base profile')
   const profileDiffIds: string[] = []
   for (const [index, inputDiff] of source.diffs.entries()) {
-    const diff = parseExactProfileDiff(inputDiff, index)
-    profile = omitUndefinedObjectFields(applyAgentProfileDiff(profile, diff)) as AgentProfile
+    const diff = parseExactAgentProfileDiff(inputDiff, `profile diff ${index}`)
+    profile = applyExactAgentProfileDiff(profile, diff, `profile diff ${index}`)
     profileDiffIds.push(canonicalCandidateDigest(diff))
   }
   return { profile: freezeGenericAgentCandidateProfile(profile), profileDiffIds }
@@ -159,33 +155,4 @@ function compileCandidateCode(source: AgentCandidateCodeSource): AgentCandidateB
     candidateTree: source.surface.candidateTree,
     patch: { format: 'git-diff-binary', artifact: patch },
   }
-}
-
-function parseExactProfileDiff(input: unknown, index: number): AgentProfileDiff {
-  const parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
-  assertCanonicalParse(input, parsed, `profile diff ${index}`)
-  return parsed
-}
-
-function assertCanonicalParse(input: unknown, parsed: unknown, label: string): void {
-  if (!Buffer.from(canonicalCandidateBytes(input)).equals(canonicalCandidateBytes(parsed))) {
-    throw new Error(`${label} contains unsupported or non-canonical fields`)
-  }
-}
-
-function omitUndefinedObjectFields(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry, index) => {
-      if (entry === undefined) {
-        throw new Error(`profile diff application produced an undefined array entry at ${index}`)
-      }
-      return omitUndefinedObjectFields(entry)
-    })
-  }
-  if (value === null || typeof value !== 'object') return value
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .map(([key, entry]) => [key, omitUndefinedObjectFields(entry)]),
-  )
 }

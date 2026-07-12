@@ -218,6 +218,24 @@ Re-exports [prepareAgentCandidateExecution](index.md#prepareagentcandidateexecut
 
 ***
 
+### applyExactAgentProfileDiff
+
+Re-exports [applyExactAgentProfileDiff](index.md#applyexactagentprofilediff)
+
+***
+
+### parseExactAgentProfile
+
+Re-exports [parseExactAgentProfile](index.md#parseexactagentprofile)
+
+***
+
+### parseExactAgentProfileDiff
+
+Re-exports [parseExactAgentProfileDiff](index.md#parseexactagentprofilediff)
+
+***
+
 ### AgentCandidateModelGrantActivateInput
 
 Re-exports [AgentCandidateModelGrantActivateInput](index.md#agentcandidatemodelgrantactivateinput)

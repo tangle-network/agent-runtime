@@ -19,6 +19,7 @@ export {
 } from './agentic-generator'
 export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
+  applyImprovementWinnerToProfile,
   type ImproveCodeOptions,
   type ImproveMemoryOptions,
   type ImproveOptions,
@@ -35,18 +36,13 @@ export {
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
 export {
+  type AgentProfileDiffProposal,
+  type ProfileDiffProposerContext,
+  type ProfileDiffProposerOptions,
+  profileDiffProposer,
+} from './profile-diff-proposer'
+export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,
 } from './raw-trace-distiller'
 export { type ReflectiveGeneratorOptions, reflectiveGenerator } from './reflective-generator'
-export {
-  applyRolloutPolicyToProfile,
-  enumerateNeighborPolicies,
-  normalizeRolloutPolicy,
-  parseRolloutPolicy,
-  ROLLOUT_POLICY_BOUNDS,
-  ROLLOUT_POLICY_EXTENSION,
-  rolloutPolicyProposer,
-  serializeRolloutPolicy,
-  structuralRolloutPolicyFromProfile,
-} from './rollout-policy'

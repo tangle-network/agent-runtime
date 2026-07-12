@@ -69,14 +69,15 @@ const result = await supervise(
 ### Improve an agent
 
 `improve` optimizes one part of an agent and **only ships a change if it beats the current agent on tasks it never practiced on**.
-It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, workflow, rollout-policy, whole-profile, and code surfaces through one call.
-Prompt, skill-document, memory, and rollout-policy optimization have built-in generators; structured surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
+It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, whole-profile, and code surfaces through one call.
+Prompt, skill-document, and memory optimization have built-in generators; structured profile surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
+Workflow and rollout-policy files use the code surface so the measured winner is an exact patch that can be sealed and executed; JSON parameter sweeps use agent-eval's `parameterSweepProposer` instead of a runtime-specific optimizer.
 
 ```ts
 import { improve } from '@tangle-network/agent-runtime'
 
 const { profile, shipped, lift } = await improve(baseProfile, findings, {
-  surface: 'prompt',        // or skills/memory/tools/mcp/hooks/subagents/workflow/agent-profile/rollout-policy/code
+  surface: 'prompt',        // or skills/memory/tools/mcp/hooks/subagents/agent-profile/code
   gate: 'holdout',          // certified on a held-back exam, never the practice set
   scenarios, judge, agent,  // how to measure a candidate
 })

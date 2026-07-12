@@ -99,6 +99,7 @@ export type {
   AgentImprovementReview,
   AgentImprovementReviewDecision,
   CandidateExecutionEvidence,
+  CreateAgentImprovementProposalOptions,
   ExecuteApprovedAgentCandidateOptions,
   ExecuteApprovedAgentCandidateResult,
   ProposeAgentImprovementOptions,
@@ -106,6 +107,7 @@ export type {
   ReviewAgentImprovementInput,
 } from './improvement-cycle'
 export {
+  createAgentImprovementProposal,
   executeApprovedAgentCandidate,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,

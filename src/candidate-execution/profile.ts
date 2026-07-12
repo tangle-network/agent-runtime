@@ -3,10 +3,16 @@ import type {
   AgentCandidateProfile,
   AgentCandidateResourceRef,
   AgentProfile,
+  AgentProfileDiff,
   AgentProfileMcpServer,
   AgentProfileResourceRef,
 } from '@tangle-network/agent-interface'
-import { agentCandidateProfileSchema, agentProfileSchema } from '@tangle-network/agent-interface'
+import {
+  agentCandidateProfileSchema,
+  agentProfileDiffSchema,
+  agentProfileSchema,
+  applyAgentProfileDiff,
+} from '@tangle-network/agent-interface'
 
 import {
   canonicalCandidateBytes,
@@ -86,10 +92,30 @@ export function assertCandidateProfileBinding(
   }
 }
 
+/** Parse a complete profile without silently discarding unsupported fields. */
 export function parseExactAgentProfile(input: unknown, label: string): AgentProfile {
   const parsed = agentProfileSchema.parse(input) as AgentProfile
   assertCanonicalParse(input, parsed, label)
   return parsed
+}
+
+/** Parse a profile diff without silently discarding unsupported fields. */
+export function parseExactAgentProfileDiff(input: unknown, label: string): AgentProfileDiff {
+  const parsed = agentProfileDiffSchema.parse(input) as AgentProfileDiff
+  assertCanonicalParse(input, parsed, label)
+  return parsed
+}
+
+/** Apply one exact diff and reject any value that cannot be preserved canonically. */
+export function applyExactAgentProfileDiff(
+  baseInput: unknown,
+  diffInput: unknown,
+  label: string,
+): AgentProfile {
+  const base = parseExactAgentProfile(baseInput, `${label} base profile`)
+  const diff = parseExactAgentProfileDiff(diffInput, `${label} diff`)
+  const applied = omitUndefinedObjectFields(applyAgentProfileDiff(base, diff), label)
+  return parseExactAgentProfile(applied, `${label} result`)
 }
 
 export function parseExactCandidateProfile(input: unknown): AgentCandidateProfile {
@@ -176,6 +202,23 @@ function candidateProfileAsAgentProfile(candidate: AgentCandidateProfile): Agent
     }
   }
   return output as AgentProfile
+}
+
+function omitUndefinedObjectFields(value: unknown, path: string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry, index) => {
+      if (entry === undefined) {
+        throw new Error(`${path} produced an undefined array entry at ${index}`)
+      }
+      return omitUndefinedObjectFields(entry, `${path}[${index}]`)
+    })
+  }
+  if (value === null || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, omitUndefinedObjectFields(entry, `${path}.${key}`)]),
+  )
 }
 
 function freezeMcpServers(servers: Record<string, AgentProfileMcpServer>): Record<string, unknown> {
