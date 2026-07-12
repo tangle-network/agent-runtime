@@ -95,7 +95,14 @@ const MODEL = process.env.MODEL ?? 'glm-5.2'
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
-const TEMP = Number(process.env.TEMP ?? 0.8)
+// NOT `TEMP`: Node's os.tmpdir() honors the TEMP env var as the temp DIRECTORY, so setting
+// TEMP=0.8 made mkdtemp build a relative path "0.8/swe-repro-…" and every docker -v mount was
+// rejected as an invalid volume name. Sampling temperature reads SAMPLE_TEMP (TEMP still accepted
+// only if it parses as a number < 2, so a stray TEMP=/some/dir never leaks in as a temperature).
+const TEMP = (() => {
+  const s = process.env.SAMPLE_TEMP ?? (process.env.TEMP && Number(process.env.TEMP) < 2 ? process.env.TEMP : undefined)
+  return Number(s ?? 0.8)
+})()
 const INNER_TURNS = Number(process.env.INNER_TURNS ?? 40)
 const TURN_CAP = Number(process.env.TURN_CAP ?? 12)
 const DEADLINE_MS = Number(process.env.DEADLINE_MS ?? 1_800_000)
