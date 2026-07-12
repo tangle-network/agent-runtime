@@ -338,6 +338,15 @@ async function evaluateCell(
 
   const winner = result.selection.find((r) => r.selected)
   if (!winner) {
+    // Zero candidates means EVERY shot for this cell returned null — the signature of a
+    // dead worker (credits exhausted / rate-limited / outage), not a hard task. The
+    // runtime swallows exhausted-retry shots as null, so without this the run degrades
+    // silently for hundreds of cells and then dies at the holdout with a cryptic empty-
+    // gate error. Probe the API once and abort LOUD with the real HTTP status so the
+    // operator sees the actual cause (e.g. HTTP 402 credit exceeded) immediately.
+    if (result.repairStop === 'no-candidates') {
+      await abortOnDeadWorker(scenario.id)
+    }
     throw new Error(`${scenario.id}: no receipt marked selected (repairStop=${result.repairStop})`)
   }
   const rec = scored[winner.candidateIndex]
@@ -396,7 +405,9 @@ const hiddenJudge: JudgeConfig<CellArtifact, MbppScenario> = {
 
 // ── Fail-loud model preflight (cost gate: prove the worker is live before any burn) ──
 
-async function preflightModel(): Promise<void> {
+/** One direct 8-token probe of the worker. Returns HTTP status + a short body slice —
+ *  the shared health check for the startup preflight and the mid-run dead-worker guard. */
+async function probeWorker(): Promise<{ ok: boolean; status: number; body: string; content: string }> {
   const res = await fetch(`${BASE}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${must('TOGETHER_API_KEY')}`, 'Content-Type': 'application/json' },
@@ -407,13 +418,33 @@ async function preflightModel(): Promise<void> {
       messages: [{ role: 'user', content: 'Reply with the single word: ready' }],
     }),
   })
-  if (!res.ok) {
-    throw new Error(`model preflight FAILED: ${MODEL} @ ${BASE} → HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  }
+  if (!res.ok) return { ok: false, status: res.status, body: (await res.text()).slice(0, 300), content: '' }
   const d = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = (d.choices?.[0]?.message?.content ?? '').trim()
-  if (content === '') throw new Error(`model preflight FAILED: ${MODEL} returned empty content`)
-  console.log(`  preflight: ${MODEL} is live (replied ${JSON.stringify(content.slice(0, 40))})`)
+  return { ok: true, status: res.status, body: '', content: (d.choices?.[0]?.message?.content ?? '').trim() }
+}
+
+async function preflightModel(): Promise<void> {
+  const p = await probeWorker()
+  if (!p.ok) throw new Error(`model preflight FAILED: ${MODEL} @ ${BASE} → HTTP ${p.status}: ${p.body}`)
+  if (p.content === '') throw new Error(`model preflight FAILED: ${MODEL} returned empty content`)
+  console.log(`  preflight: ${MODEL} is live (replied ${JSON.stringify(p.content.slice(0, 40))})`)
+}
+
+/** Called when a cell produced zero candidates (every shot null). Probes the worker; if
+ *  it is unhealthy (e.g. HTTP 402 credit exceeded, 429 rate limit, outage) the whole run
+ *  is doomed — abort LOUD now rather than degrade through hundreds more null cells into
+ *  a cryptic empty-holdout gate error. If the probe is HEALTHY the null was a one-off, so
+ *  return and let the per-cell throw handle just this cell. */
+async function abortOnDeadWorker(scenarioId: string): Promise<void> {
+  const p = await probeWorker()
+  if (p.ok && p.content !== '') return
+  console.error(
+    `\nDEAD WORKER: cell ${scenarioId} produced zero candidates and a direct probe returned ` +
+      `${p.ok ? `empty content` : `HTTP ${p.status}: ${p.body}`}. Every shot is failing — aborting ` +
+      `loud (durable provenance in ${RUN_DIR}). If this is HTTP 402, add Together credits and re-run.`,
+  )
+  reapContainers()
+  process.exit(1)
 }
 
 // ── Reporting helpers (read the library's own result objects; never re-decide) ───────
