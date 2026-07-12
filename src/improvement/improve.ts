@@ -16,12 +16,7 @@
  *     lesson document supplied through `opts.memory`.
  *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
  *     canonical AgentProfile JSON in one candidate.
- *   - `surface: 'rollout-policy'` → `rolloutPolicyProposer` mutates the
- *     inference-time `StructuralRolloutPolicy` dials ({ k, repairRounds, testgen })
- *     persisted in `profile.extensions['structural-rollout']` — deterministic
- *     bounded neighbor enumeration; the held-out gate does the deciding. No-op
- *     (nothing proposed, nothing shipped) when the profile has no such extension.
- *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `workflow`, `agent-profile`, `code`} → no zero-config default
+ *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`, `code`} → no zero-config default
  *     proposer exists (a code/config proposer needs caller-supplied wiring — a
  *     worktree repo root, a candidate generator, a serializer). The facade
  *     requires an explicit `opts.generator` for these and throws a `ConfigError`
@@ -63,18 +58,10 @@ import {
   type ManagedImprovementDriver,
 } from './improvement-driver'
 import { rawTraceDistiller } from './raw-trace-distiller'
-import {
-  applyRolloutPolicyToProfile,
-  normalizeRolloutPolicy,
-  rolloutPolicyProposer,
-  serializeRolloutPolicy,
-  structuralRolloutPolicyFromProfile,
-} from './rollout-policy'
 
-/** The agent-profile lever `improve` optimizes. Mirrors the AgentProfile-law
- *  profile levers; `code` is the implementation-tier surface, `rollout-policy`
- *  the inference-time structuralRollout dials
- *  (`profile.extensions['structural-rollout']`). */
+/** The executable agent lever `improve` optimizes. Profile fields remain
+ *  portable AgentProfile coordinates; implementation and orchestration files
+ *  use the code surface so a winner can be sealed into an exact candidate. */
 export type ImproveSurface =
   | 'prompt'
   | 'skills'
@@ -82,11 +69,9 @@ export type ImproveSurface =
   | 'mcp'
   | 'hooks'
   | 'subagents'
-  | 'workflow'
   | 'agent-profile'
   | 'memory'
   | 'code'
-  | 'rollout-policy'
 
 export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
   SelfImproveOptions<TScenario, TArtifact>,
@@ -200,7 +185,6 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
 /** Default model id for the reflective drivers when `llm.model` is unset — a model the Tangle
  *  router actually serves (callers should pass their own `llm.model`). */
 const defaultReflectionModel = 'deepseek-v4-flash'
-const workflowExtension = 'tangle.workflow'
 
 /** The reflective proposers (`gepaProposer`/`skillOptProposer`) take a full
  *  `LlmClientOptions`; `SelfImproveLlm` is the thin user-facing subset. */
@@ -222,9 +206,6 @@ function defaultGeneratorFor(
       return skillOptProposer({ llm: llmClientOptions(llm), model, target: 'agent skill document' })
     case 'memory':
       return memoryCurationProposer()
-    case 'rollout-policy':
-      // Deterministic bounded enumeration — no LLM, so `llm` is unused here.
-      return rolloutPolicyProposer()
     default:
       return undefined
   }
@@ -254,8 +235,6 @@ function baselineSurfaceFor(
       return JSON.stringify(profile.hooks ?? {})
     case 'subagents':
       return JSON.stringify(profile.subagents ?? {})
-    case 'workflow':
-      return JSON.stringify(profile.extensions?.[workflowExtension] ?? {})
     case 'agent-profile':
       return JSON.stringify(profile)
     case 'memory':
@@ -263,13 +242,6 @@ function baselineSurfaceFor(
         throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
       }
       return memory.document
-    case 'rollout-policy': {
-      // Empty surface when the profile never opted into structural rollout: the
-      // proposer reads it as "propose nothing", so the loop runs baseline-only and
-      // holds — tuning dials nothing consumes would ship dead config.
-      const policy = structuralRolloutPolicyFromProfile(profile)
-      return policy ? serializeRolloutPolicy(policy) : ''
-    }
     case 'code':
       throw new ConfigError(
         'improve(): code requires the isolated baseline created from opts.code.repoRoot',
@@ -405,7 +377,7 @@ async function prepareCodeRun(
   }
 }
 
-/** Parse a JSON winner surface (`skills`/`tools`/`mcp`/`hooks`/`subagents`/`workflow`/`agent-profile`) with a typed,
+/** Parse a JSON winner surface (`tools`/`mcp`/`hooks`/`subagents`/`agent-profile`) with a typed,
  *  contextual error. A malformed generator output must fail loud here, not throw
  *  a raw `SyntaxError` to the caller after a ship verdict. */
 function parseWinnerJson<T>(winner: string, surface: ImproveSurface): T {
@@ -455,33 +427,11 @@ function applyWinnerToProfile(
     case 'subagents':
       candidate = { ...profile, subagents: parseWinnerJson(winner, surface) }
       break
-    case 'workflow':
-      candidate = {
-        ...profile,
-        extensions: {
-          ...profile.extensions,
-          [workflowExtension]: parseWinnerJson(winner, surface),
-        },
-      }
-      break
     case 'agent-profile':
       candidate = parseWinnerJson(winner, surface)
       break
     case 'memory':
       return profile
-    case 'rollout-policy': {
-      // Parse + re-validate the winner against the policy's own invariants — a
-      // custom generator's malformed dial must fail loud, not persist silently.
-      const policy = normalizeRolloutPolicy(parseWinnerJson(winner, surface))
-      if (!policy) {
-        throw new ConfigError(
-          `improve(): the shipped 'rollout-policy' winner is not a valid StructuralRolloutPolicy ` +
-            `(integer k >= 1, repairRounds >= 0, testgen >= 0), so it cannot be applied: ${winner}`,
-        )
-      }
-      candidate = applyRolloutPolicyToProfile(profile, policy)
-      break
-    }
     case 'code':
       return profile
   }

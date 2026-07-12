@@ -128,6 +128,17 @@ export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArti
   proposal: AgentImprovementProposal<TScenario, TArtifact>
 }
 
+export interface CreateAgentImprovementProposalOptions<TScenario extends Scenario, TArtifact> {
+  runId: string
+  surface: ImproveSurface
+  baselineProfile: AgentProfile
+  candidateProfile: AgentProfile
+  findings: readonly AnalystFinding[]
+  evaluation: SelfImproveResult<TScenario, TArtifact>
+  candidateBundle?: AgentCandidateBundleInput | AgentCandidateBundle
+  now?: () => Date
+}
+
 export interface ReviewAgentImprovementInput {
   decision: AgentImprovementReviewDecision
   reviewedBy: string
@@ -180,28 +191,57 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
   const improvement = await improve(options.profile, [...findings], options.improvement)
   const candidateBundle =
     improvement.shipped && options.buildCandidate
-      ? sealBuiltCandidate(await options.buildCandidate({ analysis, improvement }))
+      ? await options.buildCandidate({ analysis, improvement })
       : undefined
-  if (candidateBundle) assertCandidateProfileBinding(improvement.profile, candidateBundle.profile)
-  const surface = options.improvement.surface ?? 'prompt'
-  const evaluation = canonicalJsonValue(improvementEvaluation(improvement.raw))
-  const proposalFindings = canonicalJsonValue([...findings])
+  const proposal = createAgentImprovementProposal({
+    runId: options.runId,
+    surface: options.improvement.surface ?? 'prompt',
+    baselineProfile: options.profile,
+    candidateProfile: improvement.profile,
+    findings,
+    evaluation: improvement.raw,
+    ...(candidateBundle ? { candidateBundle } : {}),
+    ...(options.now ? { now: options.now } : {}),
+  })
+  return { analysis, improvement, proposal }
+}
+
+/**
+ * Freeze an already-measured improvement into the one reviewable proposal
+ * contract. Products that run analysis or evaluation in separate workers use
+ * this constructor instead of rerunning either phase or rebuilding digests.
+ */
+export function createAgentImprovementProposal<TScenario extends Scenario, TArtifact>(
+  options: CreateAgentImprovementProposalOptions<TScenario, TArtifact>,
+): AgentImprovementProposal<TScenario, TArtifact> {
+  const findings = assertNoJudgeVerdict(
+    [...options.findings],
+    'createAgentImprovementProposal findings',
+  )
+  const candidateBundle = options.candidateBundle
+    ? sealBuiltCandidate(options.candidateBundle)
+    : undefined
+  if (candidateBundle) {
+    if (options.evaluation.gateDecision !== 'ship') {
+      throw new Error('executable candidate bundle requires a passing measured comparison')
+    }
+    assertCandidateProfileBinding(options.candidateProfile, candidateBundle.profile)
+  }
   const withoutDigest = {
     schemaVersion: 1 as const,
     kind: 'agent-improvement-proposal' as const,
     runId: options.runId,
-    surface,
+    surface: options.surface,
     proposedAt: (options.now ?? (() => new Date()))().toISOString(),
-    baselineProfileHash: canonicalCandidateDigest(options.profile),
-    candidateProfile: improvement.profile,
-    candidateProfileHash: canonicalCandidateDigest(improvement.profile),
-    findings: proposalFindings,
-    evaluation,
+    baselineProfileHash: canonicalCandidateDigest(options.baselineProfile),
+    candidateProfile: options.candidateProfile,
+    candidateProfileHash: canonicalCandidateDigest(options.candidateProfile),
+    findings: canonicalJsonValue([...findings]),
+    evaluation: canonicalJsonValue(improvementEvaluation(options.evaluation)),
     ...(candidateBundle ? { candidateBundle } : {}),
   }
-  const proposal =
-    canonicalCandidateDocument<AgentImprovementProposal<TScenario, TArtifact>>(withoutDigest).value
-  return { analysis, improvement, proposal }
+  return canonicalCandidateDocument<AgentImprovementProposal<TScenario, TArtifact>>(withoutDigest)
+    .value
 }
 
 /** Persist an approve/reject/change-request decision bound to one exact proposal. */

@@ -16,6 +16,7 @@ import type {
   AgentCandidateExecutorRequest,
 } from '../src/candidate-execution/types'
 import {
+  createAgentImprovementProposal,
   executeApprovedAgentCandidate,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,
@@ -231,6 +232,18 @@ describe('agent improvement lifecycle', () => {
     expect(proposed.proposal.candidateProfile.prompt?.systemPrompt).toBe('PROMOTED')
     expect(proposed.proposal.candidateBundle?.digest).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(verifyAgentImprovementProposal(proposed.proposal)).toEqual(proposed.proposal)
+    expect(
+      createAgentImprovementProposal({
+        runId: 'analysis-run-1',
+        surface: 'prompt',
+        baselineProfile: profile,
+        candidateProfile: proposed.improvement.profile,
+        findings: proposed.analysis.analystResult.findings,
+        evaluation: proposed.improvement.raw,
+        candidateBundle: proposed.proposal.candidateBundle,
+        now: () => new Date('2026-07-10T01:00:00.000Z'),
+      }),
+    ).toEqual(proposed.proposal)
 
     const review = reviewAgentImprovementProposal(proposed.proposal, {
       decision: 'approve',

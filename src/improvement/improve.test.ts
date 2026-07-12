@@ -356,13 +356,6 @@ describe('improve() — default proposer resolution (substrate export drift guar
       expected: 'improved review instructions',
     },
     {
-      surface: 'workflow' as const,
-      profile: { name: 'fixture-agent', extensions: { 'tangle.workflow': {} } },
-      winner: JSON.stringify({ marker: 'improved', phases: ['inspect', 'implement', 'verify'] }),
-      read: (profile: AgentProfile) => profile.extensions?.['tangle.workflow']?.phases,
-      expected: ['inspect', 'implement', 'verify'],
-    },
-    {
       surface: 'agent-profile' as const,
       profile: { name: 'fixture-agent', prompt: { systemPrompt: 'baseline' } },
       winner: JSON.stringify({
@@ -474,15 +467,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
   })
 
   it('a surface with no zero-config default still fails loud with ConfigError', async () => {
-    // Prompt, skills, memory, and rollout policy have defaults; config surfaces
-    // require a caller-supplied generator. This is the
+    // Prompt, skills, and memory have defaults; config surfaces require a
+    // caller-supplied generator. This is the
     // designed boundary the proposer migration must NOT erase.
     const configSurfaces: ImproveSurface[] = [
       'tools',
       'mcp',
       'hooks',
       'subagents',
-      'workflow',
       'agent-profile',
       'code',
     ]
