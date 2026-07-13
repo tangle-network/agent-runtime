@@ -35,8 +35,13 @@
  *
  * Phase-1 scope otherwise: returns the scalar `composite` (mean resolved) +
  * `costUsd` only — no per-task `RunRecord`s — so it pairs with
- * `thresholdPromotionGate`, not `heldOutPromotionGate`. Tasks run sequentially
- * on purpose: the patch capture closes over one mutable cell per drive.
+ * `thresholdPromotionGate`, not `heldOutPromotionGate`. Instances are evaluated
+ * with bounded concurrency (`opts.concurrency`, default 1 = serial): each drive
+ * owns its own patch-capture cell and runs a DISTINCT instance id, so nothing is
+ * shared across in-flight tasks and no two drives ever contend the same Docker
+ * judge container (`sweb.eval.<id>.*`). The pool preserves input order, so
+ * rows[] and the composite/cost aggregation are identical to the serial path at
+ * any N.
  */
 
 import { execFile } from 'node:child_process'
@@ -53,6 +58,7 @@ import {
   runAgentic,
   type SurfaceScore,
 } from '../runtime'
+import { mapWithConcurrency } from '../runtime/util'
 import type { EvalResult, EvalRunner } from './marginal-lift'
 
 const exec = promisify(execFile)
@@ -101,6 +107,15 @@ export interface SweEvalRunnerOptions<T extends SweEvalTask = SweEvalTask> {
   innerTurns?: number
   /** Max refine shots per task. Default 1. */
   budget?: number
+  /** Max instances driven+judged concurrently within ONE eval call. Default 1
+   *  (serial, preserving prior behavior); clamped to >= 1. Concurrency is only
+   *  ever ACROSS DISTINCT instance ids — every task in `opts.tasks` is a distinct
+   *  held-out instance, and the Docker judge keys its container name on the id
+   *  (`sweb.eval.<id>.*`), so the same id must never run twice at once; a
+   *  distinct-id map cannot. Rows and the composite/cost aggregation are
+   *  identical to the serial path at any value (order-preserving pool +
+   *  input-order sums). */
+  concurrency?: number
   /** Same-host MCP materialization: when true and the profile declares `mcp`
    *  servers, spawn each enabled stdio server as a LOCAL child for the eval's
    *  duration and expose its tools (`<server>__<tool>`) to the driven worker
@@ -153,73 +168,24 @@ async function driveAndGrade<T extends SweEvalTask>(
   opts: SweEvalRunnerOptions<T>,
   signal?: AbortSignal,
 ): Promise<EvalResult> {
+  // Bounded concurrency across DISTINCT instance ids only (see `concurrency`).
+  // `mapWithConcurrency` PRESERVES input order, so `results[i]` is task `i`
+  // regardless of completion order; folding in that order below reproduces the
+  // serial path's rows[] and its float-exact cost/composite at any N.
+  const concurrency = Math.max(1, Math.floor(opts.concurrency ?? 1))
+  const results = await mapWithConcurrency(opts.tasks, concurrency, (task) =>
+    evaluateTask(task, environment, systemPrompt, opts, signal),
+  )
+
   const rows: SweEvalTaskResult[] = []
   let costUsd = 0
   let judgeCalls = 0
   let judgeErrors = 0
-
-  for (const task of opts.tasks) {
-    if (signal?.aborted) throw new Error('sweEvalRunner: aborted')
-
-    // Capture the LATEST non-empty diff from inside score() — the refine loop
-    // calls it before the surface closes and rms the checkout, and a later
-    // empty read must never clobber a real patch (the swe-emit-patch pattern).
-    let capturedPatch = ''
-    const proxy: AgenticSurface = {
-      ...environment,
-      async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
-        try {
-          const d = await exec('git', ['-C', handle.id, 'diff'], {
-            maxBuffer: 40_000_000,
-            timeout: 60_000,
-          })
-          if (d.stdout.trim()) capturedPatch = d.stdout
-        } catch {
-          /* workspace gone or git error → keep whatever we already captured */
-        }
-        return { passes: capturedPatch.trim() ? 1 : 0, total: 1, errored: 0 }
-      },
-    }
-
-    const run = await runAgentic({
-      surface: proxy,
-      task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
-      strategy: refine,
-      routerBaseUrl: opts.routerBaseUrl,
-      routerKey: opts.routerKey,
-      model: opts.model,
-      maxTokens: opts.maxTokens,
-      innerTurns: opts.innerTurns,
-      budget: opts.budget ?? 1,
-    })
-    costUsd += run.usd
-
-    let resolved = false
-    let judgeError: string | undefined
-    if (capturedPatch.trim()) {
-      judgeCalls += 1
-      try {
-        resolved = (await opts.judge(task, capturedPatch)).resolved
-      } catch (e) {
-        judgeErrors += 1
-        judgeError = e instanceof Error ? e.message : String(e)
-      }
-    }
-
-    rows.push({
-      id: task.id,
-      resolved,
-      patchBytes: capturedPatch.length,
-      usd: run.usd,
-      shots: run.shots,
-      tokens: run.tokens,
-      ...(judgeError === undefined ? {} : { judgeError }),
-    })
-    console.error(
-      `[swe-eval] ${task.id} resolved=${resolved} patch=${capturedPatch.length}b ` +
-        `shots=${run.shots} tok=in:${run.tokens.input}/out:${run.tokens.output} usd=${run.usd.toFixed(4)}` +
-        (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : ''),
-    )
+  for (const r of results) {
+    rows.push(r.row)
+    costUsd += r.costUsd
+    if (r.judgeCall) judgeCalls += 1
+    if (r.judgeErrored) judgeErrors += 1
   }
 
   // Every judge invocation failing is broken grading infrastructure (docker
@@ -236,6 +202,89 @@ async function driveAndGrade<T extends SweEvalTask>(
     costUsd,
     details: { systemPrompt, mcpTools: mcp?.tools.map((t) => t.function.name) ?? [], rows },
   }
+}
+
+/** The single-instance drive+judge — one held-out id, driven with the multi-turn
+ *  atom, its captured patch graded by the injected judge. Factored out of the
+ *  loop UNCHANGED so `driveAndGrade` can run several at bounded concurrency; each
+ *  call owns its own `capturedPatch` cell, so distinct-id drives share no mutable
+ *  state. Returns the audit row plus the judge-call/error flags the caller folds
+ *  into the eval's cost and infra-down guard (in input order, not completion
+ *  order — the aggregation stays float-identical to the serial path). */
+async function evaluateTask<T extends SweEvalTask>(
+  task: T,
+  environment: AgenticSurface,
+  systemPrompt: string,
+  opts: SweEvalRunnerOptions<T>,
+  signal?: AbortSignal,
+): Promise<{
+  row: SweEvalTaskResult
+  costUsd: number
+  judgeCall: boolean
+  judgeErrored: boolean
+}> {
+  if (signal?.aborted) throw new Error('sweEvalRunner: aborted')
+
+  // Capture the LATEST non-empty diff from inside score() — the refine loop
+  // calls it before the surface closes and rms the checkout, and a later
+  // empty read must never clobber a real patch (the swe-emit-patch pattern).
+  let capturedPatch = ''
+  const proxy: AgenticSurface = {
+    ...environment,
+    async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
+      try {
+        const d = await exec('git', ['-C', handle.id, 'diff'], {
+          maxBuffer: 40_000_000,
+          timeout: 60_000,
+        })
+        if (d.stdout.trim()) capturedPatch = d.stdout
+      } catch {
+        /* workspace gone or git error → keep whatever we already captured */
+      }
+      return { passes: capturedPatch.trim() ? 1 : 0, total: 1, errored: 0 }
+    },
+  }
+
+  const run = await runAgentic({
+    surface: proxy,
+    task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
+    strategy: refine,
+    routerBaseUrl: opts.routerBaseUrl,
+    routerKey: opts.routerKey,
+    model: opts.model,
+    maxTokens: opts.maxTokens,
+    innerTurns: opts.innerTurns,
+    budget: opts.budget ?? 1,
+  })
+
+  let resolved = false
+  let judgeError: string | undefined
+  let judgeCall = false
+  if (capturedPatch.trim()) {
+    judgeCall = true
+    try {
+      resolved = (await opts.judge(task, capturedPatch)).resolved
+    } catch (e) {
+      judgeError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  const row: SweEvalTaskResult = {
+    id: task.id,
+    resolved,
+    patchBytes: capturedPatch.length,
+    usd: run.usd,
+    shots: run.shots,
+    tokens: run.tokens,
+    ...(judgeError === undefined ? {} : { judgeError }),
+  }
+  console.error(
+    `[swe-eval] ${task.id} resolved=${resolved} patch=${capturedPatch.length}b ` +
+      `shots=${run.shots} tok=in:${run.tokens.input}/out:${run.tokens.output} usd=${run.usd.toFixed(4)}` +
+      (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : ''),
+  )
+
+  return { row, costUsd: run.usd, judgeCall, judgeErrored: judgeError !== undefined }
 }
 
 /** Overlay the same-host MCP tools onto the domain surface: `tools()` appends

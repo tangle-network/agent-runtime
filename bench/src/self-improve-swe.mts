@@ -21,7 +21,7 @@
  *
  *   IN  (env):  HOLDOUT_IDS=<comma-separated Verified instance ids>,
  *               WORKER_MODEL, MAX_TOKENS, ROUTER_BASE, TANGLE_API_KEY,
- *               INNER_TURNS, BUDGET, RUN_TOOL, SURFACE=prompt|mcp
+ *               INNER_TURNS, BUDGET, EVAL_CONCURRENCY, RUN_TOOL, SURFACE=prompt|mcp
  *               SURFACE=mcp also reads: BUILD_REPO_ROOT (required),
  *               MCP_SERVE_COMMAND (required), MCP_SERVE_ARGS, BUILD_BASE_REF,
  *               BUILD_HARNESS, BUILD_FANOUT, BUILD_MAX_SHOTS, DRIVER_MODEL
@@ -76,6 +76,9 @@ async function main(): Promise<void> {
   const innerTurns = Number(process.env.INNER_TURNS ?? 12)
   const maxTokens = Number(process.env.MAX_TOKENS ?? 12000)
   const budget = Number(process.env.BUDGET ?? 1)
+  // Instances driven+judged at once within each eval call. Distinct-id only, so
+  // safe against the per-id Docker judge container; default 1 = serial.
+  const concurrency = Number(process.env.EVAL_CONCURRENCY ?? 1)
   const enableRun = ['1', 'true', 'yes'].includes((process.env.RUN_TOOL ?? '').toLowerCase())
   const surfaceRaw = (process.env.SURFACE ?? 'prompt').toLowerCase()
   if (surfaceRaw !== 'prompt' && surfaceRaw !== 'mcp') {
@@ -100,6 +103,7 @@ async function main(): Promise<void> {
     maxTokens,
     innerTurns,
     budget,
+    concurrency,
     // SURFACE=mcp: the candidate profile carries a worktree-built stdio server;
     // spawn it same-host so its tools are live while the profile is scored.
     materializeMcp: surface === 'mcp',
