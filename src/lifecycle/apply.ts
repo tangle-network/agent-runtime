@@ -10,6 +10,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { memoryMcpServer, profileMemoryMetadataKey } from './memory'
 import type { ProfileArtifact } from './types'
 
 /**
@@ -53,6 +54,20 @@ export function applyArtifact(base: AgentProfile, artifact: ProfileArtifact): Ag
       const payload = artifact.payload as ProfileArtifact<'subagent'>['payload']
       const key = keyOf(artifact)
       return { ...base, subagents: { ...base.subagents, [key]: payload.profile } }
+    }
+    case 'memory': {
+      // Double mount: the typed spec rides `metadata.memory` (the local
+      // extension — the published AgentProfile has no memory field yet), and
+      // the LIVE serving rides `mcp[key]` (a field the profile does have), so
+      // the same-host materialization boots the memory during a scored run
+      // with zero scorer changes. See lifecycle/memory.ts for the boundary.
+      const payload = artifact.payload as ProfileArtifact<'memory'>['payload']
+      const key = keyOf(artifact)
+      return {
+        ...base,
+        metadata: { ...base.metadata, [profileMemoryMetadataKey]: payload.spec },
+        mcp: { ...base.mcp, [key]: memoryMcpServer(payload.spec) },
+      }
     }
   }
 }

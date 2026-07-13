@@ -61,6 +61,26 @@ export {
   measureMarginalLift,
 } from './marginal-lift'
 export {
+  type AgentMemorySpec,
+  CURATED_MEMORY_BLOCK_END,
+  CURATED_MEMORY_BLOCK_START,
+  lessonsFromCuratedSurface,
+  type MemoryArtifactOptions,
+  type MemoryGeneratorOptions,
+  type MemoryItem,
+  type MemoryMcpServerOptions,
+  memoryArtifactFromCuratedSurface,
+  memoryArtifactFromLessons,
+  memoryGenerator,
+  memoryMcpServer,
+  memoryOfProfile,
+  type ProfileWithMemory,
+  profileMemoryMetadataKey,
+  readMemoryItemsFile,
+  validateMemorySpec,
+  writeMemoryStore,
+} from './memory'
+export {
   type AuthorDiverseSeeds,
   gepaRefine,
   type ProductionPromptGeneratorOptions,

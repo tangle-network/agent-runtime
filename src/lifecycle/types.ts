@@ -22,14 +22,17 @@ import type {
   AgentProfileResourceRef,
   AgentSubagentProfile,
 } from '@tangle-network/agent-interface'
+import type { AgentMemorySpec } from '../mcp/memory-server'
 
 /**
  * The profile levers an artifact can target. One-to-one with the §1.5 profile
- * surface (`prompt + skills + tools + mcp + hooks + subagents`). Each kind maps to
- * exactly one field of `AgentProfile`, so an artifact can be applied onto a
- * baseline profile deterministically (see `applyArtifact`).
+ * surface (`prompt + skills + tools + mcp + hooks + subagents`), plus `memory`
+ * — the Phase-5 surface the published `AgentProfile` does not yet name (it
+ * mounts as a local extension; see lifecycle/memory.ts). Each kind maps to
+ * exactly one profile lever, so an artifact can be applied onto a baseline
+ * profile deterministically (see `applyArtifact`).
  */
-export type ArtifactKind = 'skill' | 'tool' | 'mcp' | 'hook' | 'subagent' | 'prompt'
+export type ArtifactKind = 'skill' | 'tool' | 'mcp' | 'hook' | 'subagent' | 'prompt' | 'memory'
 
 /**
  * The payload for each `ArtifactKind`. The shapes are the SAME types the
@@ -42,6 +45,11 @@ export type ArtifactKind = 'skill' | 'tool' | 'mcp' | 'hook' | 'subagent' | 'pro
  *   - `mcp`      — one MCP server added under `profile.mcp[name]`.
  *   - `hook`     — one or more hook commands added under `profile.hooks[event]`.
  *   - `subagent` — one subagent profile added under `profile.subagents[name]`.
+ *   - `memory`   — a memory spec: the typed record lands on
+ *                  `profile.metadata.memory` (local extension — the published
+ *                  profile has no memory field) AND a stdio server entry that
+ *                  SERVES it lands under `profile.mcp[name]`, so the same-host
+ *                  materialization boots the memory live during a scored run.
  */
 export interface ArtifactPayloads {
   prompt: { instruction: string }
@@ -50,6 +58,7 @@ export interface ArtifactPayloads {
   mcp: { server: AgentProfileMcpServer }
   hook: { event: string; commands: AgentProfileHookCommand[] }
   subagent: { profile: AgentSubagentProfile }
+  memory: { spec: AgentMemorySpec }
 }
 
 /**

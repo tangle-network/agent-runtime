@@ -105,14 +105,23 @@ describe('improvementDriver — reflective generator', () => {
     }
     const driver = reflectiveDriver(adapter)
 
-    const reportFindings = [
+    // A CONFORMING envelope passes through `toAnalystFindings` by reference
+    // (a partial look-alike would be lifted and re-id'd — the P4 accessor's
+    // fail-closed contract), so the stable id proves the report arm won.
+    const reportFindings: AnalystFinding[] = [
       {
+        schema_version: '1.0.0',
         finding_id: 'from-report',
-        subject: 'system-prompt:rubric',
+        analyst_id: 'phase2-report',
+        produced_at: new Date().toISOString(),
         severity: 'high',
+        area: 'report',
+        claim: 'the rubric is too lax',
+        subject: 'system-prompt:rubric',
         confidence: 0.9,
+        evidence_refs: [],
       },
-    ] as unknown as AnalystFinding[]
+    ]
     await driver.propose(ctxWith(FINDINGS, { findings: reportFindings, diff: {} }))
 
     expect(seen).toHaveLength(1)

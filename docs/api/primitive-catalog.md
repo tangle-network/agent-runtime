@@ -692,7 +692,7 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 
 ### Artifact lifecycle — generate → measure → promote → compose
 
-Import from `@tangle-network/agent-runtime/lifecycle` — 63 exports.
+Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -705,18 +705,31 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 63 exports.
 | `driftWatch` | function | Re-measure every `active` artifact and demote those whose held-back lift |
 | `gepaRefine` | function | Wrap `gepaProposer` as a `RefinePrompt`. The proposer reflects on the |
 | `heldOutPromotionGate` | function | The paper-grade promotion gate: delegate to agent-eval's `HeldOutGate`, which |
+| `lessonsFromCuratedSurface` | function | Extract the lesson lines from a surface carrying a curated-memory block. |
 | `measureMarginalLift` | function | Run the with/without ablation for `candidate` over `baseline` and return its |
+| `memoryArtifactFromCuratedSurface` | function | Parse a proposer surface and build the artifact in one step. Returns |
+| `memoryArtifactFromLessons` | function | The curated-lessons → memory-artifact adapter (the seam that gives |
+| `memoryGenerator` | function | The `memory` surface's `CandidateGenerator` — the native lifecycle path for |
+| `memoryMcpServer` | function | The `AgentProfileMcpServer` entry that SERVES a memory spec — what the |
+| `memoryOfProfile` | function | Read (and validate) the memory spec a profile carries, if any. Malformed |
 | `productionPromptGenerator` | function | Production `promptGenerator`: refine via `gepaProposer`, seed via a |
 | `promptGenerator` | function | Build a `CandidateGenerator` for the prompt surface. Each generation it pools |
+| `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
 | `routerSeedAuthor` | function | A router-backed `AuthorDiverseSeeds`: one structured LLM call that authors |
 | `runLifecycle` | function | Run ONE generation of the artifact lifecycle. |
 | `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
 | `sweEvalRunner` | function | Build the `EvalRunner` closed over one fixed SWE exam. `runLifecycle` calls |
 | `thresholdPromotionGate` | function | The simplest honest gate: promote iff the candidate's marginal lift on the |
+| `validateMemorySpec` | function | Assert an `AgentMemorySpec` is well-formed and servable. |
 | `worktreeBuildCandidate` | function | Build the production per-candidate seam for `buildableGenerator`. Each call to |
+| `writeMemoryStore` | function | Write a durable JSONL memory store (one `MemoryItem` per line). |
+| `CURATED_MEMORY_BLOCK_END` | const | The closing delimiter of the proposer's curated block (see |
+| `CURATED_MEMORY_BLOCK_START` | const | The opening delimiter agent-eval's `memoryCurationProposer` writes its |
 | `lifecycleReasonKey` | const | The metadata key under which the registry records WHY an artifact left the |
 | `liftMetadataKey` | const | The metadata key under which the registry stores an artifact's measured held- |
+| `profileMemoryMetadataKey` | const | The `profile.metadata` key the typed memory spec rides under (the local |
 | `ArtifactRegistry` | class | A typed, in-memory registry of `ProfileArtifact`s with stable ids. |
+| `AgentMemorySpec` | interface | The `memory` artifact payload — HOW a profile's memory is stored and served: |
 | `ArtifactPayloads` | interface | The payload for each `ArtifactKind`. The shapes are the SAME types the |
 | `ArtifactQuery` | interface | Filter for `list`. Omit a field to leave that dimension unconstrained. |
 | `BuiltCandidate` | interface | The result of building ONE candidate in its own worktree. A build either |
@@ -729,8 +742,10 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 63 exports.
 | `EvalResult` | interface | The result of running an eval over ONE profile: a composite score and the cost |
 | `GenerateContext` | interface | The read-only context a generator sees when proposing candidates. It is the |
 | `MarginalLift` | interface | The marginal lift of one artifact: the with/without ablation. |
+| `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
 | `PairStackCheck` | interface | The stacking verdict for one pair of active artifacts. |
 | `ProfileArtifact` | interface | A discrete, individually-promotable piece of an agent profile. |
+| `ProfileWithMemory` | interface | The local profile extension: `AgentProfile` plus the memory spec under |
 | `PromotionGate` | interface | Decides whether ONE measured candidate is promoted. The lifecycle calls this |
 | `PromotionVerdict` | interface | The verdict a gate returns for one candidate. |
 | `PromptDraft` | interface | A proposed prompt instruction line plus the WHY behind it. The `rationale` |
@@ -750,7 +765,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 63 exports.
 | `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
 | `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
 
 ### Knowledge orchestration — supervised KB updates
 
@@ -828,7 +843,7 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 186 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -850,8 +865,10 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `createInProcessTransport` | function | In-process pair of `Readable` + `Writable` streams suitable for driving |
 | `createKbGate` | function | Build a fail-closed KB gate. The returned function runs the built-in floor |
 | `createMcpServer` | function | Stdio JSON-RPC MCP server exposing the delegation tools (`delegate`, `delegate_feedback`, `delegation_status`, `delegation_history`, optional `delegate_ui_audit`) to sandbox coding-harness agents. |
+| `createMemoryToolServer` | function | Build the memory MCP server: `memory_search` (lexical top-k over the rows) |
 | `createPropagatingTraceEmitter` | function | Create a LoopTraceEmitter that: |
 | `createSiblingSandboxExecutor` | function | Wrap a raw sandbox SDK client so the kernel emits |
+| `createStdioToolServer` | function | Build the generic stdio JSON-RPC tool server. |
 | `createWorktree` | function | Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`. |
 | `detachedSessionDelegate` | function | Build the sandbox-session coder delegate. It drives `runLoop` against the project's |
 | `detachedTurnEvents` | function | Synthesize the terminal event array a detached turn settles through. Shaped |
@@ -864,9 +881,12 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `mcpToolsForRuntimeMcp` | function | Returns the queue-bound delegation tools projected into OpenAI Chat |
 | `mcpToolsForRuntimeMcpSubset` | function | Subset filter — return only the projected tools whose `function.name` |
 | `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
+| `parseMemoryItems` | function | Coerce an untrusted JSON array into validated `MemoryItem` rows. |
+| `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
 | `removeWorktree` | function | Remove a git worktree and delete its branch; tolerates already-removed paths. |
 | `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over |
+| `resolveMemoryFromEnv` | function | Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or |
 | `runCheck` | function | Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval |
 | `runDetachedTurn` | function | Dispatch one detached turn and advance it to a terminal state with |
 | `runLocalHarness` | function | Spawn a local coding harness CLI as a subprocess + collect its output. |
@@ -895,12 +915,17 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `DELEGATION_STATUS_TOOL_NAME` | const | MCP tool name for the `delegation_status` synchronous-poll tool. |
 | `DELEGATION_TRACE_MAX_BYTES` | const | Default cap on the serialized trace payload per record, in bytes. |
 | `DELEGATION_TRACE_MAX_SPANS` | const | Default cap on spans retained per delegation record. |
+| `MEMORY_FILE_ENV` | const | Env var naming the durable row store file the memory bin loads (the |
+| `MEMORY_ITEMS_ENV` | const | Env var carrying inline JSON `MemoryItem` rows (win over file rows on id). |
+| `MEMORY_LOG_ENV` | const | Env var naming the JSONL retrieval log (one row per `memory_search`). |
+| `MEMORY_NAME_ENV` | const | Env var overriding the served display name (default 'agent-memory'). |
 | `DelegationPersistenceError` | class | A delegation-store read or write failed (filesystem error, store |
 | `DelegationStateCorruptError` | class | The persisted delegation state exists but cannot be parsed into |
 | `DelegationTaskQueue` | class | In-process queue for async delegation tasks — submit, cancel, poll status, and read history. |
 | `FileDelegationStore` | class | JSON-file persistence for the delegation queue. Each write serializes |
 | `InMemoryDelegationStore` | class | In-memory `DelegationStore` — suitable for single-process use and tests. |
 | `InMemoryFeedbackStore` | class | In-memory `FeedbackStore` — suitable for single-process use and tests. |
+| `AgentMemorySpec` | interface | The `memory` artifact payload — HOW a profile's memory is stored and served: |
 | `Check` | interface | One lens — a composable analyst kind. Identity fields mirror `TraceAnalystKindSpec` so a kind is |
 | `CoordinationTools` | interface | The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool |
 | `DelegateArgs` | interface | Parsed `delegate` tool arguments. |
@@ -913,7 +938,9 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `DetachedSessionRefParts` | interface | Decoded `DelegationRecord.detachedSessionRef`. `sandboxId` is absent between |
 | `DriveTurnCapableBox` | interface | The box surface detached turns need. `SandboxInstance` |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
+| `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
 | `ResearchOutputShape` | interface | Loose shape of a research output over the wire — the substrate cannot |
+| `ResolvedMemoryEnv` | interface | What the memory bin resolved from its environment. |
 | `SettledWorker` | interface | A worker the driver has drained via `await_event`. |
 | `TraceContext` | interface | Trace context propagation for MCP subprocess. |
 | `UiAuditorDelegationOutput` | interface | Wire-shape of a completed UI-audit delegation. The `findings` array |
@@ -927,7 +954,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 170 exports.
 | `LocalHarness` | type | Local coding harness available inside the sandbox. |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CheckRunnerOptions`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DetectExecutorArgs`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `JsonRpcMessage`, `JsonRpcResponse`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `McpToolDescriptor`, `McpTransport`, `Question`, `QuestionRecord`, `RemoveWorktreeOptions`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `SubmitInput`, `SubmitOutput`, `WorktreeHandle`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionPolicy`, `ResearchSource`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AnalystRegistry`, `CappedDelegationTrace`, `CheckRunnerOptions`, `CoderReview`, `CoordinationToolsOptions`, `CreateKbGateOptions`, `CreateMemoryToolServerOptions`, `CreateWorktreeOptions`, `DelegateCodeArgs`, `DelegateCodeResult`, `DelegateFeedbackArgs`, `DelegateFeedbackResult`, `DelegateHandlerOptions`, `DelegateResearchArgs`, `DelegateResearchConfig`, `DelegateResearchResult`, `DelegateRunCtx`, `DelegateUiAuditArgs`, `DelegateUiAuditConfig`, `DelegateUiAuditResult`, `DelegationError`, `DelegationExecutor`, `DelegationFeedbackSnapshot`, `DelegationHistoryArgs`, `DelegationHistoryEntry`, `DelegationHistoryResult`, `DelegationProgress`, `DelegationResumeContext`, `DelegationRunContext`, `DelegationStatusArgs`, `DelegationStatusResult`, `DelegationStore`, `DelegationTaskQueueOptions`, `DelegationTraceCaps`, `DetachedSessionDelegateOptions`, `DetachedTurn`, `DetachedTurnResumeDriverOptions`, `DetectExecutorArgs`, `DiffOptions`, `DiffResult`, `FactCandidate`, `FactJudge`, `FactJudgeVerdict`, `FeedbackEvent`, `FeedbackRating`, `FeedbackRefersTo`, `FeedbackStore`, `FileDelegationStoreOptions`, `FleetWorkspaceExecutorOptions`, `InProcessExecutorDescribePlacement`, `InProcessExecutorOptions`, `JsonRpcMessage`, `JsonRpcResponse`, `KbGateResult`, `LocalHarnessResult`, `McpServer`, `McpServerOptions`, `McpToolDescriptor`, `McpTransport`, `Question`, `QuestionRecord`, `RemoveWorktreeOptions`, `RunDetachedTurnOptions`, `RunLocalHarnessOptions`, `SettleDetachedCoderTurnOptions`, `SiblingSandboxExecutorOptions`, `StdioToolDescriptor`, `StdioToolServer`, `StdioToolServerOptions`, `SubmitInput`, `SubmitOutput`, `WorktreeHandle`, `CoderDelegate`, `DelegationProfile`, `DelegationStatus`, `DetachedWinnerSelection`, `MakeWorkerAgent`, `QuestionDecision`, `QuestionPolicy`, `ResearchSource`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

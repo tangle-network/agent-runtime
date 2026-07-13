@@ -28,7 +28,10 @@
  * (`materializeLocalMcp`) for the duration of the eval and its tools are
  * overlaid on the domain surface — so a worktree-BUILT MCP candidate is LIVE
  * while the profile is scored, and its marginal lift is real. Default off:
- * the prompt-only path spawns nothing.
+ * the prompt-only path spawns nothing. Phase-5 memory rides this same path:
+ * a `memory` artifact mounts a stdio memory server into `profile.mcp`
+ * (lifecycle/memory.ts), so `materializeMcp: true` also makes a learned
+ * memory (`memory_search`/`memory_get`) live while the profile is scored.
  *
  * Phase-1 scope otherwise: returns the scalar `composite` (mean resolved) +
  * `costUsd` only — no per-task `RunRecord`s — so it pairs with

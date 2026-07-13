@@ -14,6 +14,7 @@ export default defineConfig({
     platform: 'src/platform/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',
+    'mcp/memory-bin': 'src/mcp/memory-bin.ts',
     'loop-runner-bin': 'src/loop-runner-bin.ts',
   },
   format: ['esm'],

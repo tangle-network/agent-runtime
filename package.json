@@ -72,6 +72,7 @@
   },
   "bin": {
     "agent-runtime-mcp": "./dist/mcp/bin.js",
+    "agent-runtime-memory-mcp": "./dist/mcp/memory-bin.js",
     "agent-runtime-loop": "./dist/loop-runner-bin.js"
   },
   "files": [
