@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 233 exports.
+Import from `@tangle-network/agent-runtime` — 240 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -40,11 +40,14 @@ Import from `@tangle-network/agent-runtime` — 233 exports.
 | `createSupervisedKnowledgeUpdater` | function | Create an `improveKnowledgeBase` update callback backed by runtime supervision. |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `decideKnowledgeReadiness` | function | Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / `caveat`) the runtime, route handlers, and UI shells all switch on. |
+| `defaultBuildPrompt` | function | Turn the analyst's findings (+ optional report) into a concrete coder task — |
 | `defineConversation` | function | Declarative constructor for a multi-agent `Conversation`. Validates inputs |
 | `defineRuntimeHooks` | function | Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. |
 | `deriveExecutionId` | function | Derive a stable executionId from the run identity. The same |
+| `driverLoopGenerator` | function | Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budge |
 | `enumerateNeighborPolicies` | function | All bounded single-dial neighbors of `policy`, in a fixed priority order: k |
 | `exportEvalRuns` | function | Ship self-improvement eval-run events to Tangle Intelligence. Unlike the |
+| `findingLines` | function | Render findings as the ranked-evidence block every build prompt ends with. |
 | `getModels` | function | Fetch the model catalog from the router's `/v1/models`. Throws on a non-2xx |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
@@ -97,15 +100,18 @@ Import from `@tangle-network/agent-runtime` — 233 exports.
 | `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
 | `worktreeLoopRunner` | function | `code` mode on the GENERIC recursive path: author one `AgentProfile` per harness, run them as a |
+| `buildDriverSystem` | const | The driver's stance for `driverLoopGenerator` — the build-domain instance of |
 | `DEFAULT_MAX_DEPTH` | const | Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded. |
 | `DEFAULT_ROUTER_BASE_URL` | const | Default Tangle Router base URL used when no env override is set. |
 | `defaultIsRetryable` | const | Default retryable classification — network/timeout class errors. Errors |
 | `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
+| `optimizerMethod` | const | The shared method block every build/author prompt embeds. Domain framing |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 | `ROLLOUT_POLICY_BOUNDS` | const | Proposal bounds per dial. These are the SEARCH bounds (what the proposer may |
 | `ROLLOUT_POLICY_EXTENSION` | const | The profile extensions namespace the policy persists under. |
+| `strategyAuthorMethod` | const | The senior authoring process for `authorStrategy` — the same method, shaped |
 | `AgentEvalError` | class | Base class for every contract error this package throws — carries the stable |
 | `BackendTransportError` | class | A backend transport call (HTTP, gRPC, sidecar IPC) failed with a non-success |
 | `CircuitBreakerState` | class | Live circuit-breaker state — one instance per (participant, conversation run). |
@@ -129,6 +135,7 @@ Import from `@tangle-network/agent-runtime` — 233 exports.
 | `CircuitBreakerConfig` | interface | Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`. |
 | `ConversationJournalEntry` | interface | Durable conversation transcript — survives a driver process crash mid-run. |
 | `D1DatabaseLike` | interface | Structural type matching the surface of `D1Database` we depend on, so the |
+| `DriverLoopGeneratorOptions` | interface | `driverLoopGenerator` — the driver→worker `CandidateGenerator`: the build |
 | `LoopSpanNode` | interface | Sink-neutral node in a reconstructed loop span tree. The root node's |
 | `McpServeSpec` | interface | `mcpServeVerifier` — the intrinsic verifier for a built MCP server: the |
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |

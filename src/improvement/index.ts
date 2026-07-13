@@ -9,18 +9,25 @@
  * cohorting. This module supplies only the one genuinely runtime-specific piece:
  * a CODE-surface `SurfaceProposer` you pass to `selfImprove` as `proposer`, which
  * mutates a git worktree via a pluggable `CandidateGenerator`:
- *   - `reflectiveGenerator` — cheap, no sandbox, applies pre-drafted patches
+ *   - `reflectiveGenerator`  — cheap, no sandbox, applies pre-drafted patches
  *   - `agenticGenerator`     — full coding harness in the worktree, multi-shot
+ *   - `driverLoopGenerator`  — the driver→worker atom: an LLM driver authors,
+ *     observes, rates, and steers the harness sessions (default for tool/mcp)
  */
 
 export {
   type AgenticGeneratorOptions,
   agenticGenerator,
   commandVerifier,
+  defaultBuildPrompt,
   type Verifier,
   type VerifyResult,
 } from './agentic-generator'
-export { mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
+export { findingLines, mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
+export {
+  type DriverLoopGeneratorOptions,
+  driverLoopGenerator,
+} from './driver-loop-generator'
 export {
   type ImproveOptions,
   type ImproveResult,
@@ -33,6 +40,7 @@ export {
   improvementDriver,
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
+export { buildDriverSystem, optimizerMethod, strategyAuthorMethod } from './optimizer-prompt'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,

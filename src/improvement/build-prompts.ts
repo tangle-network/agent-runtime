@@ -16,10 +16,12 @@
  */
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { optimizerMethod } from './optimizer-prompt'
 
 type FindingsArg = { report: unknown; findings: AnalystFinding[] }
 
-function findingLines(findings: AnalystFinding[]): string[] {
+/** Render findings as the ranked-evidence block every build prompt ends with. */
+export function findingLines(findings: AnalystFinding[]): string[] {
   return findings.map((f) => {
     const where = f.subject ? ` [${f.subject}]` : ''
     const action = f.recommended_action ? ` → ${f.recommended_action}` : ''
@@ -30,13 +32,25 @@ function findingLines(findings: AnalystFinding[]): string[] {
 /** Build the starting instruction for a coder agent tasked with implementing a new tool. */
 export function toolBuildPrompt(args: FindingsArg): string {
   return [
-    'You are building a new TOOL for this codebase to address the gaps below.',
-    'Write the tool as a small, self-contained module PLUS tests that exercise it.',
-    'The tool must compile and its tests must pass — they will be run automatically;',
-    'if verification fails you will get the error and another attempt. Do not commit;',
-    'leave the changes in the working tree.',
+    'You are building a new TOOL for this codebase — a capability the agent measurably lacks,',
+    'evidenced by the failure findings at the bottom. The tool is an experiment: after it is',
+    'built and verified, its marginal lift is measured on held-out tasks, and only a real lift',
+    'promotes it.',
     '',
-    'Gaps the tool should close:',
+    optimizerMethod,
+    '',
+    'THE SURFACE — what a deliverable tool looks like here:',
+    '- ONE small, self-contained module PLUS tests that exercise its contract (what callers rely',
+    '  on), not its internals. The tests are the experiment for sub-goal correctness — write the',
+    '  test that would fail if your hypothesis about the gap were wrong.',
+    '- It must compile and its tests must pass — they run automatically; on failure you get the',
+    '  verifier output and another attempt, resuming on top of your own edits (fix in place, do',
+    '  not start over).',
+    '- Match the codebase grain: reuse its existing helpers, style, and test framework; a tool',
+    '  that fights the codebase is the wrong tool even if it passes.',
+    '- Do not commit; leave the changes in the working tree.',
+    '',
+    'FINDINGS — ranked evidence from real failed runs (the gaps the tool must close):',
     ...findingLines(args.findings),
   ].join('\n')
 }
@@ -44,17 +58,25 @@ export function toolBuildPrompt(args: FindingsArg): string {
 /** Build the starting instruction for a coder agent tasked with implementing a new MCP server. */
 export function mcpBuildPrompt(args: FindingsArg): string {
   return [
-    'You are building a new MCP SERVER (Model Context Protocol) that exposes',
-    'tool(s) addressing the gaps below, so any harness can mount it.',
-    'Requirements that WILL be checked by booting the server:',
-    '- it starts over stdio and answers the MCP `initialize` handshake,',
-    '- `tools/list` returns at least one tool with a valid input schema.',
-    'Newline-delimited JSON-RPC 2.0, protocol version 2024-11-05. Include a start',
-    'command (e.g. a package.json `start` script or a clear entrypoint). If the',
-    'boot-and-probe fails you will get the error and another attempt. Do not',
-    'commit; leave the changes in the working tree.',
+    'You are building a new MCP SERVER (Model Context Protocol) exposing tool(s) that close the',
+    'capability gaps evidenced by the failure findings at the bottom, so any harness can mount',
+    'them. The server is an experiment: after it is built and boot-verified, its marginal lift is',
+    'measured on held-out tasks, and only a real lift promotes it.',
     '',
-    'Capabilities the server should provide:',
+    optimizerMethod,
+    '',
+    'THE SURFACE — what a deliverable MCP server looks like here (checked by BOOTING it):',
+    '- it starts over stdio and answers the MCP `initialize` handshake,',
+    '- `tools/list` returns at least one tool with a valid input schema,',
+    '- newline-delimited JSON-RPC 2.0, protocol version 2024-11-05,',
+    '- a clear start command (a package.json `start` script or an obvious entrypoint).',
+    'Design the tool surface for the FINDINGS, not for generality: each exposed tool should map to',
+    'a named failure mechanism, with a description that tells the agent when to reach for it (a',
+    'tool the agent never calls measures zero). If the boot-and-probe fails you get the error and',
+    'another attempt, resuming on top of your own edits. Do not commit; leave the changes in the',
+    'working tree.',
+    '',
+    'FINDINGS — ranked evidence from real failed runs (the capabilities the server must provide):',
     ...findingLines(args.findings),
   ].join('\n')
 }

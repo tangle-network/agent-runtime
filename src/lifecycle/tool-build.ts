@@ -31,8 +31,10 @@ import {
 import { ValidationError } from '../errors'
 import { agenticGenerator, commandVerifier } from '../improvement/agentic-generator'
 import { mcpBuildPrompt, toolBuildPrompt } from '../improvement/build-prompts'
+import { driverLoopGenerator } from '../improvement/driver-loop-generator'
 import { type McpServeSpec, mcpServeVerifier } from '../improvement/mcp-serve-verifier'
 import type { LocalHarness } from '../mcp/local-harness'
+import type { ToolLoopChat } from '../runtime/tool-loop'
 import type { GenerateContext } from './generator'
 import type { BuildableKind, BuildCandidate, BuiltCandidate } from './tool-generator'
 
@@ -61,6 +63,15 @@ export interface WorktreeBuildOptions {
    * `cwd` defaults to the candidate worktree.
    */
   mcp?: McpServeSpec
+  /**
+   * The driver-LLM seam (the canonical `ToolLoopChat`, e.g. `routerBrain(cfg)`).
+   * When set — the default composition for tool/mcp builds — the build runs the
+   * driver→worker atom (`driverLoopGenerator`): a driver LLM authors each worker
+   * instruction, observes the session's diff + verifier output, rates it, and
+   * decides refine / re-scope / decompose. Unset ⇒ the plain multi-shot
+   * `agenticGenerator` (canned resume notes, no LLM driver) — the offline path.
+   */
+  driver?: { brain: ToolLoopChat; maxTurns?: number }
 }
 
 /**
@@ -78,15 +89,23 @@ export function worktreeBuildCandidate(opts: WorktreeBuildOptions): BuildCandida
     branchPrefix: `build-${opts.kind}`,
   })
 
-  // The harness generator: surface-specific build-prompt + surface-specific
-  // verifier, everything else shared. Identical to the documented composition
-  // in build-prompts.ts — no per-kind wrapper, just the pieces wired by data.
-  const generator = agenticGenerator({
+  // The build generator: surface-specific build-prompt + surface-specific
+  // verifier, everything else shared. With a driver brain configured the
+  // driver→worker atom steers the sessions (the default composition for
+  // tool/mcp); without one, the offline multi-shot respawn loop runs.
+  const shared = {
     harness,
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     buildPrompt: opts.kind === 'mcp' ? mcpBuildPrompt : toolBuildPrompt,
     verify: buildVerifier(opts),
-  })
+  }
+  const generator = opts.driver
+    ? driverLoopGenerator({
+        ...shared,
+        brain: opts.driver.brain,
+        ...(opts.driver.maxTurns !== undefined ? { maxTurns: opts.driver.maxTurns } : {}),
+      })
+    : agenticGenerator(shared)
 
   return async (
     ctx: GenerateContext,

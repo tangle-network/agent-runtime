@@ -38,6 +38,7 @@ import { join } from 'node:path'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import { type LocalHarness, runLocalHarness } from '../mcp/local-harness'
 import type { CandidateGenerator } from './improvement-driver'
+import { optimizerMethod } from './optimizer-prompt'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
 const RAW_TRACE_AREA = 'raw-trace-context'
@@ -119,11 +120,11 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         // Dirty: with no verifier the diff IS the candidate (we trust the diff,
         // not the harness's stdout). With a verifier the candidate must pass it.
         if (!verify) {
-          return { applied: true, summary: summarize(findings) }
+          return { applied: true, summary: summarizeFindings(findings) }
         }
         const result = await verify(worktreePath)
         if (result.ok) {
-          return { applied: true, summary: summarize(findings) }
+          return { applied: true, summary: summarizeFindings(findings) }
         }
         // Dirty but failing — resume next shot atop these edits with the error.
         attemptNote = failureNote(result.feedback)
@@ -135,14 +136,24 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
   }
 }
 
-/** Turn the analyst's findings (+ optional report) into a concrete coder task. */
-function defaultBuildPrompt(args: { report: unknown; findings: AnalystFinding[] }): string {
+/** Turn the analyst's findings (+ optional report) into a concrete coder task —
+ *  the senior scientific-method framing shared with the tool/MCP build prompts. */
+export function defaultBuildPrompt(args: { report: unknown; findings: AnalystFinding[] }): string {
   const lines: string[] = [
-    'You are improving this codebase based on an evaluation analysis.',
-    'Make the smallest set of edits that addresses the findings below, then stop.',
-    'Do not change unrelated code. Do not commit — leave changes in the working tree.',
+    'You are improving this codebase based on an evaluation analysis: real runs failed, an',
+    'analyst distilled the findings below, and your change will be measured on held-out tasks',
+    'against the unchanged baseline — only a real lift promotes it.',
     '',
-    'Findings:',
+    optimizerMethod,
+    '',
+    'THE SURFACE — what a deliverable change looks like here:',
+    '- edit this codebase in place: the smallest coherent change set that fully tests your',
+    '  hypothesis about the dominant failure mode (see the method above — no unrelated edits,',
+    '  they confound the measurement),',
+    '- keep the diff reviewable: a reviewer should be able to trace every hunk back to a finding,',
+    '- do not commit — leave changes in the working tree.',
+    '',
+    'FINDINGS — ranked evidence from real failed runs:',
   ]
   for (const f of args.findings) {
     const where = f.subject ? ` [${f.subject}]` : ''
@@ -177,7 +188,10 @@ function failureNote(feedback?: string): string {
   ].join('\n')
 }
 
-function rawTraceEvidenceProblem(worktreePath: string, findings: AnalystFinding[]): string | null {
+export function rawTraceEvidenceProblem(
+  worktreePath: string,
+  findings: AnalystFinding[],
+): string | null {
   const changedPaths = worktreeChangedPaths(worktreePath)
   const substantive = changedPaths.filter((path) => path !== RAW_TRACE_DIAGNOSIS_PATH)
   if (substantive.length === 0) {
@@ -207,7 +221,7 @@ function rawTraceEvidenceProblem(worktreePath: string, findings: AnalystFinding[
   return null
 }
 
-function requiresRawTraceEvidence(findings: AnalystFinding[]): boolean {
+export function requiresRawTraceEvidence(findings: AnalystFinding[]): boolean {
   return findings.some((finding) => {
     const f = finding as unknown as Record<string, unknown>
     return f.analyst_id === RAW_TRACE_ANALYST_ID || f.area === RAW_TRACE_AREA
@@ -267,7 +281,7 @@ export function commandVerifier(
 }
 
 /** A one-line summary for the commit message, derived from the findings. */
-function summarize(findings: AnalystFinding[]): string {
+export function summarizeFindings(findings: AnalystFinding[]): string {
   if (findings.length === 0) return 'agentic improvement'
   if (findings.length === 1) return `agentic: ${truncate(findings[0]!.claim, 64)}`
   return `agentic: ${findings.length} findings addressed`
@@ -286,7 +300,7 @@ function worktreeDirty(worktreePath: string): boolean {
   return worktreeChangedPaths(worktreePath).length > 0
 }
 
-function worktreeChangedPaths(worktreePath: string): string[] {
+export function worktreeChangedPaths(worktreePath: string): string[] {
   const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: worktreePath,
     encoding: 'utf-8',
