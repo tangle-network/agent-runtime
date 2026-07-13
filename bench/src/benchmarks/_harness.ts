@@ -17,12 +17,28 @@
  */
 
 import { execFile, spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { BenchScore } from './types'
+import type {
+  BenchScore,
+  JudgeArtifactFileReceipt,
+  JudgeArtifactReceipt,
+} from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -163,8 +179,154 @@ export interface StagedRunSpec {
    * if the expected report is absent/malformed (fail loud — no default score).
    */
   parseReport(dir: string): Promise<BenchScore>
+  /**
+   * Copy the complete evaluator directory plus raw process stdout/stderr to this
+   * caller-owned directory before cleanup. The destination must not exist.
+   */
+  capture?: StagedRunCaptureSpec
   /** Keep the temp dir on disk (debugging). Default false → always cleaned up. */
   keepTmp?: boolean
+}
+
+export interface StagedRunCaptureSpec {
+  /** Destination for `evaluator/`, `process/`, and the hashed `receipt.json`. */
+  destination: string
+}
+
+/** A staged run failed after any requested evidence was durably retained. */
+export class StagedJudgeError extends Error {
+  readonly judgeArtifacts?: JudgeArtifactReceipt
+
+  constructor(message: string, judgeArtifacts?: JudgeArtifactReceipt, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'StagedJudgeError'
+    this.judgeArtifacts = judgeArtifacts
+  }
+}
+
+function sha256(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+}
+
+function portablePath(path: string): string {
+  return path.split(sep).join('/')
+}
+
+async function collectArtifactFiles(
+  root: string,
+  current: string,
+): Promise<JudgeArtifactFileReceipt[]> {
+  const absolute = join(root, current)
+  const entries = await readdir(absolute, { withFileTypes: true })
+  const files: JudgeArtifactFileReceipt[] = []
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    const relativePath = join(current, entry.name)
+    const path = join(root, relativePath)
+    if (entry.isDirectory()) {
+      files.push(...await collectArtifactFiles(root, relativePath))
+      continue
+    }
+    if (entry.isFile()) {
+      const bytes = await readFile(path)
+      files.push({
+        path: portablePath(relativePath),
+        byteLength: bytes.byteLength,
+        sha256: sha256(bytes),
+        kind: 'file',
+      })
+      continue
+    }
+    if (entry.isSymbolicLink()) {
+      const targetBytes = Buffer.from(await readlink(path), 'utf8')
+      files.push({
+        path: portablePath(relativePath),
+        byteLength: targetBytes.byteLength,
+        sha256: sha256(targetBytes),
+        kind: 'symlink',
+      })
+      continue
+    }
+    throw new Error(`staged judge capture does not support ${relativePath}`)
+  }
+  return files
+}
+
+function isWithin(parent: string, candidate: string): boolean {
+  const path = relative(parent, candidate)
+  return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path))
+}
+
+async function assertDestinationAbsent(destination: string): Promise<void> {
+  try {
+    await lstat(destination)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  throw new Error(`staged judge capture destination already exists: ${destination}`)
+}
+
+async function captureStagedRun(
+  sourceDirectory: string,
+  spec: StagedRunCaptureSpec,
+  processOutput: Readonly<{ stdout: Buffer; stderr: Buffer }>,
+  evaluatorSucceeded: boolean,
+): Promise<JudgeArtifactReceipt> {
+  const source = resolve(sourceDirectory)
+  const destination = resolve(spec.destination)
+  if (isWithin(source, destination)) {
+    throw new Error('staged judge capture destination must be outside the evaluator directory')
+  }
+  await mkdir(dirname(destination), { recursive: true })
+  await assertDestinationAbsent(destination)
+  const staging = await mkdtemp(join(dirname(destination), `.${basename(destination)}-capture-`))
+  try {
+    await cp(source, join(staging, 'evaluator'), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      preserveTimestamps: true,
+      verbatimSymlinks: true,
+    })
+    await mkdir(join(staging, 'process'))
+    await writeFile(join(staging, 'process', 'stdout.bin'), processOutput.stdout)
+    await writeFile(join(staging, 'process', 'stderr.bin'), processOutput.stderr)
+
+    const files = [
+      ...await collectArtifactFiles(staging, 'evaluator'),
+      ...await collectArtifactFiles(staging, 'process'),
+    ].sort((left, right) => left.path.localeCompare(right.path))
+    const byteLength = files.reduce((total, file) => total + file.byteLength, 0)
+    const treeBytes = Buffer.from(
+      files
+        .map((file) => `${file.path}\0${file.kind}\0${file.byteLength}\0${file.sha256}\n`)
+        .join(''),
+      'utf8',
+    )
+    const receipt: JudgeArtifactReceipt = {
+      schema: 'agent-bench/judge-artifacts/v1',
+      directory: destination,
+      evaluatorDirectory: join(destination, 'evaluator'),
+      manifestPath: join(destination, 'receipt.json'),
+      evaluatorSucceeded,
+      files,
+      fileCount: files.length,
+      byteLength,
+      treeSha256: sha256(treeBytes),
+    }
+    await writeFile(join(staging, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`)
+    await rename(staging, destination)
+    return receipt
+  } catch (error) {
+    await rm(staging, { recursive: true, force: true }).catch(() => {})
+    throw error
+  }
+}
+
+function processBytes(value: unknown): Buffer {
+  if (Buffer.isBuffer(value)) return value
+  if (value === undefined || value === null) return Buffer.alloc(0)
+  return Buffer.from(String(value), 'utf8')
 }
 
 /**
@@ -174,23 +336,66 @@ export interface StagedRunSpec {
  */
 export async function runStagedJudge(spec: StagedRunSpec): Promise<BenchScore> {
   const dir = await mkdtemp(join(tmpdir(), spec.tmpPrefix))
+  let stdout: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  let stderr: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  let evaluatorSucceeded = false
+  let score: BenchScore | undefined
+  let failure: unknown
   try {
-    await spec.stage(dir)
-    const bin = spec.bin ?? venvPython
     try {
-      await execFileAsync(bin, spec.argv(dir), {
-        cwd: spec.cwd ? spec.cwd(dir) : dir,
-        maxBuffer: bigBuffer,
-        ...(spec.timeoutMs ? { timeout: spec.timeoutMs } : {}),
-      })
+      await spec.stage(dir)
+      const bin = spec.bin ?? venvPython
+      const argv = spec.argv(dir)
+      try {
+        const output = await execFileAsync(bin, argv, {
+          cwd: spec.cwd ? spec.cwd(dir) : dir,
+          encoding: 'buffer',
+          maxBuffer: bigBuffer,
+          ...(spec.timeoutMs ? { timeout: spec.timeoutMs } : {}),
+        })
+        stdout = processBytes(output.stdout)
+        stderr = processBytes(output.stderr)
+        evaluatorSucceeded = true
+      } catch (err) {
+        const e = err as { stderr?: unknown; stdout?: unknown; message?: string }
+        stdout = processBytes(e.stdout)
+        stderr = processBytes(e.stderr)
+        const detail = processBytes(e.stderr ?? e.stdout ?? e.message ?? String(err))
+          .toString('utf8')
+          .slice(0, 2000)
+        throw new Error(`${spec.tmpPrefix.replace(/-$/, '')} evaluator failed (${bin} ${argv.join(' ')}):\n${detail}`)
+      }
+      score = await spec.parseReport(dir)
     } catch (err) {
-      const e = err as { stderr?: string; stdout?: string; message?: string }
-      const detail = (e.stderr || e.stdout || e.message || String(err)).slice(0, 2000)
-      throw new Error(`${spec.tmpPrefix.replace(/-$/, '')} evaluator failed (${bin} ${spec.argv(dir).join(' ')}):\n${detail}`)
+      failure = err
     }
-    return await spec.parseReport(dir)
   } finally {
+    let judgeArtifacts: JudgeArtifactReceipt | undefined
+    if (spec.capture) {
+      try {
+        judgeArtifacts = await captureStagedRun(
+          dir,
+          spec.capture,
+          { stdout, stderr },
+          evaluatorSucceeded,
+        )
+      } catch (captureError) {
+        failure = new Error(
+          `staged judge failed to capture evaluator artifacts: ${captureError instanceof Error ? captureError.message : captureError}`,
+          { cause: failure ?? captureError },
+        )
+      }
+    }
     if (!spec.keepTmp) await rm(dir, { recursive: true, force: true }).catch(() => {})
+    if (failure) {
+      throw new StagedJudgeError(
+        failure instanceof Error ? failure.message : String(failure),
+        judgeArtifacts,
+        { cause: failure },
+      )
+    }
+    if (!score) throw new StagedJudgeError('staged judge completed without a score', judgeArtifacts)
+    return judgeArtifacts ? { ...score, judgeArtifacts } : score
   }
 }
 

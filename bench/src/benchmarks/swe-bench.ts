@@ -21,6 +21,7 @@ import {
   runVenvPython,
   safeRunId,
   stageFile,
+  type StagedRunCaptureSpec,
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
@@ -59,6 +60,26 @@ export const swePatchOutput: OutputAdapter<string> = {
 
 const DATASET = 'princeton-nlp/SWE-bench_Verified'
 export type SweBenchCacheLevel = 'none' | 'base' | 'env' | 'instance'
+
+export interface SweBenchArtifactCaptureContext {
+  readonly taskId: string
+  readonly runId: string
+  /** One-based sequence unique within this adapter instance. */
+  readonly attemptSequence: number
+}
+
+export interface SweBenchAdapterOptions {
+  readonly timeoutMs?: number
+  readonly cacheLevel?: SweBenchCacheLevel
+  /**
+   * Return a unique destination for any attempt whose complete official
+   * evaluator directory and process logs should be retained.
+   */
+  readonly captureEvaluatorArtifacts?: (
+    context: SweBenchArtifactCaptureContext,
+  ) => StagedRunCaptureSpec | undefined
+}
+
 const SWE_CACHE_LEVELS = new Set<SweBenchCacheLevel>(['none', 'base', 'env', 'instance'])
 const TEST_FILE_EXCLUDES = [
   "':(exclude,glob)**/tests/**'",
@@ -164,16 +185,18 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
   return { repo, base }
 }
 
-export function createSweBenchAdapter(options: {
-  readonly timeoutMs?: number
-  readonly cacheLevel?: SweBenchCacheLevel
-} = {}): BenchmarkAdapter {
+export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): BenchmarkAdapter {
   if (
     options.timeoutMs !== undefined
     && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
   ) throw new Error('swe-bench: timeoutMs must be a positive integer')
   const cacheLevel = options.cacheLevel ?? 'env'
   if (!SWE_CACHE_LEVELS.has(cacheLevel)) throw new Error('swe-bench: invalid cacheLevel')
+  if (
+    options.captureEvaluatorArtifacts !== undefined
+    && typeof options.captureEvaluatorArtifacts !== 'function'
+  ) throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
+  let attemptSequence = 0
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
@@ -261,9 +284,15 @@ print(json.dumps(out))
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
       const runId = safeRunId('bench', task.id)
+      const capture = options.captureEvaluatorArtifacts?.({
+        taskId: task.id,
+        runId,
+        attemptSequence: ++attemptSequence,
+      })
       return runStagedJudge({
         tmpPrefix: 'swebench-',
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(capture === undefined ? {} : { capture }),
         // Debug: retain the staged dir (holds swebench's per-instance apply/run
         // logs) for post-mortem when SWEBENCH_KEEP_TMP is set. Off by default.
         ...(process.env.SWEBENCH_KEEP_TMP ? { keepTmp: true } : {}),

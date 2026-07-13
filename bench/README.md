@@ -14,6 +14,22 @@ pnpm install                                              # tsx + link parent
 
 The judge needs only Docker; workers need a model key (Tangle router `TANGLE_API_KEY`, or a direct provider).
 
+Retain every official per-test log and report before the temporary evaluator directory is removed:
+
+```ts
+const adapter = createSweBenchAdapter({
+  captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({
+    destination: path.join(runDirectory, taskId, String(attemptSequence)),
+  }),
+})
+const score = await adapter.judge(task, patch)
+console.log(score.judgeArtifacts?.manifestPath)
+```
+
+Each destination contains the untouched evaluator tree under `evaluator/`, raw `stdout.bin` and `stderr.bin` under `process/`, and `receipt.json` with per-file SHA-256 values plus a whole-tree SHA-256.
+The destination must be unique and absent; an existing path fails loud instead of overwriting evidence.
+Failed evaluators throw `StagedJudgeError` with the same `judgeArtifacts` receipt after retaining partial logs.
+
 ## Pier custom candidates
 
 The package executes a branded `PreparedAgentCandidateExecution` from `@tangle-network/agent-runtime` through one atomic API and ships `pier_agents.tangle_candidate:TangleCandidateAgent` as its thin Pier transport.

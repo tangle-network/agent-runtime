@@ -30,10 +30,27 @@ export {
   type RagContext,
 } from './benchmarks/rag-shared'
 export { createT2RagBenchAdapter } from './benchmarks/t2-ragbench'
+export {
+  createSweBenchAdapter,
+  scoreSweReport,
+  sweEvaluationArgv,
+  swePatchOutput,
+  type SweBenchAdapterOptions,
+  type SweBenchArtifactCaptureContext,
+  type SweBenchCacheLevel,
+} from './benchmarks/swe-bench'
+export {
+  runStagedJudge,
+  StagedJudgeError,
+  type StagedRunCaptureSpec,
+  type StagedRunSpec,
+} from './benchmarks/_harness'
 export type {
   BenchmarkAdapter,
   BenchScore,
   BenchTask,
+  JudgeArtifactFileReceipt,
+  JudgeArtifactReceipt,
   LoadOptions,
 } from './benchmarks/types'
 
