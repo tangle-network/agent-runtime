@@ -212,6 +212,10 @@ function portablePath(path: string): string {
   return path.split(sep).join('/')
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 async function collectArtifactFiles(
   root: string,
   current: string,
@@ -219,7 +223,7 @@ async function collectArtifactFiles(
   const absolute = join(root, current)
   const entries = await readdir(absolute, { withFileTypes: true })
   const files: JudgeArtifactFileReceipt[] = []
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareText(left.name, right.name))) {
     const relativePath = join(current, entry.name)
     const path = join(root, relativePath)
     if (entry.isDirectory()) {
@@ -237,7 +241,7 @@ async function collectArtifactFiles(
       continue
     }
     if (entry.isSymbolicLink()) {
-      const targetBytes = Buffer.from(await readlink(path), 'utf8')
+      const targetBytes = await readlink(path, { encoding: 'buffer' })
       files.push({
         path: portablePath(relativePath),
         byteLength: targetBytes.byteLength,
@@ -295,7 +299,7 @@ async function captureStagedRun(
     const files = [
       ...await collectArtifactFiles(staging, 'evaluator'),
       ...await collectArtifactFiles(staging, 'process'),
-    ].sort((left, right) => left.path.localeCompare(right.path))
+    ].sort((left, right) => compareText(left.path, right.path))
     const byteLength = files.reduce((total, file) => total + file.byteLength, 0)
     const treeBytes = Buffer.from(
       files
