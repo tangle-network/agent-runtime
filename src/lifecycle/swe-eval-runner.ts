@@ -23,10 +23,17 @@
  * bench package (`createSweBenchEnvironment`, the swebench adapter), which
  * depends on this package — importing them here would invert the dependency.
  *
- * Phase-1 scope: returns the scalar `composite` (mean resolved) + `costUsd`
- * only — no per-task `RunRecord`s — so it pairs with `thresholdPromotionGate`,
- * not `heldOutPromotionGate`. Tasks run sequentially on purpose: the patch
- * capture closes over one mutable cell per drive.
+ * Phase-3 adds the `materializeMcp` path: when set and the profile declares
+ * `mcp` servers, each enabled stdio server is spawned SAME-HOST
+ * (`materializeLocalMcp`) for the duration of the eval and its tools are
+ * overlaid on the domain surface — so a worktree-BUILT MCP candidate is LIVE
+ * while the profile is scored, and its marginal lift is real. Default off:
+ * the prompt-only path spawns nothing.
+ *
+ * Phase-1 scope otherwise: returns the scalar `composite` (mean resolved) +
+ * `costUsd` only — no per-task `RunRecord`s — so it pairs with
+ * `thresholdPromotionGate`, not `heldOutPromotionGate`. Tasks run sequentially
+ * on purpose: the patch capture closes over one mutable cell per drive.
  */
 
 import { execFile } from 'node:child_process'
@@ -36,6 +43,8 @@ import { ValidationError } from '../errors'
 import {
   type AgenticSurface,
   type ArtifactHandle,
+  type LocalMcpMaterialization,
+  materializeLocalMcp,
   refine,
   runAgentic,
   type SurfaceScore,
@@ -88,6 +97,13 @@ export interface SweEvalRunnerOptions<T extends SweEvalTask = SweEvalTask> {
   innerTurns?: number
   /** Max refine shots per task. Default 1. */
   budget?: number
+  /** Same-host MCP materialization: when true and the profile declares `mcp`
+   *  servers, spawn each enabled stdio server as a LOCAL child for the eval's
+   *  duration and expose its tools (`<server>__<tool>`) to the driven worker
+   *  alongside the domain tools. Default false (prompt-only). A declared
+   *  server that cannot boot THROWS — scoring it silently without its tools
+   *  would fake the with/without ablation. */
+  materializeMcp?: boolean
 }
 
 /**
@@ -104,89 +120,122 @@ export function sweEvalRunner<T extends SweEvalTask = SweEvalTask>(
 
   return async (profile: AgentProfile, signal?: AbortSignal): Promise<EvalResult> => {
     const systemPrompt = renderSystemPrompt(profile, opts.seedPrompt)
-    const rows: SweEvalTaskResult[] = []
-    let costUsd = 0
-    let judgeCalls = 0
-    let judgeErrors = 0
+    // Same-host materialization of the profile's MCP surface (opt-in): the
+    // spawned servers live across all tasks of THIS eval and die in finally.
+    const mcp = opts.materializeMcp ? await materializeLocalMcp(profile) : undefined
+    const environment =
+      mcp && mcp.tools.length > 0 ? withLocalMcpTools(opts.environment, mcp) : opts.environment
+    try {
+      return await driveAndGrade(environment, mcp, systemPrompt, opts, signal)
+    } finally {
+      await mcp?.close()
+    }
+  }
+}
 
-    for (const task of opts.tasks) {
-      if (signal?.aborted) throw new Error('sweEvalRunner: aborted')
+/** Drive every pinned instance under `environment` and grade the patches —
+ *  the Phase-1 loop body, factored so the MCP materialization wraps it. */
+async function driveAndGrade<T extends SweEvalTask>(
+  environment: AgenticSurface,
+  mcp: LocalMcpMaterialization | undefined,
+  systemPrompt: string,
+  opts: SweEvalRunnerOptions<T>,
+  signal?: AbortSignal,
+): Promise<EvalResult> {
+  const rows: SweEvalTaskResult[] = []
+  let costUsd = 0
+  let judgeCalls = 0
+  let judgeErrors = 0
 
-      // Capture the LATEST non-empty diff from inside score() — the refine loop
-      // calls it before the surface closes and rms the checkout, and a later
-      // empty read must never clobber a real patch (the swe-emit-patch pattern).
-      let capturedPatch = ''
-      const proxy: AgenticSurface = {
-        ...opts.environment,
-        async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
-          try {
-            const d = await exec('git', ['-C', handle.id, 'diff'], {
-              maxBuffer: 40_000_000,
-              timeout: 60_000,
-            })
-            if (d.stdout.trim()) capturedPatch = d.stdout
-          } catch {
-            /* workspace gone or git error → keep whatever we already captured */
-          }
-          return { passes: capturedPatch.trim() ? 1 : 0, total: 1, errored: 0 }
-        },
-      }
+  for (const task of opts.tasks) {
+    if (signal?.aborted) throw new Error('sweEvalRunner: aborted')
 
-      const run = await runAgentic({
-        surface: proxy,
-        task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
-        strategy: refine,
-        routerBaseUrl: opts.routerBaseUrl,
-        routerKey: opts.routerKey,
-        model: opts.model,
-        maxTokens: opts.maxTokens,
-        innerTurns: opts.innerTurns,
-        budget: opts.budget ?? 1,
-      })
-      costUsd += run.usd
-
-      let resolved = false
-      let judgeError: string | undefined
-      if (capturedPatch.trim()) {
-        judgeCalls += 1
+    // Capture the LATEST non-empty diff from inside score() — the refine loop
+    // calls it before the surface closes and rms the checkout, and a later
+    // empty read must never clobber a real patch (the swe-emit-patch pattern).
+    let capturedPatch = ''
+    const proxy: AgenticSurface = {
+      ...environment,
+      async score(_t, handle: ArtifactHandle): Promise<SurfaceScore> {
         try {
-          resolved = (await opts.judge(task, capturedPatch)).resolved
-        } catch (e) {
-          judgeErrors += 1
-          judgeError = e instanceof Error ? e.message : String(e)
+          const d = await exec('git', ['-C', handle.id, 'diff'], {
+            maxBuffer: 40_000_000,
+            timeout: 60_000,
+          })
+          if (d.stdout.trim()) capturedPatch = d.stdout
+        } catch {
+          /* workspace gone or git error → keep whatever we already captured */
         }
+        return { passes: capturedPatch.trim() ? 1 : 0, total: 1, errored: 0 }
+      },
+    }
+
+    const run = await runAgentic({
+      surface: proxy,
+      task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
+      strategy: refine,
+      routerBaseUrl: opts.routerBaseUrl,
+      routerKey: opts.routerKey,
+      model: opts.model,
+      maxTokens: opts.maxTokens,
+      innerTurns: opts.innerTurns,
+      budget: opts.budget ?? 1,
+    })
+    costUsd += run.usd
+
+    let resolved = false
+    let judgeError: string | undefined
+    if (capturedPatch.trim()) {
+      judgeCalls += 1
+      try {
+        resolved = (await opts.judge(task, capturedPatch)).resolved
+      } catch (e) {
+        judgeErrors += 1
+        judgeError = e instanceof Error ? e.message : String(e)
       }
-
-      rows.push({
-        id: task.id,
-        resolved,
-        patchBytes: capturedPatch.length,
-        usd: run.usd,
-        shots: run.shots,
-        tokens: run.tokens,
-        ...(judgeError === undefined ? {} : { judgeError }),
-      })
-      console.error(
-        `[swe-eval] ${task.id} resolved=${resolved} patch=${capturedPatch.length}b ` +
-          `shots=${run.shots} tok=in:${run.tokens.input}/out:${run.tokens.output} usd=${run.usd.toFixed(4)}` +
-          (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : ''),
-      )
     }
 
-    // Every judge invocation failing is broken grading infrastructure (docker
-    // down, venv missing) — reporting composite=0 from it would fabricate a
-    // score, so fail loud instead.
-    if (judgeErrors > 0 && judgeErrors === judgeCalls) {
-      throw new Error(
-        `sweEvalRunner: all ${judgeErrors} judge invocation(s) failed — grading infra is down, refusing to report a fabricated composite`,
-      )
-    }
+    rows.push({
+      id: task.id,
+      resolved,
+      patchBytes: capturedPatch.length,
+      usd: run.usd,
+      shots: run.shots,
+      tokens: run.tokens,
+      ...(judgeError === undefined ? {} : { judgeError }),
+    })
+    console.error(
+      `[swe-eval] ${task.id} resolved=${resolved} patch=${capturedPatch.length}b ` +
+        `shots=${run.shots} tok=in:${run.tokens.input}/out:${run.tokens.output} usd=${run.usd.toFixed(4)}` +
+        (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : ''),
+    )
+  }
 
-    return {
-      composite: rows.filter((r) => r.resolved).length / rows.length,
-      costUsd,
-      details: { systemPrompt, rows },
-    }
+  // Every judge invocation failing is broken grading infrastructure (docker
+  // down, venv missing) — reporting composite=0 from it would fabricate a
+  // score, so fail loud instead.
+  if (judgeErrors > 0 && judgeErrors === judgeCalls) {
+    throw new Error(
+      `sweEvalRunner: all ${judgeErrors} judge invocation(s) failed — grading infra is down, refusing to report a fabricated composite`,
+    )
+  }
+
+  return {
+    composite: rows.filter((r) => r.resolved).length / rows.length,
+    costUsd,
+    details: { systemPrompt, mcpTools: mcp?.tools.map((t) => t.function.name) ?? [], rows },
+  }
+}
+
+/** Overlay the same-host MCP tools onto the domain surface: `tools()` appends
+ *  the namespaced MCP tools, `call()` routes owned names to the live stdio
+ *  children — open/score/close pass through untouched. */
+function withLocalMcpTools(env: AgenticSurface, mcp: LocalMcpMaterialization): AgenticSurface {
+  return {
+    ...env,
+    tools: async (task, handle) => [...(await env.tools(task, handle)), ...mcp.tools],
+    call: (handle, name, args) =>
+      mcp.owns(name) ? mcp.call(name, args) : env.call(handle, name, args),
   }
 }
 
