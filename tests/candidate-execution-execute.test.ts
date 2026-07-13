@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
@@ -15,6 +16,7 @@ import type {
   AgentCandidateExecutorRequest,
 } from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
+import { captureAgentCandidateWorkspaceFiles } from '../src/candidate-execution/workspace-archive'
 import {
   candidateBundle,
   candidateSha,
@@ -126,7 +128,34 @@ describe('atomic prepared candidate execution', () => {
       },
       stopAndCapture: async () => {
         stopped++
-        return { stopped: true }
+        if (!observed) throw new Error('candidate executor did not receive its request')
+        const changedBytes = Buffer.from('export const value = 2\n')
+        const taskRoot = fixture.task.stagingRoots.taskRoot
+        writeFileSync(join(taskRoot, 'source.ts'), changedBytes, { mode: 0o644 })
+        execFileSync('git', ['add', 'source.ts'], { cwd: taskRoot })
+        const resultTree = execFileSync('git', ['write-tree'], {
+          cwd: taskRoot,
+          encoding: 'utf8',
+        }).trim()
+        const gitDiff = execFileSync('git', ['diff', '--cached', '--binary', 'HEAD'], {
+          cwd: taskRoot,
+        })
+        const captured = await captureAgentCandidateWorkspaceFiles(
+          observed.inputs.task.files.map((file) => ({
+            path: file.path,
+            mode: file.mode,
+            bytes: file.path === 'source.ts' ? changedBytes : Uint8Array.from(file.bytes),
+          })),
+        )
+        return {
+          stopped: true,
+          taskOutcome: {
+            resultTree,
+            afterState: captured.snapshot.material,
+            archive: captured.archive,
+            gitDiff,
+          },
+        }
       },
     }
 

@@ -13,26 +13,40 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep, win32 } from 'node:path'
+import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
 
 import type {
+  AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceManifestMaterialV1,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
+import { type Entry, extract, type Pack, pack } from 'tar-stream'
 
 import { captureMaterializedWorkspace, verifyBytes, verifyMaterializedWorkspace } from './artifacts'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
+  deepFreezeCandidate,
   embeddedCandidateArtifact,
   sha256Bytes,
 } from './digest'
 import { readCandidateGitTreeFiles, runCandidateGit } from './git-materialize'
-import type { AgentCandidateWorkspacePort } from './types'
+import { persistCandidateOutputArtifact } from './output-artifacts'
+import type {
+  AgentCandidateExecutorWorkspaceFile,
+  AgentCandidateOutputArtifactPort,
+  AgentCandidateWorkspacePort,
+} from './types'
 
 const archiveKind = 'agent-candidate-workspace-archive' as const
+const workspaceEntryPrefix = 'workspace/'
+const repositoryMetadataEntry = 'metadata/repository.json'
+const repositoryBundleEntry = 'metadata/repository.bundle'
+const fixedTarTime = new Date(0)
 
 export interface AgentCandidateWorkspaceArchiveLimits {
   maxArchiveBytes: number
+  maxEmbeddedArtifactBytes: number
   maxFiles: number
   maxFileBytes: number
   maxTotalFileBytes: number
@@ -42,6 +56,7 @@ export interface AgentCandidateWorkspaceArchiveLimits {
 
 const defaultLimits: AgentCandidateWorkspaceArchiveLimits = Object.freeze({
   maxArchiveBytes: 512 * 1024 * 1024,
+  maxEmbeddedArtifactBytes: 1024 * 1024,
   maxFiles: 50_000,
   maxFileBytes: 128 * 1024 * 1024,
   maxTotalFileBytes: 256 * 1024 * 1024,
@@ -49,42 +64,42 @@ const defaultLimits: AgentCandidateWorkspaceArchiveLimits = Object.freeze({
   maxRepositoryBundleBytes: 128 * 1024 * 1024,
 })
 
-interface WorkspaceArchiveFileV1 {
-  path: string
-  mode: 0o644 | 0o755
-  encoding: 'base64'
-  content: string
-  sha256: `sha256:${string}`
-  byteLength: number
-}
-
 interface WorkspaceArchiveRepositoryV1 {
   headCommit: string
   headTree: string
   bundle: {
-    encoding: 'base64'
-    content: string
+    sha256: `sha256:${string}`
+    byteLength: number
+    bytes: Uint8Array
+  }
+}
+
+interface WorkspaceArchiveRepositoryMetadataV1 {
+  schemaVersion: 1
+  kind: typeof archiveKind
+  headCommit: string
+  headTree: string
+  bundle: {
     sha256: `sha256:${string}`
     byteLength: number
   }
 }
 
-interface WorkspaceArchiveV1 {
-  schemaVersion: 1
-  kind: typeof archiveKind
-  files: WorkspaceArchiveFileV1[]
-  repository?: WorkspaceArchiveRepositoryV1
-}
-
 interface DecodedWorkspaceArchive {
   files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
-  repository?: WorkspaceArchiveRepositoryV1 & { bundleBytes: Uint8Array }
+  repository?: WorkspaceArchiveRepositoryV1
 }
 
 export interface CaptureAgentCandidateWorkspaceOptions {
   /** Include Git HEAD so task preparation can prove its exact commit and tree. */
   includeRepository?: boolean
   limits?: Partial<AgentCandidateWorkspaceArchiveLimits>
+  /** Use the evaluator-owned artifact store when manifest or archive bytes should not be embedded. */
+  artifactPersistence?: {
+    executionId: string
+    outputArtifacts: AgentCandidateOutputArtifactPort
+    signal?: AbortSignal
+  }
 }
 
 export interface CreateAgentCandidateWorkspacePortOptions {
@@ -92,9 +107,9 @@ export interface CreateAgentCandidateWorkspacePortOptions {
 }
 
 export interface CapturedAgentCandidateWorkspace {
-  snapshot: AgentCandidateWorkspaceSnapshotEvidence
-  /** Detached bytes accepted by createAgentCandidateWorkspacePort. */
-  archive: Uint8Array
+  readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
+  /** Caller-owned bytes accepted by createAgentCandidateWorkspacePort. */
+  readonly archive: Uint8Array
 }
 
 /** Capture one exact regular-file workspace for immutable candidate execution. */
@@ -115,23 +130,69 @@ export async function captureAgentCandidateWorkspace(
       })
   assertWorkspaceFilesWithinLimits(captured.files, limits)
   const repository = 'repository' in captured ? captured.repository : undefined
-  const archive = encodeWorkspaceArchive(captured.files, repository)
-  if (archive.byteLength > limits.maxArchiveBytes) {
-    throw new Error('candidate workspace archive exceeds maxArchiveBytes')
-  }
-  const material = workspaceManifest(captured.files)
+  return captureWorkspaceFiles(captured.files, repository, limits, options.artifactPersistence)
+}
+
+/** Capture detached files returned by a remote executor into the standard archive. */
+export async function captureAgentCandidateWorkspaceFiles(
+  input: readonly AgentCandidateExecutorWorkspaceFile[],
+  options: Omit<CaptureAgentCandidateWorkspaceOptions, 'includeRepository'> = {},
+): Promise<CapturedAgentCandidateWorkspace> {
+  const limits = workspaceLimits(options.limits)
+  return captureWorkspaceFiles(
+    normalizeWorkspaceFiles(input, limits),
+    undefined,
+    limits,
+    options.artifactPersistence,
+  )
+}
+
+async function captureWorkspaceFiles(
+  files: readonly AgentCandidateExecutorWorkspaceFile[],
+  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  limits: AgentCandidateWorkspaceArchiveLimits,
+  artifactPersistence: CaptureAgentCandidateWorkspaceOptions['artifactPersistence'],
+): Promise<CapturedAgentCandidateWorkspace> {
+  const material = workspaceManifest(files)
   const manifest = canonicalCandidateBytes(material)
-  return {
-    snapshot: {
-      schemaVersion: 1,
-      kind: 'agent-candidate-workspace-snapshot',
-      digest: canonicalCandidateDigest(material),
-      material,
-      manifest: embeddedCandidateArtifact(manifest),
-      archive: embeddedCandidateArtifact(archive),
-    },
-    archive: Uint8Array.from(archive),
+  const archive = await encodeWorkspaceArchive(files, repository, limits.maxArchiveBytes)
+  if (
+    !artifactPersistence &&
+    (manifest.byteLength > limits.maxEmbeddedArtifactBytes ||
+      archive.byteLength > limits.maxEmbeddedArtifactBytes)
+  ) {
+    throw new Error(
+      'candidate workspace artifacts exceed maxEmbeddedArtifactBytes; artifactPersistence is required',
+    )
   }
+  const manifestArtifact = await captureWorkspaceArtifact('manifest', manifest, artifactPersistence)
+  const archiveArtifact = await captureWorkspaceArtifact('archive', archive, artifactPersistence)
+  const snapshot = deepFreezeCandidate({
+    schemaVersion: 1,
+    kind: 'agent-candidate-workspace-snapshot',
+    digest: canonicalCandidateDigest(material),
+    material,
+    manifest: manifestArtifact,
+    archive: archiveArtifact,
+  } satisfies AgentCandidateWorkspaceSnapshotEvidence)
+  return Object.freeze({ snapshot, archive })
+}
+
+async function captureWorkspaceArtifact(
+  kind: 'manifest' | 'archive',
+  bytes: Uint8Array,
+  persistence: CaptureAgentCandidateWorkspaceOptions['artifactPersistence'],
+): Promise<AgentCandidateCapturedArtifact> {
+  if (!persistence) return embeddedCandidateArtifact(bytes)
+  if (!persistence.executionId.trim()) {
+    throw new Error('candidate workspace artifact persistence requires an executionId')
+  }
+  return persistCandidateOutputArtifact(persistence.outputArtifacts, {
+    executionId: persistence.executionId,
+    purpose: kind === 'manifest' ? 'candidate-workspace-manifest' : 'candidate-workspace-archive',
+    bytes,
+    ...(persistence.signal ? { signal: persistence.signal } : {}),
+  })
 }
 
 /** Create the standard bounded materializer for candidate execution ports. */
@@ -166,7 +227,7 @@ async function materializeAgentCandidateWorkspace(input: {
     input.snapshot.archive.byteLength,
     'candidate workspace archive',
   )
-  const decoded = parseWorkspaceArchive(input.archive, input.limits)
+  const decoded = await parseWorkspaceArchive(input.archive, input.limits)
   if (decoded.repository && input.role !== 'task') {
     throw new Error('only task workspaces may carry a Git repository')
   }
@@ -243,10 +304,9 @@ async function captureRepository(
         headCommit,
         headTree,
         bundle: {
-          encoding: 'base64',
-          content: Buffer.from(bundle).toString('base64'),
           sha256: sha256Bytes(bundle),
           byteLength: bundle.byteLength,
+          bytes: bundle,
         },
       },
     }
@@ -255,115 +315,203 @@ async function captureRepository(
   }
 }
 
-function encodeWorkspaceArchive(
+async function encodeWorkspaceArchive(
   files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
-  repository?: WorkspaceArchiveRepositoryV1,
-): Uint8Array {
-  const archive: WorkspaceArchiveV1 = {
-    schemaVersion: 1,
-    kind: archiveKind,
-    files: files.map((file) => ({
-      path: file.path,
-      mode: file.mode,
-      encoding: 'base64',
-      content: Buffer.from(file.bytes).toString('base64'),
-      sha256: sha256Bytes(file.bytes),
-      byteLength: file.bytes.byteLength,
-    })),
-    ...(repository ? { repository } : {}),
+  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  maxArchiveBytes: number,
+): Promise<Uint8Array> {
+  const archive = pack()
+  const output = collectStream(archive, maxArchiveBytes, 'candidate workspace archive')
+  try {
+    await writeWorkspaceArchiveEntries(archive, files, repository)
+    archive.finalize()
+    return await output
+  } catch (error) {
+    archive.destroy(error instanceof Error ? error : new Error(String(error)))
+    await output.catch(() => undefined)
+    throw error
   }
-  return canonicalCandidateBytes(archive)
 }
 
-function parseWorkspaceArchive(
+async function verifyCanonicalWorkspaceArchive(
+  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  repository: WorkspaceArchiveRepositoryV1 | undefined,
+  expected: Uint8Array,
+  maxArchiveBytes: number,
+): Promise<void> {
+  const archive = pack()
+  const comparison = streamEqualsBytes(
+    archive,
+    expected,
+    maxArchiveBytes,
+    'candidate workspace archive',
+  )
+  try {
+    await writeWorkspaceArchiveEntries(archive, files, repository)
+    archive.finalize()
+    if (!(await comparison)) throw new Error('candidate workspace tar is not canonical')
+  } catch (error) {
+    archive.destroy(error instanceof Error ? error : new Error(String(error)))
+    await comparison.catch(() => undefined)
+    throw error
+  }
+}
+
+async function writeWorkspaceArchiveEntries(
+  archive: Pack,
+  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  repository: WorkspaceArchiveRepositoryV1 | undefined,
+): Promise<void> {
+  for (const file of files) {
+    await writeTarEntry(archive, `${workspaceEntryPrefix}${file.path}`, file.mode, file.bytes)
+  }
+  if (!repository) return
+  const metadata = canonicalCandidateBytes({
+    schemaVersion: 1,
+    kind: archiveKind,
+    headCommit: repository.headCommit,
+    headTree: repository.headTree,
+    bundle: {
+      sha256: repository.bundle.sha256,
+      byteLength: repository.bundle.byteLength,
+    },
+  } satisfies WorkspaceArchiveRepositoryMetadataV1)
+  await writeTarEntry(archive, repositoryMetadataEntry, 0o600, metadata)
+  await writeTarEntry(archive, repositoryBundleEntry, 0o600, repository.bundle.bytes)
+}
+
+async function parseWorkspaceArchive(
   bytes: Uint8Array,
   limits: AgentCandidateWorkspaceArchiveLimits,
-): DecodedWorkspaceArchive {
+): Promise<DecodedWorkspaceArchive> {
   if (bytes.byteLength > limits.maxArchiveBytes) {
     throw new Error('candidate workspace archive exceeds maxArchiveBytes')
   }
+  const parser = extract()
+  const files: DecodedWorkspaceArchive['files'] = []
+  const observedEntryNames = new Set<string>()
+  const observedPaths = new Set<string>()
+  let totalBytes = 0
+  let retainedEntryBytes = 0
+  let previousPath: string | undefined
+  let repositoryMetadata: WorkspaceArchiveRepositoryMetadataV1 | undefined
+  let repositoryBundle: Uint8Array | undefined
+  const decoded = (async () => {
+    for await (const entry of parser) {
+      const name = entry.header.name
+      if (
+        entry.header.type !== 'file' ||
+        typeof name !== 'string' ||
+        observedEntryNames.has(name)
+      ) {
+        throw new Error('candidate workspace tar contains an invalid entry')
+      }
+      observedEntryNames.add(name)
+      if (name.startsWith(workspaceEntryPrefix)) {
+        if (files.length >= limits.maxFiles) {
+          throw new Error('candidate workspace archive has an invalid file count')
+        }
+        const path = safeArchivePath(name.slice(workspaceEntryPrefix.length), limits.maxPathBytes)
+        if (entry.header.mode !== 0o644 && entry.header.mode !== 0o755) {
+          throw new Error(`candidate workspace archive has an unsupported mode: ${path}`)
+        }
+        assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
+        const fileBytes = await readTarEntry(entry, limits.maxFileBytes, `workspace file ${path}`)
+        retainedEntryBytes += fileBytes.byteLength
+        assertWorkspacePathOrder(
+          path,
+          previousPath,
+          observedPaths,
+          'candidate workspace archive paths must be unique and sorted',
+        )
+        previousPath = path
+        if (fileBytes.byteLength > limits.maxTotalFileBytes - totalBytes) {
+          throw new Error('candidate workspace archive exceeds maxTotalFileBytes')
+        }
+        totalBytes += fileBytes.byteLength
+        files.push({ path, mode: entry.header.mode, bytes: fileBytes })
+      } else if (name === repositoryMetadataEntry) {
+        if (entry.header.mode !== 0o600 || repositoryMetadata) {
+          throw new Error('candidate workspace archive repository metadata is invalid')
+        }
+        assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
+        const metadataBytes = await readTarEntry(
+          entry,
+          limits.maxPathBytes,
+          'candidate repository metadata',
+        )
+        retainedEntryBytes += metadataBytes.byteLength
+        repositoryMetadata = parseRepositoryMetadata(metadataBytes, limits.maxRepositoryBundleBytes)
+      } else if (name === repositoryBundleEntry) {
+        if (entry.header.mode !== 0o600 || repositoryBundle) {
+          throw new Error('candidate workspace archive repository bundle is invalid')
+        }
+        assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
+        repositoryBundle = await readTarEntry(
+          entry,
+          limits.maxRepositoryBundleBytes,
+          'candidate Git bundle',
+        )
+        retainedEntryBytes += repositoryBundle.byteLength
+      } else {
+        throw new Error(`candidate workspace tar contains an unsupported entry: ${name}`)
+      }
+    }
+    if (Boolean(repositoryMetadata) !== Boolean(repositoryBundle)) {
+      throw new Error('candidate workspace archive repository evidence is incomplete')
+    }
+    const repository =
+      repositoryMetadata && repositoryBundle
+        ? repositoryFromTar(repositoryMetadata, repositoryBundle)
+        : undefined
+    return { files, ...(repository ? { repository } : {}) }
+  })()
+  parser.end(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))
+  const result = await decoded
+  await verifyCanonicalWorkspaceArchive(
+    result.files,
+    result.repository,
+    bytes,
+    limits.maxArchiveBytes,
+  )
+  return result
+}
+
+function assertRetainedArchiveSize(
+  archiveBytes: number,
+  retainedEntryBytes: number,
+  entryBytes: number | undefined,
+  limits: AgentCandidateWorkspaceArchiveLimits,
+): void {
+  if (
+    !Number.isSafeInteger(entryBytes) ||
+    entryBytes === undefined ||
+    entryBytes < 0 ||
+    entryBytes > limits.maxArchiveBytes - archiveBytes - retainedEntryBytes
+  ) {
+    throw new Error('candidate workspace archive exceeds maxArchiveBytes while decoding')
+  }
+}
+
+function parseRepositoryMetadata(
+  bytes: Uint8Array,
+  maxBundleBytes: number,
+): WorkspaceArchiveRepositoryMetadataV1 {
   let value: unknown
   try {
     value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   } catch (error) {
-    throw new Error('candidate workspace archive is not UTF-8 JSON', { cause: error })
+    throw new Error('candidate workspace archive repository metadata is invalid', { cause: error })
   }
-  if (!isRecord(value) || value.schemaVersion !== 1 || value.kind !== archiveKind) {
-    throw new Error('candidate workspace archive has an invalid envelope')
-  }
-  if (!Buffer.from(canonicalCandidateBytes(value)).equals(Buffer.from(bytes))) {
-    throw new Error('candidate workspace archive is not canonical')
-  }
-  const allowedKeys =
-    value.repository === undefined
-      ? ['files', 'kind', 'schemaVersion']
-      : ['files', 'kind', 'repository', 'schemaVersion']
-  if (Object.keys(value).sort().join(',') !== allowedKeys.join(',')) {
-    throw new Error('candidate workspace archive contains unsupported fields')
-  }
-  if (!Array.isArray(value.files) || value.files.length > limits.maxFiles) {
-    throw new Error('candidate workspace archive has an invalid file count')
-  }
-  const files: DecodedWorkspaceArchive['files'] = []
-  let totalBytes = 0
-  let previousPath: string | undefined
-  for (const item of value.files) {
-    const parsed = parseArchiveFile(item, limits)
-    if (previousPath !== undefined && previousPath >= parsed.path) {
-      throw new Error('candidate workspace archive paths must be unique and sorted')
-    }
-    previousPath = parsed.path
-    totalBytes += parsed.bytes.byteLength
-    if (totalBytes > limits.maxTotalFileBytes) {
-      throw new Error('candidate workspace archive exceeds maxTotalFileBytes')
-    }
-    files.push(parsed)
-  }
-  const repository =
-    value.repository === undefined
-      ? undefined
-      : parseArchiveRepository(value.repository, limits.maxRepositoryBundleBytes)
-  return { files, ...(repository ? { repository } : {}) }
-}
-
-function parseArchiveFile(
-  value: unknown,
-  limits: AgentCandidateWorkspaceArchiveLimits,
-): { path: string; mode: 0o644 | 0o755; bytes: Uint8Array } {
   if (
     !isRecord(value) ||
-    Object.keys(value).sort().join(',') !== 'byteLength,content,encoding,mode,path,sha256' ||
-    (value.mode !== 0o644 && value.mode !== 0o755) ||
-    value.encoding !== 'base64' ||
-    typeof value.content !== 'string' ||
-    typeof value.sha256 !== 'string' ||
-    !/^sha256:[a-f0-9]{64}$/.test(value.sha256) ||
-    !Number.isSafeInteger(value.byteLength) ||
-    (value.byteLength as number) < 0 ||
-    (value.byteLength as number) > limits.maxFileBytes
-  ) {
-    throw new Error('candidate workspace archive file is invalid')
-  }
-  const path = safeArchivePath(value.path, limits.maxPathBytes)
-  assertBase64CouldFit(value.content, limits.maxFileBytes, `workspace file ${path}`)
-  const bytes = decodeBase64(value.content, `workspace file ${path}`)
-  verifyBytes(bytes, value.sha256, value.byteLength as number, `workspace file ${path}`)
-  return { path, mode: value.mode, bytes }
-}
-
-function parseArchiveRepository(
-  value: unknown,
-  maxBundleBytes: number,
-): WorkspaceArchiveRepositoryV1 & { bundleBytes: Uint8Array } {
-  if (
-    !isRecord(value) ||
-    Object.keys(value).sort().join(',') !== 'bundle,headCommit,headTree' ||
+    Object.keys(value).sort().join(',') !== 'bundle,headCommit,headTree,kind,schemaVersion' ||
+    value.schemaVersion !== 1 ||
+    value.kind !== archiveKind ||
     typeof value.headCommit !== 'string' ||
     typeof value.headTree !== 'string' ||
     !isRecord(value.bundle) ||
-    Object.keys(value.bundle).sort().join(',') !== 'byteLength,content,encoding,sha256' ||
-    value.bundle.encoding !== 'base64' ||
-    typeof value.bundle.content !== 'string' ||
+    Object.keys(value.bundle).sort().join(',') !== 'byteLength,sha256' ||
     typeof value.bundle.sha256 !== 'string' ||
     !/^sha256:[a-f0-9]{64}$/.test(value.bundle.sha256) ||
     !Number.isSafeInteger(value.bundle.byteLength) ||
@@ -372,30 +520,118 @@ function parseArchiveRepository(
   ) {
     throw new Error('candidate workspace archive repository is invalid')
   }
+  if (!Buffer.from(canonicalCandidateBytes(value)).equals(Buffer.from(bytes))) {
+    throw new Error('candidate workspace archive repository metadata is not canonical')
+  }
   assertGitObjectId(value.headCommit, 'repository HEAD')
   assertGitObjectId(value.headTree, 'repository HEAD tree')
   if (value.headCommit.length !== value.headTree.length) {
     throw new Error('candidate repository HEAD and tree use different object formats')
   }
-  assertBase64CouldFit(value.bundle.content, maxBundleBytes, 'candidate Git bundle')
-  const bundleBytes = decodeBase64(value.bundle.content, 'candidate Git bundle')
-  verifyBytes(
-    bundleBytes,
-    value.bundle.sha256,
-    value.bundle.byteLength as number,
-    'candidate Git bundle',
-  )
   return {
+    schemaVersion: 1,
+    kind: archiveKind,
     headCommit: value.headCommit,
     headTree: value.headTree,
     bundle: {
-      encoding: 'base64',
-      content: value.bundle.content,
       sha256: value.bundle.sha256 as `sha256:${string}`,
       byteLength: value.bundle.byteLength as number,
     },
-    bundleBytes,
   }
+}
+
+function repositoryFromTar(
+  metadata: WorkspaceArchiveRepositoryMetadataV1,
+  bundle: Uint8Array,
+): WorkspaceArchiveRepositoryV1 {
+  verifyBytes(bundle, metadata.bundle.sha256, metadata.bundle.byteLength, 'candidate Git bundle')
+  return {
+    headCommit: metadata.headCommit,
+    headTree: metadata.headTree,
+    bundle: { ...metadata.bundle, bytes: bundle },
+  }
+}
+
+async function writeTarEntry(
+  archive: Pack,
+  name: string,
+  mode: 0o600 | 0o644 | 0o755,
+  bytes: Uint8Array,
+): Promise<void> {
+  await new Promise<void>((resolveEntry, rejectEntry) => {
+    archive.entry(
+      {
+        name,
+        mode,
+        uid: 0,
+        gid: 0,
+        size: bytes.byteLength,
+        mtime: fixedTarTime,
+        type: 'file',
+        uname: '',
+        gname: '',
+      },
+      Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      (error) => (error ? rejectEntry(error) : resolveEntry()),
+    )
+  })
+}
+
+async function readTarEntry(entry: Entry, maxBytes: number, label: string): Promise<Uint8Array> {
+  const size = entry.header.size
+  if (!Number.isSafeInteger(size) || size === undefined || size < 0 || size > maxBytes) {
+    throw new Error(`${label} has an invalid tar size`)
+  }
+  const bytes = await collectStream(entry, maxBytes, label)
+  if (bytes.byteLength !== size) throw new Error(`${label} differs from its tar size`)
+  return bytes
+}
+
+async function collectStream(
+  stream: AsyncIterable<Uint8Array>,
+  maxBytes: number,
+  label: string,
+): Promise<Uint8Array> {
+  const chunks: Buffer[] = []
+  let totalBytes = 0
+  for await (const chunk of stream) {
+    if (chunk.byteLength > maxBytes - totalBytes) {
+      const error = new Error(`${label} exceeds its size limit`)
+      if ('destroy' in stream && typeof stream.destroy === 'function') stream.destroy(error)
+      throw error
+    }
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    chunks.push(bytes)
+    totalBytes += bytes.byteLength
+  }
+  return Buffer.concat(chunks, totalBytes)
+}
+
+async function streamEqualsBytes(
+  stream: AsyncIterable<Uint8Array>,
+  expected: Uint8Array,
+  maxBytes: number,
+  label: string,
+): Promise<boolean> {
+  const expectedBuffer = Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength)
+  let equal = true
+  let offset = 0
+  for await (const chunk of stream) {
+    if (chunk.byteLength > maxBytes - offset) {
+      const error = new Error(`${label} exceeds its size limit`)
+      if ('destroy' in stream && typeof stream.destroy === 'function') stream.destroy(error)
+      throw error
+    }
+    const observed = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+    if (
+      offset + observed.byteLength > expectedBuffer.byteLength ||
+      !observed.equals(expectedBuffer.subarray(offset, offset + observed.byteLength))
+    ) {
+      equal = false
+    }
+    offset += observed.byteLength
+  }
+  return equal && offset === expectedBuffer.byteLength
 }
 
 async function prepareEmptyDestination(destination: string): Promise<void> {
@@ -442,13 +678,13 @@ async function writeWorkspaceFiles(
 }
 
 async function materializeRepository(
-  repository: WorkspaceArchiveRepositoryV1 & { bundleBytes: Uint8Array },
+  repository: WorkspaceArchiveRepositoryV1,
   destination: string,
 ): Promise<void> {
   const temporary = await mkdtemp(join(tmpdir(), 'agent-candidate-workspace-bundle-'))
   const bundlePath = join(temporary, `${randomUUID()}.bundle`)
   try {
-    await writeFile(bundlePath, repository.bundleBytes, { flag: 'wx', mode: 0o600 })
+    await writeFile(bundlePath, repository.bundle.bytes, { flag: 'wx', mode: 0o600 })
     await runCandidateGit(destination, [
       'init',
       '--quiet',
@@ -528,11 +764,15 @@ function assertWorkspaceFilesWithinLimits(
   }
   let totalBytes = 0
   let previousPath: string | undefined
+  const observedPaths = new Set<string>()
   for (const file of files) {
     const path = safeArchivePath(file.path, limits.maxPathBytes)
-    if (previousPath !== undefined && previousPath >= path) {
-      throw new Error('candidate workspace paths must be unique and sorted')
-    }
+    assertWorkspacePathOrder(
+      path,
+      previousPath,
+      observedPaths,
+      'candidate workspace paths must be unique and sorted',
+    )
     previousPath = path
     if (file.mode !== 0o644 && file.mode !== 0o755) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
@@ -545,6 +785,56 @@ function assertWorkspaceFilesWithinLimits(
       throw new Error('candidate workspace exceeds maxTotalFileBytes')
     }
   }
+}
+
+function normalizeWorkspaceFiles(
+  input: readonly AgentCandidateExecutorWorkspaceFile[],
+  limits: AgentCandidateWorkspaceArchiveLimits,
+): AgentCandidateExecutorWorkspaceFile[] {
+  if (!Array.isArray(input)) {
+    throw new Error('candidate workspace files must be an array')
+  }
+  const fileCount = input.length
+  if (fileCount > limits.maxFiles) {
+    throw new Error('candidate workspace exceeds maxFiles')
+  }
+  let totalBytes = 0
+  const files: AgentCandidateExecutorWorkspaceFile[] = []
+  for (let index = 0; index < fileCount; index++) {
+    const inputFile = input[index]
+    if (!isRecord(inputFile) || Object.keys(inputFile).sort().join(',') !== 'bytes,mode,path') {
+      throw new Error(`candidate workspace file ${index} is invalid`)
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(inputFile)
+    if (
+      !('value' in (descriptors.path ?? {})) ||
+      !('value' in (descriptors.mode ?? {})) ||
+      !('value' in (descriptors.bytes ?? {}))
+    ) {
+      throw new Error(`candidate workspace file ${index} must use fixed values`)
+    }
+    const path = safeArchivePath(descriptors.path?.value, limits.maxPathBytes)
+    const mode = descriptors.mode?.value
+    const inputBytes = descriptors.bytes?.value
+    if (mode !== 0o644 && mode !== 0o755) {
+      throw new Error(`candidate workspace file has unsupported mode: ${path}`)
+    }
+    const view = inspectWorkspaceBytes(inputBytes, path)
+    if (view.byteLength > limits.maxFileBytes) {
+      throw new Error(`candidate workspace file exceeds maxFileBytes: ${path}`)
+    }
+    if (view.byteLength > limits.maxTotalFileBytes - totalBytes) {
+      throw new Error('candidate workspace exceeds maxTotalFileBytes')
+    }
+    if (view.byteLength > Math.max(0, limits.maxArchiveBytes - 1024)) {
+      throw new Error('candidate workspace archive exceeds maxArchiveBytes')
+    }
+    totalBytes += view.byteLength
+    files.push({ path, mode, bytes: detachWorkspaceBytes(view) })
+  }
+  files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+  assertWorkspaceFilesWithinLimits(files, limits)
+  return files
 }
 
 function workspaceLimits(
@@ -563,6 +853,7 @@ function safeArchivePath(value: unknown, maxPathBytes: number): string {
   if (
     typeof value !== 'string' ||
     !value ||
+    !isWellFormedUnicode(value) ||
     Buffer.byteLength(value, 'utf8') > maxPathBytes ||
     isAbsolute(value) ||
     win32.isAbsolute(value) ||
@@ -577,24 +868,73 @@ function safeArchivePath(value: unknown, maxPathBytes: number): string {
   return value
 }
 
+function assertWorkspacePathOrder(
+  path: string,
+  previousPath: string | undefined,
+  observedPaths: Set<string>,
+  errorMessage: string,
+): void {
+  if (previousPath !== undefined && previousPath >= path) throw new Error(errorMessage)
+  for (let slash = path.indexOf('/'); slash !== -1; slash = path.indexOf('/', slash + 1)) {
+    if (observedPaths.has(path.slice(0, slash))) throw new Error(errorMessage)
+  }
+  observedPaths.add(path)
+}
+
+function inspectWorkspaceBytes(
+  input: unknown,
+  path: string,
+): { buffer: ArrayBuffer; byteOffset: number; byteLength: number } {
+  let buffer: ArrayBufferLike
+  let byteOffset: number
+  let byteLength: number
+  try {
+    buffer = typedArrayBufferGetter.call(input as Uint8Array) as ArrayBufferLike
+    byteOffset = typedArrayByteOffsetGetter.call(input as Uint8Array) as number
+    byteLength = typedArrayByteLengthGetter.call(input as Uint8Array) as number
+  } catch {
+    throw new Error(`candidate workspace file bytes are invalid: ${path}`)
+  }
+  if (isSharedArrayBuffer(buffer)) {
+    throw new Error(`candidate workspace file uses shared bytes: ${path}`)
+  }
+  if (!isAnyArrayBuffer(buffer)) {
+    throw new Error(`candidate workspace file bytes are invalid: ${path}`)
+  }
+  return { buffer, byteOffset, byteLength }
+}
+
+function detachWorkspaceBytes(input: {
+  buffer: ArrayBuffer
+  byteOffset: number
+  byteLength: number
+}): Uint8Array {
+  const { buffer, byteOffset, byteLength } = input
+  const copy = new Uint8Array(byteLength)
+  Uint8Array.prototype.set.call(copy, new Uint8Array(buffer, byteOffset, byteLength))
+  return copy
+}
+
+function isWellFormedUnicode(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false
+      index++
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false
+    }
+  }
+  return true
+}
+
 function workspacePath(root: string, relativePath: string): string {
   const path = resolve(root, relativePath)
   if (!path.startsWith(`${root}${sep}`)) {
     throw new Error(`candidate workspace archive path escapes its destination: ${relativePath}`)
   }
   return path
-}
-
-function assertBase64CouldFit(content: string, maxBytes: number, label: string): void {
-  if (content.length > Math.ceil(maxBytes / 3) * 4 + 4) {
-    throw new Error(`${label} exceeds its encoded size limit`)
-  }
-}
-
-function decodeBase64(content: string, label: string): Uint8Array {
-  const bytes = Buffer.from(content, 'base64')
-  if (bytes.toString('base64') !== content) throw new Error(`${label} is not canonical base64`)
-  return Uint8Array.from(bytes)
 }
 
 function assertGitObjectId(value: string, label: string): void {
@@ -614,3 +954,16 @@ function hasControlCharacter(value: string): boolean {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+type TypedArrayGetter = (this: Uint8Array) => unknown
+
+function requireTypedArrayGetter(name: 'buffer' | 'byteOffset' | 'byteLength'): TypedArrayGetter {
+  const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object
+  const getter = Object.getOwnPropertyDescriptor(typedArrayPrototype, name)?.get
+  if (!getter) throw new Error(`typed array intrinsic ${name} accessor is unavailable`)
+  return getter
+}
+
+const typedArrayBufferGetter = requireTypedArrayGetter('buffer')
+const typedArrayByteOffsetGetter = requireTypedArrayGetter('byteOffset')
+const typedArrayByteLengthGetter = requireTypedArrayGetter('byteLength')

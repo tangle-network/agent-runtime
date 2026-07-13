@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 336 exports.
+Import from `@tangle-network/agent-runtime` — 337 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -31,6 +31,7 @@ Import from `@tangle-network/agent-runtime` — 336 exports.
 | `buildRuntimeEventOtelSpans` | function | Convert normalized runtime events into lossless, redacted child spans. |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
+| `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `cleanModelId` | function | Trim a candidate model id; `undefined` for non-strings and blanks. |
 | `commandVerifier` | function | A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other |
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
@@ -869,7 +870,7 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 94 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 95 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -877,6 +878,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 94 exports.
 | `buildAgentCandidateBundle` | function | Compile one measured profile/code candidate into the immutable execution |
 | `candidateExecutionClaim` | function | Extract the complete durable claim from a prepared execution. |
 | `captureAgentCandidateWorkspace` | function | Capture one exact regular-file workspace for immutable candidate execution. |
+| `captureAgentCandidateWorkspaceFiles` | function | Capture detached files returned by a remote executor into the standard archive. |
 | `createAgentCandidateWorkspacePort` | function | Create the standard bounded materializer for candidate execution ports. |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `disposePreparedAgentCandidateExecution` | function | Revoke reservations held by a prepared candidate that will not be executed. |

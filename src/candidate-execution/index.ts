@@ -114,5 +114,6 @@ export {
   type CapturedAgentCandidateWorkspace,
   type CreateAgentCandidateWorkspacePortOptions,
   captureAgentCandidateWorkspace,
+  captureAgentCandidateWorkspaceFiles,
   createAgentCandidateWorkspacePort,
 } from './workspace-archive'

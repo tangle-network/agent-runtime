@@ -108,6 +108,7 @@
     "@tangle-network/agent-interface": "^0.25.0",
     "@tangle-network/sandbox": "^0.9.7",
     "@types/node": "^25.9.3",
+    "@types/tar-stream": "3.1.4",
     "playwright": "^1.61.0",
     "tsup": "^8.0.0",
     "tsx": "^4.22.4",
@@ -149,6 +150,7 @@
   },
   "dependencies": {
     "@tangle-network/agent-knowledge": "^1.12.1",
-    "@tangle-network/agent-profile-materialize": "0.3.2"
+    "@tangle-network/agent-profile-materialize": "0.3.2",
+    "tar-stream": "3.2.0"
   }
 }

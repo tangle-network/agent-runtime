@@ -566,6 +566,12 @@ Re-exports [captureAgentCandidateWorkspace](index.md#captureagentcandidateworksp
 
 ***
 
+### captureAgentCandidateWorkspaceFiles
+
+Re-exports [captureAgentCandidateWorkspaceFiles](index.md#captureagentcandidateworkspacefiles)
+
+***
+
 ### createAgentCandidateWorkspacePort
 
 Re-exports [createAgentCandidateWorkspacePort](index.md#createagentcandidateworkspaceport)
