@@ -99,8 +99,18 @@ async function main(): Promise<void> {
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const model = process.env.WORKER_MODEL ?? 'google/gemini-2.5-flash-lite'
   const reflectModel = process.env.REFLECT_MODEL ?? model
-  const ids = (process.env.HOLDOUT_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-  if (ids.length === 0) throw new Error('HOLDOUT_IDS required (comma-separated Verified instance ids)')
+  // Train/holdout split — the leak fix. The autopsy reads (and the search
+  // optimizes on) the TRAIN failures ONLY; the composed profile is certified on a
+  // FROZEN holdout the autopsy never sees, so the reported lift is a genuine
+  // generalization number, not in-sample fitting. Both sets required, disjoint.
+  const parseIds = (s: string | undefined) => (s ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  const trainIds = parseIds(process.env.TRAIN_IDS)
+  const holdoutIds = parseIds(process.env.HOLDOUT_IDS)
+  if (trainIds.length === 0) throw new Error('TRAIN_IDS required (comma-separated Verified ids the autopsy learns from)')
+  if (holdoutIds.length === 0) throw new Error('HOLDOUT_IDS required (comma-separated Verified ids, DISJOINT from TRAIN, for frozen certification)')
+  const overlap = trainIds.filter((id) => holdoutIds.includes(id))
+  if (overlap.length) throw new Error(`TRAIN_IDS and HOLDOUT_IDS must be DISJOINT — overlap: ${overlap.join(', ')}`)
+  const ids = [...trainIds, ...holdoutIds]
   const rounds = Math.max(1, Number(process.env.ROUNDS ?? 3))
   const pop = Math.max(1, Number(process.env.POP ?? 3))
   const concurrency = Math.max(1, Number(process.env.EVAL_CONCURRENCY ?? 4))
@@ -117,14 +127,13 @@ async function main(): Promise<void> {
   const pool = await adapter.loadTasks({ ids, split: 'test' })
   const missing = ids.filter((id) => !pool.some((t) => t.id === id))
   if (missing.length) throw new Error(`find-lift-swe: not in Verified: ${missing.join(', ')}`)
+  const trainPool = pool.filter((t) => trainIds.includes(t.id))
+  const holdoutPool = pool.filter((t) => holdoutIds.includes(t.id))
 
   const seedPrompt = enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT
-  // One eval runner closed over the fixed exam — reused for the round's baseline
-  // scoring (step a) AND handed to runLifecycle as the with/without scorer (step c).
-  const evalRunner = sweEvalRunner({
+  const runnerCfg = {
     environment,
-    tasks: pool,
-    judge: (task, patch) => adapter.judge(task, patch),
+    judge: (task: (typeof pool)[number], patch: string) => adapter.judge(task, patch),
     seedPrompt,
     routerBaseUrl,
     routerKey,
@@ -133,16 +142,33 @@ async function main(): Promise<void> {
     innerTurns,
     budget,
     concurrency,
-  })
+  }
+  // TRAIN scorer — the search runs here (baseline autopsy + candidate ablation).
+  const trainEval = sweEvalRunner({ ...runnerCfg, tasks: trainPool })
+  // HOLDOUT scorer — the FROZEN exam. Only ever scores the composed profile +
+  // the original baseline; the autopsy never reads these rows, so the lift is real.
+  const holdoutEval = sweEvalRunner({ ...runnerCfg, tasks: holdoutPool })
 
   let currentProfile: AgentProfile = { name: 'swe-find-lift', prompt: { systemPrompt: seedPrompt } }
   const trajectory: TrajectoryRow[] = []
   let prevFindingSignature: string | undefined
   const t0 = Date.now()
 
+  // Frozen-holdout baseline — scored ONCE on the bare profile. Every round's real
+  // lift is (composed profile on holdout) − (this), on tasks the autopsy never saw.
+  const holdoutBaseline = await holdoutEval(currentProfile)
+  {
+    const r = (holdoutBaseline.details as Partial<SweEvalDetails> | undefined)?.rows ?? []
+    const dead = r.filter((x) => x.tokens.input === 0 && x.tokens.output === 0).length
+    if (r.length >= 4 && dead / r.length > 0.5) {
+      throw new Error(`dead-worker guard (holdout baseline): ${dead}/${r.length} rollouts 0-token — worker '${model}' down; re-run when recovered`)
+    }
+  }
+  console.error(`[find-lift-swe] frozen holdout baseline = ${(holdoutBaseline.composite * 100).toFixed(1)}% on ${holdoutPool.length} disjoint tasks`)
+
   for (let round = 1; round <= rounds; round++) {
-    // (a) RUN — score the current profile; keep the rows for the autopsy.
-    const baselineResult = await evalRunner(currentProfile)
+    // (a) RUN — score the current profile on TRAIN; keep the rows for the autopsy.
+    const baselineResult = await trainEval(currentProfile)
     const details = (baselineResult.details ?? {}) as Partial<SweEvalDetails>
     const rows = details.rows ?? []
     const composite = baselineResult.composite
@@ -195,7 +221,7 @@ async function main(): Promise<void> {
           diverseSeedCount: pop,
         }),
       ],
-      evalRunner,
+      evalRunner: trainEval,
       gate: thresholdPromotionGate(0),
       generation: round - 1,
     })
@@ -203,6 +229,11 @@ async function main(): Promise<void> {
     // (d) COMPOSE — fold this round's promoted winners onto the current profile.
     currentProfile = composeProfile(out.registry, currentProfile, { kind: 'prompt' })
     const composedInstructions = currentProfile.prompt?.instructions ?? []
+
+    // (e) CERTIFY on the FROZEN holdout — the real generalization number. The
+    // autopsy never read these tasks, so this lift is not in-sample fitting.
+    const holdoutComposed = await holdoutEval(currentProfile)
+    const holdoutLift = holdoutComposed.composite - holdoutBaseline.composite
 
     const bestOutcome = out.outcomes.reduce<(typeof out.outcomes)[number] | undefined>(
       (best, o) => (best === undefined || o.scoreDelta > best.scoreDelta ? o : best),
@@ -212,13 +243,17 @@ async function main(): Promise<void> {
       .filter((o) => o.promoted)
       .reduce((mx, o) => Math.max(mx, o.scoreDelta), 0)
 
-    // (e) PERSIST — the round's decision trail, judge-grounded.
+    // (f) PERSIST — the round's decision trail, judge-grounded.
     const roundReport = {
       round,
       worker: model,
       analyst: reflectModel,
-      holdout: ids,
-      composite,
+      trainIds,
+      holdoutIds,
+      trainComposite: composite,
+      holdoutBaselineComposite: holdoutBaseline.composite,
+      holdoutComposedComposite: holdoutComposed.composite,
+      holdoutLift,
       baselineCostUsd: baselineResult.costUsd,
       findings: findings.map((f) => ({
         area: f.area,
@@ -243,19 +278,17 @@ async function main(): Promise<void> {
     }
     writeFileSync(join(runDir, `round-${round}.json`), `${JSON.stringify(roundReport, null, 2)}\n`)
 
-    const bestPp = bestOutcome ? (bestOutcome.scoreDelta * 100).toFixed(1) : 'n/a'
-    const bestSign = bestOutcome && bestOutcome.scoreDelta >= 0 ? '+' : ''
-    const promotedTag = bestOutcome ? (bestOutcome.promoted ? 'promoted' : 'not promoted') : 'no candidates'
+    const hbSign = holdoutLift >= 0 ? '+' : ''
     console.log(
-      `round ${round}: baseline=${(composite * 100).toFixed(1)}% -> ` +
-        `best candidate ${bestSign}${bestPp}pp (${promotedTag}) -> ` +
-        `composed instructions=${composedInstructions.length}`,
+      `round ${round}: train=${(composite * 100).toFixed(1)}% search-best=${(bestPromotedLift * 100).toFixed(1)}pp ` +
+        `(${out.promoted.length} promoted) -> HOLDOUT ${(holdoutBaseline.composite * 100).toFixed(1)}%→${(holdoutComposed.composite * 100).toFixed(1)}% ` +
+        `= ${hbSign}${(holdoutLift * 100).toFixed(1)}pp (real, frozen) [instructions=${composedInstructions.length}]`,
     )
 
     trajectory.push({
       round,
       composite,
-      lift: bestPromotedLift,
+      lift: holdoutLift,
       promoted: out.promoted.length,
       instructions: composedInstructions.length,
     })
@@ -278,8 +311,8 @@ async function main(): Promise<void> {
 /** The final research trajectory: round → composite → realized lift → promoted. */
 function printTrajectory(rows: readonly TrajectoryRow[]): void {
   console.log('')
-  console.log('trajectory:')
-  console.log('  round  composite  lift(pp)  promoted  instructions')
+  console.log('trajectory (lift = REAL frozen-holdout lift vs bare baseline):')
+  console.log('  round  train%   holdoutLift(pp)  promoted  instructions')
   for (const r of rows) {
     console.log(
       `  ${String(r.round).padStart(5)}  ${(r.composite * 100).toFixed(1).padStart(8)}%  ` +
