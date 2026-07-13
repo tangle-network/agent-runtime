@@ -6011,7 +6011,7 @@ Full `selfImprove` result for advanced inspection.
 
 ### CandidateGenerator
 
-Defined in: [improvement/improvement-driver.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L37)
+Defined in: [improvement/improvement-driver.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L39)
 
 The byte-producing seam — the ONE thing that differs between the cheap
  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -6024,13 +6024,13 @@ The byte-producing seam — the ONE thing that differs between the cheap
 
 > **kind**: `string`
 
-Defined in: [improvement/improvement-driver.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L38)
+Defined in: [improvement/improvement-driver.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L40)
 
 ##### proposesWithoutFindings?
 
 > `optional` **proposesWithoutFindings?**: `boolean`
 
-Defined in: [improvement/improvement-driver.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L49)
+Defined in: [improvement/improvement-driver.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L51)
 
 Whether this generator can produce a candidate from an EMPTY findings set
  and no phase-2 report — i.e. it draws its change signal from the repo and
@@ -6049,7 +6049,7 @@ Whether this generator can produce a candidate from an EMPTY findings set
 
 > **generate**(`args`): `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; \}\>
 
-Defined in: [improvement/improvement-driver.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L50)
+Defined in: [improvement/improvement-driver.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L52)
 
 ###### Parameters
 
@@ -6059,7 +6059,7 @@ Defined in: [improvement/improvement-driver.ts:50](https://github.com/tangle-net
 
 `string`
 
-The candidate worktree — a fresh checkout of baseRef. Write changes here.
+The candidate worktree — a clean checkout of the current incumbent.
 
 ###### report
 
@@ -6098,7 +6098,7 @@ DEPTH: max iterations the generator may take (agentic uses this; the
 
 ### ImprovementDriverOptions
 
-Defined in: [improvement/improvement-driver.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L66)
+Defined in: [improvement/improvement-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L68)
 
 #### Properties
 
@@ -6106,27 +6106,28 @@ Defined in: [improvement/improvement-driver.ts:66](https://github.com/tangle-net
 
 > **worktree**: `WorktreeAdapter`
 
-Defined in: [improvement/improvement-driver.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L67)
+Defined in: [improvement/improvement-driver.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L69)
 
 ##### generator
 
 > **generator**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improvement-driver.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L68)
+Defined in: [improvement/improvement-driver.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L70)
 
 ##### baseRef?
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improvement-driver.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L70)
+Defined in: [improvement/improvement-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L73)
 
-Base ref candidate worktrees fork from. Default `main`.
+Root ref for first-generation/direct callers. Default `main`.
+ Later code generations retain the incumbent's original root.
 
 ***
 
 ### ManagedImprovementDriver
 
-Defined in: [improvement/improvement-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L73)
+Defined in: [improvement/improvement-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L76)
 
 #### Extends
 
@@ -6138,7 +6139,7 @@ Defined in: [improvement/improvement-driver.ts:73](https://github.com/tangle-net
 
 > **cleanup**(`retainWorktreeRefs?`): `Promise`\<`void`\>
 
-Defined in: [improvement/improvement-driver.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L75)
+Defined in: [improvement/improvement-driver.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L78)
 
 Remove every finalized candidate except explicitly retained winners.
 
@@ -12989,7 +12990,7 @@ Optimize the system prompt, default holdout gate:
 
 > **improvementDriver**(`opts`): [`ManagedImprovementDriver`](#managedimprovementdriver)
 
-Defined in: [improvement/improvement-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L79)
+Defined in: [improvement/improvement-driver.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L82)
 
 The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`.
 

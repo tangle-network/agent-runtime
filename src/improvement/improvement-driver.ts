@@ -20,14 +20,16 @@
  * @experimental
  */
 
+import { spawnSync } from 'node:child_process'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
-import type {
-  CodeSurface,
-  LabeledScenarioStore,
-  ProposeContext,
-  SurfaceProposer,
-  Worktree,
-  WorktreeAdapter,
+import {
+  type CodeSurface,
+  type LabeledScenarioStore,
+  type ProposeContext,
+  type SurfaceProposer,
+  verifyCodeSurface,
+  type Worktree,
+  type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 
 /** The byte-producing seam — the ONE thing that differs between the cheap
@@ -48,7 +50,7 @@ export interface CandidateGenerator {
    *  for a guaranteed no-op. Default `false`. */
   proposesWithoutFindings?: boolean
   generate(args: {
-    /** The candidate worktree — a fresh checkout of baseRef. Write changes here. */
+    /** The candidate worktree — a clean checkout of the current incumbent. */
     worktreePath: string
     /** Phase-2 research report (analyst findings + diff), opaque. */
     report: unknown
@@ -66,7 +68,8 @@ export interface CandidateGenerator {
 export interface ImprovementDriverOptions {
   worktree: WorktreeAdapter
   generator: CandidateGenerator
-  /** Base ref candidate worktrees fork from. Default `main`. */
+  /** Root ref for first-generation/direct callers. Default `main`.
+   *  Later code generations retain the incumbent's original root. */
   baseRef?: string
 }
 
@@ -100,16 +103,19 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
       }
 
       const surfaces: CodeSurface[] = []
+      const incumbent = verifiedCodeIncumbent(ctx.currentSurface)
+      const proposalBaseRef = incumbent?.baseCommit ?? baseRef
       for (let i = 0; i < ctx.populationSize; i++) {
         if (ctx.signal.aborted) break
         const wt = await opts.worktree.create({
-          baseRef,
+          baseRef: proposalBaseRef,
           label: `${opts.generator.kind}-gen${ctx.generation}-cand${i}`,
         })
         // Once a worktree exists it MUST be accounted for: finalized into a
         // surface, or discarded. A throw from generate()/finalize() must not
         // leak the worktree + branch — discard best-effort, then rethrow loud.
         try {
+          if (incumbent) advanceToIncumbent(wt, incumbent)
           const { applied, summary } = await opts.generator.generate({
             worktreePath: wt.path,
             report: ctx.report,
@@ -149,6 +155,47 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
         throw new AggregateError(errors, 'improvementDriver: failed to discard candidate worktrees')
       }
     },
+  }
+}
+
+/** A code incumbent must still match the immutable identity that was measured. */
+function verifiedCodeIncumbent(surface: ProposeContext['currentSurface']): CodeSurface | undefined {
+  if (typeof surface !== 'object' || surface.kind !== 'code') return undefined
+  verifyCodeSurface(surface)
+  return surface
+}
+
+/** Start at the root commit recorded by the incumbent, then fast-forward the
+ *  fresh branch to the incumbent commit. The worktree stays clean for the
+ *  generator while `finalize()` still emits one cumulative root-to-candidate
+ *  patch that can be applied or rolled back independently of prior branches. */
+function advanceToIncumbent(worktree: Worktree, incumbent: CodeSurface): void {
+  if (worktree.baseCommit !== incumbent.baseCommit || worktree.baseTree !== incumbent.baseTree) {
+    throw new Error('improvementDriver: candidate worktree does not match incumbent base identity')
+  }
+  if (worktree.baseCommit === incumbent.candidateCommit) return
+
+  const merge = spawnSync('git', ['merge', '--ff-only', incumbent.candidateCommit], {
+    cwd: worktree.path,
+    encoding: 'utf8',
+  })
+  if (merge.error) {
+    throw new Error(
+      `improvementDriver: failed to start candidate from incumbent: ${merge.error.message}`,
+    )
+  }
+  if (merge.status !== 0) {
+    throw new Error(
+      `improvementDriver: could not fast-forward candidate to incumbent ${incumbent.candidateCommit}: ${merge.stderr.trim()}`,
+    )
+  }
+
+  const head = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: worktree.path,
+    encoding: 'utf8',
+  })
+  if (head.error || head.status !== 0 || head.stdout.trim() !== incumbent.candidateCommit) {
+    throw new Error('improvementDriver: candidate worktree did not reach the incumbent commit')
   }
 }
 
