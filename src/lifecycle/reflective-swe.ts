@@ -154,7 +154,21 @@ export async function autopsySweFailures(
   const llm = resolveLlm(opts)
   const model = opts.reflectModel ?? opts.model ?? defaultReflectModel
 
-  const classificationById = await classifyFailures(failing, model, llm, opts.systemPrompt)
+  // The LLM classifier is ENRICHMENT, not a hard dependency: a router blip
+  // (502/503) mid-run must not throw away a whole scored round. On failure, fall
+  // back to an empty classification — every row then resolves to its
+  // deterministic mechanism via `normalizeMechanism`/`defaultEvidence` (empty
+  // diffs are detected without the model), so the autopsy still ranks failures.
+  let classificationById: Map<string, FailureClassificationWire>
+  try {
+    classificationById = await classifyFailures(failing, model, llm, opts.systemPrompt)
+  } catch (err) {
+    console.error(
+      `[autopsy] LLM classification failed (${err instanceof Error ? err.message.slice(0, 120) : String(err)}); ` +
+        'falling back to deterministic per-row mechanisms',
+    )
+    classificationById = new Map()
+  }
 
   // Fold each failure into its mechanism bucket, defaulting to `other` when the
   // analyst omitted or returned an unrecognized label.
