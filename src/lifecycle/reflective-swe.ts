@@ -241,7 +241,13 @@ async function classifyFailures(
     ? `The agent was driven with this system prompt:\n${systemPrompt.trim()}\n\n`
     : ''
   const taskBlocks = failing.map((row) => renderFailureBlock(row)).join('\n\n')
-  const user = `${specBlock}Failed tasks:\n\n${taskBlocks}\n\nClassify every task above.`
+  const user = [
+    `${specBlock}Failed tasks:\n\n${taskBlocks}\n\nClassify every task above.`,
+    // json_object mode (the router 502s on json_schema for slow/large calls);
+    // the exact shape is pinned here and validated on parse.
+    'Return JSON ONLY, no markdown fences, exactly this shape:',
+    `{"classifications":[{"instanceId":"<id>","mechanism":"<one of: ${FAILURE_MECHANISMS.join('|')}>","evidence":"<one-line quote>"}]}`,
+  ].join('\n')
 
   const { value } = await callLlmJson<{ classifications?: FailureClassificationWire[] }>(
     {
@@ -251,27 +257,8 @@ async function classifyFailures(
         { role: 'user', content: user },
       ],
       temperature: 0,
-      jsonSchema: {
-        name: 'swe_failure_classifications',
-        schema: {
-          type: 'object',
-          properties: {
-            classifications: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  instanceId: { type: 'string' },
-                  mechanism: { type: 'string', enum: [...FAILURE_MECHANISMS] },
-                  evidence: { type: 'string' },
-                },
-                required: ['instanceId', 'mechanism'],
-              },
-            },
-          },
-          required: ['classifications'],
-        },
-      },
+      // json_object, not json_schema — see authorFromFindings for why.
+      jsonMode: true,
     },
     llm,
   )
@@ -451,6 +438,10 @@ async function authorFromFindings(
     findingBlock || '(no findings captured — infer likely SWE failure modes for this domain)',
     '',
     `Author exactly ${count} candidate instruction line(s).`,
+    // json_object mode (not schema-enforced — the router 502s on json_schema for
+    // slow/large calls), so the exact shape is stated here and validated on parse.
+    'Return JSON ONLY, no markdown fences, exactly this shape:',
+    '{"candidates":[{"instruction":"<the standing instruction>","targetsMechanism":"<mechanism>","hypothesis":"<why it lifts>","predictedMechanism":"<what it interrupts>","framing":"<framing>"}]}',
   ].join('\n')
 
   // The author needs the model (a targeted prompt can't be written deterministically),
@@ -470,29 +461,11 @@ async function authorFromFindings(
             { role: 'user', content: user },
           ],
           temperature: call.temperature,
-          jsonSchema: {
-            name: 'reflective_swe_candidates',
-            schema: {
-              type: 'object',
-              properties: {
-                candidates: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      instruction: { type: 'string' },
-                      targetsMechanism: { type: 'string' },
-                      hypothesis: { type: 'string' },
-                      predictedMechanism: { type: 'string' },
-                      framing: { type: 'string' },
-                    },
-                    required: ['instruction', 'targetsMechanism'],
-                  },
-                },
-              },
-              required: ['candidates'],
-            },
-          },
+          // json_object, not json_schema: the router 502s on schema-enforced
+          // structured output for slow/large reflection calls (glm gateway
+          // timeout, haiku unsupported). The shape is pinned in the prompt and
+          // validated below.
+          jsonMode: true,
         },
         call.llm,
       )
