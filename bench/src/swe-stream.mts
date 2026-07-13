@@ -46,7 +46,9 @@
  *     'cd ~/code/agent-runtime-swe && REPRO_MANIFEST=/path/manifest.json \
  *      STREAM_DIR=~/.swe-stream/day1 bench/node_modules/.bin/tsx bench/src/swe-stream.mts'
  *
- * Env: ZAI_API_KEY (required), ZAI_BASE, MODEL=glm-5.2, MAX_TOKENS=12000, K=4, REPAIRS=2,
+ * Env: ZAI_API_KEY (required), ZAI_BASE, WORKER_MODEL=glm-4.5-air (both arms, all solve+repair
+ *      calls), REASONING_EFFORT=enabled (SYMMETRIC thinking budget on the worker; 'off' disables),
+ *      MAX_TOKENS=12000, K=4, REPAIRS=2,
  *      TEMP=0.8, INNER_TURNS=40, TURN_CAP=12, DEADLINE_MS=1800000, JUDGE_TIMEOUT_MS=2400000,
  *      CONC=2 (hard max 2 — zai discipline), REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000,
  *      SEED=0x5eed, IDS=comma-list (default: the 23-instance Stage-0 fingerprint set),
@@ -90,9 +92,21 @@ process.env.SWEBENCH_CACHE_LEVEL ??= 'instance'
 const ZAI_BASE = process.env.ZAI_BASE ?? 'https://api.z.ai/api/coding/paas/v4'
 const ZAI_KEY = process.env.ZAI_API_KEY ?? ''
 if (!ZAI_KEY) throw new Error('ZAI_API_KEY required (run under dotenvx: agent-state.env)')
-const MODEL = process.env.MODEL ?? 'glm-5.2'
-// glm-5.2 is a reasoning model: hidden reasoning consumes max_tokens, so <8000 starves content.
+// WORKER runs every solve+repair call in BOTH arms — glm-4.5-air: cheap, with SWE headroom.
+// SUPERVISOR (Step 2) runs arm L's repair-advice call ONLY — a STRONGER model (glm-5.2). The
+// strength GAP over the worker is what recreates the arm-C win; a same-model pair is the arm-B null.
+// MODEL kept as a back-compat alias defaulting to the worker (older invocations set MODEL=…).
+const WORKER_MODEL = process.env.WORKER_MODEL ?? process.env.MODEL ?? 'glm-4.5-air'
+// Both glm-4.5-air and glm-5.2 are reasoning models: hidden reasoning consumes max_tokens, so a
+// small budget starves `content`. 12000 leaves ample headroom (probe: worker+thinking = 1905 out).
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
+// Reasoning budget — SYMMETRIC across F and L (injected at the shared worker chokepoint, so both
+// arms send byte-identical bodies). The zai coding endpoint HONORS `thinking:{type:'enabled'}`
+// (probe 2026-07-12: glm-4.5-air reasoning 831→1820 tok, +119%) and SILENTLY IGNORES
+// `reasoning_effort` (200 but zero lift), so this env toggles the thinking shape, not a level.
+const REASONING_EFFORT = (process.env.REASONING_EFFORT ?? 'enabled').toLowerCase()
+const REASONING_ON = ['enabled', 'on', 'thinking', 'true', '1', 'high', 'medium'].includes(REASONING_EFFORT)
+const WORKER_REASONING: Record<string, unknown> = REASONING_ON ? { thinking: { type: 'enabled' } } : {}
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
 // NOT `TEMP`: Node's os.tmpdir() honors the TEMP env var as the temp DIRECTORY, so setting
@@ -240,9 +254,11 @@ const makeTransport =
     }
     const msgs = (body.messages ?? []) as Array<{ role?: string; content?: unknown }>
     counter.guardedMsgs += assertNoHiddenLeak(marks, msgs)
+    // Inject the honored reasoning-budget knob (thinking) here at the single shared worker
+    // chokepoint: makeTransport is byte-identical across arms F and L, so the budget is symmetric.
     const { json, attempts } = await zaiChatRaw(
       { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt: guard.deadlineAt },
-      body,
+      { ...body, ...WORKER_REASONING },
     )
     counter.calls += 1
     counter.httpAttempts += attempts
@@ -323,7 +339,7 @@ async function emitAttempt(
       strategy: refine,
       routerBaseUrl: 'zai-direct', // unused: the `complete` transport short-circuits the router
       routerKey: 'zai-direct',
-      model: MODEL,
+      model: WORKER_MODEL,
       maxTokens: MAX_TOKENS,
       temperature: cfg.temperature,
       innerTurns: INNER_TURNS,
@@ -439,6 +455,8 @@ interface Row {
   innerTurns: number
   turnCap: number
   deadlineMs: number
+  maxTokens: number
+  reasoningEffort: string
   k: number
   issueTitle: string
   // canary + repro provenance (shared per instance, recorded on both arms)
@@ -491,9 +509,10 @@ function newRow(streamIndex: number, arm: 'F' | 'L', bt: BenchTask): Row {
   const md = bt.metadata as Record<string, string>
   const issueTitle = String(md.problem_statement ?? '').split('\n').map((l) => l.trim()).find(Boolean) ?? ''
   return {
-    streamIndex, arm, profileVersion: PROFILE_VERSION, instanceId: bt.id, repo: md.repo, model: MODEL,
+    streamIndex, arm, profileVersion: PROFILE_VERSION, instanceId: bt.id, repo: md.repo, model: WORKER_MODEL,
     image: null, imagePulled: false, imagePullMs: 0, execMode: 'image', temperature: TEMP,
-    innerTurns: INNER_TURNS, turnCap: TURN_CAP, deadlineMs: DEADLINE_MS, k: K,
+    innerTurns: INNER_TURNS, turnCap: TURN_CAP, deadlineMs: DEADLINE_MS,
+    maxTokens: MAX_TOKENS, reasoningEffort: REASONING_EFFORT, k: K,
     issueTitle: issueTitle.slice(0, 200),
     canaryExit: null, canaryPass: null, reproSource: 'none', reproStatus: 'none', reproScript: null,
     reproPreExit: null, reproGoldExit: null, reproAuthorCalls: 0, reproAuthorTokensIn: 0,
@@ -583,7 +602,7 @@ async function acquireRepro(
       assertNoHiddenLeak(marks, messages)
       const { json } = await zaiChatRaw(
         { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
-        { model: MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages },
+        { model: WORKER_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages, ...WORKER_REASONING },
       )
       const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
       out.authorCalls += 1
@@ -1137,7 +1156,8 @@ async function main(): Promise<void> {
 
   console.log('═══ SWE-bench STREAM — day 1 (two-arm, F=frozen-v0 vs L=learning) ═══')
   console.log(
-    `model=${MODEL} base=${ZAI_BASE} maxTokens=${MAX_TOKENS} k=${K} temp=${TEMP} repairs<=${REPAIRS} ` +
+    `worker=${WORKER_MODEL} reasoning=${REASONING_ON ? 'thinking' : 'off'} base=${ZAI_BASE} ` +
+      `maxTokens=${MAX_TOKENS} k=${K} temp=${TEMP} repairs<=${REPAIRS} ` +
       `innerTurns=${INNER_TURNS} TURN_CAP=${TURN_CAP} DEADLINE_MS=${DEADLINE_MS} conc=${CONC} seed=0x${SEED.toString(16)} ` +
       `judge=serialized(cache_level=${process.env.SWEBENCH_CACHE_LEVEL}) profile=${PROFILE_VERSION}`,
   )
@@ -1196,7 +1216,8 @@ async function main(): Promise<void> {
   if (prior.length === 0) {
     logEvent('stream-start', {
       seed: SEED, plan, deadlineMs: DEADLINE_MS, turnCap: TURN_CAP, k: K, repairs: REPAIRS,
-      temp: TEMP, model: MODEL, profileVersion: PROFILE_VERSION, keepImages: [...state.keepImages],
+      temp: TEMP, workerModel: WORKER_MODEL, reasoningEffort: REASONING_EFFORT,
+      profileVersion: PROFILE_VERSION, keepImages: [...state.keepImages],
     })
   } else {
     logEvent('stream-resume', { done: doneIds.size, planned: plan.length })
