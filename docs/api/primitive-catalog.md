@@ -698,12 +698,14 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 
 ### Artifact lifecycle — generate → measure → promote → compose
 
-Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
+Import from `@tangle-network/agent-runtime/lifecycle` — 94 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `applyArtifact` | function | Return a new profile with `artifact` merged onto `base`. Keyed kinds |
 | `applyArtifacts` | function | Apply many artifacts left-to-right; later artifacts win on key conflicts. |
+| `authorDiverseSweSeeds` | function | DIVERSE SEEDS — a `promptGenerator` `authorDiverseSeeds(ctx, count)` seam. Same |
+| `autopsySweFailures` | function | AUTOPSY — classify the FAILING rows into ranked mechanism findings. |
 | `buildableGenerator` | function | Build a `CandidateGenerator` for a buildable surface (`tool` / `mcp`). Each |
 | `composeProfile` | function | Return a new profile with the top-`k` active artifacts (highest measured lift |
 | `connectionArtifact` | function | Build a `connection` `ArtifactInput` from a grant — the one-step adapter for |
@@ -723,6 +725,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
 | `productionPromptGenerator` | function | Production `promptGenerator`: refine via `gepaProposer`, seed via a |
 | `promptGenerator` | function | Build a `CandidateGenerator` for the prompt surface. Each generation it pools |
 | `readMemoryItemsFile` | function | Read a memory store file: a JSON array, or JSONL (one `MemoryItem` per line). |
+| `reflectiveSweRefine` | function | REFLECTIVE REFINE — a `promptGenerator` `refine(ctx)` seam. Reads the autopsy |
 | `routerSeedAuthor` | function | A router-backed `AuthorDiverseSeeds`: one structured LLM call that authors |
 | `runLifecycle` | function | Run ONE generation of the artifact lifecycle. |
 | `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
@@ -734,6 +737,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
 | `writeMemoryStore` | function | Write a durable JSONL memory store (one `MemoryItem` per line). |
 | `CURATED_MEMORY_BLOCK_END` | const | The closing delimiter of the proposer's curated block (see |
 | `CURATED_MEMORY_BLOCK_START` | const | The opening delimiter agent-eval's `memoryCurationProposer` writes its |
+| `FAILURE_MECHANISMS` | const | The concrete failure mechanisms the analyst classifies a lost task into. A |
 | `lifecycleReasonKey` | const | The metadata key under which the registry records WHY an artifact left the |
 | `liftMetadataKey` | const | The metadata key under which the registry stores an artifact's measured held- |
 | `profileMemoryMetadataKey` | const | The `profile.metadata` key the typed memory spec rides under (the local |
@@ -763,6 +767,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
 | `SkillDraft` | interface | A distilled skill draft: a name + the `SKILL.md` body. |
 | `SweEvalTask` | interface | The minimal shape of a held-out SWE instance the runner needs. The bench |
 | `SweEvalTaskResult` | interface | Per-instance audit row surfaced through `EvalResult.details`. |
+| `SweFailureRow` | interface | One failing (or passing) instance row the autopsy reads. Structurally a |
 | `WorktreeBuildOptions` | interface | `worktreeBuildCandidate` — the PRODUCTION `BuildCandidate`: one fan-out leaf |
 | `ArtifactInput` | type | The input to `register` — everything on `ProfileArtifact` except the |
 | `ArtifactKind` | type | The profile levers an artifact can target. One-to-one with the §1.5 profile |
@@ -775,7 +780,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
 | `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
 | `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `ConnectionArtifactOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AutopsyOptions`, `BuildableGeneratorOptions`, `ConnectionArtifactOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `ReflectiveSweOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`, `FailureMechanism`.
 
 ### Knowledge orchestration — supervised KB updates
 

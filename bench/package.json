@@ -16,7 +16,8 @@
     "run-benchmarks": "tsx src/run-benchmarks-cli.mts",
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "terminal-compare": "tsx src/terminal-compare.ts",
-    "self-improve": "tsx src/self-improve-swe.mts"
+    "self-improve": "tsx src/self-improve-swe.mts",
+    "find-lift": "tsx src/find-lift-swe.mts"
   },
   "dependencies": {
     "@tangle-network/agent-eval": "^0.106.3",

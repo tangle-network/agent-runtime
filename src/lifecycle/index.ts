@@ -99,6 +99,16 @@ export {
   routerSeedAuthor,
 } from './prompt-generator'
 export {
+  type AutopsyOptions,
+  authorDiverseSweSeeds,
+  autopsySweFailures,
+  FAILURE_MECHANISMS,
+  type FailureMechanism,
+  type ReflectiveSweOptions,
+  reflectiveSweRefine,
+  type SweFailureRow,
+} from './reflective-swe'
+export {
   type ArtifactQuery,
   ArtifactRegistry,
   createArtifactRegistry,
