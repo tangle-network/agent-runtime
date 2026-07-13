@@ -73,10 +73,3 @@ export {
   type PierDockerConnection,
 } from './pier-trial-controller'
 export { createPierResultGrader } from './pier-result-grader'
-export {
-  createPierWorkspaceArchive,
-  materializePierWorkspaceArchive,
-  type PierWorkspaceArchiveFile,
-  type PierWorkspaceArchiveV1,
-  type PierWorkspaceFile,
-} from './pier-workspace-archive'
