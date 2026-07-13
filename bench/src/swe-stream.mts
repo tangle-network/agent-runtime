@@ -899,10 +899,14 @@ async function runArm(
       // re-anchoring is exactly where a stronger reviewer helps). Both are objective, non-credulous
       // signals. Held: severity 0 (already passing), 2 (repro timeout — ambiguous), 4 (empty diff —
       // nothing to advise on).
-      const failureKind = best.score.severity === 3 ? ('apply-failed' as const) : ('wrong-fix' as const)
-      const gateOk = best.score.severity === 1 || best.score.severity === 3
+      const failureKind =
+        best.score.severity === 3 ? ('apply-failed' as const) : best.score.severity === 4 ? ('empty-diff' as const) : ('wrong-fix' as const)
+      // Fire on every OBJECTIVE, execution-verified failure a plan can act on: 1=applied-but-wrong,
+      // 3=apply-failed (stale diff), 4=empty-diff (worker produced nothing — the case a plan helps
+      // MOST). Hold only 0 (already passing) and 2 (repro-timeout — ambiguous, not a clean signal).
+      const gateOk = best.score.severity === 1 || best.score.severity === 3 || best.score.severity === 4
       if (!gateOk) {
-        const reason = best.score.severity === 4 ? 'empty-diff' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
+        const reason = best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
         row.supervisorPlan = heldSupervisorReceipt(reason)
         logEvent('supervisor-held', { streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm, reason })
       } else {
