@@ -44,6 +44,12 @@ export interface RunLifecycleOptions {
   /** Scores a profile on the HELD-BACK split. Run by `measureMarginalLift` —
    *  once for the shared baseline, once per candidate. */
   evalRunner: EvalRunner
+  /** A precomputed baseline eval, to SKIP the shared-baseline arm. When a caller
+   *  already scored `baseline` (e.g. a round driver that reads the baseline's
+   *  failures for its autopsy before calling `runLifecycle`), pass it here so the
+   *  identical profile is not re-scored — a full arm of compute (and cost) saved
+   *  per call. Must be the eval of THIS `baseline` under THIS `evalRunner`. */
+  baselineResult?: EvalResult
   /** The promotion gate (the held-back exam). Default-free on purpose: the
    *  caller chooses the policy (`thresholdPromotionGate` / `heldOutPromotionGate`). */
   gate: PromotionGate
@@ -136,8 +142,11 @@ export async function runLifecycle(opts: RunLifecycleOptions): Promise<RunLifecy
     }
   }
 
-  // 2. MEASURE — share the baseline arm across all candidates (run it once).
-  const baselineResult = await opts.evalRunner(opts.baseline, opts.signal)
+  // 2. MEASURE — share the baseline arm across all candidates. Reuse a caller-
+  // supplied baseline eval when present (a round driver that already scored this
+  // exact profile for its autopsy), else run it once. Skipping the redundant
+  // re-score saves a full arm of compute per call.
+  const baselineResult = opts.baselineResult ?? (await opts.evalRunner(opts.baseline, opts.signal))
 
   const outcomes: CandidateOutcome[] = []
   const promoted: string[] = []

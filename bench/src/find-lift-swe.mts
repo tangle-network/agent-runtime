@@ -23,12 +23,10 @@
  *                 `composeProfile` → the profile the NEXT round starts from, so the
  *                 instruction stack accretes only measured wins.
  *
- * The two baseline scorings per round are intentional, not a bug: the findings
- * that steer round N's evolution have to be read off round N's failures BEFORE
- * `runLifecycle` runs, and `runLifecycle` re-scores its own baseline arm to make
- * the with/without ablation self-contained. Step (a)'s composite is the round's
- * reported baseline; `runLifecycle`'s internal baseline arm is the "without" arm
- * of the lift measurement.
+ * The baseline is scored ONCE per round: step (a) scores it to read the failures
+ * the autopsy steers from, then that same eval is passed to `runLifecycle` as its
+ * `baselineResult` (the shared "without" arm of the with/without ablation), so the
+ * identical profile is never re-scored — a full arm of compute saved every round.
  *
  * CONVERGENCE: stop early once a round promotes nothing AND the ranked findings are
  * byte-identical to the prior round's (the loop has nothing new to learn or try);
@@ -174,8 +172,11 @@ async function main(): Promise<void> {
     const findingSignature = findings.map((f) => f.claim).join('|')
 
     // (c) EVOLVE + PURSUE — measure a finding-authored population on the judge.
+    // Reuse step (a)'s baseline eval as the shared "without" arm — the profile is
+    // identical, so re-scoring it here would burn a full arm of compute for nothing.
     const out = await runLifecycle({
       baseline: currentProfile,
+      baselineResult,
       domain: 'swe',
       findings,
       generators: [
