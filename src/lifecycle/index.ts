@@ -34,6 +34,13 @@
 export { applyArtifact, applyArtifacts } from './apply'
 export { type ComposeProfileOptions, composeProfile } from './compose'
 export {
+  type ConnectionArtifactOptions,
+  connectionArtifact,
+  connectionMcpServer,
+  type ExternalMcpGrant,
+  validateExternalMcpGrant,
+} from './connection'
+export {
   type DedupeOptions,
   type DedupeResult,
   dedupeArtifacts,

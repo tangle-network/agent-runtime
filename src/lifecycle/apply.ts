@@ -10,6 +10,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { connectionMcpServer } from './connection'
 import { memoryMcpServer, profileMemoryMetadataKey } from './memory'
 import type { ProfileArtifact } from './types'
 
@@ -68,6 +69,25 @@ export function applyArtifact(base: AgentProfile, artifact: ProfileArtifact): Ag
         metadata: { ...base.metadata, [profileMemoryMetadataKey]: payload.spec },
         mcp: { ...base.mcp, [key]: memoryMcpServer(payload.spec) },
       }
+    }
+    case 'connection': {
+      // Promote an EXTERNAL MCP grant (adopt, not build): the server entry —
+      // secrets referenced by NAME only — lands under `mcp[key]` so the
+      // existing materialization paths mount it, and an optional hub grant
+      // lands on `connections` (replacing any prior grant for the same
+      // connectionId — the artifact wins on conflict, like keyed kinds).
+      const payload = artifact.payload as ProfileArtifact<'connection'>['payload']
+      const key = keyOf(artifact)
+      const next: AgentProfile = {
+        ...base,
+        mcp: { ...base.mcp, [key]: connectionMcpServer(payload.grant) },
+      }
+      const hub = payload.grant.hub
+      if (hub) {
+        const others = (base.connections ?? []).filter((c) => c.connectionId !== hub.connectionId)
+        next.connections = [...others, hub]
+      }
+      return next
     }
   }
 }

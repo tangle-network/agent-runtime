@@ -70,8 +70,14 @@ export interface WorktreeBuildOptions {
    * instruction, observes the session's diff + verifier output, rates it, and
    * decides refine / re-scope / decompose. Unset ⇒ the plain multi-shot
    * `agenticGenerator` (canned resume notes, no LLM driver) — the offline path.
+   * `research` wires the adopt-not-build seam (a `research{query}` tool +
+   * doctrine for the driver) — no live web/search backend ships here yet.
    */
-  driver?: { brain: ToolLoopChat; maxTurns?: number }
+  driver?: {
+    brain: ToolLoopChat
+    maxTurns?: number
+    research?: (query: string) => Promise<string>
+  }
 }
 
 /**
@@ -104,6 +110,7 @@ export function worktreeBuildCandidate(opts: WorktreeBuildOptions): BuildCandida
         ...shared,
         brain: opts.driver.brain,
         ...(opts.driver.maxTurns !== undefined ? { maxTurns: opts.driver.maxTurns } : {}),
+        ...(opts.driver.research ? { research: opts.driver.research } : {}),
       })
     : agenticGenerator(shared)
 

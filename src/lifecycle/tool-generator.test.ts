@@ -119,6 +119,77 @@ describe('buildableGenerator — tool/MCP supervisor dispatch', () => {
     expect(base.mcp).toBeUndefined()
   })
 
+  it('emits an ADOPTED remote http MCP when the candidate spec reports `remote`', async () => {
+    const base = baseline()
+    const exam = examRewardsMcp('exa_search')
+
+    // The adopt-not-build path: the research driver verified an EXISTING
+    // external server fits, so the candidate spec carries `remote` (endpoint +
+    // secret KEY NAME) instead of a local serve command.
+    const adoptOne: BuildCandidate = async (_ctx, index) => ({
+      label: 'exa_search',
+      verified: true,
+      worktreeRef: `/wt/${index}`,
+      remote: {
+        url: 'https://mcp.exa.ai/mcp',
+        headers: { 'x-client': 'swe' },
+        secretEnv: { EXA_API_KEY: 'EXA_API_KEY' },
+      },
+    })
+
+    const result = await runLifecycle({
+      baseline: base,
+      domain: 'buildable-domain',
+      generators: [
+        buildableGenerator({ kind: 'mcp', buildCandidate: adoptOne, evalRunner: exam, fanout: 1 }),
+      ],
+      evalRunner: exam,
+      gate: thresholdPromotionGate(),
+    })
+
+    expect(result.outcomes).toHaveLength(1)
+    const winner = result.outcomes[0]!
+    expect(winner.promoted).toBe(true)
+    const server = (
+      winner.artifact.payload as {
+        server: {
+          transport?: string
+          url?: string
+          command?: string
+          headers?: Record<string, string>
+          metadata?: Record<string, unknown>
+        }
+      }
+    ).server
+    expect(server.transport).toBe('http')
+    expect(server.url).toBe('https://mcp.exa.ai/mcp')
+    expect(server.headers).toEqual({ 'x-client': 'swe' })
+    expect(server.command).toBeUndefined()
+    // Secrets ride by NAME only; adopt provenance is stamped for the audit trail.
+    expect(server.metadata?.secretEnv).toEqual({ EXA_API_KEY: 'EXA_API_KEY' })
+    expect(winner.artifact.metadata?.adopted).toBe(true)
+    expect(winner.artifact.metadata?.remoteUrl).toBe('https://mcp.exa.ai/mcp')
+  })
+
+  it('rejects a build reporting BOTH serve and remote (ambiguous candidate spec)', async () => {
+    const ambiguous: BuildCandidate = async (_ctx, index) => ({
+      label: 'both',
+      verified: true,
+      worktreeRef: `/wt/${index}`,
+      serve: { command: 'node', args: ['server.mjs'] },
+      remote: { url: 'https://mcp.example.com/mcp' },
+    })
+    const gen = buildableGenerator({
+      kind: 'mcp',
+      buildCandidate: ambiguous,
+      evalRunner: async () => ({ composite: 0, costUsd: 0 }),
+      fanout: 1,
+    })
+    await expect(gen.generate({ baseline: baseline(), domain: 'd', findings: [] })).rejects.toThrow(
+      /serve OR remote/,
+    )
+  })
+
   it('returns no candidate when every build fails verification', async () => {
     const allFail: BuildCandidate = async (_ctx, index) => ({
       label: `c${index}`,

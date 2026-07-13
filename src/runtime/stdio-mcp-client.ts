@@ -34,6 +34,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { type KeyProvider, resolveSecretEnv, secretEnvOfMcpServer } from './key-provider'
 import { sanitizeMcpToolSchema } from './mcp-environment'
 import type { AgenticTool } from './strategy'
 
@@ -235,6 +236,12 @@ export interface MaterializeLocalMcpOptions {
   timeoutMs?: number
   /** Cap on a tool result's text fed back to the worker. Default 2000 chars. */
   maxResultChars?: number
+  /** Resolves a server's DECLARED secrets (`metadata.secretEnv`: env var name →
+   *  provider key name) at spawn time. The resolved values reach ONLY the child
+   *  process env — never the profile, the logs, or an error message. Fail-closed:
+   *  a server declaring secrets without a provider (or with a missing key)
+   *  throws instead of booting keyless. */
+  keys?: KeyProvider
 }
 
 /** The live same-host materialization of a profile's `mcp` surface. */
@@ -273,7 +280,7 @@ export async function materializeLocalMcp(
       const transport = server.transport ?? 'stdio'
       if (transport !== 'stdio') {
         throw new ValidationError(
-          `materializeLocalMcp: profile.mcp['${key}'] has transport '${transport}' — the same-host client only spawns stdio servers (remote servers materialize in the sandbox backend)`,
+          `materializeLocalMcp: profile.mcp['${key}'] has transport '${transport}' — the same-host client only spawns stdio servers; a remote (http/sse) server needs an http MCP client (not yet built here) or the sandbox backend. Failing loud: scoring this profile without its declared server would fake the with/without ablation`,
         )
       }
       if (!server.command || server.command.trim().length === 0) {
@@ -281,11 +288,22 @@ export async function materializeLocalMcp(
           `materializeLocalMcp: profile.mcp['${key}'] declares a stdio server with no command`,
         )
       }
+      // Provision declared secrets NOW, into the spawn env only. The resolved
+      // values live in this local and the child env — nowhere else.
+      const secretRefs = secretEnvOfMcpServer(server)
+      const provisioned = secretRefs
+        ? await resolveSecretEnv(
+            secretRefs,
+            opts.keys,
+            `materializeLocalMcp: profile.mcp['${key}']`,
+          )
+        : undefined
+      const env = server.env || provisioned ? { ...server.env, ...provisioned } : undefined
       const conn = await connectStdioMcp({
         command: server.command,
         ...(server.args ? { args: server.args } : {}),
         ...(server.cwd ? { cwd: server.cwd } : {}),
-        ...(server.env ? { env: server.env } : {}),
+        ...(env ? { env } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       })
       connections.push(conn)

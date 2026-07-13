@@ -23,16 +23,26 @@ import type {
   AgentSubagentProfile,
 } from '@tangle-network/agent-interface'
 import type { AgentMemorySpec } from '../mcp/memory-server'
+import type { ExternalMcpGrant } from './connection'
 
 /**
  * The profile levers an artifact can target. One-to-one with the §1.5 profile
  * surface (`prompt + skills + tools + mcp + hooks + subagents`), plus `memory`
  * — the Phase-5 surface the published `AgentProfile` does not yet name (it
- * mounts as a local extension; see lifecycle/memory.ts). Each kind maps to
- * exactly one profile lever, so an artifact can be applied onto a baseline
- * profile deterministically (see `applyArtifact`).
+ * mounts as a local extension; see lifecycle/memory.ts) — and `connection` —
+ * the Phase-6 adopt-not-build surface: a grant for an EXTERNAL MCP server
+ * (see lifecycle/connection.ts). Each kind maps deterministically onto the
+ * profile (see `applyArtifact`).
  */
-export type ArtifactKind = 'skill' | 'tool' | 'mcp' | 'hook' | 'subagent' | 'prompt' | 'memory'
+export type ArtifactKind =
+  | 'skill'
+  | 'tool'
+  | 'mcp'
+  | 'hook'
+  | 'subagent'
+  | 'prompt'
+  | 'memory'
+  | 'connection'
 
 /**
  * The payload for each `ArtifactKind`. The shapes are the SAME types the
@@ -50,6 +60,9 @@ export type ArtifactKind = 'skill' | 'tool' | 'mcp' | 'hook' | 'subagent' | 'pro
  *                  profile has no memory field) AND a stdio server entry that
  *                  SERVES it lands under `profile.mcp[name]`, so the same-host
  *                  materialization boots the memory live during a scored run.
+ *   - `connection` — an EXTERNAL MCP grant (adopt, not build): the server entry
+ *                  lands under `profile.mcp[name]` with secrets by NAME only,
+ *                  and an optional hub grant lands on `profile.connections`.
  */
 export interface ArtifactPayloads {
   prompt: { instruction: string }
@@ -59,6 +72,7 @@ export interface ArtifactPayloads {
   hook: { event: string; commands: AgentProfileHookCommand[] }
   subagent: { profile: AgentSubagentProfile }
   memory: { spec: AgentMemorySpec }
+  connection: { grant: ExternalMcpGrant }
 }
 
 /**

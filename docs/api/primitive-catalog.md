@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 249 exports.
+Import from `@tangle-network/agent-runtime` — 250 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -115,6 +115,7 @@ Import from `@tangle-network/agent-runtime` — 249 exports.
 | `LIFTED_FINDING_ANALYST_ID` | const | Analyst id stamped on findings lifted from untyped seed values. |
 | `optimizerMethod` | const | The shared method block every build/author prompt embeds. Domain framing |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
+| `researchDriverNote` | const | The driver's ADOPT-not-build doctrine, appended to `buildDriverSystem` when |
 | `ROLLOUT_POLICY_BOUNDS` | const | Proposal bounds per dial. These are the SEARCH bounds (what the proposer may |
 | `ROLLOUT_POLICY_EXTENSION` | const | The profile extensions namespace the policy persists under. |
 | `strategyAuthorMethod` | const | The senior authoring process for `authorStrategy` — the same method, shaped |
@@ -289,7 +290,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 63 exports.
 
 ### Recursive atom + loop kernel (alias of ./runtime)
 
-Import from `@tangle-network/agent-runtime/loops` — 467 exports.
+Import from `@tangle-network/agent-runtime/loops` — 472 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -344,6 +345,7 @@ Import from `@tangle-network/agent-runtime/loops` — 467 exports.
 | `discriminatingMeans` | function | Strategy means recomputed over the DISCRIMINATING tasks only — tasks where the field |
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
 | `dumbDriver` | function | `dumbDriver` — the pass/fail-only steering control. |
+| `envKeyProvider` | function | The env-backed provider: reads the (dotenvx-loaded) process env. Empty / |
 | `equalKOnCost` | function | Assert the arms are comparable at EQUAL conserved COST (tokens + usd), NOT raw iteration |
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
 | `failuresAnalyst` | function | The default self-improvement LENS — authored content, not a code path. On each settled worker it hands |
@@ -396,6 +398,7 @@ Import from `@tangle-network/agent-runtime/loops` — 467 exports.
 | `resolveAgentEnvironmentProvider` | function | Resolve a provider instance or registry name, failing loudly when a name is unknown. |
 | `resolveEntrySymbol` | function | The symbol authored checks are pinned to: `task.meta.entryPoint` when the surface |
 | `resolveSandboxClient` | function | Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core |
+| `resolveSecretEnv` | function | Resolve a declared secret-env map into the real env entries for a server |
 | `routerBrain` | function | The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's |
 | `routerChatWithTools` | function | A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape |
 | `routerChatWithUsage` | function | One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). |
@@ -410,6 +413,7 @@ Import from `@tangle-network/agent-runtime/loops` — 467 exports.
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `sanitizeMcpToolSchema` | function | Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. |
+| `secretEnvOfMcpServer` | function | Read (and validate) a server entry's declared secret-env map, if any. |
 | `selectBestIndex` | function | Argmax by `compareCheckOutcomes`, FIRST index wins ties (deterministic; with zero |
 | `selectChampion` | function | Search-side champion selection over a tournament report. |
 | `selectValidWinner` | function | The single content-free valid-only winner selector. Among the gated-VALID children only |
@@ -441,6 +445,7 @@ Import from `@tangle-network/agent-runtime/loops` — 467 exports.
 | `defaultDelegateBudget` | const | The conserved pool a `delegate()` call applies when the caller does not pass its own `budget`. |
 | `defaultProfileRichnessThresholds` | const | Default thresholds for `ProfileRichnessThresholds` — 600 chars / 6 lines minimum system prompt. |
 | `defaultStructuralRolloutPolicy` | const | The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored checks. |
+| `mcpSecretEnvMetadataKey` | const | The `AgentProfileMcpServer.metadata` key the declarative secret-env map |
 | `refine` | const | Built-in `Strategy`: attempt → `observe()` reads the trace → steer the next attempt → repeat (deepen one lineage). |
 | `sample` | const | Built-in `Strategy`: K independent attempts, keep the best-verifying (best-of-N / resample). |
 | `sampleThenRefine` | const | The explore-then-exploit MIX: spend ⌈budget/2⌉ on independent samples (kept open), |
@@ -511,6 +516,7 @@ Import from `@tangle-network/agent-runtime/loops` — 467 exports.
 | `InMemoryRunContextOptions` | interface | Options for the in-memory run context. |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` / `onTask` call. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
+| `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |
 | `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
 | `LeaderboardBenchScore` | interface | Structurally `BenchScore` (bench registry shape). |
 | `LeaderboardBenchTask` | interface | Structurally `BenchTask` (bench registry shape) — declared locally so this |
@@ -692,7 +698,7 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 
 ### Artifact lifecycle — generate → measure → promote → compose
 
-Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
+Import from `@tangle-network/agent-runtime/lifecycle` — 86 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -700,6 +706,8 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
 | `applyArtifacts` | function | Apply many artifacts left-to-right; later artifacts win on key conflicts. |
 | `buildableGenerator` | function | Build a `CandidateGenerator` for a buildable surface (`tool` / `mcp`). Each |
 | `composeProfile` | function | Return a new profile with the top-`k` active artifacts (highest measured lift |
+| `connectionArtifact` | function | Build a `connection` `ArtifactInput` from a grant — the one-step adapter for |
+| `connectionMcpServer` | function | The `AgentProfileMcpServer` entry a grant promotes into `profile.mcp` — the |
 | `createArtifactRegistry` | function | Construct an empty `ArtifactRegistry`. |
 | `dedupeArtifacts` | function | Pairwise stack-test the `active` artifacts and retire the redundant half of |
 | `driftWatch` | function | Re-measure every `active` artifact and demote those whose held-back lift |
@@ -720,6 +728,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
 | `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
 | `sweEvalRunner` | function | Build the `EvalRunner` closed over one fixed SWE exam. `runLifecycle` calls |
 | `thresholdPromotionGate` | function | The simplest honest gate: promote iff the candidate's marginal lift on the |
+| `validateExternalMcpGrant` | function | Assert an `ExternalMcpGrant` is well-formed. Fail-closed: a malformed grant |
 | `validateMemorySpec` | function | Assert an `AgentMemorySpec` is well-formed and servable. |
 | `worktreeBuildCandidate` | function | Build the production per-candidate seam for `buildableGenerator`. Each call to |
 | `writeMemoryStore` | function | Write a durable JSONL memory store (one `MemoryItem` per line). |
@@ -740,6 +749,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
 | `DriftCheck` | interface | Per-artifact record of what the re-measure found and decided. |
 | `DriftWatchOptions` | interface | `driftWatch` — the scheduled re-measure that DEMOTES decayed artifacts. |
 | `EvalResult` | interface | The result of running an eval over ONE profile: a composite score and the cost |
+| `ExternalMcpGrant` | interface | An external MCP grant — the ADOPT-not-build candidate payload. `http` names |
 | `GenerateContext` | interface | The read-only context a generator sees when proposing candidates. It is the |
 | `MarginalLift` | interface | The marginal lift of one artifact: the with/without ablation. |
 | `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
@@ -765,7 +775,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 81 exports.
 | `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
 | `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `ConnectionArtifactOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `MemoryArtifactOptions`, `MemoryGeneratorOptions`, `MemoryMcpServerOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
 
 ### Knowledge orchestration — supervised KB updates
 

@@ -46,6 +46,7 @@ import { ValidationError } from '../errors'
 import {
   type AgenticSurface,
   type ArtifactHandle,
+  type KeyProvider,
   type LocalMcpMaterialization,
   materializeLocalMcp,
   refine,
@@ -107,6 +108,11 @@ export interface SweEvalRunnerOptions<T extends SweEvalTask = SweEvalTask> {
    *  server that cannot boot THROWS — scoring it silently without its tools
    *  would fake the with/without ablation. */
   materializeMcp?: boolean
+  /** Provisions declared secrets (`mcp[key].metadata.secretEnv`) into a
+   *  spawned server's env at materialize time — how an ADOPTED external MCP
+   *  (a `connection` artifact) gets its API key during a scored run. Values
+   *  reach only the child env; see runtime/key-provider.ts. */
+  keys?: KeyProvider
 }
 
 /**
@@ -125,7 +131,9 @@ export function sweEvalRunner<T extends SweEvalTask = SweEvalTask>(
     const systemPrompt = renderSystemPrompt(profile, opts.seedPrompt)
     // Same-host materialization of the profile's MCP surface (opt-in): the
     // spawned servers live across all tasks of THIS eval and die in finally.
-    const mcp = opts.materializeMcp ? await materializeLocalMcp(profile) : undefined
+    const mcp = opts.materializeMcp
+      ? await materializeLocalMcp(profile, opts.keys ? { keys: opts.keys } : {})
+      : undefined
     const environment =
       mcp && mcp.tools.length > 0 ? withLocalMcpTools(opts.environment, mcp) : opts.environment
     try {

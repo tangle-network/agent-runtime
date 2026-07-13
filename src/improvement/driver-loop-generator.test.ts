@@ -193,6 +193,57 @@ describe('driverLoopGenerator — the driver→worker build atom', () => {
     expect(result.summary).toBe('')
   })
 
+  it('offers the research tool + adopt doctrine ONLY when the seam is wired', async () => {
+    // Wired: the driver researches, the stub's findings flow back as a tool
+    // message, and the system prompt carries the adopt-before-build doctrine.
+    const queries: string[] = []
+    const research = async (query: string): Promise<string> => {
+      queries.push(query)
+      return 'found: mcp.exa.ai — maintained web-search MCP; needs EXA_API_KEY'
+    }
+    const wired = scriptedBrain([
+      { calls: [{ name: 'research', args: { query: 'web search MCP server' } }] },
+      { say: 'Adopt mcp.exa.ai with EXA_API_KEY; no build needed.' },
+    ])
+    await driverLoopGenerator({
+      brain: wired.chat,
+      runHarness: harnessStub().run,
+      research,
+      changedPaths: () => [],
+      readDiff: () => '',
+    }).generate(generateArgs([finding('the agent cannot search the web')], 1))
+    expect(queries).toEqual(['web search MCP server'])
+    const flat = wired.seen.flat()
+    expect(flat.some((m) => m.role === 'tool' && String(m.content).includes('mcp.exa.ai'))).toBe(
+      true,
+    )
+    expect(
+      flat.some((m) => m.role === 'system' && String(m.content).includes('ADOPT BEFORE BUILD')),
+    ).toBe(true)
+
+    // Not wired: no research tool in the specs, no doctrine, and a stray call
+    // gets the not-provisioned error (live web access is not provisioned).
+    const unwired = scriptedBrain([
+      { calls: [{ name: 'research', args: { query: 'anything' } }] },
+      { say: 'ok' },
+    ])
+    await driverLoopGenerator({
+      brain: unwired.chat,
+      runHarness: harnessStub().run,
+      changedPaths: () => [],
+      readDiff: () => '',
+    }).generate(generateArgs([finding('gap')], 1))
+    const unwiredFlat = unwired.seen.flat()
+    expect(
+      unwiredFlat.some((m) => m.role === 'tool' && String(m.content).includes('not provisioned')),
+    ).toBe(true)
+    expect(
+      unwiredFlat.some(
+        (m) => m.role === 'system' && String(m.content).includes('ADOPT BEFORE BUILD'),
+      ),
+    ).toBe(false)
+  })
+
   it('caps worker sessions at maxShots and tells the driver, without spawning', async () => {
     const worker = harnessStub()
     const { chat, seen } = scriptedBrain([

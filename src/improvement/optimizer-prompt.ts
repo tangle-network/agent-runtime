@@ -100,6 +100,25 @@ export const buildDriverSystem = [
 ].join('\n')
 
 /**
+ * The driver's ADOPT-not-build doctrine, appended to `buildDriverSystem` when
+ * a `research` tool is wired into the loop (`DriverLoopGeneratorOptions.
+ * research`). Kept separate so a driver WITHOUT the tool is never told to
+ * call a tool it does not have.
+ */
+export const researchDriverNote = [
+  'RESEARCH — ADOPT BEFORE BUILD. A research{query} tool is provisioned for this run. Before',
+  'authoring a from-scratch build, spend one turn researching whether an EXISTING external MCP',
+  'server already provides the missing capability — registries and vendor docs list maintained',
+  'servers for most common gaps (web search, fetch, GitHub, filesystems, databases).',
+  '- If a maintained server fits, ADOPT it: report in your final reflection its endpoint or',
+  '  launch command and the API key it needs BY NAME (e.g. EXA_API_KEY) — never a key value —',
+  '  so the dispatch can emit a connection candidate with provisioned secrets. Adopting a fit',
+  '  server beats rebuilding it: less code to verify, maintained upstream, same measured gate.',
+  '- If nothing fits (unmaintained, wrong tool surface, heavier than the gap), build — and state',
+  '  in one line why adoption lost.',
+].join('\n')
+
+/**
  * The senior authoring process for `authorStrategy` — the same method, shaped
  * to the strategy contract (author-blind, conserved budget, one module out).
  */

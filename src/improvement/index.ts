@@ -53,7 +53,12 @@ export {
   improvementDriver,
 } from './improvement-driver'
 export { type McpServeSpec, mcpServeVerifier } from './mcp-serve-verifier'
-export { buildDriverSystem, optimizerMethod, strategyAuthorMethod } from './optimizer-prompt'
+export {
+  buildDriverSystem,
+  optimizerMethod,
+  researchDriverNote,
+  strategyAuthorMethod,
+} from './optimizer-prompt'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,

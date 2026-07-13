@@ -153,6 +153,15 @@ export {
 } from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runLoop.
 export { inlineSandboxClient } from './inline-sandbox-client'
+// API-key provisioning for adopted external MCP servers: secrets ride the
+// profile by NAME only; a KeyProvider resolves values at materialize time.
+export {
+  envKeyProvider,
+  type KeyProvider,
+  mcpSecretEnvMetadataKey,
+  resolveSecretEnv,
+  secretEnvOfMcpServer,
+} from './key-provider'
 // The same-host pseudo-box: a router-brain tool loop with the profile's stdio
 // MCP servers spawned as LOCAL children — the one client that can reach an MCP
 // server built into a host worktree.

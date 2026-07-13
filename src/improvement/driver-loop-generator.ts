@@ -40,7 +40,7 @@ import {
   worktreeChangedPaths,
 } from './agentic-generator'
 import type { CandidateGenerator } from './improvement-driver'
-import { buildDriverSystem } from './optimizer-prompt'
+import { buildDriverSystem, researchDriverNote } from './optimizer-prompt'
 
 export interface DriverLoopGeneratorOptions {
   /** The driver-LLM seam — ONE inference turn over the conversation + tool specs (the canonical
@@ -62,6 +62,12 @@ export interface DriverLoopGeneratorOptions {
   /** Max driver inference turns. Default `max(8, 2 + maxShots * 3)` — room for one
    *  observe/rate/decide cycle per worker session plus orientation. */
   maxTurns?: number
+  /** The research seam (adopt-not-build): when set, the driver gets a
+   *  `research{query}` tool + the `researchDriverNote` doctrine, so it can
+   *  discover an EXISTING external MCP instead of building one. Wire a real
+   *  web/search backend here — none is provisioned by default (the build
+   *  harness has no live web access yet; flagged). */
+  research?: (query: string) => Promise<string>
   /** Test seam — inject the harness runner (defaults to `runLocalHarness`). */
   runHarness?: typeof runLocalHarness
   /** Test seam — inject the worktree diff reader (defaults to `git diff` in the worktree). */
@@ -73,6 +79,7 @@ export interface DriverLoopGeneratorOptions {
 const workerOutputTailChars = 2_000
 const diffMaxChars = 6_000
 const readFileDefaultBytes = 8_192
+const researchResultMaxChars = 8_000
 
 /** Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budget is spent. */
 export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): CandidateGenerator {
@@ -150,6 +157,12 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
           }
           case 'read_file':
             return readWorktreeFile(worktreePath, args)
+          case 'research': {
+            if (!opts.research) return 'error: research tool is not provisioned in this run'
+            const query = typeof args.query === 'string' ? args.query.trim() : ''
+            if (query.length === 0) return 'error: research requires a non-empty `query`'
+            return truncate(await opts.research(query), researchResultMaxChars)
+          }
           case 'run_verifier': {
             const result = await groundVerify()
             return JSON.stringify({
@@ -164,10 +177,15 @@ export function driverLoopGenerator(opts: DriverLoopGeneratorOptions): Candidate
 
       await runBrainLoop({
         chat: opts.brain,
-        tools: driverToolSpecs,
+        tools: opts.research ? [...driverToolSpecs, researchToolSpec] : driverToolSpecs,
         execute,
         initialMessages: [
-          { role: 'system', content: buildDriverSystem },
+          {
+            role: 'system',
+            content: opts.research
+              ? `${buildDriverSystem}\n\n${researchDriverNote}`
+              : buildDriverSystem,
+          },
           {
             role: 'user',
             content: [
@@ -244,6 +262,24 @@ const driverToolSpecs = [
     },
   },
 ]
+
+/** Only offered when `opts.research` is wired — a tool the driver cannot call
+ *  must never appear in its tool list. */
+const researchToolSpec = {
+  type: 'function' as const,
+  function: {
+    name: 'research',
+    description:
+      'Search external sources (MCP registries, vendor docs) for an EXISTING server that closes the capability gap — the adopt-not-build check. Returns text findings.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'What capability / server to search for.' },
+      },
+      required: ['query'],
+    },
+  },
+}
 
 /** `git diff` over the worktree (tracked files). Fails loud like `worktreeChangedPaths` — a git
  *  fault on a fresh checkout is a broken setup, not an empty diff. */

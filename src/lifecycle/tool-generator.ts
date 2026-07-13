@@ -41,6 +41,7 @@
 
 import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { connectionMcpServer } from './connection'
 import type { CandidateGenerator, GenerateContext } from './generator'
 import { type EvalRunner, measureMarginalLift } from './marginal-lift'
 import { ArtifactRegistry } from './registry'
@@ -64,11 +65,25 @@ export interface BuiltCandidate {
   /** The worktree path / git ref holding the built change (provenance). */
   worktreeRef: string
   /**
-   * For an `mcp` candidate: how to START the built server (stdio transport).
-   * Becomes the `AgentProfileMcpServer` the artifact carries. REQUIRED for an
-   * `mcp` build; ignored for a `tool` build.
+   * For an `mcp` candidate that was BUILT: how to START the built server
+   * (stdio transport). Becomes the `AgentProfileMcpServer` the artifact
+   * carries. An `mcp` build must report exactly one of `serve` / `remote`;
+   * both are ignored for a `tool` build.
    */
   serve?: { command: string; args?: string[]; cwd?: string; env?: Record<string, string> }
+  /**
+   * For an `mcp` candidate that was ADOPTED (the research path found an
+   * EXISTING external server instead of building one): the remote http
+   * endpoint. Emits a `{ transport:'http', url, headers, env }` server entry;
+   * `secretEnv` declares its credential by provider KEY NAME (resolved at
+   * materialize time by a `KeyProvider` — a value must never appear here).
+   */
+  remote?: {
+    url: string
+    headers?: Record<string, string>
+    env?: Record<string, string>
+    secretEnv?: Record<string, string>
+  }
   /**
    * For a `tool` candidate: the tool name the grant lands under (the profile
    * `tools` key). REQUIRED for a `tool` build; ignored for an `mcp` build.
@@ -208,10 +223,33 @@ function bareArtifact(kind: BuildableKind, built: BuiltCandidate): ArtifactInput
       payload: { enabled: true },
     } as ArtifactInput<BuildableKind>
   }
-  const serve = built.serve
+  // The build-vs-adopt branch, selected by the candidate spec: `serve` is a
+  // locally-BUILT stdio server (launched at its worktree), `remote` is an
+  // ADOPTED external http server (secrets by name, via connectionMcpServer).
+  const { serve, remote } = built
+  if (serve && remote) {
+    throw new ValidationError(
+      `buildableGenerator: an 'mcp' build must report serve OR remote, not both (label=${built.label})`,
+    )
+  }
+  if (remote) {
+    const server = connectionMcpServer({
+      transport: 'http',
+      url: remote.url,
+      ...(remote.headers ? { headers: remote.headers } : {}),
+      ...(remote.env ? { env: remote.env } : {}),
+      ...(remote.secretEnv ? { secretEnv: remote.secretEnv } : {}),
+    })
+    return {
+      kind: 'mcp',
+      key: built.label,
+      name: built.label,
+      payload: { server },
+    } as ArtifactInput<BuildableKind>
+  }
   if (!serve?.command || serve.command.trim().length === 0) {
     throw new ValidationError(
-      `buildableGenerator: a verified 'mcp' build must report a serve command (label=${built.label})`,
+      `buildableGenerator: a verified 'mcp' build must report a serve command or a remote endpoint (label=${built.label})`,
     )
   }
   const server: AgentProfileMcpServer = {
@@ -249,6 +287,9 @@ function toArtifact(
       worktreeRef: built.worktreeRef,
       buildLabel: built.label,
       fanout,
+      // Adopt-vs-build provenance: an adopted candidate wired an EXISTING
+      // external server instead of building one.
+      ...(built.remote ? { adopted: true, remoteUrl: built.remote.url } : {}),
       // The INTERNAL rank lift (best-of-N selection), distinct from the
       // orchestrator's promotion-gate measurement.
       siblingScoreDelta: scoreDelta,
