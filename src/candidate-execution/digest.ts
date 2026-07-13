@@ -43,6 +43,16 @@ export function canonicalCandidateDocument<T extends { digest: Sha256Digest }>(
   })
 }
 
+export function verifyCanonicalCandidateDocument<T extends { digest: Sha256Digest }>(
+  value: T,
+  label: string,
+): T {
+  if (canonicalCandidateDigest(omitTopLevelDigest(value)) !== value.digest) {
+    throw new Error(`${label} digest does not match`)
+  }
+  return immutableCandidateValue(value)
+}
+
 export function embeddedCandidateArtifact(bytes: Uint8Array): AgentCandidateEmbeddedArtifact {
   return {
     encoding: 'base64',

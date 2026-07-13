@@ -255,7 +255,7 @@ def _workspace_files(value: Any, label: str) -> tuple[WorkspaceFile, ...]:
     for index, value in enumerate(values):
         obj = _object(value, f"{label}.material.files[{index}]")
         mode = _integer(obj.get("mode"), f"{label}.material.files[{index}].mode")
-        if mode not in {0o644, 0o755}:
+        if mode > 0o777:
             raise CandidateContractError(
                 f"{label} contains unsupported file mode {mode:o}"
             )
@@ -287,7 +287,7 @@ def _profile_files(value: Any) -> tuple[ProfileFile, ...]:
     for index, value in enumerate(values):
         obj = _object(value, f"profilePlan.material.files[{index}]")
         mode = _integer(obj.get("mode"), f"profilePlan.material.files[{index}].mode")
-        if mode not in {0o644, 0o755}:
+        if mode > 0o777:
             raise CandidateContractError(
                 f"profile plan contains unsupported mode {mode:o}"
             )
@@ -402,11 +402,16 @@ def load_prepared_candidate_contract(
     execution_id = _string(plan.get("executionId"), "plan.executionId")
 
     task = _object(plan.get("task"), "plan.task")
+    outcome = _object(task.get("outcome"), "plan.task.outcome")
+    if outcome.get("kind") != "workspace":
+        raise CandidateContractError("Pier requires a workspace task outcome")
     repository = _object(task.get("repository"), "plan.task.repository")
     base_commit = _git_object(
         repository.get("baseCommit"), "plan.task.repository.baseCommit"
     )
-    base_tree = _git_object(repository.get("baseTree"), "plan.task.repository.baseTree")
+    base_tree = _git_object(
+        repository.get("baseTree"), "plan.task.repository.baseTree"
+    )
     if len(base_commit) != len(base_tree):
         raise CandidateContractError("task Git objects use different hash formats")
     instruction = _instruction(task.get("instruction"))

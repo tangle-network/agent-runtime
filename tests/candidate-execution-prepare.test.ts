@@ -264,6 +264,7 @@ function fixture(active = false): {
       baseCommit: repository.commit,
       baseTree: repository.tree,
     },
+    outcome: { kind: 'workspace' },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: 'provider/model', reasoningEffort: 'high' },
     grader: {
@@ -327,6 +328,7 @@ describe('candidate execution preparation', () => {
       byteLength: Buffer.byteLength(value.task.instruction),
       delivery: value.bundle.execution.instructionDelivery,
     })
+    expect(plan.task.outcome).toEqual(value.task.outcome)
     expect(plan.task.repository).toEqual(value.task.repository)
     expect(plan.profile).toEqual({
       planDigest: prepared.profilePlan.value.digest,
@@ -394,7 +396,6 @@ describe('candidate execution preparation', () => {
         [field]: profileValue,
       } as AgentCandidateBundle['profile'],
     })
-    const verified = await verifyAgentCandidateBundle(value.bundle, value.ports)
     let stagingCalls = 0
     let reservationCalls = 0
     value.ports.workspaces.materialize = async () => {
@@ -405,7 +406,7 @@ describe('candidate execution preparation', () => {
       throw new Error('candidate must fail before reserving protected access')
     }
 
-    await expect(prepareAgentCandidateExecution(verified, value.task, value.ports)).rejects.toThrow(
+    await expect(verifyAgentCandidateBundle(value.bundle, value.ports)).rejects.toThrow(
       new RegExp(`non-empty AgentProfile fields: ${field}`),
     )
     expect(stagingCalls).toBe(0)
@@ -434,12 +435,29 @@ describe('candidate execution preparation', () => {
 
   it('rejects task Git drift, dirty profile staging, and unenforced model limits', async () => {
     const gitDrift = fixture()
+    if (!gitDrift.task.repository) throw new Error('expected repository identity')
     gitDrift.task.repository.baseTree = '0'.repeat(40)
     await expect(
       prepareAgentCandidateExecution(
         await verifyAgentCandidateBundle(gitDrift.bundle, gitDrift.ports),
         gitDrift.task,
         gitDrift.ports,
+      ),
+    ).rejects.toThrow(/base tree/)
+
+    const outputGitDrift = fixture()
+    if (!outputGitDrift.task.repository) throw new Error('expected repository identity')
+    outputGitDrift.task.outcome = {
+      kind: 'output',
+      mediaType: 'application/json',
+      maxBytes: 1_024,
+    }
+    outputGitDrift.task.repository.baseTree = '0'.repeat(40)
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(outputGitDrift.bundle, outputGitDrift.ports),
+        outputGitDrift.task,
+        outputGitDrift.ports,
       ),
     ).rejects.toThrow(/base tree/)
 
@@ -614,28 +632,20 @@ describe('candidate execution preparation', () => {
     ).rejects.toThrow(/do not match|unsupported mode/)
   })
 
-  it('resets task memory into an execution-scoped namespace and carries verified knowledge', async () => {
+  it('resets task memory into an execution-scoped namespace', async () => {
     const value = fixture()
     value.task.executionId = '..'
     const seedBytes = Buffer.from('seed-memory')
-    const knowledgeBytes = Buffer.from('{"documents":[]}')
     const seed = {
       locator: { kind: 's3' as const, bucket: 'test-artifacts', key: 'memory/seed.bin' },
       sha256: embeddedCandidateArtifact(seedBytes).sha256,
       byteLength: seedBytes.byteLength,
     }
-    const knowledge = {
-      locator: { kind: 's3' as const, bucket: 'test-artifacts', key: 'knowledge/manifest.json' },
-      sha256: embeddedCandidateArtifact(knowledgeBytes).sha256,
-      byteLength: knowledgeBytes.byteLength,
-    }
     value.bundle = redigestBundle(value.bundle, {
       memory: { mode: 'isolated', scope: 'task', seed },
-      knowledge: { snapshotId: 'knowledge-1', manifest: knowledge },
     })
     value.ports.artifacts.read = async (ref) => {
       if (ref.sha256 === seed.sha256) return seedBytes
-      if (ref.sha256 === knowledge.sha256) return knowledgeBytes
       throw new Error(`unexpected artifact ${ref.sha256}`)
     }
     let resetInput: Parameters<AgentCandidateExecutionPorts['memory']['reset']>[0] | undefined
@@ -663,11 +673,29 @@ describe('candidate execution preparation', () => {
       seedDigest: seed.sha256,
     })
     expect(JSON.stringify(prepared)).not.toContain('TANGLE_MEMORY_NAMESPACE')
-    expect(prepared.knowledge).toMatchObject({
-      snapshotId: 'knowledge-1',
-      manifestDigest: knowledge.sha256,
+  })
+
+  it('rejects snapshot-only knowledge before artifact access', async () => {
+    const value = fixture()
+    const bytes = Buffer.from('{"documents":[]}')
+    const manifest = {
+      locator: { kind: 's3' as const, bucket: 'test-artifacts', key: 'knowledge/manifest.json' },
+      sha256: embeddedCandidateArtifact(bytes).sha256,
+      byteLength: bytes.byteLength,
+    }
+    value.bundle = redigestBundle(value.bundle, {
+      knowledge: { snapshotId: 'knowledge-1', manifest },
     })
-    expect(Buffer.from(prepared.knowledge?.manifest ?? [])).toEqual(knowledgeBytes)
+    let reads = 0
+    value.ports.artifacts.read = async () => {
+      reads++
+      return bytes
+    }
+
+    await expect(verifyAgentCandidateBundle(value.bundle, value.ports)).rejects.toThrow(
+      /"knowledge"[\s\S]*"candidate"/,
+    )
+    expect(reads).toBe(0)
   })
 
   it('closes memory immediately when reset evidence fails before preparation can retain it', async () => {

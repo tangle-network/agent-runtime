@@ -1,0 +1,516 @@
+import { posix } from 'node:path'
+
+import type { TraceStore } from '@tangle-network/agent-eval'
+import type {
+  AgentCandidateTermination,
+  AgentImprovementProposal,
+  AgentImprovementReview,
+  CandidateExecutionEvidence,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
+import type {
+  CreateSandboxOptions,
+  ListSandboxOptions,
+  Process,
+  ProcessStatus,
+  SandboxClient,
+  SandboxInstance,
+  SandboxResources,
+} from '@tangle-network/sandbox'
+
+import type { AgentCandidateExecutionClaimStore } from '../candidate-execution/claim'
+import { canonicalCandidateBytes } from '../candidate-execution/digest'
+import type { PrepareAgentCandidateExecutionOptions } from '../candidate-execution/prepare'
+import type {
+  AgentCandidateBenchmarkGraderPort,
+  AgentCandidateExecutionPorts,
+  AgentCandidateExecutorPort,
+  AgentCandidateExecutorRequest,
+  AgentCandidateExecutorStopRequest,
+  AgentCandidateOutputArtifactPort,
+} from '../candidate-execution/types'
+import { AGENT_CANDIDATE_EXECUTION_SUPPORT } from '../candidate-execution/verify'
+import { executeApprovedAgentCandidate } from './improvement-cycle'
+
+type SandboxClientPort = Pick<SandboxClient, 'create' | 'get' | 'list'>
+
+type SandboxExecutorOptions = NonNullable<CreateSandboxApprovedCandidateExecutorOptions['sandbox']>
+
+interface SandboxRunState {
+  sandbox: SandboxInstance
+  output?: Uint8Array
+  termination?: AgentCandidateTermination
+}
+
+/** Declares the exact candidate surfaces the sandbox executor can run. */
+export const sandboxApprovedCandidateExecutionSupport = Object.freeze({
+  outcomes: Object.freeze(['output'] as const),
+  outputMediaTypes: Object.freeze(['text/*', 'application/json', '*+json'] as const),
+  code: Object.freeze(['disabled'] as const),
+  memory: Object.freeze(['disabled'] as const),
+  knowledge: false,
+  profile: AGENT_CANDIDATE_EXECUTION_SUPPORT.profile,
+  isolation: Object.freeze({
+    freshSandbox: true,
+    exactProcess: true,
+    egress: Object.freeze(['blocked', 'strict'] as const),
+  }),
+})
+
+export interface CreateSandboxApprovedCandidateExecutorOptions {
+  client: SandboxClientPort
+  ports: AgentCandidateExecutionPorts
+  grader: AgentCandidateBenchmarkGraderPort
+  outputArtifacts: AgentCandidateOutputArtifactPort
+  traceStore: TraceStore
+  claimStore: AgentCandidateExecutionClaimStore
+  authorizeReview: (
+    review: AgentImprovementReview,
+    proposal: AgentImprovementProposal,
+  ) => boolean | Promise<boolean>
+  sandbox?: {
+    teamId?: string
+    resources?: SandboxResources
+    createTimeoutMs?: number
+    evidenceRetentionSeconds?: number
+  }
+  cleanupTimeoutMs?: number
+  resultTimeoutMs?: number
+}
+
+export interface SandboxApprovedCandidateExecution {
+  proposal: AgentImprovementProposal
+  review: AgentImprovementReview
+  task: Parameters<typeof executeApprovedAgentCandidate>[0]['task']
+  preparation?: PrepareAgentCandidateExecutionOptions
+}
+
+export interface SandboxApprovedCandidateExecutor {
+  /** The same port is usable by Runtime's expired-claim recovery path. */
+  readonly executor: AgentCandidateExecutorPort
+  execute(input: SandboxApprovedCandidateExecution): Promise<CandidateExecutionEvidence>
+}
+
+/** Compose approved-candidate execution directly onto fresh Tangle sandboxes. */
+export function createSandboxApprovedCandidateExecutor(
+  options: CreateSandboxApprovedCandidateExecutorOptions,
+): SandboxApprovedCandidateExecutor {
+  const executor = new SandboxAgentCandidateExecutor(options.client, options.sandbox)
+  return Object.freeze({
+    executor,
+    async execute(input: SandboxApprovedCandidateExecution): Promise<CandidateExecutionEvidence> {
+      const result = await executeApprovedAgentCandidate({
+        proposal: input.proposal,
+        review: input.review,
+        authorizeReview: options.authorizeReview,
+        task: input.task,
+        ports: options.ports,
+        ...(input.preparation ? { preparation: input.preparation } : {}),
+        execution: {
+          executor,
+          grader: options.grader,
+          outputArtifacts: options.outputArtifacts,
+          traceStore: options.traceStore,
+          claimStore: options.claimStore,
+          ...(options.cleanupTimeoutMs === undefined
+            ? {}
+            : { cleanupTimeoutMs: options.cleanupTimeoutMs }),
+          ...(options.resultTimeoutMs === undefined
+            ? {}
+            : { resultTimeoutMs: options.resultTimeoutMs }),
+        },
+      })
+      if (!result.finalization.succeeded) {
+        throw new Error(`approved candidate execution failed: ${result.finalization.reason}`)
+      }
+      if (!result.evidence) throw new Error('approved candidate execution returned no evidence')
+      const evidence = result.evidence
+      await executor.delete({
+        executionId: evidence.executionId,
+        executionPlanDigest: evidence.receipt.executionPlanDigest,
+      })
+      return evidence
+    },
+  })
+}
+
+class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
+  private readonly states = new Map<string, SandboxRunState>()
+
+  constructor(
+    private readonly client: SandboxClientPort,
+    private readonly options: SandboxExecutorOptions = {},
+  ) {}
+
+  async execute(
+    request: AgentCandidateExecutorRequest,
+    context: Parameters<AgentCandidateExecutorPort['execute']>[1],
+  ) {
+    assertSupportedRequest(request)
+    const outcome = request.executionPlan.value.material.task.outcome
+    if (outcome.kind !== 'output') throw new Error('sandbox executor requires an output task')
+    const key = executionKey(request.executionId, request.executionPlan.value.digest)
+    const sandbox = await this.client.create(sandboxCreateOptions(request, this.options), {
+      signal: context.signal,
+      timeoutMs: this.options.createTimeoutMs ?? 120_000,
+    })
+    const state: SandboxRunState = { sandbox }
+    this.states.set(key, state)
+    if ((await sandbox.process.list()).length !== 0) {
+      throw new Error('fresh candidate sandbox already contains a process')
+    }
+    await materializeRequest(sandbox, request)
+    const launch = exactLaunch(request)
+    const startedAt = Date.now()
+    const process = await sandbox.process.spawnExact(launch.executable, launch.args, {
+      cwd: request.launch.cwd,
+      env: { ...request.launch.env },
+      ...(launch.stdin === undefined ? {} : { stdin: launch.stdin }),
+      timeoutMs: request.hardLimits.timeoutMs,
+    })
+    const outputPromise = collectOutput(process, outcome.maxBytes)
+    let cancellation: Promise<void> | undefined
+    let cancellationTermination: AgentCandidateTermination | undefined
+    const cancel = () => {
+      cancellationTermination =
+        Date.now() >= context.deadlineAtMs
+          ? { kind: 'timeout', timeoutMs: request.hardLimits.timeoutMs }
+          : { kind: 'cancelled' }
+      cancellation ??= killProcess(process)
+    }
+    context.signal.addEventListener('abort', cancel, { once: true })
+    if (context.signal.aborted) cancel()
+    try {
+      const waitedExitCode = await process.wait()
+      if (cancellation) await cancellation
+      const status = await process.status()
+      if (status.running || status.exitCode !== waitedExitCode) {
+        throw new Error('sandbox process returned an inconsistent terminal status')
+      }
+      state.output = await outputPromise
+      state.termination = cancellationTermination ?? processTermination(status)
+      await context.traceStore.appendRun({
+        runId: request.trace.runId,
+        scenarioId: request.executionPlan.value.material.task.taskId,
+        startedAt,
+        endedAt: Date.now(),
+        status: status.exitCode === 0 ? 'completed' : 'failed',
+        tags: { ...request.trace.tags, sandboxId: sandbox.id },
+      })
+      if (context.signal.aborted) {
+        throw context.signal.reason ?? new Error('candidate execution was cancelled')
+      }
+      return { executionId: request.executionId, termination: state.termination }
+    } finally {
+      context.signal.removeEventListener('abort', cancel)
+      void outputPromise.catch(() => undefined)
+    }
+  }
+
+  async stop(request: AgentCandidateExecutorStopRequest): Promise<{ readonly stopped: true }> {
+    const sandbox = await this.resolve(request, true)
+    if (!sandbox) return { stopped: true }
+    const statuses = await sandbox.process.list()
+    if (statuses.length > 1) throw new Error('candidate sandbox contains more than one process')
+    const status = statuses[0]
+    if (status?.running) {
+      const process = await sandbox.process.get(status.pid)
+      if (!process) throw new Error('candidate sandbox lost its running process handle')
+      await killProcess(process)
+    }
+    const remaining = await sandbox.process.list()
+    if (remaining.some((entry) => entry.running)) {
+      throw new Error('candidate sandbox process termination is not proven')
+    }
+    return { stopped: true }
+  }
+
+  async capture(request: AgentCandidateExecutorStopRequest) {
+    const sandbox = await this.resolve(request, false)
+    const statuses = await sandbox.process.list()
+    if (statuses.length > 1 || statuses.some((entry) => entry.running)) {
+      throw new Error('candidate sandbox must contain one stopped process before capture')
+    }
+    const state = this.states.get(executionKey(request.executionId, request.executionPlanDigest))
+    let output = state?.output
+    let termination = state?.termination
+    const status = statuses[0]
+    if (status && (!output || !termination)) {
+      const process = await sandbox.process.get(status.pid)
+      if (!process) throw new Error('candidate sandbox lost its captured process handle')
+      const expected = sandboxOutputSpec(sandbox)
+      output = await collectOutput(process, expected.maxBytes)
+      termination = processTermination(await process.status())
+    }
+    const evidence = canonicalCandidateBytes({
+      schemaVersion: 1,
+      kind: 'sandbox-agent-candidate-capture',
+      sandboxId: sandbox.id,
+      executionId: request.executionId,
+      executionPlanDigest: request.executionPlanDigest,
+      ...(status
+        ? {
+            process: {
+              pid: status.pid,
+              exitCode: status.exitCode,
+              ...(status.exitSignal ? { exitSignal: status.exitSignal } : {}),
+            },
+          }
+        : {}),
+      ...(termination ? { termination } : {}),
+    })
+    return {
+      ...(output ? { taskOutcome: { kind: 'output' as const, bytes: output } } : {}),
+      evidence,
+    }
+  }
+
+  async delete(request: AgentCandidateExecutorStopRequest): Promise<void> {
+    const sandbox = await this.resolve(request, true)
+    if (!sandbox) return
+    try {
+      await sandbox.delete()
+    } catch (error) {
+      if (await this.client.get(sandbox.id)) throw error
+    }
+    this.states.delete(executionKey(request.executionId, request.executionPlanDigest))
+  }
+
+  private async resolve(
+    request: AgentCandidateExecutorStopRequest,
+    missingIsDeleted: false,
+  ): Promise<SandboxInstance>
+  private async resolve(
+    request: AgentCandidateExecutorStopRequest,
+    missingIsDeleted: true,
+  ): Promise<SandboxInstance | undefined>
+  private async resolve(
+    request: AgentCandidateExecutorStopRequest,
+    missingIsDeleted: boolean,
+  ): Promise<SandboxInstance | undefined> {
+    const key = executionKey(request.executionId, request.executionPlanDigest)
+    const active = this.states.get(key)?.sandbox
+    if (active) return active
+    const matches: SandboxInstance[] = []
+    const scope: ListSandboxOptions['scope'] = this.options.teamId
+      ? `team:${this.options.teamId}`
+      : 'personal'
+    for (let offset = 0; ; offset += 100) {
+      const page = await this.client.list({ scope, limit: 100, offset })
+      for (const candidate of page) {
+        if (matchesExecution(candidate, request)) matches.push(candidate)
+      }
+      if (page.length < 100) break
+    }
+    if (matches.length === 1) return matches[0]
+    if (matches.length > 1) throw new Error('multiple sandboxes match one candidate execution')
+    if (missingIsDeleted) return undefined
+    throw new Error('candidate sandbox evidence is unavailable')
+  }
+}
+
+function assertSupportedRequest(request: AgentCandidateExecutorRequest): void {
+  if (request.executionPlan.value.material.task.outcome.kind !== 'output') {
+    throw new Error('sandbox candidate executor does not support workspace outcomes; use Pier')
+  }
+  if (request.executionPlan.value.material.codeKind !== 'disabled' || request.inputs.candidate) {
+    throw new Error('sandbox candidate executor does not support code workspaces; use Pier')
+  }
+  if (request.memory.mode !== 'disabled') {
+    throw new Error('sandbox candidate executor does not support isolated memory')
+  }
+  const mediaType = request.executionPlan.value.material.task.outcome.mediaType.toLowerCase()
+  if (
+    !(
+      mediaType.startsWith('text/') ||
+      mediaType === 'application/json' ||
+      mediaType.endsWith('+json')
+    )
+  ) {
+    throw new Error('sandbox candidate executor supports only UTF-8 text and JSON outputs')
+  }
+}
+
+function sandboxCreateOptions(
+  request: AgentCandidateExecutorRequest,
+  options: SandboxExecutorOptions = {},
+): CreateSandboxOptions {
+  const material = request.executionPlan.value.material
+  const retentionSeconds = options.evidenceRetentionSeconds ?? 900
+  if (!Number.isSafeInteger(retentionSeconds) || retentionSeconds < 60) {
+    throw new Error('sandbox evidence retention must be at least 60 seconds')
+  }
+  const maxLifetimeSeconds = Math.ceil(request.hardLimits.timeoutMs / 1_000) + retentionSeconds
+  const network = material.model.access.network
+  const egressPolicy =
+    network.mode === 'disabled'
+      ? { mode: 'blocked' as const }
+      : {
+          mode: 'strict' as const,
+          allowDomains: [...network.domains],
+          includeImplicitDomains: false,
+        }
+  const value = {
+    image: exactImage(material.container.image, material.container.manifestDigest),
+    bare: true,
+    publicEdge: false,
+    ephemeral: true,
+    sshEnabled: false,
+    webTerminalEnabled: false,
+    secrets: [],
+    capabilities: [],
+    egressPolicy,
+    maxLifetimeSeconds,
+    idempotencyKey: `candidate-${request.executionPlan.value.digest.slice('sha256:'.length)}`,
+    metadata: {
+      kind: 'agent-candidate-execution',
+      executionId: request.executionId,
+      executionPlanDigest: request.executionPlan.value.digest,
+      outputMediaType:
+        material.task.outcome.kind === 'output' ? material.task.outcome.mediaType : '',
+      outputMaxBytes: material.task.outcome.kind === 'output' ? material.task.outcome.maxBytes : 0,
+    },
+    ...(options.teamId ? { teamId: options.teamId } : {}),
+    ...(options.resources ? { resources: options.resources } : {}),
+  }
+  return value
+}
+
+async function materializeRequest(
+  sandbox: SandboxInstance,
+  request: AgentCandidateExecutorRequest,
+): Promise<void> {
+  for (const file of request.inputs.task.files) {
+    await writeExactFile(sandbox, beneath(request.roots.taskRoot, file.path), file.bytes, file.mode)
+  }
+  const profileRoot =
+    request.executionPlan.value.material.profile.targetWorkspace === 'task'
+      ? request.roots.taskRoot
+      : request.roots.candidateRoot
+  if (!profileRoot) throw new Error('candidate profile targets a missing workspace')
+  for (const file of request.profileActivation.files) {
+    await writeExactFile(
+      sandbox,
+      beneath(profileRoot, file.path),
+      Buffer.from(file.content, 'utf8'),
+      file.mode,
+    )
+  }
+  if (request.instruction.delivery.kind === 'utf8-file') {
+    await writeExactFile(
+      sandbox,
+      request.instruction.delivery.path,
+      request.instruction.bytes,
+      0o644,
+    )
+  }
+}
+
+function exactLaunch(request: AgentCandidateExecutorRequest): {
+  executable: string
+  args: readonly string[]
+  stdin?: string
+} {
+  const instruction = new TextDecoder('utf-8', { fatal: true }).decode(request.instruction.bytes)
+  switch (request.instruction.delivery.kind) {
+    case 'argv-append':
+      return { executable: request.launch.executable, args: [...request.launch.args, instruction] }
+    case 'stdin-utf8':
+      return {
+        executable: request.launch.executable,
+        args: request.launch.args,
+        stdin: instruction,
+      }
+    case 'utf8-file':
+      return { executable: request.launch.executable, args: request.launch.args }
+  }
+}
+
+async function writeExactFile(
+  sandbox: SandboxInstance,
+  path: string,
+  bytes: Uint8Array,
+  mode: number,
+): Promise<void> {
+  await sandbox.fs.write(path, Buffer.from(bytes).toString('base64'), {
+    encoding: 'base64',
+    mode,
+  })
+}
+
+async function collectOutput(process: Process, maxBytes: number): Promise<Uint8Array> {
+  const chunks: Buffer[] = []
+  let byteLength = 0
+  for await (const chunk of process.stdout()) {
+    const bytes = Buffer.from(chunk, 'utf8')
+    byteLength += bytes.byteLength
+    if (byteLength > maxBytes) {
+      await killProcess(process)
+      throw new Error(`sandbox candidate output exceeds its ${maxBytes}-byte maximum`)
+    }
+    chunks.push(bytes)
+  }
+  return Uint8Array.from(Buffer.concat(chunks, byteLength))
+}
+
+async function killProcess(process: Process): Promise<void> {
+  const before = await process.status()
+  if (!before.running) return
+  try {
+    await process.kill('SIGKILL', { tree: true })
+  } catch (error) {
+    if ((await process.status()).running) throw error
+  }
+}
+
+function processTermination(status: ProcessStatus): AgentCandidateTermination {
+  if (status.running) throw new Error('candidate process is still running')
+  if (status.exitSignal) {
+    if (!/^SIG[A-Z0-9]+$/.test(status.exitSignal)) {
+      throw new Error('sandbox returned an invalid process signal')
+    }
+    return { kind: 'signal', signal: status.exitSignal }
+  }
+  return { kind: 'exit', exitCode: status.exitCode }
+}
+
+function matchesExecution(
+  sandbox: { metadata?: Record<string, unknown> },
+  request: AgentCandidateExecutorStopRequest,
+): boolean {
+  return (
+    sandbox.metadata?.kind === 'agent-candidate-execution' &&
+    sandbox.metadata.executionId === request.executionId &&
+    sandbox.metadata.executionPlanDigest === request.executionPlanDigest
+  )
+}
+
+function sandboxOutputSpec(sandbox: { metadata?: Record<string, unknown> }): { maxBytes: number } {
+  const maxBytes = sandbox.metadata?.outputMaxBytes
+  if (!Number.isSafeInteger(maxBytes) || Number(maxBytes) < 1) {
+    throw new Error('candidate sandbox output bound is unavailable')
+  }
+  return { maxBytes: Number(maxBytes) }
+}
+
+function executionKey(executionId: string, executionPlanDigest: Sha256Digest): string {
+  return `${executionId}\0${executionPlanDigest}`
+}
+
+function exactImage(image: string, manifestDigest: Sha256Digest): string {
+  const marker = image.lastIndexOf('@')
+  if (marker < 0) return `${image}@${manifestDigest}`
+  if (image.slice(marker + 1) !== manifestDigest) {
+    throw new Error('candidate container image conflicts with its resolved manifest')
+  }
+  return image
+}
+
+function beneath(root: string, relativePath: string): string {
+  if (posix.isAbsolute(relativePath)) throw new Error('candidate input path must be relative')
+  const path = posix.normalize(relativePath)
+  if (path === '..' || path.startsWith('../')) {
+    throw new Error('candidate input path escapes its execution root')
+  }
+  return posix.join(root, path)
+}

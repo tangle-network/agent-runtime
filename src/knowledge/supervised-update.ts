@@ -1,3 +1,4 @@
+import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
 import { researcherProfile } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
@@ -51,7 +52,7 @@ export interface SupervisedKnowledgeUpdateResult {
   applied: boolean
   summary: string
   supervised: SupervisedResult<unknown>
-  metadata: Record<string, unknown>
+  metadata: NonNullable<RagKnowledgeUpdateResult['metadata']>
 }
 
 export interface SupervisedKnowledgeUpdateOptions {

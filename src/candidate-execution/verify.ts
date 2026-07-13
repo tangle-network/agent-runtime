@@ -19,6 +19,7 @@ import {
   omitTopLevelDigest,
 } from './digest'
 import { readCandidateGitHubResource, verifyCandidateCode } from './git-materialize'
+import { assertCandidateProfileExecutionSupport } from './profile'
 import {
   type AgentCandidateVerificationPorts,
   type VerifiedAgentCandidate,
@@ -33,6 +34,22 @@ interface VerifiedCandidateState {
 
 const verifiedCandidateState = new WeakMap<VerifiedAgentCandidate, VerifiedCandidateState>()
 
+/** Surfaces admitted by Runtime's verifier before an environment adapter is selected. */
+export const AGENT_CANDIDATE_EXECUTION_SUPPORT = Object.freeze({
+  outcomes: Object.freeze(['workspace', 'output'] as const),
+  code: Object.freeze(['disabled', 'no-op', 'git-patch'] as const),
+  memory: Object.freeze(['disabled', 'isolated'] as const),
+  knowledge: false,
+  profile: Object.freeze({
+    mcpTransports: Object.freeze(['stdio'] as const),
+    remoteMcp: false,
+    tools: false,
+    permissions: false,
+    modes: false,
+    confidential: false,
+  }),
+})
+
 /** Verifies every digest, resource, workspace, and Git object in a candidate bundle. */
 export async function verifyAgentCandidateBundle(
   input: unknown,
@@ -46,6 +63,12 @@ export async function verifyAgentCandidateBundle(
   }
   const canonicalBytes = canonicalCandidateBytes(withoutDigest)
   verifyBytes(canonicalBytes, parsed.digest, canonicalBytes.byteLength, 'candidate bundle')
+  assertCandidateProfileExecutionSupport(parsed.profile)
+  if (parsed.knowledge) {
+    throw new Error(
+      'candidate knowledge execution is unsupported; promote the approved exact candidate through agent-runtime/knowledge',
+    )
+  }
 
   const artifactBytes = new Map<string, Uint8Array>()
   const readArtifact = async (artifact: AgentCandidateCapturedArtifact): Promise<Uint8Array> => {
@@ -87,7 +110,6 @@ export async function verifyAgentCandidateBundle(
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.manifest), workspace.manifest)
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.archive), workspace.archive)
   }
-  if (parsed.knowledge) await readArtifact(parsed.knowledge.manifest)
   if (parsed.memory.mode === 'isolated' && parsed.memory.seed)
     await readArtifact(parsed.memory.seed)
 

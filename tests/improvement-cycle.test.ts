@@ -1,27 +1,36 @@
 import { type AnalystFinding, InMemoryTraceStore } from '@tangle-network/agent-eval'
 import type {
+  CodeSurface,
   DispatchContext,
   JudgeConfig,
   MutableSurface,
   Scenario,
   SurfaceProposer,
 } from '@tangle-network/agent-eval/contract'
+import type { CandidateExecutionEvidence } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnalystRegistryLike } from '../src/analyst-loop/types'
 import { buildAgentCandidateBundle } from '../src/candidate-execution/builder'
+import { sealAgentCandidateBundle } from '../src/candidate-execution/bundle'
 import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
+import {
+  canonicalCandidateDocument,
+  embeddedCandidateArtifact,
+} from '../src/candidate-execution/digest'
 import { assertCandidateProfileBinding } from '../src/candidate-execution/profile'
 import type {
   AgentCandidateExecutorPort,
   AgentCandidateExecutorRequest,
 } from '../src/candidate-execution/types'
 import {
+  createAgentImprovementMeasuredComparison,
   createAgentImprovementProposal,
   executeApprovedAgentCandidate,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,
   verifyAgentImprovementProposal,
   verifyAgentImprovementReview,
+  verifyCandidateExecutionEvidence,
 } from '../src/intelligence/improvement-cycle'
 import {
   candidateSha,
@@ -226,20 +235,22 @@ describe('agent improvement lifecycle', () => {
       now: () => new Date('2026-07-10T01:00:00.000Z'),
     })
 
-    expect(proposed.proposal.evaluation.gateDecision).toBe('ship')
-    expect(proposed.proposal.evaluation.lift).toBeGreaterThan(0)
+    expect(proposed.proposal.evaluation.decision.outcome).toBe('ship')
+    expect(proposed.proposal.evaluation.overall.delta).toBeGreaterThan(0)
+    expect(proposed.proposal.changedSurfaces).toEqual(['prompt'])
     expect(proposed.proposal.findings).toEqual([finding])
-    expect(proposed.proposal.candidateProfile.prompt?.systemPrompt).toBe('PROMOTED')
+    expect(proposed.proposal.candidateBundle?.profile.prompt?.systemPrompt).toBe('PROMOTED')
     expect(proposed.proposal.candidateBundle?.digest).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(verifyAgentImprovementProposal(proposed.proposal)).toEqual(proposed.proposal)
+    expect(() =>
+      verifyAgentImprovementProposal({ ...proposed.proposal, runId: 'tampered-run' }),
+    ).toThrow(/proposal digest does not match/)
     expect(
       createAgentImprovementProposal({
         runId: 'analysis-run-1',
-        surface: 'prompt',
         baselineProfile: profile,
-        candidateProfile: proposed.improvement.profile,
         findings: proposed.analysis.analystResult.findings,
-        evaluation: proposed.improvement.raw,
+        evaluation: proposed.proposal.evaluation,
         candidateBundle: proposed.proposal.candidateBundle,
         now: () => new Date('2026-07-10T01:00:00.000Z'),
       }),
@@ -247,32 +258,215 @@ describe('agent improvement lifecycle', () => {
     expect(() =>
       createAgentImprovementProposal({
         runId: 'analysis-run-unmeasured',
-        surface: 'prompt',
         baselineProfile: profile,
-        candidateProfile: {
+        findings: proposed.analysis.analystResult.findings,
+        evaluation: proposed.proposal.evaluation,
+        candidateBundle: alignedBundle(bundleInput, {
           ...proposed.improvement.profile,
           prompt: { systemPrompt: 'UNMEASURED' },
-        },
-        findings: proposed.analysis.analystResult.findings,
-        evaluation: proposed.improvement.raw,
+        }),
       }),
-    ).toThrow(/does not match the measured winner surface/)
+    ).toThrow(/does not bind the exact candidate bundle/)
     expect(() =>
       createAgentImprovementProposal({
-        runId: 'analysis-run-malformed-profile',
-        surface: 'agent-profile',
-        baselineProfile: profile,
-        candidateProfile: profile,
+        runId: 'analysis-run-baseline-drift',
+        baselineProfile: { ...profile, name: 'different-baseline' },
         findings: proposed.analysis.analystResult.findings,
-        evaluation: {
+        evaluation: proposed.proposal.evaluation,
+        candidateBundle: proposed.proposal.candidateBundle,
+      }),
+    ).toThrow(/does not bind the included baseline profile/)
+
+    const firstMeasuredCell = proposed.improvement.raw.raw.baselineOnHoldout.cells[0]
+    if (!firstMeasuredCell) throw new Error('expected a measured heldout cell')
+    const primaryObjective = Object.keys(firstMeasuredCell.judgeScores)[0]
+    const primaryScore = primaryObjective
+      ? firstMeasuredCell.judgeScores[primaryObjective]
+      : undefined
+    const primaryDimension = primaryScore ? Object.keys(primaryScore.dimensions)[0] : undefined
+    if (!primaryObjective || !primaryScore || !primaryDimension) {
+      throw new Error('expected a measured objective and dimension')
+    }
+    const addSecondJudge = (cell: typeof firstMeasuredCell) => ({
+      ...cell,
+      judgeScores: {
+        ...cell.judgeScores,
+        secondary: {
+          composite: cell.judgeScores[primaryObjective]!.composite,
+          dimensions: { ...cell.judgeScores[primaryObjective]!.dimensions },
+        },
+      },
+    })
+    const multiJudgeResult = {
+      ...proposed.improvement.raw,
+      raw: {
+        ...proposed.improvement.raw.raw,
+        baselineOnHoldout: {
+          ...proposed.improvement.raw.raw.baselineOnHoldout,
+          cells: proposed.improvement.raw.raw.baselineOnHoldout.cells.map(addSecondJudge),
+        },
+        winnerOnHoldout: {
+          ...proposed.improvement.raw.raw.winnerOnHoldout,
+          cells: proposed.improvement.raw.raw.winnerOnHoldout.cells.map(addSecondJudge),
+        },
+      },
+    }
+    const multiJudgeComparison = createAgentImprovementMeasuredComparison({
+      result: multiJudgeResult,
+      measuredSurface: 'prompt',
+      baselineProfile: profile,
+      candidateBundle: proposed.proposal.candidateBundle,
+    })
+    expect(multiJudgeComparison.objectives).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'objective', name: primaryObjective }),
+        expect.objectContaining({ kind: 'objective', name: 'secondary' }),
+        expect.objectContaining({
+          kind: 'dimension',
+          objective: primaryObjective,
+          name: primaryDimension,
+        }),
+        expect.objectContaining({
+          kind: 'dimension',
+          objective: 'secondary',
+          name: primaryDimension,
+        }),
+      ]),
+    )
+
+    const compoundProfile = {
+      ...proposed.improvement.profile,
+      tools: { inspect_repository: true },
+    }
+    const compoundInput = alignedBundle(bundleInput, compoundProfile)
+    const compoundBundle = sealAgentCandidateBundle({
+      ...compoundInput,
+      profile: { ...compoundInput.profile, tools: compoundProfile.tools },
+    })
+    const compoundComparison = createAgentImprovementMeasuredComparison({
+      result: {
+        ...proposed.improvement.raw,
+        winner: {
+          ...proposed.improvement.raw.winner,
+          surface: JSON.stringify(compoundProfile),
+        },
+      },
+      measuredSurface: 'agent-profile',
+      baselineProfile: profile,
+      candidateBundle: compoundBundle,
+    })
+    const compoundProposal = createAgentImprovementProposal({
+      runId: 'analysis-run-compound-profile',
+      baselineProfile: profile,
+      findings: proposed.analysis.analystResult.findings,
+      evaluation: compoundComparison,
+      candidateBundle: compoundBundle,
+    })
+    expect(compoundProposal.changedSurfaces).toEqual(['prompt', 'tools'])
+    const { digest: _compoundDigest, ...compoundWithoutDigest } = compoundProposal
+    const omittedSurfaceProposal = canonicalCandidateDocument<typeof compoundProposal>({
+      ...compoundWithoutDigest,
+      changedSurfaces: ['prompt'],
+    }).value
+    expect(() => verifyAgentImprovementProposal(omittedSurfaceProposal)).toThrow(
+      /changed surfaces do not match/,
+    )
+
+    const codeFixture = createCandidateExecutionFixture(true)
+    const { digest: _codeDigest, ...codeBundleInput } = codeFixture.bundle
+    if (!codeFixture.task.repository) throw new Error('expected repository fixture')
+    const patch = Buffer.from('diff --git a/source.ts b/source.ts\n', 'utf8')
+    const candidateTree = 'f'.repeat(codeFixture.task.repository.baseTree.length)
+    const codeSurface: CodeSurface = {
+      kind: 'code',
+      worktreeRef: '/tmp/measured-code-winner',
+      baseRef: 'main',
+      baseCommit: codeFixture.task.repository.baseCommit,
+      baseTree: codeFixture.task.repository.baseTree,
+      candidateCommit: 'e'.repeat(codeFixture.task.repository.baseCommit.length),
+      candidateTree,
+      patch: {
+        format: 'git-diff-binary',
+        sha256: embeddedCandidateArtifact(patch).sha256,
+        byteLength: patch.byteLength,
+      },
+    }
+    const codeBundle = sealAgentCandidateBundle({
+      ...alignedBundle(codeBundleInput, profile),
+      code: {
+        kind: 'git-patch',
+        repository: { kind: 'github', owner: 'owner', repo: 'repo' },
+        baseCommit: codeSurface.baseCommit,
+        baseTree: codeSurface.baseTree,
+        candidateTree: codeSurface.candidateTree,
+        patch: { format: 'git-diff-binary', artifact: embeddedCandidateArtifact(patch) },
+      },
+    })
+    const codeResult = {
+      ...proposed.improvement.raw,
+      winner: { ...proposed.improvement.raw.winner, surface: codeSurface },
+    }
+    const codeComparison = createAgentImprovementMeasuredComparison({
+      result: codeResult,
+      measuredSurface: 'code',
+      baselineProfile: profile,
+      candidateBundle: codeBundle,
+    })
+    const codeProposal = createAgentImprovementProposal({
+      runId: 'analysis-run-code',
+      baselineProfile: profile,
+      findings: proposed.analysis.analystResult.findings,
+      evaluation: codeComparison,
+      candidateBundle: codeBundle,
+      now: () => new Date('2026-07-10T01:30:00.000Z'),
+    })
+    expect(codeProposal.changedSurfaces).toEqual(['code'])
+    expect(
+      reviewAgentImprovementProposal(codeProposal, {
+        decision: 'approve',
+        reviewedBy: 'operator@example.com',
+        reason: 'The measured code winner matches the sealed patch.',
+      }).decision,
+    ).toBe('approve')
+    expect(() =>
+      createAgentImprovementMeasuredComparison({
+        result: {
+          ...codeResult,
+          winner: {
+            ...codeResult.winner,
+            surface: { ...codeSurface, candidateTree: '0'.repeat(candidateTree.length) },
+          },
+        },
+        measuredSurface: 'code',
+        baselineProfile: profile,
+        candidateBundle: codeBundle,
+      }),
+    ).toThrow(/does not match the measured code winner/)
+    expect(() =>
+      createAgentImprovementMeasuredComparison({
+        result: {
+          ...proposed.improvement.raw,
+          winner: { ...proposed.improvement.raw.winner, surface: 'measured memory' },
+        },
+        measuredSurface: 'memory',
+        baselineProfile: profile,
+        candidateBundle: proposed.proposal.candidateBundle,
+      }),
+    ).toThrow(/memory improvement proposals require a content-addressed bundle binding/)
+    expect(() =>
+      createAgentImprovementMeasuredComparison({
+        result: {
           ...proposed.improvement.raw,
           winner: {
             ...proposed.improvement.raw.winner,
-            surface: '{not-json',
+            surface: '# Measured skill document',
           },
         },
+        measuredSurface: 'skills',
+        baselineProfile: profile,
+        candidateBundle: proposed.proposal.candidateBundle,
       }),
-    ).toThrow(/not valid JSON/)
+    ).toThrow(/skill-document improvement proposals require a content-addressed bundle binding/)
 
     const review = reviewAgentImprovementProposal(proposed.proposal, {
       decision: 'approve',
@@ -281,6 +475,9 @@ describe('agent improvement lifecycle', () => {
       now: () => new Date('2026-07-10T02:00:00.000Z'),
     })
     expect(verifyAgentImprovementReview(review)).toEqual(review)
+    expect(() =>
+      verifyAgentImprovementReview({ ...review, reason: 'Tampered after review.' }),
+    ).toThrow(/review digest does not match/)
 
     const traceStore = new InMemoryTraceStore()
     let request: AgentCandidateExecutorRequest | undefined
@@ -297,8 +494,8 @@ describe('agent improvement lifecycle', () => {
         })
         return { executionId: input.executionId, termination: { kind: 'exit', exitCode: 0 } }
       },
-      stopAndCapture: async () => ({
-        stopped: true,
+      stop: async () => ({ stopped: true }),
+      capture: async () => ({
         taskOutcome: unchangedTaskOutcomeCapture(fixture),
       }),
     }
@@ -319,14 +516,51 @@ describe('agent improvement lifecycle', () => {
 
     expect(request).toBeDefined()
     expect(executed.finalization.succeeded).toBe(true)
+    if (!executed.finalization.succeeded) throw new Error('expected successful finalization')
     expect(executed.evidence).toMatchObject({
       proposalDigest: proposed.proposal.digest,
       reviewDigest: review.digest,
-      bundleDigest: proposed.proposal.candidateBundle?.digest,
       executionId: fixture.task.executionId,
       succeeded: true,
-      runReceiptDigest: expect.stringMatching(/^sha256:/),
+      receipt: {
+        bundleDigest: proposed.proposal.candidateBundle?.digest,
+        executionPlanDigest: expect.stringMatching(/^sha256:/),
+        materializationReceiptDigest: expect.stringMatching(/^sha256:/),
+        digest: expect.stringMatching(/^sha256:/),
+      },
+      materializationReceipt: {
+        digest: executed.finalization.receipt.value.materializationReceiptDigest,
+        profilePlan: { material: { files: expect.any(Array) } },
+      },
     })
+    expect(
+      verifyCandidateExecutionEvidence([executed.evidence], {
+        proposal: proposed.proposal,
+        review,
+        expectedCount: 1,
+      }),
+    ).toEqual([executed.evidence])
+    expect(() =>
+      verifyCandidateExecutionEvidence([executed.evidence, executed.evidence], {
+        proposal: proposed.proposal,
+        review,
+        expectedCount: 2,
+      }),
+    ).toThrow(/reuses an execution id/)
+    expect(() =>
+      verifyCandidateExecutionEvidence([{ ...executed.evidence, succeeded: false }], {
+        proposal: proposed.proposal,
+        review,
+        expectedCount: 1,
+      }),
+    ).toThrow()
+    expect(() =>
+      verifyCandidateExecutionEvidence([forgeProfileActivation(executed.evidence)], {
+        proposal: proposed.proposal,
+        review,
+        expectedCount: 1,
+      }),
+    ).toThrow(/profile activation file path, mode, and content must match the canonical plan/)
   })
 
   it('records rejection and refuses to execute it', async () => {
@@ -365,7 +599,8 @@ describe('agent improvement lifecycle', () => {
             execute: async () => {
               throw new Error('must not execute')
             },
-            stopAndCapture: async () => ({ stopped: true }),
+            stop: async () => ({ stopped: true }),
+            capture: async () => ({}),
           },
           traceStore: new InMemoryTraceStore(),
           claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
@@ -435,7 +670,8 @@ describe('agent improvement lifecycle', () => {
             execute: async () => {
               throw new Error('must not execute')
             },
-            stopAndCapture: async () => ({ stopped: true }),
+            stop: async () => ({ stopped: true }),
+            capture: async () => ({}),
           },
           traceStore: new InMemoryTraceStore(),
           claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
@@ -468,3 +704,23 @@ describe('agent improvement lifecycle', () => {
     ).rejects.toThrow(/judge/i)
   })
 })
+
+function forgeProfileActivation(evidence: CandidateExecutionEvidence): CandidateExecutionEvidence {
+  const { digest: _activationDigest, ...activationWithoutDigest } = evidence.profileActivation
+  const first = evidence.profileActivation.files[0]
+  if (!first) throw new Error('expected a materialized profile file')
+  const profileActivation = canonicalCandidateDocument<
+    CandidateExecutionEvidence['profileActivation']
+  >({
+    ...activationWithoutDigest,
+    files: [
+      { ...first, content: `${first.content}\nforged` },
+      ...evidence.profileActivation.files.slice(1),
+    ],
+  }).value
+  const { digest: _evidenceDigest, ...evidenceWithoutDigest } = evidence
+  return canonicalCandidateDocument<CandidateExecutionEvidence>({
+    ...evidenceWithoutDigest,
+    profileActivation,
+  }).value
+}

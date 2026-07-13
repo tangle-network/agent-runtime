@@ -16,7 +16,7 @@ import type {
   PreparedAgentCandidateExecution,
 } from '@tangle-network/agent-runtime'
 import { executePreparedAgentCandidate } from '@tangle-network/agent-runtime'
-import type { TraceStore } from '@tangle-network/agent-eval'
+import { canonicalJson, type TraceStore } from '@tangle-network/agent-eval'
 
 import { capturePierTaskOutcome } from './pier-task-outcome'
 
@@ -81,6 +81,8 @@ export interface PierCandidateTrialController {
   terminateAndWait(
     identity: PierCandidateTrialIdentity,
   ): Promise<PierCandidateTerminationAcknowledgement>
+  /** Read immutable official bytes after termination; undefined proves no result was emitted. */
+  captureResult(identity: PierCandidateTrialIdentity): Promise<PierCandidateTrialResult | undefined>
 }
 
 /** Evaluator-owned bytes captured from one completed official Pier trial. */
@@ -132,7 +134,7 @@ export function createPierCandidateRecoveryExecutor(
     execute: async () => {
       throw new Error('recovery-only Pier executor cannot start a candidate')
     },
-    stopAndCapture: async (request) => {
+    stop: async (request) => {
       assertTerminationAcknowledged(
         await controller.terminateAndWait({
           executionId: request.executionId,
@@ -140,6 +142,21 @@ export function createPierCandidateRecoveryExecutor(
         }),
       )
       return { stopped: true }
+    },
+    capture: async (request) => {
+      const result = await controller.captureResult(request)
+      if (!result) return {}
+      return {
+        evidence: Buffer.from(
+          canonicalJson({
+            schemaVersion: 1,
+            kind: 'pier-candidate-recovery-capture',
+            executionPlanDigest: request.executionPlanDigest,
+            officialResult: Buffer.from(result.resultBytes).toString('base64'),
+            taskPatch: Buffer.from(result.taskPatch).toString('base64'),
+          }),
+        ),
+      }
     },
   }
 }
@@ -294,9 +311,6 @@ export async function stagePreparedPierCandidateExecution(
   if (request.memory.mode !== 'disabled') {
     throw new Error('Pier transport does not yet implement protected isolated memory')
   }
-  if (request.knowledge !== undefined) {
-    throw new Error('Pier transport does not yet implement immutable knowledge mounts')
-  }
   const taskDirectory = join(directory, 'task')
   const candidateDirectory = request.inputs.candidate ? join(directory, 'candidate') : undefined
   const profileDirectory = join(directory, 'profile')
@@ -316,7 +330,11 @@ export async function stagePreparedPierCandidateExecution(
   }
   await materializeExecutorFiles(
     profileDirectory,
-    request.inputs.profile.files,
+    request.profileActivation.files.map((file) => ({
+      path: file.path,
+      mode: file.mode,
+      bytes: Buffer.from(file.content, 'utf8'),
+    })),
     request.profilePlan.value.material.files.map((file) => ({
       path: file.relPath,
       mode: file.mode,
@@ -565,39 +583,47 @@ export async function executePreparedPierCandidate(
       officialResults.set(request.executionId, result)
       return protectedCaptureFromPierResult(request, result.value)
     },
-    stopAndCapture: async (request) => {
-      const identity = trialIdentity(request.executionId, request.executionPlanDigest)
-      const active = trials.get(identity)
+    stop: async (request) => {
       assertTerminationAcknowledged(
         await options.controller.terminateAndWait({
           executionId: request.executionId,
           executionPlanDigest: request.executionPlanDigest,
         }),
       )
-      if (!active) return { stopped: true }
-      let result = active.result
-      if (!result) {
+      return { stopped: true }
+    },
+    capture: async (request) => {
+      const identity = trialIdentity(request.executionId, request.executionPlanDigest)
+      const active = trials.get(identity)
+      let result = active?.result
+      if (!result && active) {
         try {
           result = sealPierTrialResult(await active.handle.result)
         } catch {
           result = undefined
         }
       }
-      trials.delete(identity)
-      if (!result) return { stopped: true }
+      if (!result) {
+        const recovered = await options.controller.captureResult(request)
+        result = recovered ? sealPierTrialResult(recovered) : undefined
+      }
+      if (!result) return {}
       officialResults.set(request.executionId, result)
-      const repository = options.prepared.executionPlan.value.material.task.repository
+      const task = options.prepared.executionPlan.value.material.task
+      const outcome = task.outcome
+      if (outcome.kind !== 'workspace') {
+        throw new Error('Pier candidate execution requires a workspace task outcome')
+      }
+      const repository = task.repository
+      if (!repository) throw new Error('Pier workspace task is missing repository identity')
       const taskOutcome = await capturePierTaskOutcome({
         repositoryRoot: options.prepared.roots.staging.taskRoot,
         baseCommit: repository.baseCommit,
         baseTree: repository.baseTree,
         patch: result.taskPatch,
-        artifactPersistence: {
-          executionId: request.executionId,
-          outputArtifacts: options.outputArtifacts,
-        },
       })
-      return { stopped: true, taskOutcome }
+      trials.delete(identity)
+      return { taskOutcome }
     },
   }
   const grader: AgentCandidateBenchmarkGraderPort = {

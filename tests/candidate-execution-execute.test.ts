@@ -22,6 +22,7 @@ import {
   candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
+  createCandidateOutputExecutionFixture,
   createCandidateOutputFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
@@ -49,26 +50,45 @@ async function terminalTrace(
   })
 }
 
+interface TestExecutor {
+  execute: AgentCandidateExecutorPort['execute']
+  stop: AgentCandidateExecutorPort['stop']
+  capture?: AgentCandidateExecutorPort['capture']
+}
+
 function options(
-  executor: AgentCandidateExecutorPort,
+  executor: TestExecutor,
   traceStore = new InMemoryTraceStore(),
   claimStore = new InMemoryAgentCandidateExecutionClaimStore(),
 ) {
   const outputs = createCandidateOutputFixture()
-  let request: AgentCandidateExecutorRequest | undefined
+  const requests = new Map<string, AgentCandidateExecutorRequest>()
   return {
     executor: {
       execute: async (...args: Parameters<AgentCandidateExecutorPort['execute']>) => {
-        request = args[0]
+        requests.set(args[0].executionId, args[0])
         return await executor.execute(...args)
       },
-      stopAndCapture: async (...args: Parameters<AgentCandidateExecutorPort['stopAndCapture']>) => {
-        const capture = await executor.stopAndCapture(...args)
-        if (capture.taskOutcome || !request) return capture
+      stop: executor.stop,
+      capture: async (
+        stopRequest: Parameters<AgentCandidateExecutorPort['capture']>[0],
+        context: Parameters<AgentCandidateExecutorPort['capture']>[1],
+      ) => {
+        const capture = executor.capture ? await executor.capture(stopRequest, context) : {}
+        if (capture.taskOutcome) return capture
+        const request = requests.get(stopRequest.executionId)
+        if (!request) throw new Error('fixture capture has no execution request')
+        const outcome = request.executionPlan.value.material.task.outcome
+        if (outcome.kind !== 'workspace') {
+          throw new Error('fixture fallback requires a workspace outcome')
+        }
+        const repository = request.executionPlan.value.material.task.repository
+        if (!repository) throw new Error('fixture fallback requires repository identity')
         return {
           ...capture,
           taskOutcome: {
-            resultTree: request.executionPlan.value.material.task.repository.baseTree,
+            kind: 'workspace' as const,
+            resultTree: repository.baseTree,
             afterState: request.executionPlan.value.material.task.workspace.material,
             archive: Buffer.from('fixture unchanged task archive', 'utf8'),
             gitDiff: Buffer.alloc(0),
@@ -99,7 +119,7 @@ describe('atomic prepared candidate execution', () => {
     const traceStore = new InMemoryTraceStore()
     let observed: AgentCandidateExecutorRequest | undefined
     let stopped = 0
-    const executor: AgentCandidateExecutorPort = {
+    const executor: TestExecutor = {
       execute: async (request, context) => {
         observed = request
         expect(context.traceStore).not.toBe(traceStore)
@@ -126,8 +146,11 @@ describe('atomic prepared candidate execution', () => {
           termination: { kind: 'exit', exitCode: 0 },
         }
       },
-      stopAndCapture: async () => {
+      stop: async () => {
         stopped++
+        return { stopped: true }
+      },
+      capture: async () => {
         if (!observed) throw new Error('candidate executor did not receive its request')
         const changedBytes = Buffer.from('export const value = 2\n')
         const taskRoot = fixture.task.stagingRoots.taskRoot
@@ -148,8 +171,8 @@ describe('atomic prepared candidate execution', () => {
           })),
         )
         return {
-          stopped: true,
           taskOutcome: {
+            kind: 'workspace',
             resultTree,
             afterState: captured.snapshot.material,
             archive: captured.archive,
@@ -168,9 +191,13 @@ describe('atomic prepared candidate execution', () => {
       succeeded: true,
       receipt: {
         value: {
-          schemaVersion: 2,
-          usage: { modelCalls: 0, costUsd: 0 },
-          fixedUsage: { modelCalls: 0, costUsdNanos: 0 },
+          schemaVersion: 1,
+          executorCapture: expect.objectContaining({
+            sha256: expect.stringMatching(/^sha256:/),
+          }),
+          modelSettlement: {
+            material: { usage: { modelCalls: 0, costUsdNanos: 0 } },
+          },
           benchmarkResult: {
             material: {
               score: 1,
@@ -184,6 +211,54 @@ describe('atomic prepared candidate execution', () => {
     await expect(
       executionOptions.outputArtifacts.read(result.artifacts.runReceipt),
     ).resolves.toEqual(result.receipt.bytes)
+    expect(result.receipt.value.executorCapture).toEqual(result.artifacts.executorCapture)
+  })
+
+  it('grades and receipts exact normal-agent output through the shared execution path', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 1_024)
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
+      fixture.task,
+      fixture.ports,
+    )
+    const traceStore = new InMemoryTraceStore()
+    const output = Buffer.from('{"recommendation":"add focused failure recovery"}\n', 'utf8')
+    const executionOptions = options(
+      {
+        execute: async (request) => {
+          await terminalTrace(request, traceStore)
+          return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
+        },
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({
+          taskOutcome: { kind: 'output', bytes: output },
+        }),
+      },
+      traceStore,
+    )
+    let gradedOutput = Buffer.alloc(0)
+    executionOptions.grader = {
+      ...executionOptions.grader,
+      run: async (input) => {
+        if (input.outcome.kind !== 'output') throw new Error('expected output outcome')
+        gradedOutput = Buffer.from(input.outcome.bytes)
+        return await createCandidateOutputFixture().grader.run(input)
+      },
+    }
+
+    const result = await executePreparedAgentCandidate(prepared, executionOptions)
+    if (!result.succeeded) throw new Error(result.reason)
+    const captured = result.receipt.value.taskOutcome.material.outcome
+    if (captured.kind !== 'output') throw new Error('expected output receipt')
+    expect(gradedOutput).toEqual(output)
+    await expect(executionOptions.outputArtifacts.read(captured.artifact)).resolves.toEqual(
+      Uint8Array.from(output),
+    )
+    expect(result.receipt.value.benchmarkResult.material).toMatchObject({
+      taskOutcomeDigest: result.receipt.value.taskOutcome.digest,
+      score: 1,
+      passed: true,
+    })
   })
 
   it('authors paid model spans only from the closed router ledger', async () => {
@@ -237,17 +312,24 @@ describe('atomic prepared candidate execution', () => {
               termination: { kind: 'exit', exitCode: 0 },
             }
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         traceStore,
       ),
     )
     if (!result.succeeded) throw new Error(result.reason)
     expect(result.receipt.value).toMatchObject({
-      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
       modelSettlement: {
         material: {
-          schemaVersion: 2,
+          schemaVersion: 1,
+          usage: {
+            modelCalls: 1,
+            inputTokens: 10,
+            outputTokens: 5,
+            cachedInputTokens: 2,
+            reasoningTokens: 1,
+            costUsdNanos: 10_000_000,
+          },
           calls: [
             {
               generationId: 'generation-paid-success',
@@ -305,7 +387,8 @@ describe('atomic prepared candidate execution', () => {
           executions++
           throw new Error('must not execute')
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({}),
       }),
     )
     expect(result).toMatchObject({
@@ -365,7 +448,7 @@ describe('atomic prepared candidate execution', () => {
           execute: async () => {
             throw new Error('must not execute')
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         new InMemoryTraceStore(),
         claimStore,
@@ -422,7 +505,7 @@ describe('atomic prepared candidate execution', () => {
             executions++
             throw new Error('must not execute')
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         new InMemoryTraceStore(),
         claimStore,
@@ -502,10 +585,11 @@ describe('atomic prepared candidate execution', () => {
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
-        stopAndCapture: async () => {
+        stop: async () => {
           now += cleanupTimeoutMs - 1
-          return { stopped: true, taskOutcome: unchangedTaskOutcomeCapture(fixture) }
+          return { stopped: true }
         },
+        capture: async () => ({ taskOutcome: unchangedTaskOutcomeCapture(fixture) }),
       },
       grader: {
         ...outputs.grader,
@@ -549,8 +633,8 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => ({
-            stopped: true,
+          stop: async () => ({ stopped: true }),
+          capture: async () => ({
             taskOutcome: unchangedTaskOutcomeCapture(fixture),
           }),
         },
@@ -606,8 +690,8 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => ({
-            stopped: true,
+          stop: async () => ({ stopped: true }),
+          capture: async () => ({
             taskOutcome: unchangedTaskOutcomeCapture(fixture),
           }),
         },
@@ -669,7 +753,8 @@ describe('atomic prepared candidate execution', () => {
         execute: async () => {
           throw new Error('must not execute')
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({}),
       }),
     )
     expect(result).toMatchObject({
@@ -711,7 +796,7 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         traceStore,
       ),
@@ -733,7 +818,8 @@ describe('atomic prepared candidate execution', () => {
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({}),
       },
       traceStore,
       claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
@@ -742,7 +828,7 @@ describe('atomic prepared candidate execution', () => {
     expect(result).toMatchObject({
       succeeded: false,
       reason: expect.stringMatching(/without a captured task outcome/),
-      usage: { modelCalls: 0, costUsd: 0 },
+      usage: { modelCalls: 0, costUsdNanos: 0 },
     })
   })
 
@@ -762,9 +848,9 @@ describe('atomic prepared candidate execution', () => {
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
-        stopAndCapture: async () =>
+        stop: async () => ({ stopped: true }),
+        capture: async () =>
           ({
-            stopped: true,
             taskOutcome: unchangedTaskOutcomeCapture(fixture),
             score: 1,
           }) as never,
@@ -783,7 +869,7 @@ describe('atomic prepared candidate execution', () => {
     expect(result).toMatchObject({
       succeeded: false,
       reason: expect.stringMatching(/unknown field score/),
-      usage: { modelCalls: 0, costUsd: 0 },
+      usage: { modelCalls: 0, costUsdNanos: 0 },
     })
     expect(graderCalls).toBe(0)
   })
@@ -808,8 +894,8 @@ describe('atomic prepared candidate execution', () => {
             score: 1,
           } as never
         },
-        stopAndCapture: async () => ({
-          stopped: true,
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({
           taskOutcome: unchangedTaskOutcomeCapture(fixture),
         }),
       },
@@ -827,7 +913,7 @@ describe('atomic prepared candidate execution', () => {
     expect(result).toMatchObject({
       succeeded: false,
       reason: expect.stringMatching(/unknown field score/),
-      usage: { modelCalls: 0, costUsd: 0 },
+      usage: { modelCalls: 0, costUsdNanos: 0 },
     })
     expect(graderCalls).toBe(0)
   })
@@ -850,7 +936,7 @@ describe('atomic prepared candidate execution', () => {
     const didStart = new Promise<void>((resolve) => {
       started = resolve
     })
-    const executor: AgentCandidateExecutorPort = {
+    const executor: TestExecutor = {
       execute: async (request) => {
         executions++
         started()
@@ -858,7 +944,7 @@ describe('atomic prepared candidate execution', () => {
         await terminalTrace(request, traceStore)
         return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
       },
-      stopAndCapture: async () => ({ stopped: true }),
+      stop: async () => ({ stopped: true }),
     }
     const first = executePreparedAgentCandidate(prepared, options(executor, traceStore, claimStore))
     await didStart
@@ -934,14 +1020,14 @@ describe('atomic prepared candidate execution', () => {
     const didStart = new Promise<void>((resolve) => {
       started = resolve
     })
-    const executor: AgentCandidateExecutorPort = {
+    const executor: TestExecutor = {
       execute: async (request) => {
         started()
         await wait
         await terminalTrace(request, traceStore)
         return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
       },
-      stopAndCapture: async () => ({ stopped: true }),
+      stop: async () => ({ stopped: true }),
     }
 
     const first = executePreparedAgentCandidate(
@@ -1008,13 +1094,13 @@ describe('atomic prepared candidate execution', () => {
       prepared,
       options({
         execute: async () => Promise.reject(new Error(`container failed with ${secret}`)),
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
       }),
     )
     expect(result).toMatchObject({
       succeeded: false,
       reason: expect.not.stringContaining(secret),
-      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
+      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsdNanos: 10_000_000 },
     })
     expect(result.reason).toContain('[redacted:candidate-access]')
     expect({ closed, settlementReads }).toEqual({ closed: true, settlementReads: 1 })
@@ -1058,7 +1144,7 @@ describe('atomic prepared candidate execution', () => {
               })
             })
           },
-          stopAndCapture: async (_request, context) => {
+          stop: async (_request, context) => {
             expect(context.reason).toBe('timeout')
             expect(context.signal).toBe(observedSignal)
             expect(context.deadlineAtMs).toBe(startedAt + 15)
@@ -1106,7 +1192,7 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore, 105)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => {
+          stop: async () => {
             markStopStarted()
             await new Promise((resolve) => setTimeout(resolve, 30))
             return { stopped: true }
@@ -1142,7 +1228,7 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => await new Promise<never>(() => undefined),
+          stop: async () => await new Promise<never>(() => undefined),
         },
         traceStore,
         claimStore,
@@ -1178,7 +1264,7 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => {
+          stop: async () => {
             throw new Error('container death not observed')
           },
         },
@@ -1216,7 +1302,7 @@ describe('atomic prepared candidate execution', () => {
           execute: async () => {
             throw new Error('infrastructure failed')
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         new InMemoryTraceStore(),
         claimStore,
@@ -1245,7 +1331,7 @@ describe('atomic prepared candidate execution', () => {
             retryExecutions++
             throw new Error('retry must not execute')
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         new InMemoryTraceStore(),
         claimStore,
@@ -1285,7 +1371,7 @@ describe('atomic prepared candidate execution', () => {
           execute: async () => {
             throw new Error('executor must not run before model activation')
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         firstTraceStore,
         claimStore,
@@ -1314,7 +1400,7 @@ describe('atomic prepared candidate execution', () => {
             await terminalTrace(request, traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
-          stopAndCapture: async () => ({ stopped: true }),
+          stop: async () => ({ stopped: true }),
         },
         traceStore,
         claimStore,
@@ -1371,12 +1457,14 @@ describe('atomic prepared candidate execution', () => {
               termination: { kind: 'exit', exitCode: 0 },
             }
           },
-          stopAndCapture: async () => {
+          stop: async () => {
             order.push('process-stop')
+            return { stopped: true }
+          },
+          capture: async () => {
             if (!('content' in after.archive))
               throw new Error('fixture memory archive is not embedded')
             return {
-              stopped: true,
               memoryAfter: {
                 afterState: after.material,
                 archive: Buffer.from(after.archive.content, 'base64'),
@@ -1443,8 +1531,8 @@ describe('atomic prepared candidate execution', () => {
           await terminalTrace(request, traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
-        stopAndCapture: async () => ({
-          stopped: true,
+        stop: async () => ({ stopped: true }),
+        capture: async () => ({
           taskOutcome: unchangedTaskOutcomeCapture(fixture),
           memoryAfter: { afterState, archive: gzipSync(memoryBytes) },
         }),
@@ -1517,7 +1605,7 @@ describe('atomic prepared candidate execution', () => {
           })
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
       },
       traceStore,
     )
@@ -1558,7 +1646,7 @@ describe('atomic prepared candidate execution', () => {
           executions++
           throw new Error('must not execute')
         },
-        stopAndCapture: async () => ({ stopped: true }),
+        stop: async () => ({ stopped: true }),
       }),
     )
     expect(result).toMatchObject({ succeeded: false, reason: expect.stringMatching(/collides/) })

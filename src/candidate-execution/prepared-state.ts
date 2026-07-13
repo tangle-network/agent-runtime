@@ -14,9 +14,11 @@ import {
   sha256Bytes,
 } from './digest'
 import { verifyTaskCheckout } from './git-materialize'
+import { parseAgentCandidateProfileActivation } from './profile'
 import type {
   AgentCandidateExecutionPorts,
   AgentCandidateExecutorRequest,
+  AgentCandidateExecutorWorkspaceFile,
   AgentCandidateProtectedModelActivation,
   AgentCandidateProtectedModelReservation,
   PreparedAgentCandidateExecution,
@@ -29,6 +31,7 @@ export interface PreparedCandidateState {
   executionId: string
   roots: PreparedAgentCandidateExecution['roots']
   profilePlan: PreparedAgentCandidateExecution['profilePlan']
+  profileActivation: PreparedAgentCandidateExecution['profileActivation']
   executionPlan: PreparedAgentCandidateExecution['executionPlan']
   materializationReceipt: PreparedAgentCandidateExecution['materializationReceipt']
   launch: PreparedAgentCandidateExecution['launch']
@@ -42,17 +45,12 @@ export interface PreparedCandidateState {
   executorInputs: {
     taskFiles: ReadonlyArray<{
       path: string
-      mode: 0o644 | 0o755
+      mode: number
       bytes: Uint8Array
     }>
     candidateFiles?: ReadonlyArray<{
       path: string
-      mode: 0o644 | 0o755
-      bytes: Uint8Array
-    }>
-    profileFiles: ReadonlyArray<{
-      path: string
-      mode: 0o644 | 0o755
+      mode: number
       bytes: Uint8Array
     }>
   }
@@ -62,7 +60,6 @@ export interface PreparedCandidateState {
     expiresAtMs: number
     effectiveNamespace: string
   }
-  knowledge?: PreparedAgentCandidateExecution['knowledge']
   trace: PreparedAgentCandidateExecution['trace']
   memory: PreparedAgentCandidateExecution['memory']
 }
@@ -96,12 +93,12 @@ export function createPreparedCandidateExecution(
     executionId: state.executionId,
     roots: state.roots,
     profilePlan: evidenceView(state.profilePlan),
+    profileActivation: state.profileActivation,
     executionPlan: evidenceView(state.executionPlan),
     materializationReceipt: state.materializationReceipt,
     launch: state.launch,
     instruction: bytesView(state.instruction, 'bytes'),
     resolvedModel: state.resolvedModel,
-    ...(state.knowledge ? { knowledge: knowledgeView(state.knowledge) } : {}),
     trace: state.trace,
     memory: state.memory,
     [preparedCandidateBrand]: true as const,
@@ -180,14 +177,10 @@ export function beginPreparedCandidateRun(
             ),
           }
         : {}),
-      profile: Object.freeze({
-        files: Object.freeze(
-          state.executorInputs.profileFiles.map((file) => profileFileView(file)),
-        ),
-      }),
     }),
     roots: state.roots.execution,
     profilePlan: evidenceView(state.profilePlan),
+    profileActivation: state.profileActivation,
     executionPlan: evidenceView(state.executionPlan),
     materializationReceipt: state.materializationReceipt,
     launch: immutableCandidateValue({ ...state.launch, env: completeEnvironment }),
@@ -195,7 +188,6 @@ export function beginPreparedCandidateRun(
     resolvedModel: state.resolvedModel,
     hardLimits: Object.freeze({ timeoutMs: state.executionPlan.value.material.limits.timeoutMs }),
     observedLimits: Object.freeze({ maxSteps: state.executionPlan.value.material.limits.maxSteps }),
-    ...(state.knowledge ? { knowledge: knowledgeView(state.knowledge) } : {}),
     trace: state.trace,
     memory: state.memory,
   })
@@ -225,7 +217,9 @@ export async function assertPreparedCandidateWorkspaces(
   await verifyMaterializedWorkspace(state.roots.staging.taskRoot, plan.task.workspace.material, {
     ignoredProtectedRootEntries: ['.git', '.sidecar'],
   })
-  await verifyTaskCheckout(state.roots.staging.taskRoot, plan.task.repository)
+  if (plan.task.repository) {
+    await verifyTaskCheckout(state.roots.staging.taskRoot, plan.task.repository)
+  }
   await verifyMaterializedProfileWorkspace(
     state.roots.staging.profileRoot,
     state.profilePlan.value.material,
@@ -242,6 +236,10 @@ export async function assertPreparedCandidateWorkspaces(
 function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCandidateState {
   const profilePlan = immutableCandidateValue(
     agentCandidateProfilePlanEvidenceSchema.parse(input.profilePlan.value),
+  )
+  const profileActivation = parseAgentCandidateProfileActivation(
+    input.profileActivation,
+    profilePlan.digest,
   )
   const executionPlan = immutableCandidateValue(
     agentCandidateExecutionPlanEvidenceSchema.parse(input.executionPlan.value),
@@ -265,6 +263,7 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
       bytes: Uint8Array.from(input.profilePlan.bytes),
       written: Object.freeze([...input.profilePlan.written]),
     }),
+    profileActivation,
     executionPlan: Object.freeze({
       value: executionPlan,
       bytes: Uint8Array.from(input.executionPlan.bytes),
@@ -286,23 +285,9 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
       ...(input.executorInputs.candidateFiles
         ? { candidateFiles: immutableExecutorFiles(input.executorInputs.candidateFiles) }
         : {}),
-      profileFiles: Object.freeze(
-        input.executorInputs.profileFiles.map((file) =>
-          Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) }),
-        ),
-      ),
     }),
     ...(input.memoryReservation
       ? { memoryReservation: immutableCandidateValue(input.memoryReservation) }
-      : {}),
-    ...(input.knowledge
-      ? {
-          knowledge: Object.freeze({
-            snapshotId: input.knowledge.snapshotId,
-            manifestDigest: input.knowledge.manifestDigest,
-            manifest: Uint8Array.from(input.knowledge.manifest),
-          }),
-        }
       : {}),
     trace: immutableCandidateValue(input.trace),
     memory: immutableCandidateValue(input.memory),
@@ -315,6 +300,7 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     throw new Error('prepared candidate bundle no longer matches its digest')
   }
   assertPlanEvidence(state.profilePlan.value, state.profilePlan.bytes, 'profile plan')
+  parseAgentCandidateProfileActivation(state.profileActivation, state.profilePlan.value.digest)
   assertPlanEvidence(state.executionPlan.value, state.executionPlan.bytes, 'execution plan')
   agentCandidateExecutionPlanEvidenceSchema.parse(state.executionPlan.value)
 
@@ -441,32 +427,19 @@ function bytesView<T extends { bytes: Uint8Array }>(value: T, key: 'bytes'): T {
   })
 }
 
-function knowledgeView(
-  knowledge: NonNullable<PreparedAgentCandidateExecution['knowledge']>,
-): NonNullable<PreparedAgentCandidateExecution['knowledge']> {
-  const manifest = Uint8Array.from(knowledge.manifest)
-  return Object.freeze({
-    snapshotId: knowledge.snapshotId,
-    manifestDigest: knowledge.manifestDigest,
-    get manifest(): Uint8Array {
-      return Uint8Array.from(manifest)
-    },
-  })
-}
-
 function workspaceInputView(
   snapshot: AgentCandidateExecutorRequest['inputs']['task']['snapshot'],
   sourceFiles: PreparedCandidateState['executorInputs']['taskFiles'],
 ): AgentCandidateExecutorRequest['inputs']['task'] {
   return Object.freeze({
     snapshot,
-    files: Object.freeze(sourceFiles.map((file) => profileFileView(file))),
+    files: Object.freeze(sourceFiles.map((file) => executorFileView(file))),
   })
 }
 
-function profileFileView(
-  source: PreparedCandidateState['executorInputs']['profileFiles'][number],
-): AgentCandidateExecutorRequest['inputs']['profile']['files'][number] {
+function executorFileView(
+  source: PreparedCandidateState['executorInputs']['taskFiles'][number],
+): AgentCandidateExecutorWorkspaceFile {
   const bytes = Uint8Array.from(source.bytes)
   return Object.freeze({
     path: source.path,
@@ -490,24 +463,6 @@ function assertExecutorInputs(state: PreparedCandidateState): void {
     )
   } else if (state.executorInputs.candidateFiles) {
     throw new Error('disabled candidate has executor files')
-  }
-
-  const expectedFiles = state.profilePlan.value.material.files
-  if (state.executorInputs.profileFiles.length !== expectedFiles.length) {
-    throw new Error('prepared profile executor files do not match the signed profile plan')
-  }
-  for (let index = 0; index < expectedFiles.length; index++) {
-    const expected = expectedFiles[index]
-    const actual = state.executorInputs.profileFiles[index]
-    if (
-      !expected ||
-      !actual ||
-      actual.path !== expected.relPath ||
-      actual.mode !== expected.mode ||
-      sha256Bytes(actual.bytes) !== expected.contentSha256
-    ) {
-      throw new Error('prepared profile executor files do not match the signed profile plan')
-    }
   }
 }
 
@@ -536,7 +491,7 @@ function assertWorkspaceExecutorFiles(
 
 function immutableExecutorFiles(
   files: PreparedCandidateState['executorInputs']['taskFiles'],
-): ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> {
+): ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }> {
   return Object.freeze(
     files.map((file) => Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) })),
   )

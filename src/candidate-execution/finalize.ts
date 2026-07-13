@@ -1,33 +1,21 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-
 import type { Span, TraceStore } from '@tangle-network/agent-eval'
 import { isLlmSpan, REDACTION_VERSION } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateBenchmarkResultEvidence,
+  AgentCandidateFixedSpend,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelSettlementEvidence,
-  AgentCandidateRunReceiptV2,
-  AgentCandidateSpend,
+  AgentCandidateRunReceipt,
   AgentCandidateTermination,
 } from '@tangle-network/agent-interface'
 import {
-  agentCandidateRunReceiptV2Schema,
+  agentCandidateRunReceiptSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
 } from '@tangle-network/agent-interface'
 
-import { readMaterializedWorkspaceFiles } from './artifacts'
-import {
-  canonicalCandidateBytes,
-  canonicalCandidateDocument,
-  embeddedCandidateArtifact,
-  sha256Bytes,
-} from './digest'
-import {
-  sealAgentCandidateExecutorFinalCapture,
-  sealAgentCandidateProtectedRunCapture,
-} from './executor-capture'
+import { canonicalCandidateBytes, canonicalCandidateDocument, sha256Bytes } from './digest'
+import type { SealedAgentCandidateExecutorFinalCapture } from './executor-capture'
+import type { PersistedAgentCandidateExecutorCapture } from './executor-capture-evidence'
 import {
   assertTraceMatchesModelSettlement,
   type SealedAgentCandidateModelSettlement,
@@ -42,7 +30,6 @@ import {
   redactProtectedValue,
 } from './protected-redaction'
 import {
-  type AgentCandidateExecutorFinalCapture,
   type AgentCandidateOutputArtifactPort,
   type AgentCandidateProtectedRunCapture,
   type AgentCandidateRunFinalization,
@@ -51,7 +38,8 @@ import {
 } from './types'
 
 interface CandidateFinalizationEvidence {
-  finalCapture: AgentCandidateExecutorFinalCapture
+  finalCapture: SealedAgentCandidateExecutorFinalCapture
+  persistedCapture: PersistedAgentCandidateExecutorCapture
   modelSettlement: AgentCandidateModelSettlementEvidence & {
     artifact: import('@tangle-network/agent-interface').AgentCandidateArtifactRef
   }
@@ -76,11 +64,10 @@ export async function finalizeAgentCandidateRun(
   let termination: AgentCandidateTermination | undefined
   try {
     signal?.throwIfAborted()
-    const protectedCapture = sealAgentCandidateProtectedRunCapture(capture)
-    if (protectedCapture.executionId !== state.executionId) {
+    if (capture.executionId !== state.executionId) {
       throw new Error('protected capture execution id does not match the prepared execution')
     }
-    termination = protectedCapture.termination
+    termination = capture.termination
     if (
       termination.kind === 'timeout' &&
       termination.timeoutMs !== state.executionPlan.value.material.limits.timeoutMs
@@ -116,14 +103,11 @@ export async function finalizeAgentCandidateRun(
 
     const modelSpans = orderedSpans.filter(isLlmSpan)
     assertTraceMatchesModelSettlement(modelSpans, settlement)
-    const usage = settlement.usage
     enforceLimits(state, run.startedAt, run.endedAt, orderedSpans, settlement)
-    const finalCapture = sealAgentCandidateExecutorFinalCapture(evidence.finalCapture)
     const memory = await memoryReceipt(
       state,
-      finalCapture,
-      evidence.outputArtifacts,
-      protectedValues,
+      evidence.finalCapture,
+      evidence.persistedCapture.memoryAfter,
       signal,
     )
 
@@ -171,24 +155,22 @@ export async function finalizeAgentCandidateRun(
         orderedArtifacts.length,
       modelCallCount: modelSpans.length,
     }
-    const document = canonicalCandidateDocument<AgentCandidateRunReceiptV2>({
-      schemaVersion: 2,
+    const document = canonicalCandidateDocument<AgentCandidateRunReceipt>({
+      schemaVersion: 1,
       kind: 'agent-candidate-run',
       digestAlgorithm: 'rfc8785-sha256',
       bundleDigest: state.bundle.digest,
       materializationReceiptDigest: state.materializationReceipt.digest,
       executionPlanDigest: state.executionPlan.value.digest,
       memory,
-      usage,
-      modelUsage: { resolved: state.resolvedModel, usage },
       trace,
       termination,
-      fixedUsage: settlement.fixedUsage,
+      executorCapture: evidence.persistedCapture.evidence,
       modelSettlement: evidence.modelSettlement,
       taskOutcome: evidence.taskOutcome.evidence,
       benchmarkResult: evidence.benchmarkResult,
     })
-    agentCandidateRunReceiptV2Schema.parse(document.value)
+    agentCandidateRunReceiptSchema.parse(document.value)
     const runReceipt = await persistCandidateOutputArtifact(evidence.outputArtifacts, {
       executionId: state.executionId,
       purpose: 'run-receipt',
@@ -200,6 +182,7 @@ export async function finalizeAgentCandidateRun(
       receipt: document,
       artifacts: {
         modelSettlement: evidence.modelSettlement.artifact,
+        executorCapture: evidence.persistedCapture.evidence,
         taskOutcome: evidence.taskOutcome.evidence.artifact,
         benchmarkResult: evidence.benchmarkResult.artifact,
         runReceipt,
@@ -258,75 +241,37 @@ function enforceLimits(
   for (const [actual, limit, label] of checks) {
     if (actual > limit) throw new Error(`protected ${label} ${actual} exceeds ${limit}`)
   }
-  if (settlement.costUsdNanos > usdToNanos(limits.maxCostUsd, 'frozen maxCostUsd')) {
-    throw new Error(`protected cost USD ${usage.costUsd} exceeds ${limits.maxCostUsd}`)
+  if (usage.costUsdNanos > usdToNanos(limits.maxCostUsd, 'frozen maxCostUsd')) {
+    throw new Error(
+      `protected cost USD ${usage.costUsdNanos / 1_000_000_000} exceeds ${limits.maxCostUsd}`,
+    )
   }
 }
 
 async function memoryReceipt(
   state: PreparedCandidateState,
-  capture: AgentCandidateExecutorFinalCapture,
-  outputArtifacts: AgentCandidateOutputArtifactPort,
-  protectedValues: readonly string[],
+  capture: SealedAgentCandidateExecutorFinalCapture,
+  persisted: PersistedAgentCandidateExecutorCapture['memoryAfter'],
   signal?: AbortSignal,
 ): Promise<AgentCandidateMemoryReceipt> {
   signal?.throwIfAborted()
   if (state.memory.mode === 'disabled') {
-    if (capture.memoryAfter !== undefined) {
+    if (capture.memoryAfter !== undefined || persisted !== undefined) {
       throw new Error('disabled memory cannot return an after-state')
     }
     return { mode: 'disabled' }
   }
   if (!capture.memoryAfter) throw new Error('isolated memory is missing its protected after-state')
+  if (!persisted) throw new Error('isolated memory is missing persisted capture evidence')
   const afterState = capture.memoryAfter.afterState
-  const archive = Uint8Array.from(capture.memoryAfter.archive)
-  if (archive.byteLength === 0) throw new Error('isolated memory archive cannot be empty')
   const manifestBytes = canonicalCandidateBytes(afterState)
-  assertNoProtectedBytes(manifestBytes, protectedValues)
-  assertNoProtectedBytes(archive, protectedValues)
-  const provisionalSnapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-snapshot',
-    digest: sha256Bytes(manifestBytes),
-    material: afterState,
-    manifest: embeddedCandidateArtifact(manifestBytes),
-    archive: embeddedCandidateArtifact(archive),
-  })
-  const root = await mkdtemp(join(tmpdir(), 'agent-candidate-memory-after-'))
-  try {
-    await state.ports.workspaces.materialize({
-      role: 'memory',
-      snapshot: provisionalSnapshot,
-      archive: Uint8Array.from(archive),
-      destination: root,
-    })
-    const files = await readMaterializedWorkspaceFiles(root, afterState)
-    for (const file of files) assertNoProtectedBytes(file.bytes, protectedValues)
-    signal?.throwIfAborted()
-  } finally {
-    await rm(root, { recursive: true, force: true })
-  }
-  const [manifest, archiveRef] = await Promise.all([
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'memory-after-manifest',
-      bytes: manifestBytes,
-      signal,
-    }),
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'memory-after-archive',
-      bytes: archive,
-      signal,
-    }),
-  ])
   const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
     schemaVersion: 1,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: afterState,
-    manifest,
-    archive: archiveRef,
+    manifest: persisted.manifest,
+    archive: persisted.archive,
   })
   return {
     mode: 'isolated',
@@ -342,7 +287,7 @@ export function failedAgentCandidateRun(
   state: PreparedCandidateState,
   reason: string,
   termination?: AgentCandidateTermination,
-  usage: AgentCandidateSpend | null = null,
+  usage: AgentCandidateFixedSpend | null = null,
 ): AgentCandidateRunFinalization & { succeeded: false } {
   return {
     succeeded: false,

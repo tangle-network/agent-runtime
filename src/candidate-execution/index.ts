@@ -25,7 +25,6 @@ export {
   type AgentCandidateExecutionStageResult,
   type AgentCandidateExecutionTerminalRecord,
   type AgentCandidateExecutionTerminalResult,
-  type AgentCandidateExecutionUsage,
   type AgentCandidateRetryRejection,
   InMemoryAgentCandidateExecutionClaimStore,
 } from './claim'
@@ -74,7 +73,6 @@ export {
   type AgentCandidateExecutorFinalCapture,
   type AgentCandidateExecutorMemoryCapture,
   type AgentCandidateExecutorPort,
-  type AgentCandidateExecutorProfileFile,
   type AgentCandidateExecutorRequest,
   type AgentCandidateExecutorStopRequest,
   type AgentCandidateExecutorTaskOutcomeCapture,
@@ -87,7 +85,6 @@ export {
   type AgentCandidateOutputArtifactPort,
   type AgentCandidateOutputPurpose,
   type AgentCandidateProtectedModelActivation,
-  type AgentCandidateProtectedModelCall,
   type AgentCandidateProtectedModelReservation,
   type AgentCandidateProtectedModelSettlement,
   type AgentCandidateProtectedRunCapture,
@@ -107,7 +104,7 @@ export {
   type VerifiedAgentCandidate,
   type VerifiedAgentCandidateTaskOutcome,
 } from './types'
-export { verifyAgentCandidateBundle } from './verify'
+export { AGENT_CANDIDATE_EXECUTION_SUPPORT, verifyAgentCandidateBundle } from './verify'
 export {
   type AgentCandidateWorkspaceArchiveLimits,
   type CaptureAgentCandidateWorkspaceOptions,

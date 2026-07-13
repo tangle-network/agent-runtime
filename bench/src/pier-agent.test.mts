@@ -28,6 +28,17 @@ function prepared(root: string): PreparedAgentCandidateExecution {
     kind: 'agent-candidate-execution-plan-material',
     bundleDigest,
     executionId,
+    task: {
+      outcome: {
+        kind: 'workspace',
+        repository: {
+          identity: 'fixture/repository',
+          rootIdentity: 'fixture/repository',
+          baseCommit: '1'.repeat(40),
+          baseTree: '2'.repeat(40),
+        },
+      },
+    },
     limits: {
       timeoutMs: 60_000,
       maxSteps: 8,
@@ -77,6 +88,9 @@ function prepared(root: string): PreparedAgentCandidateExecution {
       },
       bytes: Buffer.from('{}'),
       written: ['AGENTS.md'],
+    },
+    profileActivation: {
+      files: [{ path: 'AGENTS.md', mode: 0o644, content: profileBytes.toString('utf8') }],
     },
     materializationReceipt: {
       value: { ...receiptMaterial, digest: receiptDigest },
@@ -133,12 +147,10 @@ function request(execution: PreparedAgentCandidateExecution): AgentCandidateExec
         },
         files: [{ path: 'src/status.txt', mode: 0o644, bytes: taskBytes }],
       },
-      profile: {
-        files: [{ path: 'AGENTS.md', mode: 0o644, bytes: profileBytes }],
-      },
     },
     roots: execution.roots.execution,
     profilePlan: execution.profilePlan,
+    profileActivation: execution.profileActivation,
     executionPlan: execution.executionPlan,
     materializationReceipt: execution.materializationReceipt,
     launch: {

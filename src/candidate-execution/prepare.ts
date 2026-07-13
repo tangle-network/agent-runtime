@@ -7,11 +7,10 @@ import type {
   AgentCandidateEffectiveMemory,
   AgentCandidateExecutionLimits,
   AgentCandidateExecutionPlanEvidence,
-  AgentCandidateExecutionPlanMaterialV1,
+  AgentCandidateExecutionPlanMaterial,
   AgentCandidateMaterializationReceipt,
   AgentCandidateModelAccessNetwork,
   AgentCandidateResolvedModel,
-  HarnessType,
 } from '@tangle-network/agent-interface'
 import {
   agentCandidateContainerSchema,
@@ -20,12 +19,12 @@ import {
   agentCandidateExecutionPlanMaterialSchema,
   agentCandidateMaterializationReceiptSchema,
   agentCandidateModelAccessNetworkSchema,
+  agentCandidateTaskOutcomeSpecSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import {
   applyAgentCandidateWorkspacePlan,
-  type HarnessId,
   materializeCandidateProfile,
 } from '@tangle-network/agent-profile-materialize'
 
@@ -54,7 +53,7 @@ import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { assertCandidateProfileExecutionSupport } from './profile'
+import { candidateMaterializerHarness, createAgentCandidateProfileActivation } from './profile'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -69,21 +68,6 @@ import {
   verifiedArtifactBytes,
   verifiedResourceTextByDigest,
 } from './verify'
-
-const MATERIALIZER_HARNESSES = new Set<HarnessType>([
-  'claude-code',
-  'claude',
-  'claudish',
-  'nanoclaw',
-  'codex',
-  'opencode',
-  'kimi-code',
-  'kimi',
-  'pi',
-  'gemini',
-  'hermes',
-  'openclaw',
-])
 
 const MIN_RESERVATION_TTL_MS = 15 * 60_000
 const PREPARED_HOLD_MARGIN_MS = 5 * 60_000
@@ -105,8 +89,7 @@ export async function prepareAgentCandidateExecution(
   const verifiedState = getVerifiedCandidateState(candidate)
   assertSameVerificationPorts(verifiedState.ports, ports)
   const bundle = candidate.bundle
-  assertCandidateProfileExecutionSupport(bundle.profile)
-  const harness = materializerHarness(bundle.execution.harness)
+  const harness = candidateMaterializerHarness(bundle.execution.harness)
   assertTaskInput(task, bundle.execution.instructionDelivery)
   const resultTimeoutMs = candidateResultTimeout(options.resultTimeoutMs, task.limits.timeoutMs)
   const ownerWindowMs = candidateExecutionOwnerWindowMs(
@@ -133,7 +116,9 @@ export async function prepareAgentCandidateExecution(
   await verifyMaterializedWorkspace(task.stagingRoots.taskRoot, task.workspace.material, {
     ignoredProtectedRootEntries: ['.git', '.sidecar'],
   })
-  await verifyTaskCheckout(task.stagingRoots.taskRoot, task.repository)
+  if (task.repository) {
+    await verifyTaskCheckout(task.stagingRoots.taskRoot, task.repository)
+  }
   const taskExecutorFiles = await readMaterializedWorkspaceFiles(
     task.stagingRoots.taskRoot,
     task.workspace.material,
@@ -142,7 +127,7 @@ export async function prepareAgentCandidateExecution(
 
   let candidateArchive: Uint8Array | undefined
   let candidateExecutorFiles:
-    | ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+    | ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>
     | undefined
   if (bundle.execution.workspace) {
     if (!task.stagingRoots.candidateRoot || !task.executionRoots.candidateRoot) {
@@ -191,6 +176,10 @@ export async function prepareAgentCandidateExecution(
   ) {
     throw new Error('profile materializer did not capture exact canonical plan bytes')
   }
+  const profileActivation = createAgentCandidateProfileActivation(
+    profileWorkspacePlan,
+    profileApplication.profilePlan,
+  )
 
   const container = await resolveContainer(candidate, task, ports)
   const resolvedModel = await resolveModel(candidate, task, ports)
@@ -227,14 +216,6 @@ export async function prepareAgentCandidateExecution(
       cleanupTimeoutMs,
     )
     const memory = preparedMemory.value
-    const knowledge = bundle.knowledge
-      ? {
-          snapshotId: bundle.knowledge.snapshotId,
-          manifestDigest: bundle.knowledge.manifest.sha256,
-          manifest: await verifiedArtifactBytes(candidate, bundle.knowledge.manifest),
-        }
-      : undefined
-
     const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
     const publicEnv = mergePublicEnvironment(
       bundle.execution.env ?? {},
@@ -249,7 +230,7 @@ export async function prepareAgentCandidateExecution(
         : {},
     )
     const routes = modelRoutes(bundle.profile, task.model.requested)
-    const executionMaterial: AgentCandidateExecutionPlanMaterialV1 = {
+    const executionMaterial: AgentCandidateExecutionPlanMaterial = {
       schemaVersion: 1,
       kind: 'agent-candidate-execution-plan-material',
       bundleDigest: bundle.digest,
@@ -266,7 +247,8 @@ export async function prepareAgentCandidateExecution(
           byteLength: instructionBytes.byteLength,
           delivery: bundle.execution.instructionDelivery,
         },
-        repository: task.repository,
+        ...(task.repository ? { repository: task.repository } : {}),
+        outcome: task.outcome,
         workspace: task.workspace,
       },
       workspaces: {
@@ -298,7 +280,6 @@ export async function prepareAgentCandidateExecution(
         env: publicEnv,
         cwd: bundle.execution.cwd,
       },
-      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
       memory,
       limits: task.limits,
       network: { mode: 'disabled' },
@@ -334,7 +315,6 @@ export async function prepareAgentCandidateExecution(
         harnessVersion: bundle.execution.harnessVersion,
         container,
         resolvedModel,
-        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.manifest.sha256 } : {}),
         ...(entrypoint ? { entrypoint } : {}),
       },
     )
@@ -369,6 +349,7 @@ export async function prepareAgentCandidateExecution(
         bytes: profilePlanBytes,
         written: [...profileApplication.application.mountPaths],
       },
+      profileActivation,
       executionPlan: { value: executionPlan, bytes: executionBytes },
       materializationReceipt,
       launch: {
@@ -397,10 +378,6 @@ export async function prepareAgentCandidateExecution(
       executorInputs: {
         taskFiles: taskExecutorFiles,
         ...(candidateExecutorFiles ? { candidateFiles: candidateExecutorFiles } : {}),
-        profileFiles: exactProfileExecutorFiles(
-          profileWorkspacePlan.files,
-          profileApplication.profilePlan.material.files,
-        ),
       },
       ...(preparedMemory.accessDigest && preparedMemory.value.mode === 'isolated'
         ? {
@@ -412,7 +389,6 @@ export async function prepareAgentCandidateExecution(
             },
           }
         : {}),
-      ...(knowledge ? { knowledge } : {}),
       trace: { runId: traceRunId, tags: traceTags, env: traceEnv },
       memory,
     })
@@ -504,9 +480,16 @@ function assertTaskInput(
     ['benchmark', task.benchmark],
     ['benchmarkVersion', task.benchmarkVersion],
     ['taskId', task.taskId],
-    ['repository identity', task.repository.identity],
-    ['repository root identity', task.repository.rootIdentity],
   ]
+  if (task.outcome.kind === 'workspace' && !task.repository) {
+    throw new Error('workspace task outcome requires repository identity')
+  }
+  if (task.repository) {
+    requiredStrings.push(
+      ['repository identity', task.repository.identity],
+      ['repository root identity', task.repository.rootIdentity],
+    )
+  }
   for (const [name, value] of requiredStrings) {
     if (!value.trim()) throw new Error(`${name} must be non-empty`)
   }
@@ -517,16 +500,19 @@ function assertTaskInput(
     throw new Error('task instruction must be non-empty well-formed Unicode')
   }
   sha256DigestSchema.parse(task.splitDigest)
+  agentCandidateTaskOutcomeSpecSchema.parse(task.outcome)
   agentCandidateWorkspaceSnapshotEvidenceSchema.parse(task.workspace)
   agentCandidateExecutionLimitsSchema.parse(task.limits)
-  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseCommit)) {
-    throw new Error('task repository base commit is not a full Git object id')
-  }
-  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseTree)) {
-    throw new Error('task repository base tree is not a full Git object id')
-  }
-  if (task.repository.baseCommit.length !== task.repository.baseTree.length) {
-    throw new Error('task repository Git object formats disagree')
+  if (task.repository) {
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseCommit)) {
+      throw new Error('task repository base commit is not a full Git object id')
+    }
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(task.repository.baseTree)) {
+      throw new Error('task repository base tree is not a full Git object id')
+    }
+    if (task.repository.baseCommit.length !== task.repository.baseTree.length) {
+      throw new Error('task repository Git object formats disagree')
+    }
   }
   for (const [name, root] of [
     ['execution task root', task.executionRoots.taskRoot],
@@ -644,15 +630,6 @@ async function assertEmptyDirectory(path: string): Promise<void> {
   if ((await readdir(path)).length !== 0) {
     throw new Error('profile staging root must be empty before materialization')
   }
-}
-
-function materializerHarness(harness: HarnessType): HarnessId {
-  if (!MATERIALIZER_HARNESSES.has(harness)) {
-    throw new Error(
-      `sealed candidate profile materialization is unsupported for harness ${harness}`,
-    )
-  }
-  return harness as HarnessId
 }
 
 async function resolveContainer(
@@ -843,8 +820,8 @@ function unwrapPublicEnvironment(
 function modelRoutes(
   profile: VerifiedAgentCandidate['bundle']['profile'],
   requested: string,
-): AgentCandidateExecutionPlanMaterialV1['model']['routes'] {
-  const routes: AgentCandidateExecutionPlanMaterialV1['model']['routes'] = [
+): AgentCandidateExecutionPlanMaterial['model']['routes'] {
+  const routes: AgentCandidateExecutionPlanMaterial['model']['routes'] = [
     { kind: 'primary', requested },
   ]
   if (profile.model?.small) routes.push({ kind: 'small', requested })
@@ -938,30 +915,6 @@ function modelLimits(limits: AgentCandidateExecutionLimits): {
     maxOutputTokens: limits.maxOutputTokens,
     maxCostUsd: limits.maxCostUsd,
   }
-}
-
-function exactProfileExecutorFiles(
-  sourceFiles: ReadonlyArray<{ relPath: string; content: string; mode?: number }>,
-  expectedFiles: ReadonlyArray<{ relPath: string; mode: number; contentSha256: string }>,
-): Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> {
-  const byPath = new Map(sourceFiles.map((file) => [file.relPath, file]))
-  if (byPath.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
-    throw new Error('profile source files do not match the signed profile plan')
-  }
-  return expectedFiles.map((expected) => {
-    const source = byPath.get(expected.relPath)
-    const mode = source?.mode ?? 0o644
-    const bytes = Buffer.from(source?.content ?? '', 'utf8')
-    if (
-      !source ||
-      (mode !== 0o644 && mode !== 0o755) ||
-      mode !== expected.mode ||
-      sha256Bytes(bytes) !== expected.contentSha256
-    ) {
-      throw new Error('profile source files do not match the signed profile plan')
-    }
-    return { path: expected.relPath, mode, bytes: Uint8Array.from(bytes) }
-  })
 }
 
 function isWellFormedUnicode(value: string): boolean {

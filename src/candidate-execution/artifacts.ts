@@ -5,8 +5,8 @@ import { relative, resolve, sep } from 'node:path'
 import type {
   AgentCandidateArtifactRef,
   AgentCandidateCapturedArtifact,
-  AgentCandidateProfilePlanMaterialV1,
-  AgentCandidateWorkspaceManifestMaterialV1,
+  AgentCandidateProfilePlanMaterial,
+  AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 
@@ -64,7 +64,7 @@ export async function verifyWorkspaceSnapshotArtifacts(
 
 export async function verifyMaterializedWorkspace(
   root: string,
-  expected: AgentCandidateWorkspaceManifestMaterialV1,
+  expected: AgentCandidateWorkspaceManifestMaterial,
   options: { ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[] } = {},
 ): Promise<void> {
   const observed = await scanWorkspace(root, new Set(options.ignoredProtectedRootEntries ?? []))
@@ -82,8 +82,8 @@ export async function captureMaterializedWorkspace(
     }
   } = {},
 ): Promise<{
-  manifest: AgentCandidateWorkspaceManifestMaterialV1
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+  manifest: AgentCandidateWorkspaceManifestMaterial
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
   const observed = await scanWorkspace(
     root,
@@ -103,9 +103,9 @@ export async function captureMaterializedWorkspace(
 /** Capture exact verified regular-file bytes for fresh isolated materialization. */
 export async function readMaterializedWorkspaceFiles(
   root: string,
-  expected: AgentCandidateWorkspaceManifestMaterialV1,
+  expected: AgentCandidateWorkspaceManifestMaterial,
   options: { ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[] } = {},
-): Promise<ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>> {
+): Promise<ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>> {
   const observed = await captureMaterializedWorkspace(root, options)
   assertWorkspaceManifest(observed.manifest, expected)
   return observed.files.map((file) =>
@@ -114,8 +114,8 @@ export async function readMaterializedWorkspaceFiles(
 }
 
 function assertWorkspaceManifest(
-  observed: AgentCandidateWorkspaceManifestMaterialV1,
-  expected: AgentCandidateWorkspaceManifestMaterialV1,
+  observed: AgentCandidateWorkspaceManifestMaterial,
+  expected: AgentCandidateWorkspaceManifestMaterial,
 ): void {
   if (!Buffer.from(canonicalCandidateBytes(observed)).equals(canonicalCandidateBytes(expected))) {
     throw new Error(
@@ -126,7 +126,7 @@ function assertWorkspaceManifest(
 
 export async function verifyMaterializedProfileWorkspace(
   root: string,
-  expected: AgentCandidateProfilePlanMaterialV1,
+  expected: AgentCandidateProfilePlanMaterial,
 ): Promise<void> {
   const observed = await scanWorkspace(root, new Set())
   const observedProfile = observed.manifest.files.map(({ path, mode, sha256 }) => ({
@@ -152,8 +152,8 @@ async function scanWorkspace(
     maxTotalFileBytes: number
   },
 ): Promise<{
-  manifest: AgentCandidateWorkspaceManifestMaterialV1
-  files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+  manifest: AgentCandidateWorkspaceManifestMaterial
+  files: Array<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
   const absoluteRoot = resolve(root)
   const rootStats = await lstat(absoluteRoot)
@@ -163,8 +163,8 @@ async function scanWorkspace(
   if ((await realpath(absoluteRoot)) !== absoluteRoot) {
     throw new Error('workspace root has a symlinked path component')
   }
-  const files: AgentCandidateWorkspaceManifestMaterialV1['files'] = []
-  const capturedFiles: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> = []
+  const files: AgentCandidateWorkspaceManifestMaterial['files'] = []
+  const capturedFiles: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
   let totalBytes = 0
 
   async function visit(directory: string): Promise<void> {
@@ -207,9 +207,6 @@ async function scanWorkspace(
           throw new Error(`workspace contains a hard-linked file: ${relPath}`)
         }
         const mode = openedStats.mode & 0o777
-        if (mode !== 0o644 && mode !== 0o755) {
-          throw new Error(`workspace file has unsupported mode ${mode.toString(8)}: ${relPath}`)
-        }
         if (limits && openedStats.size > limits.maxFileBytes) {
           throw new Error(`workspace file exceeds maxFileBytes: ${relPath}`)
         }
@@ -223,14 +220,13 @@ async function scanWorkspace(
           relPath,
         )
         totalBytes += bytes.byteLength
-        const supportedMode = mode as 0o644 | 0o755
         files.push({
           path: relPath,
-          mode: supportedMode,
+          mode,
           sha256: sha256Bytes(bytes),
           byteLength: bytes.byteLength,
         })
-        capturedFiles.push({ path: relPath, mode: supportedMode, bytes: Uint8Array.from(bytes) })
+        capturedFiles.push({ path: relPath, mode, bytes: Uint8Array.from(bytes) })
       } finally {
         await descriptor.close()
       }

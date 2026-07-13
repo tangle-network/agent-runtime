@@ -161,7 +161,14 @@ export function candidateBundle(
             evaluation: { costUsd: 0, inputTokens: 0, outputTokens: 0, modelCalls: 0 },
           },
         }
-      : { source: 'human' as const },
+      : {
+          source: 'human' as const,
+          benchmark: {
+            name: 'development',
+            version: '1',
+            splitDigest: candidateSha('f'),
+          },
+        },
   }
   return { ...value, digest: canonicalCandidateDigest(value) }
 }
@@ -202,7 +209,12 @@ export interface CandidateExecutionFixture {
 export function unchangedTaskOutcomeCapture(
   fixture: CandidateExecutionFixture,
 ): AgentCandidateExecutorTaskOutcomeCapture {
+  if (fixture.task.outcome.kind !== 'workspace') {
+    throw new Error('unchanged workspace capture requires a workspace outcome')
+  }
+  if (!fixture.task.repository) throw new Error('workspace task is missing repository identity')
   return {
+    kind: 'workspace',
     resultTree: fixture.task.repository.baseTree,
     afterState: fixture.task.workspace.material,
     archive: Buffer.from(`task-archive:${fixture.task.workspace.digest}`, 'utf8'),
@@ -357,6 +369,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
       baseCommit: repository.commit,
       baseTree: repository.tree,
     },
+    outcome: { kind: 'workspace' },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: 'provider/model', reasoningEffort: 'high' },
     grader: {
@@ -398,5 +411,30 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
     task,
     ports,
     ...(candidateRoot ? { candidateRoot } : {}),
+  }
+}
+
+export function createCandidateOutputExecutionFixture(
+  mediaType = 'application/json',
+  maxBytes = 1_048_576,
+  withRepository = false,
+): CandidateExecutionFixture {
+  const fixture = createCandidateExecutionFixture()
+  if (withRepository) {
+    return {
+      ...fixture,
+      task: { ...fixture.task, outcome: { kind: 'output', mediaType, maxBytes } },
+    }
+  }
+  const taskRoot = temporaryRoot('candidate-output-task-')
+  const { repository: _repository, ...taskWithoutRepository } = fixture.task
+  return {
+    ...fixture,
+    task: {
+      ...taskWithoutRepository,
+      outcome: { kind: 'output', mediaType, maxBytes },
+      workspace: emptyCandidateSnapshot('output-task'),
+      stagingRoots: { ...fixture.task.stagingRoots, taskRoot },
+    },
   }
 }

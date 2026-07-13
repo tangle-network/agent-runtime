@@ -1,4 +1,8 @@
-import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
+import type {
+  AgentProfile,
+  AgentProfileDiff,
+  CandidateExecutionEvidence,
+} from '@tangle-network/agent-interface'
 import { applyAgentProfileDiff } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProposedProfileDiff } from './delivery'
@@ -243,14 +247,21 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
               },
             ],
             candidateExecution: {
+              schemaVersion: 1,
+              kind: 'agent-candidate-execution-evidence',
               proposalDigest: `sha256:${'1'.repeat(64)}`,
               reviewDigest: `sha256:${'2'.repeat(64)}`,
-              bundleDigest: `sha256:${'3'.repeat(64)}`,
               executionId: 'candidate-execution-1',
-              executionPlanDigest: `sha256:${'4'.repeat(64)}`,
-              materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
               succeeded: true,
-              runReceiptDigest: `sha256:${'6'.repeat(64)}`,
+              materializationReceipt: {} as CandidateExecutionEvidence['materializationReceipt'],
+              profileActivation: {} as CandidateExecutionEvidence['profileActivation'],
+              receipt: {
+                bundleDigest: `sha256:${'3'.repeat(64)}`,
+                executionPlanDigest: `sha256:${'4'.repeat(64)}`,
+                materializationReceiptDigest: `sha256:${'5'.repeat(64)}`,
+                digest: `sha256:${'6'.repeat(64)}`,
+              } as CandidateExecutionEvidence['receipt'],
+              digest: `sha256:${'7'.repeat(64)}`,
             },
           })
           return 'answer'

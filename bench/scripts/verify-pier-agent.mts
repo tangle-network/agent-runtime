@@ -309,7 +309,6 @@ try {
       `[environment]\ndocker_image = "${pinnedImage}"\nos = "linux"\n`,
     ),
   )
-
   mkdirSync(candidateRoot)
   mkdirSync(profileRoot)
   const instruction = readFileSync(path.join(taskDir, 'instruction.md'), 'utf8')
@@ -421,6 +420,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       baseCommit: repositoryState.commit,
       baseTree: repositoryState.tree,
     },
+    outcome: { kind: 'workspace' },
     attempt: { number: 1, maxAttempts: 1, retryPolicy: 'none' },
     model: { requested: modelRequest, reasoningEffort: 'xhigh' },
     grader: {
@@ -525,6 +525,17 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
   const jobName = `tangle-runtime-candidate-no-model-${proofArm}`
   const controller = new FilePierCandidateTrialController({
     directory: path.join(scratch, 'trial-control'),
+    readResult: async ({ jobsDirectory, jobName }) => {
+      const trialResult = findTrialResult(path.join(jobsDirectory, jobName))
+      if (!trialResult) return undefined
+      return {
+        value: trialResult.value,
+        resultBytes: readFileSync(trialResult.path),
+        taskPatch: readFileSync(
+          path.join(path.dirname(trialResult.path), 'artifacts', 'model.patch'),
+        ),
+      }
+    },
     launch: (staged, { request }) => {
       const evaluatorArgs = Object.keys(staged.evaluatorEnv).flatMap((name) => [
         '--agent-env',

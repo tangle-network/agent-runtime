@@ -5,11 +5,13 @@ import { readFile } from 'node:fs/promises'
 import {
   type AgentCandidateArtifactRef,
   type AgentCandidateAttemptPolicy,
+  type AgentCandidateFixedSpend,
   type AgentCandidateResolvedModel,
   agentCandidateResolvedModelSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
+  type AgentCandidatePreparationEvidence,
   CLAIM_FORMAT_VERSION,
   PENDING_FORMAT_VERSION,
   type PersistedAgentCandidateExecutionClaim,
@@ -17,6 +19,7 @@ import {
   type PersistedAgentCandidateExecutionPhase,
   type PersistedAgentCandidateExecutionTerminal,
   PHASE_FORMAT_VERSION,
+  sealCandidatePreparationEvidence,
   TERMINAL_FORMAT_VERSION,
 } from './claim-file-formats'
 import {
@@ -56,6 +59,8 @@ export interface AgentCandidateExecutionClaim {
   readonly retryPolicy: AgentCandidateAttemptPolicy['retryPolicy']
   readonly bundleDigest: Sha256Digest
   readonly executionPlanDigest: Sha256Digest
+  /** Durable canonical bytes needed to reconstruct the signed preparation. */
+  readonly preparationEvidence: AgentCandidatePreparationEvidence
   /** Frozen plan identity with only attempt number and per-attempt grant identity normalized. */
   readonly retryLineageDigest: Sha256Digest
   /** The winning lease stops authorizing a new terminal write at this instant. */
@@ -81,22 +86,12 @@ export type AgentCandidateExecutionFailureClass =
   | 'post-model-infrastructure'
   | 'unknown'
 
-/** Exact fixed-point usage proven by the closed evaluator model ledger. */
-export interface AgentCandidateExecutionUsage {
-  readonly costUsdNanos: number
-  readonly inputTokens: number
-  readonly outputTokens: number
-  readonly cachedInputTokens: number
-  readonly reasoningTokens: number
-  readonly modelCalls: number
-}
-
 /** Evaluator-owned terminal facts staged durably before the terminal CAS. */
 export type AgentCandidateExecutionTerminalResult =
   | {
       readonly schemaVersion: 1
       readonly status: 'succeeded'
-      readonly usage: AgentCandidateExecutionUsage
+      readonly usage: AgentCandidateFixedSpend
       readonly modelSettlement: AgentCandidateArtifactRef
       readonly taskOutcome: AgentCandidateArtifactRef
       readonly benchmarkResult: AgentCandidateArtifactRef
@@ -106,7 +101,7 @@ export type AgentCandidateExecutionTerminalResult =
       readonly schemaVersion: 1
       readonly status: 'failed'
       readonly failureClass: AgentCandidateExecutionFailureClass
-      readonly usage: AgentCandidateExecutionUsage
+      readonly usage: AgentCandidateFixedSpend
       readonly modelSettlement: AgentCandidateArtifactRef
       readonly failureEvidence?: AgentCandidateArtifactRef
     }
@@ -117,6 +112,7 @@ export type AgentCandidateExecutionTerminalRecord = AgentCandidateExecutionTermi
   readonly attempt: number
   readonly bundleDigest: Sha256Digest
   readonly executionPlanDigest: Sha256Digest
+  readonly preparationEvidence: AgentCandidateExecutionClaim['preparationEvidence']
   /** RFC 8785 SHA-256 of this record with `terminalDigest` omitted. */
   readonly terminalDigest: Sha256Digest
 }
@@ -127,7 +123,7 @@ export type AgentCandidateExecutionPhase = 'claimed' | 'candidate-may-run'
 /** Trusted, independently observed closure facts for one expired winning lease. */
 export interface AgentCandidateExecutionRecoveryEvidence {
   readonly failureClass: AgentCandidateExecutionFailureClass
-  readonly usage: AgentCandidateExecutionUsage
+  readonly usage: AgentCandidateFixedSpend
   readonly modelSettlement: AgentCandidateArtifactRef
   readonly failureEvidence?: AgentCandidateArtifactRef
   readonly process: {
@@ -422,6 +418,7 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
       'retryPolicy',
       'bundleDigest',
       'executionPlanDigest',
+      'preparationEvidence',
       'retryLineageDigest',
       'leaseExpiresAtMs',
       'resultTimeoutMs',
@@ -447,6 +444,10 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
   }
   assertSha256Digest(claim.bundleDigest, 'bundleDigest')
   assertSha256Digest(claim.executionPlanDigest, 'executionPlanDigest')
+  const preparationEvidence = sealCandidatePreparationEvidence(
+    claim.preparationEvidence,
+    claim.executionPlanDigest,
+  )
   assertSha256Digest(claim.retryLineageDigest, 'retryLineageDigest')
   assertPositiveTimestamp(claim.leaseExpiresAtMs, 'leaseExpiresAtMs')
   candidateResultTimeout(claim.resultTimeoutMs, claim.resultTimeoutMs)
@@ -458,6 +459,7 @@ function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecution
     retryPolicy: claim.retryPolicy,
     bundleDigest: claim.bundleDigest,
     executionPlanDigest: claim.executionPlanDigest,
+    preparationEvidence,
     retryLineageDigest: claim.retryLineageDigest,
     leaseExpiresAtMs: claim.leaseExpiresAtMs,
     resultTimeoutMs: claim.resultTimeoutMs,
@@ -659,6 +661,7 @@ async function readClaim(path: string): Promise<StoredClaim> {
       'retryPolicy',
       'bundleDigest',
       'executionPlanDigest',
+      'preparationEvidence',
       'retryLineageDigest',
       'leaseExpiresAtMs',
       'resultTimeoutMs',
@@ -679,6 +682,11 @@ async function readClaim(path: string): Promise<StoredClaim> {
       path,
       'executionPlanDigest',
     ) as Sha256Digest,
+    preparationEvidence: requireObject(
+      record.preparationEvidence,
+      path,
+      'preparationEvidence',
+    ) as unknown as AgentCandidateExecutionClaim['preparationEvidence'],
     retryLineageDigest: requireString(
       record.retryLineageDigest,
       path,

@@ -1,4 +1,8 @@
-import type { AgentCandidateArtifactRef, Sha256Digest } from '@tangle-network/agent-interface'
+import type {
+  AgentCandidateArtifactRef,
+  AgentCandidateFixedSpend,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import { agentCandidateArtifactRefSchema } from '@tangle-network/agent-interface'
 
 import type {
@@ -10,8 +14,8 @@ import type {
   AgentCandidateExecutionStageResult,
   AgentCandidateExecutionTerminalRecord,
   AgentCandidateExecutionTerminalResult,
-  AgentCandidateExecutionUsage,
 } from './claim'
+import { sealCandidatePreparationEvidence } from './claim-file-formats'
 import { canonicalCandidateDigest, immutableCandidateValue } from './digest'
 import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 
@@ -27,6 +31,7 @@ export function terminalRecord(
     attempt: claim.attempt,
     bundleDigest: claim.bundleDigest,
     executionPlanDigest: claim.executionPlanDigest,
+    preparationEvidence: claim.preparationEvidence,
     ...terminal,
   }
   return immutableCandidateValue({
@@ -140,6 +145,7 @@ export function sealTerminalRecordValue(
           'attempt',
           'bundleDigest',
           'executionPlanDigest',
+          'preparationEvidence',
           'terminalDigest',
           'schemaVersion',
           'status',
@@ -154,6 +160,7 @@ export function sealTerminalRecordValue(
           'attempt',
           'bundleDigest',
           'executionPlanDigest',
+          'preparationEvidence',
           'terminalDigest',
           'schemaVersion',
           'status',
@@ -164,15 +171,20 @@ export function sealTerminalRecordValue(
         ],
     label,
   )
+  const executionPlanDigest = requireString(
+    value.executionPlanDigest,
+    label,
+    'executionPlanDigest',
+  ) as Sha256Digest
   const identity = {
     executionId: requireString(value.executionId, label, 'executionId'),
     attempt: requireNumber(value.attempt, label, 'attempt'),
     bundleDigest: requireString(value.bundleDigest, label, 'bundleDigest') as Sha256Digest,
-    executionPlanDigest: requireString(
-      value.executionPlanDigest,
-      label,
-      'executionPlanDigest',
-    ) as Sha256Digest,
+    executionPlanDigest,
+    preparationEvidence: sealCandidatePreparationEvidence(
+      value.preparationEvidence,
+      executionPlanDigest,
+    ),
   }
   assertExecutionId(identity.executionId)
   if (!Number.isSafeInteger(identity.attempt) || identity.attempt < 1) {
@@ -180,16 +192,15 @@ export function sealTerminalRecordValue(
   }
   assertSha256Digest(identity.bundleDigest, 'bundleDigest')
   assertSha256Digest(identity.executionPlanDigest, 'executionPlanDigest')
+  if (identity.preparationEvidence.executionPlan.sha256 !== identity.executionPlanDigest) {
+    throw new Error(`${label} execution plan artifact does not match executionPlanDigest`)
+  }
   const result = sealTerminalResult(
     status === 'succeeded'
       ? {
           schemaVersion: requireNumber(value.schemaVersion, label, 'schemaVersion') as 1,
           status,
-          usage: requireObject(
-            value.usage,
-            label,
-            'usage',
-          ) as unknown as AgentCandidateExecutionUsage,
+          usage: requireObject(value.usage, label, 'usage') as unknown as AgentCandidateFixedSpend,
           modelSettlement: requireArtifactRef(value.modelSettlement, label, 'modelSettlement'),
           taskOutcome: requireArtifactRef(value.taskOutcome, label, 'taskOutcome'),
           benchmarkResult: requireArtifactRef(value.benchmarkResult, label, 'benchmarkResult'),
@@ -199,11 +210,7 @@ export function sealTerminalRecordValue(
           schemaVersion: requireNumber(value.schemaVersion, label, 'schemaVersion') as 1,
           status,
           failureClass: requireFailureClass(value.failureClass, label),
-          usage: requireObject(
-            value.usage,
-            label,
-            'usage',
-          ) as unknown as AgentCandidateExecutionUsage,
+          usage: requireObject(value.usage, label, 'usage') as unknown as AgentCandidateFixedSpend,
           modelSettlement: requireArtifactRef(value.modelSettlement, label, 'modelSettlement'),
           ...(value.failureEvidence
             ? {
@@ -241,7 +248,9 @@ export function assertTerminalMatchesClaim(
     terminal.executionId !== claim.executionId ||
     terminal.attempt !== claim.attempt ||
     terminal.bundleDigest !== claim.bundleDigest ||
-    terminal.executionPlanDigest !== claim.executionPlanDigest
+    terminal.executionPlanDigest !== claim.executionPlanDigest ||
+    canonicalCandidateDigest(terminal.preparationEvidence) !==
+      canonicalCandidateDigest(claim.preparationEvidence)
   ) {
     throw new Error(`candidate execution terminal record at ${path} does not match its claim`)
   }
@@ -402,7 +411,7 @@ function sealTerminalResult(
   })
 }
 
-function sealUsage(usage: AgentCandidateExecutionUsage): AgentCandidateExecutionUsage {
+function sealUsage(usage: AgentCandidateFixedSpend): AgentCandidateFixedSpend {
   assertExactKeys(
     usage,
     [

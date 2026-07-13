@@ -204,7 +204,7 @@ export function createProtectedAgentCandidateModelPort(
         grantDigest: request.grantDigest,
         model: request.resolved.model,
       })
-      if (state) assertWithinReservedLimits(sealed.fixedUsage, state)
+      if (state) assertWithinReservedLimits(sealed.usage, state)
 
       const settlementDigest = canonicalCandidateDigest(sealed.value)
       if (remembered?.settlementDigest && remembered.settlementDigest !== settlementDigest) {

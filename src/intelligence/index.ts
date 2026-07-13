@@ -19,7 +19,7 @@
  */
 
 import { contentHash } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, CandidateExecutionEvidence } from '@tangle-network/agent-interface'
 import {
   buildLoopOtelSpans,
   buildRuntimeEventOtelSpans,
@@ -39,9 +39,17 @@ import {
   isIntelligenceOff,
   resolveEffort,
 } from './effort'
-import type { CandidateExecutionEvidence } from './improvement-cycle'
 import { type Redactor, resolveRedactor } from './redact'
 
+export type {
+  AgentCandidateProfileActivation,
+  AgentImprovementMeasuredComparison,
+  AgentImprovementProposal,
+  AgentImprovementReview,
+  AgentImprovementReviewDecision,
+  CandidateExecutionEvidence,
+} from '@tangle-network/agent-interface'
+export { parseAgentCandidateProfileActivation } from '../candidate-execution/profile'
 export type {
   CapabilityAuth,
   CapabilityInterface,
@@ -94,25 +102,23 @@ export {
   resolveEffort,
 } from './effort'
 export type {
-  AgentImprovementEvaluation,
-  AgentImprovementProposal,
-  AgentImprovementReview,
-  AgentImprovementReviewDecision,
-  CandidateExecutionEvidence,
   CreateAgentImprovementProposalOptions,
   ExecuteApprovedAgentCandidateOptions,
   ExecuteApprovedAgentCandidateResult,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
   ReviewAgentImprovementInput,
+  VerifyCandidateExecutionEvidenceOptions,
 } from './improvement-cycle'
 export {
+  createAgentImprovementMeasuredComparison,
   createAgentImprovementProposal,
   executeApprovedAgentCandidate,
   proposeAgentImprovement,
   reviewAgentImprovementProposal,
   verifyAgentImprovementProposal,
   verifyAgentImprovementReview,
+  verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
 export type { Redactor } from './redact'
 export { defaultRedactor, resolveRedactor } from './redact'
@@ -121,6 +127,15 @@ export {
   composeCertifiedProfile,
   composeCertifiedProfileFromWire,
 } from './resolver'
+export type {
+  CreateSandboxApprovedCandidateExecutorOptions,
+  SandboxApprovedCandidateExecution,
+  SandboxApprovedCandidateExecutor,
+} from './sandbox-approved-candidate'
+export {
+  createSandboxApprovedCandidateExecutor,
+  sandboxApprovedCandidateExecutionSupport,
+} from './sandbox-approved-candidate'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,
@@ -586,19 +601,14 @@ export function createIntelligenceClient(config: IntelligenceConfig): Intelligen
           ? {
               'tangle.candidate.proposal_digest': record.candidateExecution.proposalDigest,
               'tangle.candidate.review_digest': record.candidateExecution.reviewDigest,
-              'tangle.candidate.bundle_digest': record.candidateExecution.bundleDigest,
+              'tangle.candidate.bundle_digest': record.candidateExecution.receipt.bundleDigest,
               'tangle.candidate.execution_id': record.candidateExecution.executionId,
               'tangle.candidate.execution_plan_digest':
-                record.candidateExecution.executionPlanDigest,
+                record.candidateExecution.receipt.executionPlanDigest,
               'tangle.candidate.materialization_receipt_digest':
-                record.candidateExecution.materializationReceiptDigest,
+                record.candidateExecution.receipt.materializationReceiptDigest,
               'tangle.candidate.succeeded': record.candidateExecution.succeeded,
-              ...(record.candidateExecution.runReceiptDigest
-                ? {
-                    'tangle.candidate.run_receipt_digest':
-                      record.candidateExecution.runReceiptDigest,
-                  }
-                : {}),
+              'tangle.candidate.run_receipt_digest': record.candidateExecution.receipt.digest,
             }
           : {}),
       }

@@ -34,7 +34,7 @@ afterEach(() => {
 })
 
 describe('public agent candidate bundle builder', () => {
-  it('binds profile diffs, verified CodeSurface bytes, knowledge, and memory into one executable candidate', async () => {
+  it('binds profile diffs, verified CodeSurface bytes, and memory into one executable candidate', async () => {
     const fixture = createCandidateExecutionFixture(true)
     const adapter = gitWorktreeAdapter({
       repoRoot: fixture.task.stagingRoots.taskRoot,
@@ -71,7 +71,6 @@ describe('public agent candidate bundle builder', () => {
       },
     }
     const stored = new Map<Sha256Digest, Uint8Array>()
-    const knowledgeManifest = storeArtifact(stored, 'knowledge/manifest.json', '{"version":1}\n')
     const memorySeed = storeArtifact(stored, 'memory/seed.json', '{"entries":[]}\n')
     const input: BuildAgentCandidateBundleInput = {
       profile: { kind: 'profile-diffs', base, diffs: [diff] },
@@ -81,7 +80,6 @@ describe('public agent candidate bundle builder', () => {
         repository: { kind: 'github', owner: 'owner', repo: 'repo' },
       },
       execution: fixture.bundle.execution,
-      knowledge: { snapshotId: 'knowledge-snapshot-1', manifest: knowledgeManifest },
       memory: { mode: 'isolated', scope: 'task', seed: memorySeed },
       lineage: {
         source: 'compound',

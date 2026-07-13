@@ -7,7 +7,7 @@ import type {
   AgentCandidateCode,
   AgentCandidateGitHubRepository,
   AgentCandidateGitHubResource,
-  AgentCandidateWorkspaceManifestMaterialV1,
+  AgentCandidateWorkspaceManifestMaterial,
 } from '@tangle-network/agent-interface'
 
 import { verifyBytes } from './artifacts'
@@ -121,7 +121,7 @@ export async function verifyTaskOutcomePatch(input: {
   baseTree: string
   resultTree: string
   patch: Uint8Array
-  afterState: AgentCandidateWorkspaceManifestMaterialV1
+  afterState: AgentCandidateWorkspaceManifestMaterial
 }): Promise<{ resultTree: string; resultCommit: string }> {
   const repositoryRoot = resolve(input.repositoryRoot)
   await verifyTaskCheckout(repositoryRoot, input)
@@ -319,7 +319,7 @@ async function workspaceManifestFromGitTree(
   repositoryRoot: string,
   tree: string,
   environment: Record<string, string>,
-): Promise<AgentCandidateWorkspaceManifestMaterialV1> {
+): Promise<AgentCandidateWorkspaceManifestMaterial> {
   const files = (await readCandidateGitTreeFiles(repositoryRoot, tree, environment)).map(
     ({ path, mode, bytes }) => ({
       path,

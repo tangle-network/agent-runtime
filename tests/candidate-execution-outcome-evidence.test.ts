@@ -4,9 +4,10 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { sha256Bytes } from '../src/candidate-execution/digest'
+import { sealAgentCandidateExecutorFinalCapture } from '../src/candidate-execution/executor-capture'
 import {
   persistCandidateBenchmarkResult,
-  persistVerifiedCandidateTaskOutcome,
+  persistVerifiedAgentCandidateExecutorCapture,
 } from '../src/candidate-execution/outcome-evidence'
 import { prepareAgentCandidateExecution } from '../src/candidate-execution/prepare'
 import { assertPreparedCandidateIntegrity } from '../src/candidate-execution/prepared-state'
@@ -14,6 +15,7 @@ import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
 import {
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
+  createCandidateOutputExecutionFixture,
   createCandidateOutputFixture,
   unchangedTaskOutcomeCapture,
 } from './helpers/candidate-execution-fixture'
@@ -21,6 +23,71 @@ import {
 afterEach(cleanupCandidateFixtures)
 
 describe('candidate outcome evidence', () => {
+  it('persists exact bounded media output and rejects invalid captures', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    const state = await preparedState(fixture)
+    const outputs = createCandidateOutputFixture()
+    const source = Buffer.from('{"answer":42}\n', 'utf8')
+    const outcome = await persistTaskOutcome(
+      state,
+      { kind: 'output', bytes: source },
+      outputs.outputArtifacts,
+      [],
+    )
+
+    source.fill(0)
+    expect(outcome).toMatchObject({
+      kind: 'output',
+      spec: { mediaType: 'application/json', maxBytes: 32 },
+    })
+    if (outcome.kind !== 'output' || outcome.evidence.material.outcome.kind !== 'output') {
+      throw new Error('expected exact output evidence')
+    }
+    expect(Buffer.from(outcome.bytes).toString('utf8')).toBe('{"answer":42}\n')
+    await expect(
+      outputs.outputArtifacts.read(outcome.evidence.material.outcome.artifact),
+    ).resolves.toEqual(Uint8Array.from(Buffer.from('{"answer":42}\n', 'utf8')))
+
+    await expect(
+      persistTaskOutcome(
+        state,
+        { kind: 'output', bytes: new Uint8Array() },
+        outputs.outputArtifacts,
+        [],
+      ),
+    ).rejects.toThrow(/cannot be empty/)
+    await expect(
+      persistTaskOutcome(
+        state,
+        { kind: 'output', bytes: Buffer.alloc(33) },
+        outputs.outputArtifacts,
+        [],
+      ),
+    ).rejects.toThrow(/32-byte maximum/)
+    await expect(
+      persistTaskOutcome(
+        state,
+        { kind: 'output', bytes: Buffer.from('sk-output-secret-123456789') },
+        outputs.outputArtifacts,
+        ['sk-output-secret-123456789'],
+      ),
+    ).rejects.toThrow(/protected value/)
+    await expect(
+      persistTaskOutcome(
+        state,
+        {
+          kind: 'workspace',
+          resultTree: '0'.repeat(40),
+          afterState: fixture.task.workspace.material,
+          archive: Buffer.from('archive'),
+          gitDiff: new Uint8Array(),
+        },
+        outputs.outputArtifacts,
+        [],
+      ),
+    ).rejects.toThrow(/does not match the signed outcome kind/)
+  })
+
   it('rejects protected values in the canonical task manifest before any output write', async () => {
     const fixture = createCandidateExecutionFixture()
     const state = await preparedState(fixture)
@@ -35,12 +102,9 @@ describe('candidate outcome evidence', () => {
     }
 
     await expect(
-      persistVerifiedCandidateTaskOutcome(
-        state,
-        unchangedTaskOutcomeCapture(fixture),
-        outputArtifacts,
-        ['source.ts'],
-      ),
+      persistTaskOutcome(state, unchangedTaskOutcomeCapture(fixture), outputArtifacts, [
+        'source.ts',
+      ]),
     ).rejects.toThrow(/protected value/)
     expect(puts).toBe(0)
   })
@@ -67,7 +131,7 @@ describe('candidate outcome evidence', () => {
     const secret = 'sk-compressed-before-put-123456789'
 
     await expect(
-      persistVerifiedCandidateTaskOutcome(
+      persistTaskOutcome(
         state,
         {
           ...unchangedTaskOutcomeCapture(fixture),
@@ -87,7 +151,7 @@ describe('candidate outcome evidence', () => {
     const secret = 'sk-outcome-secret-123456789'
     const capture = unchangedTaskOutcomeCapture(fixture)
     await expect(
-      persistVerifiedCandidateTaskOutcome(
+      persistTaskOutcome(
         state,
         { ...capture, archive: Buffer.from(secret, 'utf8') },
         outputs.outputArtifacts,
@@ -95,12 +159,7 @@ describe('candidate outcome evidence', () => {
       ),
     ).rejects.toThrow(/protected value/)
 
-    const outcome = await persistVerifiedCandidateTaskOutcome(
-      state,
-      capture,
-      outputs.outputArtifacts,
-      [secret],
-    )
+    const outcome = await persistTaskOutcome(state, capture, outputs.outputArtifacts, [secret])
     await expect(
       persistCandidateBenchmarkResult(
         state,
@@ -131,7 +190,7 @@ describe('candidate outcome evidence', () => {
     const fixture = createCandidateExecutionFixture()
     const state = await preparedState(fixture)
     const outputs = createCandidateOutputFixture()
-    const outcome = await persistVerifiedCandidateTaskOutcome(
+    const outcome = await persistTaskOutcome(
       state,
       unchangedTaskOutcomeCapture(fixture),
       outputs.outputArtifacts,
@@ -161,7 +220,7 @@ describe('candidate outcome evidence', () => {
     const fixture = createCandidateExecutionFixture()
     const state = await preparedState(fixture)
     const outputs = createCandidateOutputFixture()
-    const outcome = await persistVerifiedCandidateTaskOutcome(
+    const outcome = await persistTaskOutcome(
       state,
       unchangedTaskOutcomeCapture(fixture),
       outputs.outputArtifacts,
@@ -211,7 +270,7 @@ describe('candidate outcome evidence', () => {
     const fixture = createCandidateExecutionFixture()
     const state = await preparedState(fixture)
     const outputs = createCandidateOutputFixture()
-    const outcome = await persistVerifiedCandidateTaskOutcome(
+    const outcome = await persistTaskOutcome(
       state,
       unchangedTaskOutcomeCapture(fixture),
       outputs.outputArtifacts,
@@ -271,4 +330,24 @@ async function preparedState(fixture: ReturnType<typeof createCandidateExecution
       fixture.ports,
     ),
   )
+}
+
+async function persistTaskOutcome(
+  state: Parameters<typeof persistVerifiedAgentCandidateExecutorCapture>[0],
+  taskOutcome: import('../src/candidate-execution/types').AgentCandidateExecutorTaskOutcomeCapture,
+  outputArtifacts: Parameters<typeof persistVerifiedAgentCandidateExecutorCapture>[2],
+  protectedValues: readonly string[],
+) {
+  const capture = sealAgentCandidateExecutorFinalCapture(
+    { taskOutcome },
+    state.executionPlan.value.material.task.outcome,
+  )
+  return (
+    await persistVerifiedAgentCandidateExecutorCapture(
+      state,
+      capture,
+      outputArtifacts,
+      protectedValues,
+    )
+  ).taskOutcome
 }

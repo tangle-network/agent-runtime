@@ -2,6 +2,7 @@ import type { TraceStore } from '@tangle-network/agent-eval'
 import type { AgentCandidateTermination } from '@tangle-network/agent-interface'
 
 import type {
+  AgentCandidateExecutionClaim,
   AgentCandidateExecutionClaimStore,
   AgentCandidateExecutionFailureClass,
   AgentCandidateExecutionLease,
@@ -18,7 +19,9 @@ import {
 import { canonicalCandidateBytes } from './digest'
 import { candidatePostRunWindowMs, candidateTerminalWindowMs } from './execution-window'
 import {
+  type SealedAgentCandidateExecutorFinalCapture,
   sealAgentCandidateExecutorFinalCapture,
+  sealAgentCandidateExecutorStopAcknowledgement,
   sealAgentCandidateProtectedRunCapture,
 } from './executor-capture'
 import { failedAgentCandidateRun, finalizeAgentCandidateRun } from './finalize'
@@ -31,7 +34,7 @@ import {
   type PersistedAgentCandidateModelSettlement,
   persistCandidateBenchmarkResult,
   persistCandidateModelSettlement,
-  persistVerifiedCandidateTaskOutcome,
+  persistVerifiedAgentCandidateExecutorCapture,
 } from './outcome-evidence'
 import { persistCandidateOutputArtifact } from './output-artifacts'
 import {
@@ -48,7 +51,6 @@ import { redactProtectedReason } from './protected-redaction'
 import { ProtectedAgentCandidateTraceStore } from './protected-trace-store'
 import type {
   AgentCandidateBenchmarkGraderPort,
-  AgentCandidateExecutorFinalCapture,
   AgentCandidateExecutorPort,
   AgentCandidateExecutorRequest,
   AgentCandidateOutputArtifactPort,
@@ -105,9 +107,30 @@ export async function executePreparedAgentCandidate(
     return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
   }
 
+  let preparationEvidence: AgentCandidateExecutionClaim['preparationEvidence']
+  try {
+    const [executionPlan, materializationReceipt] = await Promise.all([
+      persistCandidateOutputArtifact(options.outputArtifacts, {
+        executionId: state.executionId,
+        purpose: 'execution-plan',
+        bytes: state.executionPlan.bytes,
+      }),
+      persistCandidateOutputArtifact(options.outputArtifacts, {
+        executionId: state.executionId,
+        purpose: 'materialization-receipt',
+        bytes: state.materializationReceipt.bytes,
+      }),
+    ])
+    preparationEvidence = Object.freeze({ executionPlan, materializationReceipt })
+  } catch (error) {
+    return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
+  }
+
   let acquired: Awaited<ReturnType<AgentCandidateExecutionClaimStore['tryClaim']>>
   try {
-    acquired = await options.claimStore.tryClaim(candidateExecutionClaim(prepared))
+    acquired = await options.claimStore.tryClaim(
+      candidateExecutionClaim(prepared, preparationEvidence),
+    )
   } catch (error) {
     return await failBeforeActivation(prepared, state, error, 'failed', cleanupTimeoutMs)
   }
@@ -381,13 +404,14 @@ export async function executePreparedAgentCandidate(
             state.trace.runId,
             settlementResult.settlement as SealedAgentCandidateModelSettlement,
           )
-          const taskOutcome = await persistVerifiedCandidateTaskOutcome(
-            state,
-            execution.finalCapture.taskOutcome!,
-            options.outputArtifacts,
-            protectedValues,
-            signal,
-          )
+          const { persistedCapture, taskOutcome } =
+            await persistVerifiedAgentCandidateExecutorCapture(
+              state,
+              execution.finalCapture,
+              options.outputArtifacts,
+              protectedValues,
+              signal,
+            )
           const benchmarkResult = await persistCandidateBenchmarkResult(
             state,
             capture.termination,
@@ -404,6 +428,7 @@ export async function executePreparedAgentCandidate(
             settlementResult.settlement as SealedAgentCandidateModelSettlement,
             {
               finalCapture: execution.finalCapture,
+              persistedCapture,
               modelSettlement,
               taskOutcome,
               benchmarkResult,
@@ -433,7 +458,7 @@ export async function executePreparedAgentCandidate(
       ? {
           schemaVersion: 1,
           status: 'succeeded',
-          usage: settlementResult.settlement.fixedUsage,
+          usage: settlementResult.settlement.usage,
           modelSettlement: result.artifacts.modelSettlement,
           taskOutcome: result.artifacts.taskOutcome,
           benchmarkResult: result.artifacts.benchmarkResult,
@@ -443,7 +468,7 @@ export async function executePreparedAgentCandidate(
           schemaVersion: 1,
           status: 'failed',
           failureClass,
-          usage: settlementResult.settlement.fixedUsage,
+          usage: settlementResult.settlement.usage,
           modelSettlement: modelSettlement.artifact,
           failureEvidence: await withinCandidateCleanupDeadline(
             () =>
@@ -499,14 +524,14 @@ type ExecutorOutcome =
       kind: 'capture'
       capture: AgentCandidateProtectedRunCapture
       termination: AgentCandidateTermination
-      finalCapture: AgentCandidateExecutorFinalCapture
+      finalCapture: SealedAgentCandidateExecutorFinalCapture
       processStopped: true
       error?: undefined
     }
   | {
       kind: 'timeout'
       termination: AgentCandidateTermination & { kind: 'timeout' }
-      finalCapture: AgentCandidateExecutorFinalCapture
+      finalCapture: SealedAgentCandidateExecutorFinalCapture
       processStopped: true
       error?: undefined
     }
@@ -514,7 +539,7 @@ type ExecutorOutcome =
       kind: 'error'
       error: unknown
       termination?: AgentCandidateTermination
-      finalCapture?: AgentCandidateExecutorFinalCapture
+      finalCapture?: SealedAgentCandidateExecutorFinalCapture
       processStopped: boolean
     }
 
@@ -585,11 +610,11 @@ async function runAndStopExecutor(
 
   if (!capture || timedOut) controller.abort(executionError)
   const stopReason = timedOut ? 'timeout' : capture ? 'completed' : 'failed'
-  let stopped: unknown
+  const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs
   try {
-    stopped = await withinCandidateCleanupDeadline(
+    const stopped = await withinCandidateCleanupDeadline(
       () =>
-        executor.stopAndCapture(
+        executor.stop(
           {
             executionId: request.executionId,
             executionPlanDigest: request.executionPlan.value.digest,
@@ -601,16 +626,10 @@ async function runAndStopExecutor(
             deadlineAtMs,
           },
         ),
-      Date.now() + cleanupTimeoutMs,
+      cleanupDeadlineAtMs,
       'candidate process termination',
     )
-    if (
-      !stopped ||
-      typeof stopped !== 'object' ||
-      (stopped as { stopped?: unknown }).stopped !== true
-    ) {
-      throw new Error('candidate executor did not acknowledge exact process termination')
-    }
+    sealAgentCandidateExecutorStopAcknowledgement(stopped)
   } catch (stopError) {
     if (timer) clearTimeout(timer)
     controller.abort(stopError)
@@ -622,9 +641,26 @@ async function runAndStopExecutor(
     }
   }
 
-  let finalCapture: AgentCandidateExecutorFinalCapture
+  let finalCapture: SealedAgentCandidateExecutorFinalCapture
   try {
-    finalCapture = sealAgentCandidateExecutorFinalCapture(stopped)
+    finalCapture = sealAgentCandidateExecutorFinalCapture(
+      await withinCandidateCleanupDeadline(
+        () =>
+          executor.capture(
+            {
+              executionId: request.executionId,
+              executionPlanDigest: request.executionPlan.value.digest,
+            },
+            {
+              traceStore,
+              signal: new AbortController().signal,
+            },
+          ),
+        cleanupDeadlineAtMs,
+        'candidate final evidence capture',
+      ),
+      request.executionPlan.value.material.task.outcome,
+    )
   } catch (captureError) {
     if (timer) clearTimeout(timer)
     controller.abort(captureError)
@@ -747,7 +783,7 @@ async function failClaimedExecution(
           schemaVersion: 1,
           status: 'failed',
           failureClass,
-          usage: settled.settlement.fixedUsage,
+          usage: settled.settlement.usage,
           modelSettlement: modelSettlement.artifact,
           failureEvidence,
         },

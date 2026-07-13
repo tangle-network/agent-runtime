@@ -107,6 +107,11 @@ export interface FilePierCandidateTrialControllerOptions {
       readonly deadlineAtMs: number
     },
   ) => PierCandidateProcessSpec
+  /** Restart-safe reader for immutable official bytes under the persisted Pier job identity. */
+  readonly readResult?: (input: {
+    readonly jobsDirectory: string
+    readonly jobName: string
+  }) => Promise<PierCandidateTrialResult | undefined>
   /** Omit only for the default local Docker socket with no environment variables. */
   readonly dockerConnection?: PierDockerConnection
   readonly supervisorPath?: string
@@ -496,6 +501,7 @@ function assertRealDirectory(path: string, label: string): void {
 export class FilePierCandidateTrialController implements PierCandidateTrialController {
   private readonly directory: string
   private readonly launch?: NonNullable<FilePierCandidateTrialControllerOptions['launch']>
+  private readonly readResult?: NonNullable<FilePierCandidateTrialControllerOptions['readResult']>
   private readonly dockerConnection: PierDockerConnection
   private readonly supervisorPath: string
   private readonly pollIntervalMs: number
@@ -503,6 +509,7 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
   constructor(options: FilePierCandidateTrialControllerOptions) {
     this.directory = absolutePath(options.directory, 'Pier controller directory')
     this.launch = options.launch
+    this.readResult = options.readResult
     const configuredDocker = options.dockerConnection
     if (configuredDocker?.id === defaultDockerConnectionId) {
       throw new Error(`${defaultDockerConnectionId} is reserved for the implicit local connection`)
@@ -715,6 +722,32 @@ export class FilePierCandidateTrialController implements PierCandidateTrialContr
       )
     }
     return { processExited: true, containersRemoved: true }
+  }
+
+  async captureResult(
+    requested: PierCandidateTrialIdentity,
+  ): Promise<PierCandidateTrialResult | undefined> {
+    const controlDirectory = this.controlDirectory(requested)
+    assertRealDirectory(controlDirectory, 'Pier trial control directory')
+    const persisted = parsePersistedIdentity(join(controlDirectory, identityFile))
+    if (
+      persisted.executionId !== requested.executionId ||
+      persisted.executionPlanDigest !== requested.executionPlanDigest
+    ) {
+      throw new Error('persisted Pier trial identity differs from the capture request')
+    }
+    this.assertDockerConnection(persisted)
+    const terminal = parseTerminal(join(controlDirectory, terminalFile))
+    if (!terminal.processExited || !terminal.containersRemoved) {
+      throw new Error('Pier result capture requires proven process and container death')
+    }
+    if (!this.readResult) {
+      throw new Error('Pier result capture has no restart-safe result reader')
+    }
+    return await this.readResult({
+      jobsDirectory: persisted.jobsDirectory,
+      jobName: persisted.jobName,
+    })
   }
 
   private controlDirectory(identity: PierCandidateTrialIdentity): string {

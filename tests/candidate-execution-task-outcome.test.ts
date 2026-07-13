@@ -67,15 +67,14 @@ function changedOutcome(root: string, baseTree: string) {
 describe('candidate task outcome verification', () => {
   it('proves a captured binary patch and after-state against the signed base tree', async () => {
     const fixture = createCandidateExecutionFixture()
-    const outcome = changedOutcome(
-      fixture.task.stagingRoots.taskRoot,
-      fixture.task.repository.baseTree,
-    )
+    if (!fixture.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.repository
+    const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
       }),
     ).resolves.toMatchObject({
@@ -86,24 +85,23 @@ describe('candidate task outcome verification', () => {
 
   it('rejects a claimed result tree or after-state that does not match the patch', async () => {
     const fixture = createCandidateExecutionFixture()
-    const outcome = changedOutcome(
-      fixture.task.stagingRoots.taskRoot,
-      fixture.task.repository.baseTree,
-    )
+    if (!fixture.task.repository) throw new Error('expected repository identity')
+    const repository = fixture.task.repository
+    const outcome = changedOutcome(fixture.task.stagingRoots.taskRoot, repository.baseTree)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
-        resultTree: '0'.repeat(fixture.task.repository.baseTree.length),
+        resultTree: '0'.repeat(repository.baseTree.length),
       }),
     ).rejects.toThrow(/materialized tree/)
     await expect(
       verifyTaskOutcomePatch({
         repositoryRoot: fixture.task.stagingRoots.taskRoot,
-        baseCommit: fixture.task.repository.baseCommit,
-        baseTree: fixture.task.repository.baseTree,
+        baseCommit: repository.baseCommit,
+        baseTree: repository.baseTree,
         ...outcome,
         afterState: {
           ...outcome.afterState,

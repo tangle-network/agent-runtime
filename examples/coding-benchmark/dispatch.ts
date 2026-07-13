@@ -40,13 +40,7 @@ import {
   sumSandboxUsage,
 } from '@tangle-network/agent-runtime/loops'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import {
-  type CheckBox,
-  gradeOnHiddenCriteria,
-  layerOutput,
-  type RunArtifact,
-  runChecks,
-} from './eval'
+import { gradeOnHiddenCriteria, layerOutput, type RunArtifact, runChecks } from './eval'
 import { harnessOf, type ToolPreset, withTools } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields } from './scenarios'
 
@@ -152,7 +146,7 @@ export function codingDispatch(
         // these) steer the next round — the firewall keeps the held-out suite + rubric
         // out of the loop. `run.box` is a `SandboxInstance`; `CheckBox` is the minimal
         // `exec`(+optional `fs.write`) subset the checks use — a structural narrowing.
-        checks = await runChecks(run.box as CheckBox, scenario, cmds)
+        checks = await runChecks(run.box, scenario, cmds)
         if (checks.allPass) break // stop on worker-observable green only
       }
 
@@ -164,7 +158,7 @@ export function codingDispatch(
       // composite). A solution that hardcoded the visible examples fails the held-out inputs
       // it never saw — execution truth behind a substrate-enforced firewall, not a regex.
       const heldout = await gradeOnHiddenCriteria(
-        run.box as CheckBox,
+        run.box,
         scenario,
         cmds.heldout,
         { fields: routedFields, agentContext: agentContextParts.join('\n') },

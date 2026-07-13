@@ -1,9 +1,16 @@
 import {
+  type AgentCandidateTaskOutcomeSpec,
   agentCandidateTerminationSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
 } from '@tangle-network/agent-interface'
 import { assertExactObjectKeys as assertExactKeys } from './exact-object'
 import type { AgentCandidateExecutorFinalCapture, AgentCandidateProtectedRunCapture } from './types'
+
+const sealedFinalCaptureBrand: unique symbol = Symbol('sealedAgentCandidateExecutorFinalCapture')
+
+export type SealedAgentCandidateExecutorFinalCapture = AgentCandidateExecutorFinalCapture & {
+  readonly [sealedFinalCaptureBrand]: true
+}
 
 /** Validate and detach the only candidate-authored fields accepted from execution. */
 export function sealAgentCandidateProtectedRunCapture(
@@ -23,20 +30,38 @@ export function sealAgentCandidateProtectedRunCapture(
 /** Validate, detach, and freeze evaluator-owned evidence captured after process death. */
 export function sealAgentCandidateExecutorFinalCapture(
   value: unknown,
-): AgentCandidateExecutorFinalCapture {
+  expectedOutcome: AgentCandidateTaskOutcomeSpec,
+): SealedAgentCandidateExecutorFinalCapture {
   const capture = requireRecord(value, 'candidate final capture')
-  assertExactKeys(capture, ['stopped'], 'candidate final capture', ['taskOutcome', 'memoryAfter'])
-  if (capture.stopped !== true) {
-    throw new Error('candidate final capture does not prove process death')
-  }
+  assertExactKeys(capture, [], 'candidate final capture', [
+    'taskOutcome',
+    'memoryAfter',
+    'evidence',
+  ])
 
-  const taskOutcome = capture.taskOutcome ? sealTaskOutcomeCapture(capture.taskOutcome) : undefined
+  const taskOutcome = capture.taskOutcome
+    ? sealTaskOutcomeCapture(capture.taskOutcome, expectedOutcome)
+    : undefined
   const memoryAfter = capture.memoryAfter ? sealMemoryCapture(capture.memoryAfter) : undefined
+  if (capture.evidence !== undefined && !(capture.evidence instanceof Uint8Array)) {
+    throw new Error('candidate executor evidence must be a byte array')
+  }
+  const evidence = capture.evidence ? Uint8Array.from(capture.evidence) : undefined
   return Object.freeze({
-    stopped: true,
     ...(taskOutcome ? { taskOutcome } : {}),
     ...(memoryAfter ? { memoryAfter: Object.freeze(memoryAfter) } : {}),
+    ...(evidence ? { evidence } : {}),
+    [sealedFinalCaptureBrand]: true as const,
   })
+}
+
+/** Prove exact process death before any final evidence capture. */
+export function sealAgentCandidateExecutorStopAcknowledgement(value: unknown): void {
+  const capture = requireRecord(value, 'candidate stop acknowledgement')
+  assertExactKeys(capture, ['stopped'], 'candidate stop acknowledgement')
+  if (capture.stopped !== true) {
+    throw new Error('candidate stop acknowledgement does not prove process death')
+  }
 }
 
 function sealMemoryCapture(
@@ -57,13 +82,33 @@ function sealMemoryCapture(
 
 function sealTaskOutcomeCapture(
   value: unknown,
+  expected: AgentCandidateTaskOutcomeSpec,
 ): NonNullable<AgentCandidateExecutorFinalCapture['taskOutcome']> {
   const capture = requireRecord(value, 'candidate task capture')
+  if (capture.kind === 'output') {
+    assertExactKeys(capture, ['kind', 'bytes'], 'candidate task output capture')
+    if (expected.kind !== 'output') {
+      throw new Error('candidate task output capture does not match the signed outcome kind')
+    }
+    if (!(capture.bytes instanceof Uint8Array)) {
+      throw new Error('candidate task output capture must contain a byte array')
+    }
+    if (capture.bytes.byteLength > expected.maxBytes) {
+      throw new Error(`candidate task output exceeds the frozen ${expected.maxBytes}-byte maximum`)
+    }
+    return Object.freeze({ kind: 'output', bytes: Uint8Array.from(capture.bytes) })
+  }
   assertExactKeys(
     capture,
-    ['resultTree', 'afterState', 'archive', 'gitDiff'],
+    ['kind', 'resultTree', 'afterState', 'archive', 'gitDiff'],
     'candidate task capture',
   )
+  if (capture.kind !== 'workspace') {
+    throw new Error('candidate task capture has an invalid outcome kind')
+  }
+  if (expected.kind !== 'workspace') {
+    throw new Error('candidate workspace capture does not match the signed outcome kind')
+  }
   if (
     typeof capture.resultTree !== 'string' ||
     !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(capture.resultTree)
@@ -75,6 +120,7 @@ function sealTaskOutcomeCapture(
   }
   const afterState = agentCandidateWorkspaceManifestMaterialSchema.parse(capture.afterState)
   return Object.freeze({
+    kind: 'workspace',
     resultTree: capture.resultTree,
     afterState: Object.freeze(afterState),
     archive: Uint8Array.from(capture.archive),

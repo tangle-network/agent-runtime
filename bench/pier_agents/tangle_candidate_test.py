@@ -222,7 +222,7 @@ def _fixture(root: Path):
     os.chmod(candidate_staging / "runner.py", 0o755)
     profile = b"fixture-profile\n"
     (profile_staging / "AGENTS.md").write_bytes(profile)
-    os.chmod(profile_staging / "AGENTS.md", 0o644)
+    os.chmod(profile_staging / "AGENTS.md", 0o600)
 
     instruction = "make the task ready".encode()
     task_snapshot = _workspace([("src/status.txt", 0o644, status)])
@@ -233,7 +233,7 @@ def _fixture(root: Path):
         "files": [
             {
                 "relPath": "AGENTS.md",
-                "mode": 0o644,
+                "mode": 0o600,
                 "contentSha256": _sha(profile),
             }
         ],
@@ -267,6 +267,7 @@ def _fixture(root: Path):
                 "baseCommit": base_commit,
                 "baseTree": base_tree,
             },
+            "outcome": {"kind": "workspace"},
             "workspace": task_snapshot,
         },
         "workspaces": {

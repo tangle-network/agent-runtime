@@ -140,12 +140,6 @@ Re-exports [AgentCandidateExecutionTerminalResult](index.md#agentcandidateexecut
 
 ***
 
-### AgentCandidateExecutionUsage
-
-Re-exports [AgentCandidateExecutionUsage](index.md#agentcandidateexecutionusage)
-
-***
-
 ### AgentCandidateRetryRejection
 
 Re-exports [AgentCandidateRetryRejection](index.md#agentcandidateretryrejection)
@@ -338,12 +332,6 @@ Re-exports [AgentCandidateExecutorPort](index.md#agentcandidateexecutorport)
 
 ***
 
-### AgentCandidateExecutorProfileFile
-
-Re-exports [AgentCandidateExecutorProfileFile](index.md#agentcandidateexecutorprofilefile)
-
-***
-
 ### AgentCandidateExecutorRequest
 
 Re-exports [AgentCandidateExecutorRequest](index.md#agentcandidateexecutorrequest)
@@ -413,12 +401,6 @@ Re-exports [AgentCandidateOutputPurpose](index.md#agentcandidateoutputpurpose)
 ### AgentCandidateProtectedModelActivation
 
 Re-exports [AgentCandidateProtectedModelActivation](index.md#agentcandidateprotectedmodelactivation)
-
-***
-
-### AgentCandidateProtectedModelCall
-
-Re-exports [AgentCandidateProtectedModelCall](index.md#agentcandidateprotectedmodelcall)
 
 ***
 
@@ -527,6 +509,12 @@ Re-exports [VerifiedAgentCandidate](index.md#verifiedagentcandidate)
 ### VerifiedAgentCandidateTaskOutcome
 
 Re-exports [VerifiedAgentCandidateTaskOutcome](index.md#verifiedagentcandidatetaskoutcome)
+
+***
+
+### AGENT\_CANDIDATE\_EXECUTION\_SUPPORT
+
+Re-exports [AGENT_CANDIDATE_EXECUTION_SUPPORT](index.md#agent_candidate_execution_support)
 
 ***
 

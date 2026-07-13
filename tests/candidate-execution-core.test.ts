@@ -13,7 +13,7 @@ import { join } from 'node:path'
 
 import type {
   AgentCandidateGitPatch,
-  AgentCandidateWorkspaceManifestMaterialV1,
+  AgentCandidateWorkspaceManifestMaterial,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -101,7 +101,7 @@ describe('candidate canonical bytes and artifacts', () => {
   })
 
   it('requires workspace manifest bytes to equal canonical material, not only a locator', async () => {
-    const material: AgentCandidateWorkspaceManifestMaterialV1 = {
+    const material: AgentCandidateWorkspaceManifestMaterial = {
       schemaVersion: 1,
       kind: 'agent-candidate-workspace-manifest',
       files: [],
@@ -196,7 +196,7 @@ describe('materialized workspace identity', () => {
     writeFileSync(join(root, '.git', 'ignored'), 'Git internals are not uploaded')
     writeFileSync(join(root, 'run.js'), 'ok\n', { mode: 0o755 })
     const bytes = Buffer.from('ok\n')
-    const material: AgentCandidateWorkspaceManifestMaterialV1 = {
+    const material: AgentCandidateWorkspaceManifestMaterial = {
       schemaVersion: 1,
       kind: 'agent-candidate-workspace-manifest',
       files: [
@@ -231,7 +231,7 @@ describe('materialized workspace identity', () => {
     writeFileSync(join(root, 'source'), 'x')
     chmodSync(join(root, 'source'), 0o644)
     symlinkSync('source', join(root, 'symlink'))
-    const material: AgentCandidateWorkspaceManifestMaterialV1 = {
+    const material: AgentCandidateWorkspaceManifestMaterial = {
       schemaVersion: 1,
       kind: 'agent-candidate-workspace-manifest',
       files: [],

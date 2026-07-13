@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
+const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -12,7 +13,7 @@ try {
   const appDir = join(tempRoot, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
-  mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+  mkdirSync(appDir, { recursive: true })
 
   run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
@@ -52,7 +53,147 @@ try {
     }
   }
 
-  symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-runtime'), 'dir')
+  const repoPackageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+  const knowledgePackageDir = join(
+    repoRoot,
+    'node_modules',
+    '@tangle-network',
+    'agent-knowledge',
+  )
+  if (!existsSync(join(knowledgePackageDir, 'package.json'))) {
+    throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge package')
+  }
+  const knowledgePackDir = join(tempRoot, 'knowledge')
+  mkdirSync(knowledgePackDir, { recursive: true })
+  run('pnpm', ['pack', '--pack-destination', knowledgePackDir], knowledgePackageDir)
+  const knowledgeTarballs = run(
+    'find',
+    [knowledgePackDir, '-maxdepth', '1', '-name', '*.tgz', '-print'],
+    repoRoot,
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+  if (knowledgeTarballs.length !== 1) {
+    throw new Error(`expected exactly one packed knowledge tarball, found ${knowledgeTarballs.length}`)
+  }
+  const peerPackages = [
+    '@tangle-network/agent-eval',
+    '@tangle-network/agent-interface',
+    '@tangle-network/sandbox',
+    'playwright',
+  ]
+  const peerDependencies = Object.fromEntries(
+    peerPackages.map((name) => {
+      const version = repoPackageJson.devDependencies?.[name]
+      if (typeof version !== 'string' || version.length === 0) {
+        throw new Error(`packed consumer requires a ${name} development dependency`)
+      }
+      return [name, version]
+    }),
+  )
+  writeFileSync(
+    join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+          ...peerDependencies,
+        },
+        devDependencies: { typescript: repoPackageJson.devDependencies.typescript },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'pnpm-workspace.yaml'),
+    `overrides:\n  '@tangle-network/agent-knowledge': file:${knowledgeTarballs[0]}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'tsconfig.json'),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          strict: true,
+          noEmit: true,
+          skipLibCheck: false,
+        },
+        include: ['consumer.ts'],
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  writeFileSync(
+    join(appDir, 'consumer.ts'),
+    `
+      import type {
+        AgentCandidateProfileActivation,
+        AgentImprovementProposal,
+        AgentImprovementReview,
+        CandidateExecutionEvidence,
+      } from '@tangle-network/agent-interface'
+      import { SandboxClient } from '@tangle-network/sandbox'
+      import type { AgentCandidateTaskExecution } from '@tangle-network/agent-runtime/candidate-execution'
+      import {
+        createSandboxApprovedCandidateExecutor,
+        parseAgentCandidateProfileActivation,
+        sandboxApprovedCandidateExecutionSupport,
+        verifyCandidateExecutionEvidence,
+        type CreateSandboxApprovedCandidateExecutorOptions,
+      } from '@tangle-network/agent-runtime/intelligence'
+
+      const client = new SandboxClient({
+        apiKey: 'sk_sandbox_compile_only',
+        baseUrl: 'https://sandbox.example.com',
+        trustLocalCliAuth: false,
+      })
+      declare const ports: CreateSandboxApprovedCandidateExecutorOptions['ports']
+      declare const grader: CreateSandboxApprovedCandidateExecutorOptions['grader']
+      declare const outputArtifacts: CreateSandboxApprovedCandidateExecutorOptions['outputArtifacts']
+      declare const traceStore: CreateSandboxApprovedCandidateExecutorOptions['traceStore']
+      declare const claimStore: CreateSandboxApprovedCandidateExecutorOptions['claimStore']
+      declare const proposal: AgentImprovementProposal
+      declare const review: AgentImprovementReview
+      declare const task: AgentCandidateTaskExecution
+      declare const storedEvidence: unknown
+
+      const executor = createSandboxApprovedCandidateExecutor({
+        client,
+        ports,
+        grader,
+        outputArtifacts,
+        traceStore,
+        claimStore,
+        authorizeReview: async () => true,
+      })
+      const execution: Promise<CandidateExecutionEvidence> = executor.execute({
+        proposal,
+        review,
+        task,
+      })
+      const evidence = verifyCandidateExecutionEvidence([storedEvidence], {
+        proposal,
+        review,
+        expectedCount: 1,
+      })[0]
+      const activation: AgentCandidateProfileActivation =
+        parseAgentCandidateProfileActivation(evidence?.profileActivation)
+      const outcome: 'output' = sandboxApprovedCandidateExecutionSupport.outcomes[0]
+      void execution
+      void activation
+      void outcome
+    `,
+  )
+  run('pnpm', ['install', '--ignore-scripts', '--config.auto-install-peers=false'], appDir)
+  run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+
   run(
     process.execPath,
     [
@@ -70,6 +211,10 @@ try {
           'composeCertifiedProfile',
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
+          'createSandboxApprovedCandidateExecutor',
+          'parseAgentCandidateProfileActivation',
+          'sandboxApprovedCandidateExecutionSupport',
+          'verifyCandidateExecutionEvidence',
         ]
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
