@@ -670,7 +670,7 @@ Import from `@tangle-network/agent-runtime/analyst-loop` — 15 exports.
 
 ### Artifact lifecycle — generate → measure → promote → compose
 
-Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
+Import from `@tangle-network/agent-runtime/lifecycle` — 63 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -689,6 +689,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 | `routerSeedAuthor` | function | A router-backed `AuthorDiverseSeeds`: one structured LLM call that authors |
 | `runLifecycle` | function | Run ONE generation of the artifact lifecycle. |
 | `skillGenerator` | function | Build a `CandidateGenerator` for the skill surface that distills new skills |
+| `sweEvalRunner` | function | Build the `EvalRunner` closed over one fixed SWE exam. `runLifecycle` calls |
 | `thresholdPromotionGate` | function | The simplest honest gate: promote iff the candidate's marginal lift on the |
 | `worktreeBuildCandidate` | function | Build the production per-candidate seam for `buildableGenerator`. Each call to |
 | `lifecycleReasonKey` | const | The metadata key under which the registry records WHY an artifact left the |
@@ -713,6 +714,8 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 | `PromptDraft` | interface | A proposed prompt instruction line plus the WHY behind it. The `rationale` |
 | `RunLifecycleOptions` | interface | `runLifecycle` — the ONE closed-loop orchestrator: generate → measure → |
 | `SkillDraft` | interface | A distilled skill draft: a name + the `SKILL.md` body. |
+| `SweEvalTask` | interface | The minimal shape of a held-out SWE instance the runner needs. The bench |
+| `SweEvalTaskResult` | interface | Per-instance audit row surfaced through `EvalResult.details`. |
 | `WorktreeBuildOptions` | interface | `worktreeBuildCandidate` — the PRODUCTION `BuildCandidate`: one fan-out leaf |
 | `ArtifactInput` | type | The input to `register` — everything on `ProfileArtifact` except the |
 | `ArtifactKind` | type | The profile levers an artifact can target. One-to-one with the §1.5 profile |
@@ -725,7 +728,7 @@ Import from `@tangle-network/agent-runtime/lifecycle` — 59 exports.
 | `RefinePrompt` | type | REFINE — incumbent-grounded rewrites. Given the lifecycle context, return |
 | `RefineSkill` | type | REFINE — improve ONE distilled draft (wording, structure, examples). The |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BuildableGeneratorOptions`, `DedupeResult`, `DriftWatchResult`, `HeldOutPromotionGateOptions`, `MeasureMarginalLiftOptions`, `ProductionPromptGeneratorOptions`, `PromptGeneratorOptions`, `RunLifecycleResult`, `SkillGeneratorOptions`, `SweEvalRunnerOptions`.
 
 ### Knowledge orchestration — supervised KB updates
 

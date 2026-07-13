@@ -91,6 +91,12 @@ export {
   type SkillGeneratorOptions,
   skillGenerator,
 } from './skill-generator'
+export {
+  type SweEvalRunnerOptions,
+  type SweEvalTask,
+  type SweEvalTaskResult,
+  sweEvalRunner,
+} from './swe-eval-runner'
 export { type WorktreeBuildOptions, worktreeBuildCandidate } from './tool-build'
 export {
   type BuildableGeneratorOptions,
