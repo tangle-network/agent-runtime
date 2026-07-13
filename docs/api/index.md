@@ -4044,7 +4044,7 @@ Defined in: [candidate-execution/types.ts:532](https://github.com/tangle-network
 
 ### AgentCandidateWorkspaceArchiveLimits
 
-Defined in: [candidate-execution/workspace-archive.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L47)
+Defined in: [candidate-execution/workspace-archive.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L52)
 
 #### Properties
 
@@ -4052,49 +4052,49 @@ Defined in: [candidate-execution/workspace-archive.ts:47](https://github.com/tan
 
 > **maxArchiveBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L48)
+Defined in: [candidate-execution/workspace-archive.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L53)
 
 ##### maxEmbeddedArtifactBytes
 
 > **maxEmbeddedArtifactBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L49)
+Defined in: [candidate-execution/workspace-archive.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L54)
 
 ##### maxFiles
 
 > **maxFiles**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L50)
+Defined in: [candidate-execution/workspace-archive.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L55)
 
 ##### maxFileBytes
 
 > **maxFileBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L51)
+Defined in: [candidate-execution/workspace-archive.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L56)
 
 ##### maxTotalFileBytes
 
 > **maxTotalFileBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L52)
+Defined in: [candidate-execution/workspace-archive.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L57)
 
 ##### maxPathBytes
 
 > **maxPathBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:53](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L53)
+Defined in: [candidate-execution/workspace-archive.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L58)
 
 ##### maxRepositoryBundleBytes
 
 > **maxRepositoryBundleBytes**: `number`
 
-Defined in: [candidate-execution/workspace-archive.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L54)
+Defined in: [candidate-execution/workspace-archive.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L59)
 
 ***
 
 ### CaptureAgentCandidateWorkspaceOptions
 
-Defined in: [candidate-execution/workspace-archive.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L93)
+Defined in: [candidate-execution/workspace-archive.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L98)
 
 #### Properties
 
@@ -4102,7 +4102,7 @@ Defined in: [candidate-execution/workspace-archive.ts:93](https://github.com/tan
 
 > `optional` **includeRepository?**: `boolean`
 
-Defined in: [candidate-execution/workspace-archive.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L95)
+Defined in: [candidate-execution/workspace-archive.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L100)
 
 Include Git HEAD so task preparation can prove its exact commit and tree.
 
@@ -4110,13 +4110,13 @@ Include Git HEAD so task preparation can prove its exact commit and tree.
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L96)
+Defined in: [candidate-execution/workspace-archive.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L101)
 
 ##### artifactPersistence?
 
 > `optional` **artifactPersistence?**: `object`
 
-Defined in: [candidate-execution/workspace-archive.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L98)
+Defined in: [candidate-execution/workspace-archive.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L103)
 
 Use the evaluator-owned artifact store when manifest or archive bytes should not be embedded.
 
@@ -4136,7 +4136,7 @@ Use the evaluator-owned artifact store when manifest or archive bytes should not
 
 ### CreateAgentCandidateWorkspacePortOptions
 
-Defined in: [candidate-execution/workspace-archive.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L105)
+Defined in: [candidate-execution/workspace-archive.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L110)
 
 #### Properties
 
@@ -4144,13 +4144,13 @@ Defined in: [candidate-execution/workspace-archive.ts:105](https://github.com/ta
 
 > `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L106)
+Defined in: [candidate-execution/workspace-archive.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L111)
 
 ***
 
 ### CapturedAgentCandidateWorkspace
 
-Defined in: [candidate-execution/workspace-archive.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L109)
+Defined in: [candidate-execution/workspace-archive.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L114)
 
 #### Properties
 
@@ -4158,13 +4158,13 @@ Defined in: [candidate-execution/workspace-archive.ts:109](https://github.com/ta
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
 
-Defined in: [candidate-execution/workspace-archive.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L110)
+Defined in: [candidate-execution/workspace-archive.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L115)
 
 ##### archive
 
 > `readonly` **archive**: `Uint8Array`
 
-Defined in: [candidate-execution/workspace-archive.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L112)
+Defined in: [candidate-execution/workspace-archive.ts:117](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L117)
 
 Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
 
@@ -12262,7 +12262,7 @@ Verifies every digest, resource, workspace, and Git object in a candidate bundle
 
 > **captureAgentCandidateWorkspace**(`rootInput`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L116)
+Defined in: [candidate-execution/workspace-archive.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L121)
 
 Capture one exact regular-file workspace for immutable candidate execution.
 
@@ -12286,7 +12286,7 @@ Capture one exact regular-file workspace for immutable candidate execution.
 
 > **captureAgentCandidateWorkspaceFiles**(`input`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
 
-Defined in: [candidate-execution/workspace-archive.ts:137](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L137)
+Defined in: [candidate-execution/workspace-archive.ts:142](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L142)
 
 Capture detached files returned by a remote executor into the standard archive.
 
@@ -12310,7 +12310,7 @@ readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspac
 
 > **createAgentCandidateWorkspacePort**(`options?`): [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
 
-Defined in: [candidate-execution/workspace-archive.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L199)
+Defined in: [candidate-execution/workspace-archive.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/workspace-archive.ts#L204)
 
 Create the standard bounded materializer for candidate execution ports.
 

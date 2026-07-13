@@ -8,6 +8,7 @@ import {
   readdir,
   readFile,
   realpath,
+  rename,
   rm,
   writeFile,
 } from 'node:fs/promises'
@@ -30,7 +31,11 @@ import {
   embeddedCandidateArtifact,
   sha256Bytes,
 } from './digest'
-import { readCandidateGitTreeFiles, runCandidateGit } from './git-materialize'
+import {
+  assertNoGitIndirection,
+  readCandidateGitTreeFiles,
+  runCandidateGit,
+} from './git-materialize'
 import { persistCandidateOutputArtifact } from './output-artifacts'
 import type {
   AgentCandidateExecutorWorkspaceFile,
@@ -234,15 +239,18 @@ async function materializeAgentCandidateWorkspace(input: {
   assertArchiveMatchesSnapshot(decoded.files, input.snapshot)
   const destination = resolve(input.destination)
   await prepareEmptyDestination(destination)
+  const staging = await mkdtemp(`${destination}.materializing-`)
   try {
-    await writeWorkspaceFiles(destination, decoded.files)
+    await writeWorkspaceFiles(staging, decoded.files)
     if (decoded.repository) {
-      await materializeRepository(decoded.repository, destination)
+      await materializeRepository(decoded.repository, staging)
     }
-    await verifyMaterializedWorkspace(destination, input.snapshot.material, {
+    await verifyMaterializedWorkspace(staging, input.snapshot.material, {
       ignoredProtectedRootEntries: decoded.repository ? ['.git'] : [],
     })
+    await rename(staging, destination)
   } catch (error) {
+    await rm(staging, { recursive: true, force: true })
     await rm(destination, { recursive: true, force: true })
     throw error
   }
@@ -265,6 +273,15 @@ async function captureRepository(
   if (resolve(topLevel) !== root) {
     throw new Error('candidate repository capture must start at the Git worktree root')
   }
+  const gitDir = resolve(
+    (await runCandidateGit(root, ['rev-parse', '--absolute-git-dir'])).stdout
+      .toString('utf8')
+      .trim(),
+  )
+  if ((await realpath(gitDir)) !== gitDir || gitDir.includes(':')) {
+    throw new Error('candidate repository Git object store has an unsupported path')
+  }
+  await assertNoGitIndirection(root, gitDir, 'candidate repository')
   const headCommit = (await runCandidateGit(root, ['rev-parse', 'HEAD'])).stdout
     .toString('utf8')
     .trim()

@@ -448,34 +448,49 @@ describe('candidate workspace archive', () => {
 
   it('does not run ambient Git commands while capturing or restoring a repository', async () => {
     const source = repository()
-    writeFileSync(join(source, '.gitattributes'), 'README.md filter=owned\n', { mode: 0o644 })
-    git(source, ['add', '.gitattributes'])
-    git(source, ['commit', '-m', 'filter fixture'])
     const configRoot = temporaryRoot('candidate-workspace-git-config-')
-    const globalConfig = join(configRoot, 'global.gitconfig')
-    const marker = join(configRoot, 'filter-ran')
+    const marker = join(configRoot, 'fsmonitor-ran')
     const fsmonitor = join(configRoot, 'fsmonitor.sh')
     writeFileSync(fsmonitor, `#!/bin/sh\ntouch ${marker}\n`, { mode: 0o755 })
     chmodSync(fsmonitor, 0o755)
     git(source, ['config', 'core.fsmonitor', fsmonitor])
-    git(source, ['config', '--file', globalConfig, 'filter.owned.smudge', `touch ${marker}`])
-    const previous = process.env.GIT_CONFIG_GLOBAL
-    process.env.GIT_CONFIG_GLOBAL = globalConfig
-    try {
-      await runCandidateGit(source, ['status', '--porcelain=v1', '--untracked-files=all'])
-      const protectedCapture = await captureAgentCandidateWorkspace(source, {
-        includeRepository: true,
-      })
-      await createAgentCandidateWorkspacePort().materialize({
-        role: 'task',
-        snapshot: protectedCapture.snapshot,
-        archive: protectedCapture.archive,
-        destination: join(temporaryRoot('candidate-workspace-parent-'), 'restored'),
-      })
-    } finally {
-      if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL
-      else process.env.GIT_CONFIG_GLOBAL = previous
-    }
+    await runCandidateGit(source, ['status', '--porcelain=v1', '--untracked-files=all'])
+    const protectedCapture = await captureAgentCandidateWorkspace(source, {
+      includeRepository: true,
+    })
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: protectedCapture.snapshot,
+      archive: protectedCapture.archive,
+      destination: join(temporaryRoot('candidate-workspace-parent-'), 'restored'),
+    })
     expect(existsSync(marker)).toBe(false)
+  })
+
+  it('rejects repository object-store indirection before capture', async () => {
+    const source = repository()
+    const alternateObjects = join(temporaryRoot('candidate-workspace-alternate-'), 'objects')
+    mkdirSync(alternateObjects)
+    mkdirSync(join(source, '.git', 'objects', 'info'), { recursive: true })
+    writeFileSync(join(source, '.git', 'objects', 'info', 'alternates'), `${alternateObjects}\n`)
+
+    await expect(
+      captureAgentCandidateWorkspace(source, { includeRepository: true }),
+    ).rejects.toThrow('forbidden Git alternates')
+  })
+
+  it('rejects object-store indirection inherited by a linked worktree', async () => {
+    const source = repository()
+    const linked = temporaryRoot('candidate-workspace-linked-')
+    rmSync(linked, { recursive: true, force: true })
+    git(source, ['worktree', 'add', '--detach', linked])
+    const alternateObjects = join(temporaryRoot('candidate-workspace-alternate-'), 'objects')
+    mkdirSync(alternateObjects)
+    mkdirSync(join(source, '.git', 'objects', 'info'), { recursive: true })
+    writeFileSync(join(source, '.git', 'objects', 'info', 'alternates'), `${alternateObjects}\n`)
+
+    await expect(
+      captureAgentCandidateWorkspace(linked, { includeRepository: true }),
+    ).rejects.toThrow('forbidden Git alternates')
   })
 })

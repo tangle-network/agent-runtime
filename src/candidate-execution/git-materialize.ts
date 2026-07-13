@@ -238,7 +238,7 @@ async function verifiedRepositoryRoot(
   return repositoryRoot
 }
 
-async function assertNoGitIndirection(
+export async function assertNoGitIndirection(
   repositoryRoot: string,
   gitDir: string,
   label: string,
@@ -249,13 +249,24 @@ async function assertNoGitIndirection(
     .toString('utf8')
     .trim()
   if (replacements) throw new Error(`${label} contains Git replace refs`)
-  for (const name of ['alternates', 'http-alternates']) {
-    const path = join(gitDir, 'objects', 'info', name)
-    try {
-      const contents = await readFile(path, 'utf8')
-      if (contents.trim()) throw new Error(`${label} uses forbidden Git ${name}`)
-    } catch (error) {
-      if (!isNoEntry(error)) throw error
+  const commonDir = resolve(
+    repositoryRoot,
+    (await runCandidateGit(repositoryRoot, ['rev-parse', '--git-common-dir'])).stdout
+      .toString('utf8')
+      .trim(),
+  )
+  if ((await realpath(commonDir)) !== commonDir || commonDir.includes(':')) {
+    throw new Error(`${label} Git common directory has an unsupported path`)
+  }
+  for (const objectRoot of new Set([gitDir, commonDir])) {
+    for (const name of ['alternates', 'http-alternates']) {
+      const path = join(objectRoot, 'objects', 'info', name)
+      try {
+        const contents = await readFile(path, 'utf8')
+        if (contents.trim()) throw new Error(`${label} uses forbidden Git ${name}`)
+      } catch (error) {
+        if (!isNoEntry(error)) throw error
+      }
     }
   }
 }
