@@ -7,6 +7,8 @@ import {
   gitWorktreeAdapter,
   type ProposeContext,
   verifyCodeSurface,
+  type Worktree,
+  type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
@@ -292,6 +294,33 @@ describe('improvementDriver — reflective generator', () => {
     // The worktree created before the throw was discarded — only the main
     // worktree remains.
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
+  })
+
+  it('retries candidate cleanup when generation and the first discard both fail', async () => {
+    const realWorktree = gitWorktreeAdapter({ repoRoot })
+    let discardAttempts = 0
+    const flakyWorktree: WorktreeAdapter = {
+      ...realWorktree,
+      async discard(worktree: Worktree) {
+        discardAttempts += 1
+        if (discardAttempts === 1) throw new Error('transient discard failure')
+        await realWorktree.discard(worktree)
+      },
+    }
+    const driver = improvementDriver({
+      generator: {
+        kind: 'throws-with-flaky-cleanup',
+        async generate() {
+          throw new Error('generation failed')
+        },
+      },
+      worktree: flakyWorktree,
+      baseRef: 'main',
+    })
+
+    await expect(driver.propose(ctxWith(FINDINGS))).rejects.toThrow('generation failed')
+    expect(discardAttempts).toBe(2)
+    expect(git(['worktree', 'list'], repoRoot).split('\n')).toHaveLength(1)
   })
 
   it('attempts every candidate cleanup even when one discard fails', async () => {

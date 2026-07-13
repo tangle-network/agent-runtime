@@ -33,10 +33,19 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AnalystFinding } from '@tangle-network/agent-eval'
-import { type LocalHarness, runLocalHarness } from '../mcp/local-harness'
+import type { AgentProfile, ReasoningEffort } from '@tangle-network/agent-interface'
+import {
+  type CodexExecutionEvidence,
+  type CodexTokenUsage,
+  harnessInvocation,
+  type LocalHarness,
+  type LocalHarnessResult,
+  runLocalHarness,
+} from '../mcp/local-harness'
 import type { CandidateGenerator } from './improvement-driver'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
@@ -55,9 +64,49 @@ export interface VerifyResult {
  *  throw). */
 export type Verifier = (worktreePath: string) => Promise<VerifyResult> | VerifyResult
 
+export interface AgenticGeneratorShotReceipt {
+  readonly schemaVersion: 1
+  readonly generation: number | null
+  readonly candidateIndex: number | null
+  /** One-based shot number within this candidate. */
+  readonly shot: number
+  readonly maxShots: number
+  readonly harness: LocalHarness
+  readonly model: string | null
+  readonly reasoningEffort: ReasoningEffort | null
+  readonly promptSha256: `sha256:${string}`
+  readonly startedAt: string
+  readonly completedAt: string
+  readonly durationMs: number
+  readonly exitCode: number | null
+  readonly timedOut: boolean
+  readonly killedBySignal: NodeJS.Signals | null
+  readonly stdoutBytes: number | null
+  readonly stdoutSha256: `sha256:${string}` | null
+  readonly stderrBytes: number | null
+  readonly stderrSha256: `sha256:${string}` | null
+  readonly usage: CodexTokenUsage | null
+  readonly costUsd: null
+  readonly costUsdKnown: false
+  readonly evidence: CodexExecutionEvidence | null
+  readonly error: { readonly name: string; readonly message: string } | null
+}
+
 export interface AgenticGeneratorOptions {
   /** Local coding harness to run in the worktree. Default `claude`. */
   harness?: LocalHarness
+  /** Author profile rendered through the canonical harness mapper. Required
+   *  for reproducible Codex so model and reasoning settings are explicit. */
+  profile?: AgentProfile
+  /** Run Codex with isolated configuration, exact prompt evidence, and required
+   *  terminal token usage. Requires `harness: 'codex'` and `profile`. */
+  codexReproducible?: boolean
+  /** Absolute paths reproducible Codex must not read. A function can derive
+   *  candidate-specific paths after the driver creates its worktree. */
+  codexReadDeniedPaths?: ReadonlyArray<string> | ((worktreePath: string) => ReadonlyArray<string>)
+  /** Awaited once for every attempted author shot, including process failures.
+   *  Throwing aborts the candidate so receipt persistence can fail closed. */
+  onShotCompleted?: (receipt: AgenticGeneratorShotReceipt) => void | Promise<void>
   /** Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m). */
   timeoutMs?: number
   /** Build the harness task prompt from the report + findings. Override for
@@ -78,6 +127,15 @@ export interface AgenticGeneratorOptions {
 /** Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place. */
 export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateGenerator {
   const harness = opts.harness ?? 'claude'
+  if (opts.codexReproducible && harness !== 'codex') {
+    throw new Error("agenticGenerator: codexReproducible requires harness 'codex'")
+  }
+  if (opts.codexReproducible && !opts.profile) {
+    throw new Error('agenticGenerator: codexReproducible requires an explicit author profile')
+  }
+  if (opts.codexReadDeniedPaths && !opts.codexReproducible) {
+    throw new Error('agenticGenerator: codexReadDeniedPaths requires codexReproducible')
+  }
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt
   const run = opts.runHarness ?? runLocalHarness
   const dirty = opts.isDirty ?? worktreeDirty
@@ -91,7 +149,15 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
     // empty-findings guard short-circuits and generates ZERO candidates on the
     // first (and, for a single-generation run, only) proposal round.
     proposesWithoutFindings: true,
-    async generate({ worktreePath, report, findings, maxShots, signal }) {
+    async generate({
+      worktreePath,
+      report,
+      findings,
+      maxShots,
+      signal,
+      generation,
+      candidateIndex,
+    }) {
       const basePrompt = buildPrompt({ report, findings })
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const shots = Math.max(1, maxShots)
@@ -100,17 +166,90 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
 
       for (let shot = 0; shot < shots; shot++) {
         if (signal.aborted) break
-        await run({
-          harness,
-          cwd: worktreePath,
-          taskPrompt: attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt,
-          // The candidate worktree is isolated and must be editable without an
-          // interactive permission prompt. Other runLocalHarness callers remain
-          // permission-safe by default.
-          dangerouslySkipPermissions: harness === 'claude',
-          timeoutMs: opts.timeoutMs,
-          signal,
-        })
+        const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
+        const invocation = opts.profile
+          ? harnessInvocation(harness, opts.profile, taskPrompt, {
+              dangerouslySkipPermissions: harness === 'claude',
+              ...(opts.codexReproducible ? { codexReproducible: true } : {}),
+            })
+          : undefined
+        const exactPrompt = invocation?.prompt ?? taskPrompt
+        const readDeniedPaths =
+          typeof opts.codexReadDeniedPaths === 'function'
+            ? opts.codexReadDeniedPaths(worktreePath)
+            : opts.codexReadDeniedPaths
+        const startedAt = new Date()
+        let harnessResult: LocalHarnessResult
+        try {
+          harnessResult = await run({
+            harness,
+            cwd: worktreePath,
+            taskPrompt,
+            ...(invocation
+              ? { invocation: { command: invocation.command, args: invocation.args } }
+              : {}),
+            // The candidate worktree is isolated and must be editable without an
+            // interactive permission prompt. Other runLocalHarness callers remain
+            // permission-safe by default.
+            dangerouslySkipPermissions: harness === 'claude',
+            ...(opts.codexReproducible ? { codexReproducible: true } : {}),
+            ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
+            timeoutMs: opts.timeoutMs,
+            signal,
+          })
+        } catch (cause) {
+          const failure = cause instanceof Error ? cause : new Error(String(cause))
+          const completedAt = new Date()
+          await emitShotReceipt(
+            opts.onShotCompleted,
+            shotReceipt({
+              generation,
+              candidateIndex,
+              shot,
+              maxShots: shots,
+              harness,
+              profile: opts.profile,
+              prompt: exactPrompt,
+              startedAt,
+              completedAt,
+              result: null,
+              error: failure,
+            }),
+            failure,
+          )
+          throw failure
+        }
+
+        const expectedPromptSha256 = sha256(exactPrompt).slice('sha256:'.length)
+        const receiptError = opts.codexReproducible
+          ? !harnessResult.usage || !harnessResult.evidence
+            ? new Error(
+                'agenticGenerator: reproducible Codex shot completed without usage or execution evidence',
+              )
+            : harnessResult.evidence.requestedPromptSha256 !== expectedPromptSha256 ||
+                harnessResult.evidence.effectivePromptSha256 !== expectedPromptSha256
+              ? new Error(
+                  'agenticGenerator: reproducible Codex prompt evidence does not match the exact authored prompt',
+                )
+              : null
+          : null
+        await emitShotReceipt(
+          opts.onShotCompleted,
+          shotReceipt({
+            generation,
+            candidateIndex,
+            shot,
+            maxShots: shots,
+            harness,
+            profile: opts.profile,
+            prompt: exactPrompt,
+            startedAt,
+            completedAt: new Date(),
+            result: harnessResult,
+            error: receiptError,
+          }),
+          receiptError,
+        )
 
         // The worktree IS the signal: no edits ⇒ tell the next shot to act.
         if (!dirty(worktreePath)) {
@@ -143,6 +282,83 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       return { applied: false, summary: '' }
     },
   }
+}
+
+async function emitShotReceipt(
+  callback: AgenticGeneratorOptions['onShotCompleted'],
+  receipt: AgenticGeneratorShotReceipt,
+  primaryError: Error | null,
+): Promise<void> {
+  try {
+    await callback?.(receipt)
+  } catch (callbackError) {
+    if (primaryError !== null) {
+      throw new AggregateError(
+        [primaryError, callbackError],
+        'agenticGenerator: author shot failed and its receipt could not be persisted',
+      )
+    }
+    throw callbackError
+  }
+  if (primaryError !== null) throw primaryError
+}
+
+function shotReceipt(input: {
+  readonly generation: number | undefined
+  readonly candidateIndex: number | undefined
+  readonly shot: number
+  readonly maxShots: number
+  readonly harness: LocalHarness
+  readonly profile: AgentProfile | undefined
+  readonly prompt: string
+  readonly startedAt: Date
+  readonly completedAt: Date
+  readonly result: LocalHarnessResult | null
+  readonly error: unknown
+}): AgenticGeneratorShotReceipt {
+  const error = input.error
+    ? {
+        name: input.error instanceof Error ? input.error.name : 'Error',
+        message: input.error instanceof Error ? input.error.message : String(input.error),
+      }
+    : null
+  const result = input.result
+  return {
+    schemaVersion: 1,
+    generation: input.generation ?? null,
+    candidateIndex: input.candidateIndex ?? null,
+    shot: input.shot + 1,
+    maxShots: input.maxShots,
+    harness: input.harness,
+    model: input.profile?.model?.default ?? null,
+    reasoningEffort: input.profile?.model?.reasoningEffort ?? null,
+    promptSha256: sha256(input.prompt),
+    startedAt: input.startedAt.toISOString(),
+    completedAt: input.completedAt.toISOString(),
+    durationMs: result?.durationMs ?? input.completedAt.getTime() - input.startedAt.getTime(),
+    exitCode: result?.exitCode ?? null,
+    timedOut: result?.timedOut ?? false,
+    killedBySignal: result?.killedBySignal ?? null,
+    stdoutBytes: result ? Buffer.byteLength(result.stdout) : null,
+    stdoutSha256: result ? sha256(result.stdout) : null,
+    stderrBytes: result ? Buffer.byteLength(result.stderr) : null,
+    stderrSha256: result ? sha256(result.stderr) : null,
+    usage: result?.usage ? { ...result.usage } : null,
+    costUsd: null,
+    costUsdKnown: false,
+    evidence: result?.evidence
+      ? {
+          ...result.evidence,
+          readDeniedPaths: [...result.evidence.readDeniedPaths],
+          policy: { ...result.evidence.policy },
+        }
+      : null,
+    error,
+  }
+}
+
+function sha256(value: string): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`
 }
 
 /** Turn the analyst's findings (+ optional report) into a concrete coder task. */

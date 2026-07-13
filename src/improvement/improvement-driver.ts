@@ -62,6 +62,9 @@ export interface CandidateGenerator {
      *  reflective generator ignores it). */
     maxShots: number
     signal: AbortSignal
+    /** Improvement-loop coordinates. Present when called through improvementDriver. */
+    generation?: number
+    candidateIndex?: number
   }): Promise<{ applied: boolean; summary: string }>
 }
 
@@ -74,14 +77,14 @@ export interface ImprovementDriverOptions {
 }
 
 export interface ManagedImprovementDriver extends SurfaceProposer<AnalystFinding> {
-  /** Remove every finalized candidate except explicitly retained winners. */
+  /** Remove every owned candidate except explicitly retained finalized winners. */
   cleanup(retainWorktreeRefs?: readonly string[]): Promise<void>
 }
 
 /** The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. */
 export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprovementDriver {
   const baseRef = opts.baseRef ?? 'main'
-  const finalized = new Map<string, Worktree>()
+  const owned = new Map<string, Worktree>()
 
   return {
     kind: `improvement:${opts.generator.kind}`,
@@ -111,6 +114,7 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
           baseRef: proposalBaseRef,
           label: `${opts.generator.kind}-gen${ctx.generation}-cand${i}`,
         })
+        owned.set(wt.path, wt)
         // Once a worktree exists it MUST be accounted for: finalized into a
         // surface, or discarded. A throw from generate()/finalize() must not
         // leak the worktree + branch — discard best-effort, then rethrow loud.
@@ -123,18 +127,38 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
             dataset: ctx.dataset,
             maxShots: ctx.maxImprovementShots ?? 1,
             signal: ctx.signal,
+            generation: ctx.generation,
+            candidateIndex: i,
           })
           if (!applied) {
             await opts.worktree.discard(wt)
+            owned.delete(wt.path)
             continue
           }
           const surface = await opts.worktree.finalize(wt, summary)
           surfaces.push(surface)
-          finalized.set(surface.worktreeRef, wt)
+          owned.delete(wt.path)
+          owned.set(surface.worktreeRef, wt)
         } catch (err) {
-          // Best-effort cleanup; never mask the original failure.
-          await opts.worktree.discard(wt).catch(() => {})
-          throw err
+          const cleanupErrors: unknown[] = []
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              await opts.worktree.discard(wt)
+              owned.delete(wt.path)
+              break
+            } catch (cause) {
+              cleanupErrors.push(cause)
+            }
+          }
+          if (cleanupErrors.length === 0) throw err
+          const failure = err instanceof Error ? err.message : String(err)
+          const cleanupSucceeded = !owned.has(wt.path)
+          throw new AggregateError(
+            [err, ...cleanupErrors],
+            cleanupSucceeded
+              ? `improvementDriver: ${failure}; candidate cleanup retry succeeded`
+              : `improvementDriver: ${failure}; candidate worktree could not be cleaned`,
+          )
         }
       }
       return surfaces
@@ -142,11 +166,11 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
     async cleanup(retainWorktreeRefs = []) {
       const retained = new Set(retainWorktreeRefs)
       const errors: unknown[] = []
-      for (const [worktreeRef, worktree] of finalized) {
+      for (const [worktreeRef, worktree] of owned) {
         if (retained.has(worktreeRef)) continue
         try {
           await opts.worktree.discard(worktree)
-          finalized.delete(worktreeRef)
+          owned.delete(worktreeRef)
         } catch (cause) {
           errors.push(cause)
         }

@@ -12,6 +12,7 @@
 
 export {
   type AgenticGeneratorOptions,
+  type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
   type Verifier,

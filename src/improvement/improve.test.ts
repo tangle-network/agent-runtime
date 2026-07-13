@@ -17,6 +17,11 @@
  * sees a real backend rather than a silent-zero stub.
  */
 
+import {
+  gitWorktreeAdapter,
+  type Worktree,
+  type WorktreeAdapter,
+} from '@tangle-network/agent-eval/campaign'
 import type {
   CodeSurface,
   DispatchContext,
@@ -470,19 +475,59 @@ describe('improve() — default proposer resolution (substrate export drift guar
     // Prompt, skills, and memory have defaults; config surfaces require a
     // caller-supplied generator. This is the
     // designed boundary the proposer migration must NOT erase.
-    const configSurfaces: ImproveSurface[] = [
-      'tools',
-      'mcp',
-      'hooks',
-      'subagents',
-      'agent-profile',
-      'code',
-    ]
+    const configSurfaces: ImproveSurface[] = ['tools', 'mcp', 'hooks', 'subagents', 'agent-profile']
     for (const surface of configSurfaces) {
       await expect(
         improve(promptProfile(), [], { surface, gate: 'none', scenarios, judge, agent: stubAgent }),
       ).rejects.toBeInstanceOf(ConfigError)
     }
+  })
+
+  it.each([
+    'text',
+    'external-code',
+  ] as const)("surface 'code' rejects a top-level proposer before it can return $surfaceKind", async (surfaceKind) => {
+    let proposerCalls = 0
+    const externalCode: CodeSurface = {
+      kind: 'code',
+      worktreeRef: '/tmp/externally-owned-code-surface',
+      baseRef: 'main',
+      baseCommit: 'a'.repeat(40),
+      baseTree: 'b'.repeat(40),
+      candidateCommit: 'c'.repeat(40),
+      candidateTree: 'd'.repeat(40),
+      patch: {
+        format: 'git-diff-binary',
+        sha256: `sha256:${'e'.repeat(64)}`,
+        byteLength: 1,
+      },
+    }
+    const externalProposer: SurfaceProposer = {
+      kind: 'externally-owned-code-test',
+      async propose() {
+        proposerCalls += 1
+        return [
+          {
+            surface: surfaceKind === 'text' ? 'not-a-code-surface' : externalCode,
+            label: 'unsafe external result',
+            rationale: 'exercise code ownership validation',
+          },
+        ]
+      },
+    }
+
+    await expect(
+      improve(promptProfile(), [], {
+        surface: 'code',
+        scenarios,
+        judge,
+        agent: stubAgent,
+        generator: externalProposer,
+        code: { repoRoot: '/tmp/must-not-be-opened' },
+        budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+      }),
+    ).rejects.toThrow(/forbids opts\.generator/)
+    expect(proposerCalls).toBe(0)
   })
 
   it('the default generation distiller feeds real failures to the next proposal round', async () => {
@@ -611,6 +656,9 @@ describe('improve() — default proposer resolution (substrate export drift guar
         'baseline contents\nimproved 1\n',
       )
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
+      await result.dispose()
+      await result.dispose()
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }
@@ -665,6 +713,243 @@ describe('improve() — default proposer resolution (substrate export drift guar
         'baseline contents\n',
       )
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
+      await result.dispose()
+      await result.dispose()
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    { mode: 'transient' as const, expectedWorktrees: 1, expectedErrors: 1 },
+    { mode: 'persistent' as const, expectedWorktrees: 3, expectedErrors: 2 },
+  ])('surface code retries $mode cleanup before rejecting without a result', async (fixture) => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-cleanup-`))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      const realWorktree = gitWorktreeAdapter({ repoRoot })
+      let discardAttempts = 0
+      const flakyWorktree: WorktreeAdapter = {
+        ...realWorktree,
+        async discard(worktree: Worktree) {
+          discardAttempts += 1
+          if (fixture.mode === 'persistent' || discardAttempts === 1) {
+            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
+          }
+          await realWorktree.discard(worktree)
+        },
+      }
+
+      let caught: unknown
+      try {
+        await improve(promptProfile(), [], {
+          surface: 'code',
+          scenarios,
+          judge: improvementJudge,
+          agent: async (surface, _scenario, ctx) => {
+            ctx.cost.observe(0.0001, 'stub-agent')
+            ctx.cost.observeTokens({ input: 1, output: 1 })
+            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+              throw new Error('expected code surface')
+            }
+            return {
+              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+            }
+          },
+          code: {
+            repoRoot,
+            worktree: flakyWorktree,
+            generator: {
+              kind: 'cleanup-test',
+              async generate({ worktreePath }) {
+                writeFileSync(join(worktreePath, 'module.txt'), 'improved contents\n')
+                return { applied: true, summary: 'improve cleanup fixture' }
+              },
+            },
+          },
+          promotionGate: {
+            name: 'test-hold',
+            decide: async () => ({
+              decision: 'hold',
+              reasons: ['exercise cleanup recovery'],
+              contributingGates: [],
+            }),
+          },
+          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+        })
+      } catch (cause) {
+        caught = cause
+      }
+
+      expect(caught).toBeInstanceOf(AggregateError)
+      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
+      expect(discardAttempts).toBe(3)
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
+        fixture.expectedWorktrees,
+      )
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    {
+      mode: 'transient' as const,
+      expectedWorktrees: 1,
+      expectedErrors: 2,
+      expectedDiscardAttempts: 3,
+    },
+    {
+      mode: 'persistent' as const,
+      expectedWorktrees: 3,
+      expectedErrors: 3,
+      expectedDiscardAttempts: 6,
+    },
+  ])('surface code retries $mode cleanup when selfImprove rejects', async (fixture) => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-rejection-`))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      const realWorktree = gitWorktreeAdapter({ repoRoot })
+      let discardAttempts = 0
+      const flakyWorktree: WorktreeAdapter = {
+        ...realWorktree,
+        async discard(worktree: Worktree) {
+          discardAttempts += 1
+          if (fixture.mode === 'persistent' || discardAttempts === 1) {
+            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
+          }
+          await realWorktree.discard(worktree)
+        },
+      }
+      let caught: unknown
+      try {
+        await improve(promptProfile(), [], {
+          surface: 'code',
+          scenarios,
+          judge,
+          agent: async (surface, _scenario, ctx) => {
+            ctx.cost.observe(0.0001, 'stub-agent')
+            ctx.cost.observeTokens({ input: 1, output: 1 })
+            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+              throw new Error('expected code surface')
+            }
+            return {
+              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+            }
+          },
+          code: {
+            repoRoot,
+            worktree: flakyWorktree,
+            generator: {
+              kind: 'rejecting-test',
+              async generate() {
+                throw new Error('candidate generation failed')
+              },
+            },
+          },
+          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+        })
+      } catch (cause) {
+        caught = cause
+      }
+
+      expect(caught).toBeInstanceOf(AggregateError)
+      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
+      expect(discardAttempts).toBe(fixture.expectedDiscardAttempts)
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
+        fixture.expectedWorktrees,
+      )
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    { mode: 'transient' as const, expectedWorktrees: 1, expectedErrors: 2 },
+    { mode: 'persistent' as const, expectedWorktrees: 2, expectedErrors: 3 },
+  ])('surface code retries $mode cleanup when baseline finalization rejects', async (fixture) => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), `improve-code-${fixture.mode}-finalize-`))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      const realWorktree = gitWorktreeAdapter({ repoRoot })
+      let discardAttempts = 0
+      const rejectingWorktree: WorktreeAdapter = {
+        ...realWorktree,
+        async finalize() {
+          throw new Error('baseline finalization failed')
+        },
+        async discard(worktree: Worktree) {
+          discardAttempts += 1
+          if (fixture.mode === 'persistent' || discardAttempts === 1) {
+            throw new Error(`${fixture.mode} discard failure ${discardAttempts}`)
+          }
+          await realWorktree.discard(worktree)
+        },
+      }
+
+      let caught: unknown
+      try {
+        await improve(promptProfile(), [], {
+          surface: 'code',
+          scenarios,
+          judge,
+          agent: stubAgent,
+          code: {
+            repoRoot,
+            worktree: rejectingWorktree,
+            generator: {
+              kind: 'unused',
+              async generate() {
+                throw new Error('must not generate before baseline finalization')
+              },
+            },
+          },
+          budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+        })
+      } catch (cause) {
+        caught = cause
+      }
+
+      expect(caught).toBeInstanceOf(AggregateError)
+      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
+      expect(discardAttempts).toBe(2)
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
+        fixture.expectedWorktrees,
+      )
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }

@@ -115,6 +115,8 @@ const HARNESS_INVOCATIONS: Record<
 export interface HarnessInvocation {
   command: string
   args: string[]
+  /** Exact profile-composed prompt carried by the invocation. */
+  prompt: string
 }
 
 export interface HarnessInvocationOptions {
@@ -234,7 +236,7 @@ export function harnessInvocation(
     args.push(...invocation.reasoningArgs(reasoningEffort))
   }
 
-  return { command: invocation.command, args }
+  return { command: invocation.command, args, prompt: composedPrompt }
 }
 
 /** @experimental */

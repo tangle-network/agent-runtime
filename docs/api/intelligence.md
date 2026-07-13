@@ -3610,7 +3610,7 @@ compile to `withAnalyst: true`, the tier's `fanout`, and `withLoops: true`.
 
 > **proposeAgentImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentImprovementResult`](#proposeagentimprovementresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [intelligence/improvement-cycle.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L172)
+Defined in: [intelligence/improvement-cycle.ts:196](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L196)
 
 Analyze one run and produce one measured, review-only improvement proposal.
 
@@ -3640,7 +3640,7 @@ Analyze one run and produce one measured, review-only improvement proposal.
 
 > **createAgentImprovementProposal**\<`TScenario`, `TArtifact`\>(`options`): [`AgentImprovementProposal`](#agentimprovementproposal)\<`TScenario`, `TArtifact`\>
 
-Defined in: [intelligence/improvement-cycle.ts:216](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L216)
+Defined in: [intelligence/improvement-cycle.ts:244](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L244)
 
 Freeze an already-measured improvement into the one reviewable proposal
 contract. Products that run analysis or evaluation in separate workers use
@@ -3672,7 +3672,7 @@ this constructor instead of rerunning either phase or rebuilding digests.
 
 > **reviewAgentImprovementProposal**(`inputProposal`, `input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L266)
+Defined in: [intelligence/improvement-cycle.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L294)
 
 Persist an approve/reject/change-request decision bound to one exact proposal.
 
@@ -3696,7 +3696,7 @@ Persist an approve/reject/change-request decision bound to one exact proposal.
 
 > **executeApprovedAgentCandidate**(`options`): `Promise`\<[`ExecuteApprovedAgentCandidateResult`](#executeapprovedagentcandidateresult)\>
 
-Defined in: [intelligence/improvement-cycle.ts:296](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L296)
+Defined in: [intelligence/improvement-cycle.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L324)
 
 Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
@@ -3716,7 +3716,7 @@ Verify, materialize, run, grade, and receipt only the exact approved bundle.
 
 > **verifyAgentImprovementProposal**(`input`): [`AgentImprovementProposal`](#agentimprovementproposal)
 
-Defined in: [intelligence/improvement-cycle.ts:338](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L338)
+Defined in: [intelligence/improvement-cycle.ts:366](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L366)
 
 Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
@@ -3736,7 +3736,7 @@ Validate a proposal's schema, profile, sealed bundle, and canonical digest.
 
 > **verifyAgentImprovementReview**(`input`): [`AgentImprovementReview`](#agentimprovementreview)
 
-Defined in: [intelligence/improvement-cycle.ts:455](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L455)
+Defined in: [intelligence/improvement-cycle.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/intelligence/improvement-cycle.ts#L483)
 
 Validate a review's decision fields and canonical digest.
 
