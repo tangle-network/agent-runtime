@@ -703,19 +703,40 @@ async function acquireRepro(
 /** Evidence for the supervisor: the issue, the worker's own candidate diff, and the tail of the
  *  gold-verified reproduction's output on that diff. Execution-verified / model-visible ONLY — never
  *  FAIL_TO_PASS, never the gold patch, never any worker self-report. Bounded to maxChars. */
-function renderRepairEvidence(issue: string, candidateDiff: string, reproTail: string, reproExit: number | null, maxChars: number): string {
+function renderRepairEvidence(
+  issue: string,
+  candidateDiff: string,
+  reproTail: string,
+  reproExit: number | null,
+  maxChars: number,
+  failureKind: 'wrong-fix' | 'apply-failed' = 'wrong-fix',
+): string {
+  const header =
+    failureKind === 'apply-failed'
+      ? 'A bug was reported in an open-source Python repository. A programmer wrote a candidate patch, but the ' +
+        'patch FAILED TO APPLY to the repository — its diff context/line numbers do not match the current source. ' +
+        'The diff must be re-anchored to the real file contents. Only execution-verified evidence is shown.'
+      : 'A bug was reported in an open-source Python repository. A programmer wrote a candidate patch, but a ' +
+        'REPRODUCTION SCRIPT (authored from the issue; verified to fail on the buggy code and pass on a correct ' +
+        'fix) STILL FAILS after the patch is applied. Only execution-verified evidence is shown.'
+  const diffLabel =
+    failureKind === 'apply-failed'
+      ? "--- THE PROGRAMMER'S CANDIDATE PATCH (git diff — it did NOT apply; the context lines are stale/mismatched) ---"
+      : "--- THE PROGRAMMER'S CANDIDATE PATCH (git diff — it applied cleanly but did NOT fix the bug) ---"
+  const outLabel =
+    failureKind === 'apply-failed'
+      ? `--- git apply ERROR (exit ${reproExit ?? 'n/a'}) — which hunks failed and why ---`
+      : `--- REPRODUCTION OUTPUT after applying the patch (exit ${reproExit ?? 'n/a'}; nonzero = bug still present) ---`
   const parts: string[] = [
-    'A bug was reported in an open-source Python repository. A programmer wrote a candidate patch, but a ' +
-      'REPRODUCTION SCRIPT (authored from the issue; verified to fail on the buggy code and pass on a correct ' +
-      'fix) STILL FAILS after the patch is applied. Only execution-verified evidence is shown.',
+    header,
     '',
     '--- ISSUE ---',
     issue.trim().slice(0, 12_000),
     '',
-    "--- THE PROGRAMMER'S CANDIDATE PATCH (git diff — it applied cleanly but did NOT fix the bug) ---",
+    diffLabel,
     tail(candidateDiff.trim(), 8_000) || '(empty diff — the attempt produced no change)',
     '',
-    `--- REPRODUCTION OUTPUT after applying the patch (exit ${reproExit ?? 'n/a'}; nonzero = bug still present) ---`,
+    outLabel,
     tail(reproTail.trim(), 4_000) || '(no output captured)',
   ]
   let text = parts.join('\n')
@@ -768,9 +789,10 @@ async function superviseRepair(
   reproExit: number | null,
   marks: readonly string[],
   deadlineAt: number,
+  failureKind: 'wrong-fix' | 'apply-failed' = 'wrong-fix',
 ): Promise<SupervisorPlanReceipt> {
   const md = bt.metadata as Record<string, string>
-  const evidence = renderRepairEvidence(String(md.problem_statement ?? ''), candidateDiff, reproTail, reproExit, 14_000)
+  const evidence = renderRepairEvidence(String(md.problem_statement ?? ''), candidateDiff, reproTail, reproExit, 14_000, failureKind)
   const messages = [{ role: 'user' as const, content: supervisorPrompt(evidence) }]
   const base: SupervisorPlanReceipt = {
     fired: true, reason: 'ok', model: SUPERVISOR_MODEL, groundedOnReproTail: true, evidenceChars: evidence.length,
@@ -871,14 +893,20 @@ async function runArm(
     // control); severity 2 (repro timeout) / 3 (apply failed) are HELD, not steered. ──
     let supPreamble = ''
     if (supervise) {
-      const gateOk = best.score.applyOk === true && best.score.severity === 1
+      // Fire on any EXECUTION-VERIFIED failure the supervisor can act on: severity 1 = patch applied
+      // but the gold-verified repro still reports the bug (wrong fix); severity 3 = patch FAILED TO
+      // APPLY (git apply objectively rejected it — the weak worker's DOMINANT failure, and stale-diff
+      // re-anchoring is exactly where a stronger reviewer helps). Both are objective, non-credulous
+      // signals. Held: severity 0 (already passing), 2 (repro timeout — ambiguous), 4 (empty diff —
+      // nothing to advise on).
+      const failureKind = best.score.severity === 3 ? ('apply-failed' as const) : ('wrong-fix' as const)
+      const gateOk = best.score.severity === 1 || best.score.severity === 3
       if (!gateOk) {
-        const reason =
-          best.score.severity === 4 ? 'empty-diff' : best.score.severity === 3 ? 'apply-failed' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
+        const reason = best.score.severity === 4 ? 'empty-diff' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
         row.supervisorPlan = heldSupervisorReceipt(reason)
         logEvent('supervisor-held', { streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm, reason })
       } else {
-        const sp = await superviseRepair(bt, best.diff, best.score.out, best.score.exit, marks, deadlineAt)
+        const sp = await superviseRepair(bt, best.diff, best.score.out, best.score.exit, marks, deadlineAt, failureKind)
         row.supervisorPlan = sp
         logEvent('supervisor-fired', {
           streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm,
