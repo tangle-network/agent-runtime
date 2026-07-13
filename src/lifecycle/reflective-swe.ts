@@ -453,42 +453,66 @@ async function authorFromFindings(
     `Author exactly ${count} candidate instruction line(s).`,
   ].join('\n')
 
-  const { value } = await callLlmJson<{ candidates?: ReflectiveDraftWire[] }>(
-    {
-      model: call.model,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-      temperature: call.temperature,
-      jsonSchema: {
-        name: 'reflective_swe_candidates',
-        schema: {
-          type: 'object',
-          properties: {
-            candidates: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  instruction: { type: 'string' },
-                  targetsMechanism: { type: 'string' },
-                  hypothesis: { type: 'string' },
-                  predictedMechanism: { type: 'string' },
-                  framing: { type: 'string' },
+  // The author needs the model (a targeted prompt can't be written deterministically),
+  // so it can't fall back like the autopsy. Instead ride out a router blip with a
+  // wall-clock retry budget, and if the router is genuinely down, return [] —
+  // a legitimate "no candidate proposed this round", never a crashed run.
+  const budgetMs = Number(process.env.REFLECT_AUTHOR_RETRY_BUDGET_MS ?? 240_000)
+  const start = Date.now()
+  let attempt = 0
+  for (;;) {
+    try {
+      const { value } = await callLlmJson<{ candidates?: ReflectiveDraftWire[] }>(
+        {
+          model: call.model,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+          temperature: call.temperature,
+          jsonSchema: {
+            name: 'reflective_swe_candidates',
+            schema: {
+              type: 'object',
+              properties: {
+                candidates: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      instruction: { type: 'string' },
+                      targetsMechanism: { type: 'string' },
+                      hypothesis: { type: 'string' },
+                      predictedMechanism: { type: 'string' },
+                      framing: { type: 'string' },
+                    },
+                    required: ['instruction', 'targetsMechanism'],
+                  },
                 },
-                required: ['instruction', 'targetsMechanism'],
               },
+              required: ['candidates'],
             },
           },
-          required: ['candidates'],
         },
-      },
-    },
-    call.llm,
-  )
-
-  return (value.candidates ?? []).filter((c) => c?.instruction?.trim())
+        call.llm,
+      )
+      return (value.candidates ?? []).filter((c) => c?.instruction?.trim())
+    } catch (err) {
+      if (Date.now() - start >= budgetMs) {
+        console.error(
+          `[reflect] author failed after ${Math.round((Date.now() - start) / 1000)}s ` +
+            `(${err instanceof Error ? err.message.slice(0, 120) : String(err)}); no candidate proposed this round`,
+        )
+        return []
+      }
+      const backoff = Math.min(15_000, 1000 * 2 ** attempt) * (0.5 + Math.random())
+      console.error(
+        `[reflect] author retry ${attempt + 1} in ${Math.round(backoff)}ms (router blip)`,
+      )
+      await new Promise((r) => setTimeout(r, backoff))
+      attempt += 1
+    }
+  }
 }
 
 /** Render the ranked findings for the author prompt: mechanism, claim, the fix
