@@ -33,6 +33,14 @@
  * swe-bench-env + lifecycle incl. sweEvalRunner + the same-host MCP client)
  * loaded; print READY on stderr and exit 0 WITHOUT a clone / model call /
  * dataset read.
+ *
+ * RUN FROM bench/ (cwd=bench): this driver imports `sweEvalRunner`, which lives
+ * in THIS worktree's `../src` and is reachable only through bench/tsconfig's
+ * path aliases — tsx applies them when cwd is bench. `bench/node_modules` pins
+ * the PUBLISHED agent-runtime (no `sweEvalRunner`), so running from the repo
+ * root resolves the published dist and crashes on the missing export. Use the
+ * package script `pnpm --filter ./bench self-improve` (or `cd bench && tsx
+ * src/self-improve-swe.mts`), never `tsx bench/src/...` from the root.
  */
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
