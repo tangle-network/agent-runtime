@@ -56,78 +56,106 @@
   <h1>Stream loop — run topology &amp; telemetry</h1>
   <p class="sub">The two-arm SWE-bench stream: frozen (F) vs supervised-learning (L), same instance in the same slot. This snapshots the request graph, the model routing, and the measured curve. Live run = <span class="badge" id="livecfg">glm-5.2 self-supervision · CONC=1</span></p>
 
-  <h2>Request topology — one instance</h2>
+  <div class="panel" style="border-color:var(--sup);background:var(--sup-bg);margin-bottom:16px">
+    <p style="margin:0;font-size:13px;color:var(--ink)"><b>NOT a delegation tree.</b> This experiment does <b>not</b> have a supervisor spawn workers a/b/c. The driver samples <b>k=4 workers independently and in parallel</b> (no supervisor involved), scores them, keeps the best — and <b>only if it failed</b> does the supervisor write <b>one</b> advice plan for a retry. The supervisor is a <b>reviewer at the end</b>, not a <b>dispatcher at the start</b>. (The delegation-tree topology — supervisor → workers — exists in the codebase via <span class="mono">supervise()</span>/coordination-MCP, but this run doesn't use it.)</p>
+  </div>
+
+  <h2>Execution sequence — one instance, left→right in time</h2>
   <div class="panel flow">
-    <svg viewBox="0 0 1000 430" width="1000" height="430" font-family="var(--sans)" font-size="12">
-      <!-- transport legend colors: zai=HTTP, docker=local jail -->
-      <defs>
-        <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="currentColor"/></marker>
-      </defs>
-      <!-- coordinator -->
-      <g>
-        <rect x="20" y="190" width="150" height="50" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
-        <text x="95" y="210" text-anchor="middle" fill="var(--ink)" font-weight="600">stream driver</text>
-        <text x="95" y="226" text-anchor="middle" fill="var(--ink2)" font-size="10.5">local · per instance</text>
+    <svg viewBox="0 0 1040 470" width="1040" height="470" font-family="var(--sans)" font-size="12">
+      <defs><marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="currentColor"/></marker></defs>
+      <!-- phase headers -->
+      <g fill="var(--ink2)" font-size="10.5" font-family="var(--mono)">
+        <text x="95" y="20">t0 · setup</text><text x="300" y="20">t1 · sample k=4</text><text x="530" y="20">t2 · score</text>
+        <text x="690" y="20">t3 · select</text><text x="800" y="20">t4 · repair</text><text x="945" y="20">t5 · grade</text>
       </g>
-      <!-- repro author (zai) -->
+      <line x1="30" y1="28" x2="1020" y2="28" stroke="var(--line)"/>
+      <!-- t0: driver + repro author -->
+      <g>
+        <rect x="30" y="205" width="130" height="58" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="95" y="228" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">stream driver</text>
+        <text x="95" y="243" text-anchor="middle" fill="var(--ink2)" font-size="9.5">local · swe-stream.mts</text>
+        <text x="95" y="255" text-anchor="middle" fill="var(--ink2)" font-size="9.5">no model</text>
+      </g>
       <g color="var(--zai)">
-        <line x1="170" y1="205" x2="300" y2="120" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
-        <rect x="300" y="95" width="185" height="52" rx="8" fill="var(--zai-bg)" stroke="var(--zai)"/>
-        <text x="392" y="115" text-anchor="middle" fill="var(--ink)" font-weight="600">repro author</text>
-        <text x="392" y="131" text-anchor="middle" fill="var(--zai)" font-size="10.5" font-family="var(--mono)">glm-5.2 · HTTP zai</text>
+        <line x1="160" y1="215" x2="230" y2="80" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <rect x="230" y="44" width="165" height="60" rx="8" fill="var(--zai-bg)" stroke="var(--zai)"/>
+        <text x="312" y="64" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">repro author</text>
+        <text x="312" y="79" text-anchor="middle" fill="var(--zai)" font-size="9.5" font-family="var(--mono)">glm-5.2 · HTTPS zai</text>
+        <text x="312" y="92" text-anchor="middle" fill="var(--ink2)" font-size="9">no tools · writes 1 test</text>
       </g>
-      <!-- k=4 workers (zai) -->
+      <!-- t1: k=4 workers, parallel siblings -->
       <g color="var(--worker)">
-        <line x1="170" y1="215" x2="300" y2="215" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
-        <rect x="300" y="175" width="185" height="80" rx="8" fill="var(--worker-bg)" stroke="var(--worker)"/>
-        <text x="392" y="198" text-anchor="middle" fill="var(--ink)" font-weight="600">k=4 patch attempts</text>
-        <text x="392" y="214" text-anchor="middle" fill="var(--worker)" font-size="10.5" font-family="var(--mono)">worker · HTTP zai</text>
-        <text x="392" y="234" text-anchor="middle" fill="var(--ink2)" font-size="10">≤12 tool turns each</text>
+        <line x1="160" y1="230" x2="228" y2="230" stroke="currentColor" stroke-width="1.4" marker-end="url(#ar)"/>
+        <text x="180" y="222" fill="var(--ink2)" font-size="9">sample</text>
       </g>
-      <!-- visible check / repro run (docker) -->
-      <g color="var(--docker)">
-        <line x1="485" y1="215" x2="560" y2="215" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
-        <rect x="560" y="175" width="175" height="80" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
-        <text x="647" y="198" text-anchor="middle" fill="var(--ink)" font-weight="600">score in jail</text>
-        <text x="647" y="214" text-anchor="middle" fill="var(--docker)" font-size="10.5" font-family="var(--mono)">docker · --network none</text>
-        <text x="647" y="234" text-anchor="middle" fill="var(--ink2)" font-size="10">apply patch → run repro</text>
-      </g>
-      <!-- argmax + branch -->
       <g>
-        <line x1="735" y1="215" x2="800" y2="215" stroke="var(--ink2)" stroke-width="1.5" marker-end="url(#ar)"/>
-        <text x="768" y="207" text-anchor="middle" fill="var(--ink2)" font-size="10">argmax</text>
+        <!-- 4 sibling boxes a-d -->
+        <g fill="var(--worker-bg)" stroke="var(--worker)">
+          <rect x="230" y="135" width="165" height="42" rx="7"/><rect x="230" y="185" width="165" height="42" rx="7"/>
+          <rect x="230" y="235" width="165" height="42" rx="7"/><rect x="230" y="285" width="165" height="42" rx="7"/>
+        </g>
+        <g fill="var(--ink)" font-weight="600" font-size="11" text-anchor="middle">
+          <text x="312" y="152">worker a</text><text x="312" y="202">worker b</text><text x="312" y="252">worker c</text><text x="312" y="302">worker d</text>
+        </g>
+        <g fill="var(--worker)" font-size="9" font-family="var(--mono)" text-anchor="middle">
+          <text x="312" y="166">glm-5.2 · ≤12 tool turns</text><text x="312" y="216">glm-5.2 · ≤12 tool turns</text>
+          <text x="312" y="266">glm-5.2 · ≤12 tool turns</text><text x="312" y="316">glm-5.2 · ≤12 tool turns</text>
+        </g>
       </g>
-      <!-- ARM F path -->
-      <g color="var(--ink2)">
-        <rect x="800" y="120" width="180" height="46" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
-        <text x="890" y="139" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">ARM F · raw-failure repair</text>
-        <text x="890" y="155" text-anchor="middle" fill="var(--ink2)" font-size="10">worker retries on error text</text>
-      </g>
-      <!-- ARM L supervisor path -->
-      <g color="var(--sup)">
-        <rect x="800" y="240" width="180" height="66" rx="8" fill="var(--sup-bg)" stroke="var(--sup)"/>
-        <text x="890" y="262" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">ARM L · supervisor</text>
-        <text x="890" y="278" text-anchor="middle" fill="var(--sup)" font-size="10" font-family="var(--mono)">glm-5.2 · HTTP zai</text>
-        <text x="890" y="293" text-anchor="middle" fill="var(--ink2)" font-size="9.5">fires on verified failure only</text>
-      </g>
-      <text x="800" y="200" fill="var(--ink2)" font-size="9.5">F</text>
-      <text x="800" y="235" fill="var(--sup)" font-size="9.5">L</text>
-      <!-- hidden judge -->
+      <text x="312" y="345" text-anchor="middle" fill="var(--ink2)" font-size="9.5">independent · parallel · emit-patch harness (read/edit/run tools)</text>
+      <!-- t2: score each in jail -->
       <g color="var(--docker)">
-        <rect x="360" y="330" width="280" height="56" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
-        <text x="500" y="352" text-anchor="middle" fill="var(--ink)" font-weight="600">HIDDEN JUDGE (official SWE-bench)</text>
-        <text x="500" y="369" text-anchor="middle" fill="var(--docker)" font-size="10.5" font-family="var(--mono)">docker · runs AFTER arm decisions lock</text>
+        <g stroke="currentColor" stroke-width="1.2">
+          <line x1="395" y1="156" x2="455" y2="200" marker-end="url(#ar)"/><line x1="395" y1="206" x2="455" y2="212" marker-end="url(#ar)"/>
+          <line x1="395" y1="256" x2="455" y2="224" marker-end="url(#ar)"/><line x1="395" y1="306" x2="455" y2="236" marker-end="url(#ar)"/>
+        </g>
+        <rect x="455" y="175" width="150" height="90" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
+        <text x="530" y="200" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11.5">score in jail</text>
+        <text x="530" y="216" text-anchor="middle" fill="var(--docker)" font-size="9.5" font-family="var(--mono)">docker · net=none</text>
+        <text x="530" y="232" text-anchor="middle" fill="var(--ink2)" font-size="9">apply patch → run</text>
+        <text x="530" y="245" text-anchor="middle" fill="var(--ink2)" font-size="9">the repro → severity</text>
+        <text x="530" y="258" text-anchor="middle" fill="var(--ink2)" font-size="9">(local, no model)</text>
       </g>
-      <line x1="890" y1="306" x2="640" y2="358" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
-      <line x1="890" y1="166" x2="640" y2="352" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
+      <!-- t3: select argmax -->
+      <g>
+        <line x1="605" y1="220" x2="655" y2="220" stroke="var(--ink2)" stroke-width="1.4" marker-end="url(#ar)"/>
+        <rect x="655" y="196" width="80" height="48" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="695" y="216" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">argmax</text>
+        <text x="695" y="231" text-anchor="middle" fill="var(--ink2)" font-size="9">pick best</text>
+      </g>
+      <!-- t4: repair branch -->
+      <line x1="735" y1="215" x2="785" y2="150" stroke="var(--ink2)" stroke-width="1.2" marker-end="url(#ar)" color="var(--ink2)"/>
+      <line x1="735" y1="225" x2="785" y2="290" stroke="var(--sup)" stroke-width="1.2" marker-end="url(#ar)" color="var(--sup)"/>
+      <g color="var(--ink2)">
+        <rect x="785" y="118" width="175" height="62" rx="8" fill="var(--panel2)" stroke="var(--line)"/>
+        <text x="872" y="138" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">ARM F · repair</text>
+        <text x="872" y="153" text-anchor="middle" fill="var(--ink2)" font-size="9.5">worker retries on raw</text>
+        <text x="872" y="165" text-anchor="middle" fill="var(--ink2)" font-size="9.5">error text (the control)</text>
+      </g>
+      <g color="var(--sup)">
+        <rect x="785" y="258" width="175" height="76" rx="8" fill="var(--sup-bg)" stroke="var(--sup)"/>
+        <text x="872" y="278" text-anchor="middle" fill="var(--ink)" font-weight="600" font-size="11">ARM L · supervisor</text>
+        <text x="872" y="293" text-anchor="middle" fill="var(--sup)" font-size="9.5" font-family="var(--mono)">glm-5.2 · HTTPS zai</text>
+        <text x="872" y="306" text-anchor="middle" fill="var(--ink2)" font-size="9">no-tools · writes 1 plan</text>
+        <text x="872" y="318" text-anchor="middle" fill="var(--ink2)" font-size="9">→ worker retries w/ plan</text>
+      </g>
+      <!-- t5: hidden judge -->
+      <line x1="960" y1="150" x2="985" y2="400" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
+      <line x1="960" y1="300" x2="985" y2="410" stroke="var(--ink2)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#ar)" color="var(--ink2)"/>
+      <g color="var(--docker)">
+        <rect x="620" y="395" width="400" height="56" rx="8" fill="var(--docker-bg)" stroke="var(--docker)"/>
+        <text x="820" y="418" text-anchor="middle" fill="var(--ink)" font-weight="600">HIDDEN JUDGE · official SWE-bench tests</text>
+        <text x="820" y="435" text-anchor="middle" fill="var(--docker)" font-size="9.5" font-family="var(--mono)">docker · runs AFTER both arms lock · never in any prompt</text>
+      </g>
     </svg>
     <div class="legend">
-      <span class="lg"><span class="sw" style="background:var(--zai)"></span>HTTP → zai (glm-5.2)</span>
-      <span class="lg"><span class="sw" style="background:var(--worker)"></span>worker calls (HTTP zai)</span>
-      <span class="lg"><span class="sw" style="background:var(--docker)"></span>local docker jail (no network)</span>
-      <span class="lg"><span class="sw" style="background:var(--sup)"></span>supervisor (arm L only)</span>
+      <span class="lg"><span class="sw" style="background:var(--zai)"></span>repro author (glm-5.2, no tools)</span>
+      <span class="lg"><span class="sw" style="background:var(--worker)"></span>worker (glm-5.2, emit-patch harness)</span>
+      <span class="lg"><span class="sw" style="background:var(--sup)"></span>supervisor (glm-5.2, no tools, arm L only)</span>
+      <span class="lg"><span class="sw" style="background:var(--docker)"></span>docker jail (local, no network)</span>
     </div>
-    <p class="note">Every model call goes to one endpoint — <span class="mono">api.z.ai/api/coding/paas/v4</span> — over HTTPS; every grader runs locally in a network-isolated docker container. Arms F and L share the same repro instrument and the same k=4 candidates; they diverge only at the repair step (raw-failure vs supervisor plan). The hidden judge never touches any model prompt.</p>
+    <p class="note">Every model box calls one endpoint — <span class="mono">api.z.ai/api/coding/paas/v4</span> over HTTPS; every docker box runs locally, network-isolated. In THIS run all three model roles are the same model (glm-5.2 = self-supervision); in the cross-strength config the worker is a cheaper model and only the supervisor is glm-5.2. Arms F and L share t0–t3 (same repro, same 4 candidates); they diverge only at t4 (raw-failure retry vs supervisor-plan retry). Timings per phase are in the ledger (imagePullMs, wallMs, judgeMs); per-model-call timestamps are not yet emitted — see the note below.</p>
   </div>
 
   <h2>Supervisor gate — when arm L fires</h2>
