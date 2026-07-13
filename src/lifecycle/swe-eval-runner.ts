@@ -245,17 +245,28 @@ async function evaluateTask<T extends SweEvalTask>(
     },
   }
 
-  const run = await runAgentic({
-    surface: proxy,
-    task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
-    strategy: refine,
-    routerBaseUrl: opts.routerBaseUrl,
-    routerKey: opts.routerKey,
-    model: opts.model,
-    maxTokens: opts.maxTokens,
-    innerTurns: opts.innerTurns,
-    budget: opts.budget ?? 1,
-  })
+  // A per-task worker failure (e.g. a transient router 5xx that downs every shot →
+  // runAgentic throws `all-children-down`) must NOT crash the whole eval: score
+  // this task 0 with 0 tokens and carry the error, so the aggregate dead-worker
+  // guard can decide on the batch (abort a mostly-dead round, tolerate one blip).
+  let run: { usd: number; shots: number; tokens: { input: number; output: number } }
+  let workerError: string | undefined
+  try {
+    run = await runAgentic({
+      surface: proxy,
+      task: { id: task.id, systemPrompt, userPrompt: task.prompt, meta: { instanceId: task.id } },
+      strategy: refine,
+      routerBaseUrl: opts.routerBaseUrl,
+      routerKey: opts.routerKey,
+      model: opts.model,
+      maxTokens: opts.maxTokens,
+      innerTurns: opts.innerTurns,
+      budget: opts.budget ?? 1,
+    })
+  } catch (e) {
+    workerError = e instanceof Error ? e.message : String(e)
+    run = { usd: 0, shots: 0, tokens: { input: 0, output: 0 } }
+  }
 
   let resolved = false
   let judgeError: string | undefined
@@ -276,12 +287,15 @@ async function evaluateTask<T extends SweEvalTask>(
     usd: run.usd,
     shots: run.shots,
     tokens: run.tokens,
-    ...(judgeError === undefined ? {} : { judgeError }),
+    // A worker failure is surfaced as judgeError too (both mean "this task did not
+    // produce a real graded result"); the dead-worker guard keys on 0 tokens.
+    ...((judgeError ?? workerError) ? { judgeError: judgeError ?? workerError } : {}),
   }
   console.error(
     `[swe-eval] ${task.id} resolved=${resolved} patch=${capturedPatch.length}b ` +
       `shots=${run.shots} tok=in:${run.tokens.input}/out:${run.tokens.output} usd=${run.usd.toFixed(4)}` +
-      (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : ''),
+      (judgeError ? ` judgeError=${judgeError.slice(0, 200)}` : '') +
+      (workerError ? ` workerError=${workerError.slice(0, 200)}` : ''),
   )
 
   return { row, costUsd: run.usd, judgeCall, judgeErrored: judgeError !== undefined }
