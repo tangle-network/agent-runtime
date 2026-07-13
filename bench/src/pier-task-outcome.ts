@@ -4,9 +4,11 @@ import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import type { AgentCandidateExecutorTaskOutcomeCapture } from '@tangle-network/agent-runtime'
-
-import { createPierWorkspaceArchive } from './pier-workspace-archive'
+import {
+  type AgentCandidateExecutorTaskOutcomeCapture,
+  type AgentCandidateOutputArtifactPort,
+  captureAgentCandidateWorkspaceFiles,
+} from '@tangle-network/agent-runtime/candidate-execution'
 
 interface GitResult {
   readonly stdout: Buffer
@@ -20,6 +22,10 @@ export async function capturePierTaskOutcome(input: {
   readonly baseTree: string
   readonly patch: Uint8Array
   readonly signal?: AbortSignal
+  readonly artifactPersistence?: {
+    readonly executionId: string
+    readonly outputArtifacts: AgentCandidateOutputArtifactPort
+  }
 }): Promise<AgentCandidateExecutorTaskOutcomeCapture> {
   input.signal?.throwIfAborted()
   const repositoryRoot = resolve(input.repositoryRoot)
@@ -115,10 +121,21 @@ export async function capturePierTaskOutcome(input: {
         }
       }),
     )
-    const captured = createPierWorkspaceArchive(files)
+    // The executor outcome must still return exact bytes; the runtime verifies
+    // and persists its final task references after this capture completes.
+    const captured = await captureAgentCandidateWorkspaceFiles(files, {
+      ...(input.artifactPersistence
+        ? {
+            artifactPersistence: {
+              ...input.artifactPersistence,
+              ...(input.signal ? { signal: input.signal } : {}),
+            },
+          }
+        : {}),
+    })
     return {
       resultTree,
-      afterState: captured.manifest,
+      afterState: captured.snapshot.material,
       archive: captured.archive,
       gitDiff: patch,
     }

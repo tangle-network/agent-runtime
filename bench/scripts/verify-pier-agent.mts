@@ -23,6 +23,7 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
+  createAgentCandidateWorkspacePort,
   disposePreparedAgentCandidateExecution,
   FileAgentCandidateExecutionClaimStore,
   prepareAgentCandidateExecution,
@@ -36,7 +37,6 @@ import {
 import { executePreparedPierCandidate } from '../src/pier-agent'
 import { createPierResultGrader } from '../src/pier-result-grader'
 import { FilePierCandidateTrialController } from '../src/pier-trial-controller'
-import { materializePierWorkspaceArchive } from '../src/pier-workspace-archive'
 
 const pinnedPierCommit = 'e69a20e4e0ac073ec71fde0274bab3d9f40bac87'
 const pinnedPierVersion = '0.3.0'
@@ -441,6 +441,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       maxCostUsd: 0,
     },
   }
+  const workspaces = createAgentCandidateWorkspacePort()
   const ports: AgentCandidateExecutionPorts = {
     artifacts: {
       read: async () => {
@@ -449,9 +450,14 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
     },
     repositories: { resolve: async () => taskRoot },
     workspaces: {
-      materialize: async ({ snapshot, archive, destination }) => {
+      materialize: async ({ role, snapshot, archive, destination }) => {
         if (destination === taskRoot || destination === candidateRoot) return
-        await materializePierWorkspaceArchive({ archive, expected: snapshot.material, destination })
+        await workspaces.materialize({
+          role,
+          snapshot,
+          archive,
+          destination,
+        })
       },
     },
     containers: { resolve: async () => container },

@@ -592,6 +592,10 @@ export async function executePreparedPierCandidate(
         baseCommit: repository.baseCommit,
         baseTree: repository.baseTree,
         patch: result.taskPatch,
+        artifactPersistence: {
+          executionId: request.executionId,
+          outputArtifacts: options.outputArtifacts,
+        },
       })
       return { stopped: true, taskOutcome }
     },
