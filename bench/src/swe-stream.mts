@@ -48,6 +48,7 @@
  *
  * Env: ZAI_API_KEY (required), ZAI_BASE, WORKER_MODEL=glm-4.5-air (both arms, all solve+repair
  *      calls), SUPERVISOR_MODEL=glm-5.2 (arm L repair advice ONLY — the stronger model),
+ *      REPRO_MODEL=glm-5.2 (shared repro instrument — strong author, default = SUPERVISOR_MODEL),
  *      REASONING_EFFORT=enabled (SYMMETRIC thinking budget on the worker; 'off' disables),
  *      SUPERVISOR_MAX_TOKENS=12000, MAX_TOKENS=12000, K=4, REPAIRS=2,
  *      TEMP=0.8, INNER_TURNS=40, TURN_CAP=12, DEADLINE_MS=1800000, JUDGE_TIMEOUT_MS=2400000,
@@ -117,6 +118,13 @@ const WORKER_REASONING: Record<string, unknown> = REASONING_ON ? { thinking: { t
 // changing SUPERVISOR_MAX_TOKENS never touches the worker's MAX_TOKENS / thinking budget.
 const SUPERVISOR_MODEL = process.env.SUPERVISOR_MODEL ?? 'glm-5.2'
 const SUPERVISOR_MAX_TOKENS = Number(process.env.SUPERVISOR_MAX_TOKENS ?? 12_000)
+// The repro is a SHARED MEASUREMENT INSTRUMENT: it grades both arms' candidates AND defines the
+// supervisor-fire predicate (severity===1). Authoring it with the weaker worker leaks worker
+// weakness into the instrument (observed: a degraded-unsound matplotlib repro). So fresh authoring
+// runs on the STRONG model — default = SUPERVISOR_MODEL (glm-5.2), the same author as the Stage-0
+// manifest, so all 23 instances (reused + fresh) share one strong instrument. No thinking knob:
+// Stage-0 authored without one, and glm-5.2 reasons at baseline. Worker solving stays glm-4.5-air.
+const REPRO_MODEL = process.env.REPRO_MODEL ?? SUPERVISOR_MODEL
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
 // NOT `TEMP`: Node's os.tmpdir() honors the TEMP env var as the temp DIRECTORY, so setting
@@ -634,7 +642,7 @@ async function acquireRepro(
       assertNoHiddenLeak(marks, messages)
       const { json } = await zaiChatRaw(
         { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
-        { model: WORKER_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages, ...WORKER_REASONING },
+        { model: REPRO_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages },
       )
       const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
       out.authorCalls += 1
@@ -865,7 +873,8 @@ async function runArm(
     if (supervise) {
       const gateOk = best.score.applyOk === true && best.score.severity === 1
       if (!gateOk) {
-        const reason = best.score.applyOk !== true ? 'apply-failed' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
+        const reason =
+          best.score.severity === 4 ? 'empty-diff' : best.score.severity === 3 ? 'apply-failed' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
         row.supervisorPlan = heldSupervisorReceipt(reason)
         logEvent('supervisor-held', { streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm, reason })
       } else {
@@ -1327,7 +1336,7 @@ async function main(): Promise<void> {
 
   console.log('═══ SWE-bench STREAM — day 1 (two-arm, F=frozen-v0 vs L=learning) ═══')
   console.log(
-    `worker=${WORKER_MODEL} supervisor=${SUPERVISOR_MODEL} (arm L repair only) ` +
+    `worker=${WORKER_MODEL} supervisor=${SUPERVISOR_MODEL} (arm L repair only) repro-author=${REPRO_MODEL} ` +
       `reasoning=${REASONING_ON ? 'thinking' : 'off'} base=${ZAI_BASE} ` +
       `maxTokens=${MAX_TOKENS} supMaxTokens=${SUPERVISOR_MAX_TOKENS} k=${K} temp=${TEMP} repairs<=${REPAIRS} ` +
       `innerTurns=${INNER_TURNS} TURN_CAP=${TURN_CAP} DEADLINE_MS=${DEADLINE_MS} conc=${CONC} seed=0x${SEED.toString(16)} ` +
@@ -1388,8 +1397,8 @@ async function main(): Promise<void> {
   if (prior.length === 0) {
     logEvent('stream-start', {
       seed: SEED, plan, deadlineMs: DEADLINE_MS, turnCap: TURN_CAP, k: K, repairs: REPAIRS,
-      temp: TEMP, workerModel: WORKER_MODEL, supervisorModel: SUPERVISOR_MODEL, reasoningEffort: REASONING_EFFORT,
-      profileVersion: PROFILE_VERSION, keepImages: [...state.keepImages],
+      temp: TEMP, workerModel: WORKER_MODEL, supervisorModel: SUPERVISOR_MODEL, reproModel: REPRO_MODEL,
+      reasoningEffort: REASONING_EFFORT, profileVersion: PROFILE_VERSION, keepImages: [...state.keepImages],
     })
   } else {
     logEvent('stream-resume', { done: doneIds.size, planned: plan.length })
@@ -1418,6 +1427,15 @@ async function main(): Promise<void> {
 
   const rows = loadLedger()
   printCurve(rows)
+
+  // Sound-repro rate — the instrument's health (per instance, shared across arms; read off F rows).
+  // A low rate means the supervisor-fire predicate (repro=ok + severity===1) rarely gets a chance.
+  const fRows = rows.filter((r) => r.arm === 'F')
+  const soundRepro = fRows.filter((r) => r.reproStatus === 'ok').length
+  const reproDist = fRows.reduce<Record<string, number>>((m, r) => ({ ...m, [r.reproStatus]: (m[r.reproStatus] ?? 0) + 1 }), {})
+  console.log(
+    `sound-repro rate: ${soundRepro}/${fRows.length} ok (author=${REPRO_MODEL}) — status dist ${JSON.stringify(reproDist)}`,
+  )
 
   const byArm = (arm: 'F' | 'L'): Row[] => rows.filter((r) => r.arm === arm)
   for (const arm of ['F', 'L'] as const) {
