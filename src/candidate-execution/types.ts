@@ -36,6 +36,8 @@ export interface AgentCandidateArtifactPort {
 }
 
 export type AgentCandidateOutputPurpose =
+  | 'candidate-workspace-manifest'
+  | 'candidate-workspace-archive'
   | 'task-manifest'
   | 'task-archive'
   | 'task-patch'

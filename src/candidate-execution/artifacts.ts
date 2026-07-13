@@ -71,13 +71,42 @@ export async function verifyMaterializedWorkspace(
   assertWorkspaceManifest(observed.manifest, expected)
 }
 
+export async function captureMaterializedWorkspace(
+  root: string,
+  options: {
+    ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[]
+    limits?: {
+      maxFiles: number
+      maxFileBytes: number
+      maxTotalFileBytes: number
+    }
+  } = {},
+): Promise<{
+  manifest: AgentCandidateWorkspaceManifestMaterialV1
+  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+}> {
+  const observed = await scanWorkspace(
+    root,
+    new Set(options.ignoredProtectedRootEntries ?? []),
+    options.limits,
+  )
+  return {
+    manifest: observed.manifest,
+    files: observed.files.map((file) => ({
+      path: file.path,
+      mode: file.mode,
+      bytes: Uint8Array.from(file.bytes),
+    })),
+  }
+}
+
 /** Capture exact verified regular-file bytes for fresh isolated materialization. */
 export async function readMaterializedWorkspaceFiles(
   root: string,
   expected: AgentCandidateWorkspaceManifestMaterialV1,
   options: { ignoredProtectedRootEntries?: readonly ('.git' | '.sidecar')[] } = {},
 ): Promise<ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>> {
-  const observed = await scanWorkspace(root, new Set(options.ignoredProtectedRootEntries ?? []))
+  const observed = await captureMaterializedWorkspace(root, options)
   assertWorkspaceManifest(observed.manifest, expected)
   return observed.files.map((file) =>
     Object.freeze({ path: file.path, mode: file.mode, bytes: Uint8Array.from(file.bytes) }),
@@ -117,6 +146,11 @@ export async function verifyMaterializedProfileWorkspace(
 async function scanWorkspace(
   root: string,
   ignoredProtectedRootEntries: ReadonlySet<string>,
+  limits?: {
+    maxFiles: number
+    maxFileBytes: number
+    maxTotalFileBytes: number
+  },
 ): Promise<{
   manifest: AgentCandidateWorkspaceManifestMaterialV1
   files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
@@ -131,6 +165,7 @@ async function scanWorkspace(
   }
   const files: AgentCandidateWorkspaceManifestMaterialV1['files'] = []
   const capturedFiles: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> = []
+  let totalBytes = 0
 
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true })
@@ -155,6 +190,9 @@ async function scanWorkspace(
       if (!stats.isFile()) {
         throw new Error(`workspace contains a non-regular entry: ${relPath}`)
       }
+      if (limits && files.length >= limits.maxFiles) {
+        throw new Error('workspace exceeds maxFiles')
+      }
       const descriptor = await open(
         absolute,
         fsConstants.O_RDONLY |
@@ -172,7 +210,19 @@ async function scanWorkspace(
         if (mode !== 0o644 && mode !== 0o755) {
           throw new Error(`workspace file has unsupported mode ${mode.toString(8)}: ${relPath}`)
         }
-        const bytes = await descriptor.readFile()
+        if (limits && openedStats.size > limits.maxFileBytes) {
+          throw new Error(`workspace file exceeds maxFileBytes: ${relPath}`)
+        }
+        const remainingBytes = limits ? limits.maxTotalFileBytes - totalBytes : undefined
+        if (remainingBytes !== undefined && openedStats.size > remainingBytes) {
+          throw new Error('workspace exceeds maxTotalFileBytes')
+        }
+        const bytes = await readBoundedFile(
+          descriptor,
+          limits ? Math.min(limits.maxFileBytes, remainingBytes ?? limits.maxFileBytes) : undefined,
+          relPath,
+        )
+        totalBytes += bytes.byteLength
         const supportedMode = mode as 0o644 | 0o755
         files.push({
           path: relPath,
@@ -198,4 +248,24 @@ async function scanWorkspace(
     },
     files: capturedFiles,
   }
+}
+
+async function readBoundedFile(
+  descriptor: Awaited<ReturnType<typeof open>>,
+  maxBytes: number | undefined,
+  path: string,
+): Promise<Buffer> {
+  if (maxBytes === undefined) return await descriptor.readFile()
+  const chunks: Buffer[] = []
+  let total = 0
+  while (true) {
+    const remaining = maxBytes - total
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, remaining + 1))
+    const { bytesRead } = await descriptor.read(chunk, 0, chunk.byteLength, null)
+    if (bytesRead === 0) break
+    total += bytesRead
+    if (total > maxBytes) throw new Error(`workspace file exceeds its capture limit: ${path}`)
+    chunks.push(chunk.subarray(0, bytesRead))
+  }
+  return Buffer.concat(chunks, total)
 }

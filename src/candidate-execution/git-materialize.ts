@@ -37,17 +37,19 @@ export async function verifyCandidateCode(
   const temporary = await mkdtemp(join(tmpdir(), 'agent-candidate-git-'))
   try {
     const indexFile = join(temporary, 'index')
-    await git(repositoryRoot, ['read-tree', code.baseTree], undefined, {
+    await runCandidateGit(repositoryRoot, ['read-tree', code.baseTree], undefined, {
       GIT_INDEX_FILE: indexFile,
     })
-    await git(
+    await runCandidateGit(
       repositoryRoot,
       ['apply', '--cached', '--binary', '--whitespace=nowarn', '-'],
       patchBytes,
       { GIT_INDEX_FILE: indexFile },
     )
     const candidateTree = (
-      await git(repositoryRoot, ['write-tree'], undefined, { GIT_INDEX_FILE: indexFile })
+      await runCandidateGit(repositoryRoot, ['write-tree'], undefined, {
+        GIT_INDEX_FILE: indexFile,
+      })
     ).stdout
       .toString('utf8')
       .trim()
@@ -68,14 +70,16 @@ export async function readCandidateGitHubResource(
   repositories: AgentCandidateRepositoryPort,
 ): Promise<Uint8Array> {
   const repositoryRoot = await verifiedRepositoryRoot(resource.repository, repositories)
-  const commitType = (await git(repositoryRoot, ['cat-file', '-t', resource.commit])).stdout
+  const commitType = (
+    await runCandidateGit(repositoryRoot, ['cat-file', '-t', resource.commit])
+  ).stdout
     .toString('utf8')
     .trim()
   if (commitType !== 'commit') {
     throw new Error(`GitHub resource commit is not a commit object: ${resource.commit}`)
   }
   const listing = (
-    await git(repositoryRoot, ['ls-tree', '-z', resource.commit, '--', resource.path])
+    await runCandidateGit(repositoryRoot, ['ls-tree', '-z', resource.commit, '--', resource.path])
   ).stdout
   const entries = parseTreeEntries(listing)
   if (entries.length !== 1 || entries[0]?.path !== resource.path) {
@@ -85,7 +89,7 @@ export async function readCandidateGitHubResource(
   if (!entry || entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
     throw new Error(`GitHub resource path is not a regular Git blob: ${resource.path}`)
   }
-  const bytes = (await git(repositoryRoot, ['cat-file', 'blob', entry.object])).stdout
+  const bytes = (await runCandidateGit(repositoryRoot, ['cat-file', 'blob', entry.object])).stdout
   verifyBytes(bytes, resource.sha256, resource.byteLength, `GitHub resource ${resource.path}`)
   return Uint8Array.from(bytes)
 }
@@ -95,11 +99,13 @@ export async function verifyTaskCheckout(
   expected: { baseCommit: string; baseTree: string },
 ): Promise<void> {
   const root = resolve(taskRoot)
-  const head = (await git(root, ['rev-parse', 'HEAD'])).stdout.toString('utf8').trim()
+  const head = (await runCandidateGit(root, ['rev-parse', 'HEAD'])).stdout.toString('utf8').trim()
   if (head !== expected.baseCommit) {
     throw new Error(`task checkout HEAD ${head} does not match ${expected.baseCommit}`)
   }
-  const tree = (await git(root, ['rev-parse', 'HEAD^{tree}'])).stdout.toString('utf8').trim()
+  const tree = (await runCandidateGit(root, ['rev-parse', 'HEAD^{tree}'])).stdout
+    .toString('utf8')
+    .trim()
   if (tree !== expected.baseTree) {
     throw new Error(`task checkout base tree ${tree} does not match ${expected.baseTree}`)
   }
@@ -120,7 +126,9 @@ export async function verifyTaskOutcomePatch(input: {
   const repositoryRoot = resolve(input.repositoryRoot)
   await verifyTaskCheckout(repositoryRoot, input)
   const gitDir = resolve(
-    (await git(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout.toString('utf8').trim(),
+    (await runCandidateGit(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout
+      .toString('utf8')
+      .trim(),
   )
   if ((await realpath(gitDir)) !== gitDir || gitDir.includes(':')) {
     throw new Error('task Git object store has an unsupported path')
@@ -137,16 +145,18 @@ export async function verifyTaskOutcomePatch(input: {
       GIT_OBJECT_DIRECTORY: objectDirectory,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDir, 'objects'),
     }
-    await git(repositoryRoot, ['read-tree', input.baseTree], undefined, gitEnvironment)
+    await runCandidateGit(repositoryRoot, ['read-tree', input.baseTree], undefined, gitEnvironment)
     if (input.patch.byteLength > 0) {
-      await git(
+      await runCandidateGit(
         repositoryRoot,
         ['apply', '--cached', '--binary', '--whitespace=nowarn', '-'],
         input.patch,
         gitEnvironment,
       )
     }
-    const resultTree = (await git(repositoryRoot, ['write-tree'], undefined, gitEnvironment)).stdout
+    const resultTree = (
+      await runCandidateGit(repositoryRoot, ['write-tree'], undefined, gitEnvironment)
+    ).stdout
       .toString('utf8')
       .trim()
     if (resultTree !== input.resultTree) {
@@ -164,7 +174,7 @@ export async function verifyTaskOutcomePatch(input: {
       throw new Error('task outcome after-state does not match the materialized result tree')
     }
     const resultCommit = (
-      await git(
+      await runCandidateGit(
         repositoryRoot,
         ['commit-tree', resultTree, '-p', input.baseCommit],
         Buffer.from('candidate task outcome\n', 'utf8'),
@@ -182,7 +192,12 @@ export async function verifyTaskOutcomePatch(input: {
       .toString('utf8')
       .trim()
     const committedTree = (
-      await git(repositoryRoot, ['rev-parse', `${resultCommit}^{tree}`], undefined, gitEnvironment)
+      await runCandidateGit(
+        repositoryRoot,
+        ['rev-parse', `${resultCommit}^{tree}`],
+        undefined,
+        gitEnvironment,
+      )
     ).stdout
       .toString('utf8')
       .trim()
@@ -203,7 +218,7 @@ async function verifiedRepositoryRoot(
   const rootStats = await stat(repositoryRoot)
   if (!rootStats.isDirectory()) throw new Error('candidate repository path is not a directory')
 
-  const origin = (await git(repositoryRoot, ['remote', 'get-url', 'origin'])).stdout
+  const origin = (await runCandidateGit(repositoryRoot, ['remote', 'get-url', 'origin'])).stdout
     .toString('utf8')
     .trim()
   const actual = parseGitHubRemote(origin)
@@ -213,7 +228,9 @@ async function verifiedRepositoryRoot(
     )
   }
 
-  const gitDirText = (await git(repositoryRoot, ['rev-parse', '--absolute-git-dir'])).stdout
+  const gitDirText = (
+    await runCandidateGit(repositoryRoot, ['rev-parse', '--absolute-git-dir'])
+  ).stdout
     .toString('utf8')
     .trim()
   const gitDir = resolve(gitDirText)
@@ -221,24 +238,35 @@ async function verifiedRepositoryRoot(
   return repositoryRoot
 }
 
-async function assertNoGitIndirection(
+export async function assertNoGitIndirection(
   repositoryRoot: string,
   gitDir: string,
   label: string,
 ): Promise<void> {
   const replacements = (
-    await git(repositoryRoot, ['for-each-ref', '--format=%(refname)', 'refs/replace'])
+    await runCandidateGit(repositoryRoot, ['for-each-ref', '--format=%(refname)', 'refs/replace'])
   ).stdout
     .toString('utf8')
     .trim()
   if (replacements) throw new Error(`${label} contains Git replace refs`)
-  for (const name of ['alternates', 'http-alternates']) {
-    const path = join(gitDir, 'objects', 'info', name)
-    try {
-      const contents = await readFile(path, 'utf8')
-      if (contents.trim()) throw new Error(`${label} uses forbidden Git ${name}`)
-    } catch (error) {
-      if (!isNoEntry(error)) throw error
+  const commonDir = resolve(
+    repositoryRoot,
+    (await runCandidateGit(repositoryRoot, ['rev-parse', '--git-common-dir'])).stdout
+      .toString('utf8')
+      .trim(),
+  )
+  if ((await realpath(commonDir)) !== commonDir || commonDir.includes(':')) {
+    throw new Error(`${label} Git common directory has an unsupported path`)
+  }
+  for (const objectRoot of new Set([gitDir, commonDir])) {
+    for (const name of ['alternates', 'http-alternates']) {
+      const path = join(objectRoot, 'objects', 'info', name)
+      try {
+        const contents = await readFile(path, 'utf8')
+        if (contents.trim()) throw new Error(`${label} uses forbidden Git ${name}`)
+      } catch (error) {
+        if (!isNoEntry(error)) throw error
+      }
     }
   }
 }
@@ -248,11 +276,13 @@ async function assertCommitAndBaseTree(
   commit: string,
   expectedTree: string,
 ): Promise<void> {
-  const type = (await git(repositoryRoot, ['cat-file', '-t', commit])).stdout
+  const type = (await runCandidateGit(repositoryRoot, ['cat-file', '-t', commit])).stdout
     .toString('utf8')
     .trim()
   if (type !== 'commit') throw new Error(`candidate base object is not a commit: ${commit}`)
-  const actualTree = (await git(repositoryRoot, ['rev-parse', `${commit}^{tree}`])).stdout
+  const actualTree = (
+    await runCandidateGit(repositoryRoot, ['rev-parse', `${commit}^{tree}`])
+  ).stdout
     .toString('utf8')
     .trim()
   if (actualTree !== expectedTree) {
@@ -266,7 +296,12 @@ async function assertSafeTree(
   environment: Record<string, string> = {},
 ): Promise<void> {
   const listing = (
-    await git(repositoryRoot, ['ls-tree', '-rz', '--full-tree', tree], undefined, environment)
+    await runCandidateGit(
+      repositoryRoot,
+      ['ls-tree', '-rz', '--full-tree', tree],
+      undefined,
+      environment,
+    )
   ).stdout
   const entries = parseTreeEntries(listing)
   if (entries.length === 0) throw new Error('candidate Git tree cannot be empty')
@@ -285,27 +320,14 @@ async function workspaceManifestFromGitTree(
   tree: string,
   environment: Record<string, string>,
 ): Promise<AgentCandidateWorkspaceManifestMaterialV1> {
-  const listing = (
-    await git(repositoryRoot, ['ls-tree', '-rz', '--full-tree', tree], undefined, environment)
-  ).stdout
-  const entries = parseTreeEntries(listing)
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
-        throw new Error(`task outcome tree contains a non-regular file: ${entry.path}`)
-      }
-      const bytes = (
-        await git(repositoryRoot, ['cat-file', 'blob', entry.object], undefined, environment)
-      ).stdout
-      return {
-        path: entry.path,
-        mode: entry.mode === '100755' ? (0o755 as const) : (0o644 as const),
-        sha256: sha256Bytes(bytes),
-        byteLength: bytes.byteLength,
-      }
+  const files = (await readCandidateGitTreeFiles(repositoryRoot, tree, environment)).map(
+    ({ path, mode, bytes }) => ({
+      path,
+      mode,
+      sha256: sha256Bytes(bytes),
+      byteLength: bytes.byteLength,
     }),
   )
-  files.sort((left, right) => left.path.localeCompare(right.path))
   return {
     schemaVersion: 1,
     kind: 'agent-candidate-workspace-manifest',
@@ -313,10 +335,66 @@ async function workspaceManifestFromGitTree(
   }
 }
 
+export async function readCandidateGitTreeFiles(
+  repositoryRoot: string,
+  tree: string,
+  environment: Record<string, string> = {},
+  limits?: { maxFiles: number; maxFileBytes: number; maxTotalFileBytes: number },
+): Promise<Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>> {
+  const listing = (
+    await runCandidateGit(
+      repositoryRoot,
+      ['ls-tree', '-rzl', '--full-tree', tree],
+      undefined,
+      environment,
+    )
+  ).stdout
+  const files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> = []
+  const entries = parseTreeEntries(listing)
+  if (limits && entries.length > limits.maxFiles) {
+    throw new Error('candidate Git tree exceeds maxFiles')
+  }
+  let totalBytes = 0
+  for (const entry of entries) {
+    if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755')) {
+      throw new Error(`candidate Git tree contains a non-regular file: ${entry.path}`)
+    }
+    assertSafeGitPath(entry.path)
+    if (entry.size === undefined) {
+      throw new Error(`candidate Git tree is missing blob size: ${entry.path}`)
+    }
+    if (limits && entry.size > limits.maxFileBytes) {
+      throw new Error(`candidate Git tree file exceeds maxFileBytes: ${entry.path}`)
+    }
+    totalBytes += entry.size
+    if (limits && totalBytes > limits.maxTotalFileBytes) {
+      throw new Error('candidate Git tree exceeds maxTotalFileBytes')
+    }
+    const bytes = (
+      await runCandidateGit(
+        repositoryRoot,
+        ['cat-file', 'blob', entry.object],
+        undefined,
+        environment,
+      )
+    ).stdout
+    if (bytes.byteLength !== entry.size) {
+      throw new Error(`candidate Git blob size changed: ${entry.path}`)
+    }
+    files.push({
+      path: entry.path,
+      mode: entry.mode === '100755' ? 0o755 : 0o644,
+      bytes: Uint8Array.from(bytes),
+    })
+  }
+  return files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+}
+
 function parseTreeEntries(bytes: Uint8Array): Array<{
   mode: string
   type: string
   object: string
+  size?: number
   path: string
 }> {
   const raw = Buffer.from(bytes)
@@ -327,13 +405,17 @@ function parseTreeEntries(bytes: Uint8Array): Array<{
   const rows = decoded.split('\0').filter(Boolean)
   return rows.map((row) => {
     const tab = row.indexOf('\t')
-    const header = row.slice(0, tab).split(' ')
+    const header = row.slice(0, tab).split(' ').filter(Boolean)
     const path = row.slice(tab + 1)
-    const [mode, type, object] = header
+    const [mode, type, object, sizeText] = header
     if (tab < 1 || !mode || !type || !object || !path) {
       throw new Error('malformed Git tree entry')
     }
-    return { mode, type, object, path }
+    const size = sizeText && /^\d+$/.test(sizeText) ? Number(sizeText) : undefined
+    if (size !== undefined && !Number.isSafeInteger(size)) {
+      throw new Error('candidate Git tree entry size exceeds the safe integer range')
+    }
+    return { mode, type, object, ...(size === undefined ? {} : { size }), path }
   })
 }
 
@@ -367,7 +449,7 @@ function parseGitHubRemote(value: string): { owner: string; repo: string } | und
   return { owner: match[1], repo: match[2] }
 }
 
-async function git(
+export async function runCandidateGit(
   repositoryRoot: string,
   args: string[],
   input?: Uint8Array,
@@ -388,6 +470,10 @@ async function git(
   const fullArgs = [
     '-c',
     'core.hooksPath=/dev/null',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
     '-c',
     'protocol.file.allow=never',
     '-C',
