@@ -149,6 +149,21 @@ async function main(): Promise<void> {
     const rows = details.rows ?? []
     const composite = baselineResult.composite
 
+    // FAIL-LOUD DEAD-WORKER GUARD: a real baseline SPENDS tokens even at 0% resolved;
+    // a router blip returns 0 completions → 0 tokens, which would silently score every
+    // task 0 and produce a FAKE baseline the whole round (autopsy + paid candidate arms)
+    // is then measured against. If most rows show zero tokens, the worker is down — abort
+    // before spending, rather than bank a fake null. (Router weather is intermittent; a
+    // clean retry when the provider recovers is correct, a corrupted scored round is not.)
+    const deadRows = rows.filter((r) => r.tokens.input === 0 && r.tokens.output === 0).length
+    if (rows.length >= 4 && deadRows / rows.length > 0.5) {
+      throw new Error(
+        `dead-worker guard: ${deadRows}/${rows.length} baseline rollouts returned 0 tokens ` +
+          `(worker '${model}' is erroring — likely a transient router 5xx). Refusing to score a ` +
+          `fake-null round. Re-run when the provider recovers.`,
+      )
+    }
+
     // (b) AUTOPSY — classify the failing rows into ranked mechanism findings.
     const findings = await autopsySweFailures(rows, {
       baseUrl: routerBaseUrl,
