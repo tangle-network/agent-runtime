@@ -547,12 +547,17 @@ describe('improve() — default proposer resolution (substrate export drift guar
       const result = await improve(promptProfile(), [{ finding: 'module.txt is stale' }], {
         surface: 'code',
         scenarios,
-        judge,
+        judge: improvementJudge,
         agent: async (surface, _scenario, ctx) => {
           ctx.cost.observe(0.0001, 'stub-agent')
           ctx.cost.observeTokens({ input: 1, output: 1 })
           measured.push(surface)
-          return { text: 'ok' }
+          if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+            throw new Error('expected code surface')
+          }
+          return {
+            text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+          }
         },
         code: {
           repoRoot,
@@ -564,11 +569,19 @@ describe('improve() — default proposer resolution (substrate export drift guar
               startingContents.push(current)
               writeFileSync(
                 join(worktreePath, 'module.txt'),
-                `${current}improvement ${generatorCalls}\n`,
+                `${current}improved ${generatorCalls}\n`,
               )
               return { applied: true, summary: 'stub improvement' }
             },
           },
+        },
+        promotionGate: {
+          name: 'test-hold',
+          decide: async () => ({
+            decision: 'hold',
+            reasons: ['exercise non-promoted candidate retention'],
+            contributingGates: [],
+          }),
         },
         budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
       })
@@ -576,11 +589,8 @@ describe('improve() — default proposer resolution (substrate export drift guar
       // The facade assembled a real proposer: the stub produced candidates, the
       // loop measured them (code surfaces reached the agent), and the gate decided.
       expect(generatorCalls).toBe(2)
-      expect(startingContents).toEqual([
-        'baseline contents\n',
-        'baseline contents\nimprovement 1\n',
-      ])
-      expect(typeof result.gateDecision).toBe('string')
+      expect(startingContents).toEqual(['baseline contents\n', 'baseline contents\nimproved 1\n'])
+      expect(result.gateDecision).toBe('hold')
       const codeSurfaces = measured.filter(
         (m) =>
           typeof m === 'object' && m !== null && 'worktreeRef' in (m as Record<string, unknown>),
@@ -594,7 +604,67 @@ describe('improve() — default proposer resolution (substrate export drift guar
       // A code winner is a worktree ref, not a profile field — profile unchanged.
       expect(result.profile.prompt?.systemPrompt).toBe('be careful')
       expect(result.shipped).toBe(false)
-      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(1)
+      if (typeof result.raw.winner.surface === 'string') {
+        throw new Error('expected code winner')
+      }
+      expect(readFileSync(join(result.raw.winner.surface.worktreeRef, 'module.txt'), 'utf8')).toBe(
+        'baseline contents\nimproved 1\n',
+      )
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it("surface 'code' keeps the baseline worktree when a baseline-only run returns it", async () => {
+    const { execSync } = await import('node:child_process')
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), 'improve-code-baseline-'))
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: repoRoot, stdio: 'pipe' })
+    try {
+      git('init -q -b main')
+      git('config user.email improve@test.local')
+      git('config user.name improve-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'baseline contents\n')
+      git('add module.txt')
+      git('commit -qm baseline')
+
+      const result = await improve(promptProfile(), [], {
+        surface: 'code',
+        gate: 'none',
+        scenarios,
+        judge,
+        agent: async (surface, _scenario, ctx) => {
+          ctx.cost.observe(0.0001, 'stub-agent')
+          ctx.cost.observeTokens({ input: 1, output: 1 })
+          if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+            throw new Error('expected code surface')
+          }
+          return {
+            text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+          }
+        },
+        code: {
+          repoRoot,
+          generator: {
+            kind: 'must-not-run',
+            async generate() {
+              throw new Error('baseline-only run must not call the generator')
+            },
+          },
+        },
+      })
+
+      if (typeof result.raw.winner.surface === 'string') {
+        throw new Error('expected code winner')
+      }
+      expect(result.gateDecision).toBe('hold')
+      expect(readFileSync(join(result.raw.winner.surface.worktreeRef, 'module.txt'), 'utf8')).toBe(
+        'baseline contents\n',
+      )
+      expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(2)
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }

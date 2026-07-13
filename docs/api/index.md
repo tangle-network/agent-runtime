@@ -6003,9 +6003,11 @@ The five-valued gate verdict from `selfImprove`.
 
 > **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
 
-Defined in: [improvement/improve.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L183)
+Defined in: [improvement/improve.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L185)
 
-Full `selfImprove` result for advanced inspection.
+Full `selfImprove` result for advanced inspection. For code runs,
+ `raw.winner.surface.worktreeRef` remains live after return whether the
+ candidate shipped or held; the caller owns that returned worktree.
 
 ***
 
@@ -12909,7 +12911,7 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 
 > **applyImprovementWinnerToProfile**(`profile`, `surface`, `winner`): `AgentProfile`
 
-Defined in: [improvement/improve.ts:398](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L398)
+Defined in: [improvement/improve.ts:405](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L405)
 
 Apply a promoted winner surface back into the profile field for `surface`.
  Returns a shallow copy; never mutates the input profile.
@@ -12938,7 +12940,7 @@ Apply a promoted winner surface back into the profile field for `surface`.
 
 > **improve**\<`TScenario`, `TArtifact`\>(`profile`, `findings`, `opts`): `Promise`\<[`ImproveResult`](#improveresult)\<`TScenario`, `TArtifact`\>\>
 
-Defined in: [improvement/improve.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L461)
+Defined in: [improvement/improve.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improve.ts#L468)
 
 Run the held-out-gated self-improvement loop on ONE profile surface.
 

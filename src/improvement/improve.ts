@@ -179,7 +179,9 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
   lift: number
   /** The five-valued gate verdict from `selfImprove`. */
   gateDecision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
-  /** Full `selfImprove` result for advanced inspection. */
+  /** Full `selfImprove` result for advanced inspection. For code runs,
+   *  `raw.winner.surface.worktreeRef` remains live after return whether the
+   *  candidate shipped or held; the caller owns that returned worktree. */
   raw: SelfImproveResult<TScenario, TArtifact>
 }
 
@@ -361,15 +363,20 @@ async function prepareCodeRun(
     proposer,
     async cleanup(retainedWinner) {
       const errors: unknown[] = []
+      const retainedWorktreeRef = isCodeSurface(retainedWinner)
+        ? retainedWinner.worktreeRef
+        : undefined
       try {
-        await managed?.cleanup(isCodeSurface(retainedWinner) ? [retainedWinner.worktreeRef] : [])
+        await managed?.cleanup(retainedWorktreeRef ? [retainedWorktreeRef] : [])
       } catch (cause) {
         errors.push(cause)
       }
-      try {
-        await worktree.discard(baselineWorktree)
-      } catch (cause) {
-        errors.push(cause)
+      if (retainedWorktreeRef !== baseline.worktreeRef) {
+        try {
+          await worktree.discard(baselineWorktree)
+        } catch (cause) {
+          errors.push(cause)
+        }
       }
       if (errors.length > 0) {
         throw new AggregateError(errors, 'improve(): failed to clean code improvement worktrees')
@@ -553,7 +560,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
 
   const shipped = raw.gateDecision === 'ship'
   const winnerSurface = raw.winner.surface
-  await preparedCode?.cleanup(shipped ? winnerSurface : undefined)
+  await preparedCode?.cleanup(winnerSurface)
   // When a skill DOCUMENT was optimized, the winner is document text — persist it
   // via writeBack (the profile ref points at the caller's file, unchanged) rather
   // than parsing it as a refs array. Otherwise use the standard field write-back.
