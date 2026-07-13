@@ -4042,6 +4042,108 @@ Defined in: [candidate-execution/types.ts:530](https://github.com/tangle-network
 
 ***
 
+### AgentCandidateWorkspaceArchiveLimits
+
+Defined in: candidate-execution/workspace-archive.ts:34
+
+#### Properties
+
+##### maxArchiveBytes
+
+> **maxArchiveBytes**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:35
+
+##### maxFiles
+
+> **maxFiles**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:36
+
+##### maxFileBytes
+
+> **maxFileBytes**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:37
+
+##### maxTotalFileBytes
+
+> **maxTotalFileBytes**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:38
+
+##### maxPathBytes
+
+> **maxPathBytes**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:39
+
+##### maxRepositoryBundleBytes
+
+> **maxRepositoryBundleBytes**: `number`
+
+Defined in: candidate-execution/workspace-archive.ts:40
+
+***
+
+### CaptureAgentCandidateWorkspaceOptions
+
+Defined in: candidate-execution/workspace-archive.ts:84
+
+#### Properties
+
+##### includeRepository?
+
+> `optional` **includeRepository?**: `boolean`
+
+Defined in: candidate-execution/workspace-archive.ts:86
+
+Include Git HEAD so task preparation can prove its exact commit and tree.
+
+##### limits?
+
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+Defined in: candidate-execution/workspace-archive.ts:87
+
+***
+
+### CreateAgentCandidateWorkspacePortOptions
+
+Defined in: candidate-execution/workspace-archive.ts:90
+
+#### Properties
+
+##### limits?
+
+> `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
+
+Defined in: candidate-execution/workspace-archive.ts:91
+
+***
+
+### CapturedAgentCandidateWorkspace
+
+Defined in: candidate-execution/workspace-archive.ts:94
+
+#### Properties
+
+##### snapshot
+
+> **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+Defined in: candidate-execution/workspace-archive.ts:95
+
+##### archive
+
+> **archive**: `Uint8Array`
+
+Defined in: candidate-execution/workspace-archive.ts:97
+
+Detached bytes accepted by createAgentCandidateWorkspacePort.
+
+***
+
 ### CircuitBreakerConfig
 
 Defined in: [conversation/call-policy.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/call-policy.ts#L24)
@@ -12127,6 +12229,50 @@ Verifies every digest, resource, workspace, and Git object in a candidate bundle
 #### Returns
 
 `Promise`\<[`VerifiedAgentCandidate`](#verifiedagentcandidate)\>
+
+***
+
+### captureAgentCandidateWorkspace()
+
+> **captureAgentCandidateWorkspace**(`rootInput`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
+
+Defined in: candidate-execution/workspace-archive.ts:101
+
+Capture one exact regular-file workspace for immutable candidate execution.
+
+#### Parameters
+
+##### rootInput
+
+`string`
+
+##### options?
+
+[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
+
+***
+
+### createAgentCandidateWorkspacePort()
+
+> **createAgentCandidateWorkspacePort**(`options?`): [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
+
+Defined in: candidate-execution/workspace-archive.ts:138
+
+Create the standard bounded materializer for candidate execution ports.
+
+#### Parameters
+
+##### options?
+
+[`CreateAgentCandidateWorkspacePortOptions`](#createagentcandidateworkspaceportoptions) = `{}`
+
+#### Returns
+
+[`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
 
 ***
 

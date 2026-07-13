@@ -108,3 +108,11 @@ export {
   type VerifiedAgentCandidateTaskOutcome,
 } from './types'
 export { verifyAgentCandidateBundle } from './verify'
+export {
+  type AgentCandidateWorkspaceArchiveLimits,
+  type CaptureAgentCandidateWorkspaceOptions,
+  type CapturedAgentCandidateWorkspace,
+  type CreateAgentCandidateWorkspacePortOptions,
+  captureAgentCandidateWorkspace,
+  createAgentCandidateWorkspacePort,
+} from './workspace-archive'

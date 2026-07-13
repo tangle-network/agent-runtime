@@ -533,3 +533,39 @@ Re-exports [VerifiedAgentCandidateTaskOutcome](index.md#verifiedagentcandidateta
 ### verifyAgentCandidateBundle
 
 Re-exports [verifyAgentCandidateBundle](index.md#verifyagentcandidatebundle)
+
+***
+
+### AgentCandidateWorkspaceArchiveLimits
+
+Re-exports [AgentCandidateWorkspaceArchiveLimits](index.md#agentcandidateworkspacearchivelimits)
+
+***
+
+### CaptureAgentCandidateWorkspaceOptions
+
+Re-exports [CaptureAgentCandidateWorkspaceOptions](index.md#captureagentcandidateworkspaceoptions)
+
+***
+
+### CapturedAgentCandidateWorkspace
+
+Re-exports [CapturedAgentCandidateWorkspace](index.md#capturedagentcandidateworkspace)
+
+***
+
+### CreateAgentCandidateWorkspacePortOptions
+
+Re-exports [CreateAgentCandidateWorkspacePortOptions](index.md#createagentcandidateworkspaceportoptions)
+
+***
+
+### captureAgentCandidateWorkspace
+
+Re-exports [captureAgentCandidateWorkspace](index.md#captureagentcandidateworkspace)
+
+***
+
+### createAgentCandidateWorkspacePort
+
+Re-exports [createAgentCandidateWorkspacePort](index.md#createagentcandidateworkspaceport)
