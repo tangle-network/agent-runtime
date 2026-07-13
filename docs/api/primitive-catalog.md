@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 240 exports.
+Import from `@tangle-network/agent-runtime` — 249 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -26,10 +26,13 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
 | `buildLoopOtelSpans` | function | Build a nested, real-duration OTLP span tree for ONE loop run from its full |
 | `buildLoopSpanNodes` | function | Sink-neutral core behind {@link buildLoopOtelSpans}: reconstruct the |
+| `campaignCellSpansToOtlp` | function | Convert ONE cell's `spans.jsonl` content to OTLP-flat JSONL lines. |
+| `campaignTraceResolver` | function | Build the `resolveTraces` function `traceAnalystProposer`/`haloProposer` |
 | `cleanModelId` | function | Trim a candidate model id; `undefined` for non-strings and blanks. |
 | `commandVerifier` | function | A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other |
 | `composeRuntimeHooks` | function | Merge several {@link RuntimeHooks} into one. Falsy entries are dropped (so you can |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
+| `convertCampaignDirToOtlp` | function | Walk `dir` (a campaign run dir, a generation dir, or a whole `selfImprove` |
 | `createConversationBackend` | function | Wrap a `Conversation` so it satisfies `AgentExecutionBackend`. The result is |
 | `createIterableBackend` | function | Wrap any custom async-iterable stream into a typed `AgentExecutionBackend`. |
 | `createOpenAICompatibleBackend` | function | OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any |
@@ -52,6 +55,7 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `improve` | function | Run the held-out-gated self-improvement loop on ONE profile surface. |
 | `improvementDriver` | function | The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. |
+| `isAnalystFinding` | function | Structural guard for the schema-versioned `AnalystFinding` envelope. |
 | `isDelegatedLoopMode` | function | Type guard — returns true when `value` is a valid `DelegatedLoopMode` string. |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
 | `knowledgeReadinessDeliverable` | function | Build the completion check a supervised KB update uses to stop only when the KB is ready. |
@@ -96,6 +100,7 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `startRuntimeRun` | function | Construct a runtime-run handle. The returned handle is mutable across its |
 | `streamToolLoop` | function | Streaming bounded tool loop: yields each raw turn event (the caller maps + |
 | `structuralRolloutPolicyFromProfile` | function | Read the persisted policy off the profile. `undefined` when the profile does |
+| `toAnalystFindings` | function | Normalize a mixed `unknown[]` findings array to `AnalystFinding[]`: |
 | `toolBuildPrompt` | function | Build the starting instruction for a coder agent tasked with implementing a new tool. |
 | `turnId` | function | Deterministic turn identifier. Stable across retries of the same logical |
 | `validateChatModelId` | function | Validate a caller-supplied chat-model id. Rejects non-strings, malformed |
@@ -107,6 +112,7 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `DELEGATED_LOOP_MODES` | const | All valid delegated-loop mode names — used for validation and CLI surfaces. |
 | `FORWARD_HEADERS` | const | Standard names — lowercased so Headers maps interop on every runtime. |
 | `INTELLIGENCE_WIRE_VERSION` | const | Wire version the eval-runs ingest enforces (X-Tangle-Wire-Version + body). |
+| `LIFTED_FINDING_ANALYST_ID` | const | Analyst id stamped on findings lifted from untyped seed values. |
 | `optimizerMethod` | const | The shared method block every build/author prompt embeds. Domain framing |
 | `RESEARCH_SUPERVISOR_SYSTEM_PROMPT` | const | Standing prompt for a supervisor that grows a shared knowledge base through spawned researchers. |
 | `ROLLOUT_POLICY_BOUNDS` | const | Proposal bounds per dial. These are the SEARCH bounds (what the proposer may |
@@ -128,6 +134,7 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
+| `CampaignOtlpOptions` | interface | Campaign `spans.jsonl` → OTLP-flat JSONL — the missing converter between |
 | `CandidateGenerator` | interface | The byte-producing seam — the ONE thing that differs between the cheap |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
@@ -165,7 +172,7 @@ Import from `@tangle-network/agent-runtime` — 240 exports.
 | `ToolLoopStopReason` | type | Why the loop stopped. `completed` = model finished naturally; `stuck-loop` = |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentAdapter`, `AgentBackendContext`, `AgentBackendInput`, `AgentExecutionBackend`, `AgenticGeneratorOptions`, `AgentKnowledgeProvider`, `AgentTaskContext`, `AgentTaskRunResult`, `AgentTaskSpec`, `BackendCallPolicy`, `CampaignTraceResolverOptions`, `ChatTurnHooks`, `ChatTurnResult`, `ControlBudget`, `ControlEvalResult`, `ControlRunResult`, `ControlStep`, `Conversation`, `ConversationDriveState`, `ConversationJournal`, `ConversationParticipant`, `ConversationPolicy`, `ConversationResult`, `ConversationTurn`, `D1StmtLike`, `DataAcquisitionPlan`, `DelegatedLoopResult`, `EvalRunEvent`, `EvalRunGeneration`, `EvalRunsExportConfig`, `EvalRunsExportResult`, `HaltContext`, `HaltSignal`, `ImprovementDriverOptions`, `ImproveOptions`, `ImproveResult`, `KnowledgeReadinessCheckInput`, `KnowledgeReadinessReport`, `KnowledgeRequirement`, `LoopRunnerCliArgs`, `LoopRunnerCliResult`, `OtelAttribute`, `OtelExporter`, `OtelSpan`, `PersonaConversationResult`, `ResearchLoopResult`, `ResearchLoopRunnerOptions`, `ResolveAgentBackendOptions`, `ResolvedChatModel`, `RunChatTurnInput`, `RunConversationOptions`, `RunDelegatedLoopOptions`, `RunPersonaConfig`, `RunPersonaConversationOptions`, `RuntimeDecisionEvidenceRef`, `RuntimeDecisionPoint`, `RuntimeEventCollector`, `RuntimeHookContext`, `RuntimeHookErrorContext`, `RuntimeHookEvent`, `RuntimeRunHandle`, `RuntimeRunPersistenceAdapter`, `RuntimeRunRow`, `RuntimeSessionStore`, `RuntimeStreamEventCollector`, `RuntimeTelemetryOptions`, `RunToolLoopOptions`, `SanitizedKnowledgeReadinessReport`, `StreamToolLoopOptions`, `SupervisedKnowledgeUpdateInput`, `SupervisedKnowledgeUpdateOptions`, `SupervisedKnowledgeUpdateResult`, `ToAnalystFindingsOptions`, `ToolLoopResult`, `VetoedFact`, `WorktreeLoopRunnerOptions`, `AgentRuntimeEvent`, `AgentRuntimeEventSink`, `AgentTaskStatus`, `AuthSource`, `ControlDecision`, `ConversationStreamEvent`, `DelegatedLoopMode`, `DelegatedLoopRegistry`, `DelegatedLoopRunner`, `ForwardHeaderName`, `HaltPredicate`, `HaltReason`, `KnowledgeReadinessCheck`, `KnowledgeReadinessCheckResult`, `RuntimeDecisionKind`, `RuntimeHookTarget`, `RuntimeStreamEvent`, `StreamToolLoopYield`, `SupervisedKnowledgeUpdater`, `ToolLoopEvent`, `TurnOrder`.
 
 ### Vertical agent — manifest + improvement adapter
 

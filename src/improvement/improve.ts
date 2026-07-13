@@ -30,6 +30,7 @@
  * @experimental
  */
 
+import { makeFinding } from '@tangle-network/agent-eval'
 import {
   gepaProposer,
   gitWorktreeAdapter,
@@ -109,22 +110,20 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  in-process). */
   runDir?: string
   /** Per-generation findings producer passthrough (see selfImprove.analyzeGeneration).
-   *  DEFAULT: the built-in failure distiller — after each generation it turns the
-   *  worst-scoring/errored cells into structured findings ({ scenario, composite,
-   *  notes, error }) for the NEXT proposal round, so the proposer reasons over what
-   *  actually failed instead of a static seed. Pass your own producer (e.g. a
-   *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
-   *  and keep the static `findings` all the way through. */
+   *  DEFAULT: with a real (non-`mem://`) `runDir`, the raw-trace distiller
+   *  (`rawTraceDistiller`) — typed `AnalystFinding`s pointing the proposer at the
+   *  prior generation's actual on-disk traces; for in-memory runs (no traces on
+   *  disk to point at), the built-in failure distiller — the worst-scoring/errored
+   *  cells distilled into typed `AnalystFinding`s for the NEXT proposal round.
+   *  Pass your own producer to replace either; pass `null` to disable and keep the
+   *  static `findings` all the way through. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
-  /** META-HARNESS mode: instead of the ~400-char distilled findings, feed the
-   *  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
-   *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
-   *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
-   *  instruction — so the coding agent reads the actual failures itself rather than
-   *  a pre-summary. Requires a REAL `runDir` (that is where the traces live).
-   *  Ignored when `analyzeGeneration` is set explicitly (that wins) or is `null`
-   *  (disabled). Equivalent to `analyzeGeneration: rawTraceDistiller()`; this flag
-   *  is the one-line enable. Default `false` (the distiller stays the default). */
+  /** Raw-trace context override. Unset (default): raw-trace findings whenever the
+   *  run is durable (a real `runDir` — that is where the traces live), the ~400-char
+   *  failure digest otherwise. `true` forces `rawTraceDistiller()` even for an
+   *  in-memory run (it emits a loud warning finding instead of paths); `false`
+   *  forces the digest distiller even with a real `runDir`. Ignored when
+   *  `analyzeGeneration` is set explicitly (that wins) or is `null` (disabled). */
   rawTraceContext?: boolean
   /** CODE-surface wiring with prompt-parity DX: name `surface: 'code'`, point at a
    *  repo, and the facade assembles the whole candidate pipeline — git worktrees
@@ -253,12 +252,14 @@ function baselineSurfaceFor(
   }
 }
 
-/** The default `analyzeGeneration`: distill each generation's failing cells into
- *  findings for the next proposal round. Deliberately dependency-free — judge notes
- *  and errors are already the domain's own diagnosis (executable gates put their
- *  reasons there); a trace-analyst can replace this wholesale via
- *  `opts.analyzeGeneration`. Falls back to the static seed findings when the
- *  generation had no failures, so a clean round never wipes the seed context. */
+/** The in-memory-run `analyzeGeneration`: distill each generation's failing cells
+ *  into TYPED `AnalystFinding`s for the next proposal round — the same envelope
+ *  `rawTraceDistiller` and the analyst registry emit, so consumers never branch on
+ *  a second ad-hoc digest shape. Judge notes and errors are already the domain's
+ *  own diagnosis (executable gates put their reasons there); a trace-analyst can
+ *  replace this wholesale via `opts.analyzeGeneration`. Falls back to the static
+ *  seed findings when the generation had no failures, so a clean round never wipes
+ *  the seed context. */
 function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
   staticFindings: unknown[],
 ): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
@@ -297,8 +298,40 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
     }
     if (failures.length === 0) return staticFindings
     failures.sort((a, b) => a.composite - b.composite)
-    return failures.slice(0, CAP)
+    return failures.slice(0, CAP).map((f) =>
+      makeFinding({
+        analyst_id: 'generation-failure-distiller',
+        severity: f.error !== undefined || f.composite < 0.5 ? 'high' : 'medium',
+        area: 'generation-failure',
+        confidence: 1,
+        subject: f.scenario,
+        claim: `Scenario ${f.scenario} scored composite ${f.composite}${
+          f.notes ? `: ${f.notes}` : ''
+        }${f.error ? ` (error: ${f.error})` : ''}`,
+        evidence_refs: [],
+        metadata: {
+          scenario: f.scenario,
+          composite: f.composite,
+          ...(f.error !== undefined ? { error: f.error } : {}),
+        },
+      }),
+    )
   }
+}
+
+/** The default `analyzeGeneration` when the caller passed none: raw-trace context
+ *  whenever the run is durable (a real `runDir` is where the traces live — see
+ *  `rawTraceDistiller`), the failure digest for in-memory runs, with
+ *  `rawTraceContext` as the explicit override in either direction. */
+function defaultDistillerFor<TScenario extends Scenario, TArtifact>(
+  opts: ImproveOptions<TScenario, TArtifact>,
+  findings: unknown[],
+): NonNullable<SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration']> {
+  const durableRun = opts.runDir !== undefined && !opts.runDir.startsWith('mem://')
+  const useRawTraces = opts.rawTraceContext ?? durableRun
+  return useRawTraces
+    ? rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
+    : generationFailureDistiller<TScenario, TArtifact>(findings)
 }
 
 /** Assemble the code-surface proposer from `opts.code`: git worktrees + the
@@ -438,10 +471,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       ? {}
       : {
           analyzeGeneration:
-            opts.analyzeGeneration ??
-            (opts.rawTraceContext
-              ? rawTraceDistiller<TScenario, TArtifact>({ fallbackFindings: findings })
-              : generationFailureDistiller<TScenario, TArtifact>(findings)),
+            opts.analyzeGeneration ?? defaultDistillerFor<TScenario, TArtifact>(opts, findings),
         }),
   })
 

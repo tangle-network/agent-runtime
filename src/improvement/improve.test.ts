@@ -227,6 +227,51 @@ describe('improve() — default proposer resolution (substrate export drift guar
     const secondRound = JSON.stringify(findingsSeen[1])
     expect(secondRound).toContain('"scenario":"b"')
     expect(secondRound).toContain('not a permutation')
+    // The digest is TYPED on the wire now: real AnalystFinding envelopes, not
+    // ad-hoc {scenario, composite} objects a consumer must down-cast.
+    const { isAnalystFinding } = await import('./findings')
+    expect(findingsSeen[1]!.length).toBeGreaterThanOrEqual(1)
+    expect(findingsSeen[1]!.every(isAnalystFinding)).toBe(true)
+  })
+
+  it('a real runDir defaults analyzeGeneration to the RAW-TRACE distiller', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const runDir = mkdtempSync(join(tmpdir(), 'improve-rawtrace-'))
+    const failingJudge: JudgeConfig<{ text: string }, Scenario> = {
+      name: 'failing-judge',
+      dimensions: [{ key: 'q', description: 'fixture quality' }],
+      score: () => ({ dimensions: { q: 0 }, composite: 0, notes: 'always failing' }),
+    }
+    const findingsSeen: unknown[][] = []
+    const stubProposer = {
+      kind: 'stub-recorder',
+      async propose(ctx: { findings: unknown[] }) {
+        findingsSeen.push(ctx.findings)
+        return [{ surface: `candidate-${findingsSeen.length}`, label: 'stub', rationale: 'stub' }]
+      },
+    }
+    try {
+      await improve(promptProfile(), [], {
+        surface: 'prompt',
+        scenarios,
+        judge: failingJudge,
+        agent: stubAgent,
+        generator: stubProposer as never,
+        runDir,
+        budget: { generations: 2, populationSize: 1, holdoutFraction: 0.25 },
+      })
+      // The durable-run default is rawTraceDistiller: a later round's findings
+      // are its raw-trace-context envelopes (paths into the recorded traces),
+      // NOT the ~400-char failure digest.
+      const later = findingsSeen.at(-1)!
+      expect(JSON.stringify(later)).toContain('raw-trace-context')
+      const { isAnalystFinding } = await import('./findings')
+      expect(later.every(isAnalystFinding)).toBe(true)
+    } finally {
+      rmSync(runDir, { recursive: true, force: true })
+    }
   })
 
   it("surface 'code' + opts.code assembles the worktree pipeline and measures a candidate", async () => {

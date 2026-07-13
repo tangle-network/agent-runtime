@@ -25,9 +25,22 @@ export {
 } from './agentic-generator'
 export { findingLines, mcpBuildPrompt, toolBuildPrompt } from './build-prompts'
 export {
+  type CampaignOtlpOptions,
+  type CampaignTraceResolverOptions,
+  campaignCellSpansToOtlp,
+  campaignTraceResolver,
+  convertCampaignDirToOtlp,
+} from './campaign-otlp'
+export {
   type DriverLoopGeneratorOptions,
   driverLoopGenerator,
 } from './driver-loop-generator'
+export {
+  isAnalystFinding,
+  LIFTED_FINDING_ANALYST_ID,
+  type ToAnalystFindingsOptions,
+  toAnalystFindings,
+} from './findings'
 export {
   type ImproveOptions,
   type ImproveResult,
