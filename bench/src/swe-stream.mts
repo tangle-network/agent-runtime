@@ -47,8 +47,9 @@
  *      STREAM_DIR=~/.swe-stream/day1 bench/node_modules/.bin/tsx bench/src/swe-stream.mts'
  *
  * Env: ZAI_API_KEY (required), ZAI_BASE, WORKER_MODEL=glm-4.5-air (both arms, all solve+repair
- *      calls), REASONING_EFFORT=enabled (SYMMETRIC thinking budget on the worker; 'off' disables),
- *      MAX_TOKENS=12000, K=4, REPAIRS=2,
+ *      calls), SUPERVISOR_MODEL=glm-5.2 (arm L repair advice ONLY — the stronger model),
+ *      REASONING_EFFORT=enabled (SYMMETRIC thinking budget on the worker; 'off' disables),
+ *      SUPERVISOR_MAX_TOKENS=12000, MAX_TOKENS=12000, K=4, REPAIRS=2,
  *      TEMP=0.8, INNER_TURNS=40, TURN_CAP=12, DEADLINE_MS=1800000, JUDGE_TIMEOUT_MS=2400000,
  *      CONC=2 (hard max 2 — zai discipline), REPRO_TIMEOUT=120 (s), LLM_TIMEOUT_MS=480000,
  *      SEED=0x5eed, IDS=comma-list (default: the 23-instance Stage-0 fingerprint set),
@@ -101,12 +102,21 @@ const WORKER_MODEL = process.env.WORKER_MODEL ?? process.env.MODEL ?? 'glm-4.5-a
 // small budget starves `content`. 12000 leaves ample headroom (probe: worker+thinking = 1905 out).
 const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 12_000)
 // Reasoning budget — SYMMETRIC across F and L (injected at the shared worker chokepoint, so both
-// arms send byte-identical bodies). The zai coding endpoint HONORS `thinking:{type:'enabled'}`
-// (probe 2026-07-12: glm-4.5-air reasoning 831→1820 tok, +119%) and SILENTLY IGNORES
-// `reasoning_effort` (200 but zero lift), so this env toggles the thinking shape, not a level.
+// arms send byte-identical bodies). The zai coding endpoint HONORS `thinking:{type:'enabled'}` on
+// TOOLLESS completions (probe 2026-07-12: glm-4.5-air reasoning 831→1820 tok, +119%) and SILENTLY
+// IGNORES `reasoning_effort` (200, zero lift), so this env toggles the thinking shape, not a level.
+// CAVEAT (probe): with a `tools` array present the endpoint ignores `thinking` too (289→275 compl_
+// tok), so this lever's real effect lands on the TOOLLESS calls — repro authoring + the supervisor
+// — not the worker's tool-loop solve/repair turns. Kept on (harmless, 200) and symmetric regardless.
 const REASONING_EFFORT = (process.env.REASONING_EFFORT ?? 'enabled').toLowerCase()
 const REASONING_ON = ['enabled', 'on', 'thinking', 'true', '1', 'high', 'medium'].includes(REASONING_EFFORT)
 const WORKER_REASONING: Record<string, unknown> = REASONING_ON ? { thinking: { type: 'enabled' } } : {}
+// The SUPERVISOR (arm L repair advice only): a STRONGER model than the worker. glm-5.2 reasons hard
+// at baseline (probe: 733 reasoning tok, and the thinking knob did NOT lift it), so no knob is
+// injected — the supervisor runs on its OWN token budget, wholly separate from the worker's, and
+// changing SUPERVISOR_MAX_TOKENS never touches the worker's MAX_TOKENS / thinking budget.
+const SUPERVISOR_MODEL = process.env.SUPERVISOR_MODEL ?? 'glm-5.2'
+const SUPERVISOR_MAX_TOKENS = Number(process.env.SUPERVISOR_MAX_TOKENS ?? 12_000)
 const K = Number(process.env.K ?? 4)
 const REPAIRS = Number(process.env.REPAIRS ?? 2)
 // NOT `TEMP`: Node's os.tmpdir() honors the TEMP env var as the temp DIRECTORY, so setting
@@ -440,6 +450,26 @@ interface WriteReceipt {
   error: string | null
 }
 
+/** Supervisor-steered-repair receipt (arm L only; null on F). `fired` is the VERIFIED-failure gate:
+ *  true iff the selected candidate's diff APPLIED and the gold-verified repro still reports the bug
+ *  (severity===1). `reason` records the gate decision either way. The evidence is built from
+ *  execution-verified / model-visible inputs ONLY (issue, the candidate diff, the repro-output tail)
+ *  — never FAIL_TO_PASS, never gold, never any worker self-report. */
+interface SupervisorPlanReceipt {
+  fired: boolean
+  reason: string
+  model: string
+  groundedOnReproTail: boolean
+  evidenceChars: number
+  planRaw: string
+  plan: string
+  leaked: boolean
+  planCalls: number
+  planAttempts: number
+  planTokensIn: number
+  planTokensOut: number
+}
+
 interface Row {
   streamIndex: number
   arm: 'F' | 'L'
@@ -482,6 +512,8 @@ interface Row {
   // memory receipts (L arm only; null on F)
   recall: RecallReceipt | null
   noteWrite: WriteReceipt | null
+  // supervisor-steered repair (L arm only; null on F)
+  supervisorPlan: SupervisorPlanReceipt | null
   failureClass: string | null
   tallySnapshot: Record<string, number> | null
   marksDroppedDatasetText: number
@@ -518,7 +550,7 @@ function newRow(streamIndex: number, arm: 'F' | 'L', bt: BenchTask): Row {
     reproPreExit: null, reproGoldExit: null, reproAuthorCalls: 0, reproAuthorTokensIn: 0,
     reproAuthorTokensOut: 0, candidates: [], selection: null, repairs: [], repairStop: null,
     finalFrom: 'none', finalDiff: '', capBreaches: 0, deadlineHit: false, recall: null,
-    noteWrite: null, failureClass: null, tallySnapshot: null, marksDroppedDatasetText: 0,
+    noteWrite: null, supervisorPlan: null, failureClass: null, tallySnapshot: null, marksDroppedDatasetText: 0,
     hiddenResolved: null, judgeDetail: null, judgeMs: null, judgeSkipped: null,
     llmCalls: 0, httpAttempts: 0, tokensIn: 0, tokensOut: 0, guardedMsgs: 0, usd: 0, wallMs: 0,
     cumN: 0, cumResolved: 0, cumUsd: 0,
@@ -656,6 +688,109 @@ async function acquireRepro(
   }
 }
 
+// ---------- supervisor-steered repair (arm L): a STRONGER model diagnoses the verified failure and
+// hands the worker a no-code plan. Primitives replicated from supervisor-arena.mts (that file runs
+// main() on import, so it cannot be imported) — evidence from execution-verified inputs only. ----------
+
+/** Evidence for the supervisor: the issue, the worker's own candidate diff, and the tail of the
+ *  gold-verified reproduction's output on that diff. Execution-verified / model-visible ONLY — never
+ *  FAIL_TO_PASS, never the gold patch, never any worker self-report. Bounded to maxChars. */
+function renderRepairEvidence(issue: string, candidateDiff: string, reproTail: string, reproExit: number | null, maxChars: number): string {
+  const parts: string[] = [
+    'A bug was reported in an open-source Python repository. A programmer wrote a candidate patch, but a ' +
+      'REPRODUCTION SCRIPT (authored from the issue; verified to fail on the buggy code and pass on a correct ' +
+      'fix) STILL FAILS after the patch is applied. Only execution-verified evidence is shown.',
+    '',
+    '--- ISSUE ---',
+    issue.trim().slice(0, 12_000),
+    '',
+    "--- THE PROGRAMMER'S CANDIDATE PATCH (git diff — it applied cleanly but did NOT fix the bug) ---",
+    tail(candidateDiff.trim(), 8_000) || '(empty diff — the attempt produced no change)',
+    '',
+    `--- REPRODUCTION OUTPUT after applying the patch (exit ${reproExit ?? 'n/a'}; nonzero = bug still present) ---`,
+    tail(reproTail.trim(), 4_000) || '(no output captured)',
+  ]
+  let text = parts.join('\n')
+  if (text.length > maxChars) text = `${text.slice(0, maxChars)}\n…[evidence truncated at ${maxChars} chars]`
+  return text
+}
+
+/** The no-code contract (replicated from arena's planContract, adapted to a diff-shaped fix). */
+const planContract =
+  'Diagnose why the candidate patch failed to make the reproduction pass, then write a concise plan for the ' +
+  'programmer: the specific mistake in the current patch, the correct root-cause approach, and edge cases to ' +
+  'handle. You may name at most 3 short symbols or expressions. Do NOT write the fix: no fenced code blocks, no ' +
+  "lines starting with 'def ', and no raw diff/patch hunks. Keep the plan under 400 tokens."
+
+const supervisorPrompt = (evidence: string): string =>
+  ["You are a senior engineer reviewing a junior programmer's failed bug-fix attempt.", '', evidence, '', planContract].join('\n')
+
+/** Enforce the no-code contract: strip fenced blocks, `def ` lines (arena), and unambiguous patch
+ *  headers (SWE hardening — `diff --git`/`@@`/`+++ `/`--- a|b/` never occur in legitimate plan prose,
+ *  so this cannot eat bullets or narrative dashes). `leaked` is a measured signal, not a drop: the
+ *  stripped plan is still used (matching arena — leak RATE is a pre-registered measurement). */
+function stripPlanCode(raw: string): { plan: string; leaked: boolean } {
+  let leaked = false
+  let s = raw
+  if (s.includes('```')) {
+    const stripped = s.replace(/```[a-zA-Z]*[^\n]*\n?[\s\S]*?(?:```|$)/g, '')
+    if (stripped !== s) leaked = true
+    s = stripped
+  }
+  const lines = s.split('\n')
+  const kept = lines.filter((l) => !/^\s*def\s/.test(l) && !/^\s*(?:diff --git |@@ |\+\+\+ |--- [ab]\/)/.test(l))
+  if (kept.length !== lines.length) leaked = true
+  return { plan: kept.join('\n').trim(), leaked }
+}
+
+/** A held (non-firing) supervisor receipt — the verified-failure gate was NOT met. */
+const heldSupervisorReceipt = (reason: string): SupervisorPlanReceipt => ({
+  fired: false, reason, model: SUPERVISOR_MODEL, groundedOnReproTail: false, evidenceChars: 0,
+  planRaw: '', plan: '', leaked: false, planCalls: 0, planAttempts: 0, planTokensIn: 0, planTokensOut: 0,
+})
+
+/** Fire ONCE per instance on the verified-failure gate: fetch the stronger model's no-code plan on
+ *  its OWN token budget. `fired` stays true (the gate fired) even if the plan comes back empty / the
+ *  guard trips / the call fails — those are recorded in `reason` and leave `plan` empty so the L
+ *  repair simply proceeds raw (like F). The leak guard HOLDS rather than crashes. */
+async function superviseRepair(
+  bt: BenchTask,
+  candidateDiff: string,
+  reproTail: string,
+  reproExit: number | null,
+  marks: readonly string[],
+  deadlineAt: number,
+): Promise<SupervisorPlanReceipt> {
+  const md = bt.metadata as Record<string, string>
+  const evidence = renderRepairEvidence(String(md.problem_statement ?? ''), candidateDiff, reproTail, reproExit, 14_000)
+  const messages = [{ role: 'user' as const, content: supervisorPrompt(evidence) }]
+  const base: SupervisorPlanReceipt = {
+    fired: true, reason: 'ok', model: SUPERVISOR_MODEL, groundedOnReproTail: true, evidenceChars: evidence.length,
+    planRaw: '', plan: '', leaked: false, planCalls: 0, planAttempts: 0, planTokensIn: 0, planTokensOut: 0,
+  }
+  try {
+    assertNoHiddenLeak(marks, messages)
+  } catch {
+    return { ...base, reason: 'leak-guard-tripped' }
+  }
+  if (Date.now() >= deadlineAt) return { ...base, reason: 'deadline' }
+  try {
+    const { json, attempts } = await zaiChatRaw(
+      { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
+      { model: SUPERVISOR_MODEL, max_tokens: SUPERVISOR_MAX_TOKENS, temperature: 0.2, messages },
+    )
+    const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+    const planRaw = d.choices?.[0]?.message?.content ?? ''
+    const { plan, leaked } = stripPlanCode(planRaw)
+    return {
+      ...base, reason: plan.trim() ? 'ok' : 'empty-plan', planRaw, plan, leaked, planCalls: 1, planAttempts: attempts,
+      planTokensIn: d.usage?.prompt_tokens ?? 0, planTokensOut: d.usage?.completion_tokens ?? 0,
+    }
+  } catch (e) {
+    return { ...base, reason: `supervisor-call-failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 120)}` }
+  }
+}
+
 // ---------- one arm: k candidates → argmax → guarded repair (swe-structural steps 3-5) ----------
 
 type Env = Awaited<ReturnType<typeof createSweBenchEnvironment>>
@@ -669,6 +804,7 @@ async function runArm(
   deadlineAt: number,
   promptAppendix: string | undefined,
   counter: Counter,
+  supervise: boolean,
 ): Promise<void> {
   const imageTag = row.image as string
   const diffs: string[] = []
@@ -716,12 +852,41 @@ async function runArm(
   let best = { diff: diffs[selectedIdx] as string, score: scores[selectedIdx] as CandScore, from: `candidate:${selectedIdx}` }
   if (!repro) {
     row.repairStop = 'no-signal'
+    if (supervise) row.supervisorPlan = heldSupervisorReceipt('no-repro')
   } else if (best.score.severity === 0) {
     row.repairStop = 'already-passing'
+    if (supervise) row.supervisorPlan = heldSupervisorReceipt('already-passing')
   } else {
+    // ── Supervisor gate (arm L only): fire ONCE on a VERIFIED failure — the selected diff APPLIED
+    // and the gold-verified repro STILL reports the bug (severity===1) — then reuse the stronger
+    // model's no-code plan across every repair round. Arm F is never supervised (raw failure =
+    // control); severity 2 (repro timeout) / 3 (apply failed) are HELD, not steered. ──
+    let supPreamble = ''
+    if (supervise) {
+      const gateOk = best.score.applyOk === true && best.score.severity === 1
+      if (!gateOk) {
+        const reason = best.score.applyOk !== true ? 'apply-failed' : best.score.severity === 2 ? 'repro-timeout' : `severity-${best.score.severity}`
+        row.supervisorPlan = heldSupervisorReceipt(reason)
+        logEvent('supervisor-held', { streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm, reason })
+      } else {
+        const sp = await superviseRepair(bt, best.diff, best.score.out, best.score.exit, marks, deadlineAt)
+        row.supervisorPlan = sp
+        logEvent('supervisor-fired', {
+          streamIndex: row.streamIndex, instanceId: row.instanceId, arm: row.arm,
+          reason: sp.reason, leaked: sp.leaked, planTokensIn: sp.planTokensIn, planTokensOut: sp.planTokensOut,
+        })
+        if (sp.plan.trim()) {
+          supPreamble =
+            "--- SUPERVISOR DIAGNOSIS (a stronger reviewer's no-code plan for why the fix failed; weigh it " +
+            'against the code — it may be wrong) ---\n' +
+            `${sp.plan}\n--- END SUPERVISOR DIAGNOSIS ---\n\n`
+        }
+      }
+    }
     for (let round = 1; round <= REPAIRS && best.score.severity > 0; round += 1) {
       if (Date.now() >= deadlineAt) throw new Error('DEADLINE: per-instance wall clock exhausted (repair)')
       const appendix =
+        supPreamble +
         (best.diff.trim()
           ? `--- PREVIOUS FIX (already applied to this checkout) ---\n${tail(best.diff, 8_000)}\n\n`
           : '--- NO FIX APPLIED YET (every prior attempt produced no change) ---\n\n') +
@@ -990,15 +1155,16 @@ async function processInstance(state: StreamState, env: Env, bt: BenchTask, stre
       row.reproAuthorTokensOut = repro.authorTokensOut
     }
 
-    // Arm F (frozen): no memory.
+    // Arm F (frozen): no memory, no supervisor.
     checkDeadline('before arm F')
-    await runArm(env, bt, rowF, repro.script, marks, deadlineAt, undefined, counterF)
+    await runArm(env, bt, rowF, repro.script, marks, deadlineAt, undefined, counterF, false)
 
-    // Arm L (learning): recall at open via the promptAppendix seam; byte-identical otherwise.
+    // Arm L (learning): recall at open via the promptAppendix seam + supervisor-steered repair;
+    // worker budget byte-identical to F otherwise.
     checkDeadline('before arm L')
     const recall = await recallForInstance(bt)
     rowL.recall = recall.receipt
-    await runArm(env, bt, rowL, repro.script, marks, deadlineAt, recall.appendix, counterL)
+    await runArm(env, bt, rowL, repro.script, marks, deadlineAt, recall.appendix, counterL, true)
   }
 
   let deadlineErr: string | null = null
@@ -1064,10 +1230,13 @@ async function processInstance(state: StreamState, env: Env, bt: BenchTask, stre
   ] as Array<[Row, Counter]>) {
     row.llmCalls = counter.calls
     row.httpAttempts = counter.httpAttempts
+    // WORKER tokens only — kept clean so the "worker budget identical across F/L" audit reads the
+    // ledger directly. The supervisor's spend lives in row.supervisorPlan and is added to $ below.
     row.tokensIn = counter.tokensIn
     row.tokensOut = counter.tokensOut
     row.guardedMsgs = counter.guardedMsgs
-    row.usd = usdOf(counter.tokensIn, counter.tokensOut) + authorUsd / 2
+    const supUsd = row.supervisorPlan ? usdOf(row.supervisorPlan.planTokensIn, row.supervisorPlan.planTokensOut) : 0
+    row.usd = usdOf(counter.tokensIn, counter.tokensOut) + authorUsd / 2 + supUsd
     row.wallMs = Date.now() - t0
     const cum = state.cum[row.arm]
     cum.n += 1
@@ -1091,10 +1260,12 @@ async function processInstance(state: StreamState, env: Env, bt: BenchTask, stre
     }
   }
 
+  const sup = (r: Row): string =>
+    r.supervisorPlan ? ` sup=${r.supervisorPlan.fired ? `fired(${r.supervisorPlan.reason},${r.supervisorPlan.planTokensOut}out)` : `held(${r.supervisorPlan.reason})`}` : ''
   const fmt = (r: Row): string =>
     `${r.arm}: repro=${r.reproStatus} sel=${r.selection ? `${r.selection.mode}@${r.selection.selectedIdx}` : '-'} ` +
     `sev=[${r.candidates.map((x) => x.severity).join(',')}] repairs=${r.repairs.length} caps=${r.capBreaches} ` +
-    `resolved=${r.hiddenResolved === null ? '?' : r.hiddenResolved ? 1 : 0} calls=${r.llmCalls} $${r.usd.toFixed(3)}` +
+    `resolved=${r.hiddenResolved === null ? '?' : r.hiddenResolved ? 1 : 0} calls=${r.llmCalls} $${r.usd.toFixed(3)}${sup(r)}` +
     `${r.error ? ` ERR=${r.error.slice(0, 80)}` : ''}`
   console.log(`[#${streamIndex}] ${bt.id} settle (${Math.round((Date.now() - t0) / 1000)}s)\n  ${fmt(rowF)}\n  ${fmt(rowL)}`)
 }
@@ -1156,8 +1327,9 @@ async function main(): Promise<void> {
 
   console.log('═══ SWE-bench STREAM — day 1 (two-arm, F=frozen-v0 vs L=learning) ═══')
   console.log(
-    `worker=${WORKER_MODEL} reasoning=${REASONING_ON ? 'thinking' : 'off'} base=${ZAI_BASE} ` +
-      `maxTokens=${MAX_TOKENS} k=${K} temp=${TEMP} repairs<=${REPAIRS} ` +
+    `worker=${WORKER_MODEL} supervisor=${SUPERVISOR_MODEL} (arm L repair only) ` +
+      `reasoning=${REASONING_ON ? 'thinking' : 'off'} base=${ZAI_BASE} ` +
+      `maxTokens=${MAX_TOKENS} supMaxTokens=${SUPERVISOR_MAX_TOKENS} k=${K} temp=${TEMP} repairs<=${REPAIRS} ` +
       `innerTurns=${INNER_TURNS} TURN_CAP=${TURN_CAP} DEADLINE_MS=${DEADLINE_MS} conc=${CONC} seed=0x${SEED.toString(16)} ` +
       `judge=serialized(cache_level=${process.env.SWEBENCH_CACHE_LEVEL}) profile=${PROFILE_VERSION}`,
   )
@@ -1216,7 +1388,7 @@ async function main(): Promise<void> {
   if (prior.length === 0) {
     logEvent('stream-start', {
       seed: SEED, plan, deadlineMs: DEADLINE_MS, turnCap: TURN_CAP, k: K, repairs: REPAIRS,
-      temp: TEMP, workerModel: WORKER_MODEL, reasoningEffort: REASONING_EFFORT,
+      temp: TEMP, workerModel: WORKER_MODEL, supervisorModel: SUPERVISOR_MODEL, reasoningEffort: REASONING_EFFORT,
       profileVersion: PROFILE_VERSION, keepImages: [...state.keepImages],
     })
   } else {
@@ -1256,9 +1428,13 @@ async function main(): Promise<void> {
     const tokIn = a.reduce((s, r) => s + r.tokensIn, 0)
     const tokOut = a.reduce((s, r) => s + r.tokensOut, 0)
     const guarded = a.reduce((s, r) => s + r.guardedMsgs, 0)
+    const supFired = a.filter((r) => r.supervisorPlan?.fired).length
+    const supLeaked = a.filter((r) => r.supervisorPlan?.leaked).length
+    const supTrips = a.filter((r) => r.supervisorPlan?.reason === 'leak-guard-tripped').length
     console.log(
       `arm ${arm}: rows=${a.length} resolved=${a.filter((r) => r.hiddenResolved === true).length} ` +
         `errorRows=${a.filter((r) => r.error).length} deadlineHits=${dl} capBreaches=${caps} ` +
+        `supervisorFired=${supFired} planLeaked=${supLeaked} leakTrips=${supTrips} ` +
         `tokens=${tokIn}/${tokOut} guardedMsgs=${guarded} $${usd.toFixed(2)} (assumed $${PRICE_IN}/M in, $${PRICE_OUT}/M out)`,
     )
   }
