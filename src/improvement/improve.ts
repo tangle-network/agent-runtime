@@ -16,13 +16,14 @@
  *     lesson document supplied through `opts.memory`.
  *   - `surface: 'agent-profile'` → caller-supplied proposer mutates the complete
  *     canonical AgentProfile JSON in one candidate.
- *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`, `code`} → no zero-config default
+ *   - `surface` ∈ {`tools`, `mcp`, `hooks`, `subagents`, `agent-profile`} → no zero-config default
  *     proposer exists (a code/config proposer needs caller-supplied wiring — a
  *     worktree repo root, a candidate generator, a serializer). The facade
  *     requires an explicit `opts.generator` for these and throws a `ConfigError`
  *     otherwise. This is a designed boundary, not a missing default: there is
- *     no safe value the facade could invent for those surfaces. Code also
- *     requires `opts.code.repoRoot` so its incumbent is a real isolated checkout.
+ *     no safe value the facade could invent for those surfaces. Code instead
+ *     requires `opts.code.repoRoot` and accepts only the runtime-owned
+ *     `opts.code.generator` path so every isolated checkout can be released.
  *
  * Everything else (`scenarios`, `judge`, `agent`, `budget`, `llm`) passes
  * straight through to `selfImprove`.
@@ -36,6 +37,8 @@ import {
   gitWorktreeAdapter,
   memoryCurationProposer,
   skillOptProposer,
+  type Worktree,
+  type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 import {
   type CodeSurface,
@@ -81,9 +84,10 @@ export type ImproveOptions<TScenario extends Scenario, TArtifact> = Omit<
   /** Which profile lever to optimize. Default `'prompt'`. Selects the default
    *  generator + the baseline-surface extraction shape. */
   surface?: ImproveSurface
-  /** The `SurfaceProposer` that mutates the surface. When unset, the facade
+  /** The `SurfaceProposer` that mutates a profile surface. When unset, the facade
    *  picks the default for prompt, skills, and memory; surfaces
-   *  with no default REQUIRE this (fail-loud otherwise). */
+   *  with no default REQUIRE this (fail-loud otherwise). Forbidden for code;
+   *  use `code.generator` so the runtime owns candidate cleanup. */
   generator?: SurfaceProposer
   /** Gate mode. `'holdout'` (default) runs the held-out promotion gate;
    *  `'none'` is a baseline-only run (`budget.generations = 0`). */
@@ -157,6 +161,9 @@ export interface ImproveCodeOptions {
   baseRef?: string
   /** Directory worktrees are created under. Default `<repoRoot>/.worktrees`. */
   worktreeDir?: string
+  /** Git-compatible adapter override, primarily for tests. Candidate advancement
+   *  still requires normal Git worktree and commit semantics. */
+  worktree?: WorktreeAdapter
   /** Coding harness the agentic generator runs in each worktree. Default `claude`. */
   harness?: LocalHarness
   /** Verify a candidate worktree before it becomes a measurable surface; failures
@@ -179,8 +186,13 @@ export interface ImproveResult<TScenario extends Scenario, TArtifact> {
   lift: number
   /** The five-valued gate verdict from `selfImprove`. */
   gateDecision: SelfImproveResult<TScenario, TArtifact>['gateDecision']
-  /** Full `selfImprove` result for advanced inspection. */
+  /** Full `selfImprove` result for advanced inspection. For code runs,
+   *  `raw.winner.surface.worktreeRef` remains live after return whether the
+   *  candidate shipped or held; call `dispose()` after consuming it. */
   raw: SelfImproveResult<TScenario, TArtifact>
+  /** Release resources owned by this result. Idempotent; currently disposes
+   *  the returned code worktree and is a no-op for profile-only surfaces. */
+  dispose(): Promise<void>
 }
 
 /** Default model id for the reflective drivers when `llm.model` is unset — a model the Tangle
@@ -324,24 +336,58 @@ interface PreparedCodeRun {
   cleanup(retainedWinner?: MutableSurface): Promise<void>
 }
 
+/** Preserve the primary failure while making two best-effort cleanup attempts.
+ * A failed first attempt is retained in the thrown AggregateError even when the
+ * retry succeeds, so callers can diagnose degraded cleanup without losing the
+ * error that caused cleanup to run. */
+async function rethrowAfterCleanup(
+  cause: unknown,
+  cleanup: () => Promise<void>,
+  message: string,
+): Promise<never> {
+  const cleanupErrors: unknown[] = []
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await cleanup()
+    } catch (cleanupCause) {
+      cleanupErrors.push(cleanupCause)
+      continue
+    }
+    if (cleanupErrors.length === 0) throw cause
+    throw new AggregateError([cause, ...cleanupErrors], `${message}; the cleanup retry succeeded`)
+  }
+  throw new AggregateError([cause, ...cleanupErrors], message)
+}
+
+async function discardPreparedBaseline(
+  worktree: WorktreeAdapter,
+  baselineWorktree: Worktree,
+  cause: unknown,
+): Promise<never> {
+  return rethrowAfterCleanup(
+    cause,
+    () => worktree.discard(baselineWorktree),
+    'improve(): code preparation failed and its baseline worktree could not be cleaned',
+  )
+}
+
 function isCodeSurface(surface: MutableSurface | undefined): surface is CodeSurface {
   return typeof surface === 'object' && surface !== null && surface.kind === 'code'
 }
 
 /** Create a clean incumbent checkout and the candidate producer for a code run. */
-async function prepareCodeRun(
-  code: ImproveCodeOptions,
-  proposerOverride?: SurfaceProposer,
-): Promise<PreparedCodeRun> {
+async function prepareCodeRun(code: ImproveCodeOptions): Promise<PreparedCodeRun> {
   const baseRef = code.baseRef ?? 'main'
-  const worktree = gitWorktreeAdapter({
-    repoRoot: code.repoRoot,
-    ...(code.worktreeDir ? { worktreeDir: code.worktreeDir } : {}),
-  })
+  const worktree =
+    code.worktree ??
+    gitWorktreeAdapter({
+      repoRoot: code.repoRoot,
+      ...(code.worktreeDir ? { worktreeDir: code.worktreeDir } : {}),
+    })
   const baselineWorktree = await worktree.create({ baseRef, label: 'incumbent-baseline' })
-  const baseline = await worktree.finalize(baselineWorktree, 'Incumbent code checkout')
-  let managed: ManagedImprovementDriver | undefined
-  if (!proposerOverride) {
+  try {
+    const baseline = await worktree.finalize(baselineWorktree, 'Incumbent code checkout')
+    let baselineDiscarded = false
     const generator =
       code.generator ??
       agenticGenerator({
@@ -349,32 +395,54 @@ async function prepareCodeRun(
         ...(code.verify ? { verify: code.verify } : {}),
         ...(code.timeoutMs ? { timeoutMs: code.timeoutMs } : {}),
       })
-    managed = improvementDriver({ worktree, generator, baseRef })
-  }
-  const proposer = proposerOverride ?? managed
-  if (!proposer) {
-    throw new ConfigError('improve(): code candidate generator could not be constructed')
-  }
+    const managed: ManagedImprovementDriver = improvementDriver({ worktree, generator, baseRef })
 
-  return {
-    baseline,
-    proposer,
-    async cleanup(retainedWinner) {
-      const errors: unknown[] = []
-      try {
-        await managed?.cleanup(isCodeSurface(retainedWinner) ? [retainedWinner.worktreeRef] : [])
-      } catch (cause) {
-        errors.push(cause)
-      }
-      try {
-        await worktree.discard(baselineWorktree)
-      } catch (cause) {
-        errors.push(cause)
-      }
-      if (errors.length > 0) {
-        throw new AggregateError(errors, 'improve(): failed to clean code improvement worktrees')
-      }
-    },
+    return {
+      baseline,
+      proposer: managed,
+      async cleanup(retainedWinner) {
+        const errors: unknown[] = []
+        const retainedWorktreeRef = isCodeSurface(retainedWinner)
+          ? retainedWinner.worktreeRef
+          : undefined
+        try {
+          await managed?.cleanup(retainedWorktreeRef ? [retainedWorktreeRef] : [])
+        } catch (cause) {
+          errors.push(cause)
+        }
+        if (!baselineDiscarded && retainedWorktreeRef !== baseline.worktreeRef) {
+          try {
+            await worktree.discard(baselineWorktree)
+            baselineDiscarded = true
+          } catch (cause) {
+            errors.push(cause)
+          }
+        }
+        if (errors.length > 0) {
+          throw new AggregateError(errors, 'improve(): failed to clean code improvement worktrees')
+        }
+      },
+    }
+  } catch (cause) {
+    return discardPreparedBaseline(worktree, baselineWorktree, cause)
+  }
+}
+
+function idempotentDispose(dispose: () => Promise<void>): () => Promise<void> {
+  let disposed = false
+  let inFlight: Promise<void> | undefined
+  return async () => {
+    if (disposed) return
+    if (inFlight) return inFlight
+    inFlight = (async () => {
+      await dispose()
+      disposed = true
+    })()
+    try {
+      await inFlight
+    } finally {
+      inFlight = undefined
+    }
   }
 }
 
@@ -491,6 +559,11 @@ export async function improve<TScenario extends Scenario, TArtifact>(
   if (surface === 'memory' && !memory) {
     throw new ConfigError("improve(): surface 'memory' requires opts.memory.document")
   }
+  if (surface === 'code' && generator) {
+    throw new ConfigError(
+      "improve(): surface 'code' forbids opts.generator because an external SurfaceProposer cannot transfer checkout ownership; pass opts.code.generator instead",
+    )
+  }
   const usesReflectionModel = !generator && (surface === 'prompt' || surface === 'skills')
   if (usesReflectionModel) {
     assertModelAllowed(sharedOptions.llm?.model ?? defaultReflectionModel, allowedModels)
@@ -503,7 +576,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
         "improve(): surface 'code' requires opts.code.repoRoot so the incumbent can run from an isolated checkout",
       )
     }
-    preparedCode = await prepareCodeRun(code, generator)
+    preparedCode = await prepareCodeRun(code)
   }
   const proposer =
     preparedCode?.proposer ?? generator ?? defaultGeneratorFor(surface, sharedOptions.llm)
@@ -540,20 +613,34 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     })
   } catch (cause) {
     if (!preparedCode) throw cause
-    try {
-      await preparedCode.cleanup()
-    } catch (cleanupCause) {
-      throw new AggregateError(
-        [cause, cleanupCause],
-        'improve(): code improvement failed and its worktrees could not be cleaned',
-      )
-    }
-    throw cause
+    return rethrowAfterCleanup(
+      cause,
+      () => preparedCode.cleanup(),
+      'improve(): code improvement failed and its worktrees could not be cleaned',
+    )
   }
 
   const shipped = raw.gateDecision === 'ship'
   const winnerSurface = raw.winner.surface
-  await preparedCode?.cleanup(shipped ? winnerSurface : undefined)
+  if (preparedCode) {
+    try {
+      await preparedCode.cleanup(winnerSurface)
+    } catch (cleanupCause) {
+      try {
+        await preparedCode.cleanup()
+      } catch (finalCleanupCause) {
+        throw new AggregateError(
+          [cleanupCause, finalCleanupCause],
+          'improve(): code result cleanup failed, including the final all-worktree retry',
+        )
+      }
+      throw new AggregateError(
+        [cleanupCause],
+        'improve(): code result cleanup failed; the final all-worktree retry succeeded',
+      )
+    }
+  }
+  const dispose = idempotentDispose(async () => preparedCode?.cleanup())
   // When a skill DOCUMENT was optimized, the winner is document text — persist it
   // via writeBack (the profile ref points at the caller's file, unchanged) rather
   // than parsing it as a refs array. Otherwise use the standard field write-back.
@@ -572,5 +659,12 @@ export async function improve<TScenario extends Scenario, TArtifact>(
       ? applyImprovementWinnerToProfile(profile, surface, winnerSurface)
       : profile
 
-  return { profile: nextProfile, shipped, lift: raw.lift, gateDecision: raw.gateDecision, raw }
+  return {
+    profile: nextProfile,
+    shipped,
+    lift: raw.lift,
+    gateDecision: raw.gateDecision,
+    raw,
+    dispose,
+  }
 }

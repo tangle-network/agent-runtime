@@ -104,7 +104,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "^0.115.1",
+    "@tangle-network/agent-eval": "0.117.1",
     "@tangle-network/agent-interface": "^0.25.0",
     "@tangle-network/sandbox": "^0.9.7",
     "@types/node": "^25.9.3",
@@ -135,7 +135,7 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.115.1 <1.0.0",
+    "@tangle-network/agent-eval": ">=0.117.1 <1.0.0",
     "@tangle-network/agent-interface": ">=0.25.0 <1.0.0",
     "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
     "playwright": "^1.40.0"

@@ -1,5 +1,9 @@
-import type { AgentProfile } from '@tangle-network/agent-eval'
-import type { DispatchContext, Scenario } from '@tangle-network/agent-eval/campaign'
+import { type AgentProfile, CostLedger } from '@tangle-network/agent-eval'
+import type {
+  CampaignCostMeter,
+  DispatchContext,
+  Scenario,
+} from '@tangle-network/agent-eval/campaign'
 import { describe, expect, it } from 'vitest'
 import { createIterableBackend } from '../backends'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
@@ -75,27 +79,35 @@ function fakePersonaDriver(saw: { prompt?: string; calls: number }): AgentExecut
   })
 }
 
-const PROFILE = {} as AgentProfile
-const WORKER_PROFILE = { tag: 'worker' } as unknown as AgentProfile
-const PERSONA_PROFILE = { tag: 'persona' } as unknown as AgentProfile
+const PROFILE = { model: { default: 'fake' } } as AgentProfile
+const WORKER_PROFILE = {
+  model: { default: 'fake' },
+  metadata: { tag: 'worker' },
+} as AgentProfile
+const PERSONA_PROFILE = {
+  model: { default: 'fake-persona' },
+  metadata: { tag: 'persona' },
+} as AgentProfile
 
-function fakeCtx(): DispatchContext & {
-  observed: { costUsd: number; tokensIn: number; tokensOut: number }
+function fakeCtx(costCeilingUsd?: number): DispatchContext & {
+  ledger: CostLedger
 } {
-  const observed = { costUsd: 0, tokensIn: 0, tokensOut: 0 }
-  return {
-    observed,
-    signal: new AbortController().signal,
-    cost: {
-      observe(usd: number) {
-        observed.costUsd += usd
-      },
-      observeTokens(t: { input: number; output: number }) {
-        observed.tokensIn += t.input
-        observed.tokensOut += t.output
-      },
+  const ledger = new CostLedger(costCeilingUsd === undefined ? {} : { costCeilingUsd })
+  const cost: CampaignCostMeter = {
+    runPaidCall(input) {
+      return ledger.runPaidCall({
+        ...input,
+        channel: input.channel ?? 'agent',
+        phase: 'persona-test',
+        tags: { cellId: 'persona-cell' },
+      })
     },
-  } as unknown as DispatchContext & { observed: typeof observed }
+  }
+  return {
+    ledger,
+    signal: new AbortController().signal,
+    cost,
+  } as unknown as DispatchContext & { ledger: CostLedger }
 }
 
 describe('runPersonaConversation', () => {
@@ -159,8 +171,7 @@ describe('runPersonaConversation', () => {
       persona: { kind: 'profile', profile: PERSONA_PROFILE },
       backendFor: (_profile, role) =>
         role === 'worker' ? fakeWorker(workerSaw) : fakePersonaDriver(personaSaw),
-      systemPromptOf: (p) =>
-        (p as { tag?: string }).tag === 'persona' ? 'PERSONA-PROMPT' : 'WORKER-PROMPT',
+      systemPromptOf: (p) => (p.metadata?.tag === 'persona' ? 'PERSONA-PROMPT' : 'WORKER-PROMPT'),
       maxTurns: 4,
     })
     // alternate, persona leads: persona, worker, persona, worker.
@@ -217,7 +228,50 @@ describe('runPersonaDispatch (matrix adapter)', () => {
       ctx,
     )
     expect(artifact).toBe(2)
-    expect(ctx.observed.tokensIn).toBe(20)
-    expect(ctx.observed.costUsd).toBeCloseTo(0.04, 5)
+    expect(ctx.ledger.list()).toEqual([
+      expect.objectContaining({
+        actor: 'persona-conversation',
+        model: 'fake',
+        inputTokens: 20,
+        outputTokens: 10,
+        actualCostUsd: 0.04,
+        costUsd: 0.04,
+      }),
+    ])
+  })
+
+  it('refuses a capped conversation before the worker runs when no hard maximum is supplied', async () => {
+    const saw = { calls: 0 } as { prompt?: string; calls: number }
+    const dispatch = runPersonaDispatch<PersonaScenario, number>({
+      backendFor: () => fakeWorker(saw),
+      systemPromptOf: () => 'SYS',
+      personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
+      artifactOf: () => 0,
+    })
+    const ctx = fakeCtx(1)
+
+    await expect(
+      dispatch(PROFILE, { id: 'bounded', kind: 'persona', turns: ['q1'] }, ctx),
+    ).rejects.toThrow(/hard maximumCharge before execution/)
+    expect(saw.calls).toBe(0)
+    expect(ctx.ledger.list()).toHaveLength(0)
+  })
+
+  it('admits a capped conversation with an executor-enforced maximum', async () => {
+    const dispatch = runPersonaDispatch<PersonaScenario, number>({
+      backendFor: () => fakeWorker({ calls: 0 }),
+      systemPromptOf: () => 'SYS',
+      personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
+      artifactOf: (transcript) => transcript.length,
+      maximumCharge: { externallyEnforcedMaximumUsd: 0.05 },
+    })
+    const ctx = fakeCtx(1)
+
+    await expect(
+      dispatch(PROFILE, { id: 'bounded', kind: 'persona', turns: ['q1'] }, ctx),
+    ).resolves.toBe(2)
+    expect(ctx.ledger.list()).toEqual([
+      expect.objectContaining({ maximumCostUsd: 0.05, actualCostUsd: 0.02, costUsd: 0.02 }),
+    ])
   })
 })

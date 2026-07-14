@@ -168,6 +168,30 @@ export interface ExecuteApprovedAgentCandidateResult {
   evidence: CandidateExecutionEvidence
 }
 
+async function rethrowAfterImprovementDispose<TScenario extends Scenario, TArtifact>(
+  cause: unknown,
+  improvement: ImproveResult<TScenario, TArtifact>,
+): Promise<never> {
+  const disposeErrors: unknown[] = []
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await improvement.dispose()
+    } catch (disposeCause) {
+      disposeErrors.push(disposeCause)
+      continue
+    }
+    if (disposeErrors.length === 0) throw cause
+    throw new AggregateError(
+      [cause, ...disposeErrors],
+      'proposeAgentImprovement failed; the improvement cleanup retry succeeded',
+    )
+  }
+  throw new AggregateError(
+    [cause, ...disposeErrors],
+    'proposeAgentImprovement failed and its improvement resources could not be cleaned',
+  )
+}
+
 /** Analyze one run and produce one measured, review-only improvement proposal. */
 export async function proposeAgentImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentImprovementOptions<TScenario, TArtifact>,
@@ -191,21 +215,25 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     'proposeAgentImprovement findings',
   )
   const improvement = await improve(options.profile, [...findings], options.improvement)
-  const candidateBundle =
-    improvement.shipped && options.buildCandidate
-      ? await options.buildCandidate({ analysis, improvement })
-      : undefined
-  const proposal = createAgentImprovementProposal({
-    runId: options.runId,
-    surface: options.improvement.surface ?? 'prompt',
-    baselineProfile: options.profile,
-    candidateProfile: improvement.profile,
-    findings,
-    evaluation: improvement.raw,
-    ...(candidateBundle ? { candidateBundle } : {}),
-    ...(options.now ? { now: options.now } : {}),
-  })
-  return { analysis, improvement, proposal }
+  try {
+    const candidateBundle =
+      improvement.shipped && options.buildCandidate
+        ? await options.buildCandidate({ analysis, improvement })
+        : undefined
+    const proposal = createAgentImprovementProposal({
+      runId: options.runId,
+      surface: options.improvement.surface ?? 'prompt',
+      baselineProfile: options.profile,
+      candidateProfile: improvement.profile,
+      findings,
+      evaluation: improvement.raw,
+      ...(candidateBundle ? { candidateBundle } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    })
+    return { analysis, improvement, proposal }
+  } catch (cause) {
+    return rethrowAfterImprovementDispose(cause, improvement)
+  }
 }
 
 /**

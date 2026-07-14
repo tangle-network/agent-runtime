@@ -20,14 +20,16 @@
  * @experimental
  */
 
-import type { AnalystFinding } from '@tangle-network/agent-eval'
-import type {
-  CodeSurface,
-  LabeledScenarioStore,
-  ProposeContext,
-  SurfaceProposer,
-  Worktree,
-  WorktreeAdapter,
+import { spawnSync } from 'node:child_process'
+import type { AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
+import {
+  type CodeSurface,
+  type LabeledScenarioStore,
+  type ProposeContext,
+  type SurfaceProposer,
+  verifyCodeSurface,
+  type Worktree,
+  type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
 
 /** The byte-producing seam — the ONE thing that differs between the cheap
@@ -48,7 +50,7 @@ export interface CandidateGenerator {
    *  for a guaranteed no-op. Default `false`. */
   proposesWithoutFindings?: boolean
   generate(args: {
-    /** The candidate worktree — a fresh checkout of baseRef. Write changes here. */
+    /** The candidate worktree — a clean checkout of the current incumbent. */
     worktreePath: string
     /** Phase-2 research report (analyst findings + diff), opaque. */
     report: unknown
@@ -60,25 +62,33 @@ export interface CandidateGenerator {
      *  reflective generator ignores it). */
     maxShots: number
     signal: AbortSignal
+    /** Improvement-loop coordinates. Present when called through improvementDriver. */
+    generation?: number
+    candidateIndex?: number
+    /** Shared run-wide paid-call account supplied by agent-eval 0.117+. */
+    costLedger?: CostLedger
+    /** Receipt attribution phase supplied alongside `costLedger`. */
+    costPhase?: string
   }): Promise<{ applied: boolean; summary: string }>
 }
 
 export interface ImprovementDriverOptions {
   worktree: WorktreeAdapter
   generator: CandidateGenerator
-  /** Base ref candidate worktrees fork from. Default `main`. */
+  /** Root ref for first-generation/direct callers. Default `main`.
+   *  Later code generations retain the incumbent's original root. */
   baseRef?: string
 }
 
 export interface ManagedImprovementDriver extends SurfaceProposer<AnalystFinding> {
-  /** Remove every finalized candidate except explicitly retained winners. */
+  /** Remove every owned candidate except explicitly retained finalized winners. */
   cleanup(retainWorktreeRefs?: readonly string[]): Promise<void>
 }
 
 /** The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`. */
 export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprovementDriver {
   const baseRef = opts.baseRef ?? 'main'
-  const finalized = new Map<string, Worktree>()
+  const owned = new Map<string, Worktree>()
 
   return {
     kind: `improvement:${opts.generator.kind}`,
@@ -100,16 +110,20 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
       }
 
       const surfaces: CodeSurface[] = []
+      const incumbent = verifiedCodeIncumbent(ctx.currentSurface)
+      const proposalBaseRef = incumbent?.baseCommit ?? baseRef
       for (let i = 0; i < ctx.populationSize; i++) {
         if (ctx.signal.aborted) break
         const wt = await opts.worktree.create({
-          baseRef,
+          baseRef: proposalBaseRef,
           label: `${opts.generator.kind}-gen${ctx.generation}-cand${i}`,
         })
+        owned.set(wt.path, wt)
         // Once a worktree exists it MUST be accounted for: finalized into a
         // surface, or discarded. A throw from generate()/finalize() must not
         // leak the worktree + branch — discard best-effort, then rethrow loud.
         try {
+          if (incumbent) advanceToIncumbent(wt, incumbent)
           const { applied, summary } = await opts.generator.generate({
             worktreePath: wt.path,
             report: ctx.report,
@@ -117,18 +131,40 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
             dataset: ctx.dataset,
             maxShots: ctx.maxImprovementShots ?? 1,
             signal: ctx.signal,
+            generation: ctx.generation,
+            candidateIndex: i,
+            ...(ctx.costLedger ? { costLedger: ctx.costLedger } : {}),
+            ...(ctx.costPhase ? { costPhase: ctx.costPhase } : {}),
           })
           if (!applied) {
             await opts.worktree.discard(wt)
+            owned.delete(wt.path)
             continue
           }
           const surface = await opts.worktree.finalize(wt, summary)
           surfaces.push(surface)
-          finalized.set(surface.worktreeRef, wt)
+          owned.delete(wt.path)
+          owned.set(surface.worktreeRef, wt)
         } catch (err) {
-          // Best-effort cleanup; never mask the original failure.
-          await opts.worktree.discard(wt).catch(() => {})
-          throw err
+          const cleanupErrors: unknown[] = []
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              await opts.worktree.discard(wt)
+              owned.delete(wt.path)
+              break
+            } catch (cause) {
+              cleanupErrors.push(cause)
+            }
+          }
+          if (cleanupErrors.length === 0) throw err
+          const failure = err instanceof Error ? err.message : String(err)
+          const cleanupSucceeded = !owned.has(wt.path)
+          throw new AggregateError(
+            [err, ...cleanupErrors],
+            cleanupSucceeded
+              ? `improvementDriver: ${failure}; candidate cleanup retry succeeded`
+              : `improvementDriver: ${failure}; candidate worktree could not be cleaned`,
+          )
         }
       }
       return surfaces
@@ -136,11 +172,11 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
     async cleanup(retainWorktreeRefs = []) {
       const retained = new Set(retainWorktreeRefs)
       const errors: unknown[] = []
-      for (const [worktreeRef, worktree] of finalized) {
+      for (const [worktreeRef, worktree] of owned) {
         if (retained.has(worktreeRef)) continue
         try {
           await opts.worktree.discard(worktree)
-          finalized.delete(worktreeRef)
+          owned.delete(worktreeRef)
         } catch (cause) {
           errors.push(cause)
         }
@@ -149,6 +185,47 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
         throw new AggregateError(errors, 'improvementDriver: failed to discard candidate worktrees')
       }
     },
+  }
+}
+
+/** A code incumbent must still match the immutable identity that was measured. */
+function verifiedCodeIncumbent(surface: ProposeContext['currentSurface']): CodeSurface | undefined {
+  if (typeof surface !== 'object' || surface.kind !== 'code') return undefined
+  verifyCodeSurface(surface)
+  return surface
+}
+
+/** Start at the root commit recorded by the incumbent, then fast-forward the
+ *  fresh branch to the incumbent commit. The worktree stays clean for the
+ *  generator while `finalize()` still emits one cumulative root-to-candidate
+ *  patch that can be applied or rolled back independently of prior branches. */
+function advanceToIncumbent(worktree: Worktree, incumbent: CodeSurface): void {
+  if (worktree.baseCommit !== incumbent.baseCommit || worktree.baseTree !== incumbent.baseTree) {
+    throw new Error('improvementDriver: candidate worktree does not match incumbent base identity')
+  }
+  if (worktree.baseCommit === incumbent.candidateCommit) return
+
+  const merge = spawnSync('git', ['merge', '--ff-only', incumbent.candidateCommit], {
+    cwd: worktree.path,
+    encoding: 'utf8',
+  })
+  if (merge.error) {
+    throw new Error(
+      `improvementDriver: failed to start candidate from incumbent: ${merge.error.message}`,
+    )
+  }
+  if (merge.status !== 0) {
+    throw new Error(
+      `improvementDriver: could not fast-forward candidate to incumbent ${incumbent.candidateCommit}: ${merge.stderr.trim()}`,
+    )
+  }
+
+  const head = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: worktree.path,
+    encoding: 'utf8',
+  })
+  if (head.error || head.status !== 0 || head.stdout.trim() !== incumbent.candidateCommit) {
+    throw new Error('improvementDriver: candidate worktree did not reach the incumbent commit')
   }
 }
 

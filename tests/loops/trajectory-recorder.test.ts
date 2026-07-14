@@ -32,4 +32,16 @@ describe('analyzeTrace (settle-time agent-eval analyzers over a TraceSource)', (
     expect(analysis.trajectory.toolCalls).toBe(3)
     expect(analysis.stuckLoop.findings).toHaveLength(0)
   })
+
+  it('does not mislabel overlapping repeated calls as a serial loop', async () => {
+    const { source, record } = createPushTraceSource({ runId: 'parallel' })
+    record({ toolName: 'search', args: { q: 'x' }, startedAt: 0, endedAt: 100 })
+    record({ toolName: 'search', args: { q: 'x' }, startedAt: 10, endedAt: 90 })
+    record({ toolName: 'search', args: { q: 'x' }, startedAt: 20, endedAt: 80 })
+
+    const analysis = await analyzeTrace(source)
+
+    expect(analysis.trajectory.toolCalls).toBe(3)
+    expect(analysis.stuckLoop.findings).toHaveLength(0)
+  })
 })

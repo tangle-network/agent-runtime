@@ -118,27 +118,37 @@ export async function optimizeDriverPrompt(opts: {
         `optimizeDriverPrompt: candidate surface is a CodeSurface, not a driver prompt — this loop optimizes the string driver prompt only`,
       )
     }
-    const sup = await superviseSurface({ name: 'driver', systemPrompt: candidate }, scenario.task, {
-      surface,
-      worker,
-      // A small conserved pool: enough for the driver's turns plus several worker spawns so the
-      // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
-      budget: {
-        maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
-        maxTokens: (worker.maxTokens ?? 4000) * 6,
-      },
-      router: {
-        routerBaseUrl: supervisorRouter.baseUrl,
-        routerKey: supervisorRouter.apiKey,
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: 'supervised-run',
+      model: supervisorRouter.model,
+      signal: ctx.signal,
+      execute: () =>
+        superviseSurface({ name: 'driver', systemPrompt: candidate }, scenario.task, {
+          surface,
+          worker,
+          // A small conserved pool: enough for the driver's turns plus several worker spawns so the
+          // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
+          budget: {
+            maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
+            maxTokens: (worker.maxTokens ?? 4000) * 6,
+          },
+          router: {
+            routerBaseUrl: supervisorRouter.baseUrl,
+            routerKey: supervisorRouter.apiKey,
+            model: supervisorRouter.model,
+          },
+          analysts: failuresAnalyst(),
+        }),
+      receipt: (sup) => ({
         model: supervisorRouter.model,
-      },
-      analysts: failuresAnalyst(),
+        inputTokens: sup.tokensIn,
+        outputTokens: sup.tokensOut,
+        ...(sup.usd > 0 ? { actualCostUsd: sup.usd } : {}),
+      }),
     })
-    // Report the supervised run's REAL spend to the campaign cost meter — the substrate intercepts no
-    // LLM call, so without this the cell reads {cost:0, tokens:0} and the backend-integrity guard
-    // (expectUsage:'assert') aborts the whole optimization on the first cell as a stub.
-    ctx.cost.observe(sup.usd, 'supervised-run')
-    ctx.cost.observeTokens({ input: sup.tokensIn, output: sup.tokensOut })
+    if (!paid.succeeded) throw paid.error
+    const sup = paid.value
     return {
       resolved: sup.resolved,
       score: sup.score,
