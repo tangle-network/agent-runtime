@@ -4813,6 +4813,15 @@ Defined in: [conversation/run-persona.ts:209](https://github.com/tangle-network/
 
 Defined in: [conversation/run-persona.ts:210](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L210)
 
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge` \| ((`worker`, `scenario`) => MaximumCharge \| undefined)
+
+Defined in: [conversation/run-persona.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L213)
+
+Provider- or executor-enforced maximum for the whole worker conversation.
+Required before execution when the enclosing campaign is cost-capped.
+
 ***
 
 ### ConversationParticipant
@@ -5668,7 +5677,7 @@ Content type for the response.
 
 ### VerifyResult
 
-Defined in: [improvement/agentic-generator.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L57)
+Defined in: [improvement/agentic-generator.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L73)
 
 Outcome of verifying a candidate worktree. `feedback` (compiler errors,
  failing test output) is fed into the next shot when `ok` is false.
@@ -5679,19 +5688,19 @@ Outcome of verifying a candidate worktree. `feedback` (compiler errors,
 
 > **ok**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L58)
+Defined in: [improvement/agentic-generator.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L74)
 
 ##### feedback?
 
 > `optional` **feedback?**: `string`
 
-Defined in: [improvement/agentic-generator.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L59)
+Defined in: [improvement/agentic-generator.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L75)
 
 ***
 
 ### AgenticGeneratorShotReceipt
 
-Defined in: [improvement/agentic-generator.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L67)
+Defined in: [improvement/agentic-generator.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L83)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -5709,25 +5718,25 @@ producer, which mutates an isolated git worktree via a pluggable
 
 > `readonly` **schemaVersion**: `1`
 
-Defined in: [improvement/agentic-generator.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L68)
+Defined in: [improvement/agentic-generator.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L84)
 
 ##### generation
 
 > `readonly` **generation**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L69)
+Defined in: [improvement/agentic-generator.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L85)
 
 ##### candidateIndex
 
 > `readonly` **candidateIndex**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L70)
+Defined in: [improvement/agentic-generator.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L86)
 
 ##### shot
 
 > `readonly` **shot**: `number`
 
-Defined in: [improvement/agentic-generator.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L72)
+Defined in: [improvement/agentic-generator.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L88)
 
 One-based shot number within this candidate.
 
@@ -5735,127 +5744,159 @@ One-based shot number within this candidate.
 
 > `readonly` **maxShots**: `number`
 
-Defined in: [improvement/agentic-generator.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L73)
+Defined in: [improvement/agentic-generator.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L89)
 
 ##### harness
 
 > `readonly` **harness**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/agentic-generator.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L74)
+Defined in: [improvement/agentic-generator.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L90)
 
 ##### model
 
 > `readonly` **model**: `string` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L75)
+Defined in: [improvement/agentic-generator.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L91)
 
 ##### reasoningEffort
 
 > `readonly` **reasoningEffort**: `ReasoningEffort` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L76)
+Defined in: [improvement/agentic-generator.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L92)
 
 ##### promptSha256
 
 > `readonly` **promptSha256**: `` `sha256:${string}` ``
 
-Defined in: [improvement/agentic-generator.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L77)
+Defined in: [improvement/agentic-generator.ts:93](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L93)
 
 ##### startedAt
 
 > `readonly` **startedAt**: `string`
 
-Defined in: [improvement/agentic-generator.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L78)
+Defined in: [improvement/agentic-generator.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L94)
 
 ##### completedAt
 
 > `readonly` **completedAt**: `string`
 
-Defined in: [improvement/agentic-generator.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L79)
+Defined in: [improvement/agentic-generator.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L95)
 
 ##### durationMs
 
 > `readonly` **durationMs**: `number`
 
-Defined in: [improvement/agentic-generator.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L80)
+Defined in: [improvement/agentic-generator.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L96)
 
 ##### exitCode
 
 > `readonly` **exitCode**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L81)
+Defined in: [improvement/agentic-generator.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L97)
 
 ##### timedOut
 
 > `readonly` **timedOut**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L82)
+Defined in: [improvement/agentic-generator.ts:98](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L98)
 
 ##### killedBySignal
 
 > `readonly` **killedBySignal**: `Signals` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L83)
+Defined in: [improvement/agentic-generator.ts:99](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L99)
 
 ##### stdoutBytes
 
 > `readonly` **stdoutBytes**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L84)
+Defined in: [improvement/agentic-generator.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L100)
 
 ##### stdoutSha256
 
 > `readonly` **stdoutSha256**: `` `sha256:${string}` `` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L85)
+Defined in: [improvement/agentic-generator.ts:101](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L101)
 
 ##### stderrBytes
 
 > `readonly` **stderrBytes**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L86)
+Defined in: [improvement/agentic-generator.ts:102](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L102)
 
 ##### stderrSha256
 
 > `readonly` **stderrSha256**: `` `sha256:${string}` `` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:87](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L87)
+Defined in: [improvement/agentic-generator.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L103)
 
 ##### usage
 
 > `readonly` **usage**: [`CodexTokenUsage`](mcp.md#codextokenusage) \| `null`
 
-Defined in: [improvement/agentic-generator.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L88)
+Defined in: [improvement/agentic-generator.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L104)
+
+##### profileWorkspacePlanDigest
+
+> `readonly` **profileWorkspacePlanDigest**: `string` \| `null`
+
+Defined in: [improvement/agentic-generator.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L106)
+
+Digest of the exact profile-file workspace plan applied for this shot.
+
+##### profileWorkspaceFileCount
+
+> `readonly` **profileWorkspaceFileCount**: `number`
+
+Defined in: [improvement/agentic-generator.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L107)
+
+##### costCallId
+
+> `readonly` **costCallId**: `string` \| `null`
+
+Defined in: [improvement/agentic-generator.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L109)
+
+Shared run-ledger call id for this exact shot.
+
+##### costBasis
+
+> `readonly` **costBasis**: `"unknown"` \| `"provider-reported"` \| `"estimated-pricing"`
+
+Defined in: [improvement/agentic-generator.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L111)
+
+Whether dollars came from the provider, the pricing table, or are unknown.
 
 ##### costUsd
 
-> `readonly` **costUsd**: `null`
+> `readonly` **costUsd**: `number` \| `null`
 
-Defined in: [improvement/agentic-generator.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L89)
+Defined in: [improvement/agentic-generator.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L112)
 
 ##### costUsdKnown
 
-> `readonly` **costUsdKnown**: `false`
+> `readonly` **costUsdKnown**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:90](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L90)
+Defined in: [improvement/agentic-generator.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L114)
+
+True only for a provider-reported amount, never for a pricing estimate.
 
 ##### evidence
 
 > `readonly` **evidence**: [`CodexExecutionEvidence`](mcp.md#codexexecutionevidence) \| `null`
 
-Defined in: [improvement/agentic-generator.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L91)
+Defined in: [improvement/agentic-generator.ts:115](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L115)
 
 ##### error
 
 > `readonly` **error**: \{ `name`: `string`; `message`: `string`; \} \| `null`
 
-Defined in: [improvement/agentic-generator.ts:92](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L92)
+Defined in: [improvement/agentic-generator.ts:116](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L116)
 
 ***
 
 ### AgenticGeneratorOptions
 
-Defined in: [improvement/agentic-generator.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L95)
+Defined in: [improvement/agentic-generator.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L119)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -5873,7 +5914,7 @@ producer, which mutates an isolated git worktree via a pluggable
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/agentic-generator.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L97)
+Defined in: [improvement/agentic-generator.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L121)
 
 Local coding harness to run in the worktree. Default `claude`.
 
@@ -5881,7 +5922,7 @@ Local coding harness to run in the worktree. Default `claude`.
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [improvement/agentic-generator.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L100)
+Defined in: [improvement/agentic-generator.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L124)
 
 Author profile rendered through the canonical harness mapper. Required
  for reproducible Codex so model and reasoning settings are explicit.
@@ -5890,7 +5931,7 @@ Author profile rendered through the canonical harness mapper. Required
 
 > `optional` **codexReproducible?**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:103](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L103)
+Defined in: [improvement/agentic-generator.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L127)
 
 Run Codex with isolated configuration, exact prompt evidence, and required
  terminal token usage. Requires `harness: 'codex'` and `profile`.
@@ -5899,7 +5940,7 @@ Run Codex with isolated configuration, exact prompt evidence, and required
 
 > `optional` **codexReadDeniedPaths?**: readonly `string`[] \| ((`worktreePath`) => readonly `string`[])
 
-Defined in: [improvement/agentic-generator.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L106)
+Defined in: [improvement/agentic-generator.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L130)
 
 Absolute paths reproducible Codex must not read. A function can derive
  candidate-specific paths after the driver creates its worktree.
@@ -5908,7 +5949,7 @@ Absolute paths reproducible Codex must not read. A function can derive
 
 > `optional` **onShotCompleted?**: (`receipt`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [improvement/agentic-generator.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L109)
+Defined in: [improvement/agentic-generator.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L133)
 
 Awaited once for every attempted author shot, including process failures.
  Throwing aborts the candidate so receipt persistence can fail closed.
@@ -5923,11 +5964,22 @@ Awaited once for every attempted author shot, including process failures.
 
 `void` \| `Promise`\<`void`\>
 
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge`
+
+Defined in: [improvement/agentic-generator.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L138)
+
+Optional hard upper bound passed to the run-wide CostLedger before each
+ author shot. This MUST be enforced by the provider or executor; a planning
+ estimate is not an admissible bound. Omit for an uncapped ledger. A capped
+ ledger rejects before model dispatch when this is absent.
+
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/agentic-generator.ts:111](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L111)
+Defined in: [improvement/agentic-generator.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L140)
 
 Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
@@ -5935,7 +5987,7 @@ Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
 > `optional` **buildPrompt?**: (`args`) => `string`
 
-Defined in: [improvement/agentic-generator.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L114)
+Defined in: [improvement/agentic-generator.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L143)
 
 Build the harness task prompt from the report + findings. Override for
  domain phrasing; the default turns findings into a concrete coder task.
@@ -5960,7 +6012,7 @@ Build the harness task prompt from the report + findings. Override for
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L120)
+Defined in: [improvement/agentic-generator.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L149)
 
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
@@ -5972,7 +6024,7 @@ Verify the worktree after each dirtying shot. When set, a candidate that
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [improvement/agentic-generator.ts:122](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L122)
+Defined in: [improvement/agentic-generator.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L151)
 
 Test seam — inject the harness runner (defaults to `runLocalHarness`).
 
@@ -6008,7 +6060,7 @@ Does NOT throw when:
 
 > `optional` **isDirty?**: (`worktreePath`) => `boolean`
 
-Defined in: [improvement/agentic-generator.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L124)
+Defined in: [improvement/agentic-generator.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L153)
 
 Test seam — inject the worktree-dirty check (defaults to `git status`).
 
@@ -6336,6 +6388,18 @@ Improvement-loop coordinates. Present when called through improvementDriver.
 
 `number`
 
+###### costLedger?
+
+`CostLedger`
+
+Shared run-wide paid-call account supplied by agent-eval 0.117+.
+
+###### costPhase?
+
+`string`
+
+Receipt attribution phase supplied alongside `costLedger`.
+
 ###### Returns
 
 `Promise`\<\{ `applied`: `boolean`; `summary`: `string`; \}\>
@@ -6344,7 +6408,7 @@ Improvement-loop coordinates. Present when called through improvementDriver.
 
 ### ImprovementDriverOptions
 
-Defined in: [improvement/improvement-driver.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L71)
+Defined in: [improvement/improvement-driver.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L75)
 
 #### Properties
 
@@ -6352,19 +6416,19 @@ Defined in: [improvement/improvement-driver.ts:71](https://github.com/tangle-net
 
 > **worktree**: `WorktreeAdapter`
 
-Defined in: [improvement/improvement-driver.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L72)
+Defined in: [improvement/improvement-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L76)
 
 ##### generator
 
 > **generator**: [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/improvement-driver.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L73)
+Defined in: [improvement/improvement-driver.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L77)
 
 ##### baseRef?
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [improvement/improvement-driver.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L76)
+Defined in: [improvement/improvement-driver.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L80)
 
 Root ref for first-generation/direct callers. Default `main`.
  Later code generations retain the incumbent's original root.
@@ -6373,7 +6437,7 @@ Root ref for first-generation/direct callers. Default `main`.
 
 ### ManagedImprovementDriver
 
-Defined in: [improvement/improvement-driver.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L79)
+Defined in: [improvement/improvement-driver.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L83)
 
 #### Extends
 
@@ -6385,7 +6449,7 @@ Defined in: [improvement/improvement-driver.ts:79](https://github.com/tangle-net
 
 > **cleanup**(`retainWorktreeRefs?`): `Promise`\<`void`\>
 
-Defined in: [improvement/improvement-driver.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L81)
+Defined in: [improvement/improvement-driver.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L85)
 
 Remove every owned candidate except explicitly retained finalized winners.
 
@@ -11077,7 +11141,7 @@ Defined in: [conversation/types.ts:237](https://github.com/tangle-network/agent-
 
 > **Verifier** = (`worktreePath`) => `Promise`\<[`VerifyResult`](#verifyresult)\> \| [`VerifyResult`](#verifyresult)
 
-Defined in: [improvement/agentic-generator.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L65)
+Defined in: [improvement/agentic-generator.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L81)
 
 Verifies the edited worktree. Sync or async; throws only on a setup fault
  (a candidate that fails verification returns `{ok:false}`, it does not
@@ -11928,6 +11992,17 @@ Logical conversation peer label at the sending side, for trace stitching.
 Defined in: [conversation/headers.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/headers.ts#L38)
 
 Hard cap on chained gateway hops; refused beyond this. Default keeps recursion bounded.
+
+***
+
+### AGENTIC\_PROFILE\_RESOURCE\_ROOT
+
+> `const` **AGENTIC\_PROFILE\_RESOURCE\_ROOT**: `".agent-runtime-profile-resources"` = `'.agent-runtime-profile-resources'`
+
+Defined in: [improvement/agentic-generator.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L69)
+
+Dedicated ephemeral root for generic author-profile files. Every declared
+file must live below this root so cleanup cannot alter candidate-owned files.
 
 ***
 
@@ -12905,7 +12980,7 @@ until `maxTurns`. Returns the persistent transcript + worker-only usage.
 
 > **runPersonaDispatch**\<`TScenario`, `TArtifact`\>(`config`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
-Defined in: [conversation/run-persona.ts:219](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L219)
+Defined in: [conversation/run-persona.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/conversation/run-persona.ts#L224)
 
 Wrap [runPersonaConversation](#runpersonaconversation) as a `ProfileDispatchFn` for
 `runProfileMatrix`: the profile axis is the worker-under-test, the scenario
@@ -13063,7 +13138,7 @@ Wire integration:
 
 > **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/agentic-generator.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L128)
+Defined in: [improvement/agentic-generator.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L157)
 
 Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
 
@@ -13083,7 +13158,7 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:463](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L463)
+Defined in: [improvement/agentic-generator.ts:693](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L693)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
@@ -13237,7 +13312,7 @@ Optimize the system prompt, default holdout gate:
 
 > **improvementDriver**(`opts`): [`ManagedImprovementDriver`](#managedimprovementdriver)
 
-Defined in: [improvement/improvement-driver.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L85)
+Defined in: [improvement/improvement-driver.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/improvement-driver.ts#L89)
 
 The one reflective/agentic improvement proposer (`SurfaceProposer`): owns the candidate worktree lifecycle and delegates HOW a change is produced to a pluggable `CandidateGenerator`.
 
