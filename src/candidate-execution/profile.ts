@@ -67,9 +67,12 @@ export function createAgentCandidateProfileActivation(
   }
   const files = profilePlan.material.files.map((expected) => {
     const source = sourceByPath.get(expected.relPath)
-    const mode = source?.mode ?? 0o644
-    if (!source || !Number.isSafeInteger(mode) || mode < 0 || mode > 0o777) {
-      throw new Error('candidate profile activation does not contain every planned native file')
+    if (!source) {
+      throw new Error(`candidate profile activation is missing ${expected.relPath}`)
+    }
+    const mode = source.mode ?? 0o644
+    if (!Number.isSafeInteger(mode) || mode < 0 || mode > 0o777) {
+      throw new Error(`candidate profile activation has invalid mode for ${expected.relPath}`)
     }
     return { path: expected.relPath, mode, content: source.content }
   })

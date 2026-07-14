@@ -114,6 +114,13 @@ describe('Sandbox approved candidate executor', () => {
           allowDomains: ['router.tangle.tools'],
           includeImplicitDomains: false,
         },
+        metadata: expect.objectContaining({
+          kind: 'agent-candidate-execution',
+          executionId: evidence.executionId,
+          executionPlanDigest: evidence.receipt.executionPlanDigest,
+          outputMediaType: 'application/json',
+          outputMaxBytes: 1_024,
+        }),
       }),
       expect.objectContaining({ signal: expect.any(AbortSignal), timeoutMs: 120_000 }),
     )
@@ -177,8 +184,9 @@ describe('Sandbox approved candidate executor', () => {
   })
 
   it('declares and enforces its bounded capability instead of claiming universality', async () => {
-    expect(sandboxApprovedCandidateExecutionSupport).toMatchObject({
+    expect(sandboxApprovedCandidateExecutionSupport).toEqual({
       outcomes: ['output'],
+      outputMediaTypes: ['text/*', 'application/json', '*+json'],
       code: ['disabled'],
       memory: ['disabled'],
       knowledge: false,
@@ -189,6 +197,11 @@ describe('Sandbox approved candidate executor', () => {
         permissions: false,
         modes: false,
         confidential: false,
+      },
+      isolation: {
+        freshSandbox: true,
+        exactProcess: true,
+        egress: ['blocked', 'strict'],
       },
     })
     const adapter = createSandboxApprovedCandidateExecutor({
@@ -227,7 +240,135 @@ describe('Sandbox approved candidate executor', () => {
       ),
     ).rejects.toThrow(/only UTF-8 text and JSON/)
   })
+
+  it('kills oversized output and deletes the failed sandbox', async () => {
+    const { fixture, proposal, review } = approvedExecution(4)
+    let running = true
+    let resolveWait!: (exitCode: number) => void
+    const wait = new Promise<number>((resolve) => {
+      resolveWait = resolve
+    })
+    const status = () => ({ ...stoppedStatus(137), running })
+    const kill = vi.fn(async () => {
+      running = false
+      resolveWait(137)
+    })
+    const process = {
+      wait: vi.fn(async () => wait),
+      status: vi.fn(async () => status()),
+      stdout: async function* () {
+        yield 'too-long'
+      },
+      kill,
+    } as unknown as Process
+    const { adapter, deleted } = sandboxAdapter(fixture, proposal, review, process, status)
+
+    await expect(adapter.execute({ proposal, review, task: fixture.task })).rejects.toThrow(
+      /output exceeds/,
+    )
+    expect(kill).toHaveBeenCalledWith('SIGKILL', { tree: true })
+    expect(deleted()).toBe(true)
+  })
+
+  it('kills and deletes a sandbox whose process exceeds the task timeout', async () => {
+    const { fixture, proposal, review } = approvedExecution(32)
+    fixture.task.limits = { ...fixture.task.limits, timeoutMs: 25 }
+    let running = true
+    let resolveWait!: (exitCode: number) => void
+    const wait = new Promise<number>((resolve) => {
+      resolveWait = resolve
+    })
+    const status = () => ({ ...stoppedStatus(137), running })
+    const kill = vi.fn(async () => {
+      running = false
+      resolveWait(137)
+    })
+    const process = {
+      wait: vi.fn(async () => wait),
+      status: vi.fn(async () => status()),
+      stdout: async function* () {},
+      kill,
+    } as unknown as Process
+    const { adapter, deleted } = sandboxAdapter(fixture, proposal, review, process, status)
+
+    await expect(adapter.execute({ proposal, review, task: fixture.task })).rejects.toThrow(
+      /approved candidate execution failed/,
+    )
+    expect(kill).toHaveBeenCalledWith('SIGKILL', { tree: true })
+    expect(deleted()).toBe(true)
+  })
 })
+
+function approvedExecution(maxBytes: number) {
+  const fixture = createCandidateOutputExecutionFixture('application/json', maxBytes)
+  const baselineProfile = { name: 'baseline' }
+  const proposal = createAgentImprovementProposal({
+    runId: `sandbox-proposal-${maxBytes}`,
+    baselineProfile,
+    findings: [],
+    evaluation: measuredProfileResult(baselineProfile, fixture.bundle),
+    candidateBundle: fixture.bundle,
+  })
+  const review = reviewAgentImprovementProposal(proposal, {
+    decision: 'approve',
+    reviewedBy: 'operator@example.com',
+    reason: 'Held-back comparison passed.',
+  })
+  return { fixture, proposal, review }
+}
+
+function stoppedStatus(exitCode: number): ProcessStatus {
+  return {
+    pid: 42,
+    command: 'codex',
+    cwd: '/workspace/task',
+    running: false,
+    exitCode,
+    startedAt: new Date('2026-07-13T12:02:00.000Z'),
+    exitedAt: new Date('2026-07-13T12:02:01.000Z'),
+  }
+}
+
+function sandboxAdapter(
+  fixture: ReturnType<typeof createCandidateOutputExecutionFixture>,
+  proposal: ReturnType<typeof createAgentImprovementProposal>,
+  review: ReturnType<typeof reviewAgentImprovementProposal>,
+  process: Process,
+  currentStatus: () => ProcessStatus,
+) {
+  let spawned = false
+  let wasDeleted = false
+  const sandbox = {
+    id: `sandbox-${proposal.runId}`,
+    metadata: undefined,
+    fs: { write: vi.fn(async () => undefined) },
+    process: {
+      spawnExact: vi.fn(async () => {
+        spawned = true
+        return process
+      }),
+      list: vi.fn(async () => (spawned ? [currentStatus()] : [])),
+      get: vi.fn(async () => process),
+    },
+    delete: vi.fn(async () => {
+      wasDeleted = true
+    }),
+  } as unknown as SandboxInstance
+  const outputs = createCandidateOutputFixture()
+  const adapter = createSandboxApprovedCandidateExecutor({
+    client: {
+      create: vi.fn(async () => sandbox),
+      get: vi.fn(async () => (wasDeleted ? null : sandbox)),
+      list: vi.fn(async () => (wasDeleted ? [] : [sandbox])),
+    },
+    ports: fixture.ports,
+    ...outputs,
+    traceStore: new InMemoryTraceStore(),
+    claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
+    authorizeReview: async (candidateReview) => candidateReview.digest === review.digest,
+  })
+  return { adapter, deleted: () => wasDeleted }
+}
 
 function measuredProfileResult(
   baselineProfile: AgentProfile,

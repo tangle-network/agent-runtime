@@ -3305,7 +3305,7 @@ Declares the exact candidate surfaces the sandbox executor can run.
 
 > **parseAgentCandidateProfileActivation**(`input`, `expectedProfilePlanDigest?`): `AgentCandidateProfileActivation`
 
-Defined in: [candidate-execution/profile.ts:91](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L91)
+Defined in: [candidate-execution/profile.ts:94](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/profile.ts#L94)
 
 Parse and check every native file hash plus both canonical document digests.
 

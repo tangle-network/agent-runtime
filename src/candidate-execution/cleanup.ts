@@ -34,31 +34,13 @@ export function candidateResultTimeout(
   return effective
 }
 
-/** Bound an evaluator cleanup call while keeping late rejection observed. */
+/** Bound an evaluator cleanup call and cancel the underlying port at expiry. */
 export async function withinCandidateCleanupDeadline<T>(
-  operation: () => Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
   deadlineAtMs: number,
   label: string,
 ): Promise<T> {
-  const remainingMs = deadlineAtMs - Date.now()
-  if (remainingMs <= 0) throw new CandidateCleanupTimeoutError(label)
-
-  const pending = Promise.resolve().then(operation)
-  void pending.catch(() => undefined)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    const result = await Promise.race([
-      pending,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new CandidateCleanupTimeoutError(label)), remainingMs)
-      }),
-    ])
-    // Exact-boundary completion is ambiguous under event-loop delay.
-    if (Date.now() >= deadlineAtMs) throw new CandidateCleanupTimeoutError(label)
-    return result
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
+  return withinCandidateDeadline(operation, deadlineAtMs, new CandidateCleanupTimeoutError(label))
 }
 
 /**
@@ -70,11 +52,18 @@ export async function withinCandidateResultDeadline<T>(
   deadlineAtMs: number,
   label: string,
 ): Promise<T> {
+  return withinCandidateDeadline(operation, deadlineAtMs, new CandidateResultTimeoutError(label))
+}
+
+async function withinCandidateDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  deadlineAtMs: number,
+  timeoutError: Error,
+): Promise<T> {
   const remainingMs = deadlineAtMs - Date.now()
-  if (remainingMs <= 0) throw new CandidateResultTimeoutError(label)
+  if (remainingMs <= 0) throw timeoutError
 
   const controller = new AbortController()
-  const timeoutError = new CandidateResultTimeoutError(label)
   const pending = Promise.resolve().then(() => operation(controller.signal))
   void pending.catch(() => undefined)
   let timer: ReturnType<typeof setTimeout> | undefined

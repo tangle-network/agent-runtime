@@ -14,6 +14,7 @@ import {
   type AgentCandidateTaskOutputSpec,
   type AgentCandidateTaskRepository,
   type AgentCandidateTermination,
+  type AgentCandidateWorkspaceSnapshotEvidence,
   agentCandidateBenchmarkResultEvidenceSchema,
   agentCandidateModelSettlementEvidenceSchema,
   agentCandidateTaskOutcomeEvidenceSchema,
@@ -465,7 +466,7 @@ export async function persistCandidateBenchmarkResult(
 
 async function verifyTaskOutcomeArchive(
   state: PreparedCandidateState,
-  snapshot: ReturnType<typeof agentCandidateWorkspaceSnapshotEvidenceSchema.parse>,
+  snapshot: AgentCandidateWorkspaceSnapshotEvidence,
   archive: Uint8Array,
   protectedValues: readonly string[],
 ): Promise<void> {

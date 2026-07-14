@@ -161,7 +161,6 @@ function alignedSealedBundle(
     profile: { kind: 'candidate-profile', profile: aligned.profile },
     code: aligned.code,
     execution: aligned.execution,
-    ...(aligned.knowledge ? { knowledge: aligned.knowledge } : {}),
     memory: aligned.memory,
     lineage,
   })

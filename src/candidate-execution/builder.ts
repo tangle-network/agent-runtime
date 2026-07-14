@@ -5,7 +5,6 @@ import type {
   AgentCandidateCodeNoOp,
   AgentCandidateExecution,
   AgentCandidateGitHubRepository,
-  AgentCandidateKnowledge,
   AgentCandidateLineage,
   AgentCandidateMemoryPolicy,
   AgentCandidateProfile,
@@ -60,7 +59,6 @@ export interface BuildAgentCandidateBundleInput {
   profile: AgentCandidateProfileSource
   code: AgentCandidateCodeSource
   execution: AgentCandidateExecution
-  knowledge?: AgentCandidateKnowledge
   memory: AgentCandidateMemoryPolicy
   /** `profileDiffIds` is derived from `profile`; callers cannot contradict it. */
   lineage: Omit<AgentCandidateLineage, 'profileDiffIds'>
@@ -71,7 +69,7 @@ export interface BuildAgentCandidateBundleInput {
  * contract. Code bytes are re-read and verified by agent-eval before they are
  * embedded. The returned bundle is schema-validated, canonically digested, and
  * deeply immutable; call `verifyAgentCandidateBundle` at the execution boundary
- * to re-read external knowledge, memory, repository, and workspace artifacts.
+ * to re-read external memory, repository, and workspace artifacts.
  */
 export function buildAgentCandidateBundle(
   input: BuildAgentCandidateBundleInput,
@@ -88,7 +86,6 @@ export function buildAgentCandidateBundle(
     profile: compiledProfile.profile,
     code: compileCandidateCode(input.code),
     execution: input.execution,
-    ...(input.knowledge ? { knowledge: input.knowledge } : {}),
     memory: input.memory,
     lineage: {
       ...input.lineage,

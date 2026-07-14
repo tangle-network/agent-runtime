@@ -613,7 +613,7 @@ async function runAndStopExecutor(
   const cleanupDeadlineAtMs = Date.now() + cleanupTimeoutMs
   try {
     const stopped = await withinCandidateCleanupDeadline(
-      () =>
+      (cleanupSignal) =>
         executor.stop(
           {
             executionId: request.executionId,
@@ -622,8 +622,8 @@ async function runAndStopExecutor(
           {
             traceStore,
             reason: stopReason,
-            signal: controller.signal,
-            deadlineAtMs,
+            signal: cleanupSignal,
+            deadlineAtMs: cleanupDeadlineAtMs,
           },
         ),
       cleanupDeadlineAtMs,
@@ -645,7 +645,7 @@ async function runAndStopExecutor(
   try {
     finalCapture = sealAgentCandidateExecutorFinalCapture(
       await withinCandidateCleanupDeadline(
-        () =>
+        (cleanupSignal) =>
           executor.capture(
             {
               executionId: request.executionId,
@@ -653,7 +653,7 @@ async function runAndStopExecutor(
             },
             {
               traceStore,
-              signal: new AbortController().signal,
+              signal: cleanupSignal,
             },
           ),
         cleanupDeadlineAtMs,

@@ -109,6 +109,36 @@ describe('candidate outcome evidence', () => {
     expect(puts).toBe(0)
   })
 
+  it('validates task manifest material before any output write', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const state = await preparedState(fixture)
+    const outputs = createCandidateOutputFixture()
+    let puts = 0
+    const outputArtifacts = {
+      read: outputs.outputArtifacts.read,
+      put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
+        puts++
+        return await outputs.outputArtifacts.put(input)
+      },
+    }
+    const capture = unchangedTaskOutcomeCapture(fixture)
+    const [file] = capture.afterState.files
+    if (!file) throw new Error('fixture task manifest is empty')
+
+    await expect(
+      persistTaskOutcome(
+        state,
+        {
+          ...capture,
+          afterState: { ...capture.afterState, files: [file, file] },
+        },
+        outputArtifacts,
+        [],
+      ),
+    ).rejects.toThrow(/workspace manifest paths must be unique/)
+    expect(puts).toBe(0)
+  })
+
   it('rejects a compressed invalid archive before any candidate output is persisted', async () => {
     const fixture = createCandidateExecutionFixture()
     fixture.ports.workspaces.materialize = async ({ archive, destination }) => {
@@ -142,6 +172,58 @@ describe('candidate outcome evidence', () => {
       ),
     ).rejects.toThrow(/do not match the signed manifest/)
     expect(puts).toBe(0)
+  })
+
+  it('rejects corrupted persisted archive bytes without publishing task outcome evidence', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const state = await preparedState(fixture)
+    const outputs = createCandidateOutputFixture()
+    const purposes: string[] = []
+    const purposeByDigest = new Map<string, string>()
+    const outputArtifacts = {
+      put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
+        purposes.push(input.purpose)
+        const ref = await outputs.outputArtifacts.put(input)
+        purposeByDigest.set(ref.sha256, input.purpose)
+        return ref
+      },
+      read: async (ref: Parameters<typeof outputs.outputArtifacts.read>[0]) => {
+        const bytes = await outputs.outputArtifacts.read(ref)
+        if (purposeByDigest.get(ref.sha256) !== 'task-archive') return bytes
+        const corrupted = Uint8Array.from(bytes)
+        corrupted[0] = (corrupted[0] ?? 0) ^ 0xff
+        return corrupted
+      },
+    }
+
+    await expect(
+      persistTaskOutcome(state, unchangedTaskOutcomeCapture(fixture), outputArtifacts, []),
+    ).rejects.toThrow(/persisted candidate output digest/)
+    expect(purposes.sort()).toEqual(['task-archive', 'task-manifest'])
+    expect(purposes).not.toContain('task-patch')
+    expect(purposes).not.toContain('task-outcome')
+  })
+
+  it('rejects a false archive reference without publishing task outcome evidence', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const state = await preparedState(fixture)
+    const outputs = createCandidateOutputFixture()
+    const purposes: string[] = []
+    const outputArtifacts = {
+      read: outputs.outputArtifacts.read,
+      put: async (input: Parameters<typeof outputs.outputArtifacts.put>[0]) => {
+        purposes.push(input.purpose)
+        const ref = await outputs.outputArtifacts.put(input)
+        return input.purpose === 'task-archive' ? { ...ref, byteLength: ref.byteLength + 1 } : ref
+      },
+    }
+
+    await expect(
+      persistTaskOutcome(state, unchangedTaskOutcomeCapture(fixture), outputArtifacts, []),
+    ).rejects.toThrow(/does not identify the submitted bytes/)
+    expect(purposes.sort()).toEqual(['task-archive', 'task-manifest'])
+    expect(purposes).not.toContain('task-patch')
+    expect(purposes).not.toContain('task-outcome')
   })
 
   it('rejects protected access values in task archives and raw grader output', async () => {

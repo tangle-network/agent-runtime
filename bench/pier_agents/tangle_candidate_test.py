@@ -69,6 +69,7 @@ _install_pier_stubs()
 candidate = importlib.import_module("pier_agents.tangle_candidate")
 contract_module = importlib.import_module("pier_agents.candidate_contract")
 process_boundary_module = importlib.import_module("pier_agents.process_boundary")
+workspace_boundary_module = importlib.import_module("pier_agents.workspace_boundary")
 candidate._runtime_pier_version = lambda: "0.3.0"
 
 
@@ -87,6 +88,9 @@ class _Result:
 
 
 class _LocalEnvironment:
+    def __init__(self):
+        self.commands = []
+
     def agent_process_env(self, env):
         return {**os.environ, **(env or {})}
 
@@ -100,6 +104,7 @@ class _LocalEnvironment:
 
     async def exec(self, command, cwd=None, env=None, user=None, timeout_sec=None):
         del user
+        self.commands.append(command)
         completed = subprocess.run(
             ["bash", "-c", command],
             cwd=cwd,
@@ -110,6 +115,21 @@ class _LocalEnvironment:
             timeout=timeout_sec,
         )
         return _Result(completed.returncode, completed.stdout, completed.stderr)
+
+
+class _CorruptingUploadEnvironment(_LocalEnvironment):
+    async def upload_file(self, source_path, target_path):
+        await super().upload_file(source_path, target_path)
+        with Path(target_path).open("ab") as handle:
+            handle.write(b"corrupted")
+
+
+class _FailingWorkspaceCleanupEnvironment(_LocalEnvironment):
+    async def exec(self, command, cwd=None, env=None, user=None, timeout_sec=None):
+        if command.startswith("rm -f -- ") and "workspace-check-" in command:
+            self.commands.append(command)
+            return _Result(73, stderr="forced workspace cleanup failure")
+        return await super().exec(command, cwd, env, user, timeout_sec)
 
 
 class _LocalBoundaryHost:
@@ -427,6 +447,289 @@ def _agent(fixture):
         pier_version="0.3.0",
         extra_env=trace_env,
     )
+
+
+class WorkspaceBoundaryTest(unittest.TestCase):
+    def test_large_workspace_identity_is_not_serialized_into_one_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            agent = _agent(fixture)
+            environment = _LocalEnvironment()
+            workspace = Path(directory) / "large-workspace"
+            long_parent = Path("a" * 200) / ("b" * 200)
+            (workspace / long_parent).mkdir(parents=True)
+            files = []
+            for index in range(326):
+                relative = str(long_parent / f"file-{index:03d}.txt")
+                raw = f"{index}\n".encode()
+                (workspace / relative).write_bytes(raw)
+                os.chmod(workspace / relative, 0o644)
+                files.append(
+                    contract_module.WorkspaceFile(
+                        path=relative,
+                        mode=0o644,
+                        sha256=_sha(raw),
+                        byte_length=len(raw),
+                    )
+                )
+
+            identity_script = workspace_boundary_module._workspace_check_script(
+                str(workspace),
+                tuple(files),
+                allow_task_metadata=False,
+            )
+            self.assertGreater(len(identity_script), 131_072)
+            try:
+                asyncio.run(
+                    agent._workspace_boundary.verify_container_workspace(
+                        environment,
+                        str(workspace),
+                        tuple(files),
+                        allow_task_metadata=False,
+                    )
+                )
+            finally:
+                agent._snapshots.cleanup()
+
+            self.assertTrue(environment.commands)
+            self.assertLess(
+                max(len(command.encode("utf-8")) for command in environment.commands),
+                32 * 1024,
+            )
+            self.assertTrue(
+                any(command.startswith("/bin/sh ") for command in environment.commands)
+            )
+            control = fixture["plan_path"].parent / "evaluator" / "control"
+            self.assertEqual(list(control.glob("workspace-check-*.sh")), [])
+            self.assertEqual(list(control.glob(".tangle-*")), [])
+
+    def test_workspace_identity_rejects_every_file_identity_mutation(self):
+        for mutation in (
+            "content",
+            "length",
+            "mode",
+            "missing",
+            "extra",
+            "symlink",
+            "hardlink",
+            "fifo",
+        ):
+            with (
+                self.subTest(mutation=mutation),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                fixture = _fixture(Path(directory))
+                agent = _agent(fixture)
+                environment = _LocalEnvironment()
+                workspace = Path(directory) / "workspace"
+                workspace.mkdir()
+                original = b"signed\n"
+                target = workspace / "signed.txt"
+                target.write_bytes(original)
+                os.chmod(target, 0o644)
+                files = (
+                    contract_module.WorkspaceFile(
+                        path="signed.txt",
+                        mode=0o644,
+                        sha256=_sha(original),
+                        byte_length=len(original),
+                    ),
+                )
+                if mutation == "content":
+                    target.write_bytes(b"tigned\n")
+                elif mutation == "length":
+                    target.write_bytes(b"signed-longer\n")
+                elif mutation == "mode":
+                    os.chmod(target, 0o755)
+                elif mutation == "missing":
+                    target.unlink()
+                elif mutation == "extra":
+                    (workspace / "unsigned.txt").write_text("unsigned\n")
+                elif mutation == "symlink":
+                    outside = Path(directory) / "outside.txt"
+                    outside.write_bytes(original)
+                    target.unlink()
+                    target.symlink_to(outside)
+                elif mutation == "hardlink":
+                    os.link(target, Path(directory) / "second-link.txt")
+                else:
+                    target.unlink()
+                    os.mkfifo(target)
+
+                try:
+                    with self.assertRaises(candidate.PierCandidateError):
+                        asyncio.run(
+                            agent._workspace_boundary.verify_container_workspace(
+                                environment,
+                                str(workspace),
+                                files,
+                                allow_task_metadata=False,
+                            )
+                        )
+                finally:
+                    agent._snapshots.cleanup()
+                control = fixture["plan_path"].parent / "evaluator" / "control"
+                self.assertEqual(list(control.glob("workspace-check-*.sh")), [])
+                self.assertEqual(list(control.glob(".tangle-*")), [])
+
+    def test_failed_staged_workspace_check_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            agent = _agent(fixture)
+            environment = _LocalEnvironment()
+            workspace = Path(directory) / "workspace"
+            workspace.mkdir()
+            original = b"signed\n"
+            target = workspace / "signed.txt"
+            target.write_bytes(original)
+            os.chmod(target, 0o644)
+            files = (
+                contract_module.WorkspaceFile(
+                    path="signed.txt",
+                    mode=0o644,
+                    sha256=_sha(original),
+                    byte_length=len(original),
+                ),
+            )
+            target.write_bytes(b"tigned\n")
+            try:
+                with self.assertRaises(candidate.PierCandidateError):
+                    asyncio.run(
+                        agent._workspace_boundary.verify_container_workspace(
+                            environment,
+                            str(workspace),
+                            files,
+                            allow_task_metadata=False,
+                        )
+                    )
+            finally:
+                agent._snapshots.cleanup()
+            self.assertTrue(
+                any(command.startswith("/bin/sh ") for command in environment.commands)
+            )
+            control = fixture["plan_path"].parent / "evaluator" / "control"
+            self.assertEqual(list(control.glob("workspace-check-*.sh")), [])
+            self.assertEqual(list(control.glob(".tangle-*")), [])
+
+    def test_workspace_identity_quotes_shell_metacharacters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            agent = _agent(fixture)
+            environment = _LocalEnvironment()
+            workspace = Path(directory) / "quoted-workspace"
+            workspace.mkdir()
+            names = (
+                "-leading.txt",
+                "$(printf injected).txt",
+                "*.glob",
+                "apostrophe's.txt",
+                "space name.txt",
+            )
+            files = []
+            for name in names:
+                raw = f"{name}\n".encode()
+                target = workspace / name
+                target.write_bytes(raw)
+                os.chmod(target, 0o644)
+                files.append(
+                    contract_module.WorkspaceFile(
+                        path=name,
+                        mode=0o644,
+                        sha256=_sha(raw),
+                        byte_length=len(raw),
+                    )
+                )
+            try:
+                asyncio.run(
+                    agent._workspace_boundary.verify_container_workspace(
+                        environment,
+                        str(workspace),
+                        tuple(sorted(files, key=lambda file: file.path)),
+                        allow_task_metadata=False,
+                    )
+                )
+            finally:
+                agent._snapshots.cleanup()
+            self.assertEqual(
+                sorted(path.name for path in workspace.iterdir()), sorted(names)
+            )
+
+    def test_workspace_identity_rejects_corrupted_staged_program_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            agent = _agent(fixture)
+            environment = _CorruptingUploadEnvironment()
+            workspace = Path(directory) / "workspace"
+            workspace.mkdir()
+            raw = b"signed\n"
+            target = workspace / "signed.txt"
+            target.write_bytes(raw)
+            os.chmod(target, 0o644)
+            files = (
+                contract_module.WorkspaceFile(
+                    path="signed.txt",
+                    mode=0o644,
+                    sha256=_sha(raw),
+                    byte_length=len(raw),
+                ),
+            )
+            try:
+                with self.assertRaises(candidate.PierCandidateError):
+                    asyncio.run(
+                        agent._workspace_boundary.verify_container_workspace(
+                            environment,
+                            str(workspace),
+                            files,
+                            allow_task_metadata=False,
+                        )
+                    )
+            finally:
+                agent._snapshots.cleanup()
+            control = fixture["plan_path"].parent / "evaluator" / "control"
+            self.assertEqual(list(control.glob("workspace-check-*.sh")), [])
+            self.assertEqual(list(control.glob(".tangle-*")), [])
+
+    def test_workspace_check_preserves_primary_failure_when_cleanup_also_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            agent = _agent(fixture)
+            environment = _FailingWorkspaceCleanupEnvironment()
+            workspace = Path(directory) / "workspace"
+            workspace.mkdir()
+            original = b"signed\n"
+            target = workspace / "signed.txt"
+            target.write_bytes(b"tigned\n")
+            os.chmod(target, 0o644)
+            files = (
+                contract_module.WorkspaceFile(
+                    path="signed.txt",
+                    mode=0o644,
+                    sha256=_sha(original),
+                    byte_length=len(original),
+                ),
+            )
+            try:
+                with self.assertRaisesRegex(
+                    candidate.PierCandidateError,
+                    r"candidate bridge command failed \(1\): /bin/sh",
+                ) as raised:
+                    asyncio.run(
+                        agent._workspace_boundary.verify_container_workspace(
+                            environment,
+                            str(workspace),
+                            files,
+                            allow_task_metadata=False,
+                        )
+                    )
+            finally:
+                agent._snapshots.cleanup()
+            self.assertTrue(
+                any(
+                    "workspace check cleanup failed" in note
+                    and "forced workspace cleanup failure" in note
+                    for note in raised.exception.__notes__
+                )
+            )
 
 
 class CandidateContractTest(unittest.TestCase):

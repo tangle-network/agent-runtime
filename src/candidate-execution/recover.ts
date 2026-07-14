@@ -69,8 +69,6 @@ export async function recoverExpiredAgentCandidateExecution(
   }
 
   const cleanupDeadlineAtMs = candidateCleanupDeadline(cleanupTimeoutMs)
-  const controller = new AbortController()
-  controller.abort(new Error('recovering an expired candidate execution'))
   const recoveryTraceStore = new RecoveryAgentCandidateTraceStore(options.traceStore)
   const preparation = withinCandidateCleanupDeadline(
     () => readRecoveryPreparation(record.claim, options.outputArtifacts),
@@ -78,7 +76,7 @@ export async function recoverExpiredAgentCandidateExecution(
     'expired candidate preparation evidence read',
   )
   const processClosure = withinCandidateCleanupDeadline(
-    async () => {
+    async (cleanupSignal) => {
       const stopped = await options.executor.stop(
         {
           executionId: record.claim.executionId,
@@ -87,8 +85,8 @@ export async function recoverExpiredAgentCandidateExecution(
         {
           traceStore: recoveryTraceStore,
           reason: 'failed',
-          signal: controller.signal,
-          deadlineAtMs: record.claim.leaseExpiresAtMs,
+          signal: cleanupSignal,
+          deadlineAtMs: cleanupDeadlineAtMs,
         },
       )
       sealAgentCandidateExecutorStopAcknowledgement(stopped)
@@ -159,7 +157,7 @@ export async function recoverExpiredAgentCandidateExecution(
     try {
       const capture = sealAgentCandidateExecutorFinalCapture(
         await withinCandidateCleanupDeadline(
-          () =>
+          (cleanupSignal) =>
             options.executor.capture(
               {
                 executionId: record.claim.executionId,
@@ -167,7 +165,7 @@ export async function recoverExpiredAgentCandidateExecution(
               },
               {
                 traceStore: recoveryTraceStore,
-                signal: new AbortController().signal,
+                signal: cleanupSignal,
               },
             ),
           cleanupDeadlineAtMs,

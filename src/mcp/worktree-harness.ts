@@ -7,21 +7,27 @@
  *   - `createWorktreeCliExecutor` — the `Scope`/`Supervisor` leaf `Executor`.
  *   - `createInProcessExecutor`   — the `runLoop` `SandboxClient` / coder-delegate path.
  *
- * §1.5 by construction: the authored `profile.prompt.systemPrompt` + `profile.model.default`
- * reach the harness through `harnessInvocation` HERE, so neither port can drop them — the exact
- * bug that existed while the in-process path called `runLocalHarness` with only the task prompt.
+ * §1.5 by construction: prompt + model reach the direct invocation, while file-backed resources
+ * are lowered by the shared profile materializer and applied before spawn. Resource instructions
+ * join the direct prompt because reproducible Codex intentionally disables ambient project docs.
  *
- * Lifecycle: `createWorktree` → `harnessInvocation` + `runLocalHarness` → `captureWorktreeDiff`
- * (BEFORE checks, so the patch is the harness's output, not polluted by files a test run writes)
- * → the configured test/typecheck commands in the live worktree → return the result + a `cleanup`
- * the caller invokes at its own teardown point. A throw cleans up before propagating, so a failed
- * run never leaks a worktree.
+ * Lifecycle: `createWorktree` → materialize profile inputs → `harnessInvocation` +
+ * `runLocalHarness` → `captureWorktreeDiff` excluding those inputs (BEFORE checks, so the patch is
+ * the harness's output, not polluted by files a test run writes) → configured checks → return the
+ * result + caller-owned `cleanup`. A throw cleans up before propagating.
  *
  * @experimental
  */
 
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  applyWorkspacePlan,
+  materializeProfile,
+  type WorkspacePlan,
+  type WorkspacePlanReceipt,
+} from '@tangle-network/agent-profile-materialize'
 import {
   type CodexExecutionPolicy,
   type CodexTokenUsage,
@@ -50,6 +56,26 @@ export interface WorktreeCommandResult {
   output: string
 }
 
+/** Proof of the profile inputs delivered before the worker process started. */
+export interface WorktreeProfileMaterializationReceipt {
+  /** Digest of the exact materializer plan: files, modes, environment, flags, and unsupported rows. */
+  workspacePlanDigest: string
+  /** Repository-relative profile input files written into the worker worktree. */
+  writtenPaths: string[]
+  /** Must be empty on a successful run because this path fails closed. */
+  unsupported: WorkspacePlanReceipt['unsupported']
+  /** Environment variable names added to the worker process. Values remain out of telemetry. */
+  environmentNames: string[]
+  /** Exact additional CLI arguments emitted by the materializer. */
+  flags: string[]
+  /** `resources.instructions` bypasses native project files so reproducible Codex cannot drop it. */
+  resourceInstructions: {
+    delivery: 'none' | 'invocation-prompt'
+    sha256: string | null
+    byteLength: number
+  }
+}
+
 /** The canonical result of one worktree-harness run, projected by each port to its own shape. */
 export interface WorktreeHarnessResult {
   /** The branch the worktree was cut on (`delegate/<runId>`). */
@@ -58,6 +84,11 @@ export interface WorktreeHarnessResult {
   patch: string
   /** Shortstat-derived change counts. */
   stats: { filesChanged: number; insertions: number; deletions: number }
+  /**
+   * Exact profile materialization applied before the harness launched.
+   * Absent on transports that cannot return a materializer receipt; never fabricated.
+   */
+  profileMaterialization?: WorktreeProfileMaterializationReceipt
   /** The harness subprocess outcome. */
   harness: {
     name: LocalHarness | 'bridge'
@@ -109,9 +140,13 @@ export type WorktreeCheckRunner = (opts: {
 export interface RunWorktreeHarnessOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
-  /** The SUPERVISOR-AUTHORED profile — its systemPrompt + model reach the harness (§1.5). */
+  /**
+   * Supervisor-authored prompt/model plus structural resources materialized into the worktree.
+   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+   * Resource failures are always fatal here, regardless of `resources.failOnError`.
+   */
   profile: AgentProfile
-  /** Which local harness CLI drives this run. */
+  /** Local harness for this run. This explicit choice overrides `profile.harness`. */
   harness: LocalHarness
   /** The per-task instruction handed to the harness (composed under the system prompt). */
   taskPrompt: string
@@ -143,7 +178,7 @@ export interface RunWorktreeHarnessOptions {
   runCommand?: WorktreeCheckRunner
 }
 
-/** One worktree-harness run: the result + the worktree handle + a single-use `cleanup`. */
+/** One worktree-harness run: the result + the worktree handle + caller-owned `cleanup`. */
 export interface WorktreeHarnessRun {
   worktree: WorktreeHandle
   result: WorktreeHarnessResult
@@ -156,8 +191,8 @@ export interface WorktreeHarnessRun {
 const defaultCheckOutputCap = 16_000
 
 /**
- * Run the one worktree-harness operation. Fail-loud cleanup: any throw removes the worktree
- * before propagating, so a failed run never leaks one (the caller cleans up the success path).
+ * Run the one worktree-harness operation. A failed run attempts cleanup before propagating; if
+ * cleanup also fails, both errors are preserved. The caller cleans up a successful run.
  */
 export async function runWorktreeHarness(
   opts: RunWorktreeHarnessOptions,
@@ -179,11 +214,31 @@ export async function runWorktreeHarness(
       worktree,
       repoRoot: opts.repoRoot,
       ...(opts.runGit ? { runGit: opts.runGit } : {}),
-    }).catch(() => undefined)
+    })
 
   try {
-    // §1.5: the authored systemPrompt + model reach the harness (NOT the prompt-only path).
-    const { command, args } = harnessInvocation(opts.harness, opts.profile, opts.taskPrompt, {
+    assertSupportedWorktreeProfile(opts.profile, opts.harness)
+    const resourceInstructions = resolveResourceInstructions(opts.profile)
+    const workspaceProfile = materializationOnlyProfile(opts.profile)
+    const plan = materializeProfile(workspaceProfile, opts.harness)
+    if (plan.unsupported.length > 0) {
+      throw new Error(
+        `runWorktreeHarness: profile cannot be materialized for ${opts.harness}: ${plan.unsupported
+          .map(({ dimension, reason }) => `${dimension}: ${reason}`)
+          .join('; ')}`,
+      )
+    }
+    assertSafeMaterializedPaths(plan)
+    const applied = applyWorkspacePlan(plan, worktree.path)
+    if (applied.unsupported.length > 0) {
+      throw new Error('runWorktreeHarness: applied profile unexpectedly retained unsupported rows')
+    }
+
+    // §1.5: the authored prompt + model reach the harness directly. Resource instructions use
+    // the same explicit channel because reproducible Codex deliberately disables native project
+    // instructions; the workspace projection therefore omits both prompt sources.
+    const invocationProfile = profileWithResourceInstructions(opts.profile, resourceInstructions)
+    const { command, args } = harnessInvocation(opts.harness, invocationProfile, opts.taskPrompt, {
       // This helper created the candidate worktree above; autonomous Claude
       // edits are permitted only inside that isolated checkout.
       dangerouslySkipPermissions: opts.harness === 'claude',
@@ -193,7 +248,8 @@ export async function runWorktreeHarness(
       harness: opts.harness,
       cwd: worktree.path,
       taskPrompt: opts.taskPrompt,
-      invocation: { command, args },
+      invocation: { command, args: [...args, ...applied.flags] },
+      env: { ...process.env, ...applied.env },
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
       ...(opts.codexReadDeniedPaths ? { codexReadDeniedPaths: opts.codexReadDeniedPaths } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
@@ -203,6 +259,7 @@ export async function runWorktreeHarness(
     // Diff BEFORE checks — the patch is the harness's output, not whatever a test run left behind.
     const diff = await captureWorktreeDiff({
       worktree,
+      excludePaths: applied.written,
       ...(opts.runGit ? { runGit: opts.runGit } : {}),
     })
 
@@ -220,6 +277,7 @@ export async function runWorktreeHarness(
       branch: worktree.branch,
       patch: diff.patch,
       stats: diff.stats,
+      profileMaterialization: profileMaterializationReceipt(applied, resourceInstructions),
       harness: {
         name: opts.harness,
         exitCode: harnessResult.exitCode,
@@ -248,8 +306,161 @@ export async function runWorktreeHarness(
     }
     return { worktree, result, cleanup }
   } catch (err) {
-    await cleanup()
+    try {
+      await cleanup()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [err, cleanupError],
+        'runWorktreeHarness: run failed and worktree cleanup also failed',
+      )
+    }
     throw err
+  }
+}
+
+function resolveResourceInstructions(profile: AgentProfile): string | undefined {
+  const instructions = profile.resources?.instructions
+  if (instructions === undefined) return undefined
+  if (typeof instructions === 'string')
+    return instructions.trim().length > 0 ? instructions : undefined
+  if (instructions.kind === 'inline' && typeof instructions.content === 'string') {
+    return instructions.content.trim().length > 0 ? instructions.content : undefined
+  }
+  throw new Error(
+    'runWorktreeHarness: resources.instructions must be a string or inline resource; remote refs require pre-resolution',
+  )
+}
+
+function profileWithResourceInstructions(
+  profile: AgentProfile,
+  resourceInstructions: string | undefined,
+): AgentProfile {
+  let resources: AgentProfile['resources'] | undefined
+  if (profile.resources) {
+    const { instructions: _instructions, ...structuralResources } = profile.resources
+    resources = structuralResources
+  }
+  return {
+    ...profile,
+    ...(resources ? { resources } : {}),
+    ...(resourceInstructions === undefined
+      ? {}
+      : {
+          prompt: {
+            ...profile.prompt,
+            instructions: [...(profile.prompt?.instructions ?? []), resourceInstructions],
+          },
+        }),
+  }
+}
+
+function materializationOnlyProfile(profile: AgentProfile): AgentProfile {
+  const {
+    prompt: _prompt,
+    model: _model,
+    resources: profileResources,
+    ...structuralProfile
+  } = profile
+  let resources: AgentProfile['resources'] | undefined
+  if (profileResources) {
+    const { instructions: _instructions, ...fileBackedResources } = profileResources
+    resources = fileBackedResources
+  }
+  return {
+    ...structuralProfile,
+    ...(resources ? { resources } : {}),
+  }
+}
+
+function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHarness): void {
+  // `profile.harness` is only a preference and the explicit run option wins. Model small/provider/
+  // metadata fields are routing or descriptive hints; this fixed one-shot path only selects the
+  // concrete `model.default`. `resources.failOnError` never weakens this path's fail-closed policy.
+  const unsupportedAxes = [
+    hasEntries(profile.tools) ? 'tools' : null,
+    hasEntries(profile.permissions) ? 'permissions' : null,
+    profile.connections && profile.connections.length > 0 ? 'connections' : null,
+    hasEntries(profile.confidential) ? 'confidential' : null,
+    hasEntries(profile.modes) ? 'modes' : null,
+    hasEntries(profile.extensions) ? 'extensions' : null,
+  ].filter((axis): axis is string => axis !== null)
+  if (profile.model?.reasoningEffort !== undefined && harness !== 'codex') {
+    unsupportedAxes.push('model.reasoningEffort')
+  }
+  for (const [name, server] of Object.entries(profile.mcp ?? {})) {
+    const path = `mcp[${JSON.stringify(name)}]`
+    if (server.enabled === false && harness !== 'opencode') {
+      unsupportedAxes.push(`${path}.enabled`)
+    }
+    if (hasEntries(server.headers) && harness === 'codex') {
+      unsupportedAxes.push(`${path}.headers`)
+    }
+    if (server.cwd !== undefined && harness === 'opencode') {
+      unsupportedAxes.push(`${path}.cwd`)
+    }
+  }
+  if (harness === 'claude') {
+    for (const [event, commands] of Object.entries(profile.hooks ?? {})) {
+      for (const [index, command] of commands.entries()) {
+        const path = `hooks[${JSON.stringify(event)}][${index}]`
+        if (hasEntries(command.env)) unsupportedAxes.push(`${path}.env`)
+        if (command.blocking !== undefined) unsupportedAxes.push(`${path}.blocking`)
+      }
+    }
+  }
+  for (const [name, subagent] of Object.entries(profile.subagents ?? {})) {
+    const path = `subagents[${JSON.stringify(name)}]`
+    if (hasEntries(subagent.permissions)) unsupportedAxes.push(`${path}.permissions`)
+    if (subagent.maxSteps !== undefined) unsupportedAxes.push(`${path}.maxSteps`)
+    if (hasEntries(subagent.tools) && harness !== 'claude') {
+      unsupportedAxes.push(`${path}.tools`)
+    }
+  }
+  if (unsupportedAxes.length > 0) {
+    throw new Error(
+      `runWorktreeHarness: profile requests unsupported worktree behavior: ${unsupportedAxes.join(', ')}`,
+    )
+  }
+}
+
+function hasEntries(value: object | undefined): boolean {
+  return value !== undefined && Object.keys(value).length > 0
+}
+
+function assertSafeMaterializedPaths(plan: WorkspacePlan): void {
+  for (const file of plan.files) {
+    if (file.relPath.split('/').some(isGitMetadataSegment)) {
+      throw new Error(
+        `runWorktreeHarness: profile file cannot target reserved Git metadata: ${file.relPath}`,
+      )
+    }
+  }
+}
+
+function isGitMetadataSegment(segment: string): boolean {
+  const windowsCanonical = segment.replace(/[ .]+$/u, '').toLowerCase()
+  return windowsCanonical === '.git' || windowsCanonical.startsWith('.git:')
+}
+
+function profileMaterializationReceipt(
+  applied: WorkspacePlanReceipt,
+  resourceInstructions: string | undefined,
+): WorktreeProfileMaterializationReceipt {
+  const instructionBytes =
+    resourceInstructions === undefined ? null : Buffer.from(resourceInstructions, 'utf8')
+  return {
+    workspacePlanDigest: applied.workspacePlanDigest,
+    writtenPaths: [...applied.written],
+    unsupported: [...applied.unsupported],
+    environmentNames: Object.keys(applied.env).sort(),
+    flags: [...applied.flags],
+    resourceInstructions: instructionBytes
+      ? {
+          delivery: 'invocation-prompt',
+          sha256: `sha256:${createHash('sha256').update(instructionBytes).digest('hex')}`,
+          byteLength: instructionBytes.byteLength,
+        }
+      : { delivery: 'none', sha256: null, byteLength: 0 },
   }
 }
 

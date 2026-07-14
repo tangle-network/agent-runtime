@@ -16,7 +16,10 @@ import type {
   AgentCandidateExecutorRequest,
 } from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
-import { captureAgentCandidateWorkspaceFiles } from '../src/candidate-execution/workspace-archive'
+import {
+  captureAgentCandidateWorkspaceFiles,
+  createAgentCandidateWorkspacePort,
+} from '../src/candidate-execution/workspace-archive'
 import {
   candidateBundle,
   candidateSha,
@@ -259,6 +262,81 @@ describe('atomic prepared candidate execution', () => {
       score: 1,
       passed: true,
     })
+  })
+
+  it('publishes a referenced final receipt for a task archive larger than 28,254,720 bytes', async () => {
+    const fixture = createCandidateExecutionFixture()
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
+      fixture.task,
+      fixture.ports,
+    )
+    const traceStore = new InMemoryTraceStore()
+    const largeSource = Buffer.alloc(28_254_721)
+    let largeArchive: Uint8Array | undefined
+    fixture.ports.workspaces.materialize = createAgentCandidateWorkspacePort().materialize
+    const executionOptions = options(
+      {
+        execute: async (request) => {
+          await terminalTrace(request, traceStore)
+          return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
+        },
+        stop: async () => ({ stopped: true }),
+        capture: async () => {
+          const taskRoot = fixture.task.stagingRoots.taskRoot
+          writeFileSync(join(taskRoot, 'source.ts'), largeSource, { mode: 0o644 })
+          execFileSync('git', ['add', 'source.ts'], { cwd: taskRoot })
+          const resultTree = execFileSync('git', ['write-tree'], {
+            cwd: taskRoot,
+            encoding: 'utf8',
+          }).trim()
+          const gitDiff = execFileSync('git', ['diff', '--cached', '--binary', 'HEAD'], {
+            cwd: taskRoot,
+          })
+          const captured = await captureAgentCandidateWorkspaceFiles(
+            [{ path: 'source.ts', mode: 0o644, bytes: largeSource }],
+            { limits: { maxEmbeddedArtifactBytes: 32 * 1024 * 1024 } },
+          )
+          largeArchive = captured.archive
+          return {
+            taskOutcome: {
+              kind: 'workspace',
+              resultTree,
+              afterState: captured.snapshot.material,
+              archive: captured.archive,
+              gitDiff,
+            },
+          }
+        },
+      },
+      traceStore,
+    )
+
+    const result = await executePreparedAgentCandidate(prepared, executionOptions)
+    if (!result.succeeded) throw new Error(result.reason)
+    if (!largeArchive) throw new Error('executor did not capture its large task archive')
+    const taskOutcome = result.receipt.value.taskOutcome.material.outcome
+    if (taskOutcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
+    const afterState = taskOutcome.afterState
+    const archive = afterState.archive
+    expect(archive).toMatchObject({
+      byteLength: largeArchive.byteLength,
+      sha256: sha256Bytes(largeArchive),
+      locator: { kind: 's3' },
+    })
+    expect('content' in archive).toBe(false)
+    expect(afterState.manifest).toMatchObject({ locator: { kind: 's3' } })
+    expect('content' in afterState.manifest).toBe(false)
+    expect(result.receipt.bytes.byteLength).toBeLessThan(100_000)
+    expect(result.receipt.value).toMatchObject({
+      trace: { modelCallCount: 0 },
+    })
+    const persistedArchive = await executionOptions.outputArtifacts.read(archive)
+    expect(persistedArchive.byteLength).toBe(largeArchive.byteLength)
+    expect(sha256Bytes(persistedArchive)).toBe(archive.sha256)
+    await expect(
+      executionOptions.outputArtifacts.read(result.artifacts.runReceipt),
+    ).resolves.toEqual(result.receipt.bytes)
   })
 
   it('authors paid model spans only from the closed router ledger', async () => {
@@ -1146,8 +1224,9 @@ describe('atomic prepared candidate execution', () => {
           },
           stop: async (_request, context) => {
             expect(context.reason).toBe('timeout')
-            expect(context.signal).toBe(observedSignal)
-            expect(context.deadlineAtMs).toBe(startedAt + 15)
+            expect(context.signal).not.toBe(observedSignal)
+            expect(context.signal.aborted).toBe(false)
+            expect(context.deadlineAtMs).toBe(startedAt + 15 + 30_000)
             stoppedAfterAbort = observedSignal?.aborted === true
             if (!timeoutRequest) throw new Error('timeout executor never received its request')
             await terminalTrace(timeoutRequest, traceStore, 115)
@@ -1231,7 +1310,6 @@ describe('atomic prepared candidate execution', () => {
           stop: async () => await new Promise<never>(() => undefined),
         },
         traceStore,
-        claimStore,
       ),
       cleanupTimeoutMs: 20,
     })
@@ -1409,7 +1487,7 @@ describe('atomic prepared candidate execution', () => {
     expect(retry.succeeded).toBe(true)
   })
 
-  it('closes isolated memory after process death and before model settlement', async () => {
+  it('closes isolated memory and persists a large after-state archive by reference', async () => {
     const fixture = createCandidateExecutionFixture()
     fixture.bundle = redigestCandidateBundle(fixture.bundle, {
       memory: { mode: 'isolated', scope: 'task' },
@@ -1443,6 +1521,7 @@ describe('atomic prepared candidate execution', () => {
     )
     if (prepared.memory.mode !== 'isolated') throw new Error('isolated memory was not prepared')
     const traceStore = new InMemoryTraceStore()
+    const largeMemoryArchive = Buffer.alloc(4_000_001, 0x5a)
     const result = await executePreparedAgentCandidate(
       prepared,
       options(
@@ -1462,12 +1541,10 @@ describe('atomic prepared candidate execution', () => {
             return { stopped: true }
           },
           capture: async () => {
-            if (!('content' in after.archive))
-              throw new Error('fixture memory archive is not embedded')
             return {
               memoryAfter: {
                 afterState: after.material,
-                archive: Buffer.from(after.archive.content, 'base64'),
+                archive: largeMemoryArchive,
               },
             }
           },
@@ -1477,6 +1554,14 @@ describe('atomic prepared candidate execution', () => {
     )
     expect(result.succeeded).toBe(true)
     expect(order).toEqual(['process-stop', 'memory-close', 'model-settle'])
+    if (!result.succeeded || result.receipt.value.memory.mode !== 'isolated') return
+    const archive = result.receipt.value.memory.afterState.archive
+    expect(archive).toMatchObject({
+      byteLength: largeMemoryArchive.byteLength,
+      sha256: sha256Bytes(largeMemoryArchive),
+      locator: { kind: 's3' },
+    })
+    expect('content' in archive).toBe(false)
   })
 
   it('rejects a compressed protected value in isolated memory before persisting memory evidence', async () => {

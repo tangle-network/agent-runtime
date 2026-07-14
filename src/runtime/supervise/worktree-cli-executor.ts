@@ -9,8 +9,8 @@
  * This is a THIN adapter: the physical act (worktree → profile-aware harness invocation → diff →
  * checks → cleanup) lives ONCE in `runWorktreeHarness` (`../../mcp/worktree-harness`), shared with
  * the `runLoop`/coder-delegate `createInProcessExecutor`. This executor only projects that core's
- * result onto the `Executor` port (artifact + spend) and owns the teardown point. The §1.5 payload
- * (authored systemPrompt + model) reaches the harness inside the core, not here.
+ * result onto the `Executor` port (artifact + spend) and owns the teardown point. The complete
+ * profile delivery — direct prompt/model plus materialized file-backed resources — lives there.
  *
  * Token accounting: ordinary harness CLI runs remain `budgetExempt`. Reproducible Codex mode
  * parses the CLI's terminal JSONL usage and is metered by default; an absent usage event fails the
@@ -32,10 +32,11 @@ import {
   type WorktreeCommandResult,
   type WorktreeHarnessResult,
   type WorktreeHarnessRun,
+  type WorktreeProfileMaterializationReceipt,
 } from '../../mcp/worktree-harness'
 import type { Executor, ExecutorResult, Spend } from './types'
 
-export type { WorktreeCommandResult }
+export type { WorktreeCommandResult, WorktreeProfileMaterializationReceipt }
 /** Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  *  diff + the harness's run record + the derived checks). */
 export type WorktreePatchArtifact = WorktreeHarnessResult
@@ -44,9 +45,15 @@ export type WorktreePatchArtifact = WorktreeHarnessResult
 export interface WorktreeCliExecutorOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
-  /** The SUPERVISOR-AUTHORED profile (the §1.5 payload: systemPrompt + model). */
+  /**
+   * The supervisor-authored prompt/model plus materializable structural resources.
+   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+   * Resource failures are fatal regardless of `resources.failOnError`.
+   * Tools, permissions, connections, confidential execution, modes, and extensions fail closed.
+   * Harness-specific nested controls that the pinned materializer cannot preserve also fail closed.
+   */
   profile: AgentProfile
-  /** Which local harness CLI drives this leaf (`claude` | `codex` | `opencode`). */
+  /** Local CLI for this leaf. This explicit choice overrides `profile.harness`. */
   harness: LocalHarness
   /** The per-task instruction handed to the harness (composed under the system prompt). */
   taskPrompt: string

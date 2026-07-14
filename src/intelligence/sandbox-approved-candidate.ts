@@ -120,16 +120,25 @@ export function createSandboxApprovedCandidateExecutor(
             : { resultTimeoutMs: options.resultTimeoutMs }),
         },
       })
-      if (!result.finalization.succeeded) {
-        throw new Error(`approved candidate execution failed: ${result.finalization.reason}`)
+      if (result.finalization.succeeded) {
+        if (!result.evidence) throw new Error('approved candidate execution returned no evidence')
+        try {
+          return result.evidence
+        } finally {
+          await executor.delete({
+            executionId: result.evidence.executionId,
+            executionPlanDigest: result.evidence.receipt.executionPlanDigest,
+          })
+        }
       }
-      if (!result.evidence) throw new Error('approved candidate execution returned no evidence')
-      const evidence = result.evidence
-      await executor.delete({
-        executionId: evidence.executionId,
-        executionPlanDigest: evidence.receipt.executionPlanDigest,
-      })
-      return evidence
+      try {
+        throw new Error(`approved candidate execution failed: ${result.finalization.reason}`)
+      } finally {
+        await executor.delete({
+          executionId: result.finalization.partial.executionId,
+          executionPlanDigest: result.finalization.partial.executionPlanDigest,
+        })
+      }
     },
   })
 }
@@ -171,7 +180,9 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     const outputPromise = collectOutput(process, outcome.maxBytes)
     let cancellation: Promise<void> | undefined
     let cancellationTermination: AgentCandidateTermination | undefined
+    let processExited = false
     const cancel = () => {
+      if (processExited) return
       cancellationTermination =
         Date.now() >= context.deadlineAtMs
           ? { kind: 'timeout', timeoutMs: request.hardLimits.timeoutMs }
@@ -182,12 +193,14 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     if (context.signal.aborted) cancel()
     try {
       const waitedExitCode = await process.wait()
+      processExited = true
+      context.signal.removeEventListener('abort', cancel)
       if (cancellation) await cancellation
       const status = await process.status()
       if (status.running || status.exitCode !== waitedExitCode) {
         throw new Error('sandbox process returned an inconsistent terminal status')
       }
-      state.output = await outputPromise
+      state.output = await awaitOutput(outputPromise, context.signal, context.deadlineAtMs)
       state.termination = cancellationTermination ?? processTermination(status)
       await context.traceStore.appendRun({
         runId: request.trace.runId,
@@ -197,9 +210,6 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
         status: status.exitCode === 0 ? 'completed' : 'failed',
         tags: { ...request.trace.tags, sandboxId: sandbox.id },
       })
-      if (context.signal.aborted) {
-        throw context.signal.reason ?? new Error('candidate execution was cancelled')
-      }
       return { executionId: request.executionId, termination: state.termination }
     } finally {
       context.signal.removeEventListener('abort', cancel)
@@ -207,7 +217,11 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     }
   }
 
-  async stop(request: AgentCandidateExecutorStopRequest): Promise<{ readonly stopped: true }> {
+  async stop(
+    request: AgentCandidateExecutorStopRequest,
+    context: Parameters<AgentCandidateExecutorPort['stop']>[1],
+  ): Promise<{ readonly stopped: true }> {
+    context.signal.throwIfAborted()
     const sandbox = await this.resolve(request, true)
     if (!sandbox) return { stopped: true }
     const statuses = await sandbox.process.list()
@@ -218,6 +232,7 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
       if (!process) throw new Error('candidate sandbox lost its running process handle')
       await killProcess(process)
     }
+    context.signal.throwIfAborted()
     const remaining = await sandbox.process.list()
     if (remaining.some((entry) => entry.running)) {
       throw new Error('candidate sandbox process termination is not proven')
@@ -225,7 +240,11 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     return { stopped: true }
   }
 
-  async capture(request: AgentCandidateExecutorStopRequest) {
+  async capture(
+    request: AgentCandidateExecutorStopRequest,
+    context: Parameters<AgentCandidateExecutorPort['capture']>[1],
+  ) {
+    context.signal.throwIfAborted()
     const sandbox = await this.resolve(request, false)
     const statuses = await sandbox.process.list()
     if (statuses.length > 1 || statuses.some((entry) => entry.running)) {
@@ -239,9 +258,14 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
       const process = await sandbox.process.get(status.pid)
       if (!process) throw new Error('candidate sandbox lost its captured process handle')
       const expected = sandboxOutputSpec(sandbox)
-      output = await collectOutput(process, expected.maxBytes)
+      output = await awaitOutput(
+        collectOutput(process, expected.maxBytes),
+        context.signal,
+        Date.now() + (this.options.createTimeoutMs ?? 120_000),
+      )
       termination = processTermination(await process.status())
     }
+    context.signal.throwIfAborted()
     const evidence = canonicalCandidateBytes({
       schemaVersion: 1,
       kind: 'sandbox-agent-candidate-capture',
@@ -451,6 +475,34 @@ async function collectOutput(process: Process, maxBytes: number): Promise<Uint8A
     chunks.push(bytes)
   }
   return Uint8Array.from(Buffer.concat(chunks, byteLength))
+}
+
+async function awaitOutput(
+  output: Promise<Uint8Array>,
+  signal: AbortSignal,
+  deadlineAtMs: number,
+): Promise<Uint8Array> {
+  signal.throwIfAborted()
+  const remainingMs = deadlineAtMs - Date.now()
+  if (remainingMs <= 0) throw new Error('sandbox candidate output deadline expired')
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  try {
+    return await Promise.race([
+      output,
+      new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason ?? new Error('sandbox candidate output cancelled'))
+        signal.addEventListener('abort', onAbort, { once: true })
+        timer = setTimeout(
+          () => reject(new Error('sandbox candidate output deadline expired')),
+          remainingMs,
+        )
+      }),
+    ])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function killProcess(process: Process): Promise<void> {

@@ -65,8 +65,8 @@ describe('expired candidate recovery', () => {
             executionId: claim.executionId,
             executionPlanDigest: claim.executionPlanDigest,
           })
-          expect(context.signal.aborted).toBe(true)
-          expect(context.deadlineAtMs).toBe(claim.leaseExpiresAtMs)
+          expect(context.signal.aborted).toBe(false)
+          expect(context.deadlineAtMs).toBeGreaterThan(Date.now())
           return { stopped: true }
         },
         capture: async () => ({ evidence: Buffer.from('official recovery evidence') }),

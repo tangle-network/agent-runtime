@@ -199,7 +199,6 @@ export async function runKnowledgeImprovementJob(
     const approvedKnowledge = await approvedKnowledgeCandidate(approval)
     const candidate = agentKnowledgeCandidateRef(approvedKnowledge)
     knowledgeOptions.signal?.throwIfAborted()
-    await withKnowledgeImprovementCandidate({ root: options.root, candidate }, () => undefined)
     resolvedImprovement = await promoteKnowledgeCandidate({
       root: options.root,
       candidate,
@@ -262,6 +261,7 @@ async function freezeKnowledgeCandidate(
   const candidate = knowledgeImprovementCandidateRef(improvement)
   return withKnowledgeImprovementCandidate({ root, candidate }, async (resolved) => {
     const executionId = `knowledge-${candidate.candidateId}`
+    const candidateRef = interfaceKnowledgeCandidateRef(candidate)
     const captured = await captureAgentCandidateWorkspace(await realpath(resolved.root), {
       ...(artifacts
         ? {
@@ -277,7 +277,7 @@ async function freezeKnowledgeCandidate(
       canonicalCandidateBytes({
         schemaVersion: 1,
         kind: 'agent-knowledge-candidate-evaluation',
-        candidate: interfaceKnowledgeCandidateRef(candidate),
+        candidate: candidateRef,
         metric: resolved.evaluation,
       }),
       'knowledge-evaluation',
@@ -286,7 +286,7 @@ async function freezeKnowledgeCandidate(
       signal,
     )
     return agentCandidateKnowledgeSchema.parse({
-      candidate: interfaceKnowledgeCandidateRef(candidate),
+      candidate: candidateRef,
       snapshot: captured.snapshot,
       evaluation,
     })
@@ -295,7 +295,7 @@ async function freezeKnowledgeCandidate(
 
 async function captureKnowledgeEvidence(
   bytes: Uint8Array,
-  purpose: 'knowledge-retrieval-config' | 'knowledge-evaluation',
+  purpose: 'knowledge-evaluation',
   executionId: string,
   artifacts: AgentCandidateOutputArtifactPort | undefined,
   signal: AbortSignal | undefined,
