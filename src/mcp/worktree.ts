@@ -111,10 +111,17 @@ function ensureGitOk(
   result: { stdout: string; stderr: string; exitCode: number },
 ): void {
   if (result.exitCode !== 0) {
-    throw new Error(
-      `worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`,
-    )
+    throw gitFailure(step, result)
   }
+}
+
+function gitFailure(
+  step: string,
+  result: { stdout: string; stderr: string; exitCode: number },
+): Error {
+  return new Error(
+    `worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`,
+  )
 }
 
 /** Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`. @experimental */
@@ -157,7 +164,7 @@ export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffRes
     options.worktree.path,
     options.runGit,
   )
-  // No `ensureGitOk` here — diff returns 0 even when there are no changes.
+  ensureGitOk(`diff --cached ${baseRef}`, patch)
 
   // Stats: `git diff --shortstat` produces e.g. " 3 files changed, 42 insertions(+), 10 deletions(-)".
   const shortstat = await runGitAsync(
@@ -171,6 +178,7 @@ export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffRes
     options.worktree.path,
     options.runGit,
   )
+  ensureGitOk(`diff --cached --shortstat ${baseRef}`, shortstat)
   const stats = parseShortstat(shortstat.stdout)
   return { patch: patch.stdout, stats }
 }
@@ -225,28 +233,39 @@ function parseShortstat(text: string): DiffResult['stats'] {
   return out
 }
 
-/** Remove a git worktree and delete its branch; tolerates already-removed paths. @experimental */
+/**
+ * Remove a git worktree and delete its branch. Already-removed paths are harmless; every other
+ * Git failure rejects so callers cannot report a worktree as destroyed when cleanup failed.
+ * @experimental
+ */
 export async function removeWorktree(options: RemoveWorktreeOptions): Promise<void> {
   const force = options.force ?? true
   const args = ['worktree', 'remove']
   if (force) args.push('--force')
   args.push(options.worktree.path)
-  const result = await runGitAsync(args, options.repoRoot, options.runGit)
-  // Don't ensureGitOk — partial-removal scenarios are tolerable; the
-  // worktree dir may already be gone (caller deleted it manually).
-  if (result.exitCode !== 0 && !/not a working tree/.test(result.stderr)) {
-    // Best-effort branch cleanup so the next run can reuse the runId.
-    await runGitAsync(
-      ['branch', '-D', options.worktree.branch],
-      options.repoRoot,
-      options.runGit,
-    ).catch(() => undefined)
-  }
-  // Always attempt branch removal — the worktree-remove sometimes leaves
-  // the branch behind even when the directory is gone.
-  await runGitAsync(
+  const removal = await runGitAsync(args, options.repoRoot, options.runGit)
+  const removalError =
+    removal.exitCode !== 0 && !/not a working tree/iu.test(removal.stderr)
+      ? gitFailure(`worktree remove ${options.worktree.path}`, removal)
+      : undefined
+
+  // Worktree removal leaves its branch behind by design. Missing branches are repeat cleanup.
+  const branchRemoval = await runGitAsync(
     ['branch', '-D', options.worktree.branch],
     options.repoRoot,
     options.runGit,
-  ).catch(() => undefined)
+  )
+  const branchError =
+    branchRemoval.exitCode !== 0 && !/branch .+ not found/iu.test(branchRemoval.stderr)
+      ? gitFailure(`branch -D ${options.worktree.branch}`, branchRemoval)
+      : undefined
+
+  if (removalError && branchError) {
+    throw new AggregateError(
+      [removalError, branchError],
+      'worktree: failed to remove worktree and branch',
+    )
+  }
+  if (removalError) throw removalError
+  if (branchError) throw branchError
 }

@@ -975,7 +975,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 176 exports.
 | `parseCodexTokenUsage` | function | Parse and validate the one terminal usage event emitted by `codex exec --json`. |
 | `parseDetachedSessionRef` | function | Parse a `detachedSessionRef` string back to parts; throws `ValidationError` on malformed input. |
 | `readTraceContextFromEnv` | function | Read trace context from the process environment. |
-| `removeWorktree` | function | Remove a git worktree and delete its branch; tolerates already-removed paths. |
+| `removeWorktree` | function | Remove a git worktree and delete its branch. Already-removed paths are harmless; every other |
 | `renderTrace` | function | Render a worker's trace (tool calls + results) into the text an analyst lens reads. Generic over |
 | `runCheck` | function | Run ONE lens over a trace → findings. Generic over any kind: prompt = the lens + the agent-eval |
 | `runDetachedTurn` | function | Dispatch one detached turn and advance it to a terminal state with |

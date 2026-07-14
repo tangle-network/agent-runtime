@@ -8227,7 +8227,7 @@ current trace context.
 
 > **createWorktree**(`options`): `Promise`\<[`WorktreeHandle`](#worktreehandle)\>
 
-Defined in: [mcp/worktree.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L121)
+Defined in: [mcp/worktree.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L128)
 
 **`Experimental`**
 
@@ -8249,7 +8249,7 @@ Checkout a fresh git worktree for a delegation run on a new branch under `varian
 
 > **captureWorktreeDiff**(`options`): `Promise`\<[`DiffResult`](#diffresult)\>
 
-Defined in: [mcp/worktree.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L141)
+Defined in: [mcp/worktree.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L148)
 
 **`Experimental`**
 
@@ -8271,11 +8271,12 @@ Stage worker changes and return the diff + shortstat, excluding declared input p
 
 > **removeWorktree**(`options`): `Promise`\<`void`\>
 
-Defined in: [mcp/worktree.ts:229](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L229)
+Defined in: [mcp/worktree.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L241)
 
 **`Experimental`**
 
-Remove a git worktree and delete its branch; tolerates already-removed paths.
+Remove a git worktree and delete its branch. Already-removed paths are harmless; every other
+Git failure rejects so callers cannot report a worktree as destroyed when cleanup failed.
 
 #### Parameters
 

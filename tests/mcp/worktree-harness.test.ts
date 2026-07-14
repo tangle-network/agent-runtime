@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
@@ -14,6 +14,7 @@ import { dirname, join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import type { RunLocalHarnessOptions } from '../../src/mcp/local-harness'
+import { captureWorktreeDiff, type GitRunner } from '../../src/mcp/worktree'
 import { runWorktreeHarness } from '../../src/mcp/worktree-harness'
 import { createWorktreeCliExecutor } from '../../src/runtime/supervise/worktree-cli-executor'
 
@@ -58,6 +59,24 @@ function count(text: string, value: string): number {
 }
 
 describe('runWorktreeHarness profile materialization', () => {
+  it('fails instead of fabricating an empty patch when Git diff fails', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    try {
+      await expect(
+        captureWorktreeDiff({
+          worktree: {
+            path: repoRoot,
+            baseSha: git(repoRoot, ['rev-parse', 'HEAD']),
+            branch: 'unused',
+          },
+          baseRef: 'missing-base-ref',
+        }),
+      ).rejects.toThrow(/git diff --cached missing-base-ref failed/u)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
   it('delivers mounted inputs, captures the worker edit, and excludes tracked and untracked inputs', async () => {
     const repoRoot = initializeRepository({
       'src/value.ts': 'export const value = 1\n',
@@ -169,6 +188,122 @@ describe('runWorktreeHarness profile materialization', () => {
     }
   })
 
+  it('materializes every Claude-supported structural axis and delivers instructions once', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'supported-structural-axes'
+    const resourceInstructionMarker = 'DIRECT_RESOURCE_INSTRUCTION_343641ac'
+    const paths = {
+      file: 'profile-context.txt',
+      skill: '.claude/skills/reviewer/SKILL.md',
+      nativeAgent: '.claude/agents/native-reviewer.md',
+      command: '.claude/commands/audit.md',
+      subagent: '.claude/agents/helper.md',
+      mcp: '.mcp.json',
+      settings: '.claude/settings.json',
+    } as const
+    try {
+      const run = await runWorktreeHarness({
+        repoRoot,
+        profile: {
+          harness: 'codex',
+          model: {
+            default: 'claude-model',
+            small: 'small-routing-hint',
+            provider: 'anthropic',
+            metadata: { tier: 'research' },
+          },
+          prompt: { systemPrompt: 'DIRECT_SYSTEM_a3563f03' },
+          resources: {
+            files: [
+              {
+                path: paths.file,
+                resource: { kind: 'inline', name: 'context', content: 'FILE_MARKER_5570e069' },
+              },
+            ],
+            skills: [
+              {
+                kind: 'inline',
+                name: 'reviewer',
+                content: '# Reviewer\n\nSKILL_MARKER_edc681e1',
+              },
+            ],
+            agents: [
+              {
+                kind: 'inline',
+                name: 'native-reviewer.md',
+                content: 'NATIVE_AGENT_MARKER_b1b342a1',
+              },
+            ],
+            commands: [
+              {
+                kind: 'inline',
+                name: 'audit',
+                content: 'COMMAND_MARKER_b53220fa',
+              },
+            ],
+            instructions: resourceInstructionMarker,
+          },
+          mcp: { local: { command: 'node', args: ['server.mjs'] } },
+          hooks: { PreToolUse: [{ command: 'node hook.mjs', matcher: 'Bash' }] },
+          subagents: { helper: { description: 'Helper', prompt: 'SUBAGENT_MARKER_37bb713b' } },
+        },
+        harness: 'claude',
+        taskPrompt: 'DIRECT_TASK_72c5c757',
+        runId,
+        runHarness: async (options) => {
+          expect(options.harness).toBe('claude')
+          expect(options.invocation?.command).toBe('claude')
+          expect(options.invocation?.args).toContain('claude-model')
+          expect(options.invocation?.args).not.toContain('small-routing-hint')
+          expect(options.invocation?.args).not.toContain('anthropic')
+          expect(options.invocation?.args).not.toContain('research')
+          expect(readFileSync(join(options.cwd, paths.file), 'utf8')).toContain(
+            'FILE_MARKER_5570e069',
+          )
+          expect(readFileSync(join(options.cwd, paths.skill), 'utf8')).toContain(
+            'SKILL_MARKER_edc681e1',
+          )
+          expect(readFileSync(join(options.cwd, paths.nativeAgent), 'utf8')).toContain(
+            'NATIVE_AGENT_MARKER_b1b342a1',
+          )
+          expect(readFileSync(join(options.cwd, paths.command), 'utf8')).toContain(
+            'COMMAND_MARKER_b53220fa',
+          )
+          expect(readFileSync(join(options.cwd, paths.subagent), 'utf8')).toContain(
+            'SUBAGENT_MARKER_37bb713b',
+          )
+          expect(readFileSync(join(options.cwd, paths.mcp), 'utf8')).toContain('server.mjs')
+          const settings = JSON.parse(
+            readFileSync(join(options.cwd, paths.settings), 'utf8'),
+          ) as Record<string, unknown>
+          expect(settings).toHaveProperty('enabledMcpjsonServers')
+          expect(settings).toHaveProperty('hooks')
+          const prompt = options.invocation?.args[1] ?? ''
+          expect(count(prompt, resourceInstructionMarker)).toBe(1)
+          expect(count(prompt, 'DIRECT_SYSTEM_a3563f03')).toBe(1)
+          expect(count(prompt, 'DIRECT_TASK_72c5c757')).toBe(1)
+          return successfulHarnessResult()
+        },
+      })
+
+      try {
+        expect(run.result.patch).toBe('')
+        expect(run.result.stats).toEqual({ filesChanged: 0, insertions: 0, deletions: 0 })
+        expect(run.result.profileMaterialization?.writtenPaths).toEqual(
+          Object.values(paths).sort((left, right) => left.localeCompare(right)),
+        )
+        expect(run.result.profileMaterialization?.unsupported).toEqual([])
+      } finally {
+        await run.cleanup()
+        await run.cleanup()
+      }
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
   it('fails before worker launch and removes the real worktree for unsupported resources', async () => {
     const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
     const runId = 'unsupported-profile'
@@ -179,6 +314,7 @@ describe('runWorktreeHarness profile materialization', () => {
           repoRoot,
           profile: {
             resources: {
+              failOnError: false,
               files: [
                 {
                   path: '.agent-profile/remote.txt',
@@ -227,6 +363,221 @@ describe('runWorktreeHarness profile materialization', () => {
       expect(runHarness).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
       expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects unsupported behavior axes before worker launch and removes the worktree', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'unsupported-behavior-axes'
+    const runHarness = vi.fn()
+    try {
+      await expect(
+        runWorktreeHarness({
+          repoRoot,
+          profile: {
+            tools: { shell: false },
+            permissions: { shell: 'deny' },
+            connections: [{ connectionId: 'connection-1', capabilities: ['read'] }],
+            confidential: { tee: 'any' },
+            modes: { review: { prompt: 'Review only.' } },
+            extensions: { codex: { feature: true } },
+          },
+          harness: 'codex',
+          taskPrompt: 'task',
+          runId,
+          runHarness,
+        }),
+      ).rejects.toThrow(
+        /unsupported worktree behavior: tools, permissions, connections, confidential, modes, extensions/u,
+      )
+      expect(runHarness).not.toHaveBeenCalled()
+      expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+      expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves the run error when Git cleanup also fails', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runId = 'run-and-cleanup-failures'
+    const worktreePath = join(repoRoot, '.agent-worktrees', runId)
+    const runHarness = vi.fn()
+    let interceptedRemoval = false
+    const runGit: GitRunner = (args, { cwd }) => {
+      if (args[0] === 'worktree' && args[1] === 'remove' && !interceptedRemoval) {
+        interceptedRemoval = true
+        return { stdout: '', stderr: 'simulated cleanup failure', exitCode: 128 }
+      }
+      const result = spawnSync('git', [...args], { cwd, encoding: 'utf8' })
+      return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.status ?? -1,
+      }
+    }
+
+    try {
+      let error: unknown
+      try {
+        await runWorktreeHarness({
+          repoRoot,
+          profile: { tools: { shell: false } },
+          harness: 'codex',
+          taskPrompt: 'task',
+          runId,
+          runHarness,
+          runGit,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(error).toBeInstanceOf(AggregateError)
+      const errors = (error as AggregateError).errors as Error[]
+      expect(errors[0]?.message).toContain('unsupported worktree behavior: tools')
+      expect(errors[1]).toBeInstanceOf(AggregateError)
+      const cleanupErrors = (errors[1] as AggregateError).errors as Error[]
+      expect(cleanupErrors[0]?.message).toContain('worktree remove')
+      expect(cleanupErrors[1]?.message).toContain('branch -D')
+      expect(runHarness).not.toHaveBeenCalled()
+      expect(interceptedRemoval).toBe(true)
+      expect(existsSync(worktreePath)).toBe(true)
+    } finally {
+      spawnSync('git', ['worktree', 'remove', '--force', worktreePath], { cwd: repoRoot })
+      spawnSync('git', ['branch', '-D', `delegate/${runId}`], { cwd: repoRoot })
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects nested controls the pinned materializer would silently drop', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runHarness = vi.fn()
+    const cases: Array<{
+      runId: string
+      harness: 'claude' | 'codex' | 'opencode'
+      profile: AgentProfile
+      dropped: string[]
+    }> = [
+      {
+        runId: 'codex-nested-controls',
+        harness: 'codex',
+        profile: {
+          mcp: {
+            disabled: {
+              command: 'node',
+              enabled: false,
+              headers: { Authorization: 'redacted' },
+            },
+          },
+          subagents: {
+            helper: {
+              prompt: 'Help.',
+              tools: { shell: false },
+              permissions: { shell: 'deny' },
+              maxSteps: 1,
+            },
+          },
+        },
+        dropped: [
+          'mcp["disabled"].enabled',
+          'mcp["disabled"].headers',
+          'subagents["helper"].permissions',
+          'subagents["helper"].maxSteps',
+          'subagents["helper"].tools',
+        ],
+      },
+      {
+        runId: 'claude-nested-controls',
+        harness: 'claude',
+        profile: {
+          model: { reasoningEffort: 'high' },
+          hooks: {
+            PreToolUse: [{ command: 'node hook.mjs', env: { MODE: 'strict' }, blocking: false }],
+          },
+        },
+        dropped: [
+          'model.reasoningEffort',
+          'hooks["PreToolUse"][0].env',
+          'hooks["PreToolUse"][0].blocking',
+        ],
+      },
+      {
+        runId: 'opencode-nested-controls',
+        harness: 'opencode',
+        profile: { mcp: { local: { command: 'node', cwd: 'required-directory' } } },
+        dropped: ['mcp["local"].cwd'],
+      },
+    ]
+
+    try {
+      for (const testCase of cases) {
+        let error: unknown
+        try {
+          await runWorktreeHarness({
+            repoRoot,
+            profile: testCase.profile,
+            harness: testCase.harness,
+            taskPrompt: 'task',
+            runId: testCase.runId,
+            runHarness,
+          })
+        } catch (caught) {
+          error = caught
+        }
+        expect(error).toBeInstanceOf(Error)
+        for (const path of testCase.dropped) {
+          expect((error as Error).message).toContain(path)
+        }
+        expect(existsSync(join(repoRoot, '.agent-worktrees', testCase.runId))).toBe(false)
+        expect(git(repoRoot, ['branch', '--list', `delegate/${testCase.runId}`])).toBe('')
+      }
+      expect(runHarness).not.toHaveBeenCalled()
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects profile files targeting Git metadata before worker launch', async () => {
+    const repoRoot = initializeRepository({ 'src/value.ts': 'export const value = 1\n' })
+    const runHarness = vi.fn()
+    try {
+      for (const [index, path] of [
+        '.git',
+        'nested/.git/config',
+        '.GIT.',
+        '.git:stream',
+      ].entries()) {
+        const runId = `reserved-git-metadata-${index}`
+        await expect(
+          runWorktreeHarness({
+            repoRoot,
+            profile: {
+              resources: {
+                files: [
+                  {
+                    path,
+                    resource: {
+                      kind: 'inline',
+                      name: 'poison',
+                      content: 'gitdir: attacker\n',
+                    },
+                  },
+                ],
+              },
+            },
+            harness: 'codex',
+            taskPrompt: 'task',
+            runId,
+            runHarness,
+          }),
+        ).rejects.toThrow(/profile file cannot target reserved Git metadata/u)
+        expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
+        expect(git(repoRoot, ['branch', '--list', `delegate/${runId}`])).toBe('')
+      }
+      expect(runHarness).not.toHaveBeenCalled()
     } finally {
       rmSync(repoRoot, { recursive: true, force: true })
     }

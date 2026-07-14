@@ -45,9 +45,15 @@ export type WorktreePatchArtifact = WorktreeHarnessResult
 export interface WorktreeCliExecutorOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
-  /** The supervisor-authored profile: prompt/model plus materializable structural resources. */
+  /**
+   * The supervisor-authored prompt/model plus materializable structural resources.
+   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+   * Resource failures are fatal regardless of `resources.failOnError`.
+   * Tools, permissions, connections, confidential execution, modes, and extensions fail closed.
+   * Harness-specific nested controls that the pinned materializer cannot preserve also fail closed.
+   */
   profile: AgentProfile
-  /** Which local harness CLI drives this leaf (`claude` | `codex` | `opencode`). */
+  /** Local CLI for this leaf. This explicit choice overrides `profile.harness`. */
   harness: LocalHarness
   /** The per-task instruction handed to the harness (composed under the system prompt). */
   taskPrompt: string

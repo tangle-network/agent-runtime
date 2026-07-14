@@ -25,6 +25,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   applyWorkspacePlan,
   materializeProfile,
+  type WorkspacePlan,
   type WorkspacePlanReceipt,
 } from '@tangle-network/agent-profile-materialize'
 import {
@@ -139,9 +140,13 @@ export type WorktreeCheckRunner = (opts: {
 export interface RunWorktreeHarnessOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
-  /** Supervisor-authored prompt/model plus structural resources materialized into the worktree. */
+  /**
+   * Supervisor-authored prompt/model plus structural resources materialized into the worktree.
+   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+   * Resource failures are always fatal here, regardless of `resources.failOnError`.
+   */
   profile: AgentProfile
-  /** Which local harness CLI drives this run. */
+  /** Local harness for this run. This explicit choice overrides `profile.harness`. */
   harness: LocalHarness
   /** The per-task instruction handed to the harness (composed under the system prompt). */
   taskPrompt: string
@@ -173,7 +178,7 @@ export interface RunWorktreeHarnessOptions {
   runCommand?: WorktreeCheckRunner
 }
 
-/** One worktree-harness run: the result + the worktree handle + a single-use `cleanup`. */
+/** One worktree-harness run: the result + the worktree handle + caller-owned `cleanup`. */
 export interface WorktreeHarnessRun {
   worktree: WorktreeHandle
   result: WorktreeHarnessResult
@@ -186,8 +191,8 @@ export interface WorktreeHarnessRun {
 const defaultCheckOutputCap = 16_000
 
 /**
- * Run the one worktree-harness operation. Fail-loud cleanup: any throw removes the worktree
- * before propagating, so a failed run never leaks one (the caller cleans up the success path).
+ * Run the one worktree-harness operation. A failed run attempts cleanup before propagating; if
+ * cleanup also fails, both errors are preserved. The caller cleans up a successful run.
  */
 export async function runWorktreeHarness(
   opts: RunWorktreeHarnessOptions,
@@ -209,9 +214,10 @@ export async function runWorktreeHarness(
       worktree,
       repoRoot: opts.repoRoot,
       ...(opts.runGit ? { runGit: opts.runGit } : {}),
-    }).catch(() => undefined)
+    })
 
   try {
+    assertSupportedWorktreeProfile(opts.profile, opts.harness)
     const resourceInstructions = resolveResourceInstructions(opts.profile)
     const workspaceProfile = materializationOnlyProfile(opts.profile)
     const plan = materializeProfile(workspaceProfile, opts.harness)
@@ -222,6 +228,7 @@ export async function runWorktreeHarness(
           .join('; ')}`,
       )
     }
+    assertSafeMaterializedPaths(plan)
     const applied = applyWorkspacePlan(plan, worktree.path)
     if (applied.unsupported.length > 0) {
       throw new Error('runWorktreeHarness: applied profile unexpectedly retained unsupported rows')
@@ -299,7 +306,14 @@ export async function runWorktreeHarness(
     }
     return { worktree, result, cleanup }
   } catch (err) {
-    await cleanup()
+    try {
+      await cleanup()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [err, cleanupError],
+        'runWorktreeHarness: run failed and worktree cleanup also failed',
+      )
+    }
     throw err
   }
 }
@@ -341,17 +355,91 @@ function profileWithResourceInstructions(
 }
 
 function materializationOnlyProfile(profile: AgentProfile): AgentProfile {
+  const {
+    prompt: _prompt,
+    model: _model,
+    resources: profileResources,
+    ...structuralProfile
+  } = profile
   let resources: AgentProfile['resources'] | undefined
-  if (profile.resources) {
-    const { instructions: _instructions, ...fileBackedResources } = profile.resources
+  if (profileResources) {
+    const { instructions: _instructions, ...fileBackedResources } = profileResources
     resources = fileBackedResources
   }
   return {
+    ...structuralProfile,
     ...(resources ? { resources } : {}),
-    ...(profile.mcp ? { mcp: profile.mcp } : {}),
-    ...(profile.hooks ? { hooks: profile.hooks } : {}),
-    ...(profile.subagents ? { subagents: profile.subagents } : {}),
   }
+}
+
+function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHarness): void {
+  // `profile.harness` is only a preference and the explicit run option wins. Model small/provider/
+  // metadata fields are routing or descriptive hints; this fixed one-shot path only selects the
+  // concrete `model.default`. `resources.failOnError` never weakens this path's fail-closed policy.
+  const unsupportedAxes = [
+    hasEntries(profile.tools) ? 'tools' : null,
+    hasEntries(profile.permissions) ? 'permissions' : null,
+    profile.connections && profile.connections.length > 0 ? 'connections' : null,
+    hasEntries(profile.confidential) ? 'confidential' : null,
+    hasEntries(profile.modes) ? 'modes' : null,
+    hasEntries(profile.extensions) ? 'extensions' : null,
+  ].filter((axis): axis is string => axis !== null)
+  if (profile.model?.reasoningEffort !== undefined && harness !== 'codex') {
+    unsupportedAxes.push('model.reasoningEffort')
+  }
+  for (const [name, server] of Object.entries(profile.mcp ?? {})) {
+    const path = `mcp[${JSON.stringify(name)}]`
+    if (server.enabled === false && harness !== 'opencode') {
+      unsupportedAxes.push(`${path}.enabled`)
+    }
+    if (hasEntries(server.headers) && harness === 'codex') {
+      unsupportedAxes.push(`${path}.headers`)
+    }
+    if (server.cwd !== undefined && harness === 'opencode') {
+      unsupportedAxes.push(`${path}.cwd`)
+    }
+  }
+  if (harness === 'claude') {
+    for (const [event, commands] of Object.entries(profile.hooks ?? {})) {
+      for (const [index, command] of commands.entries()) {
+        const path = `hooks[${JSON.stringify(event)}][${index}]`
+        if (hasEntries(command.env)) unsupportedAxes.push(`${path}.env`)
+        if (command.blocking !== undefined) unsupportedAxes.push(`${path}.blocking`)
+      }
+    }
+  }
+  for (const [name, subagent] of Object.entries(profile.subagents ?? {})) {
+    const path = `subagents[${JSON.stringify(name)}]`
+    if (hasEntries(subagent.permissions)) unsupportedAxes.push(`${path}.permissions`)
+    if (subagent.maxSteps !== undefined) unsupportedAxes.push(`${path}.maxSteps`)
+    if (hasEntries(subagent.tools) && harness !== 'claude') {
+      unsupportedAxes.push(`${path}.tools`)
+    }
+  }
+  if (unsupportedAxes.length > 0) {
+    throw new Error(
+      `runWorktreeHarness: profile requests unsupported worktree behavior: ${unsupportedAxes.join(', ')}`,
+    )
+  }
+}
+
+function hasEntries(value: object | undefined): boolean {
+  return value !== undefined && Object.keys(value).length > 0
+}
+
+function assertSafeMaterializedPaths(plan: WorkspacePlan): void {
+  for (const file of plan.files) {
+    if (file.relPath.split('/').some(isGitMetadataSegment)) {
+      throw new Error(
+        `runWorktreeHarness: profile file cannot target reserved Git metadata: ${file.relPath}`,
+      )
+    }
+  }
+}
+
+function isGitMetadataSegment(segment: string): boolean {
+  const windowsCanonical = segment.replace(/[ .]+$/u, '').toLowerCase()
+  return windowsCanonical === '.git' || windowsCanonical.startsWith('.git:')
 }
 
 function profileMaterializationReceipt(
