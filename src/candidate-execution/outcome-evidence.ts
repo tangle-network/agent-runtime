@@ -10,21 +10,16 @@ import {
   type AgentCandidateResolvedModel,
   type AgentCandidateTaskOutcomeEvidence,
   type AgentCandidateTermination,
+  type AgentCandidateWorkspaceSnapshotEvidence,
   agentCandidateBenchmarkResultEvidenceSchema,
   agentCandidateModelSettlementEvidenceSchema,
   agentCandidateTaskOutcomeEvidenceSchema,
-  agentCandidateWorkspaceSnapshotEvidenceSchema,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
 
 import { readMaterializedWorkspaceFiles } from './artifacts'
 import { runBoundCandidateBenchmarkGrader } from './benchmark-grader'
-import {
-  canonicalCandidateBytes,
-  embeddedCandidateArtifact,
-  immutableCandidateValue,
-  sha256Bytes,
-} from './digest'
+import { canonicalCandidateBytes, immutableCandidateValue, sha256Bytes } from './digest'
 import { verifyTaskOutcomePatch } from './git-materialize'
 import type { SealedAgentCandidateModelSettlement } from './model-settlement'
 import { persistCandidateOutputArtifact } from './output-artifacts'
@@ -37,6 +32,10 @@ import type {
   VerifiedAgentCandidateTaskOutcome,
 } from './types'
 import { verifiedTaskOutcomeBrand } from './types'
+import {
+  persistCandidateWorkspaceSnapshot,
+  provisionalCandidateWorkspaceSnapshot,
+} from './workspace-snapshot'
 
 export type PersistedAgentCandidateModelSettlement = AgentCandidateModelSettlementEvidence & {
   artifact: AgentCandidateArtifactRef
@@ -129,7 +128,8 @@ export async function persistVerifiedCandidateTaskOutcome(
   if (archive.byteLength === 0) throw new Error('candidate task archive cannot be empty')
   assertNoProtectedBytes(patch, protectedValues)
   assertNoProtectedBytes(archive, protectedValues)
-  const afterState = immutableCandidateValue(capture.afterState)
+  const provisional = provisionalCandidateWorkspaceSnapshot(capture.afterState, archive)
+  const afterState = provisional.material
   const repository = state.executionPlan.value.material.task.repository
   const verified = await verifyTaskOutcomePatch({
     repositoryRoot: state.roots.staging.taskRoot,
@@ -140,45 +140,21 @@ export async function persistVerifiedCandidateTaskOutcome(
     afterState,
   })
   signal?.throwIfAborted()
-  const manifestBytes = canonicalCandidateBytes(afterState)
-  assertNoProtectedBytes(manifestBytes, protectedValues)
-  const provisionalSnapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-snapshot',
-    digest: sha256Bytes(manifestBytes),
-    material: afterState,
-    manifest: embeddedCandidateArtifact(manifestBytes),
-    archive: embeddedCandidateArtifact(archive),
-  })
-  await verifyTaskOutcomeArchive(state, provisionalSnapshot, archive, protectedValues)
+  assertNoProtectedBytes(provisional.manifestBytes, protectedValues)
+  await verifyTaskOutcomeArchive(state, provisional.snapshot, archive, protectedValues)
   signal?.throwIfAborted()
-  const [manifest, archiveRef, gitDiff] = await Promise.all([
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'task-manifest',
-      bytes: manifestBytes,
-      signal,
-    }),
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'task-archive',
-      bytes: archive,
-      signal,
-    }),
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'task-patch',
-      bytes: patch,
-      signal,
-    }),
-  ])
-  const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-snapshot',
-    digest: sha256Bytes(manifestBytes),
+  const snapshot = await persistCandidateWorkspaceSnapshot(outputArtifacts, {
+    executionId: state.executionId,
     material: afterState,
-    manifest,
-    archive: archiveRef,
+    archive,
+    purpose: 'task',
+    signal,
+  })
+  const gitDiff = await persistCandidateOutputArtifact(outputArtifacts, {
+    executionId: state.executionId,
+    purpose: 'task-patch',
+    bytes: patch,
+    signal,
   })
   const material = {
     schemaVersion: 1 as const,
@@ -303,7 +279,7 @@ export async function persistCandidateBenchmarkResult(
 
 async function verifyTaskOutcomeArchive(
   state: PreparedCandidateState,
-  snapshot: ReturnType<typeof agentCandidateWorkspaceSnapshotEvidenceSchema.parse>,
+  snapshot: AgentCandidateWorkspaceSnapshotEvidence,
   archive: Uint8Array,
   protectedValues: readonly string[],
 ): Promise<void> {

@@ -12,18 +12,10 @@ import type {
   AgentCandidateSpend,
   AgentCandidateTermination,
 } from '@tangle-network/agent-interface'
-import {
-  agentCandidateRunReceiptV2Schema,
-  agentCandidateWorkspaceSnapshotEvidenceSchema,
-} from '@tangle-network/agent-interface'
+import { agentCandidateRunReceiptV2Schema } from '@tangle-network/agent-interface'
 
 import { readMaterializedWorkspaceFiles } from './artifacts'
-import {
-  canonicalCandidateBytes,
-  canonicalCandidateDocument,
-  embeddedCandidateArtifact,
-  sha256Bytes,
-} from './digest'
+import { canonicalCandidateBytes, canonicalCandidateDocument } from './digest'
 import {
   sealAgentCandidateExecutorFinalCapture,
   sealAgentCandidateProtectedRunCapture,
@@ -49,6 +41,10 @@ import {
   CANDIDATE_TRACE_TAGS,
   type VerifiedAgentCandidateTaskOutcome,
 } from './types'
+import {
+  persistCandidateWorkspaceSnapshot,
+  provisionalCandidateWorkspaceSnapshot,
+} from './workspace-snapshot'
 
 interface CandidateFinalizationEvidence {
   finalCapture: AgentCandidateExecutorFinalCapture
@@ -278,25 +274,17 @@ async function memoryReceipt(
     return { mode: 'disabled' }
   }
   if (!capture.memoryAfter) throw new Error('isolated memory is missing its protected after-state')
-  const afterState = capture.memoryAfter.afterState
   const archive = Uint8Array.from(capture.memoryAfter.archive)
   if (archive.byteLength === 0) throw new Error('isolated memory archive cannot be empty')
-  const manifestBytes = canonicalCandidateBytes(afterState)
-  assertNoProtectedBytes(manifestBytes, protectedValues)
+  const provisional = provisionalCandidateWorkspaceSnapshot(capture.memoryAfter.afterState, archive)
+  const afterState = provisional.material
+  assertNoProtectedBytes(provisional.manifestBytes, protectedValues)
   assertNoProtectedBytes(archive, protectedValues)
-  const provisionalSnapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-snapshot',
-    digest: sha256Bytes(manifestBytes),
-    material: afterState,
-    manifest: embeddedCandidateArtifact(manifestBytes),
-    archive: embeddedCandidateArtifact(archive),
-  })
   const root = await mkdtemp(join(tmpdir(), 'agent-candidate-memory-after-'))
   try {
     await state.ports.workspaces.materialize({
       role: 'memory',
-      snapshot: provisionalSnapshot,
+      snapshot: provisional.snapshot,
       archive: Uint8Array.from(archive),
       destination: root,
     })
@@ -306,27 +294,12 @@ async function memoryReceipt(
   } finally {
     await rm(root, { recursive: true, force: true })
   }
-  const [manifest, archiveRef] = await Promise.all([
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'memory-after-manifest',
-      bytes: manifestBytes,
-      signal,
-    }),
-    persistCandidateOutputArtifact(outputArtifacts, {
-      executionId: state.executionId,
-      purpose: 'memory-after-archive',
-      bytes: archive,
-      signal,
-    }),
-  ])
-  const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-snapshot',
-    digest: sha256Bytes(manifestBytes),
+  const snapshot = await persistCandidateWorkspaceSnapshot(outputArtifacts, {
+    executionId: state.executionId,
     material: afterState,
-    manifest,
-    archive: archiveRef,
+    archive,
+    purpose: 'memory-after',
+    signal,
   })
   return {
     mode: 'isolated',
