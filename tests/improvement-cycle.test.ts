@@ -96,9 +96,21 @@ async function agent(
   _scenario: DemoScenario,
   context: DispatchContext,
 ): Promise<string> {
-  context.cost.observe(0.0001, 'fixture')
-  context.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await context.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'fixture',
+    model: 'fixture-model',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'fixture-model',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 function fixtureProfile() {
@@ -217,10 +229,24 @@ describe('agent improvement lifecycle', () => {
               },
             },
             agent: async (surface, _scenario, context) => {
-              context.cost.observe(0.0001, 'fixture')
-              context.cost.observeTokens({ input: 1, output: 1 })
-              if (typeof surface === 'string') throw new Error('expected code surface')
-              return readFileSync(join(surface.worktreeRef, 'module.txt'), 'utf8')
+              const paid = await context.cost.runPaidCall({
+                channel: 'agent',
+                actor: 'fixture',
+                model: 'fixture-model',
+                maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+                execute: async () => {
+                  if (typeof surface === 'string') throw new Error('expected code surface')
+                  return readFileSync(join(surface.worktreeRef, 'module.txt'), 'utf8')
+                },
+                receipt: () => ({
+                  model: 'fixture-model',
+                  inputTokens: 1,
+                  outputTokens: 1,
+                  actualCostUsd: 0.0001,
+                }),
+              })
+              if (!paid.succeeded) throw paid.error
+              return paid.value
             },
             code: {
               repoRoot,

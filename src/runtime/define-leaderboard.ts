@@ -39,6 +39,7 @@ import {
   expandProfileAxes,
   type HarnessType,
   harnessAxisOf,
+  type MaximumCharge,
 } from '@tangle-network/agent-eval'
 import {
   type JudgeConfig,
@@ -208,7 +209,7 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
    * an out-of-family model expands to the `default` sentinel): the RunRecord
    * must pin a real snapshot-bearing model id, which only the dispatch —
    * reading the backend's usage/terminal events — can know. When this returns
-   * a value the default dispatch reports it via `ctx.cost.observeModel`;
+   * a value the default dispatch records it on the paid-call receipt;
    * in-family cells (concrete declared model) never need it.
    */
   resolveModel?: (events: readonly SandboxEvent[]) => string | undefined
@@ -227,6 +228,11 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
   shots?: number
   /** Replicates per cell (`--reps`). Default 1. */
   reps?: number
+  /** Provider- or executor-enforced maximum for one cell dispatch. Required
+   * before execution when `matrix.costCeiling` is configured. */
+  maximumCharge?:
+    | MaximumCharge
+    | ((profile: AgentProfile, scenario: LeaderboardScenario<TCase>) => MaximumCharge | undefined)
   /** Passthrough overrides spread onto the final `runProfileMatrix` call
    *  (e.g. `maxConcurrency`, `costCeiling`, `integrity`, `storage`) — spread
    *  LAST, so anything the facade wired can be overridden. */
@@ -470,8 +476,9 @@ export function defineLeaderboard<TCase, TArtifact = string>(
     // per-cell resource cost) so the loop's finished iterations can be joined
     // with the campaign ctx: onCellEvents gets EVERY shot's outcome (a thrown
     // shot never reaches parse, so parse-time tapping would hide it), and a
-    // spec-resolved served model reaches ctx.cost.observeModel (the only
-    // channel that pins HARNESS_NATIVE_MODEL-snapped cells to a real model).
+    // the cost receipt records the spec-resolved served model (the only way to
+    // pin HARNESS_NATIVE_MODEL-snapped cells to a real model).
+    const maximumCharge = spec.maximumCharge
     const dispatch: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact> = spec.dispatch ??
     ((profile, scenario, dispatchCtx) => {
       const cellDispatch = loopDispatch<
@@ -482,6 +489,24 @@ export function defineLeaderboard<TCase, TArtifact = string>(
         TArtifact
       >({
         sandboxClient,
+        maximumCharge:
+          typeof maximumCharge === 'function'
+            ? (cellScenario, cellProfile) => maximumCharge(cellProfile, cellScenario)
+            : maximumCharge,
+        resolveCostModel: (result, _cellScenario, cellProfile) => {
+          if (!spec.resolveModel) return cellProfile.model?.default
+          const served = new Set(
+            result.iterations
+              .map((iteration) => spec.resolveModel?.(iteration.events))
+              .filter((model): model is string => model !== undefined),
+          )
+          if (served.size > 1) {
+            throw new Error(
+              `defineLeaderboard(${spec.name}): one cell reported multiple served models: ${[...served].join(', ')}`,
+            )
+          }
+          return [...served][0] ?? cellProfile.model?.default
+        },
         toLoopOptions: (cellScenario, cellProfile) => {
           // The cell's harness + model come off the profile's axis stamp set
           // by expandProfileAxes; the sandbox create override carries them to
@@ -536,10 +561,6 @@ export function defineLeaderboard<TCase, TArtifact = string>(
               ...(iter.error ? { error: iter.error.message } : {}),
               ...(iter.verdict ? { verdict: { score: iter.verdict.score } } : {}),
             })
-            if (spec.resolveModel) {
-              const served = spec.resolveModel(iter.events)
-              if (served !== undefined) dispatchCtx.cost.observeModel?.(served)
-            }
           }
           // Same as loopDispatch's default: no winner → undefined artifact
           // (judges skip the cell; usage is still reported).

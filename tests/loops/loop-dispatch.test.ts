@@ -1,4 +1,5 @@
-import type { DispatchContext } from '@tangle-network/agent-eval/campaign'
+import { CostLedger } from '@tangle-network/agent-eval'
+import type { CampaignCostMeter, DispatchContext } from '@tangle-network/agent-eval/campaign'
 import type {
   CreateSandboxOptions,
   AgentProfile as SandboxAgentProfile,
@@ -26,7 +27,7 @@ interface FakeScenario {
   kind: string
 }
 
-const sandboxProfile: SandboxAgentProfile = { name: 'stub' }
+const sandboxProfile: SandboxAgentProfile = { name: 'stub', model: { default: 'm' } }
 
 function spec(): AgentRunSpec<Task> {
   return { profile: sandboxProfile, name: 'agent', taskToPrompt: (t) => t.goal }
@@ -60,15 +61,23 @@ function stubClient(events: SandboxEvent[]): {
 }
 
 /** Minimal campaign DispatchContext that records what the dispatch reports. */
-function fakeDispatchContext(): {
+function fakeDispatchContext(costCeilingUsd?: number): {
   ctx: DispatchContext
-  observed: Array<{ usd: number; src: string }>
-  tokens: { input: number; output: number }
+  ledger: CostLedger
   spans: string[]
 } {
-  const observed: Array<{ usd: number; src: string }> = []
-  const tokens = { input: 0, output: 0 }
+  const ledger = new CostLedger(costCeilingUsd === undefined ? {} : { costCeilingUsd })
   const spans: string[] = []
+  const cost: CampaignCostMeter = {
+    runPaidCall(input) {
+      return ledger.runPaidCall({
+        ...input,
+        channel: input.channel ?? 'agent',
+        phase: 'test-cell',
+        tags: { cellId: 'cell-0' },
+      })
+    },
+  }
   const ctx: DispatchContext = {
     cellId: 'cell-0',
     rep: 0,
@@ -89,23 +98,9 @@ function fakeDispatchContext(): {
         return 'p'
       },
     },
-    cost: {
-      observe(usd: number, src: string) {
-        observed.push({ usd, src })
-      },
-      observeTokens(u: { input: number; output: number }) {
-        tokens.input += u.input
-        tokens.output += u.output
-      },
-      current() {
-        return 0
-      },
-      tokens() {
-        return tokens
-      },
-    },
+    cost,
   }
-  return { ctx, observed, tokens, spans }
+  return { ctx, ledger, spans }
 }
 
 describe('loopDispatch', () => {
@@ -130,8 +125,18 @@ describe('loopDispatch', () => {
     const artifact = await dispatch({ id: 'fixture-a', kind: 'eval-fixture' }, fake.ctx)
 
     expect(artifact).toEqual({ attempt: 3 })
-    expect(fake.observed).toEqual([{ usd: 0.015, src: 'loop' }])
-    expect(fake.tokens).toEqual({ input: 120, output: 40 })
+    expect(fake.ledger.list()).toEqual([
+      expect.objectContaining({
+        channel: 'agent',
+        phase: 'test-cell',
+        actor: 'loop',
+        model: 'm',
+        inputTokens: 120,
+        outputTokens: 40,
+        actualCostUsd: 0.015,
+        costUsd: 0.015,
+      }),
+    ])
     expect(fake.spans).toContain('loop.started')
     expect(fake.spans).toContain('loop.ended')
   })
@@ -154,14 +159,22 @@ describe('loopDispatch', () => {
     })
 
     const fake = fakeDispatchContext()
-    const profile = { id: 'baseline', model: 'test-model@2025-01-01' }
+    const profile = { name: 'baseline', model: { default: 'test-model@2025-01-01' } }
     const artifact = await dispatch(profile, { id: 's1', kind: 'task' }, fake.ctx)
 
     // Returns the loop's winner output.
     expect(artifact).toEqual({ attempt: 2 })
     // Usage reported to the campaign cost meter — the integrity guard's input.
-    expect(fake.observed).toEqual([{ usd: 0.02, src: 'loop' }])
-    expect(fake.tokens).toEqual({ input: 150, output: 60 })
+    expect(fake.ledger.list()).toEqual([
+      expect.objectContaining({
+        actor: 'loop',
+        model: 'test-model@2025-01-01',
+        inputTokens: 150,
+        outputTokens: 60,
+        actualCostUsd: 0.02,
+        costUsd: 0.02,
+      }),
+    ])
     // Loop trace events forwarded into the campaign trace as spans.
     expect(fake.spans).toContain('loop.started')
     expect(fake.spans).toContain('loop.ended')
@@ -189,10 +202,115 @@ describe('loopDispatch', () => {
       }),
     })
     const fake = fakeDispatchContext()
-    await dispatch({ id: 'p', model: 'm@2025-01-01' }, { id: 's1', kind: 'task' }, fake.ctx)
+    await dispatch(
+      { name: 'p', model: { default: 'm@2025-01-01' } },
+      { id: 's1', kind: 'task' },
+      fake.ctx,
+    )
     // The validator failed, but real LLM activity happened — tokens + cost MUST
     // still reach the cost meter, or the integrity guard would call it a stub.
-    expect(fake.tokens).toEqual({ input: 90, output: 20 })
-    expect(fake.observed).toEqual([{ usd: 0.01, src: 'loop' }])
+    expect(fake.ledger.list()).toEqual([
+      expect.objectContaining({
+        inputTokens: 90,
+        outputTokens: 20,
+        actualCostUsd: 0.01,
+        costUsd: 0.01,
+      }),
+    ])
+  })
+
+  it('settles partial terminal usage when a sandbox stream fails after spending', async () => {
+    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
+      sandboxClient: {
+        async create() {
+          return {
+            async *streamPrompt() {
+              yield {
+                type: 'llm_call',
+                data: { tokensIn: 33, tokensOut: 7, costUsd: 0.004, model: 'm' },
+              } as SandboxEvent
+              throw new Error('sandbox stream failed')
+            },
+          } as unknown as SandboxInstance
+        },
+      },
+      toLoopOptions: () => ({
+        driver: refineDriver<Task, Output>(),
+        agentRun: spec(),
+        output,
+        task: { goal: 'partial failure' },
+        maxIterations: 1,
+      }),
+    })
+    const fake = fakeDispatchContext()
+
+    await expect(dispatch({ id: 'partial', kind: 'task' }, fake.ctx)).resolves.toBeUndefined()
+    expect(fake.ledger.list()).toEqual([
+      expect.objectContaining({
+        inputTokens: 33,
+        outputTokens: 7,
+        actualCostUsd: 0.004,
+        costUsd: 0.004,
+      }),
+    ])
+  })
+
+  it('refuses a capped cell before creating a sandbox when no hard maximum is supplied', async () => {
+    let creates = 0
+    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
+      sandboxClient: {
+        async create() {
+          creates += 1
+          throw new Error('must not dispatch')
+        },
+      },
+      toLoopOptions: () => ({
+        driver: refineDriver<Task, Output>(),
+        agentRun: spec(),
+        output,
+        task: { goal: 'bounded' },
+        maxIterations: 1,
+      }),
+    })
+    const fake = fakeDispatchContext(1)
+
+    await expect(dispatch({ id: 'bounded', kind: 'task' }, fake.ctx)).rejects.toThrow(
+      /hard maximumCharge before execution/,
+    )
+    expect(creates).toBe(0)
+    expect(fake.ledger.list()).toHaveLength(0)
+  })
+
+  it('admits a capped cell when the executor supplies an enforced maximum', async () => {
+    let creates = 0
+    const dispatch = loopCampaignDispatch<Task, Output, 'stop', FakeScenario, Output>({
+      sandboxClient: {
+        async create() {
+          creates += 1
+          return stubClient([
+            { type: 'llm_call', data: { tokensIn: 10, tokensOut: 5, costUsd: 0.01 } },
+            { type: 'result', data: { attempt: 1 } },
+          ]).create()
+        },
+      },
+      maximumCharge: { externallyEnforcedMaximumUsd: 0.02 },
+      toLoopOptions: () => ({
+        driver: refineDriver<Task, Output>(),
+        agentRun: spec(),
+        output,
+        validator: passAlways,
+        task: { goal: 'bounded' },
+        maxIterations: 1,
+      }),
+    })
+    const fake = fakeDispatchContext(1)
+
+    await expect(dispatch({ id: 'bounded', kind: 'task' }, fake.ctx)).resolves.toEqual({
+      attempt: 1,
+    })
+    expect(creates).toBe(1)
+    expect(fake.ledger.list()).toEqual([
+      expect.objectContaining({ maximumCostUsd: 0.02, costUsd: 0.01 }),
+    ])
   })
 })

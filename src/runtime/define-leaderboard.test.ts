@@ -173,7 +173,7 @@ describe('defineLeaderboard', () => {
       'moonshot/kimi-k2@2026-01-01',
     ]
     await expect(board().run([...snappedAxis, '--cases', 'case-alpha'])).rejects.toThrow(
-      /observeModel/,
+      /paid-call receipt/,
     )
 
     const result = await board({

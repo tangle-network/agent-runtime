@@ -106,13 +106,23 @@ function webcodeDispatch(
       { agentRun, scenarioId: task.id, signal: ctx.signal },
       { kind: 'events', fromEvents: () => ({ passed: false }) },
     )
-    const turn = await run.start(prompt)
-    // Report the run's real usage so the backend-integrity guard sees a real backend (not a stub). The
-    // ONE metering seam — sums usage across every backend event shape.
-    const usage = sumSandboxUsage(turn.events)
-    if (usage.input || usage.output)
-      ctx.cost.observeTokens({ input: usage.input, output: usage.output })
-    if (usage.costUsd) ctx.cost.observe(usage.costUsd, 'webcode-cell')
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: 'webcode-cell',
+      model,
+      signal: ctx.signal,
+      execute: () => run.start(prompt),
+      receipt: (turn) => {
+        const usage = sumSandboxUsage(turn.events)
+        return {
+          model,
+          inputTokens: usage.input,
+          outputTokens: usage.output,
+          ...(usage.costUsd > 0 ? { actualCostUsd: usage.costUsd } : {}),
+        }
+      },
+    })
+    if (!paid.succeeded) throw paid.error
 
     // Grade with Exa's EXACT test_patch: drop it into the box, ensure pytest, run it, score on exit. A
     // missing language toolchain (an exotic per-task image not provisioned) surfaces as a failing test —

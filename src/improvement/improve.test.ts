@@ -60,17 +60,36 @@ const improvementJudge: JudgeConfig<{ text: string }, Scenario> = {
   },
 }
 
-// The agent reports a token-bearing cost so the backend-integrity guard treats
-// it as a real backend. Without `ctx.cost.observeTokens`, the default
-// `expectUsage: 'assert'` reads the cell as a silent-zero stub and throws.
+async function paidStubCall<T>(
+  ctx: DispatchContext,
+  actor: string,
+  execute: () => T | Promise<T>,
+): Promise<T> {
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor,
+    model: 'stub-model',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => execute(),
+    receipt: () => ({
+      model: 'stub-model',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
+}
+
+// The fake dispatch enters the same paid-call path as a real backend so the
+// backend-integrity check sees its explicit token and cost receipt.
 async function stubAgent(
   surface: unknown,
   _scenario: Scenario,
   ctx: DispatchContext,
 ): Promise<{ text: string }> {
-  ctx.cost.observe(0.0001, 'stub-agent')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return { text: String(surface) }
+  return paidStubCall(ctx, 'stub-agent', () => ({ text: String(surface) }))
 }
 
 const promptProfile = (): AgentProfile => ({
@@ -222,9 +241,9 @@ describe('improve() — default proposer resolution (substrate export drift guar
         scenarios,
         judge: surfaceKindJudge,
         agent: async (surface, _scenario, ctx) => {
-          ctx.cost.observe(0.0001, 'stub-agent')
-          ctx.cost.observeTokens({ input: 1, output: 1 })
-          return { text: typeof surface === 'string' ? 'text' : surface.kind }
+          return paidStubCall(ctx, 'stub-agent', () => ({
+            text: typeof surface === 'string' ? 'text' : surface.kind,
+          }))
         },
         memory: {
           document: '# Durable memory\n',
@@ -329,9 +348,7 @@ describe('improve() — default proposer resolution (substrate export drift guar
       scenarios,
       judge: docJudge,
       agent: async (surface, _s, ctx) => {
-        ctx.cost.observe(0.0001, 'stub')
-        ctx.cost.observeTokens({ input: 1, output: 1 })
-        return { doc: String(surface) }
+        return paidStubCall(ctx, 'stub', () => ({ doc: String(surface) }))
       },
       generator: stubProposer as never,
       skills: {
@@ -594,15 +611,15 @@ describe('improve() — default proposer resolution (substrate export drift guar
         scenarios,
         judge: improvementJudge,
         agent: async (surface, _scenario, ctx) => {
-          ctx.cost.observe(0.0001, 'stub-agent')
-          ctx.cost.observeTokens({ input: 1, output: 1 })
-          measured.push(surface)
-          if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-            throw new Error('expected code surface')
-          }
-          return {
-            text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-          }
+          return paidStubCall(ctx, 'stub-agent', () => {
+            measured.push(surface)
+            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+              throw new Error('expected code surface')
+            }
+            return {
+              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+            }
+          })
         },
         code: {
           repoRoot,
@@ -685,14 +702,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
         scenarios,
         judge,
         agent: async (surface, _scenario, ctx) => {
-          ctx.cost.observe(0.0001, 'stub-agent')
-          ctx.cost.observeTokens({ input: 1, output: 1 })
-          if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-            throw new Error('expected code surface')
-          }
-          return {
-            text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-          }
+          return paidStubCall(ctx, 'stub-agent', () => {
+            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+              throw new Error('expected code surface')
+            }
+            return {
+              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+            }
+          })
         },
         code: {
           repoRoot,
@@ -759,14 +776,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
           scenarios,
           judge: improvementJudge,
           agent: async (surface, _scenario, ctx) => {
-            ctx.cost.observe(0.0001, 'stub-agent')
-            ctx.cost.observeTokens({ input: 1, output: 1 })
-            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-              throw new Error('expected code surface')
-            }
-            return {
-              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-            }
+            return paidStubCall(ctx, 'stub-agent', () => {
+              if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+                throw new Error('expected code surface')
+              }
+              return {
+                text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+              }
+            })
           },
           code: {
             repoRoot,
@@ -793,8 +810,12 @@ describe('improve() — default proposer resolution (substrate export drift guar
         caught = cause
       }
 
-      expect(caught).toBeInstanceOf(AggregateError)
-      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
+      const aggregate =
+        caught instanceof AggregateError
+          ? caught
+          : (caught as { cause?: unknown } | undefined)?.cause
+      expect(aggregate).toBeInstanceOf(AggregateError)
+      expect((aggregate as AggregateError).errors).toHaveLength(fixture.expectedErrors)
       expect(discardAttempts).toBe(3)
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
         fixture.expectedWorktrees,
@@ -851,14 +872,14 @@ describe('improve() — default proposer resolution (substrate export drift guar
           scenarios,
           judge,
           agent: async (surface, _scenario, ctx) => {
-            ctx.cost.observe(0.0001, 'stub-agent')
-            ctx.cost.observeTokens({ input: 1, output: 1 })
-            if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
-              throw new Error('expected code surface')
-            }
-            return {
-              text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
-            }
+            return paidStubCall(ctx, 'stub-agent', () => {
+              if (typeof surface !== 'object' || surface === null || !('worktreeRef' in surface)) {
+                throw new Error('expected code surface')
+              }
+              return {
+                text: readFileSync(join(String(surface.worktreeRef), 'module.txt'), 'utf8'),
+              }
+            })
           },
           code: {
             repoRoot,
@@ -876,8 +897,12 @@ describe('improve() — default proposer resolution (substrate export drift guar
         caught = cause
       }
 
-      expect(caught).toBeInstanceOf(AggregateError)
-      expect((caught as AggregateError).errors).toHaveLength(fixture.expectedErrors)
+      const aggregate =
+        caught instanceof AggregateError
+          ? caught
+          : (caught as { cause?: unknown } | undefined)?.cause
+      expect(aggregate).toBeInstanceOf(AggregateError)
+      expect((aggregate as AggregateError).errors).toHaveLength(fixture.expectedErrors)
       expect(discardAttempts).toBe(fixture.expectedDiscardAttempts)
       expect(String(git('worktree list --porcelain')).match(/^worktree /gm)).toHaveLength(
         fixture.expectedWorktrees,

@@ -22,8 +22,8 @@ importers:
         specifier: ^2.4.15
         version: 2.4.15
       '@tangle-network/agent-eval':
-        specifier: ^0.115.1
-        version: 0.115.1(typescript@5.9.3)
+        specifier: 0.117.1
+        version: 0.117.1(typescript@5.9.3)
       '@tangle-network/agent-interface':
         specifier: ^0.25.0
         version: 0.25.0
@@ -654,6 +654,11 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
+  '@tangle-network/agent-eval@0.117.1':
+    resolution: {integrity: sha512-mtBdGhGIC+nrPZbseLQo0Iako1LR66ZeIr2UjVBJcNj/lHYfib2jbhdWy3RmbQcHR0Cxdqqydn7pLJ5dSXVYtQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   '@tangle-network/agent-interface@0.13.0':
     resolution: {integrity: sha512-CeTPGRLoXqpt0h+BCyFgZPkfU1zyRpWmqfD+85i/uk+uvbqxkfI+JprfKVf3tBsQuCgJPSjPt5qjdW8n3h2BVg==}
 
@@ -940,8 +945,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  hono@4.12.28:
-    resolution: {integrity: sha512-YwUvVpSF7m1yOblFPrU3Hbo8XhPheBoiyfGuII6z19LnOr6JpDnyyp7LFNrfV56wS8tpvtBFGRISHN02pDdLOA==}
+  hono@4.12.30:
+    resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
     engines: {node: '>=16.9.0'}
 
   isows@1.0.7:
@@ -1534,9 +1539,9 @@ snapshots:
       '@shikijs/types': 3.23.0
       '@shikijs/vscode-textmate': 10.0.2
 
-  '@hono/node-server@2.0.8(hono@4.12.28)':
+  '@hono/node-server@2.0.8(hono@4.12.30)':
     dependencies:
-      hono: 4.12.28
+      hono: 4.12.30
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -1698,10 +1703,28 @@ snapshots:
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
       '@ax-llm/ax': 19.0.45(zod@4.4.3)
-      '@hono/node-server': 2.0.8(hono@4.12.28)
+      '@hono/node-server': 2.0.8(hono@4.12.30)
       '@tangle-network/agent-interface': 0.22.0
       '@tangle-network/tcloud': 0.4.14(typescript@5.9.3)(zod@4.4.3)
-      hono: 4.12.28
+      hono: 4.12.30
+      zod: 4.4.3
+    transitivePeerDependencies:
+      - '@mastra/core'
+      - '@modelcontextprotocol/sdk'
+      - ai
+      - bufferutil
+      - openai
+      - typescript
+      - utf-8-validate
+
+  '@tangle-network/agent-eval@0.117.1(typescript@5.9.3)':
+    dependencies:
+      '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.4.3)
+      '@ax-llm/ax': 19.0.45(zod@4.4.3)
+      '@hono/node-server': 2.0.8(hono@4.12.30)
+      '@tangle-network/agent-interface': 0.22.0
+      '@tangle-network/tcloud': 0.4.14(typescript@5.9.3)(zod@4.4.3)
+      hono: 4.12.30
       zod: 4.4.3
     transitivePeerDependencies:
       - '@mastra/core'
@@ -2018,7 +2041,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  hono@4.12.28: {}
+  hono@4.12.30: {}
 
   isows@1.0.7(ws@8.21.0):
     dependencies:
