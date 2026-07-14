@@ -65,8 +65,11 @@ async function main(): Promise<void> {
   const trainN = Number(process.env.TRAIN_N ?? 12)
   const holdoutN = Number(process.env.HOLDOUT_N ?? 12)
   const offset = Number(process.env.OFFSET ?? 80)
-  const generations = Number(process.env.GENERATIONS ?? 1)
-  const population = Number(process.env.POPULATION ?? 2)
+  // generations=1 never exercises the GEPA Pareto/combine path (the frontier
+  // needs >=1 completed generation before combine can fire) — default to a
+  // multi-generation budget so the default run measures the full loop.
+  const generations = Number(process.env.GENERATIONS ?? 6)
+  const population = Number(process.env.POPULATION ?? 4)
   const workerMaxTokens = Number(process.env.MAX_TOKENS ?? 6000)
   const reflectMaxTokens = Number(process.env.REFLECT_MAX_TOKENS ?? 8000)
   const maxConcurrency = Number(process.env.MAX_CONCURRENCY ?? 4)
@@ -115,9 +118,21 @@ async function main(): Promise<void> {
         console.log(`  [judge] ${scenario.id} pass=0 (empty)`)
         return { dimensions: { pass: 0 }, composite: 0, notes: 'empty' }
       }
-      const { pass } = await runChecker(t, code)
+      const { pass, detail } = await runChecker(t, code)
       console.log(`  [judge] ${scenario.id} pass=${pass}`)
-      return { dimensions: { pass }, composite: pass, notes: pass === 1 ? 'passed' : 'failed' }
+      if (pass === 1) return { dimensions: { pass }, composite: pass, notes: 'passed' }
+      // Trajectory-grounded failure note: the checker's traceback/assertion tail
+      // plus the model's own emitted code, so GEPA reflection sees WHAT failed and
+      // WHAT the model wrote — not just the word 'failed'. The candidate's full
+      // raw reply additionally reaches the proposer via the campaign breakdown's
+      // `emitted` field (carried automatically from the string artifact).
+      const traceback = (detail ?? 'checker produced no output (timeout or silent non-zero exit)').slice(-800)
+      const excerpt = code.slice(0, 700)
+      return {
+        dimensions: { pass },
+        composite: pass,
+        notes: `${traceback}\n--- emitted code (first 700 chars) ---\n${excerpt}`,
+      }
     },
   }
 
@@ -146,6 +161,11 @@ async function main(): Promise<void> {
     judge,
     agent,
     expectUsage: 'warn',
+    // rawTraceContext stays OFF deliberately: it swaps the distilled findings for
+    // filesystem paths + grep/cat instructions (rawTraceDistiller), which only a
+    // coding harness can execute. This run's proposer is prompt-tier (gepaProposer
+    // — a single LLM call that cannot run grep), so the trace evidence arrives via
+    // the judge's traceback notes + the breakdown's `emitted` excerpt instead.
     budget: { generations, populationSize: population, holdoutScenarios, maxConcurrency, reps: 1 },
     llm: { baseUrl: reflectBase, apiKey: reflectKey, model: reflectModel },
   })

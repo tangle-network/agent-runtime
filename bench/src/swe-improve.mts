@@ -169,7 +169,10 @@ async function main(): Promise<void> {
       if (!bt) throw new Error(`judge: unknown scenario ${scenario.id}`)
       const s = await adapter.judge(bt, patch)
       console.log(`  [judge] ${scenario.id} resolved=${s.resolved ? 1 : 0}`)
-      return { dimensions: { resolved: s.resolved ? 1 : 0 }, composite: s.resolved ? 1 : 0, notes: (s.detail ?? '').slice(0, 200) }
+      // 1500 chars keeps the whole swebench report JSON (a flat summary object —
+      // it has no separate failure section to extract); the old 200 clipped it to
+      // an uninformative head, leaving GEPA reflection trace-blind.
+      return { dimensions: { resolved: s.resolved ? 1 : 0 }, composite: s.resolved ? 1 : 0, notes: (s.detail ?? '').slice(0, 1500) }
     },
   }
 
