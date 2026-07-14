@@ -95,7 +95,7 @@ export interface ImproveOptions<TScenario extends Scenario, TArtifact> {
    *  trace-analyst over the runDir's traces) to replace it; pass `null` to disable
    *  and keep the static `findings` all the way through. */
   analyzeGeneration?: SelfImproveOptions<TScenario, TArtifact>['analyzeGeneration'] | null
-  /** META-HARNESS mode: instead of the ~400-char distilled findings, feed the
+  /** META-HARNESS mode: instead of the ~1500-char distilled findings, feed the
    *  proposer RAW-TRACE FILESYSTEM CONTEXT — the PATHS into the prior generation's
    *  real run traces under `runDir` (per-cell `spans.jsonl` event logs +
    *  `cached-result.json` scores + artifacts) plus a `grep`/`cat`-to-diagnose
@@ -251,16 +251,19 @@ function generationFailureDistiller<TScenario extends Scenario, TArtifact>(
             ? 0
             : judgeScores.reduce((sum, j) => sum + (j.composite ?? 0), 0) / judgeScores.length
         if (!error && composite >= 0.999) continue
+        // 1500 chars keeps a real traceback / failing assertion intact — the old
+        // 400 clipped executable-judge notes down to a stub, leaving the proposer
+        // trace-blind. Errors stay tighter (they are usually one-line).
         const notes = judgeScores
           .map((j) => j.notes)
           .filter((n): n is string => typeof n === 'string' && n.length > 0)
           .join('; ')
-          .slice(0, 400)
+          .slice(0, 1500)
         failures.push({
           scenario,
           composite: Number(composite.toFixed(3)),
           notes,
-          ...(error ? { error: error.slice(0, 200) } : {}),
+          ...(error ? { error: error.slice(0, 500) } : {}),
         })
       }
     }
