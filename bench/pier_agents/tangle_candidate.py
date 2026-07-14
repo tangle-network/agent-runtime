@@ -230,6 +230,7 @@ class TangleCandidateAgent(BaseAgent):
             WorkspaceBoundaryConfig(
                 contract=self._contract,
                 task_snapshot=self._task_snapshot,
+                control_root=_CONTROL_ROOT,
                 protected_roots=_PIER_PROTECTED_ROOTS,
                 error_type=PierCandidateError,
             ),
