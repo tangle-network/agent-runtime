@@ -70,9 +70,21 @@ async function promptAgent(
   _scenario: ProfileScenario,
   ctx: DispatchContext,
 ): Promise<{ prompt: string }> {
-  ctx.cost.observe(0.0001, 'profile-stack-test')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return { prompt: String(surface) }
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'profile-stack-test',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => ({ prompt: String(surface) }),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 interface LoopTask {

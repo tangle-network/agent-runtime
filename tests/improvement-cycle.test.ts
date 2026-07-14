@@ -105,9 +105,21 @@ async function agent(
   _scenario: DemoScenario,
   context: DispatchContext,
 ): Promise<string> {
-  context.cost.observe(0.0001, 'fixture')
-  context.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await context.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'fixture',
+    model: 'fixture-model',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'fixture-model',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 function fixtureProfile() {
@@ -183,6 +195,97 @@ describe('agent improvement lifecycle', () => {
       }),
     ).rejects.toThrow('cannot write memory before human approval')
     expect(writeBack).not.toHaveBeenCalled()
+  })
+
+  it('disposes a retained code winner when candidate construction fails', async () => {
+    const { execFileSync } = await import('node:child_process')
+    const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repoRoot = mkdtempSync(join(tmpdir(), 'improvement-cycle-code-cleanup-'))
+    const git = (...args: string[]) =>
+      execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: 'pipe' })
+    try {
+      git('init', '-q', '-b', 'main')
+      git('config', 'user.email', 'improvement-cycle@test.local')
+      git('config', 'user.name', 'improvement-cycle-test')
+      writeFileSync(join(repoRoot, 'module.txt'), 'BASELINE\n')
+      git('add', 'module.txt')
+      git('commit', '-qm', 'baseline')
+
+      const buildCandidate = vi.fn(async () => {
+        throw new Error('candidate construction failed')
+      })
+      await expect(
+        proposeAgentImprovement({
+          runId: 'analysis-run-code-build-failure',
+          profile: fixtureProfile(),
+          analysis: {
+            registry: registry([finding]),
+            inputs: {},
+            findingsStore: null,
+            log: () => {},
+          },
+          improvement: {
+            surface: 'code',
+            scenarios,
+            judge: {
+              name: 'code-marker',
+              dimensions: [{ key: 'marker', description: 'Code contains the promoted marker.' }],
+              score: ({ artifact }) => {
+                const composite = artifact.includes('PROMOTED') ? 1 : 0
+                return { dimensions: { marker: composite }, composite, notes: '' }
+              },
+            },
+            agent: async (surface, _scenario, context) => {
+              const paid = await context.cost.runPaidCall({
+                channel: 'agent',
+                actor: 'fixture',
+                model: 'fixture-model',
+                maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+                execute: async () => {
+                  if (typeof surface === 'string') throw new Error('expected code surface')
+                  return readFileSync(join(surface.worktreeRef, 'module.txt'), 'utf8')
+                },
+                receipt: () => ({
+                  model: 'fixture-model',
+                  inputTokens: 1,
+                  outputTokens: 1,
+                  actualCostUsd: 0.0001,
+                }),
+              })
+              if (!paid.succeeded) throw paid.error
+              return paid.value
+            },
+            code: {
+              repoRoot,
+              generator: {
+                kind: 'fixture',
+                async generate({ worktreePath }) {
+                  writeFileSync(join(worktreePath, 'module.txt'), 'PROMOTED\n')
+                  return { applied: true, summary: 'write promoted marker' }
+                },
+              },
+            },
+            promotionGate: {
+              name: 'fixture-ship',
+              decide: async () => ({
+                decision: 'ship',
+                reasons: ['candidate passes the fixture comparison'],
+                contributingGates: [],
+              }),
+            },
+            budget: { generations: 1, populationSize: 1, holdoutFraction: 0.25 },
+          },
+          buildCandidate,
+        }),
+      ).rejects.toThrow('candidate construction failed')
+
+      expect(buildCandidate).toHaveBeenCalledOnce()
+      expect(git('worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1)
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true })
+    }
   })
 
   it('binds typed candidate hooks to their equivalent measured profile commands', () => {

@@ -115,10 +115,8 @@ export interface OutputAdapter<Output> {
   parse(events: SandboxEvent[]): Output
 }
 
-/** LLM token usage. Structurally matches agent-eval's `RunTokenUsage` /
- *  `CampaignTokenUsage` ({ input, output }) so a loop result maps straight
- *  onto `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch — without
- *  which the backend-integrity guard reads the run as a stub. */
+/** LLM token usage. Structurally maps into agent-eval's paid-call receipt so a
+ * campaign dispatch settles real usage instead of appearing as a stub. */
 export interface LoopTokenUsage {
   input: number
   output: number
@@ -290,9 +288,8 @@ export interface LoopResult<Task, Output, Decision> {
   durationMs: number
   /** Sum of every iteration's `costUsd`. */
   costUsd: number
-  /** Sum of every iteration's token usage. Forward to
-   *  `ctx.cost.observeTokens` in a `runProfileMatrix` dispatch so the
-   *  integrity guard sees real LLM activity. */
+  /** Sum of every iteration's token usage. `loopDispatch` commits it through
+   *  the campaign's paid-call receipt. */
   tokenUsage: LoopTokenUsage
   /** Domain-free run provenance for auditability: the mount manifest recorded
    *  during `prepareBox` and the selection receipts for how the winner was

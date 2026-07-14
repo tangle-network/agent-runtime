@@ -1,13 +1,20 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
-import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
+import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
+import {
+  gitWorktreeAdapter,
+  type ProposeContext,
+  verifyCodeSurface,
+  type Worktree,
+  type WorktreeAdapter,
+} from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
 import type { ImprovementAdapter, ImprovementEditBatch } from '../src/analyst-loop/types'
 import { improvementDriver, reflectiveGenerator } from '../src/improvement'
+import type { CandidateGenerator } from '../src/improvement/improvement-driver'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -74,6 +81,34 @@ function reflectiveDriver(adapter: ImprovementAdapter<SurfaceImprovementEdit>) {
 }
 
 describe('improvementDriver — reflective generator', () => {
+  it('forwards the run-wide paid-call account and phase to every candidate author', async () => {
+    const observed: Array<{
+      costLedger: CostLedger | undefined
+      costPhase: string | undefined
+    }> = []
+    const costLedger = new CostLedger()
+    const generator: CandidateGenerator = {
+      kind: 'cost-forwarding-fixture',
+      async generate(args) {
+        observed.push({ costLedger: args.costLedger, costPhase: args.costPhase })
+        return { applied: false, summary: '' }
+      },
+    }
+    const driver = improvementDriver({
+      generator,
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+    const context = {
+      ...ctxWith(FINDINGS),
+      costLedger,
+      costPhase: 'search.proposal',
+    } as ProposeContext<AnalystFinding>
+
+    await expect(driver.propose(context)).resolves.toEqual([])
+    expect(observed).toEqual([{ costLedger, costPhase: 'search.proposal' }])
+  })
+
   it('applies drafted edits into one worktree and returns a CodeSurface', async () => {
     const adapter = stubAdapter({ edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] })
     const driver = reflectiveDriver(adapter)
@@ -174,6 +209,101 @@ describe('improvementDriver — reflective generator', () => {
     }
   })
 
+  it('forks isolated generation-two candidates from the promoted generation-one surface', async () => {
+    const worktree = gitWorktreeAdapter({ repoRoot })
+    const baselineWorktree = await worktree.create({ baseRef: 'main', label: 'baseline' })
+    const baseline = await worktree.finalize(baselineWorktree, 'baseline')
+    let call = 0
+    const driver = improvementDriver({
+      generator: {
+        kind: 'cumulative-stub',
+        proposesWithoutFindings: true,
+        async generate({ worktreePath }) {
+          expect(git(['status', '--porcelain'], worktreePath)).toBe('')
+          const current = readFileSync(join(worktreePath, 'prompt.md'), 'utf8')
+          if (call === 0) {
+            expect(current).toBe('lax rubric\n')
+            writeFileSync(join(worktreePath, 'prompt.md'), 'lax rubric\ngeneration one\n')
+          } else {
+            expect(current).toBe('lax rubric\ngeneration one\n')
+            writeFileSync(
+              join(worktreePath, 'prompt.md'),
+              `lax rubric\ngeneration one\ngeneration two candidate ${call}\n`,
+            )
+          }
+          call++
+          return { applied: true, summary: `generation ${call}` }
+        },
+      },
+      worktree,
+      baseRef: 'main',
+    })
+
+    const [generationOne] = await driver.propose({
+      ...ctxWith([]),
+      currentSurface: baseline,
+      generation: 0,
+    })
+    if (!generationOne || typeof generationOne === 'string') {
+      throw new Error('expected generation-one CodeSurface')
+    }
+
+    const generationTwo = await driver.propose({
+      ...ctxWith([]),
+      currentSurface: generationOne,
+      generation: 1,
+      populationSize: 2,
+    })
+    expect(generationTwo).toHaveLength(2)
+    const codeSurfaces = generationTwo.map((surface) => {
+      if (typeof surface === 'string') throw new Error('expected generation-two CodeSurface')
+      return surface
+    })
+
+    for (const [index, surface] of codeSurfaces.entries()) {
+      const expected = `lax rubric\ngeneration one\ngeneration two candidate ${index + 1}\n`
+      expect(readFileSync(join(surface.worktreeRef, 'prompt.md'), 'utf8')).toBe(expected)
+      expect(surface.baseCommit).toBe(baseline.baseCommit)
+      expect(surface.baseTree).toBe(baseline.baseTree)
+      expect(
+        git(['merge-base', generationOne.candidateCommit, surface.candidateCommit], repoRoot),
+      ).toBe(generationOne.candidateCommit)
+
+      const verified = verifyCodeSurface(surface)
+      const applyWorktree = await worktree.create({
+        baseRef: surface.baseCommit,
+        label: `apply-check-${index}`,
+      })
+      try {
+        execFileSync('git', ['apply', '--check', '--binary', '-'], {
+          cwd: applyWorktree.path,
+          input: Buffer.from(verified.patchBytes),
+        })
+        execFileSync('git', ['apply', '--binary', '-'], {
+          cwd: applyWorktree.path,
+          input: Buffer.from(verified.patchBytes),
+        })
+        expect(readFileSync(join(applyWorktree.path, 'prompt.md'), 'utf8')).toBe(expected)
+      } finally {
+        await worktree.discard(applyWorktree)
+      }
+    }
+
+    expect(readFileSync(join(generationOne.worktreeRef, 'prompt.md'), 'utf8')).toBe(
+      'lax rubric\ngeneration one\n',
+    )
+    expect(git(['show', 'main:prompt.md'], repoRoot)).toBe('lax rubric')
+
+    const [winner, loser] = codeSurfaces
+    if (!winner || !loser) throw new Error('expected two generation-two candidates')
+    await driver.cleanup([winner.worktreeRef])
+    expect(existsSync(generationOne.worktreeRef)).toBe(false)
+    expect(existsSync(loser.worktreeRef)).toBe(false)
+    expect(existsSync(winner.worktreeRef)).toBe(true)
+    expect(verifyCodeSurface(winner).contentHash).toMatch(/^sha256:/)
+    expect(git(['show', 'main:prompt.md'], repoRoot)).toBe('lax rubric')
+  })
+
   it('rethrows and leaves NO orphaned worktree when the generator throws', async () => {
     // A generator whose generate() throws mid-candidate must not leak the
     // already-created worktree (the try/finally cleanup in propose()).
@@ -193,6 +323,33 @@ describe('improvementDriver — reflective generator', () => {
     // The worktree created before the throw was discarded — only the main
     // worktree remains.
     expect(git(['worktree', 'list'], repoRoot).split('\n').length).toBe(1)
+  })
+
+  it('retries candidate cleanup when generation and the first discard both fail', async () => {
+    const realWorktree = gitWorktreeAdapter({ repoRoot })
+    let discardAttempts = 0
+    const flakyWorktree: WorktreeAdapter = {
+      ...realWorktree,
+      async discard(worktree: Worktree) {
+        discardAttempts += 1
+        if (discardAttempts === 1) throw new Error('transient discard failure')
+        await realWorktree.discard(worktree)
+      },
+    }
+    const driver = improvementDriver({
+      generator: {
+        kind: 'throws-with-flaky-cleanup',
+        async generate() {
+          throw new Error('generation failed')
+        },
+      },
+      worktree: flakyWorktree,
+      baseRef: 'main',
+    })
+
+    await expect(driver.propose(ctxWith(FINDINGS))).rejects.toThrow('generation failed')
+    expect(discardAttempts).toBe(2)
+    expect(git(['worktree', 'list'], repoRoot).split('\n')).toHaveLength(1)
   })
 
   it('attempts every candidate cleanup even when one discard fails', async () => {

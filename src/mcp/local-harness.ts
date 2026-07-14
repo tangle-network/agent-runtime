@@ -115,6 +115,8 @@ const HARNESS_INVOCATIONS: Record<
 export interface HarnessInvocation {
   command: string
   args: string[]
+  /** Exact profile-composed prompt carried by the invocation. */
+  prompt: string
 }
 
 export interface HarnessInvocationOptions {
@@ -234,7 +236,7 @@ export function harnessInvocation(
     args.push(...invocation.reasoningArgs(reasoningEffort))
   }
 
-  return { command: invocation.command, args }
+  return { command: invocation.command, args, prompt: composedPrompt }
 }
 
 /** @experimental */
@@ -409,7 +411,14 @@ export async function runLocalHarness(
     : buildHarnessArgs(harness, taskPrompt, options)
   if (options.codexReproducible) assertCodexReproducibleInvocation(requestedCommand, args)
 
-  const baseEnv = options.env ?? process.env
+  // We spawn the harness with `cwd`, but a harness that resolves its working
+  // directory from `$PWD` rather than `getcwd()` (opencode does; the others may)
+  // inherits the parent's stale `PWD` and edits the WRONG directory — its
+  // worktree diff then comes back empty and the delegation fails with a phantom
+  // "empty patch". Pin `PWD` to `cwd` so the harness edits where it was placed.
+  // `baseEnv` feeds both the codex-isolated and the plain spawn paths below, so
+  // pinning it here covers every runLocalHarness consumer.
+  const baseEnv: NodeJS.ProcessEnv = { ...(options.env ?? process.env), PWD: cwd }
   const isolated = options.codexReproducible
     ? await isolateCodexHome({
         baseEnv,
