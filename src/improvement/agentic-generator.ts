@@ -46,7 +46,13 @@ import {
   type LocalHarnessResult,
   runLocalHarness,
 } from '../mcp/local-harness'
-import type { CandidateGenerator } from './improvement-driver'
+import type {
+  CandidateCostLedger,
+  CandidateCostReceipt,
+  CandidateCostReceiptInput,
+  CandidateGenerator,
+  CandidateMaximumCharge,
+} from './improvement-driver'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
 const RAW_TRACE_AREA = 'raw-trace-context'
@@ -86,8 +92,10 @@ export interface AgenticGeneratorShotReceipt {
   readonly stderrBytes: number | null
   readonly stderrSha256: `sha256:${string}` | null
   readonly usage: CodexTokenUsage | null
-  readonly costUsd: null
-  readonly costUsdKnown: false
+  /** Shared run-ledger call id for this exact shot. */
+  readonly costCallId: string | null
+  readonly costUsd: number | null
+  readonly costUsdKnown: boolean
   readonly evidence: CodexExecutionEvidence | null
   readonly error: { readonly name: string; readonly message: string } | null
 }
@@ -107,6 +115,11 @@ export interface AgenticGeneratorOptions {
   /** Awaited once for every attempted author shot, including process failures.
    *  Throwing aborts the candidate so receipt persistence can fail closed. */
   onShotCompleted?: (receipt: AgenticGeneratorShotReceipt) => void | Promise<void>
+  /** Optional hard upper bound passed to the run-wide CostLedger before each
+   *  author shot. This MUST be enforced by the provider or executor; a planning
+   *  estimate is not an admissible bound. Omit for an uncapped ledger. A capped
+   *  ledger rejects before model dispatch when this is absent. */
+  maximumCharge?: CandidateMaximumCharge
   /** Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m). */
   timeoutMs?: number
   /** Build the harness task prompt from the report + findings. Override for
@@ -136,6 +149,9 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
   if (opts.codexReadDeniedPaths && !opts.codexReproducible) {
     throw new Error('agenticGenerator: codexReadDeniedPaths requires codexReproducible')
   }
+  if (opts.maximumCharge && !opts.codexReproducible) {
+    throw new Error('agenticGenerator: maximumCharge requires codexReproducible')
+  }
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt
   const run = opts.runHarness ?? runLocalHarness
   const dirty = opts.isDirty ?? worktreeDirty
@@ -157,7 +173,14 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       signal,
       generation,
       candidateIndex,
+      costLedger,
+      costPhase,
     }) {
+      if (opts.codexReproducible && !costLedger) {
+        throw new Error(
+          'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
+        )
+      }
       const basePrompt = buildPrompt({ report, findings })
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const shots = Math.max(1, maxShots)
@@ -179,60 +202,66 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             ? opts.codexReadDeniedPaths(worktreePath)
             : opts.codexReadDeniedPaths
         const startedAt = new Date()
-        let harnessResult: LocalHarnessResult
+        let harnessResult: LocalHarnessResult | null = null
+        let costReceipt: CandidateCostReceipt | null = null
+        let costCallId: string | null = null
+        let shotError: Error | null = null
         try {
-          harnessResult = await run({
-            harness,
-            cwd: worktreePath,
-            taskPrompt,
-            ...(invocation
-              ? { invocation: { command: invocation.command, args: invocation.args } }
-              : {}),
-            // The candidate worktree is isolated and must be editable without an
-            // interactive permission prompt. Other runLocalHarness callers remain
-            // permission-safe by default.
-            dangerouslySkipPermissions: harness === 'claude',
-            ...(opts.codexReproducible ? { codexReproducible: true } : {}),
-            ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
-            timeoutMs: opts.timeoutMs,
-            signal,
-          })
-        } catch (cause) {
-          const failure = cause instanceof Error ? cause : new Error(String(cause))
-          const completedAt = new Date()
-          await emitShotReceipt(
-            opts.onShotCompleted,
-            shotReceipt({
-              generation,
-              candidateIndex,
-              shot,
-              maxShots: shots,
+          const execute = async (executionSignal: AbortSignal): Promise<LocalHarnessResult> => {
+            harnessResult = await run({
               harness,
-              profile: opts.profile,
-              prompt: exactPrompt,
-              startedAt,
-              completedAt,
-              result: null,
-              error: failure,
-            }),
-            failure,
-          )
-          throw failure
-        }
+              cwd: worktreePath,
+              taskPrompt,
+              ...(invocation
+                ? { invocation: { command: invocation.command, args: invocation.args } }
+                : {}),
+              // The candidate worktree is isolated and must be editable without an
+              // interactive permission prompt. Other runLocalHarness callers remain
+              // permission-safe by default.
+              dangerouslySkipPermissions: harness === 'claude',
+              ...(opts.codexReproducible ? { codexReproducible: true } : {}),
+              ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
+              timeoutMs: opts.timeoutMs,
+              signal: executionSignal,
+            })
+            const failure = shotFailure(harnessResult, exactPrompt, opts.codexReproducible === true)
+            if (failure) throw failure
+            return harnessResult
+          }
 
-        const expectedPromptSha256 = sha256(exactPrompt).slice('sha256:'.length)
-        const receiptError = opts.codexReproducible
-          ? !harnessResult.usage || !harnessResult.evidence
-            ? new Error(
-                'agenticGenerator: reproducible Codex shot completed without usage or execution evidence',
-              )
-            : harnessResult.evidence.requestedPromptSha256 !== expectedPromptSha256 ||
-                harnessResult.evidence.effectivePromptSha256 !== expectedPromptSha256
-              ? new Error(
-                  'agenticGenerator: reproducible Codex prompt evidence does not match the exact authored prompt',
-                )
-              : null
-          : null
+          if (opts.codexReproducible) {
+            const ledger = costLedger as CandidateCostLedger
+            const model = opts.profile?.model?.default
+            if (!model) {
+              throw new Error('agenticGenerator: reproducible Codex requires profile.model.default')
+            }
+            const paid = await ledger.runPaidCall({
+              channel: 'driver',
+              phase: costPhase ?? 'search.proposal',
+              actor: `agentic-generator:${harness}`,
+              model,
+              tags: {
+                generation: String(generation ?? -1),
+                candidateIndex: String(candidateIndex ?? -1),
+                shot: String(shot + 1),
+              },
+              signal,
+              ...(opts.maximumCharge ? { maximumCharge: opts.maximumCharge } : {}),
+              execute,
+              receipt: (result) => costReceiptFromHarness(result, model),
+              receiptFromError: () =>
+                harnessResult?.usage ? costReceiptFromHarness(harnessResult, model) : undefined,
+            })
+            costCallId = paid.callId ?? null
+            costReceipt = paid.receipt ?? null
+            if (!paid.succeeded) throw paid.error
+            harnessResult = paid.value
+          } else {
+            harnessResult = await execute(signal)
+          }
+        } catch (cause) {
+          shotError = cause instanceof Error ? cause : new Error(String(cause))
+        }
         await emitShotReceipt(
           opts.onShotCompleted,
           shotReceipt({
@@ -246,10 +275,16 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             startedAt,
             completedAt: new Date(),
             result: harnessResult,
-            error: receiptError,
+            costCallId,
+            costReceipt,
+            error: shotError,
           }),
-          receiptError,
+          shotError,
         )
+
+        if (!harnessResult) {
+          throw new Error('agenticGenerator: author shot completed without a harness result')
+        }
 
         // The worktree IS the signal: no edits ⇒ tell the next shot to act.
         if (!dirty(worktreePath)) {
@@ -314,6 +349,8 @@ function shotReceipt(input: {
   readonly startedAt: Date
   readonly completedAt: Date
   readonly result: LocalHarnessResult | null
+  readonly costCallId: string | null
+  readonly costReceipt: CandidateCostReceipt | null
   readonly error: unknown
 }): AgenticGeneratorShotReceipt {
   const error = input.error
@@ -344,8 +381,9 @@ function shotReceipt(input: {
     stderrBytes: result ? Buffer.byteLength(result.stderr) : null,
     stderrSha256: result ? sha256(result.stderr) : null,
     usage: result?.usage ? { ...result.usage } : null,
-    costUsd: null,
-    costUsdKnown: false,
+    costCallId: input.costCallId,
+    costUsd: input.costReceipt?.costUsd ?? null,
+    costUsdKnown: input.costReceipt !== null && !input.costReceipt.costUnknown,
     evidence: result?.evidence
       ? {
           ...result.evidence,
@@ -354,6 +392,50 @@ function shotReceipt(input: {
         }
       : null,
     error,
+  }
+}
+
+function shotFailure(
+  result: LocalHarnessResult,
+  exactPrompt: string,
+  codexReproducible: boolean,
+): Error | null {
+  if (result.timedOut) {
+    return new Error('agenticGenerator: author shot timed out')
+  }
+  if (result.killedBySignal) {
+    return new Error(`agenticGenerator: author shot was killed by ${result.killedBySignal}`)
+  }
+  if (result.exitCode !== 0) {
+    return new Error(`agenticGenerator: author shot exited with code ${String(result.exitCode)}`)
+  }
+  if (!codexReproducible) return null
+  if (!result.usage || !result.evidence) {
+    return new Error(
+      'agenticGenerator: reproducible Codex shot completed without usage or execution evidence',
+    )
+  }
+  const expectedPromptSha256 = sha256(exactPrompt).slice('sha256:'.length)
+  if (result.evidence.requestedPromptSha256 !== expectedPromptSha256) {
+    return new Error(
+      'agenticGenerator: reproducible Codex prompt evidence does not match the exact authored prompt',
+    )
+  }
+  return null
+}
+
+function costReceiptFromHarness(
+  result: LocalHarnessResult,
+  model: string,
+): CandidateCostReceiptInput {
+  if (!result.usage) {
+    throw new Error('agenticGenerator: author shot did not report terminal token usage')
+  }
+  return {
+    model,
+    inputTokens: result.usage.inputTokens - result.usage.cachedInputTokens,
+    outputTokens: result.usage.outputTokens,
+    ...(result.usage.cachedInputTokens > 0 ? { cachedTokens: result.usage.cachedInputTokens } : {}),
   }
 }
 

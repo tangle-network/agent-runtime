@@ -10,8 +10,13 @@ import {
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
-} from '../src/improvement/agentic-generator'
-import { improvementDriver } from '../src/improvement/improvement-driver'
+} from '../src/improvement'
+import {
+  type CandidateCostLedger,
+  type CandidateCostReceipt,
+  type CandidateCostReceiptInput,
+  improvementDriver,
+} from '../src/improvement/improvement-driver'
 import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
 function git(args: string[], cwd: string): string {
@@ -95,6 +100,81 @@ const CODEX_EVIDENCE = {
   policy: {},
 } as NonNullable<LocalHarnessResult['evidence']>
 
+interface RecordedPaidCall {
+  channel: string
+  phase: string
+  actor: string
+  model: string | undefined
+  tags: Record<string, string> | undefined
+  maximumCharge: unknown
+}
+
+function recordingCostLedger(options: { capped?: boolean } = {}): {
+  ledger: CandidateCostLedger
+  calls: RecordedPaidCall[]
+  receipts: CandidateCostReceipt[]
+} {
+  const calls: RecordedPaidCall[] = []
+  const receipts: CandidateCostReceipt[] = []
+  let nextCall = 0
+  const settle = (
+    callId: string,
+    observed: CandidateCostReceiptInput,
+    error?: Error,
+  ): CandidateCostReceipt => {
+    const costUnknown = observed.costUnknown === true || observed.usageUnknown === true
+    const receipt: CandidateCostReceipt = {
+      ...observed,
+      callId,
+      costUsd: costUnknown
+        ? 0
+        : (observed.actualCostUsd ??
+          observed.inputTokens * 0.000001 + observed.outputTokens * 0.00001),
+      costUnknown,
+      ...(error ? { error: error.message } : {}),
+    } as CandidateCostReceipt
+    receipts.push(receipt)
+    return receipt
+  }
+  const ledger: CandidateCostLedger = {
+    ...(options.capped ? { costCeilingUsd: 1 } : {}),
+    async runPaidCall(input) {
+      const callId = `author-call-${++nextCall}`
+      calls.push({
+        channel: input.channel,
+        phase: input.phase,
+        actor: input.actor,
+        model: input.model,
+        tags: input.tags,
+        maximumCharge: input.maximumCharge,
+      })
+      if (options.capped && input.maximumCharge === undefined) {
+        return {
+          succeeded: false,
+          callId,
+          error: new Error('capped paid calls require a hard maximumCharge before execution'),
+        }
+      }
+      try {
+        const value = await input.execute(input.signal ?? new AbortController().signal, callId)
+        const receipt = settle(callId, input.receipt(value))
+        return { succeeded: true, callId, value, receipt }
+      } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause))
+        const observed = input.receiptFromError?.(error) ?? {
+          model: input.model ?? 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          costUnknown: true,
+          usageUnknown: true,
+        }
+        return { succeeded: false, callId, error, receipt: settle(callId, observed, error) }
+      }
+    },
+  }
+  return { ledger, calls, receipts }
+}
+
 function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFinding> {
   return {
     currentSurface: '',
@@ -110,6 +190,7 @@ function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFi
 describe('agenticGenerator — runs a harness in the worktree', () => {
   it('pins the author profile and emits exact usage for every reproducible Codex shot', async () => {
     const receipts: AgenticGeneratorShotReceipt[] = []
+    const cost = recordingCostLedger()
     const profile = {
       name: 'structural-author',
       prompt: {
@@ -141,7 +222,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
           evidence: {
             ...CODEX_EVIDENCE,
             requestedPromptSha256: promptSha256,
-            effectivePromptSha256: promptSha256,
+            effectivePromptSha256: 'f'.repeat(64),
           },
         }
       },
@@ -167,6 +248,8 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       signal: new AbortController().signal,
       generation: 4,
       candidateIndex: 2,
+      costLedger: cost.ledger,
+      costPhase: 'search.proposal',
     })
 
     expect(out.applied).toBe(true)
@@ -181,15 +264,36 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       usage: CODEX_USAGE,
-      costUsd: null,
-      costUsdKnown: false,
+      costCallId: 'author-call-1',
+      costUsdKnown: true,
       error: null,
     })
+    expect(receipts[0]?.costUsd).toBeCloseTo(0.0004)
     expect(receipts[0]?.promptSha256).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(receipts[0]?.stdoutSha256).toBe(
       `sha256:${createHash('sha256').update(HARNESS_OK.stdout).digest('hex')}`,
     )
     expect(receipts[0]?.evidence?.readDeniedPathCount).toBe(1)
+    expect(receipts[0]?.evidence?.effectivePromptSha256).not.toBe(
+      receipts[0]?.evidence?.requestedPromptSha256,
+    )
+    expect(cost.calls).toEqual([
+      {
+        channel: 'driver',
+        phase: 'search.proposal',
+        actor: 'agentic-generator:codex',
+        model: 'gpt-5.4',
+        tags: { generation: '4', candidateIndex: '2', shot: '1' },
+        maximumCharge: undefined,
+      },
+    ])
+    expect(cost.receipts[0]).toMatchObject({
+      inputTokens: 100,
+      cachedTokens: 20,
+      outputTokens: 30,
+      model: 'gpt-5.4',
+      costUnknown: false,
+    })
   })
 
   it('emits a failed shot receipt before rethrowing a harness failure', async () => {
@@ -221,6 +325,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
   it('fails closed when reproducible Codex completes without token usage', async () => {
     const receipts: unknown[] = []
+    const cost = recordingCostLedger()
     const gen = agenticGenerator({
       harness: 'codex',
       profile: {
@@ -243,13 +348,164 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
+        costLedger: cost.ledger,
       }),
     ).rejects.toThrow(/without usage or execution evidence/)
     expect(receipts).toHaveLength(1)
     expect(receipts[0]).toMatchObject({
       usage: null,
+      costCallId: 'author-call-1',
+      costUsd: 0,
+      costUsdKnown: false,
       error: { message: expect.stringMatching(/without usage or execution evidence/) },
     })
+    expect(cost.receipts).toEqual([
+      expect.objectContaining({
+        callId: 'author-call-1',
+        usageUnknown: true,
+        costUnknown: true,
+      }),
+    ])
+  })
+
+  it('refuses reproducible Codex before dispatch when the run-wide ledger is absent', async () => {
+    const runHarness = vi.fn()
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'no-ledger',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/requires the run-wide CostLedger/)
+    expect(runHarness).not.toHaveBeenCalled()
+  })
+
+  it('lets a capped ledger reject an unbounded author shot before model dispatch', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const cost = recordingCostLedger({ capped: true })
+    const runHarness = vi.fn()
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'capped-without-maximum',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+        costLedger: cost.ledger,
+      }),
+    ).rejects.toThrow(/hard maximumCharge before execution/)
+    expect(runHarness).not.toHaveBeenCalled()
+    expect(cost.receipts).toHaveLength(0)
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        costCallId: 'author-call-1',
+        costUsd: null,
+        costUsdKnown: false,
+        usage: null,
+        error: expect.objectContaining({
+          message: expect.stringMatching(/hard maximumCharge before execution/),
+        }),
+      }),
+    ])
+  })
+
+  it('records terminal usage and rejects partial edits from a failed author process', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const cost = recordingCostLedger()
+    const runHarness = vi.fn(
+      async (options: { cwd: string; invocation?: { args: ReadonlyArray<string> } }) => {
+        writeFileSync(join(options.cwd, 'app.ts'), 'export const partial = true\n')
+        const prompt = options.invocation?.args[1]
+        if (!prompt) throw new Error('test invocation omitted the composed prompt')
+        return {
+          ...HARNESS_OK,
+          exitCode: 2,
+          usage: CODEX_USAGE,
+          evidence: {
+            ...CODEX_EVIDENCE,
+            requestedPromptSha256: createHash('sha256').update(prompt).digest('hex'),
+          },
+        }
+      },
+    )
+    const gen = agenticGenerator({
+      harness: 'codex',
+      profile: {
+        name: 'author',
+        model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      },
+      codexReproducible: true,
+      runHarness: runHarness as never,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const wt = await gitWorktreeAdapter({ repoRoot }).create({
+      baseRef: 'main',
+      label: 'failed-partial-edit',
+    })
+
+    await expect(
+      gen.generate({
+        worktreePath: wt.path,
+        report: undefined,
+        findings: FINDINGS,
+        maxShots: 1,
+        signal: new AbortController().signal,
+        generation: 1,
+        candidateIndex: 0,
+        costLedger: cost.ledger,
+      }),
+    ).rejects.toThrow(/exited with code 2/)
+    expect(cost.receipts).toEqual([
+      expect.objectContaining({
+        callId: 'author-call-1',
+        inputTokens: 100,
+        cachedTokens: 20,
+        outputTokens: 30,
+        costUnknown: false,
+      }),
+    ])
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        exitCode: 2,
+        costCallId: 'author-call-1',
+        costUsdKnown: true,
+        usage: CODEX_USAGE,
+        error: expect.objectContaining({
+          message: 'agenticGenerator: author shot exited with code 2',
+        }),
+      }),
+    ])
   })
 
   it('returns applied when the harness changes the worktree', async () => {

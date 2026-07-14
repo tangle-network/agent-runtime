@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
 import type { ImprovementAdapter, ImprovementEditBatch } from '../src/analyst-loop/types'
 import { improvementDriver, reflectiveGenerator } from '../src/improvement'
+import type { CandidateCostLedger, CandidateGenerator } from '../src/improvement/improvement-driver'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -80,6 +81,38 @@ function reflectiveDriver(adapter: ImprovementAdapter<SurfaceImprovementEdit>) {
 }
 
 describe('improvementDriver — reflective generator', () => {
+  it('forwards the run-wide paid-call account and phase to every candidate author', async () => {
+    const observed: Array<{
+      costLedger: CandidateCostLedger | undefined
+      costPhase: string | undefined
+    }> = []
+    const costLedger = {
+      async runPaidCall() {
+        throw new Error('not called by forwarding fixture')
+      },
+    } as CandidateCostLedger
+    const generator: CandidateGenerator = {
+      kind: 'cost-forwarding-fixture',
+      async generate(args) {
+        observed.push({ costLedger: args.costLedger, costPhase: args.costPhase })
+        return { applied: false, summary: '' }
+      },
+    }
+    const driver = improvementDriver({
+      generator,
+      worktree: gitWorktreeAdapter({ repoRoot }),
+      baseRef: 'main',
+    })
+    const context = {
+      ...ctxWith(FINDINGS),
+      costLedger,
+      costPhase: 'search.proposal',
+    } as ProposeContext<AnalystFinding>
+
+    await expect(driver.propose(context)).resolves.toEqual([])
+    expect(observed).toEqual([{ costLedger, costPhase: 'search.proposal' }])
+  })
+
   it('applies drafted edits into one worktree and returns a CodeSurface', async () => {
     const adapter = stubAdapter({ edits: [editFixture(GOOD_PATCH)], skipped: 0, errors: [] })
     const driver = reflectiveDriver(adapter)
