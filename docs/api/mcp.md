@@ -5906,7 +5906,7 @@ Defined in: [mcp/types.ts:308](https://github.com/tangle-network/agent-runtime/b
 
 ### WorktreeHandle
 
-Defined in: [mcp/worktree.ts:22](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L22)
+Defined in: [mcp/worktree.ts:23](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L23)
 
 **`Experimental`**
 
@@ -5916,7 +5916,7 @@ Defined in: [mcp/worktree.ts:22](https://github.com/tangle-network/agent-runtime
 
 > **path**: `string`
 
-Defined in: [mcp/worktree.ts:24](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L24)
+Defined in: [mcp/worktree.ts:25](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L25)
 
 **`Experimental`**
 
@@ -5926,7 +5926,7 @@ Absolute path to the worktree directory.
 
 > **baseSha**: `string`
 
-Defined in: [mcp/worktree.ts:26](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L26)
+Defined in: [mcp/worktree.ts:27](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L27)
 
 **`Experimental`**
 
@@ -5936,7 +5936,7 @@ SHA the worktree was created at.
 
 > **branch**: `string`
 
-Defined in: [mcp/worktree.ts:28](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L28)
+Defined in: [mcp/worktree.ts:29](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L29)
 
 **`Experimental`**
 
@@ -5946,7 +5946,7 @@ Branch name created for this worktree (typically `delegate/<runId>`).
 
 ### CreateWorktreeOptions
 
-Defined in: [mcp/worktree.ts:32](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L32)
+Defined in: [mcp/worktree.ts:33](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L33)
 
 **`Experimental`**
 
@@ -5956,7 +5956,7 @@ Defined in: [mcp/worktree.ts:32](https://github.com/tangle-network/agent-runtime
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/worktree.ts:34](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L34)
+Defined in: [mcp/worktree.ts:35](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L35)
 
 **`Experimental`**
 
@@ -5966,7 +5966,7 @@ Absolute path to the main git checkout.
 
 > **runId**: `string`
 
-Defined in: [mcp/worktree.ts:36](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L36)
+Defined in: [mcp/worktree.ts:37](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L37)
 
 **`Experimental`**
 
@@ -5976,7 +5976,7 @@ Unique id for the worktree path + branch. Use the delegation run id.
 
 > `optional` **variantsDir?**: `string`
 
-Defined in: [mcp/worktree.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L38)
+Defined in: [mcp/worktree.ts:39](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L39)
 
 **`Experimental`**
 
@@ -5986,7 +5986,7 @@ Parent directory the worktree lives under. Defaults to `.agent-worktrees`.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [mcp/worktree.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L40)
+Defined in: [mcp/worktree.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L41)
 
 **`Experimental`**
 
@@ -5996,7 +5996,7 @@ Override the base ref (default `HEAD`).
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L42)
+Defined in: [mcp/worktree.ts:43](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L43)
 
 **`Experimental`**
 
@@ -6006,7 +6006,7 @@ Test seam — inject a custom git runner.
 
 ### DiffOptions
 
-Defined in: [mcp/worktree.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L46)
+Defined in: [mcp/worktree.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L47)
 
 **`Experimental`**
 
@@ -6016,7 +6016,7 @@ Defined in: [mcp/worktree.ts:46](https://github.com/tangle-network/agent-runtime
 
 > **worktree**: [`WorktreeHandle`](#worktreehandle)
 
-Defined in: [mcp/worktree.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L48)
+Defined in: [mcp/worktree.ts:49](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L49)
 
 **`Experimental`**
 
@@ -6026,17 +6026,29 @@ Worktree to diff.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [mcp/worktree.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L50)
+Defined in: [mcp/worktree.ts:51](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L51)
 
 **`Experimental`**
 
 What to compare against. Default `worktree.baseSha`.
 
+##### excludePaths?
+
+> `optional` **excludePaths?**: readonly `string`[]
+
+Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L57)
+
+**`Experimental`**
+
+Repository-relative input paths to omit from the captured worker patch.
+Paths are passed to Git with literal exclusion magic, so profile-provided
+`*`, `?`, `[` and `:` characters can never expand into broader pathspecs.
+
 ##### runGit?
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L52)
+Defined in: [mcp/worktree.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L59)
 
 **`Experimental`**
 
@@ -6046,7 +6058,7 @@ Test seam.
 
 ### DiffResult
 
-Defined in: [mcp/worktree.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L56)
+Defined in: [mcp/worktree.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L63)
 
 **`Experimental`**
 
@@ -6056,7 +6068,7 @@ Defined in: [mcp/worktree.ts:56](https://github.com/tangle-network/agent-runtime
 
 > **patch**: `string`
 
-Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L57)
+Defined in: [mcp/worktree.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L64)
 
 **`Experimental`**
 
@@ -6064,7 +6076,7 @@ Defined in: [mcp/worktree.ts:57](https://github.com/tangle-network/agent-runtime
 
 > **stats**: `object`
 
-Defined in: [mcp/worktree.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L58)
+Defined in: [mcp/worktree.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L65)
 
 **`Experimental`**
 
@@ -6084,7 +6096,7 @@ Defined in: [mcp/worktree.ts:58](https://github.com/tangle-network/agent-runtime
 
 ### RemoveWorktreeOptions
 
-Defined in: [mcp/worktree.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L66)
+Defined in: [mcp/worktree.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L73)
 
 **`Experimental`**
 
@@ -6094,7 +6106,7 @@ Defined in: [mcp/worktree.ts:66](https://github.com/tangle-network/agent-runtime
 
 > **worktree**: [`WorktreeHandle`](#worktreehandle)
 
-Defined in: [mcp/worktree.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L67)
+Defined in: [mcp/worktree.ts:74](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L74)
 
 **`Experimental`**
 
@@ -6102,7 +6114,7 @@ Defined in: [mcp/worktree.ts:67](https://github.com/tangle-network/agent-runtime
 
 > **repoRoot**: `string`
 
-Defined in: [mcp/worktree.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L68)
+Defined in: [mcp/worktree.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L75)
 
 **`Experimental`**
 
@@ -6110,7 +6122,7 @@ Defined in: [mcp/worktree.ts:68](https://github.com/tangle-network/agent-runtime
 
 > `optional` **force?**: `boolean`
 
-Defined in: [mcp/worktree.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L70)
+Defined in: [mcp/worktree.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L77)
 
 **`Experimental`**
 
@@ -6120,7 +6132,7 @@ Force removal even if dirty (default true; the loser of a fanout has uncommitted
 
 > `optional` **runGit?**: [`GitRunner`](#gitrunner)
 
-Defined in: [mcp/worktree.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L72)
+Defined in: [mcp/worktree.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L79)
 
 **`Experimental`**
 
@@ -6352,7 +6364,7 @@ The MCP wire carries it as JSON either way.
 
 > **GitRunner** = (`args`, `opts`) => `object`
 
-Defined in: [mcp/worktree.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L76)
+Defined in: [mcp/worktree.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L83)
 
 Pluggable git runner (sync) — replaceable in tests.
 
@@ -8215,7 +8227,7 @@ current trace context.
 
 > **createWorktree**(`options`): `Promise`\<[`WorktreeHandle`](#worktreehandle)\>
 
-Defined in: [mcp/worktree.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L114)
+Defined in: [mcp/worktree.ts:128](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L128)
 
 **`Experimental`**
 
@@ -8237,11 +8249,11 @@ Checkout a fresh git worktree for a delegation run on a new branch under `varian
 
 > **captureWorktreeDiff**(`options`): `Promise`\<[`DiffResult`](#diffresult)\>
 
-Defined in: [mcp/worktree.ts:134](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L134)
+Defined in: [mcp/worktree.ts:148](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L148)
 
 **`Experimental`**
 
-Stage all changes in a worktree and return the diff patch + shortstat against the base ref.
+Stage worker changes and return the diff + shortstat, excluding declared input paths.
 
 #### Parameters
 
@@ -8259,11 +8271,12 @@ Stage all changes in a worktree and return the diff patch + shortstat against th
 
 > **removeWorktree**(`options`): `Promise`\<`void`\>
 
-Defined in: [mcp/worktree.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L174)
+Defined in: [mcp/worktree.ts:241](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree.ts#L241)
 
 **`Experimental`**
 
-Remove a git worktree and delete its branch; tolerates already-removed paths.
+Remove a git worktree and delete its branch. Already-removed paths are harmless; every other
+Git failure rejects so callers cannot report a worktree as destroyed when cleanup failed.
 
 #### Parameters
 

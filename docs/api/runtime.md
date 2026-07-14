@@ -448,7 +448,7 @@ Defined in: [mcp/tools/coordination.ts:65](https://github.com/tangle-network/age
 
 ### WorktreeCommandResult
 
-Defined in: [mcp/worktree-harness.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L42)
+Defined in: [mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
 
 Outcome of one verification command run in the worktree (test or typecheck).
 
@@ -458,7 +458,7 @@ Outcome of one verification command run in the worktree (test or typecheck).
 
 > **command**: `string`
 
-Defined in: [mcp/worktree-harness.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L44)
+Defined in: [mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
 
 The shell command line that was run.
 
@@ -466,7 +466,7 @@ The shell command line that was run.
 
 > **passed**: `boolean`
 
-Defined in: [mcp/worktree-harness.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L46)
+Defined in: [mcp/worktree-harness.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L52)
 
 Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
@@ -474,7 +474,7 @@ Did the command exit 0? The PASS signal a deliverable gate / coder output reads.
 
 > **exitCode**: `number` \| `null`
 
-Defined in: [mcp/worktree-harness.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L48)
+Defined in: [mcp/worktree-harness.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L54)
 
 OS exit code, or `null` when killed before exit.
 
@@ -482,9 +482,79 @@ OS exit code, or `null` when killed before exit.
 
 > **output**: `string`
 
-Defined in: [mcp/worktree-harness.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L50)
+Defined in: [mcp/worktree-harness.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L56)
 
 Combined stdout+stderr (capped) — surfaced in traces for diagnosis.
+
+***
+
+### WorktreeProfileMaterializationReceipt
+
+Defined in: [mcp/worktree-harness.ts:60](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L60)
+
+Proof of the profile inputs delivered before the worker process started.
+
+#### Properties
+
+##### workspacePlanDigest
+
+> **workspacePlanDigest**: `string`
+
+Defined in: [mcp/worktree-harness.ts:62](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L62)
+
+Digest of the exact materializer plan: files, modes, environment, flags, and unsupported rows.
+
+##### writtenPaths
+
+> **writtenPaths**: `string`[]
+
+Defined in: [mcp/worktree-harness.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L64)
+
+Repository-relative profile input files written into the worker worktree.
+
+##### unsupported
+
+> **unsupported**: `Unsupported`[]
+
+Defined in: [mcp/worktree-harness.ts:66](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L66)
+
+Must be empty on a successful run because this path fails closed.
+
+##### environmentNames
+
+> **environmentNames**: `string`[]
+
+Defined in: [mcp/worktree-harness.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L68)
+
+Environment variable names added to the worker process. Values remain out of telemetry.
+
+##### flags
+
+> **flags**: `string`[]
+
+Defined in: [mcp/worktree-harness.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L70)
+
+Exact additional CLI arguments emitted by the materializer.
+
+##### resourceInstructions
+
+> **resourceInstructions**: `object`
+
+Defined in: [mcp/worktree-harness.ts:72](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/worktree-harness.ts#L72)
+
+`resources.instructions` bypasses native project files so reproducible Codex cannot drop it.
+
+###### delivery
+
+> **delivery**: `"none"` \| `"invocation-prompt"`
+
+###### sha256
+
+> **sha256**: `string` \| `null`
+
+###### byteLength
+
+> **byteLength**: `number`
 
 ***
 
@@ -12112,7 +12182,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ### WorktreeCliExecutorOptions
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L44)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L45)
 
 **`Experimental`**
 
@@ -12122,7 +12192,7 @@ Defined in: [runtime/supervise/worktree-cli-executor.ts:44](https://github.com/t
 
 > **repoRoot**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:46](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L46)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:47](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L47)
 
 **`Experimental`**
 
@@ -12132,27 +12202,31 @@ Absolute path to the git checkout the worktree is cut from.
 
 > **profile**: `AgentProfile`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:48](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L48)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:55](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L55)
 
 **`Experimental`**
 
-The SUPERVISOR-AUTHORED profile (the §1.5 payload: systemPrompt + model).
+The supervisor-authored prompt/model plus materializable structural resources.
+`model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+Resource failures are fatal regardless of `resources.failOnError`.
+Tools, permissions, connections, confidential execution, modes, and extensions fail closed.
+Harness-specific nested controls that the pinned materializer cannot preserve also fail closed.
 
 ##### harness
 
 > **harness**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:50](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L50)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:57](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L57)
 
 **`Experimental`**
 
-Which local harness CLI drives this leaf (`claude` | `codex` | `opencode`).
+Local CLI for this leaf. This explicit choice overrides `profile.harness`.
 
 ##### taskPrompt
 
 > **taskPrompt**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:52](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L52)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:59](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L59)
 
 **`Experimental`**
 
@@ -12162,7 +12236,7 @@ The per-task instruction handed to the harness (composed under the system prompt
 
 > `optional` **runId?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:54](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L54)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L61)
 
 **`Experimental`**
 
@@ -12172,7 +12246,7 @@ Unique id for the worktree path + branch. Defaults to a fresh UUID.
 
 > `optional` **baseRef?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:56](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L56)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:63](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L63)
 
 **`Experimental`**
 
@@ -12182,7 +12256,7 @@ Override the base ref the worktree is cut from (default `HEAD`).
 
 > `optional` **harnessTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:58](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L58)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:65](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L65)
 
 **`Experimental`**
 
@@ -12192,7 +12266,7 @@ Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness`
 
 > `optional` **codexReproducible?**: `boolean`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:61](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L61)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L68)
 
 **`Experimental`**
 
@@ -12203,7 +12277,7 @@ Run Codex with an ephemeral session, isolated config/instructions, network disab
 
 > `optional` **codexReadDeniedPaths?**: readonly `string`[]
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:64](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L64)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
 
 **`Experimental`**
 
@@ -12214,7 +12288,7 @@ Absolute host paths denied to reproducible Codex (for benchmark answer copies, c
 
 > `optional` **testCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L69)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L76)
 
 **`Experimental`**
 
@@ -12225,7 +12299,7 @@ Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal de
 
 > `optional` **typecheckCmd?**: `string`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:71](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L71)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L78)
 
 **`Experimental`**
 
@@ -12235,7 +12309,7 @@ Shell command run in the live worktree to derive the typecheck-PASS signal (e.g.
 
 > `optional` **checkTimeoutMs?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:73](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L73)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L80)
 
 **`Experimental`**
 
@@ -12245,7 +12319,7 @@ Wall-clock cap per verification command (ms). Default = `harnessTimeoutMs` or 5 
 
 > `optional` **checkOutputCap?**: `number`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L75)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L82)
 
 **`Experimental`**
 
@@ -12255,7 +12329,7 @@ Cap on each check's captured output. Default 16k.
 
 > `optional` **runGit?**: [`GitRunner`](mcp.md#gitrunner)
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L77)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L84)
 
 **`Experimental`**
 
@@ -12265,7 +12339,7 @@ Test seam — inject a git runner so unit tests drive the worktree helpers witho
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L79)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L86)
 
 **`Experimental`**
 
@@ -12303,7 +12377,7 @@ Does NOT throw when:
 
 > `optional` **runCommand?**: `WorktreeCheckRunner`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L82)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:89](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L89)
 
 **`Experimental`**
 
@@ -12314,7 +12388,7 @@ Test seam — inject the verification-command runner so unit tests script test/t
 
 > `optional` **budgetExempt?**: `boolean`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:88](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L88)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L95)
 
 **`Experimental`**
 
@@ -15904,7 +15978,7 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 
 > **WorktreePatchArtifact** = `WorktreeHarnessResult`
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L41)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L42)
 
 Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  diff + the harness's run record + the derived checks).
@@ -19770,7 +19844,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 > **createWorktreeCliExecutor**(`options`): [`Executor`](#executor)\<`WorktreeHarnessResult`\>
 
-Defined in: [runtime/supervise/worktree-cli-executor.ts:100](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L100)
+Defined in: [runtime/supervise/worktree-cli-executor.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/worktree-cli-executor.ts#L107)
 
 **`Experimental`**
 

@@ -17,6 +17,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { isAbsolute, win32 } from 'node:path'
 
 /** @experimental */
 export interface WorktreeHandle {
@@ -48,6 +49,12 @@ export interface DiffOptions {
   worktree: WorktreeHandle
   /** What to compare against. Default `worktree.baseSha`. */
   baseRef?: string
+  /**
+   * Repository-relative input paths to omit from the captured worker patch.
+   * Paths are passed to Git with literal exclusion magic, so profile-provided
+   * `*`, `?`, `[` and `:` characters can never expand into broader pathspecs.
+   */
+  excludePaths?: ReadonlyArray<string>
   /** Test seam. */
   runGit?: GitRunner
 }
@@ -104,10 +111,17 @@ function ensureGitOk(
   result: { stdout: string; stderr: string; exitCode: number },
 ): void {
   if (result.exitCode !== 0) {
-    throw new Error(
-      `worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`,
-    )
+    throw gitFailure(step, result)
   }
+}
+
+function gitFailure(
+  step: string,
+  result: { stdout: string; stderr: string; exitCode: number },
+): Error {
+  return new Error(
+    `worktree: git ${step} failed (exit ${result.exitCode}): ${result.stderr.slice(0, 400)}`,
+  )
 }
 
 /** Checkout a fresh git worktree for a delegation run on a new branch under `variantsDir`. @experimental */
@@ -130,30 +144,79 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Wo
   return { path, baseSha: headSha.stdout.trim(), branch }
 }
 
-/** Stage all changes in a worktree and return the diff patch + shortstat against the base ref. @experimental */
+/** Stage worker changes and return the diff + shortstat, excluding declared input paths. @experimental */
 export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffResult> {
   const baseRef = options.baseRef ?? options.worktree.baseSha
+  const pathspecs = worktreeDiffPathspecs(options.excludePaths ?? [])
   // Stage everything (incl. NEW/untracked files) before diffing: a plain `git diff <ref>`
   // omits untracked files, so a worker that delivers by CREATING a file (a fresh dossier,
   // a new module) would produce an empty diff and silently fail to compound. Staging into
   // the index and diffing `--cached` captures created files. The worktree is ephemeral, so
   // mutating its index has no observable side effect.
-  await runGitAsync(['add', '-A'], options.worktree.path, options.runGit)
-  const patch = await runGitAsync(
-    ['diff', '--cached', baseRef],
+  const staged = await runGitAsync(
+    ['add', '-A', ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : [])],
     options.worktree.path,
     options.runGit,
   )
-  // No `ensureGitOk` here — diff returns 0 even when there are no changes.
+  ensureGitOk('add -A', staged)
+  const patch = await runGitAsync(
+    ['diff', '--cached', baseRef, ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : [])],
+    options.worktree.path,
+    options.runGit,
+  )
+  ensureGitOk(`diff --cached ${baseRef}`, patch)
 
   // Stats: `git diff --shortstat` produces e.g. " 3 files changed, 42 insertions(+), 10 deletions(-)".
   const shortstat = await runGitAsync(
-    ['diff', '--cached', '--shortstat', baseRef],
+    [
+      'diff',
+      '--cached',
+      '--shortstat',
+      baseRef,
+      ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : []),
+    ],
     options.worktree.path,
     options.runGit,
   )
+  ensureGitOk(`diff --cached --shortstat ${baseRef}`, shortstat)
   const stats = parseShortstat(shortstat.stdout)
   return { patch: patch.stdout, stats }
+}
+
+function worktreeDiffPathspecs(paths: ReadonlyArray<string>): string[] {
+  const normalized = new Set<string>()
+  for (const path of paths) {
+    if (
+      typeof path !== 'string' ||
+      path.length === 0 ||
+      path.includes('\\') ||
+      hasControlCharacter(path) ||
+      isAbsolute(path) ||
+      win32.isAbsolute(path)
+    ) {
+      throw new Error(
+        `worktree: excluded path must be a canonical repository-relative path: ${path}`,
+      )
+    }
+    const segments = path.split('/')
+    if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+      throw new Error(
+        `worktree: excluded path must be a canonical repository-relative path: ${path}`,
+      )
+    }
+    normalized.add(path)
+  }
+  return [...normalized]
+    .sort((left, right) => left.localeCompare(right))
+    .map((path) => `:(top,exclude,literal)${path}`)
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
 }
 
 function parseShortstat(text: string): DiffResult['stats'] {
@@ -170,28 +233,39 @@ function parseShortstat(text: string): DiffResult['stats'] {
   return out
 }
 
-/** Remove a git worktree and delete its branch; tolerates already-removed paths. @experimental */
+/**
+ * Remove a git worktree and delete its branch. Already-removed paths are harmless; every other
+ * Git failure rejects so callers cannot report a worktree as destroyed when cleanup failed.
+ * @experimental
+ */
 export async function removeWorktree(options: RemoveWorktreeOptions): Promise<void> {
   const force = options.force ?? true
   const args = ['worktree', 'remove']
   if (force) args.push('--force')
   args.push(options.worktree.path)
-  const result = await runGitAsync(args, options.repoRoot, options.runGit)
-  // Don't ensureGitOk — partial-removal scenarios are tolerable; the
-  // worktree dir may already be gone (caller deleted it manually).
-  if (result.exitCode !== 0 && !/not a working tree/.test(result.stderr)) {
-    // Best-effort branch cleanup so the next run can reuse the runId.
-    await runGitAsync(
-      ['branch', '-D', options.worktree.branch],
-      options.repoRoot,
-      options.runGit,
-    ).catch(() => undefined)
-  }
-  // Always attempt branch removal — the worktree-remove sometimes leaves
-  // the branch behind even when the directory is gone.
-  await runGitAsync(
+  const removal = await runGitAsync(args, options.repoRoot, options.runGit)
+  const removalError =
+    removal.exitCode !== 0 && !/not a working tree/iu.test(removal.stderr)
+      ? gitFailure(`worktree remove ${options.worktree.path}`, removal)
+      : undefined
+
+  // Worktree removal leaves its branch behind by design. Missing branches are repeat cleanup.
+  const branchRemoval = await runGitAsync(
     ['branch', '-D', options.worktree.branch],
     options.repoRoot,
     options.runGit,
-  ).catch(() => undefined)
+  )
+  const branchError =
+    branchRemoval.exitCode !== 0 && !/branch .+ not found/iu.test(branchRemoval.stderr)
+      ? gitFailure(`branch -D ${options.worktree.branch}`, branchRemoval)
+      : undefined
+
+  if (removalError && branchError) {
+    throw new AggregateError(
+      [removalError, branchError],
+      'worktree: failed to remove worktree and branch',
+    )
+  }
+  if (removalError) throw removalError
+  if (branchError) throw branchError
 }
