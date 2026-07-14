@@ -2,14 +2,65 @@
 
 from __future__ import annotations
 
+import secrets
 import shlex
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from pier.environments.base import BaseEnvironment
 
-from .candidate_contract import PreparedCandidateContract, WorkspaceFile
+from .candidate_contract import (
+    PreparedCandidateContract,
+    WorkspaceFile,
+    sha256_bytes,
+)
+
+
+def _workspace_check_script(
+    root: str,
+    files: tuple[WorkspaceFile, ...],
+    *,
+    allow_task_metadata: bool,
+) -> bytes:
+    quoted_root = shlex.quote(root)
+    prune = (
+        f"\\( -path {shlex.quote(root + '/.git')} -o "
+        f"-path {shlex.quote(root + '/.sidecar')} \\) -prune -o "
+        if allow_task_metadata
+        else ""
+    )
+    expected_args = " ".join(shlex.quote(file.path) for file in files)
+    expected = (
+        f"$(printf '%s\\n' {expected_args} | LC_ALL=C sort)" if files else "''"
+    )
+    checks = [
+        "#!/bin/sh",
+        "set -eu",
+        f"test -d {quoted_root}",
+        f"test ! -L {quoted_root}",
+        f'test "$(realpath -e -- {quoted_root})" = {quoted_root}',
+        f'test -z "$(find {quoted_root} {prune}-type l -print -quit)"',
+        f'test -z "$(find {quoted_root} {prune}! -type d ! -type f -print -quit)"',
+        f"observed=$(find {quoted_root} {prune}-type f -printf '%P\\n' | LC_ALL=C sort)",
+        f"expected={expected}",
+        'test "$observed" = "$expected"',
+    ]
+    for file in files:
+        path = shlex.quote(f"{root}/{file.path}")
+        checks.extend(
+            [
+                f"test -f {path}",
+                f"test ! -L {path}",
+                f'test "$(stat -c %h -- {path})" = 1',
+                f'test "$(stat -c %a -- {path})" = {file.mode:o}',
+                f'test "$(wc -c < {path})" = {file.byte_length}',
+                f"test \"$(sha256sum -- {path} | cut -d' ' -f1)\" = "
+                f"{file.sha256.removeprefix('sha256:')}",
+            ]
+        )
+    return ("\n".join(checks) + "\n").encode("utf-8")
 
 
 class WorkspaceBoundaryHost(Protocol):
@@ -35,11 +86,24 @@ class WorkspaceBoundaryHost(Protocol):
         user: str | int | None = "root",
     ) -> None: ...
 
+    async def _write_verified_file(
+        self,
+        environment: BaseEnvironment,
+        source: Path,
+        target: str,
+        *,
+        anchor: str,
+        mode: int,
+        digest: str,
+        byte_length: int,
+    ) -> None: ...
+
 
 @dataclass(frozen=True)
 class WorkspaceBoundaryConfig:
     contract: PreparedCandidateContract
     task_snapshot: Path
+    control_root: str
     protected_roots: tuple[str, ...]
     error_type: type[Exception]
 
@@ -227,38 +291,78 @@ class CandidateWorkspaceBoundary:
         *,
         allow_task_metadata: bool,
     ) -> None:
-        quoted_root = shlex.quote(root)
-        prune = (
-            f"\\( -path {shlex.quote(root + '/.git')} -o "
-            f"-path {shlex.quote(root + '/.sidecar')} \\) -prune -o "
-            if allow_task_metadata
-            else ""
+        script = _workspace_check_script(
+            root,
+            files,
+            allow_task_metadata=allow_task_metadata,
         )
-        expected_args = " ".join(shlex.quote(file.path) for file in files)
-        expected = (
-            f"$(printf '%s\\n' {expected_args} | LC_ALL=C sort)" if files else "''"
-        )
-        checks = [
-            "set -eu",
-            f"test -d {quoted_root}",
-            f"test ! -L {quoted_root}",
-            f'test "$(realpath -e -- {quoted_root})" = {quoted_root}',
-            f'test -z "$(find {quoted_root} {prune}-type l -print -quit)"',
-            f'test -z "$(find {quoted_root} {prune}! -type d ! -type f -print -quit)"',
-            f"observed=$(find {quoted_root} {prune}-type f -printf '%P\\n' | LC_ALL=C sort)",
-            f"expected={expected}",
-            'test "$observed" = "$expected"',
-        ]
-        for file in files:
-            path = shlex.quote(f"{root}/{file.path}")
-            checks.extend(
-                [
-                    f"test -f {path}",
-                    f"test ! -L {path}",
-                    f'test "$(stat -c %h {path})" = 1',
-                    f'test "$(stat -c %a {path})" = {file.mode:o}',
-                    f'test "$(wc -c < {path})" = {file.byte_length}',
-                    f"test \"$(sha256sum {path} | cut -d' ' -f1)\" = {file.sha256.removeprefix('sha256:')}",
-                ]
+        control_root = self._config.control_root
+        target = f"{control_root}/workspace-check-{secrets.token_hex(24)}.sh"
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(script)
+            local_path = Path(handle.name)
+        control_ready = False
+
+        async def cleanup() -> None:
+            local_path.unlink(missing_ok=True)
+            if not control_ready:
+                return
+            await self._host._assert_real_directory(
+                environment,
+                control_root,
+                label="candidate control directory",
             )
-        await self._host._exec(environment, "\n".join(checks))
+            await self._host._exec(
+                environment,
+                f"rm -f -- {shlex.quote(target)}",
+                user="root",
+            )
+            await self._host._exec(
+                environment,
+                "\n".join(
+                    [
+                        "set -eu",
+                        f"test ! -e {shlex.quote(target)}",
+                        f"test ! -L {shlex.quote(target)}",
+                        f'test -z "$(find {shlex.quote(control_root)} -maxdepth 1 '
+                        "-name '.tangle-*' -print -quit)\"",
+                    ]
+                ),
+                user="root",
+            )
+
+        try:
+            await self._host._ensure_real_directory(
+                environment,
+                control_root,
+                anchor="/",
+                mode=0o700,
+            )
+            control_ready = True
+            await self._host._exec(
+                environment,
+                f"chmod 0700 -- {shlex.quote(control_root)}",
+                user="root",
+            )
+            await self._host._write_verified_file(
+                environment,
+                local_path,
+                target,
+                anchor=control_root,
+                mode=0o600,
+                digest=sha256_bytes(script),
+                byte_length=len(script),
+            )
+            await self._host._exec(
+                environment,
+                f"/bin/sh {shlex.quote(target)}",
+                user="root",
+            )
+        except BaseException as primary_error:
+            try:
+                await cleanup()
+            except BaseException as cleanup_error:
+                primary_error.add_note(f"workspace check cleanup failed: {cleanup_error}")
+            raise
+        else:
+            await cleanup()
