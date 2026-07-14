@@ -18,12 +18,16 @@ import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
 
 import type {
   AgentCandidateCapturedArtifact,
-  AgentCandidateWorkspaceManifestMaterial,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import { type Entry, extract, type Pack, pack } from 'tar-stream'
 
-import { captureMaterializedWorkspace, verifyBytes, verifyMaterializedWorkspace } from './artifacts'
+import {
+  candidateWorkspaceManifest,
+  captureMaterializedWorkspace,
+  verifyBytes,
+  verifyMaterializedWorkspace,
+} from './artifacts'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -158,7 +162,7 @@ async function captureWorkspaceFiles(
   limits: AgentCandidateWorkspaceArchiveLimits,
   artifactPersistence: CaptureAgentCandidateWorkspaceOptions['artifactPersistence'],
 ): Promise<CapturedAgentCandidateWorkspace> {
-  const material = workspaceManifest(files)
+  const material = candidateWorkspaceManifest(files)
   const manifest = canonicalCandidateBytes(material)
   const archive = await encodeWorkspaceArchive(files, repository, limits.maxArchiveBytes)
   if (
@@ -173,7 +177,7 @@ async function captureWorkspaceFiles(
   const manifestArtifact = await captureWorkspaceArtifact('manifest', manifest, artifactPersistence)
   const archiveArtifact = await captureWorkspaceArtifact('archive', archive, artifactPersistence)
   const snapshot = deepFreezeCandidate({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: canonicalCandidateDigest(material),
     material,
@@ -737,26 +741,11 @@ async function materializeRepository(
   }
 }
 
-function workspaceManifest(
-  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
-): AgentCandidateWorkspaceManifestMaterial {
-  return {
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-manifest',
-    files: files.map((file) => ({
-      path: file.path,
-      mode: file.mode,
-      sha256: sha256Bytes(file.bytes),
-      byteLength: file.bytes.byteLength,
-    })),
-  }
-}
-
 function assertArchiveMatchesSnapshot(
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   snapshot: AgentCandidateWorkspaceSnapshotEvidence,
 ): void {
-  const material = workspaceManifest(files)
+  const material = candidateWorkspaceManifest(files)
   const materialBytes = canonicalCandidateBytes(material)
   verifyBytes(
     materialBytes,

@@ -41,19 +41,19 @@ This repo's bottleneck is agents paying a **re-discovery tax**: re-reading 15 fi
 
 **The anti-staleness law:** these maps are kept short and code-adjacent. If a map disagrees with the code, the **code wins** — fix the map in the *same* turn. Discovery is paid once, by whoever records it. When you learn something undocumented, write it to the map/memory before moving on. **For `docs/canonical-api.md` this is now ENFORCED, not aspirational:** the mechanical leaves (per-symbol signatures + `file:line`) are GENERATED into `docs/api/` by TypeDoc — never hand-edit them — and a CI freshness gate (`pnpm docs:check` → `scripts/check-docs-freshness.mjs`) turns a stale version pin, a broken `file:line` citation, or a decision-table symbol that no longer exists into a RED BUILD. The judgment layer (§2 decision table, when-to-use, every "Do NOT") stays hand-curated and the gate never touches it. Local fix path on a red docs gate: `pnpm run docs:api` then commit, or fix the cited line — see `docs/MAINTAINING.md`.
 
-## Repo layering — this package depends on agent-eval, never the reverse
+## Repo layering — runtime composes evaluation and knowledge
 
 ```
-agent-knowledge ──► agent-runtime (this repo — wraps the substrate)
-       │                  │
-       └──────────────────┴──► agent-eval (substrate — the bottom)
+agent-runtime (this repo)
+       ├──► agent-eval
+       └──► agent-knowledge ──► agent-eval
 ```
 
-agent-knowledge depends on agent-runtime (it imports `/loops`) and on agent-eval. agent-runtime depends ONLY on agent-eval and deliberately does NOT import agent-knowledge — domain stores/tools enter by injection (`createMcpServer({ feedbackStore })`, per `src/mcp/feedback-store.ts`), so importing the domain package would induce a dependency cycle.
+agent-runtime owns workers and orchestration. Its `/knowledge` entry point composes those workers with agent-knowledge's candidate, readiness, evaluation, and promotion operations. agent-knowledge does not import agent-runtime; runtime supplies execution through callbacks, which keeps the dependency direction acyclic.
 
-**Rule: agent-runtime depends on agent-eval. agent-eval MUST NOT import from agent-runtime.** No upward imports, no `peerDependencies` in agent-eval pointing here, no `import type { X } from '@tangle-network/agent-runtime'` inside agent-eval. A spotted upward import is a bug — file an issue and move the type into agent-eval. agent-eval is declared a **required `peerDependency`** (floor: whatever `package.json` `peerDependencies` says — do not restate the number here), not a hard dependency — keep it in sync with the `selfImprove`/`heldoutSignificance`/`loopDispatch` APIs the code uses.
+**Rule: neither agent-eval nor agent-knowledge may import agent-runtime.** No upward imports, no `peerDependencies` in either package pointing here, and no runtime types copied into those packages. agent-eval is declared a **required `peerDependency`** (floor: whatever `package.json` `peerDependencies` says — do not restate the number here), not a hard dependency — keep it in sync with the `selfImprove`/`heldoutSignificance`/`loopDispatch` APIs the code uses.
 
-**The runtime stays domain-clean by taking domain stores/tools as injected adapters, never importing a domain package** — the dependency arrow points up into this repo (agent-knowledge → agent-runtime), never down out of it.
+**Generic runtime and MCP modules stay domain-clean through injected adapters.** Only `src/knowledge/` imports agent-knowledge. Stores, tools, and product policy remain caller-owned even though runtime provides the standard knowledge-improvement composition.
 
 Substrate primitives CONSUMED from agent-eval: `DefaultVerdict`, `RunRecord`, `AgentEvalError` + taxonomy, `AnalystFinding`/`AnalystRunResult`/`FindingsDiff`, `TraceAnalystKindSpec`, `KnowledgeReadinessReport`, and the campaign types (`DispatchContext`/`ProfileDispatchFn`/`Scenario`, type-only).
 

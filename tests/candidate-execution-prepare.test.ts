@@ -64,7 +64,7 @@ function snapshot(
   files: Array<{ path: string; mode: 0o644 | 0o755 }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: files
       .map((file) => {
@@ -83,7 +83,7 @@ function snapshot(
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -97,7 +97,7 @@ function bundle(
   active?: { commit: string; tree: string; workspace: AgentCandidateWorkspaceSnapshotEvidence },
 ): AgentCandidateBundle {
   const value = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -165,13 +165,13 @@ function redigestBundle(
 
 function emptySnapshot(label: string): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [],
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,

@@ -231,7 +231,7 @@ export async function prepareAgentCandidateExecution(
     )
     const routes = modelRoutes(bundle.profile, task.model.requested)
     const executionMaterial: AgentCandidateExecutionPlanMaterial = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-execution-plan-material',
       bundleDigest: bundle.digest,
       executionId: task.executionId,
@@ -292,7 +292,7 @@ export async function prepareAgentCandidateExecution(
     }
     const executionPlan: AgentCandidateExecutionPlanEvidence =
       agentCandidateExecutionPlanEvidenceSchema.parse({
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: 'agent-candidate-execution-plan',
         digest: executionDigest,
         material: executionMaterial,
@@ -302,7 +302,7 @@ export async function prepareAgentCandidateExecution(
     const entrypoint = candidateEntrypointReceipt(candidate)
     const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: 'agent-candidate-materialization',
         digestAlgorithm: 'rfc8785-sha256',
         bundleDigest: bundle.digest,

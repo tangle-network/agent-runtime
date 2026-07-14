@@ -156,7 +156,7 @@ export async function finalizeAgentCandidateRun(
       modelCallCount: modelSpans.length,
     }
     const document = canonicalCandidateDocument<AgentCandidateRunReceipt>({
-      schemaVersion: 1,
+      schemaVersion: 3,
       kind: 'agent-candidate-run',
       digestAlgorithm: 'rfc8785-sha256',
       bundleDigest: state.bundle.digest,
@@ -266,7 +266,7 @@ async function memoryReceipt(
   const afterState = capture.memoryAfter.afterState
   const manifestBytes = canonicalCandidateBytes(afterState)
   const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: afterState,

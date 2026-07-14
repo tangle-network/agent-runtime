@@ -56,6 +56,7 @@ import { ConfigError } from '../errors'
 import type { LocalHarness } from '../mcp/local-harness'
 import { assertModelAllowed } from '../runtime/supervise/model-policy'
 import { agenticGenerator, type Verifier } from './agentic-generator'
+import { rethrowAfterCleanup } from './cleanup'
 import {
   type CandidateGenerator,
   improvementDriver,
@@ -336,29 +337,6 @@ interface PreparedCodeRun {
   cleanup(retainedWinner?: MutableSurface): Promise<void>
 }
 
-/** Preserve the primary failure while making two best-effort cleanup attempts.
- * A failed first attempt is retained in the thrown AggregateError even when the
- * retry succeeds, so callers can diagnose degraded cleanup without losing the
- * error that caused cleanup to run. */
-async function rethrowAfterCleanup(
-  cause: unknown,
-  cleanup: () => Promise<void>,
-  message: string,
-): Promise<never> {
-  const cleanupErrors: unknown[] = []
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      await cleanup()
-    } catch (cleanupCause) {
-      cleanupErrors.push(cleanupCause)
-      continue
-    }
-    if (cleanupErrors.length === 0) throw cause
-    throw new AggregateError([cause, ...cleanupErrors], `${message}; the cleanup retry succeeded`)
-  }
-  throw new AggregateError([cause, ...cleanupErrors], message)
-}
-
 async function discardPreparedBaseline(
   worktree: WorktreeAdapter,
   baselineWorktree: Worktree,
@@ -367,7 +345,7 @@ async function discardPreparedBaseline(
   return rethrowAfterCleanup(
     cause,
     () => worktree.discard(baselineWorktree),
-    'improve(): code preparation failed and its baseline worktree could not be cleaned',
+    'improve(): code preparation failed',
   )
 }
 
@@ -616,7 +594,7 @@ export async function improve<TScenario extends Scenario, TArtifact>(
     return rethrowAfterCleanup(
       cause,
       () => preparedCode.cleanup(),
-      'improve(): code improvement failed and its worktrees could not be cleaned',
+      'improve(): code improvement failed',
     )
   }
 

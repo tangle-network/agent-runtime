@@ -49,7 +49,13 @@ function winner(): SupervisedResult<unknown> {
     out: { ok: true },
     outRef: 'out:1',
     tree: { nodes: [] },
-    spentTotal: { iterations: 2, tokens: { input: 30, output: 12 }, usd: 0.004, ms: 75 },
+    spentTotal: {
+      iterations: 2,
+      tokens: { input: 30, output: 12 },
+      usdKnown: false,
+      usd: 0.004,
+      ms: 75,
+    },
   } as unknown as SupervisedResult<unknown>
 }
 
@@ -289,6 +295,7 @@ describe('runKnowledgeImprovementJob', () => {
         iterations: 2,
         inputTokens: 30,
         outputTokens: 12,
+        usdKnown: false,
         usd: 0.004,
         ms: 75,
       })
@@ -407,7 +414,10 @@ describe('runKnowledgeImprovementJob', () => {
       const approvedUpdate = async () => {
         throw new Error('candidate-ready promotion must not rerun the updater')
       }
-      const promoteApproved = () =>
+      const runApproved = (
+        approvedProposal: AgentImprovementProposal,
+        approvedReview: AgentImprovementReview,
+      ) =>
         runKnowledgeImprovementJob({
           root,
           goal: 'Add runtime job knowledge',
@@ -418,23 +428,41 @@ describe('runKnowledgeImprovementJob', () => {
           runSupervised: approvedUpdate,
           candidateArtifacts: artifacts,
           approval: {
-            proposal,
-            review,
-            authorizeReview: async (candidateReview) => candidateReview.digest === review.digest,
+            proposal: approvedProposal,
+            review: approvedReview,
+            authorizeReview: async (candidateReview) =>
+              candidateReview.digest === approvedReview.digest,
           },
         })
+      const promoteApproved = () => runApproved(proposal, review)
 
-      await withKnowledgeImprovementCandidate(
-        { root, candidate: candidateRef },
-        async ({ root: candidateRoot }) => {
-          const frozenPage = join(candidateRoot, 'knowledge', 'runtime-job.md')
-          const frozenPageBytes = await readFile(frozenPage)
-          await writeFile(frozenPage, 'tampered frozen snapshot', 'utf8')
-          await expect(promoteApproved()).rejects.toThrow(/snapshot changed after approval/)
-          expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-          await writeFile(frozenPage, frozenPageBytes)
-        },
+      await expect(
+        withKnowledgeImprovementCandidate(
+          { root, candidate: candidateRef },
+          async ({ root: candidateRoot }) => {
+            const frozenPage = join(candidateRoot, 'knowledge', 'runtime-job.md')
+            await writeFile(frozenPage, 'tampered frozen snapshot', 'utf8')
+          },
+        ),
+      ).rejects.toThrow(/snapshot changed during use/)
+      expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+
+      const mismatchedProposal = createAgentImprovementProposal({
+        runId: 'runtime-job-mismatched',
+        baselineProfile,
+        findings: [],
+        evaluation: measuredKnowledgeComparison(baselineProfile, mismatchedBundle),
+        candidateBundle: mismatchedBundle,
+      })
+      const mismatchedReview = reviewAgentImprovementProposal(mismatchedProposal, {
+        decision: 'approve',
+        reviewedBy: 'operator@example.com',
+        reason: 'Attempt to approve a candidate identity that was never measured.',
+      })
+      await expect(runApproved(mismatchedProposal, mismatchedReview)).rejects.toThrow(
+        /does not match the measured candidate/,
       )
+      expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
 
       const promoted = await promoteApproved()
 

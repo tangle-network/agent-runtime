@@ -10,8 +10,8 @@ import type {
   AgentCandidateWorkspaceManifestMaterial,
 } from '@tangle-network/agent-interface'
 
-import { verifyBytes } from './artifacts'
-import { canonicalCandidateBytes, sha256Bytes } from './digest'
+import { candidateWorkspaceManifest, verifyBytes } from './artifacts'
+import { canonicalCandidateBytes } from './digest'
 import type { AgentCandidateRepositoryPort } from './types'
 
 interface GitResult {
@@ -320,19 +320,9 @@ async function workspaceManifestFromGitTree(
   tree: string,
   environment: Record<string, string>,
 ): Promise<AgentCandidateWorkspaceManifestMaterial> {
-  const files = (await readCandidateGitTreeFiles(repositoryRoot, tree, environment)).map(
-    ({ path, mode, bytes }) => ({
-      path,
-      mode,
-      sha256: sha256Bytes(bytes),
-      byteLength: bytes.byteLength,
-    }),
+  return candidateWorkspaceManifest(
+    await readCandidateGitTreeFiles(repositoryRoot, tree, environment),
   )
-  return {
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-manifest',
-    files,
-  }
 }
 
 export async function readCandidateGitTreeFiles(

@@ -218,7 +218,7 @@ describe('protected candidate run finalization', () => {
     if (task.outcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
     if (!task.repository) throw new Error('expected task repository identity')
     expect(result.receipt.value).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 3,
       taskOutcome: {
         artifact: result.artifacts.taskOutcome,
         material: {

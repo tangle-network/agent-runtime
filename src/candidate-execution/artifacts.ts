@@ -113,6 +113,23 @@ export async function readMaterializedWorkspaceFiles(
   )
 }
 
+export function candidateWorkspaceManifest(
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
+): AgentCandidateWorkspaceManifestMaterial {
+  return {
+    schemaVersion: 2,
+    kind: 'agent-candidate-workspace-manifest',
+    files: files
+      .map((file) => ({
+        path: file.path,
+        mode: file.mode,
+        sha256: sha256Bytes(file.bytes),
+        byteLength: file.bytes.byteLength,
+      }))
+      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+  }
+}
+
 function assertWorkspaceManifest(
   observed: AgentCandidateWorkspaceManifestMaterial,
   expected: AgentCandidateWorkspaceManifestMaterial,
@@ -163,7 +180,6 @@ async function scanWorkspace(
   if ((await realpath(absoluteRoot)) !== absoluteRoot) {
     throw new Error('workspace root has a symlinked path component')
   }
-  const files: AgentCandidateWorkspaceManifestMaterial['files'] = []
   const capturedFiles: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
   let totalBytes = 0
 
@@ -190,7 +206,7 @@ async function scanWorkspace(
       if (!stats.isFile()) {
         throw new Error(`workspace contains a non-regular entry: ${relPath}`)
       }
-      if (limits && files.length >= limits.maxFiles) {
+      if (limits && capturedFiles.length >= limits.maxFiles) {
         throw new Error('workspace exceeds maxFiles')
       }
       const descriptor = await open(
@@ -220,12 +236,6 @@ async function scanWorkspace(
           relPath,
         )
         totalBytes += bytes.byteLength
-        files.push({
-          path: relPath,
-          mode,
-          sha256: sha256Bytes(bytes),
-          byteLength: bytes.byteLength,
-        })
         capturedFiles.push({ path: relPath, mode, bytes: Uint8Array.from(bytes) })
       } finally {
         await descriptor.close()
@@ -234,14 +244,8 @@ async function scanWorkspace(
   }
 
   await visit(absoluteRoot)
-  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  capturedFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   return {
-    manifest: {
-      schemaVersion: 1,
-      kind: 'agent-candidate-workspace-manifest',
-      files,
-    },
+    manifest: candidateWorkspaceManifest(capturedFiles),
     files: capturedFiles,
   }
 }

@@ -84,6 +84,7 @@ export interface KnowledgeImprovementJobMeasurement {
     iterations: number
     inputTokens: number
     outputTokens: number
+    usdKnown: boolean
     usd: number
     ms: number
   }
@@ -386,7 +387,7 @@ function rawKnowledgeDigest(value: string, label: string): string {
 }
 
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {
-  return { iterations: 0, inputTokens: 0, outputTokens: 0, usd: 0, ms: 0 }
+  return { iterations: 0, inputTokens: 0, outputTokens: 0, usdKnown: true, usd: 0, ms: 0 }
 }
 
 function addSpent(
@@ -394,9 +395,10 @@ function addSpent(
   result: SupervisedResult<unknown>,
 ): void {
   const spent = result.spentTotal
-  target.iterations += spent.iterations ?? 0
-  target.inputTokens += spent.tokens?.input ?? 0
-  target.outputTokens += spent.tokens?.output ?? 0
-  target.usd += spent.usd ?? 0
-  target.ms += spent.ms ?? 0
+  target.iterations += spent.iterations
+  target.inputTokens += spent.tokens.input
+  target.outputTokens += spent.tokens.output
+  target.usdKnown = target.usdKnown && spent.usdKnown !== false
+  target.usd += spent.usd
+  target.ms += spent.ms
 }

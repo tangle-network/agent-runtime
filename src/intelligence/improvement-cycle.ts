@@ -65,6 +65,7 @@ import {
   verifiedResourceTextByDigest,
   verifyAgentCandidateBundle,
 } from '../candidate-execution/verify'
+import { rethrowAfterCleanup } from '../improvement/cleanup'
 import {
   applyImprovementWinnerToProfile,
   type ImproveOptions,
@@ -183,26 +184,30 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
     'proposeAgentImprovement findings',
   )
   const improvement = await improve(options.profile, [...findings], options.improvement)
-  if (!improvement.shipped) {
-    throw new Error('agent improvement proposal requires a passing measured comparison')
-  }
-  const candidateBundle = sealBuiltCandidate(
-    await options.buildCandidate({ analysis, improvement }),
-  )
-  const proposal = createAgentImprovementProposal({
-    runId: options.runId,
-    baselineProfile: options.profile,
-    findings,
-    evaluation: createAgentImprovementMeasuredComparison({
-      result: improvement.raw,
-      measuredSurface: options.improvement.surface ?? 'prompt',
+  try {
+    if (!improvement.shipped) {
+      throw new Error('agent improvement proposal requires a passing measured comparison')
+    }
+    const candidateBundle = sealBuiltCandidate(
+      await options.buildCandidate({ analysis, improvement }),
+    )
+    const proposal = createAgentImprovementProposal({
+      runId: options.runId,
       baselineProfile: options.profile,
+      findings,
+      evaluation: createAgentImprovementMeasuredComparison({
+        result: improvement.raw,
+        measuredSurface: options.improvement.surface ?? 'prompt',
+        baselineProfile: options.profile,
+        candidateBundle,
+      }),
       candidateBundle,
-    }),
-    candidateBundle,
-    ...(options.now ? { now: options.now } : {}),
-  })
-  return { analysis, improvement, proposal }
+      ...(options.now ? { now: options.now } : {}),
+    })
+    return { analysis, improvement, proposal }
+  } catch (cause) {
+    return rethrowAfterCleanup(cause, () => improvement.dispose(), 'proposeAgentImprovement failed')
+  }
 }
 
 /**

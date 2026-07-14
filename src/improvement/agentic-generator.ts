@@ -38,7 +38,6 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import type {
   AnalystFinding,
-  CostLedger,
   CostReceipt,
   CostReceiptInput,
   MaximumCharge,
@@ -195,11 +194,6 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       costLedger,
       costPhase,
     }) {
-      if (opts.codexReproducible && !costLedger) {
-        throw new Error(
-          'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
-        )
-      }
       const basePrompt = appendProfileResourcePaths(
         buildPrompt({ report, findings }),
         profileResourcePlan,
@@ -264,7 +258,12 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           }
 
           if (opts.codexReproducible) {
-            const ledger = costLedger as CostLedger
+            const ledger = costLedger
+            if (!ledger) {
+              throw new Error(
+                'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval',
+              )
+            }
             const model = opts.profile?.model?.default
             if (!model) {
               throw new Error('agenticGenerator: reproducible Codex requires profile.model.default')

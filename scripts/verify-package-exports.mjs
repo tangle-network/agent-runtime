@@ -30,21 +30,31 @@ try {
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./loops import it at runtime')
   }
-  const requiredExports = {
-    '.': ['import', 'types'],
-    './agent': ['import', 'types'],
-    './candidate-execution': ['import', 'types'],
-    './intelligence': ['import', 'types'],
-    './loops': ['import', 'types'],
-    './environment-provider': ['import', 'types'],
-    './profiles': ['import', 'types'],
-    './mcp': ['import', 'types'],
+  const packageExports = packageJson.exports
+  if (!packageExports || typeof packageExports !== 'object') {
+    throw new Error('packed package has no exports map')
   }
-
-  for (const [subpath, fields] of Object.entries(requiredExports)) {
-    const exportTarget = packageJson.exports?.[subpath]
-    if (!exportTarget) throw new Error(`missing package export ${subpath}`)
-    for (const field of fields) {
+  const requiredSubpaths = [
+    '.',
+    './agent',
+    './intelligence',
+    './loops',
+    './environment-provider',
+    './analyst-loop',
+    './lifecycle',
+    './knowledge',
+    './profiles',
+    './platform',
+    './candidate-execution',
+    './mcp',
+  ]
+  for (const subpath of requiredSubpaths) {
+    if (!(subpath in packageExports)) {
+      throw new Error(`packed package removed public export ${subpath}`)
+    }
+  }
+  for (const [subpath, exportTarget] of Object.entries(packageExports)) {
+    for (const field of ['import', 'types']) {
       const relativeTarget = exportTarget[field]
       if (typeof relativeTarget !== 'string') {
         throw new Error(`missing ${field} target for package export ${subpath}`)
@@ -193,6 +203,26 @@ try {
   )
   run('pnpm', ['install', '--ignore-scripts', '--config.auto-install-peers=false'], appDir)
   run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const { readFileSync } = await import('node:fs')
+        const packageJson = JSON.parse(
+          readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
+        )
+        for (const subpath of Object.keys(packageJson.exports)) {
+          const specifier =
+            subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
+          await import(specifier)
+        }
+      `,
+    ],
+    appDir,
+  )
 
   run(
     process.execPath,

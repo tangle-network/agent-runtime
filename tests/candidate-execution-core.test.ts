@@ -102,7 +102,7 @@ describe('candidate canonical bytes and artifacts', () => {
 
   it('requires workspace manifest bytes to equal canonical material, not only a locator', async () => {
     const material: AgentCandidateWorkspaceManifestMaterial = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-workspace-manifest',
       files: [],
     }
@@ -111,7 +111,7 @@ describe('candidate canonical bytes and artifacts', () => {
     await expect(
       verifyWorkspaceSnapshotArtifacts(
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           kind: 'agent-candidate-workspace-snapshot',
           digest: manifest.sha256,
           material,
@@ -124,7 +124,7 @@ describe('candidate canonical bytes and artifacts', () => {
     await expect(
       verifyWorkspaceSnapshotArtifacts(
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           kind: 'agent-candidate-workspace-snapshot',
           digest: manifest.sha256,
           material,
@@ -197,7 +197,7 @@ describe('materialized workspace identity', () => {
     writeFileSync(join(root, 'run.js'), 'ok\n', { mode: 0o755 })
     const bytes = Buffer.from('ok\n')
     const material: AgentCandidateWorkspaceManifestMaterial = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-workspace-manifest',
       files: [
         {
@@ -232,7 +232,7 @@ describe('materialized workspace identity', () => {
     chmodSync(join(root, 'source'), 0o644)
     symlinkSync('source', join(root, 'symlink'))
     const material: AgentCandidateWorkspaceManifestMaterial = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-workspace-manifest',
       files: [],
     }
