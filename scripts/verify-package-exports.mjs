@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
+const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-exports-'))
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -12,7 +13,19 @@ try {
   const appDir = join(tempRoot, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
-  mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+  mkdirSync(appDir, { recursive: true })
+  writeFileSync(
+    join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'agent-runtime-package-verification',
+        private: true,
+        type: 'module',
+      },
+      null,
+      2,
+    )}\n`,
+  )
 
   run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
@@ -52,7 +65,38 @@ try {
     }
   }
 
-  symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-runtime'), 'dir')
+  // Install into an empty app so dependency resolution uses only published package metadata.
+  run(
+    'npm',
+    [
+      'install',
+      '--ignore-scripts',
+      '--no-package-lock',
+      '--no-save',
+      '--no-audit',
+      '--no-fund',
+      tarballs[0],
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const { readFileSync } = await import('node:fs')
+        const packageJson = JSON.parse(
+          readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
+        )
+        const subpaths = Object.keys(packageJson.exports).map((subpath) =>
+          subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1),
+        )
+        for (const subpath of subpaths) await import(subpath)
+      `,
+    ],
+    appDir,
+  )
   run(
     process.execPath,
     [
