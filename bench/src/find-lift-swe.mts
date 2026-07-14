@@ -227,12 +227,18 @@ async function main(): Promise<void> {
     })
 
     // (d) COMPOSE — fold this round's promoted winners onto the current profile.
+    const prevInstructionCount = currentProfile.prompt?.instructions?.length ?? 0
     currentProfile = composeProfile(out.registry, currentProfile, { kind: 'prompt' })
     const composedInstructions = currentProfile.prompt?.instructions ?? []
 
-    // (e) CERTIFY on the FROZEN holdout — the real generalization number. The
-    // autopsy never read these tasks, so this lift is not in-sample fitting.
-    const holdoutComposed = await holdoutEval(currentProfile)
+    // (e) CERTIFY on the FROZEN holdout — the real generalization number. But ONLY
+    // re-score when the profile actually CHANGED. If nothing promoted this round,
+    // the composed profile is byte-identical to what produced `holdoutBaseline`, so
+    // a fresh scoring would report pure worker run-to-run VARIANCE as "lift" — a
+    // false positive. When unchanged, the lift is 0 by construction; carry the
+    // baseline forward and skip the wasted, misleading re-score.
+    const profileChanged = composedInstructions.length !== prevInstructionCount
+    const holdoutComposed = profileChanged ? await holdoutEval(currentProfile) : holdoutBaseline
     const holdoutLift = holdoutComposed.composite - holdoutBaseline.composite
 
     const bestOutcome = out.outcomes.reduce<(typeof out.outcomes)[number] | undefined>(
@@ -279,10 +285,12 @@ async function main(): Promise<void> {
     writeFileSync(join(runDir, `round-${round}.json`), `${JSON.stringify(roundReport, null, 2)}\n`)
 
     const hbSign = holdoutLift >= 0 ? '+' : ''
+    const holdoutTag = profileChanged
+      ? `HOLDOUT ${(holdoutBaseline.composite * 100).toFixed(1)}%→${(holdoutComposed.composite * 100).toFixed(1)}% = ${hbSign}${(holdoutLift * 100).toFixed(1)}pp (real, frozen)`
+      : `HOLDOUT lift = 0pp (nothing promoted — profile unchanged; not a measurement)`
     console.log(
       `round ${round}: train=${(composite * 100).toFixed(1)}% search-best=${(bestPromotedLift * 100).toFixed(1)}pp ` +
-        `(${out.promoted.length} promoted) -> HOLDOUT ${(holdoutBaseline.composite * 100).toFixed(1)}%→${(holdoutComposed.composite * 100).toFixed(1)}% ` +
-        `= ${hbSign}${(holdoutLift * 100).toFixed(1)}pp (real, frozen) [instructions=${composedInstructions.length}]`,
+        `(${out.promoted.length} promoted) -> ${holdoutTag} [instructions=${composedInstructions.length}]`,
     )
 
     trajectory.push({
