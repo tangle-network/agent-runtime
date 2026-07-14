@@ -17,6 +17,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { isAbsolute, win32 } from 'node:path'
 
 /** @experimental */
 export interface WorktreeHandle {
@@ -48,6 +49,12 @@ export interface DiffOptions {
   worktree: WorktreeHandle
   /** What to compare against. Default `worktree.baseSha`. */
   baseRef?: string
+  /**
+   * Repository-relative input paths to omit from the captured worker patch.
+   * Paths are passed to Git with literal exclusion magic, so profile-provided
+   * `*`, `?`, `[` and `:` characters can never expand into broader pathspecs.
+   */
+  excludePaths?: ReadonlyArray<string>
   /** Test seam. */
   runGit?: GitRunner
 }
@@ -130,17 +137,23 @@ export async function createWorktree(options: CreateWorktreeOptions): Promise<Wo
   return { path, baseSha: headSha.stdout.trim(), branch }
 }
 
-/** Stage all changes in a worktree and return the diff patch + shortstat against the base ref. @experimental */
+/** Stage worker changes and return the diff + shortstat, excluding declared input paths. @experimental */
 export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffResult> {
   const baseRef = options.baseRef ?? options.worktree.baseSha
+  const pathspecs = worktreeDiffPathspecs(options.excludePaths ?? [])
   // Stage everything (incl. NEW/untracked files) before diffing: a plain `git diff <ref>`
   // omits untracked files, so a worker that delivers by CREATING a file (a fresh dossier,
   // a new module) would produce an empty diff and silently fail to compound. Staging into
   // the index and diffing `--cached` captures created files. The worktree is ephemeral, so
   // mutating its index has no observable side effect.
-  await runGitAsync(['add', '-A'], options.worktree.path, options.runGit)
+  const staged = await runGitAsync(
+    ['add', '-A', ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : [])],
+    options.worktree.path,
+    options.runGit,
+  )
+  ensureGitOk('add -A', staged)
   const patch = await runGitAsync(
-    ['diff', '--cached', baseRef],
+    ['diff', '--cached', baseRef, ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : [])],
     options.worktree.path,
     options.runGit,
   )
@@ -148,12 +161,54 @@ export async function captureWorktreeDiff(options: DiffOptions): Promise<DiffRes
 
   // Stats: `git diff --shortstat` produces e.g. " 3 files changed, 42 insertions(+), 10 deletions(-)".
   const shortstat = await runGitAsync(
-    ['diff', '--cached', '--shortstat', baseRef],
+    [
+      'diff',
+      '--cached',
+      '--shortstat',
+      baseRef,
+      ...(pathspecs.length > 0 ? ['--', '.', ...pathspecs] : []),
+    ],
     options.worktree.path,
     options.runGit,
   )
   const stats = parseShortstat(shortstat.stdout)
   return { patch: patch.stdout, stats }
+}
+
+function worktreeDiffPathspecs(paths: ReadonlyArray<string>): string[] {
+  const normalized = new Set<string>()
+  for (const path of paths) {
+    if (
+      typeof path !== 'string' ||
+      path.length === 0 ||
+      path.includes('\\') ||
+      hasControlCharacter(path) ||
+      isAbsolute(path) ||
+      win32.isAbsolute(path)
+    ) {
+      throw new Error(
+        `worktree: excluded path must be a canonical repository-relative path: ${path}`,
+      )
+    }
+    const segments = path.split('/')
+    if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
+      throw new Error(
+        `worktree: excluded path must be a canonical repository-relative path: ${path}`,
+      )
+    }
+    normalized.add(path)
+  }
+  return [...normalized]
+    .sort((left, right) => left.localeCompare(right))
+    .map((path) => `:(top,exclude,literal)${path}`)
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < 0x20 || code === 0x7f) return true
+  }
+  return false
 }
 
 function parseShortstat(text: string): DiffResult['stats'] {
