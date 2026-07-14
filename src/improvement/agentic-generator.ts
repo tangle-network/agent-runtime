@@ -34,10 +34,22 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { join, resolve, sep } from 'node:path'
+import type {
+  AnalystFinding,
+  CostLedger,
+  CostReceipt,
+  CostReceiptInput,
+  MaximumCharge,
+} from '@tangle-network/agent-eval'
 import type { AgentProfile, ReasoningEffort } from '@tangle-network/agent-interface'
+import {
+  applyWorkspacePlan,
+  materializeProfile,
+  type WorkspacePlan,
+  type WorkspacePlanReceipt,
+} from '@tangle-network/agent-profile-materialize'
 import {
   type CodexExecutionEvidence,
   type CodexTokenUsage,
@@ -46,17 +58,15 @@ import {
   type LocalHarnessResult,
   runLocalHarness,
 } from '../mcp/local-harness'
-import type {
-  CandidateCostLedger,
-  CandidateCostReceipt,
-  CandidateCostReceiptInput,
-  CandidateGenerator,
-  CandidateMaximumCharge,
-} from './improvement-driver'
+import type { CandidateGenerator } from './improvement-driver'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
 const RAW_TRACE_AREA = 'raw-trace-context'
 const RAW_TRACE_DIAGNOSIS_PATH = '.improve/raw-trace-diagnosis.md'
+
+/** Dedicated ephemeral root for generic author-profile files. Every declared
+ * file must live below this root so cleanup cannot alter candidate-owned files. */
+export const AGENTIC_PROFILE_RESOURCE_ROOT = '.agent-runtime-profile-resources'
 
 /** Outcome of verifying a candidate worktree. `feedback` (compiler errors,
  *  failing test output) is fed into the next shot when `ok` is false. */
@@ -92,9 +102,15 @@ export interface AgenticGeneratorShotReceipt {
   readonly stderrBytes: number | null
   readonly stderrSha256: `sha256:${string}` | null
   readonly usage: CodexTokenUsage | null
+  /** Digest of the exact profile-file workspace plan applied for this shot. */
+  readonly profileWorkspacePlanDigest: string | null
+  readonly profileWorkspaceFileCount: number
   /** Shared run-ledger call id for this exact shot. */
   readonly costCallId: string | null
+  /** Whether dollars came from the provider, the pricing table, or are unknown. */
+  readonly costBasis: 'provider-reported' | 'estimated-pricing' | 'unknown'
   readonly costUsd: number | null
+  /** True only for a provider-reported amount, never for a pricing estimate. */
   readonly costUsdKnown: boolean
   readonly evidence: CodexExecutionEvidence | null
   readonly error: { readonly name: string; readonly message: string } | null
@@ -119,7 +135,7 @@ export interface AgenticGeneratorOptions {
    *  author shot. This MUST be enforced by the provider or executor; a planning
    *  estimate is not an admissible bound. Omit for an uncapped ledger. A capped
    *  ledger rejects before model dispatch when this is absent. */
-  maximumCharge?: CandidateMaximumCharge
+  maximumCharge?: MaximumCharge
   /** Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m). */
   timeoutMs?: number
   /** Build the harness task prompt from the report + findings. Override for
@@ -152,6 +168,9 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
   if (opts.maximumCharge && !opts.codexReproducible) {
     throw new Error('agenticGenerator: maximumCharge requires codexReproducible')
   }
+  const profileResourcePlan = opts.codexReproducible
+    ? authorProfileResourcePlan(opts.profile as AgentProfile)
+    : null
   const buildPrompt = opts.buildPrompt ?? defaultBuildPrompt
   const run = opts.runHarness ?? runLocalHarness
   const dirty = opts.isDirty ?? worktreeDirty
@@ -181,7 +200,10 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
           'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
         )
       }
-      const basePrompt = buildPrompt({ report, findings })
+      const basePrompt = appendProfileResourcePaths(
+        buildPrompt({ report, findings }),
+        profileResourcePlan,
+      )
       const needsRawTraceEvidence = requiresRawTraceEvidence(findings)
       const shots = Math.max(1, maxShots)
       // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
@@ -203,34 +225,46 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             : opts.codexReadDeniedPaths
         const startedAt = new Date()
         let harnessResult: LocalHarnessResult | null = null
-        let costReceipt: CandidateCostReceipt | null = null
+        let profileWorkspaceReceipt: WorkspacePlanReceipt | null = null
+        let costReceipt: CostReceipt | null = null
         let costCallId: string | null = null
         let shotError: Error | null = null
         try {
           const execute = async (executionSignal: AbortSignal): Promise<LocalHarnessResult> => {
-            harnessResult = await run({
-              harness,
-              cwd: worktreePath,
-              taskPrompt,
-              ...(invocation
-                ? { invocation: { command: invocation.command, args: invocation.args } }
-                : {}),
-              // The candidate worktree is isolated and must be editable without an
-              // interactive permission prompt. Other runLocalHarness callers remain
-              // permission-safe by default.
-              dangerouslySkipPermissions: harness === 'claude',
-              ...(opts.codexReproducible ? { codexReproducible: true } : {}),
-              ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
-              timeoutMs: opts.timeoutMs,
-              signal: executionSignal,
-            })
+            harnessResult = await withAuthorProfileResources(
+              profileResourcePlan,
+              worktreePath,
+              async (receipt) => {
+                profileWorkspaceReceipt = receipt
+                const result = await run({
+                  harness,
+                  cwd: worktreePath,
+                  taskPrompt,
+                  ...(invocation
+                    ? { invocation: { command: invocation.command, args: invocation.args } }
+                    : {}),
+                  // The candidate worktree is isolated and must be editable without an
+                  // interactive permission prompt. Other runLocalHarness callers remain
+                  // permission-safe by default.
+                  dangerouslySkipPermissions: harness === 'claude',
+                  ...(opts.codexReproducible ? { codexReproducible: true } : {}),
+                  ...(readDeniedPaths ? { codexReadDeniedPaths: readDeniedPaths } : {}),
+                  timeoutMs: opts.timeoutMs,
+                  signal: executionSignal,
+                })
+                // Assign before profile cleanup so a cleanup failure still
+                // settles the model usage already returned by the harness.
+                harnessResult = result
+                return result
+              },
+            )
             const failure = shotFailure(harnessResult, exactPrompt, opts.codexReproducible === true)
             if (failure) throw failure
             return harnessResult
           }
 
           if (opts.codexReproducible) {
-            const ledger = costLedger as CandidateCostLedger
+            const ledger = costLedger as CostLedger
             const model = opts.profile?.model?.default
             if (!model) {
               throw new Error('agenticGenerator: reproducible Codex requires profile.model.default')
@@ -275,6 +309,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             startedAt,
             completedAt: new Date(),
             result: harnessResult,
+            profileWorkspaceReceipt,
             costCallId,
             costReceipt,
             error: shotError,
@@ -319,6 +354,112 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
   }
 }
 
+function authorProfileResourcePlan(profile: AgentProfile): WorkspacePlan | null {
+  const resources = profile.resources
+  if (!resources) return null
+  const unsupportedKinds = [
+    resources.tools?.length ? 'tools' : null,
+    resources.skills?.length ? 'skills' : null,
+    resources.agents?.length ? 'agents' : null,
+  ].filter((kind): kind is string => kind !== null)
+  if (unsupportedKinds.length > 0) {
+    throw new Error(
+      `agenticGenerator: reproducible Codex author resources support files only; unsupported: ${unsupportedKinds.join(', ')}`,
+    )
+  }
+  if (!resources.files || resources.files.length === 0) return null
+
+  const plan = materializeProfile(
+    {
+      name: profile.name,
+      resources: { files: resources.files },
+    },
+    'codex',
+  )
+  if (plan.unsupported.length > 0) {
+    throw new Error(
+      `agenticGenerator: author profile files could not be materialized: ${plan.unsupported.map((item) => item.reason).join('; ')}`,
+    )
+  }
+  if (Object.keys(plan.env).length > 0 || plan.flags.length > 0) {
+    throw new Error(
+      'agenticGenerator: generic author profile files unexpectedly changed spawn values',
+    )
+  }
+
+  const virtualRoot = resolve('/', AGENTIC_PROFILE_RESOURCE_ROOT)
+  const seen = new Set<string>()
+  for (const file of plan.files) {
+    const target = resolve('/', file.relPath)
+    if (!target.startsWith(`${virtualRoot}${sep}`)) {
+      throw new Error(
+        `agenticGenerator: author profile file must be below ${AGENTIC_PROFILE_RESOURCE_ROOT}: ${file.relPath}`,
+      )
+    }
+    if (seen.has(target)) {
+      throw new Error(`agenticGenerator: duplicate author profile file path: ${file.relPath}`)
+    }
+    seen.add(target)
+  }
+  return plan
+}
+
+function appendProfileResourcePaths(prompt: string, plan: WorkspacePlan | null): string {
+  if (!plan) return prompt
+  return [
+    prompt,
+    '',
+    'Profile resource files available for this shot:',
+    ...plan.files.map((file) => `- ${file.relPath}`),
+  ].join('\n')
+}
+
+async function withAuthorProfileResources<T>(
+  plan: WorkspacePlan | null,
+  worktreePath: string,
+  run: (receipt: WorkspacePlanReceipt | null) => Promise<T>,
+): Promise<T> {
+  if (!plan) return run(null)
+
+  const rootPath = resolve(worktreePath, AGENTIC_PROFILE_RESOURCE_ROOT)
+  if (existsSync(rootPath)) {
+    throw new Error(
+      `agenticGenerator: ephemeral author profile root already exists: ${AGENTIC_PROFILE_RESOURCE_ROOT}`,
+    )
+  }
+
+  let value: T | undefined
+  let primaryError: unknown
+  try {
+    const receipt = applyWorkspacePlan(plan, worktreePath)
+    value = await run(receipt)
+  } catch (cause) {
+    primaryError = cause
+  }
+
+  let cleanupError: unknown
+  try {
+    rmSync(rootPath, { recursive: true, force: true })
+    if (existsSync(rootPath)) {
+      throw new Error(
+        `agenticGenerator: ephemeral author profile root survived cleanup: ${AGENTIC_PROFILE_RESOURCE_ROOT}`,
+      )
+    }
+  } catch (cause) {
+    cleanupError = cause
+  }
+
+  if (primaryError !== undefined && cleanupError !== undefined) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      'agenticGenerator: author shot and profile resource cleanup both failed',
+    )
+  }
+  if (primaryError !== undefined) throw primaryError
+  if (cleanupError !== undefined) throw cleanupError
+  return value as T
+}
+
 async function emitShotReceipt(
   callback: AgenticGeneratorOptions['onShotCompleted'],
   receipt: AgenticGeneratorShotReceipt,
@@ -349,8 +490,9 @@ function shotReceipt(input: {
   readonly startedAt: Date
   readonly completedAt: Date
   readonly result: LocalHarnessResult | null
+  readonly profileWorkspaceReceipt: WorkspacePlanReceipt | null
   readonly costCallId: string | null
-  readonly costReceipt: CandidateCostReceipt | null
+  readonly costReceipt: CostReceipt | null
   readonly error: unknown
 }): AgenticGeneratorShotReceipt {
   const error = input.error
@@ -360,6 +502,7 @@ function shotReceipt(input: {
       }
     : null
   const result = input.result
+  const costBasis = costBasisFor(input.costReceipt)
   return {
     schemaVersion: 1,
     generation: input.generation ?? null,
@@ -381,9 +524,12 @@ function shotReceipt(input: {
     stderrBytes: result ? Buffer.byteLength(result.stderr) : null,
     stderrSha256: result ? sha256(result.stderr) : null,
     usage: result?.usage ? { ...result.usage } : null,
+    profileWorkspacePlanDigest: input.profileWorkspaceReceipt?.workspacePlanDigest ?? null,
+    profileWorkspaceFileCount: input.profileWorkspaceReceipt?.written.length ?? 0,
     costCallId: input.costCallId,
-    costUsd: input.costReceipt?.costUsd ?? null,
-    costUsdKnown: input.costReceipt !== null && !input.costReceipt.costUnknown,
+    costBasis,
+    costUsd: costBasis === 'unknown' ? null : (input.costReceipt?.costUsd ?? null),
+    costUsdKnown: costBasis === 'provider-reported',
     evidence: result?.evidence
       ? {
           ...result.evidence,
@@ -393,6 +539,11 @@ function shotReceipt(input: {
       : null,
     error,
   }
+}
+
+function costBasisFor(receipt: CostReceipt | null): AgenticGeneratorShotReceipt['costBasis'] {
+  if (receipt === null || receipt.costUnknown) return 'unknown'
+  return receipt.actualCostUsd === undefined ? 'estimated-pricing' : 'provider-reported'
 }
 
 function shotFailure(
@@ -424,10 +575,7 @@ function shotFailure(
   return null
 }
 
-function costReceiptFromHarness(
-  result: LocalHarnessResult,
-  model: string,
-): CandidateCostReceiptInput {
+function costReceiptFromHarness(result: LocalHarnessResult, model: string): CostReceiptInput {
   if (!result.usage) {
     throw new Error('agenticGenerator: author shot did not report terminal token usage')
   }

@@ -11,6 +11,7 @@
  */
 
 export {
+  AGENTIC_PROFILE_RESOURCE_ROOT,
   type AgenticGeneratorOptions,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,

@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import type { AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
 import {
   type CodeSurface,
   type LabeledScenarioStore,
@@ -31,57 +31,6 @@ import {
   type Worktree,
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
-
-/** A provider- or executor-enforced upper bound accepted by agent-eval's
- * run-wide CostLedger. A caller must not present a planning estimate as an
- * enforced maximum: capped ledgers deliberately reject calls without one. */
-export type CandidateMaximumCharge =
-  | { externallyEnforcedMaximumUsd: number }
-  | {
-      model: string
-      inputTokens: number
-      outputTokens: number
-      cachedTokens?: number
-    }
-
-export interface CandidateCostReceiptInput {
-  model: string
-  inputTokens: number
-  outputTokens: number
-  cachedTokens?: number
-  actualCostUsd?: number
-  costUnknown?: boolean
-  usageUnknown?: boolean
-}
-
-export interface CandidateCostReceipt extends CandidateCostReceiptInput {
-  callId: string
-  costUsd: number
-  costUnknown: boolean
-}
-
-/** The narrow structural slice of agent-eval 0.117's CostLedger used by a
- * candidate author. Keeping this as a port lets runtime compile before the
- * release pin advances while remaining directly assignable from CostLedger. */
-export interface CandidateCostLedger {
-  readonly costCeilingUsd?: number
-  runPaidCall<T>(input: {
-    callId?: string
-    channel: string
-    phase: string
-    actor: string
-    model?: string
-    tags?: Record<string, string>
-    signal?: AbortSignal
-    maximumCharge?: CandidateMaximumCharge
-    execute(signal: AbortSignal, callId: string): Promise<T>
-    receipt(value: T): CandidateCostReceiptInput
-    receiptFromError?(error: Error): CandidateCostReceiptInput | undefined
-  }): Promise<
-    | { succeeded: true; callId: string; value: T; receipt: CandidateCostReceipt }
-    | { succeeded: false; callId?: string; error: Error; receipt?: CandidateCostReceipt }
-  >
-}
 
 /** The byte-producing seam — the ONE thing that differs between the cheap
  *  reflective path and the full agentic path. A generator makes (uncommitted)
@@ -117,7 +66,7 @@ export interface CandidateGenerator {
     generation?: number
     candidateIndex?: number
     /** Shared run-wide paid-call account supplied by agent-eval 0.117+. */
-    costLedger?: CandidateCostLedger
+    costLedger?: CostLedger
     /** Receipt attribution phase supplied alongside `costLedger`. */
     costPhase?: string
   }): Promise<{ applied: boolean; summary: string }>
@@ -144,13 +93,6 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
   return {
     kind: `improvement:${opts.generator.kind}`,
     async propose(ctx: ProposeContext<AnalystFinding>) {
-      // Cost context shipped on ProposeContext in agent-eval 0.117. The local
-      // dependency remains on the prior release until retry-safe worktree
-      // discard is published, so read the new optional fields structurally.
-      const costContext = ctx as ProposeContext<AnalystFinding> & {
-        costLedger?: CandidateCostLedger
-        costPhase?: string
-      }
       const findings = resolveFindings(ctx)
       // No findings AND no report AND a generator that can only act on findings
       // (the reflective patch-applier) — propose nothing rather than spin up
@@ -191,8 +133,8 @@ export function improvementDriver(opts: ImprovementDriverOptions): ManagedImprov
             signal: ctx.signal,
             generation: ctx.generation,
             candidateIndex: i,
-            ...(costContext.costLedger ? { costLedger: costContext.costLedger } : {}),
-            ...(costContext.costPhase ? { costPhase: costContext.costPhase } : {}),
+            ...(ctx.costLedger ? { costLedger: ctx.costLedger } : {}),
+            ...(ctx.costPhase ? { costPhase: ctx.costPhase } : {}),
           })
           if (!applied) {
             await opts.worktree.discard(wt)

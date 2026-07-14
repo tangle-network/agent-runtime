@@ -1,22 +1,18 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter, type ProposeContext } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AGENTIC_PROFILE_RESOURCE_ROOT,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
 } from '../src/improvement'
-import {
-  type CandidateCostLedger,
-  type CandidateCostReceipt,
-  type CandidateCostReceiptInput,
-  improvementDriver,
-} from '../src/improvement/improvement-driver'
+import { improvementDriver } from '../src/improvement/improvement-driver'
 import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
 function git(args: string[], cwd: string): string {
@@ -100,81 +96,6 @@ const CODEX_EVIDENCE = {
   policy: {},
 } as NonNullable<LocalHarnessResult['evidence']>
 
-interface RecordedPaidCall {
-  channel: string
-  phase: string
-  actor: string
-  model: string | undefined
-  tags: Record<string, string> | undefined
-  maximumCharge: unknown
-}
-
-function recordingCostLedger(options: { capped?: boolean } = {}): {
-  ledger: CandidateCostLedger
-  calls: RecordedPaidCall[]
-  receipts: CandidateCostReceipt[]
-} {
-  const calls: RecordedPaidCall[] = []
-  const receipts: CandidateCostReceipt[] = []
-  let nextCall = 0
-  const settle = (
-    callId: string,
-    observed: CandidateCostReceiptInput,
-    error?: Error,
-  ): CandidateCostReceipt => {
-    const costUnknown = observed.costUnknown === true || observed.usageUnknown === true
-    const receipt: CandidateCostReceipt = {
-      ...observed,
-      callId,
-      costUsd: costUnknown
-        ? 0
-        : (observed.actualCostUsd ??
-          observed.inputTokens * 0.000001 + observed.outputTokens * 0.00001),
-      costUnknown,
-      ...(error ? { error: error.message } : {}),
-    } as CandidateCostReceipt
-    receipts.push(receipt)
-    return receipt
-  }
-  const ledger: CandidateCostLedger = {
-    ...(options.capped ? { costCeilingUsd: 1 } : {}),
-    async runPaidCall(input) {
-      const callId = `author-call-${++nextCall}`
-      calls.push({
-        channel: input.channel,
-        phase: input.phase,
-        actor: input.actor,
-        model: input.model,
-        tags: input.tags,
-        maximumCharge: input.maximumCharge,
-      })
-      if (options.capped && input.maximumCharge === undefined) {
-        return {
-          succeeded: false,
-          callId,
-          error: new Error('capped paid calls require a hard maximumCharge before execution'),
-        }
-      }
-      try {
-        const value = await input.execute(input.signal ?? new AbortController().signal, callId)
-        const receipt = settle(callId, input.receipt(value))
-        return { succeeded: true, callId, value, receipt }
-      } catch (cause) {
-        const error = cause instanceof Error ? cause : new Error(String(cause))
-        const observed = input.receiptFromError?.(error) ?? {
-          model: input.model ?? 'unknown',
-          inputTokens: 0,
-          outputTokens: 0,
-          costUnknown: true,
-          usageUnknown: true,
-        }
-        return { succeeded: false, callId, error, receipt: settle(callId, observed, error) }
-      }
-    },
-  }
-  return { ledger, calls, receipts }
-}
-
 function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFinding> {
   return {
     currentSurface: '',
@@ -190,7 +111,8 @@ function ctx(findings: AnalystFinding[], maxShots = 1): ProposeContext<AnalystFi
 describe('agenticGenerator — runs a harness in the worktree', () => {
   it('pins the author profile and emits exact usage for every reproducible Codex shot', async () => {
     const receipts: AgenticGeneratorShotReceipt[] = []
-    const cost = recordingCostLedger()
+    const costLedger = new CostLedger()
+    const resourcePath = `${AGENTIC_PROFILE_RESOURCE_ROOT}/trace-analysis.md`
     const profile = {
       name: 'structural-author',
       prompt: {
@@ -198,6 +120,18 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         instructions: ['Edit only the allowed implementation.'],
       },
       model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' as const },
+      resources: {
+        files: [
+          {
+            path: resourcePath,
+            resource: {
+              kind: 'inline' as const,
+              name: 'trace-analysis',
+              content: 'Repeated state reads caused stale edits.\n',
+            },
+          },
+        ],
+      },
     }
     const runHarness = vi.fn(
       async (options: {
@@ -211,6 +145,8 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         expect(options.invocation?.command).toBe('codex')
         expect(options.invocation?.args).toContain('gpt-5.4')
         expect(options.invocation?.args.join('\n')).toContain('AUTHOR SYSTEM')
+        expect(options.taskPrompt).toContain(resourcePath)
+        expect(readFileSync(join(options.cwd, resourcePath), 'utf8')).toContain('stale edits')
         expect(options.codexReadDeniedPaths).toEqual([`${options.cwd}/private-evidence`])
         writeFileSync(join(options.cwd, 'app.ts'), 'export const x = 2\n')
         const prompt = options.invocation?.args[1]
@@ -248,10 +184,11 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       signal: new AbortController().signal,
       generation: 4,
       candidateIndex: 2,
-      costLedger: cost.ledger,
+      costLedger,
       costPhase: 'search.proposal',
     })
 
+    const [costReceipt] = costLedger.list()
     expect(out.applied).toBe(true)
     expect(receipts).toHaveLength(1)
     expect(receipts[0]).toMatchObject({
@@ -264,11 +201,15 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       model: 'gpt-5.4',
       reasoningEffort: 'xhigh',
       usage: CODEX_USAGE,
-      costCallId: 'author-call-1',
-      costUsdKnown: true,
+      profileWorkspacePlanDigest: expect.any(String),
+      profileWorkspaceFileCount: 1,
+      costCallId: expect.any(String),
+      costBasis: 'estimated-pricing',
+      costUsdKnown: false,
       error: null,
     })
-    expect(receipts[0]?.costUsd).toBeCloseTo(0.0004)
+    expect(receipts[0]?.costCallId).toBe(costReceipt?.callId)
+    expect(receipts[0]?.costUsd).toBeCloseTo(0.00045)
     expect(receipts[0]?.promptSha256).toMatch(/^sha256:[a-f0-9]{64}$/)
     expect(receipts[0]?.stdoutSha256).toBe(
       `sha256:${createHash('sha256').update(HARNESS_OK.stdout).digest('hex')}`,
@@ -277,23 +218,43 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(receipts[0]?.evidence?.effectivePromptSha256).not.toBe(
       receipts[0]?.evidence?.requestedPromptSha256,
     )
-    expect(cost.calls).toEqual([
-      {
+    expect(existsSync(join(wt.path, AGENTIC_PROFILE_RESOURCE_ROOT))).toBe(false)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+    expect(costLedger.list()).toEqual([
+      expect.objectContaining({
         channel: 'driver',
         phase: 'search.proposal',
         actor: 'agentic-generator:codex',
         model: 'gpt-5.4',
         tags: { generation: '4', candidateIndex: '2', shot: '1' },
-        maximumCharge: undefined,
-      },
+        inputTokens: 100,
+        cachedTokens: 20,
+        outputTokens: 30,
+        costUsd: 0.00045,
+        costUnknown: false,
+      }),
     ])
-    expect(cost.receipts[0]).toMatchObject({
-      inputTokens: 100,
-      cachedTokens: 20,
-      outputTokens: 30,
-      model: 'gpt-5.4',
-      costUnknown: false,
-    })
+  })
+
+  it('rejects profile files outside the dedicated ephemeral root before dispatch', () => {
+    expect(() =>
+      agenticGenerator({
+        harness: 'codex',
+        profile: {
+          name: 'author',
+          model: { default: 'gpt-5.4' },
+          resources: {
+            files: [
+              {
+                path: 'research.md',
+                resource: { kind: 'inline', name: 'research', content: 'private evidence' },
+              },
+            ],
+          },
+        },
+        codexReproducible: true,
+      }),
+    ).toThrow(new RegExp(`must be below ${AGENTIC_PROFILE_RESOURCE_ROOT}`))
   })
 
   it('emits a failed shot receipt before rethrowing a harness failure', async () => {
@@ -325,7 +286,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
   it('fails closed when reproducible Codex completes without token usage', async () => {
     const receipts: unknown[] = []
-    const cost = recordingCostLedger()
+    const costLedger = new CostLedger()
     const gen = agenticGenerator({
       harness: 'codex',
       profile: {
@@ -348,20 +309,21 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
-        costLedger: cost.ledger,
+        costLedger,
       }),
     ).rejects.toThrow(/without usage or execution evidence/)
     expect(receipts).toHaveLength(1)
     expect(receipts[0]).toMatchObject({
       usage: null,
-      costCallId: 'author-call-1',
-      costUsd: 0,
+      costCallId: expect.any(String),
+      costBasis: 'unknown',
+      costUsd: null,
       costUsdKnown: false,
       error: { message: expect.stringMatching(/without usage or execution evidence/) },
     })
-    expect(cost.receipts).toEqual([
+    expect(costLedger.list()).toEqual([
       expect.objectContaining({
-        callId: 'author-call-1',
+        callId: expect.any(String),
         usageUnknown: true,
         costUnknown: true,
       }),
@@ -398,7 +360,7 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
   it('lets a capped ledger reject an unbounded author shot before model dispatch', async () => {
     const receipts: AgenticGeneratorShotReceipt[] = []
-    const cost = recordingCostLedger({ capped: true })
+    const costLedger = new CostLedger({ costCeilingUsd: 1 })
     const runHarness = vi.fn()
     const gen = agenticGenerator({
       harness: 'codex',
@@ -422,14 +384,15 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         findings: FINDINGS,
         maxShots: 1,
         signal: new AbortController().signal,
-        costLedger: cost.ledger,
+        costLedger,
       }),
     ).rejects.toThrow(/hard maximumCharge before execution/)
     expect(runHarness).not.toHaveBeenCalled()
-    expect(cost.receipts).toHaveLength(0)
+    expect(costLedger.list()).toHaveLength(0)
     expect(receipts).toEqual([
       expect.objectContaining({
-        costCallId: 'author-call-1',
+        costCallId: expect.any(String),
+        costBasis: 'unknown',
         costUsd: null,
         costUsdKnown: false,
         usage: null,
@@ -442,9 +405,12 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
 
   it('records terminal usage and rejects partial edits from a failed author process', async () => {
     const receipts: AgenticGeneratorShotReceipt[] = []
-    const cost = recordingCostLedger()
+    const costLedger = new CostLedger()
     const runHarness = vi.fn(
       async (options: { cwd: string; invocation?: { args: ReadonlyArray<string> } }) => {
+        expect(
+          readFileSync(join(options.cwd, AGENTIC_PROFILE_RESOURCE_ROOT, 'failure.md'), 'utf8'),
+        ).toBe('failure context\n')
         writeFileSync(join(options.cwd, 'app.ts'), 'export const partial = true\n')
         const prompt = options.invocation?.args[1]
         if (!prompt) throw new Error('test invocation omitted the composed prompt')
@@ -464,6 +430,14 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
       profile: {
         name: 'author',
         model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+        resources: {
+          files: [
+            {
+              path: `${AGENTIC_PROFILE_RESOURCE_ROOT}/failure.md`,
+              resource: { kind: 'inline', name: 'failure', content: 'failure context\n' },
+            },
+          ],
+        },
       },
       codexReproducible: true,
       runHarness: runHarness as never,
@@ -483,12 +457,14 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
         signal: new AbortController().signal,
         generation: 1,
         candidateIndex: 0,
-        costLedger: cost.ledger,
+        costLedger,
       }),
     ).rejects.toThrow(/exited with code 2/)
-    expect(cost.receipts).toEqual([
+    expect(existsSync(join(wt.path, AGENTIC_PROFILE_RESOURCE_ROOT))).toBe(false)
+    expect(git(['status', '--short'], wt.path)).toBe('M app.ts')
+    expect(costLedger.list()).toEqual([
       expect.objectContaining({
-        callId: 'author-call-1',
+        callId: expect.any(String),
         inputTokens: 100,
         cachedTokens: 20,
         outputTokens: 30,
@@ -498,8 +474,9 @@ describe('agenticGenerator — runs a harness in the worktree', () => {
     expect(receipts).toEqual([
       expect.objectContaining({
         exitCode: 2,
-        costCallId: 'author-call-1',
-        costUsdKnown: true,
+        costCallId: expect.any(String),
+        costBasis: 'estimated-pricing',
+        costUsdKnown: false,
         usage: CODEX_USAGE,
         error: expect.objectContaining({
           message: 'agenticGenerator: author shot exited with code 2',

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AnalystFinding } from '@tangle-network/agent-eval'
+import { type AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   type ProposeContext,
@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SurfaceImprovementEdit } from '../src/agent/improvement-adapter'
 import type { ImprovementAdapter, ImprovementEditBatch } from '../src/analyst-loop/types'
 import { improvementDriver, reflectiveGenerator } from '../src/improvement'
-import type { CandidateCostLedger, CandidateGenerator } from '../src/improvement/improvement-driver'
+import type { CandidateGenerator } from '../src/improvement/improvement-driver'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -83,14 +83,10 @@ function reflectiveDriver(adapter: ImprovementAdapter<SurfaceImprovementEdit>) {
 describe('improvementDriver — reflective generator', () => {
   it('forwards the run-wide paid-call account and phase to every candidate author', async () => {
     const observed: Array<{
-      costLedger: CandidateCostLedger | undefined
+      costLedger: CostLedger | undefined
       costPhase: string | undefined
     }> = []
-    const costLedger = {
-      async runPaidCall() {
-        throw new Error('not called by forwarding fixture')
-      },
-    } as CandidateCostLedger
+    const costLedger = new CostLedger()
     const generator: CandidateGenerator = {
       kind: 'cost-forwarding-fixture',
       async generate(args) {
