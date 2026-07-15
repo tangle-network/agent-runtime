@@ -22,6 +22,7 @@ import type {
   PreparedAgentCandidateExecution,
 } from './types'
 import { CANDIDATE_TRACE_ENV, CANDIDATE_TRACE_TAGS, preparedCandidateBrand } from './types'
+import { workspaceTaskRepository } from './workspace-task'
 
 export interface PreparedCandidateState {
   ports: AgentCandidateExecutionPorts
@@ -42,17 +43,17 @@ export interface PreparedCandidateState {
   executorInputs: {
     taskFiles: ReadonlyArray<{
       path: string
-      mode: 0o644 | 0o755
+      mode: number
       bytes: Uint8Array
     }>
     candidateFiles?: ReadonlyArray<{
       path: string
-      mode: 0o644 | 0o755
+      mode: number
       bytes: Uint8Array
     }>
     profileFiles: ReadonlyArray<{
       path: string
-      mode: 0o644 | 0o755
+      mode: number
       bytes: Uint8Array
     }>
   }
@@ -225,7 +226,7 @@ export async function assertPreparedCandidateWorkspaces(
   await verifyMaterializedWorkspace(state.roots.staging.taskRoot, plan.task.workspace.material, {
     ignoredProtectedRootEntries: ['.git', '.sidecar'],
   })
-  await verifyTaskCheckout(state.roots.staging.taskRoot, plan.task.repository)
+  await verifyTaskCheckout(state.roots.staging.taskRoot, workspaceTaskRepository(plan.task))
   await verifyMaterializedProfileWorkspace(
     state.roots.staging.profileRoot,
     state.profilePlan.value.material,
@@ -298,9 +299,12 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
     ...(input.knowledge
       ? {
           knowledge: Object.freeze({
-            snapshotId: input.knowledge.snapshotId,
-            manifestDigest: input.knowledge.manifestDigest,
-            manifest: Uint8Array.from(input.knowledge.manifest),
+            candidate: immutableCandidateValue(input.knowledge.candidate),
+            snapshot: immutableCandidateValue(input.knowledge.snapshot),
+            files: immutableExecutorFiles(input.knowledge.files),
+            ...(input.knowledge.retrievalConfig
+              ? { retrievalConfig: Uint8Array.from(input.knowledge.retrievalConfig) }
+              : {}),
           }),
         }
       : {}),
@@ -358,6 +362,7 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     throw new Error('prepared model access no longer matches the signed execution plan')
   }
   assertExecutorInputs(state)
+  assertPreparedKnowledge(state)
   if (
     (state.memory.mode === 'isolated' && !state.memoryReservation) ||
     (state.memory.mode === 'disabled' && state.memoryReservation)
@@ -444,13 +449,20 @@ function bytesView<T extends { bytes: Uint8Array }>(value: T, key: 'bytes'): T {
 function knowledgeView(
   knowledge: NonNullable<PreparedAgentCandidateExecution['knowledge']>,
 ): NonNullable<PreparedAgentCandidateExecution['knowledge']> {
-  const manifest = Uint8Array.from(knowledge.manifest)
+  const retrievalConfig = knowledge.retrievalConfig
+    ? Uint8Array.from(knowledge.retrievalConfig)
+    : undefined
   return Object.freeze({
-    snapshotId: knowledge.snapshotId,
-    manifestDigest: knowledge.manifestDigest,
-    get manifest(): Uint8Array {
-      return Uint8Array.from(manifest)
-    },
+    candidate: knowledge.candidate,
+    snapshot: knowledge.snapshot,
+    files: Object.freeze(knowledge.files.map((file) => profileFileView(file))),
+    ...(retrievalConfig
+      ? {
+          get retrievalConfig(): Uint8Array {
+            return Uint8Array.from(retrievalConfig)
+          },
+        }
+      : {}),
   })
 }
 
@@ -511,6 +523,36 @@ function assertExecutorInputs(state: PreparedCandidateState): void {
   }
 }
 
+function assertPreparedKnowledge(state: PreparedCandidateState): void {
+  const expected = state.bundle.knowledge
+  const actual = state.knowledge
+  if (!expected || !actual) {
+    if (expected || actual)
+      throw new Error('prepared knowledge does not match the candidate bundle')
+    return
+  }
+  if (
+    canonicalCandidateDigest(actual.candidate) !== canonicalCandidateDigest(expected.candidate) ||
+    canonicalCandidateDigest(actual.snapshot) !== canonicalCandidateDigest(expected.snapshot) ||
+    state.executionPlan.value.material.knowledgeManifestDigest !== expected.snapshot.digest
+  ) {
+    throw new Error('prepared knowledge identity does not match the candidate bundle')
+  }
+  assertWorkspaceExecutorFiles(actual.files, expected.snapshot.material)
+  if (!expected.retrievalConfig || !actual.retrievalConfig) {
+    if (expected.retrievalConfig || actual.retrievalConfig) {
+      throw new Error('prepared knowledge retrieval config does not match the candidate bundle')
+    }
+    return
+  }
+  if (
+    actual.retrievalConfig.byteLength !== expected.retrievalConfig.byteLength ||
+    sha256Bytes(actual.retrievalConfig) !== expected.retrievalConfig.sha256
+  ) {
+    throw new Error('prepared knowledge retrieval config does not match the candidate bundle')
+  }
+}
+
 function assertWorkspaceExecutorFiles(
   actualFiles: PreparedCandidateState['executorInputs']['taskFiles'],
   expected: PreparedAgentCandidateExecution['executionPlan']['value']['material']['task']['workspace']['material'],
@@ -536,7 +578,7 @@ function assertWorkspaceExecutorFiles(
 
 function immutableExecutorFiles(
   files: PreparedCandidateState['executorInputs']['taskFiles'],
-): ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }> {
+): ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }> {
   return Object.freeze(
     files.map((file) => Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) })),
   )

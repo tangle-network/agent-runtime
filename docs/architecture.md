@@ -68,7 +68,8 @@ at each step it **makes a decision** — keep working · branch · split · get 
 opinion · run a check · stop — and acts on it (§0.5.1). The decision that *grows the
 tree* is `spawn`, carried over **MCP**: it creates a **child agent** (its own profile
 + harness, its own `Scope`). The child runs its own agentic process; the parent
-**observes / steers / resumes** it through the same MCP, in **natural language**.
+**observes / steers** it through the same MCP, in **natural language**, while the
+coordinator is alive.
 Spawn is one move among several, so topology is not an opcode set — it **emerges** from
 the decisions:
 
@@ -79,8 +80,9 @@ coordinator     = spawn N, steer, select
 driver-of-driver = a child whose profile is itself a coordinator — free, by recursion
 ```
 
-`Scope.spawn` is the recursive boundary; the journal makes the tree replayable and
-resumable. **This recursive execution tree IS the product.** The three things we own
+`Scope.spawn` is the recursive boundary; the journal makes completed settlements replayable.
+Live supervised-tree resume after coordinator restart is not implemented.
+**This recursive execution tree IS the product.** The three things we own
 are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
 `define_check · run_check`); (2) the **profiles** (markdown — the only customization;
 "Drew" is one); (3) the **orchestrator** (`src/runtime/supervise/` — `Scope` + the

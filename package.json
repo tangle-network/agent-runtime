@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.94.11",
+  "version": "0.94.13",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -23,6 +23,11 @@
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
+    },
+    "./conversation": {
+      "types": "./dist/conversation.d.ts",
+      "import": "./dist/conversation.js",
+      "default": "./dist/conversation.js"
     },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
@@ -104,14 +109,15 @@
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "verify:package": "node scripts/verify-package-exports.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect-v1.mjs",
+    "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
     "docs:api": "typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@tangle-network/agent-eval": "0.117.1",
-    "@tangle-network/agent-interface": "^0.25.0",
+    "@tangle-network/agent-eval": "0.120.1",
+    "@tangle-network/agent-interface": "0.26.1",
     "@tangle-network/sandbox": "^0.9.7",
     "@types/node": "^25.9.3",
     "@types/tar-stream": "3.1.4",
@@ -141,8 +147,8 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.117.1 <0.118.0",
-    "@tangle-network/agent-interface": ">=0.25.0 <0.26.0",
+    "@tangle-network/agent-eval": ">=0.120.1 <0.121.0",
+    "@tangle-network/agent-interface": ">=0.26.1 <0.27.0",
     "@tangle-network/sandbox": ">=0.8.0 <1.0.0",
     "playwright": "^1.40.0"
   },

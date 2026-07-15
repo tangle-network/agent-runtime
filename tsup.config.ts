@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     agent: 'src/agent/index.ts',
+    conversation: 'src/conversation/index.ts',
     intelligence: 'src/intelligence/index.ts',
     loops: 'src/runtime/index.ts', // the loop kernel + recursive atom surface (the runtime/ directory)
     'environment-provider': 'src/runtime/environment-provider.ts',

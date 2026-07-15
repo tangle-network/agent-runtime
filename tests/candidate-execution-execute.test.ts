@@ -171,9 +171,10 @@ describe('atomic prepared candidate execution', () => {
       succeeded: true,
       receipt: {
         value: {
-          schemaVersion: 2,
-          usage: { modelCalls: 0, costUsd: 0 },
-          fixedUsage: { modelCalls: 0, costUsdNanos: 0 },
+          schemaVersion: 3,
+          modelSettlement: {
+            material: { usage: { modelCalls: 0, costUsdNanos: 0 } },
+          },
           benchmarkResult: {
             material: {
               score: 1,
@@ -239,7 +240,9 @@ describe('atomic prepared candidate execution', () => {
     const result = await executePreparedAgentCandidate(prepared, executionOptions)
     if (!result.succeeded) throw new Error(result.reason)
     if (!largeArchive) throw new Error('executor did not capture its large task archive')
-    const afterState = result.receipt.value.taskOutcome.material.afterState
+    const taskOutcome = result.receipt.value.taskOutcome.material.outcome
+    if (taskOutcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
+    const afterState = taskOutcome.afterState
     const archive = afterState.archive
     expect(archive).toMatchObject({
       byteLength: largeArchive.byteLength,
@@ -251,13 +254,21 @@ describe('atomic prepared candidate execution', () => {
     expect('content' in afterState.manifest).toBe(false)
     expect(result.receipt.bytes.byteLength).toBeLessThan(100_000)
     expect(result.receipt.value).toMatchObject({
-      usage: { modelCalls: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
-      fixedUsage: { modelCalls: 0, inputTokens: 0, outputTokens: 0, costUsdNanos: 0 },
+      modelSettlement: {
+        material: {
+          usage: { modelCalls: 0, inputTokens: 0, outputTokens: 0, costUsdNanos: 0 },
+        },
+      },
       trace: { modelCallCount: 0 },
     })
     const persistedArchive = await executionOptions.outputArtifacts.read(archive)
     expect(persistedArchive.byteLength).toBe(largeArchive.byteLength)
     expect(sha256Bytes(persistedArchive)).toBe(archive.sha256)
+    const executorCapture = await executionOptions.outputArtifacts.read(
+      result.artifacts.executorCapture,
+    )
+    expect(executorCapture.byteLength).toBeLessThan(100_000)
+    expect(Buffer.from(executorCapture).toString('utf8')).not.toContain('content')
     await expect(
       executionOptions.outputArtifacts.read(result.artifacts.runReceipt),
     ).resolves.toEqual(result.receipt.bytes)
@@ -321,10 +332,15 @@ describe('atomic prepared candidate execution', () => {
     )
     if (!result.succeeded) throw new Error(result.reason)
     expect(result.receipt.value).toMatchObject({
-      usage: { modelCalls: 1, inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
       modelSettlement: {
         material: {
           schemaVersion: 2,
+          usage: {
+            modelCalls: 1,
+            inputTokens: 10,
+            outputTokens: 5,
+            costUsdNanos: 10_000_000,
+          },
           calls: [
             {
               generationId: 'generation-paid-success',
@@ -1500,7 +1516,7 @@ describe('atomic prepared candidate execution', () => {
     }
     const memoryBytes = Buffer.from(secret, 'utf8')
     const afterState = {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       kind: 'agent-candidate-workspace-manifest' as const,
       files: [
         {

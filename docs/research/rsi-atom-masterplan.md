@@ -1,5 +1,8 @@
 # RSI self-designing agent atom — masterplan + build tracker
 
+> Historical design input.
+> Current distributed execution decisions and implementation order live in [`../agent-managed-compute/`](../agent-managed-compute/).
+
 > **Single source of truth** for the architecture decided across the 2026-06-15 design session and the systematic checklist to a clean, deduplicated, properly-layered 11/10. Subsumes and links the supporting docs. Status legend: ✅ done · 🔨 building · ⬜ todo · ⏸ deferred (gated). Every item names its file + the gate that proves it.
 
 ## 0. The one-sentence architecture

@@ -36,6 +36,7 @@ import {
   persistCandidateWorkspaceSnapshot,
   provisionalCandidateWorkspaceSnapshot,
 } from './workspace-snapshot'
+import { workspaceTaskRepository } from './workspace-task'
 
 export type PersistedAgentCandidateModelSettlement = AgentCandidateModelSettlementEvidence & {
   artifact: AgentCandidateArtifactRef
@@ -105,7 +106,7 @@ export async function persistCandidateModelSettlementEvidence(
   })
   return immutableCandidateValue(
     agentCandidateModelSettlementEvidenceSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-model-settlement',
       digest,
       material,
@@ -130,7 +131,7 @@ export async function persistVerifiedCandidateTaskOutcome(
   assertNoProtectedBytes(archive, protectedValues)
   const provisional = provisionalCandidateWorkspaceSnapshot(capture.afterState, archive)
   const afterState = provisional.material
-  const repository = state.executionPlan.value.material.task.repository
+  const repository = workspaceTaskRepository(state.executionPlan.value.material.task)
   const verified = await verifyTaskOutcomePatch({
     repositoryRoot: state.roots.staging.taskRoot,
     baseCommit: repository.baseCommit,
@@ -157,25 +158,28 @@ export async function persistVerifiedCandidateTaskOutcome(
     signal,
   })
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-task-outcome-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
-    baseRepository: {
-      identity: repository.identity,
-      rootIdentity: repository.rootIdentity,
-      commit: repository.baseCommit,
-      tree: repository.baseTree,
-    },
-    resultRepository: {
-      identity: repository.identity,
-      rootIdentity: repository.rootIdentity,
-      commit: verified.resultCommit,
-      tree: verified.resultTree,
-    },
-    afterState: snapshot,
-    gitDiff: {
-      format: 'git-diff-binary' as const,
-      artifact: gitDiff,
+    outcome: {
+      kind: 'workspace' as const,
+      baseRepository: {
+        identity: repository.identity,
+        rootIdentity: repository.rootIdentity,
+        commit: repository.baseCommit,
+        tree: repository.baseTree,
+      },
+      resultRepository: {
+        identity: repository.identity,
+        rootIdentity: repository.rootIdentity,
+        commit: verified.resultCommit,
+        tree: verified.resultTree,
+      },
+      afterState: snapshot,
+      gitDiff: {
+        format: 'git-diff-binary' as const,
+        artifact: gitDiff,
+      },
     },
   }
   const bytes = canonicalCandidateBytes(material)
@@ -188,7 +192,7 @@ export async function persistVerifiedCandidateTaskOutcome(
   })
   const evidence = immutableCandidateValue(
     agentCandidateTaskOutcomeEvidenceSchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'agent-candidate-task-outcome',
       digest,
       material,

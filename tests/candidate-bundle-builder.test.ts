@@ -24,6 +24,7 @@ import {
   candidateSha,
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
+  emptyCandidateSnapshot,
 } from './helpers/candidate-execution-fixture'
 
 const temporaryRoots: string[] = []
@@ -71,7 +72,8 @@ describe('public agent candidate bundle builder', () => {
       },
     }
     const stored = new Map<Sha256Digest, Uint8Array>()
-    const knowledgeManifest = storeArtifact(stored, 'knowledge/manifest.json', '{"version":1}\n')
+    const knowledgeRetrieval = storeArtifact(stored, 'knowledge/retrieval.json', '{"version":1}\n')
+    const knowledgeEvaluation = storeArtifact(stored, 'knowledge/evaluation.json', '{"score":1}\n')
     const memorySeed = storeArtifact(stored, 'memory/seed.json', '{"entries":[]}\n')
     const input: BuildAgentCandidateBundleInput = {
       profile: { kind: 'profile-diffs', base, diffs: [diff] },
@@ -81,7 +83,22 @@ describe('public agent candidate bundle builder', () => {
         repository: { kind: 'github', owner: 'owner', repo: 'repo' },
       },
       execution: fixture.bundle.execution,
-      knowledge: { snapshotId: 'knowledge-snapshot-1', manifest: knowledgeManifest },
+      knowledge: {
+        candidate: {
+          schemaVersion: 1,
+          kind: 'knowledge-improvement-candidate',
+          runId: 'knowledge-run-1',
+          candidateId: 'knowledge-snapshot-1',
+          goalHash: candidateSha('1'),
+          baseHash: candidateSha('2'),
+          candidateHash: candidateSha('3'),
+          evidenceHash: candidateSha('4'),
+          promotionPlanHash: candidateSha('5'),
+        },
+        snapshot: emptyCandidateSnapshot('builder-knowledge'),
+        retrievalConfig: knowledgeRetrieval,
+        evaluation: knowledgeEvaluation,
+      },
       memory: { mode: 'isolated', scope: 'task', seed: memorySeed },
       lineage: {
         source: 'compound',

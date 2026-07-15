@@ -38,7 +38,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import type {
   AnalystFinding,
-  CostLedger,
+  CostLedgerHandle,
   CostReceipt,
   CostReceiptInput,
   MaximumCharge,
@@ -246,10 +246,14 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
       costLedger,
       costPhase,
     }) {
-      if (opts.codexReproducible && !costLedger) {
-        throw new Error(
-          'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
-        )
+      let reproducibleCostLedger: CostLedgerHandle | undefined
+      if (opts.codexReproducible) {
+        if (!costLedger) {
+          throw new Error(
+            'agenticGenerator: reproducible Codex requires the run-wide CostLedger supplied by agent-eval 0.117+',
+          )
+        }
+        reproducibleCostLedger = costLedger
       }
       const basePrompt = appendProfileResourcePaths(
         buildPrompt({ report, findings }),
@@ -314,13 +318,12 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
             return harnessResult
           }
 
-          if (opts.codexReproducible) {
-            const ledger = costLedger as CostLedger
+          if (reproducibleCostLedger) {
             const model = opts.profile?.model?.default
             if (!model) {
               throw new Error('agenticGenerator: reproducible Codex requires profile.model.default')
             }
-            const paid = await ledger.runPaidCall({
+            const paid = await reproducibleCostLedger.runPaidCall({
               channel: 'driver',
               phase: costPhase ?? 'search.proposal',
               actor: `agentic-generator:${harness}`,

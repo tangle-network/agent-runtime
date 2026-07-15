@@ -194,7 +194,7 @@ async function traceStore(
 }
 
 describe('protected candidate run finalization', () => {
-  it('derives exact V2 evidence and durable trace bytes from tied agent-eval spans', async () => {
+  it('derives exact V3 evidence and durable trace bytes from tied agent-eval spans', async () => {
     const execution = await prepared()
     const store = await traceStore(execution)
     const outputs = createCandidateOutputFixture()
@@ -206,40 +206,31 @@ describe('protected candidate run finalization', () => {
     )
     expect(result.succeeded).toBe(true)
     if (!result.succeeded) return
-    expect(result.receipt.value.usage).toEqual({
-      costUsd: 0.01,
-      inputTokens: 10,
-      outputTokens: 5,
-      cachedInputTokens: 2,
-      modelCalls: 1,
-    })
     expect(result.receipt.value.trace).toMatchObject({ eventCount: 3, modelCallCount: 1 })
     expect(result.receipt.bytes.byteLength).toBeGreaterThan(0)
     const task = assertPreparedCandidateIntegrity(execution).executionPlan.value.material.task
+    if (!task.repository) throw new Error('workspace task repository is missing')
     expect(result.receipt.value).toMatchObject({
-      schemaVersion: 2,
-      fixedUsage: {
-        costUsdNanos: 10_000_000,
-        inputTokens: 10,
-        outputTokens: 5,
-        cachedInputTokens: 2,
-        modelCalls: 1,
-      },
+      schemaVersion: 3,
+      executorCapture: result.artifacts.executorCapture,
       taskOutcome: {
         artifact: result.artifacts.taskOutcome,
         material: {
           executionPlanDigest: execution.executionPlan.value.digest,
-          baseRepository: {
-            identity: task.repository.identity,
-            rootIdentity: task.repository.rootIdentity,
-            commit: task.repository.baseCommit,
-            tree: task.repository.baseTree,
-          },
-          resultRepository: {
-            identity: task.repository.identity,
-            rootIdentity: task.repository.rootIdentity,
-            commit: expect.stringMatching(/^[0-9a-f]{40}$/),
-            tree: task.repository.baseTree,
+          outcome: {
+            kind: 'workspace',
+            baseRepository: {
+              identity: task.repository.identity,
+              rootIdentity: task.repository.rootIdentity,
+              commit: task.repository.baseCommit,
+              tree: task.repository.baseTree,
+            },
+            resultRepository: {
+              identity: task.repository.identity,
+              rootIdentity: task.repository.rootIdentity,
+              commit: expect.stringMatching(/^[0-9a-f]{40}$/),
+              tree: task.repository.baseTree,
+            },
           },
         },
       },
@@ -266,13 +257,15 @@ describe('protected candidate run finalization', () => {
         },
       },
     })
+    const taskOutcome = result.receipt.value.taskOutcome.material.outcome
+    if (taskOutcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
     await Promise.all([
       expect(outputs.outputArtifacts.read(result.artifacts.runReceipt)).resolves.toEqual(
         result.receipt.bytes,
       ),
-      expect(
-        outputs.outputArtifacts.read(result.receipt.value.taskOutcome.material.gitDiff.artifact),
-      ).resolves.toEqual(new Uint8Array()),
+      expect(outputs.outputArtifacts.read(taskOutcome.gitDiff.artifact)).resolves.toEqual(
+        new Uint8Array(),
+      ),
       expect(
         outputs.outputArtifacts.read(result.receipt.value.benchmarkResult.material.evidence),
       ).resolves.toEqual(Uint8Array.from(Buffer.from('{"reward":1}\n', 'utf8'))),
@@ -280,6 +273,24 @@ describe('protected candidate run finalization', () => {
         outputs.outputArtifacts.read(result.receipt.value.benchmarkResult.material.grader.artifact),
       ).resolves.toEqual(Uint8Array.from(Buffer.from('fixture executable grader', 'utf8'))),
     ])
+    const executorCapture = JSON.parse(
+      Buffer.from(await outputs.outputArtifacts.read(result.artifacts.executorCapture)).toString(
+        'utf8',
+      ),
+    )
+    expect(executorCapture).toMatchObject({
+      schemaVersion: 1,
+      kind: 'agent-candidate-executor-capture',
+      executionId: execution.executionId,
+      executionPlanDigest: execution.executionPlan.value.digest,
+      termination: { kind: 'exit', exitCode: 0 },
+      stopped: true,
+      taskOutcome: {
+        digest: result.receipt.value.taskOutcome.digest,
+        artifact: result.receipt.value.taskOutcome.artifact,
+      },
+    })
+    expect(JSON.stringify(executorCapture)).not.toContain('content')
   })
 
   it('returns invalid capture instead of minting zero usage when provider usage is missing', async () => {
@@ -455,7 +466,13 @@ describe('protected candidate run finalization', () => {
     )
     expect(result).toMatchObject({
       succeeded: true,
-      receipt: { value: { usage: { costUsd: 0.3, modelCalls: 2 } } },
+      receipt: {
+        value: {
+          modelSettlement: {
+            material: { usage: { costUsdNanos: 300_000_000, modelCalls: 2 } },
+          },
+        },
+      },
     })
   })
 })
