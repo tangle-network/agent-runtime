@@ -167,6 +167,14 @@ describe('resolveSubjectPath', () => {
     knowledge: '.agent-knowledge',
     personas: 'personas',
     rag: 'rag',
+    skills: 'skills',
+    mcp: 'mcp',
+    hooks: 'hooks',
+    subagents: 'agents',
+    workflows: 'workflows',
+    rolloutPolicy: 'rollout-policy.json',
+    agentProfile: 'agent-profile.json',
+    code: 'src',
   }
 
   it('routes system-prompt subject to <surfaces.systemPrompt>/<section>.md', () => {
@@ -193,6 +201,54 @@ describe('resolveSubjectPath', () => {
       tmpRoot,
     )
     expect(r?.repoRelativePath).toBe('tools/list_invoices/examples.md')
+  })
+
+  it.each([
+    [{ kind: 'skill', name: 'linear-close' } as const, 'skills/linear-close/SKILL.md'],
+    [
+      { kind: 'mcp', server: 'linear', tool: 'update_issue' } as const,
+      'mcp/linear/update_issue.md',
+    ],
+    [{ kind: 'hook', name: 'pre-dispatch' } as const, 'hooks/pre-dispatch.md'],
+    [{ kind: 'subagent', name: 'reviewer' } as const, 'agents/reviewer.md'],
+    [{ kind: 'workflow', name: 'linear-task' } as const, 'workflows/linear-task.md'],
+    [{ kind: 'rollout-policy', field: 'k' } as const, 'rollout-policy.json'],
+    [{ kind: 'agent-profile', field: 'prompt.systemPrompt' } as const, 'agent-profile.json'],
+    [{ kind: 'code', path: 'workers/dispatch.ts' } as const, 'src/workers/dispatch.ts'],
+  ])('routes the %s finding to its declared surface', (subject, expected) => {
+    expect(resolveSubjectPath(subject, surfaces, tmpRoot)?.repoRelativePath).toBe(expected)
+  })
+
+  it('rejects a code finding that escapes its declared source root', () => {
+    expect(
+      resolveSubjectPath({ kind: 'code', path: '../../secrets.env' }, surfaces, tmpRoot),
+    ).toBeNull()
+  })
+
+  it('rejects raw-knowledge and RAG findings that escape their declared roots', () => {
+    expect(
+      resolveSubjectPath({ kind: 'knowledge.raw', sourceId: '../../secrets' }, surfaces, tmpRoot),
+    ).toBeNull()
+    expect(
+      resolveSubjectPath({ kind: 'rag', corpus: 'irs', docId: '../../secrets' }, surfaces, tmpRoot),
+    ).toBeNull()
+  })
+
+  it('rejects traversal in every profile surface derived from findings', () => {
+    const escaped = [
+      { kind: 'skill', name: '../secrets' } as const,
+      { kind: 'tool-doc', tool: '../secrets' } as const,
+      { kind: 'new-tool', name: '../secrets' } as const,
+      { kind: 'mcp', server: '../secrets' } as const,
+      { kind: 'mcp', server: 'safe', tool: '../../secrets' } as const,
+      { kind: 'hook', name: '../secrets' } as const,
+      { kind: 'subagent', name: '../secrets' } as const,
+      { kind: 'workflow', name: '../secrets' } as const,
+      { kind: 'rag', corpus: '../../secrets', docId: 'entry' } as const,
+    ]
+    for (const subject of escaped) {
+      expect(resolveSubjectPath(subject, surfaces, tmpRoot)).toBeNull()
+    }
   })
 
   it('returns null when subject targets an undeclared optional surface', () => {
@@ -575,6 +631,25 @@ describe('validateSurfaces', () => {
     )
     expect(flagged).toHaveLength(1)
     expect(flagged[0]!.surface).toBe('rag')
+  })
+
+  it('distinguishes files from directories instead of treating existence as valid', () => {
+    writeFileSync(join(tmpRoot, 'not-a-directory'), 'file\n')
+    mkdirSync(join(tmpRoot, 'not-a-file'))
+    const issues = validateSurfaces(
+      {
+        systemPrompt: 'prompts',
+        tools: 'not-a-directory',
+        rubric: 'not-a-file',
+        knowledge: '.agent-knowledge',
+        personas: 'personas',
+      },
+      tmpRoot,
+    )
+    expect(issues).toEqual([
+      { surface: 'tools', path: 'not-a-directory', reason: 'not-directory' },
+      { surface: 'rubric', path: 'not-a-file', reason: 'not-file' },
+    ])
   })
 })
 

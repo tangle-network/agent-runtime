@@ -73,6 +73,8 @@ export function mcpServeVerifier(spec: McpServeSpec): Verifier {
       const failCandidate = (msg: string) =>
         settle(() => resolve({ ok: false, feedback: withStderr(msg) }))
       const setupFault = (err: Error) => settle(() => reject(err))
+      const failStdin = (err: Error) =>
+        failCandidate(`writing to MCP server stdin failed: ${err.message}`)
 
       const send = (msg: Record<string, unknown>): boolean => {
         try {
@@ -80,7 +82,7 @@ export function mcpServeVerifier(spec: McpServeSpec): Verifier {
           return true
         } catch (err) {
           // EPIPE: the server died mid-handshake — a failed candidate, not a fault.
-          failCandidate(`writing to MCP server stdin failed: ${(err as Error).message}`)
+          failStdin(err as Error)
           return false
         }
       }
@@ -100,6 +102,8 @@ export function mcpServeVerifier(spec: McpServeSpec): Verifier {
         // server crashed on boot); after we settle, our own SIGKILL fires here.
         failCandidate(`MCP server exited (code ${code}, signal ${signal}) before serving`)
       })
+      // Pipe failures normally arrive asynchronously, outside send()'s try/catch.
+      child.stdin.on('error', failStdin)
       child.stderr.on('data', (d) => stderr.push(String(d)))
 
       const rl = createInterface({ input: child.stdout })

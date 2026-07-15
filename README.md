@@ -15,6 +15,7 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 - [Supervise a team of agents](#supervise-a-team-of-agents)
 - [Improve an agent](#improve-an-agent)
 - [Improve a knowledge base](#improve-a-knowledge-base)
+- [Run on PrimeIntellect](#run-on-primeintellect)
 - [How it works](#how-it-works-the-short-version)
 - [Examples](#examples)
 - [Where to go next](#where-to-go-next)
@@ -33,6 +34,7 @@ pnpm tsx examples/driver-loop/driver-loop.ts
 | Have one agent **supervise a team of agents** toward a goal | `supervise(profile, task, opts)` |
 | **Improve** an agent and prove the gain on fresh tasks | `improve(profile, findings, opts)` |
 | **Improve** a knowledge base with agents, checks, and safe promotion | `runKnowledgeImprovementJob(...)` |
+| Evaluate or train the same agent on **PrimeIntellect** | `createPrimeIntellectPackage(...)` |
 
 ### Run a chat turn
 
@@ -68,21 +70,34 @@ const result = await supervise(
 
 ### Improve an agent
 
-`improve` optimizes one part of an agent (its prompt, skills, or code) and **only ships a change if it beats the current agent on tasks it never practiced on**. Registering an agent for self-improvement cannot ship a worse candidate unless the caller supplies a bad measurement.
+`improve` optimizes one part of an agent and **only ships a change if it beats the current agent on tasks it never practiced on**.
+It accepts prompt, skill document, curated memory, tool, MCP, hook, subagent, whole-profile, and code surfaces through one call.
+Prompt, skill-document, and memory optimization have built-in generators; structured profile surfaces take an explicit generator, and code runs from isolated incumbent and candidate checkouts.
+Workflow and rollout-policy files use the code surface so the measured winner is an exact patch that can be sealed and executed; JSON parameter sweeps use agent-eval's `parameterSweepProposer` instead of a runtime-specific optimizer.
 
 ```ts
 import { improve } from '@tangle-network/agent-runtime'
 
 const { profile, shipped, lift } = await improve(baseProfile, findings, {
-  surface: 'prompt',        // what to optimize: prompt | skills | code
+  surface: 'prompt',        // or skills/memory/tools/mcp/hooks/subagents/agent-profile/code
   gate: 'holdout',          // certified on a held-back exam, never the practice set
   scenarios, judge, agent,  // how to measure a candidate
 })
 ```
 
+Curated memory is an external lesson document, not a knowledge store. Supply its current text and persist only the promoted winner:
+
+```ts
+await improve(baseProfile, findings, {
+  surface: 'memory',
+  memory: { document: currentLessons, writeBack: saveLessons },
+  scenarios, judge, agent,
+})
+```
+
 ### Improve a knowledge base
 
-`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, measures spend and timing, and promotes only when the candidate passes.
+`runKnowledgeImprovementJob` is the runtime-owned front door for KB, wiki, memory-backed, and RAG improvement jobs. It creates a candidate copy, runs supervised agents against it, checks readiness through `@tangle-network/agent-knowledge`, measures spend and timing, and promotes only when the candidate passes. Use `improve(..., { surface: 'memory' })` for the agent's curated lesson document; use this job for source, retrieval, and knowledge-store changes.
 
 ```ts
 import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'
@@ -99,6 +114,67 @@ console.log(result.promoted, result.measurement.supervisedSpent)
 ```
 
 Use it when the product needs one knob for "make this knowledge base better" instead of wiring `improveKnowledgeBase`, a runtime supervisor, candidate workspaces, readiness checks, and promotion tracking by hand.
+
+### Run on PrimeIntellect
+
+`@tangle-network/agent-runtime/primeintellect` packages typed train and eval tasks as a Verifiers v1 environment.
+Prime launches your actual runtime program against an intercepted model endpoint, so `runPersonified`, `runAgentic`, product agents, tool calls, and multiple rounds stay intact.
+Reference answers remain in Prime's task process and never enter the agent workspace.
+The runner file must be one executable bundle containing the app and its runtime dependencies.
+
+```ts
+import { readFile } from 'node:fs/promises'
+import {
+  createPrimeIntellectPackage,
+  writePrimeIntellectPackage,
+} from '@tangle-network/agent-runtime/primeintellect'
+
+const bundledRunner = await readFile('./dist/prime-runner.mjs', 'utf8')
+const bundle = createPrimeIntellectPackage({
+  name: 'support-agent-v1',
+  version: '1.0.0',
+  tasks: [
+    {
+      id: 'train-refund-policy',
+      split: 'train',
+      prompt: 'Can a subscription renewal be refunded?',
+      answer: 'No',
+    },
+    {
+      id: 'eval-final-sale',
+      split: 'eval',
+      prompt: 'Can a final-sale order be refunded?',
+      answer: 'No',
+    },
+  ],
+  scoring: { kind: 'exact', normalization: 'trim-casefold' },
+  runner: {
+    image: 'node:22-bookworm-slim',
+    files: { 'runner.mjs': bundledRunner },
+    command: ['node', 'runner.mjs'],
+  },
+})
+
+await writePrimeIntellectPackage(bundle, './prime/support-agent-v1')
+```
+
+The runner reads the episode and uses the normal runtime APIs:
+Here, `runProductAgent` is the application's existing entry point, not another loop supplied by this adapter.
+
+```ts
+import {
+  createPrimeIntellectBackend,
+  runPrimeIntellectProgram,
+} from '@tangle-network/agent-runtime/primeintellect'
+
+await runPrimeIntellectProgram(async (episode) => {
+  const backend = createPrimeIntellectBackend(episode)
+  return runProductAgent({ task: episode.task, backend })
+})
+```
+
+Prime writes complete `traces.jsonl` rows.
+Use `importPrimeIntellectTraces(...)` to convert them to agent-eval `RunRecord`s for the existing reports and release checks.
 
 ## How it works (the short version)
 
@@ -121,6 +197,7 @@ Runnable, grouped by what they show. Copy the one nearest your task:
 | Trace + bill + effort-gate the WebCode benchmark (the Intelligence SDK) | [`intelligence-webcode`](./examples/intelligence-webcode) |
 | Self-improve an agent, gated on a held-out set | [`improve`](./examples/improve) · [`self-improving-coder`](./examples/self-improving-coder) |
 | Improve a KB, wiki, or RAG corpus with runtime agents | [`docs/canonical-api.md`](./docs/canonical-api.md) |
+| Evaluate or train a runtime program on PrimeIntellect | `@tangle-network/agent-runtime/primeintellect` |
 | Study coordination vs raw compute | [`ablation-suite`](./examples/ablation-suite) |
 
 All 29 live in [`examples/`](./examples).
@@ -130,7 +207,7 @@ All 29 live in [`examples/`](./examples).
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/knowledge` (KB improvement), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/lifecycle`, `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
+- Import subpaths: the root export is the product surface (`handleChatTurn`, `improve`); deeper capabilities ship as subpaths: `/loops` (multi-agent + the loop kernel), `/knowledge` (KB improvement), `/primeintellect` (Prime task, runtime, and trace adapter), `/mcp` (tool servers), `/intelligence` (observability drop-in), `/lifecycle`, `/agent`, `/profiles`, `/platform`, `/analyst-loop`, `/environment-provider`.
 - [`docs/architecture.md`](./docs/architecture.md), the design, end to end.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 

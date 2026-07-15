@@ -92,14 +92,15 @@ to its native default (`HARNESS_NATIVE_MODEL`) — never silently dropped.
 | **Spawn N coding agents on isolated git worktrees, keep the one whose patch passes checks** | `worktreeFanout` + `createWorktreeCliExecutor` + `gateOnDeliverable(DeliverableSpec)` over a raw `WorktreePatchArtifact`, winner via `selectValidWinner` — `/loops` — NOT a hand-rolled spawn-loop / "coder" role | canonical-api §3.1 / §5 |
 | **Sandbox coding rollout** (fresh box/round, or persistent+resume) | `runLoop(options)` / `openSandboxRun(client, opts, deliverable)` — `/loops` | canonical-api §3.1 |
 | **Optimize a CODE surface** in a gated loop | `improvementDriver({ worktree, generator })` — root `.` | canonical-api §3.4 |
-| **Optimize a PROMPT/config surface** (one call) — START HERE | `improve(profile, findings, { surface, gate })` — root `.` (the one pluggable RSI verb; picks the default proposer from `surface` — `gepaProposer` for prompt, `skillOptProposer` for skills — and wraps `selfImprove`; drop to `selfImprove({ agent, scenarios, judge, baselineSurface })` from `agent-eval/contract` only for the lower-level loop) | canonical-api §3.4 |
+| **Freeze a measured profile/diff + code surface for execution** | `buildAgentCandidateBundle(...)` then `verifyAgentCandidateBundle(...)` — `/candidate-execution` | canonical-api §2 |
+| **Optimize any agent/code surface** (one call) — START HERE | `improve(profile, findings, { surface, gate })` — root `.`; prompt, skill-document, and curated-memory surfaces have built-in proposers, config/whole-profile surfaces accept a proposer, and code gets isolated incumbent/candidate worktrees. Workflow and rollout-policy files use code plus agent-eval's `parameterSweepProposer` for JSON sweeps; drop to `selfImprove({ agent, scenarios, judge, baselineSurface })` only for lower-level control | canonical-api §3.4 |
 | **Gate: ship/hold a candidate** (campaign ctx) | `defaultProductionGate` / `heldOutGate` / `composeGate` — `agent-eval/contract`; `neutralizationGate` (footprint-matched PLACEBO gate — proves a held-out lift is CONTENT, not added prompt/mount footprint) — `agent-eval/campaign` | canonical-api §3.4 |
 | **Gate: ship/hold from a `BenchmarkReport`** (per-task cells) | `promotionGate({ report, incumbent, candidate })` — `/loops` | canonical-api §3.4 |
 | **Run the full multi-generation flywheel + certify** | `runStrategyEvolution(config)` — `/loops` | canonical-api §3.4 |
 | **Observe a run** (cost/time waterfall, OTLP) | `createWaterfallCollector()` — `/loops`; `createOtelExporter` attached via `composeRuntimeHooks(...)` — root `.` | canonical-api §2 |
 | **State any A/B claim** | `pairedLift` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | canonical-api §3.5 |
-| **Observe/ship with billing-boundary** | `withTangleIntelligence(agent, { project, effort })` — `/intelligence` | canonical-api §2 |
-| **Pull the certified profile from the Intelligence plane** (pull-by-default delivery: fold the gate-certified prompt onto the base surface) | `pullCertified` / `withCertifiedDelivery` / `composeCertifiedPrompt` — `/intelligence` | `src/intelligence/delivery.ts` |
+| **Observe + deliver on a live agent with billing-boundary** | `withIntelligence(agent, { project, target, effort })` — `/intelligence` | canonical-api §2 |
+| **Pull the certified profile from the Intelligence plane** (pull-by-default delivery: fold the gate-certified prompt onto the base surface) | `pullCertified` / `withIntelligence` / `composeCertifiedPrompt` — `/intelligence` | `src/intelligence/delivery.ts` |
 
 ## Do-NOT-reinvent — the traps this skill exists to stop
 
@@ -177,26 +178,29 @@ sandbox coding rollouts against external benchmarks. The full when-which map is
 
 ## Observe / ship with the Intelligence SDK
 
-One line wraps any agent with trace + billing boundary:
-`withTangleIntelligence(agent, { project, effort })`, `effort ∈
+One hook wraps any agent with send + receive + billing boundary:
+`withIntelligence(agent, { project, target, effort })`, `effort ∈
 off|eco|standard|thorough|max` (`'off'` is the provable passthrough floor —
-intelligence spend clamped to 0). It builds on `createOtelExporter` +
-`loopEventToOtelSpan` — don't hand-roll a trace-wrapper or effort/tier config.
-Verify the live subpath against `src/intelligence/index.ts`.
+intelligence spend clamped to 0). It SENDs a typed `RunRecord` and RECEIVEs the
+certified profile, building on `createOtelExporter` + `buildLoopOtelSpans` —
+don't hand-roll a trace-wrapper, a second receive path, or effort/tier config.
+Verify the live subpath against `src/intelligence/with-intelligence.ts`.
 
 Two operational facts every consumer must know:
 
-- **Export is a silent no-op without an endpoint.** The export leg only ships
-  when `INTELLIGENCE_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_ENDPOINT`) is set —
-  e.g. `https://intelligence.tangle.tools/v1/otlp`; absent, spans are dropped
-  best-effort with no error. The client's `doctor().exportConfigured` is the
-  check that export will actually ship.
+- **Send is a silent no-op without a tenant apiKey.** The export leg only ships
+  when an `apiKey` (or `TANGLE_API_KEY`) is present — the ingest requires the
+  tenant Bearer. One `baseUrl` (`TANGLE_INTELLIGENCE_URL`, default
+  `https://intelligence.tangle.tools`) drives both the OTLP send (`/v1/otlp`)
+  and the receive pull. The client's `doctor().exportConfigured` is the check
+  that a send will actually land.
 - **Delivery pulls the certified profile from the plane.** `pullCertified` /
-  `withCertifiedDelivery` hit
-  `GET {TANGLE_INTELLIGENCE_URL|https://intelligence.tangle.tools}/v1/profiles/:target/composed`
-  with `Bearer TANGLE_API_KEY`; `withCertifiedDelivery` folds the certified
-  prompt onto the base surface, refreshes at most every 5 minutes, and is
-  fail-closed — a failed pull runs the agent on its base surface.
+  `withIntelligence` hit
+  `GET {baseUrl}/v1/profiles/:target/composed` with `Bearer TANGLE_API_KEY`;
+  the pull deserializes the typed `agentProfileDiffs` (surfaced as PROPOSALS,
+  never auto-applied) alongside the certified prompt. `withIntelligence` folds
+  the certified prompt onto the base surface, refreshes at most every 5 minutes,
+  and is fail-closed — a failed pull runs the agent on its base surface.
 
 ## Final check
 

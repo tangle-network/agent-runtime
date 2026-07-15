@@ -1,6 +1,6 @@
 # agent-runtime-bench
 
-Private experiment workspace nested in agent-runtime; decoupled from its build/lint/release (the package builds `src/`, lints `src tests examples` — `bench/` is none of those).
+Published as `@tangle-network/agent-bench`, with independent CI and release checks for its TypeScript and Python surfaces.
 
 **Read [`bench/HARNESS.md`](./HARNESS.md) FIRST.** It is the one maintained map: the commands, the `rollout → corpus → selector → CI → gate` data flow, the canonical-suite table, the wired/needs-creds/scaffolded matrix, and the gate one-liners — kept verified against source.
 
@@ -13,3 +13,28 @@ pnpm install                                              # tsx + link parent
 ```
 
 The judge needs only Docker; workers need a model key (Tangle router `TANGLE_API_KEY`, or a direct provider).
+
+Retain every official per-test log and report before the temporary evaluator directory is removed:
+
+```ts
+const adapter = createSweBenchAdapter({
+  captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({
+    destination: path.join(runDirectory, taskId, String(attemptSequence)),
+  }),
+})
+const score = await adapter.judge(task, patch)
+console.log(score.judgeArtifacts?.manifestPath)
+```
+
+Each destination contains the untouched evaluator tree under `evaluator/`, raw `stdout.bin` and `stderr.bin` under `process/`, and `receipt.json` with per-file SHA-256 values plus a whole-tree SHA-256.
+The destination must be unique and absent; an existing path fails loud instead of overwriting evidence.
+Failed evaluators throw `StagedJudgeError` with the same `judgeArtifacts` receipt after retaining partial logs.
+
+## Pier custom candidates
+
+The package executes a branded `PreparedAgentCandidateExecution` from `@tangle-network/agent-runtime` through one atomic API and ships `pier_agents.tangle_candidate:TangleCandidateAgent` as its thin Pier transport.
+The executor recreates every input from runtime-verified file bytes and reveals model credentials only inside the claimed execution callback.
+Pier owns the task container and verifier; protected model usage and traces stay in `@tangle-network/agent-eval` and are finalized by the shared runtime.
+`FilePierCandidateTrialController` atomically reserves a unique Pier job, then persists the supervisor PID, process-session identity, and that job's exact Docker projects so a fresh evaluator process can stop and remove an abandoned trial.
+Run `PIER_REPO=/path/to/pier pnpm verify:pier` for the zero-model failure/pass and fresh-process recovery proof, and see `HARNESS.md` for the exact invocation and failure contract.
+From an installed npm package, expose the shipped Python module with `export PYTHONPATH="$(npm root)/@tangle-network/agent-bench${PYTHONPATH:+:$PYTHONPATH}"` before invoking Pier.

@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const tempRoot = mkdtempSync(join(repoRoot, '.tmp-package-exports-'))
+const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-exports-'))
 
 try {
   const packDir = join(tempRoot, 'pack')
@@ -12,7 +13,19 @@ try {
   const appDir = join(tempRoot, 'app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
-  mkdirSync(join(appDir, 'node_modules', '@tangle-network'), { recursive: true })
+  mkdirSync(appDir, { recursive: true })
+  writeFileSync(
+    join(appDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'agent-runtime-package-verification',
+        private: true,
+        type: 'module',
+      },
+      null,
+      2,
+    )}\n`,
+  )
 
   run('pnpm', ['pack', '--pack-destination', packDir], repoRoot)
   const tarballs = run('find', [packDir, '-maxdepth', '1', '-name', '*.tgz', '-print'], repoRoot)
@@ -32,9 +45,11 @@ try {
   const requiredExports = {
     '.': ['import', 'types'],
     './agent': ['import', 'types'],
+    './candidate-execution': ['import', 'types'],
     './intelligence': ['import', 'types'],
     './loops': ['import', 'types'],
     './environment-provider': ['import', 'types'],
+    './primeintellect': ['import', 'types'],
     './profiles': ['import', 'types'],
     './mcp': ['import', 'types'],
   }
@@ -51,7 +66,61 @@ try {
     }
   }
 
-  symlinkSync(packageDir, join(appDir, 'node_modules', '@tangle-network', 'agent-runtime'), 'dir')
+  // Install into an empty app so dependency resolution uses only published package metadata.
+  run(
+    'npm',
+    [
+      'install',
+      '--ignore-scripts',
+      '--no-package-lock',
+      '--no-save',
+      '--no-audit',
+      '--no-fund',
+      tarballs[0],
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const { readFileSync } = await import('node:fs')
+        const packageJson = JSON.parse(
+          readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
+        )
+        const subpaths = Object.keys(packageJson.exports).map((subpath) =>
+          subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1),
+        )
+        for (const subpath of subpaths) await import(subpath)
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const prime = await import('@tangle-network/agent-runtime/primeintellect')
+        for (const name of [
+          'createPrimeIntellectPackage',
+          'writePrimeIntellectPackage',
+          'readPrimeIntellectEpisodeContext',
+          'createPrimeIntellectBackend',
+          'runPrimeIntellectProgram',
+          'parsePrimeIntellectTraces',
+          'primeIntellectTraceToRunRecord',
+          'importPrimeIntellectTraces',
+        ]) {
+          if (typeof prime[name] !== 'function') throw new Error('missing PrimeIntellect export ' + name)
+        }
+      `,
+    ],
+    appDir,
+  )
   run(
     process.execPath,
     [
@@ -61,7 +130,8 @@ try {
         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
         const expectedIntelligence = [
           'createIntelligenceClient',
-          'withTangleIntelligence',
+          'withIntelligence',
+          'pullCertified',
           'resolveEffort',
           'isIntelligenceOff',
           'defaultRedactor',
@@ -72,6 +142,51 @@ try {
         for (const name of expectedIntelligence) {
           if (!(name in intelligence)) throw new Error('missing intelligence export ' + name)
         }
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const candidates = await import('@tangle-network/agent-runtime/candidate-execution')
+        for (const name of [
+          'buildAgentCandidateBundle',
+          'sealAgentCandidateBundle',
+          'verifyAgentCandidateBundle',
+        ]) {
+          if (typeof candidates[name] !== 'function') throw new Error('missing candidate export ' + name)
+        }
+        const bundle = candidates.buildAgentCandidateBundle({
+          profile: {
+            kind: 'profile',
+            profile: { name: 'packed-consumer', harness: 'codex' },
+          },
+          code: { kind: 'disabled', reason: 'control' },
+          execution: {
+            harness: 'codex',
+            harnessVersion: '1.0.0',
+            launch: { kind: 'container-command', executable: 'codex' },
+            instructionDelivery: { kind: 'stdin-utf8' },
+            cwd: { workspace: 'task', path: '.' },
+            environment: { kind: 'evaluator-task-container' },
+            isolation: {
+              network: 'disabled',
+              remoteIntegrations: 'disabled',
+              candidateSecrets: 'disabled',
+            },
+          },
+          memory: { mode: 'disabled' },
+          lineage: { source: 'human' },
+        })
+        const verified = await candidates.verifyAgentCandidateBundle(bundle, {
+          artifacts: { read: async () => { throw new Error('unexpected artifact read') } },
+          repositories: { resolve: async () => { throw new Error('unexpected repository read') } },
+        })
+        if (verified.bundle.digest !== bundle.digest) throw new Error('packed candidate digest drift')
       `,
     ],
     appDir,

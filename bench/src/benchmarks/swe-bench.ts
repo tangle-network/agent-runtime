@@ -21,6 +21,7 @@ import {
   runVenvPython,
   safeRunId,
   stageFile,
+  type StagedRunCaptureSpec,
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
@@ -58,6 +59,28 @@ export const swePatchOutput: OutputAdapter<string> = {
 }
 
 const DATASET = 'princeton-nlp/SWE-bench_Verified'
+export type SweBenchCacheLevel = 'none' | 'base' | 'env' | 'instance'
+
+export interface SweBenchArtifactCaptureContext {
+  readonly taskId: string
+  readonly runId: string
+  /** One-based sequence unique within this adapter instance. */
+  readonly attemptSequence: number
+}
+
+export interface SweBenchAdapterOptions {
+  readonly timeoutMs?: number
+  readonly cacheLevel?: SweBenchCacheLevel
+  /**
+   * Return a unique destination for any attempt whose complete official
+   * evaluator directory and process logs should be retained.
+   */
+  readonly captureEvaluatorArtifacts?: (
+    context: SweBenchArtifactCaptureContext,
+  ) => StagedRunCaptureSpec | undefined
+}
+
+const SWE_CACHE_LEVELS = new Set<SweBenchCacheLevel>(['none', 'base', 'env', 'instance'])
 const TEST_FILE_EXCLUDES = [
   "':(exclude,glob)**/tests/**'",
   "':(exclude,glob)**/test/**'",
@@ -72,6 +95,78 @@ const TEST_FILE_EXCLUDES = [
 interface SweReport {
   resolved_instances?: number
   resolved_ids?: string[]
+  unresolved_ids?: string[]
+  empty_patch_ids?: string[]
+  completed_ids?: string[]
+  incomplete_ids?: string[]
+  error_ids?: string[]
+  submitted_ids?: string[]
+}
+
+function stringIds(report: Record<string, unknown>, key: keyof SweReport): string[] {
+  const value = report[key]
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`swe-bench: malformed ${key}`)
+  }
+  return value
+}
+
+/** Convert one official report into a score without turning evaluator failures into agent failures. */
+export function scoreSweReport(taskId: string, value: unknown): BenchScore {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('swe-bench: report must be an object')
+  }
+  const report = value as Record<string, unknown>
+  const statusIds = {
+    resolved: stringIds(report, 'resolved_ids'),
+    unresolved: stringIds(report, 'unresolved_ids'),
+    emptyPatch: stringIds(report, 'empty_patch_ids'),
+    completed: stringIds(report, 'completed_ids'),
+    incomplete: stringIds(report, 'incomplete_ids'),
+    error: stringIds(report, 'error_ids'),
+  }
+  const submitted = stringIds(report, 'submitted_ids')
+  const mentioned = Object.values(statusIds).flat()
+  if (
+    mentioned.some((id) => id !== taskId)
+    || (submitted.length > 0 && (submitted.length !== 1 || submitted[0] !== taskId))
+  ) {
+    throw new Error(`swe-bench: report identity mismatch for ${taskId}`)
+  }
+  if (statusIds.error.includes(taskId) || statusIds.incomplete.includes(taskId)) {
+    throw new Error(`swe-bench: evaluator failed for ${taskId}`)
+  }
+  const outcomes = [
+    statusIds.resolved.includes(taskId),
+    statusIds.unresolved.includes(taskId),
+    statusIds.emptyPatch.includes(taskId),
+  ]
+  if (outcomes.filter(Boolean).length !== 1) {
+    throw new Error(`swe-bench: report has no unique outcome for ${taskId}`)
+  }
+  if ((outcomes[0] || outcomes[1]) && !statusIds.completed.includes(taskId)) {
+    throw new Error(`swe-bench: report lacks a completed evaluation for ${taskId}`)
+  }
+  const resolved = outcomes[0]
+  return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+}
+
+export function sweEvaluationArgv(args: {
+  readonly predictionsPath: string
+  readonly runId: string
+  readonly instanceId: string
+  readonly cacheLevel: SweBenchCacheLevel
+}): string[] {
+  return [
+    '-m', 'swebench.harness.run_evaluation',
+    '--dataset_name', DATASET,
+    '--predictions_path', args.predictionsPath,
+    '--run_id', args.runId,
+    '--instance_ids', args.instanceId,
+    '--max_workers', '1',
+    '--cache_level', args.cacheLevel,
+  ]
 }
 
 function shellQuote(value: string): string {
@@ -90,7 +185,18 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
   return { repo, base }
 }
 
-export function createSweBenchAdapter(): BenchmarkAdapter {
+export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): BenchmarkAdapter {
+  if (
+    options.timeoutMs !== undefined
+    && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
+  ) throw new Error('swe-bench: timeoutMs must be a positive integer')
+  const cacheLevel = options.cacheLevel ?? 'env'
+  if (!SWE_CACHE_LEVELS.has(cacheLevel)) throw new Error('swe-bench: invalid cacheLevel')
+  if (
+    options.captureEvaluatorArtifacts !== undefined
+    && typeof options.captureEvaluatorArtifacts !== 'function'
+  ) throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
+  let attemptSequence = 0
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
@@ -178,8 +284,15 @@ print(json.dumps(out))
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
       const runId = safeRunId('bench', task.id)
+      const capture = options.captureEvaluatorArtifacts?.({
+        taskId: task.id,
+        runId,
+        attemptSequence: ++attemptSequence,
+      })
       return runStagedJudge({
         tmpPrefix: 'swebench-',
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        ...(capture === undefined ? {} : { capture }),
         // Debug: retain the staged dir (holds swebench's per-instance apply/run
         // logs) for post-mortem when SWEBENCH_KEEP_TMP is set. Off by default.
         ...(process.env.SWEBENCH_KEEP_TMP ? { keepTmp: true } : {}),
@@ -193,20 +306,16 @@ print(json.dumps(out))
         },
         // The official evaluation harness. Pulls/builds the instance image, applies
         // the patch, runs the test spec, writes a per-run report JSON in cwd.
-        argv: (dir) => [
-          '-m', 'swebench.harness.run_evaluation',
-          '--dataset_name', DATASET,
-          '--predictions_path', join(dir, 'preds.json'),
-          '--run_id', runId,
-          '--instance_ids', task.id,
-          '--max_workers', '1',
-          '--cache_level', 'env',
-        ],
+        argv: (dir) => sweEvaluationArgv({
+          predictionsPath: join(dir, 'preds.json'),
+          runId,
+          instanceId: task.id,
+          cacheLevel,
+        }),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
           const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
-          const resolved = (report.resolved_ids ?? []).includes(task.id)
-          return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+          return scoreSweReport(task.id, report)
         },
       })
     },

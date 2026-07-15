@@ -27,9 +27,21 @@ const agent = async (
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
-  ctx.cost.observe(0.0001, 'test')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'test',
+    model: 'deterministic-test',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'deterministic-test',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 /** Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else
@@ -110,7 +122,7 @@ describe('improve() — facade over selfImprove', () => {
     await expect(
       improve(profile, [], {
         surface: 'prompt',
-        generator: scriptedWinner,
+        gate: 'none',
         scenarios,
         judge,
         agent,
@@ -125,7 +137,6 @@ describe('improve() — facade over selfImprove', () => {
     const out = await improve(profile, [], {
       surface: 'prompt',
       gate: 'none',
-      generator: scriptedWinner,
       scenarios,
       judge,
       agent,

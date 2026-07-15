@@ -46,9 +46,21 @@ export const agent = async (
   _scenario: DemoScenario,
   ctx: DispatchContext,
 ): Promise<string> => {
-  ctx.cost.observe(0.0001, 'example')
-  ctx.cost.observeTokens({ input: 1, output: 1 })
-  return String(surface)
+  const paid = await ctx.cost.runPaidCall({
+    channel: 'agent',
+    actor: 'example',
+    model: 'deterministic-example',
+    maximumCharge: { externallyEnforcedMaximumUsd: 0.0001 },
+    execute: async () => String(surface),
+    receipt: () => ({
+      model: 'deterministic-example',
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.0001,
+    }),
+  })
+  if (!paid.succeeded) throw paid.error
+  return paid.value
 }
 
 // Deterministic judge: the literal string `PROMOTED` scores 1.0, anything else 0.0 — no LLM.

@@ -764,6 +764,7 @@ function clampSpend(spend: Spend, budget: Budget): Spend {
           }
         : spend.tokens,
     usd: budget.maxUsd === undefined ? spend.usd : Math.min(spend.usd, budget.maxUsd),
+    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }
 }

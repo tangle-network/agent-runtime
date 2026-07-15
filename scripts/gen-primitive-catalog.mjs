@@ -69,8 +69,10 @@ const ownSurfaceLabels = {
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './lifecycle': 'Artifact lifecycle — generate → measure → promote → compose',
   './knowledge': 'Knowledge orchestration — supervised KB updates',
+  './primeintellect': 'PrimeIntellect: Verifiers v1 package and trace adapter',
   './profiles': 'Built-in agent profiles',
   './platform': 'Platform glue',
+  './candidate-execution': 'Candidate execution — immutable prepare, run, grade, and receipt',
   './mcp': 'MCP servers — delegate / coordination / detached-session',
 }
 // ./loops is an intentional alias of ./runtime (same source) — list it once as ./loops,

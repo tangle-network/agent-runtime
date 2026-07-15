@@ -182,8 +182,6 @@ export async function composeCertifiedProfile(
 
   const promptAdditions = collectPromptAdditions(manifest.promptSurface, acc.contextArtifacts)
   const systemPrompt = composeCertifiedPrompt(base.systemPrompt, {
-    target: manifest.target,
-    generatedAt: manifest.generatedAt,
     promptSurface: manifest.promptSurface,
     artifacts: acc.contextArtifacts,
   })
@@ -219,8 +217,6 @@ function baseSurface(
   promptSurface: CapabilityManifest['promptSurface'],
 ): ResolvedSurface {
   const folded = composeCertifiedPrompt(systemPrompt, {
-    target: '',
-    generatedAt: '',
     promptSurface,
     artifacts: {},
   })

@@ -218,4 +218,31 @@ describe('rawTraceDistiller', () => {
     const findings = await rawTraceDistiller({ fallbackFindings: seed })(input)
     expect(findings).toEqual(seed)
   })
+
+  it('emits the default raw-trace instruction (not []) when the fallback seed is EMPTY on a clean generation', async () => {
+    // The runner passes findings:[] as the seed, so fallbackFindings is []. An
+    // empty fallback must NOT wipe the steering context to nothing — it must fall
+    // through to the default raw-trace instruction so the meta-harness discipline
+    // (and the agenticGenerator diagnosis-evidence gate keyed on the
+    // `raw-trace-context` area) stays armed for the next generation.
+    const input = {
+      generation: 0,
+      runDir: join(root, 'gen-0'),
+      candidates: [
+        {
+          surfaceHash: 'perfect',
+          composite: 1,
+          campaign: {
+            runDir: join(root, 'gen-0', 'candidate-0'),
+            cells: [{ cellId: 's:0', scenarioId: 's', judgeScores: { j: { composite: 1 } } }],
+          },
+        },
+      ],
+      history: [],
+    } as unknown as AnalyzeInput
+
+    const findings = await rawTraceDistiller({ fallbackFindings: [] })(input)
+    expect(findings).toHaveLength(1)
+    expect((findings[0] as unknown as { area: string }).area).toBe('raw-trace-context')
+  })
 })

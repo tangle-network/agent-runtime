@@ -3,7 +3,7 @@
 If you're an agent picking this up: read this page, then run `pnpm help` + `pnpm gate` —
 do NOT re-derive the harness from source. This map is SHORT on purpose; if it disagrees
 with the code, the code wins — fix this page in the same turn (the anti-rediscovery law).
-Verified against source 2026-07-07 · agent-eval pinned `^0.106.1`. The CANONICAL surface is now
+Verified against source 2026-07-11 · agent-eval pinned `^0.114.0`. The CANONICAL surface is now
 the published optimization suite (`@tangle-network/agent-runtime/loops`): `Environment` +
 `Strategy`/`defineStrategy` + `runBenchmark` — see the section below FIRST. The recursive
 diverse-vs-blind gate runs through the keystone (`gate-cli.mts` → `runGate`);
@@ -134,6 +134,7 @@ the gate + measurement tools:
   run-benchmarks-cli.mts  runBenchmarks: any subset of the ADAPTERS registry × model/harness cells, one combined ranked report (#420)
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
   terminal-compare.ts  Terminal-Bench compare (own main)
+  pnpm verify:pier  zero-model failure/pass Pier controls through a separate verifier
 unit tests (the only fully-green, cred-free runnable surface besides offline replay):
   node --test --import tsx src/{selector,refine-loop}.test.mts
   tsx src/gate.test.mts   # offline plumbing test (no creds)
@@ -209,11 +210,80 @@ The code-benches share `benchmarks/_harness.ts` (stage artifact → run the benc
 in a `.venv`/Docker subprocess → parse its JSON report → `{resolved,score}`). No per-adapter
 copy of the process/venv/Docker/temp/report plumbing; commit0+appworld also share its
 stdin-piping runner (`runVenvScriptStdin`).
+Published-package consumers set `AGENT_BENCH_PYTHON` to the absolute path of an interpreter containing the benchmark dependencies.
+If unset, source checkouts keep using `bench/.venv/bin/python`.
+SWE-bench callers that need a hard evaluation deadline construct `createSweBenchAdapter({ timeoutMs })`; evaluator errors and incomplete or ambiguous reports throw instead of scoring zero.
+Callers that must inspect the exact per-task image after scoring pass `cacheLevel: 'instance'`; the default remains `'env'`.
+Callers retain the complete official evaluator tree plus raw process output with `captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({ destination })`; the returned score (or `StagedJudgeError`) carries a receipt with every file hash and a whole-tree hash.
 - **Real, runnable with ZERO extra deps:** finsearchcomp (GitHub dataset + fixtures + LLM judge — the gate bench), hotpotqa + simpleqa + frames (HF/web QA + F1/LLM judge; `*_FIXTURES=1` offline), **ragbench**, **crag**, **nomiracl**, **open-rag-bench**, **t2-ragbench** (SOTA RAG/knowledge benchmarks with committed fixtures and deterministic answer/relevance judges; live mode reads explicit `*_DATA_FILE` JSON/JSONL exports), **aec-bench** (real GitHub task tree + fixtures; judge = the task's own `tests/verify.py` over python3 stdlib — **deterministic, graded per-field partial credit, no Docker, no LLM** → the candidate non-oracle correctable-middle-band bench for the open gate).
 - **Real code, needs an external harness/tools to run (fail loud with the exact install/Docker fix; never a fabricated score):** swe-bench + terminal-bench (`bench/.venv` + Docker), **commit0** (ISOLATED `bench/.venv-commit0` via `python3 -m venv bench/.venv-commit0 && bench/.venv-commit0/bin/pip install commit0 datasets` — its deps conflict with the shared `.venv`; override dir with `COMMIT0_VENV` — plus Docker; judge = official pytest harness, graded (passed+xfail)/total; the rollout prompt stages in-box (clones `commit-0/<repo>` @ `base_commit`, emits `git diff`); `COMMIT0_FIXTURES=1` for offline listing), **programbench** (`pip install programbench` + Docker on linux/amd64 + HF blobs; judge = official cleanroom eval, graded passed/total; `PROGRAMBENCH_FIXTURES=1` offline), **appworld** (`pip install appworld` + `appworld install` + `appworld download data`; judge = AppWorld's own `world.evaluate()`, graded passes/num_tests — NO committed fixture: task data exists only after `download data`, so loadTasks fails loud rather than fabricate a task), **dabstep** (`DABSTEP_DIR=/path/to/EnvCommons/DABStep` with the released `dataset.csv`, `splits/*.txt`, `files/*`, and `grade.py`; judge delegates to official `grade.py`; `DABSTEP_FIXTURES=1` only tests adapter plumbing and does not fabricate benchmark scores), **webarena-verified** (`WEBARENA_VERIFIED_DIR=/path/to/webarena-verified`; judge delegates to official `eval-tasks` over a run output directory), **tau2-bench** (`TAU2_BENCH_DIR=/path/to/tau2-bench`; judge recomputes tau2 trajectory rewards), **tau3-banking** (`TAU3_BENCH_DIR=/path/to/tau2-bench`; default domain `banking_knowledge`; judge recomputes tau trajectory rewards through the upstream tau3 package), **agentbench** DBBench subset (`AGENTBENCH_DIR=/path/to/AgentBench`; exact-match deterministic label judge), **bfcl** deterministic function-call subset (`BFCL_DIR=/path/to/gorilla/berkeley-function-call-leaderboard`; loads official BFCL JSONL + `possible_answer`; score = structured call/argument match, not the full BFCL leaderboard evaluator), **toollm** API-selection subset (`TOOLBENCH_DIR=/path/to/ToolBench`; score = recall of ToolBench `relevant APIs` labels, resolved only when the worker emits the requested structured JSON call list; official ToolEval pass rate remains LLM-judged/stochastic), **finresearchbench** (`FINRESEARCHBENCH_DATA_FILE=/path/to/export.jsonl`; rows must carry official `judge_system_prompt` + `judge_prompt_template`; no self-authored live judge), mind2web, cad-design + cadbench + cadgenbench (openscad/blender/build123d).
 - **goldArtifact:** aec-bench returns the task's real `golden_pass.md` (verify-judge works fully offline). commit0 / programbench / appworld return `undefined` — the oracle is a git ref / stripped source / engine-bundled solution, not a portable string; judge correctness is proven by a real solve through the harness, not a synthetic gold (documented + fail-loud, not a fake).
 - **Absent (not built):** swe-gym, swe-bench-multimodal, and the rest of the survey set.
 Every unbuilt/scaffold adapter fails LOUD (throws with the integration step) rather than faking a score — no silent zeros in any corpus. Offline fixture tests: `benchmarks/{aec-bench,commit0,programbench,appworld,rag-benchmarks}.test.mts` (`tsx --test`).
+
+## Pier candidate bridge
+
+`pier_agents.tangle_candidate:TangleCandidateAgent` is the reusable Pier custom-agent path for frozen Tangle candidates.
+`executePreparedPierCandidate()` is the only public entry point; its private staging step writes the runtime's execution-plan and materialization-receipt bytes verbatim.
+The Python bridge rechecks those bytes and their signed task, candidate, profile, repository, instruction, and workspace identities before launch.
+It rejects a raw candidate bundle, never projects an `AgentProfile`, and leaves task isolation, patch transfer, verification, retries, and result storage to Pier.
+
+The adapter fails the trial when any prepared identity drifts, when the task checkout or immutable OCI image differs from the signed identity, or when the candidate exits nonzero or exceeds its signed deadline.
+Candidate code runs as an unprivileged numeric user, while evaluator inputs and timeout evidence remain root-owned.
+It never accepts candidate-authored token, cost, or trace receipts; `executePreparedPierCandidate()` uses the runtime's atomic execution path and reconciles the protected `TraceStore` with the model-gateway ledger before returning a gradable receipt.
+The prepared object contains no credentials.
+The runtime passes model and trace bindings only to the trusted executor request.
+The Pier launcher inherits their values through its protected process environment and passes only `${NAME}` references on the command line, so credentials never enter prepared bytes, CLI arguments, or job files.
+The executor builds fresh task, candidate, and profile trees from the request's exact verified file bytes; prepared staging directories are never launch authority.
+Isolated memory and knowledge-bearing candidates currently fail closed until Pier has executor-owned mount and after-state capture.
+The signed wall deadline is a hard stop: the runtime aborts, Pier kills the process tree, and the executor acknowledges process and container death.
+The signed tool-step count is a post-run validity check over protected traces, not a pre-tool stop; generic black-box Pier processes cannot honestly prevent step N+1.
+The executable zero-model fixture is `fixtures/pier-agent/`; run it against the R360 Pier checkout with `PIER_REPO=/path/to/pier pnpm verify:pier`.
+That command runs a no-change candidate that must score 0/1, proves a fresh evaluator process can kill a persisted child and remove its real Docker container, and runs a known-good candidate that must score 1/1.
+It then checks that each official result and exact task patch is bound into its own runtime receipt with zero model usage.
+
+For a real frozen candidate, use `FilePierCandidateTrialController`, append `agentArgs` and `attemptArgs`, and pass each executor-only `evaluatorEnv` entry through Pier's evaluator-owned environment mechanism.
+The launch callback's second argument carries the signed runtime `request`, protected `traceStore`, cancellation `signal`, and absolute `deadlineAtMs`; production launchers must use that context rather than reconstructing it.
+The controller sends secrets to its supervisor over a pipe, while its durable files contain only process and Docker-project identities:
+The supervisor never inherits `process.env`; non-default Docker connections use a stable `dockerConnection.id` plus the exact environment injected into both Pier and cleanup.
+Fresh recovery workers must reconstruct that same named connection; `terminate-pier-trial.mts` selects only the comma-delimited variables named by `PIER_DOCKER_ENV_NAMES` when `PIER_DOCKER_CONNECTION_ID` is set.
+`jobName` must be unique per prepared execution; the controller atomically reserves that job directory so recovery can remove only containers owned by that execution.
+
+```ts
+const controller = new FilePierCandidateTrialController({
+  directory: '/var/lib/tangle/pier-control',
+  launch: (staged, { request }) => {
+    const jobName = request.executionId
+    return {
+      command: 'uv',
+      args: ['run', 'pier', 'run', ...staged.agentArgs, ...staged.attemptArgs],
+      cwd: pierCheckout,
+      env: { ...evaluatorEnvironment, ...staged.evaluatorEnv },
+      jobsDirectory,
+      jobName,
+      readResult: () => readOfficialPierResult(jobsDirectory, jobName),
+    }
+  },
+})
+
+const result = await executePreparedPierCandidate({
+  prepared,
+  directory: '/sealed/candidate',
+  pierVersion: '0.3.0',
+  traceStore,
+  claimStore,
+  outputArtifacts,
+  grader,
+  controller,
+})
+```
+
+The controller's result resolves only after normal process/container cleanup.
+On a signed deadline, external abort, or recovery by another evaluator process, the adapter waits for `terminateAndWait()` to acknowledge both process exit and container removal before it returns control to the runtime.
+
+One prepared execution always maps to one Pier attempt (`--n-attempts 1 --max-retries 0`).
+Production callers pass a long-lived `FileAgentCandidateExecutionClaimStore`; an in-memory claim store is test-only and cannot prevent a second process from replaying the same attempt.
+Any allowed pre-model infrastructure retry is a new prepared execution with its own counted attempt identity.
 
 ## Is it runnable RIGHT NOW? (verify the map, don't trust it blindly)
 ```

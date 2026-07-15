@@ -9,15 +9,13 @@
  * This is a THIN adapter: the physical act (worktree → profile-aware harness invocation → diff →
  * checks → cleanup) lives ONCE in `runWorktreeHarness` (`../../mcp/worktree-harness`), shared with
  * the `runLoop`/coder-delegate `createInProcessExecutor`. This executor only projects that core's
- * result onto the `Executor` port (artifact + spend) and owns the teardown point. The §1.5 payload
- * (authored systemPrompt + model) reaches the harness inside the core, not here.
+ * result onto the `Executor` port (artifact + spend) and owns the teardown point. The complete
+ * profile delivery — direct prompt/model plus materialized file-backed resources — lives there.
  *
- * Token accounting: a harness CLI does not surface usage, so this executor defaults to
- * `budgetExempt: true` — its spend is NOT metered against the conserved pool and its iterations are
- * EXCLUDED from the equal-k arms by construction (mirrors `cliExecutor`). The exemption is an
- * explicit, documented `budgetExempt` option rather than a buried hardcode: set it `false` ONLY for
- * a harness that genuinely surfaces real token/usd usage to meter into the pool — otherwise the
- * executor would meter a fabricated zero, which the no-silent-zeros rule forbids.
+ * Token accounting: ordinary harness CLI runs remain `budgetExempt`. Reproducible Codex mode
+ * parses the CLI's terminal JSONL usage and is metered by default; an absent usage event fails the
+ * run instead of recording fabricated zero tokens. Codex does not report dollar cost, so that
+ * channel is explicitly marked unknown on the resulting `Spend`.
  *
  * @experimental
  */
@@ -34,11 +32,11 @@ import {
   type WorktreeCommandResult,
   type WorktreeHarnessResult,
   type WorktreeHarnessRun,
+  type WorktreeProfileMaterializationReceipt,
 } from '../../mcp/worktree-harness'
-import { zeroTokenUsage } from '../util'
 import type { Executor, ExecutorResult, Spend } from './types'
 
-export type { WorktreeCommandResult }
+export type { WorktreeCommandResult, WorktreeProfileMaterializationReceipt }
 /** Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  *  diff + the harness's run record + the derived checks). */
 export type WorktreePatchArtifact = WorktreeHarnessResult
@@ -47,9 +45,15 @@ export type WorktreePatchArtifact = WorktreeHarnessResult
 export interface WorktreeCliExecutorOptions {
   /** Absolute path to the git checkout the worktree is cut from. */
   repoRoot: string
-  /** The SUPERVISOR-AUTHORED profile (the §1.5 payload: systemPrompt + model). */
+  /**
+   * The supervisor-authored prompt/model plus materializable structural resources.
+   * `model.default` selects the one-shot model; `small`, `provider`, and `metadata` remain hints.
+   * Resource failures are fatal regardless of `resources.failOnError`.
+   * Tools, permissions, connections, confidential execution, modes, and extensions fail closed.
+   * Harness-specific nested controls that the pinned materializer cannot preserve also fail closed.
+   */
   profile: AgentProfile
-  /** Which local harness CLI drives this leaf (`claude` | `codex` | `opencode`). */
+  /** Local CLI for this leaf. This explicit choice overrides `profile.harness`. */
   harness: LocalHarness
   /** The per-task instruction handed to the harness (composed under the system prompt). */
   taskPrompt: string
@@ -59,6 +63,12 @@ export interface WorktreeCliExecutorOptions {
   baseRef?: string
   /** Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default). */
   harnessTimeoutMs?: number
+  /** Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
+   *  JSONL usage capture. Requires `harness: 'codex'`; metered by default. */
+  codexReproducible?: boolean
+  /** Absolute host paths denied to reproducible Codex (for benchmark answer copies, credentials,
+   *  or other task-specific ambient state). */
+  codexReadDeniedPaths?: ReadonlyArray<string>
   /**
    * Shell command run in the live worktree to derive the tests-PASS signal (e.g. `pnpm test`).
    * Its exit code becomes `artifact.checks.tests.passed`. Omit to skip (no signal derived).
@@ -78,10 +88,9 @@ export interface WorktreeCliExecutorOptions {
    *  outcomes without spawning a real shell. Defaults to a `/bin/sh -c` spawn in the worktree. */
   runCommand?: WorktreeCheckRunner
   /**
-   * Exclude this leaf's spend from the conserved pool + equal-k arms. Defaults to `true` because a
-   * coding-harness CLI does not surface token usage, so metering it would record a fabricated zero
-   * (the no-silent-zeros rule forbids that). Set `false` ONLY for a harness that surfaces real
-   * token/usd usage worth metering — the executor would then debit the (real) spend it captures.
+   * Exclude this leaf's spend from accounting. Defaults to `true` for ordinary CLI runs and
+   * `false` for `codexReproducible`, which captures real token usage. A metered custom runner must
+   * likewise return `LocalHarnessResult.usage`.
    */
   budgetExempt?: boolean
 }
@@ -107,13 +116,23 @@ export function createWorktreeCliExecutor(
   if (typeof options.taskPrompt !== 'string' || options.taskPrompt.length === 0) {
     throw new ValidationError('createWorktreeCliExecutor: taskPrompt required')
   }
+  if (options.codexReproducible && options.harness !== 'codex') {
+    throw new ValidationError(
+      'createWorktreeCliExecutor: codexReproducible requires harness "codex"',
+    )
+  }
+  if (options.codexReproducible && options.budgetExempt === true) {
+    throw new ValidationError('createWorktreeCliExecutor: codexReproducible cannot be budgetExempt')
+  }
+  if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
+    throw new ValidationError(
+      'createWorktreeCliExecutor: codexReadDeniedPaths requires codexReproducible',
+    )
+  }
 
   const runId = options.runId ?? randomUUID()
   const controller = new AbortController()
-  // Default true: a harness CLI cannot account tokens, so the honest value is "exclude from the
-  // pool + equal-k" rather than meter a fabricated zero. An explicit `false` opts a real-usage
-  // harness into metering the spend it captures.
-  const budgetExempt = options.budgetExempt ?? true
+  const budgetExempt = options.budgetExempt ?? !options.codexReproducible
 
   let run: WorktreeHarnessRun | undefined
   let artifact: ExecutorResult<WorktreePatchArtifact> | undefined
@@ -137,6 +156,10 @@ export function createWorktreeCliExecutor(
         ...(options.harnessTimeoutMs !== undefined
           ? { harnessTimeoutMs: options.harnessTimeoutMs }
           : {}),
+        ...(options.codexReproducible ? { codexReproducible: true } : {}),
+        ...(options.codexReadDeniedPaths
+          ? { codexReadDeniedPaths: options.codexReadDeniedPaths }
+          : {}),
         ...(options.checkTimeoutMs !== undefined ? { checkTimeoutMs: options.checkTimeoutMs } : {}),
         ...(options.checkOutputCap !== undefined ? { checkOutputCap: options.checkOutputCap } : {}),
         ...(linked ? { signal: linked } : {}),
@@ -145,13 +168,22 @@ export function createWorktreeCliExecutor(
         ...(options.runCommand ? { runCommand: options.runCommand } : {}),
       })
 
+      const usage = run.result.harness.usage
+      if (!budgetExempt && !usage) {
+        const completed = run
+        run = undefined
+        await completed.cleanup()
+        throw new ValidationError(
+          'createWorktreeCliExecutor: metered harness run returned no token usage',
+        )
+      }
       const spent: Spend = {
         iterations: 1,
-        // The worktree-harness core surfaces no token/usd usage, so tokens/usd are a genuine zero
-        // (NOT a fabricated cost). When budgetExempt is true the pool ignores this spend entirely;
-        // when explicitly false the scope debits exactly this captured spend — the real iteration.
-        tokens: zeroTokenUsage(),
+        tokens: usage
+          ? { input: usage.inputTokens, output: usage.outputTokens }
+          : { input: 0, output: 0 },
         usd: 0,
+        ...(usage ? { usdKnown: false } : {}),
         ms: Date.now() - started,
       }
       artifact = { outRef: contentAddress(run.result), out: run.result, spent }

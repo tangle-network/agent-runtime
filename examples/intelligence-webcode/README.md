@@ -20,7 +20,7 @@ Three layers, all wrapped around each single benchmark cell (`intelligence-webco
 
 | Layer | What it does |
 |---|---|
-| **Boundary** | `withTangleIntelligence(cell, { effort })` wraps the whole run. `effort` ranges `off · eco · standard · thorough · max`; `off` is the provable floor — instrumentation spend clamped to 0, the task still runs. |
+| **Boundary** | `withIntelligence(cell, { effort })` wraps the whole run. `effort` ranges `off · eco · standard · thorough · max`; `off` is the provable floor — instrumentation spend clamped to 0, the task still runs. |
 | **Cost waterfall** | `createWaterfallCollector()` records cost per tool/phase during the run. The sum of its parts **is** the billed total, so there's no second tally that can drift from reality. |
 | **Trace export** | `createOtelExporter()` streams every step to your OTLP trace collector. It's a no-op until you set `OTEL_EXPORTER_OTLP_ENDPOINT`, so you can run without one. |
 

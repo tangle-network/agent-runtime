@@ -448,6 +448,7 @@ function accumulate(a: Spend, b: Spend): void {
   a.tokens.input += b.tokens.input
   a.tokens.output += b.tokens.output
   a.usd += b.usd
+  if (b.usdKnown === false) a.usdKnown = false
   a.ms += b.ms
 }
 
@@ -458,6 +459,7 @@ function addSpend(a: Spend, b: Spend): Spend {
     iterations: a.iterations + b.iterations,
     tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
     usd: a.usd + b.usd,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
 }
