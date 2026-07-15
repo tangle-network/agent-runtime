@@ -970,15 +970,16 @@ function measuredObjective(
   })
   const baselineMean = measuredMean(baseline)
   const candidateMean = measuredMean(candidate)
+  const delta = interval.mean
   const estimate = {
     availability: 'measured',
     baseline: baselineMean,
     candidate: candidateMean,
-    delta: candidateMean - baselineMean,
+    delta,
     confidenceInterval: {
       level: interval.confidence,
-      lower: interval.low,
-      upper: interval.high,
+      lower: Math.min(interval.low, delta),
+      upper: Math.max(interval.high, delta),
       method: 'paired-bootstrap',
       statistic: 'mean',
       resamples: interval.resamples,

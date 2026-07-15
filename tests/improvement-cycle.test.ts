@@ -448,6 +448,76 @@ describe('agent improvement lifecycle', () => {
       ]),
     )
 
+    const constantScoreResult = {
+      ...proposed.improvement.raw,
+      baseline: {
+        ...proposed.improvement.raw.baseline,
+        compositeMean: 0.5,
+        perScenario: Object.fromEntries(scenarios.map(({ id }) => [id, 0.5])),
+      },
+      winner: {
+        ...proposed.improvement.raw.winner,
+        compositeMean: 0.8,
+        perScenario: Object.fromEntries(scenarios.map(({ id }) => [id, 0.8])),
+      },
+      lift: 0.8 - 0.5,
+      provenance: {
+        ...proposed.improvement.raw.provenance,
+        baselineHoldoutComposite: 0.5,
+        winnerHoldoutComposite: 0.8,
+        heldOutLift: 0.8 - 0.5,
+      },
+      raw: {
+        ...proposed.improvement.raw.raw,
+        baselineOnHoldout: {
+          ...proposed.improvement.raw.raw.baselineOnHoldout,
+          cells: proposed.improvement.raw.raw.baselineOnHoldout.cells.map((cell) => ({
+            ...cell,
+            judgeScores: Object.fromEntries(
+              Object.entries(cell.judgeScores).map(([name, score]) => [
+                name,
+                {
+                  ...score,
+                  composite: 0.5,
+                  dimensions: Object.fromEntries(
+                    Object.keys(score.dimensions).map((dimension) => [dimension, 0.5]),
+                  ),
+                },
+              ]),
+            ),
+          })),
+        },
+        winnerOnHoldout: {
+          ...proposed.improvement.raw.raw.winnerOnHoldout,
+          cells: proposed.improvement.raw.raw.winnerOnHoldout.cells.map((cell) => ({
+            ...cell,
+            judgeScores: Object.fromEntries(
+              Object.entries(cell.judgeScores).map(([name, score]) => [
+                name,
+                {
+                  ...score,
+                  composite: 0.8,
+                  dimensions: Object.fromEntries(
+                    Object.keys(score.dimensions).map((dimension) => [dimension, 0.8]),
+                  ),
+                },
+              ]),
+            ),
+          })),
+        },
+      },
+    }
+    const constantScoreComparison = createAgentImprovementMeasuredComparison({
+      result: constantScoreResult,
+      measuredSurface: 'prompt',
+      baselineProfile: profile,
+      candidateBundle: proposed.proposal.candidateBundle,
+    })
+    expect(constantScoreComparison.overall.confidenceInterval).toMatchObject({
+      lower: constantScoreComparison.overall.delta,
+      upper: constantScoreComparison.overall.delta,
+    })
+
     const compoundProfile = {
       ...proposed.improvement.profile,
       tools: { inspect_repository: true },
