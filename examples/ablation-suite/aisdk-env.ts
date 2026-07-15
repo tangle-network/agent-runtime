@@ -88,7 +88,9 @@ const SDK_TASKS: SdkTask[] = [
 
 function taskSpec(id: string): SdkTask {
   const key = id.split('#')[0]
-  return SDK_TASKS.find((t) => t.key === key) ?? SDK_TASKS[0]
+  const spec = SDK_TASKS.find((t) => t.key === key) ?? SDK_TASKS[0]
+  if (!spec) throw new Error(`aisdk-env: no task spec for '${id}'`)
+  return spec
 }
 
 let searchCallTotal = 0
@@ -269,6 +271,7 @@ export function aiSdkTasks(n: number): Promise<AgenticTask[]> {
   return Promise.resolve(
     Array.from({ length: n }, (_, i) => {
       const spec = SDK_TASKS[i % SDK_TASKS.length]
+      if (!spec) throw new Error('aisdk-env: SDK_TASKS is empty')
       return {
         id: `${spec.key}#${i}`,
         systemPrompt: spec.systemPrompt,

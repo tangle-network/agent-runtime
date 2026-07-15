@@ -86,12 +86,12 @@ async function runArm(
     )
   }
   const vIdx = valid.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-  const resolve = vIdx.length ? vIdx.reduce((a, i) => a + perTask[i], 0) / vIdx.length : 0
+  const resolve = vIdx.length ? vIdx.reduce((a, i) => a + (perTask[i] ?? 0), 0) / vIdx.length : 0
   return { resolve, perTask, valid, fired, usd }
 }
 
 function pairedDeltaCI(a: number[], b: number[]): { delta: number; lo: number; hi: number } {
-  const d = a.map((x, i) => x - b[i])
+  const d = a.map((x, i) => x - (b[i] ?? 0))
   const mean = d.reduce((s, x) => s + x, 0) / d.length
   const v = d.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, d.length - 1)
   const se = Math.sqrt(v / d.length)
@@ -127,8 +127,8 @@ console.error(
 )
 
 const both = tasks.map((_, i) => i).filter((i) => noSearch.valid[i] && search.valid[i])
-const nsT = both.map((i) => noSearch.perTask[i])
-const seT = both.map((i) => search.perTask[i])
+const nsT = both.map((i) => noSearch.perTask[i] ?? 0)
+const seT = both.map((i) => search.perTask[i] ?? 0)
 const ci = pairedDeltaCI(seT, nsT)
 console.error(`\n=== VERDICT (pre-registered) ===`)
 console.error(`paired tasks valid in both arms: ${both.length}/${N}`)

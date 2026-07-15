@@ -103,15 +103,15 @@ async function runArm(
     )
   }
   const vIdx = valid.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-  const vResolve = vIdx.length ? vIdx.reduce((a, i) => a + perTask[i], 0) / vIdx.length : 0
-  const vScore = vIdx.length ? vIdx.reduce((a, i) => a + perScore[i], 0) / vIdx.length : 0
+  const vResolve = vIdx.length ? vIdx.reduce((a, i) => a + (perTask[i] ?? 0), 0) / vIdx.length : 0
+  const vScore = vIdx.length ? vIdx.reduce((a, i) => a + (perScore[i] ?? 0), 0) / vIdx.length : 0
   return { resolve: vResolve, scoreMean: vScore, perTask, perScore, valid, fired, usd }
 }
 
 // paired bootstrap CI of (search − nosearch) on the aligned per-task vectors — no random seed
 // available in this env, so use a deterministic jackknife-style spread as a conservative CI proxy.
 function pairedDeltaCI(a: number[], b: number[]): { delta: number; lo: number; hi: number } {
-  const d = a.map((x, i) => x - b[i])
+  const d = a.map((x, i) => x - (b[i] ?? 0))
   const mean = d.reduce((s, x) => s + x, 0) / d.length
   const v = d.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, d.length - 1)
   const se = Math.sqrt(v / d.length)
@@ -153,10 +153,10 @@ console.error(
 
 // paired on tasks VALID in BOTH arms only (drop empty-run flukes so the pairing is honest)
 const both = tasks.map((_, i) => i).filter((i) => noSearch.valid[i] && search.valid[i])
-const nsT = both.map((i) => noSearch.perTask[i])
-const seT = both.map((i) => search.perTask[i])
-const nsS = both.map((i) => noSearch.perScore[i])
-const seS = both.map((i) => search.perScore[i])
+const nsT = both.map((i) => noSearch.perTask[i] ?? 0)
+const seT = both.map((i) => search.perTask[i] ?? 0)
+const nsS = both.map((i) => noSearch.perScore[i] ?? 0)
+const seS = both.map((i) => search.perScore[i] ?? 0)
 const ci = pairedDeltaCI(seT, nsT)
 const sci = pairedDeltaCI(seS, nsS)
 console.error(`\n=== VERDICT (pre-registered) ===`)
