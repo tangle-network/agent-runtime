@@ -49,6 +49,7 @@ try {
     './intelligence': ['import', 'types'],
     './loops': ['import', 'types'],
     './environment-provider': ['import', 'types'],
+    './primeintellect': ['import', 'types'],
     './profiles': ['import', 'types'],
     './mcp': ['import', 'types'],
   }
@@ -93,6 +94,29 @@ try {
           subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1),
         )
         for (const subpath of subpaths) await import(subpath)
+      `,
+    ],
+    appDir,
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const prime = await import('@tangle-network/agent-runtime/primeintellect')
+        for (const name of [
+          'createPrimeIntellectPackage',
+          'writePrimeIntellectPackage',
+          'readPrimeIntellectEpisodeContext',
+          'createPrimeIntellectBackend',
+          'runPrimeIntellectProgram',
+          'parsePrimeIntellectTraces',
+          'primeIntellectTraceToRunRecord',
+          'importPrimeIntellectTraces',
+        ]) {
+          if (typeof prime[name] !== 'function') throw new Error('missing PrimeIntellect export ' + name)
+        }
       `,
     ],
     appDir,

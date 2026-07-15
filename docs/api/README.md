@@ -15,6 +15,7 @@
 - [lifecycle](lifecycle.md)
 - [mcp](mcp.md)
 - [platform](platform.md)
+- [primeintellect](primeintellect.md)
 - [profiles](profiles.md)
 - [runtime/environment-provider](runtime/environment-provider.md)
 - [runtime](runtime.md)
