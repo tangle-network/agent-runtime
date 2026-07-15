@@ -82,7 +82,7 @@ export function buildAgentCandidateBundle(
   const compiledProfile = compileCandidateProfile(input.profile)
   const profileDiffIds = compiledProfile.profileDiffIds
   const bundle: AgentCandidateBundleInput = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-bundle',
     digestAlgorithm: 'rfc8785-sha256',
     profile: compiledProfile.profile,

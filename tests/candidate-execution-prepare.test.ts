@@ -61,10 +61,10 @@ function taskRepository(): { root: string; commit: string; tree: string } {
 
 function snapshot(
   root: string,
-  files: Array<{ path: string; mode: 0o644 | 0o755 }>,
+  files: Array<{ path: string; mode: number }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: files
       .map((file) => {
@@ -83,7 +83,7 @@ function snapshot(
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -97,7 +97,7 @@ function bundle(
   active?: { commit: string; tree: string; workspace: AgentCandidateWorkspaceSnapshotEvidence },
 ): AgentCandidateBundle {
   const value = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -165,13 +165,13 @@ function redigestBundle(
 
 function emptySnapshot(label: string): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [],
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -328,6 +328,7 @@ describe('candidate execution preparation', () => {
       delivery: value.bundle.execution.instructionDelivery,
     })
     expect(plan.task.repository).toEqual(value.task.repository)
+    expect(plan.task.outcome).toEqual({ kind: 'workspace' })
     expect(plan.profile).toEqual({
       planDigest: prepared.profilePlan.value.digest,
       targetWorkspace: 'task',
@@ -624,18 +625,30 @@ describe('candidate execution preparation', () => {
       sha256: embeddedCandidateArtifact(seedBytes).sha256,
       byteLength: seedBytes.byteLength,
     }
-    const knowledge = {
-      locator: { kind: 's3' as const, bucket: 'test-artifacts', key: 'knowledge/manifest.json' },
-      sha256: embeddedCandidateArtifact(knowledgeBytes).sha256,
-      byteLength: knowledgeBytes.byteLength,
-    }
+    const knowledgeSnapshot = emptySnapshot('knowledge')
+    const retrievalConfig = embeddedCandidateArtifact(knowledgeBytes)
+    const evaluation = embeddedCandidateArtifact(Buffer.from('{"score":1}'))
     value.bundle = redigestBundle(value.bundle, {
       memory: { mode: 'isolated', scope: 'task', seed },
-      knowledge: { snapshotId: 'knowledge-1', manifest: knowledge },
+      knowledge: {
+        candidate: {
+          schemaVersion: 1,
+          kind: 'knowledge-improvement-candidate',
+          runId: 'knowledge-run-1',
+          candidateId: 'knowledge-1',
+          goalHash: sha('1'),
+          baseHash: sha('2'),
+          candidateHash: sha('3'),
+          evidenceHash: sha('4'),
+          promotionPlanHash: sha('5'),
+        },
+        snapshot: knowledgeSnapshot,
+        retrievalConfig,
+        evaluation,
+      },
     })
     value.ports.artifacts.read = async (ref) => {
       if (ref.sha256 === seed.sha256) return seedBytes
-      if (ref.sha256 === knowledge.sha256) return knowledgeBytes
       throw new Error(`unexpected artifact ${ref.sha256}`)
     }
     let resetInput: Parameters<AgentCandidateExecutionPorts['memory']['reset']>[0] | undefined
@@ -664,10 +677,11 @@ describe('candidate execution preparation', () => {
     })
     expect(JSON.stringify(prepared)).not.toContain('TANGLE_MEMORY_NAMESPACE')
     expect(prepared.knowledge).toMatchObject({
-      snapshotId: 'knowledge-1',
-      manifestDigest: knowledge.sha256,
+      candidate: { candidateId: 'knowledge-1' },
+      snapshot: { digest: knowledgeSnapshot.digest },
+      files: [],
     })
-    expect(Buffer.from(prepared.knowledge?.manifest ?? [])).toEqual(knowledgeBytes)
+    expect(Buffer.from(prepared.knowledge?.retrievalConfig ?? [])).toEqual(knowledgeBytes)
   })
 
   it('closes memory immediately when reset evidence fails before preparation can retain it', async () => {

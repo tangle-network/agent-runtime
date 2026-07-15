@@ -8,15 +8,16 @@ import type {
   AgentCandidateBenchmarkResultEvidence,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelSettlementEvidence,
-  AgentCandidateRunReceiptV2,
+  AgentCandidateRunReceipt,
   AgentCandidateSpend,
   AgentCandidateTermination,
 } from '@tangle-network/agent-interface'
-import { agentCandidateRunReceiptV2Schema } from '@tangle-network/agent-interface'
+import { agentCandidateRunReceiptSchema } from '@tangle-network/agent-interface'
 
 import { readMaterializedWorkspaceFiles } from './artifacts'
 import { canonicalCandidateBytes, canonicalCandidateDocument } from './digest'
 import {
+  encodeAgentCandidateExecutorCapture,
   sealAgentCandidateExecutorFinalCapture,
   sealAgentCandidateProtectedRunCapture,
 } from './executor-capture'
@@ -112,7 +113,6 @@ export async function finalizeAgentCandidateRun(
 
     const modelSpans = orderedSpans.filter(isLlmSpan)
     assertTraceMatchesModelSettlement(modelSpans, settlement)
-    const usage = settlement.usage
     enforceLimits(state, run.startedAt, run.endedAt, orderedSpans, settlement)
     const finalCapture = sealAgentCandidateExecutorFinalCapture(evidence.finalCapture)
     const memory = await memoryReceipt(
@@ -122,6 +122,20 @@ export async function finalizeAgentCandidateRun(
       protectedValues,
       signal,
     )
+    const executorCaptureBytes = encodeAgentCandidateExecutorCapture({
+      executionId: protectedCapture.executionId,
+      executionPlanDigest: state.executionPlan.value.digest,
+      termination: protectedCapture.termination,
+      taskOutcome: evidence.taskOutcome.evidence,
+      ...(memory.mode === 'isolated' ? { memoryAfter: memory.afterState } : {}),
+    })
+    assertNoProtectedBytes(executorCaptureBytes, protectedValues)
+    const executorCapture = await persistCandidateOutputArtifact(evidence.outputArtifacts, {
+      executionId: state.executionId,
+      purpose: 'executor-capture',
+      bytes: executorCaptureBytes,
+      signal,
+    })
 
     const redacted = redactProtectedValue(
       {
@@ -167,24 +181,22 @@ export async function finalizeAgentCandidateRun(
         orderedArtifacts.length,
       modelCallCount: modelSpans.length,
     }
-    const document = canonicalCandidateDocument<AgentCandidateRunReceiptV2>({
-      schemaVersion: 2,
+    const document = canonicalCandidateDocument<AgentCandidateRunReceipt>({
+      schemaVersion: 3,
       kind: 'agent-candidate-run',
       digestAlgorithm: 'rfc8785-sha256',
       bundleDigest: state.bundle.digest,
       materializationReceiptDigest: state.materializationReceipt.digest,
       executionPlanDigest: state.executionPlan.value.digest,
       memory,
-      usage,
-      modelUsage: { resolved: state.resolvedModel, usage },
       trace,
       termination,
-      fixedUsage: settlement.fixedUsage,
+      executorCapture,
       modelSettlement: evidence.modelSettlement,
       taskOutcome: evidence.taskOutcome.evidence,
       benchmarkResult: evidence.benchmarkResult,
     })
-    agentCandidateRunReceiptV2Schema.parse(document.value)
+    agentCandidateRunReceiptSchema.parse(document.value)
     const runReceipt = await persistCandidateOutputArtifact(evidence.outputArtifacts, {
       executionId: state.executionId,
       purpose: 'run-receipt',
@@ -195,6 +207,7 @@ export async function finalizeAgentCandidateRun(
       succeeded: true,
       receipt: document,
       artifacts: {
+        executorCapture,
         modelSettlement: evidence.modelSettlement.artifact,
         taskOutcome: evidence.taskOutcome.evidence.artifact,
         benchmarkResult: evidence.benchmarkResult.artifact,

@@ -25,8 +25,8 @@ importers:
         specifier: 0.120.1
         version: 0.120.1(typescript@5.9.3)
       '@tangle-network/agent-interface':
-        specifier: ^0.25.0
-        version: 0.25.0
+        specifier: 0.26.1
+        version: 0.26.1
       '@tangle-network/sandbox':
         specifier: ^0.9.7
         version: 0.9.7(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))

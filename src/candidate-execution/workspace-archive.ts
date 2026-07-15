@@ -18,12 +18,16 @@ import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
 
 import type {
   AgentCandidateCapturedArtifact,
-  AgentCandidateWorkspaceManifestMaterialV1,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import { type Entry, extract, type Pack, pack } from 'tar-stream'
 
-import { captureMaterializedWorkspace, verifyBytes, verifyMaterializedWorkspace } from './artifacts'
+import {
+  candidateWorkspaceManifest,
+  captureMaterializedWorkspace,
+  verifyBytes,
+  verifyMaterializedWorkspace,
+} from './artifacts'
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
@@ -91,7 +95,7 @@ interface WorkspaceArchiveRepositoryMetadataV1 {
 }
 
 interface DecodedWorkspaceArchive {
-  files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+  files: Array<{ path: string; mode: number; bytes: Uint8Array }>
   repository?: WorkspaceArchiveRepositoryV1
 }
 
@@ -158,7 +162,7 @@ async function captureWorkspaceFiles(
   limits: AgentCandidateWorkspaceArchiveLimits,
   artifactPersistence: CaptureAgentCandidateWorkspaceOptions['artifactPersistence'],
 ): Promise<CapturedAgentCandidateWorkspace> {
-  const material = workspaceManifest(files)
+  const material = candidateWorkspaceManifest(files)
   const manifest = canonicalCandidateBytes(material)
   const archive = await encodeWorkspaceArchive(files, repository, limits.maxArchiveBytes)
   if (
@@ -173,7 +177,7 @@ async function captureWorkspaceFiles(
   const manifestArtifact = await captureWorkspaceArtifact('manifest', manifest, artifactPersistence)
   const archiveArtifact = await captureWorkspaceArtifact('archive', archive, artifactPersistence)
   const snapshot = deepFreezeCandidate({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: canonicalCandidateDigest(material),
     material,
@@ -220,7 +224,7 @@ export function createAgentCandidateWorkspacePort(
 }
 
 async function materializeAgentCandidateWorkspace(input: {
-  role: 'task' | 'candidate' | 'memory'
+  role: 'task' | 'candidate' | 'knowledge' | 'memory'
   snapshot: AgentCandidateWorkspaceSnapshotEvidence
   archive: Uint8Array
   destination: string
@@ -260,7 +264,7 @@ async function captureRepository(
   root: string,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): Promise<{
-  files: Array<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>
+  files: Array<{ path: string; mode: number; bytes: Uint8Array }>
   repository: WorkspaceArchiveRepositoryV1
 }> {
   const stats = await lstat(root)
@@ -333,7 +337,7 @@ async function captureRepository(
 }
 
 async function encodeWorkspaceArchive(
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   repository: WorkspaceArchiveRepositoryV1 | undefined,
   maxArchiveBytes: number,
 ): Promise<Uint8Array> {
@@ -351,7 +355,7 @@ async function encodeWorkspaceArchive(
 }
 
 async function verifyCanonicalWorkspaceArchive(
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   repository: WorkspaceArchiveRepositoryV1 | undefined,
   expected: Uint8Array,
   maxArchiveBytes: number,
@@ -376,7 +380,7 @@ async function verifyCanonicalWorkspaceArchive(
 
 async function writeWorkspaceArchiveEntries(
   archive: Pack,
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   repository: WorkspaceArchiveRepositoryV1 | undefined,
 ): Promise<void> {
   for (const file of files) {
@@ -429,7 +433,7 @@ async function parseWorkspaceArchive(
           throw new Error('candidate workspace archive has an invalid file count')
         }
         const path = safeArchivePath(name.slice(workspaceEntryPrefix.length), limits.maxPathBytes)
-        if (entry.header.mode !== 0o644 && entry.header.mode !== 0o755) {
+        if (!isRegularFileMode(entry.header.mode)) {
           throw new Error(`candidate workspace archive has an unsupported mode: ${path}`)
         }
         assertRetainedArchiveSize(bytes.byteLength, retainedEntryBytes, entry.header.size, limits)
@@ -572,7 +576,7 @@ function repositoryFromTar(
 async function writeTarEntry(
   archive: Pack,
   name: string,
-  mode: 0o600 | 0o644 | 0o755,
+  mode: number,
   bytes: Uint8Array,
 ): Promise<void> {
   await new Promise<void>((resolveEntry, rejectEntry) => {
@@ -668,7 +672,7 @@ async function prepareEmptyDestination(destination: string): Promise<void> {
 
 async function writeWorkspaceFiles(
   destination: string,
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
 ): Promise<void> {
   for (const file of files) {
     const path = workspacePath(destination, file.path)
@@ -737,26 +741,11 @@ async function materializeRepository(
   }
 }
 
-function workspaceManifest(
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
-): AgentCandidateWorkspaceManifestMaterialV1 {
-  return {
-    schemaVersion: 1,
-    kind: 'agent-candidate-workspace-manifest',
-    files: files.map((file) => ({
-      path: file.path,
-      mode: file.mode,
-      sha256: sha256Bytes(file.bytes),
-      byteLength: file.bytes.byteLength,
-    })),
-  }
-}
-
 function assertArchiveMatchesSnapshot(
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   snapshot: AgentCandidateWorkspaceSnapshotEvidence,
 ): void {
-  const material = workspaceManifest(files)
+  const material = candidateWorkspaceManifest(files)
   const materialBytes = canonicalCandidateBytes(material)
   verifyBytes(
     materialBytes,
@@ -773,7 +762,7 @@ function assertArchiveMatchesSnapshot(
 }
 
 function assertWorkspaceFilesWithinLimits(
-  files: ReadonlyArray<{ path: string; mode: 0o644 | 0o755; bytes: Uint8Array }>,
+  files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): void {
   if (files.length > limits.maxFiles) {
@@ -791,7 +780,7 @@ function assertWorkspaceFilesWithinLimits(
       'candidate workspace paths must be unique and sorted',
     )
     previousPath = path
-    if (file.mode !== 0o644 && file.mode !== 0o755) {
+    if (!isRegularFileMode(file.mode)) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
     }
     if (file.bytes.byteLength > limits.maxFileBytes) {
@@ -833,7 +822,7 @@ function normalizeWorkspaceFiles(
     const path = safeArchivePath(descriptors.path?.value, limits.maxPathBytes)
     const mode = descriptors.mode?.value
     const inputBytes = descriptors.bytes?.value
-    if (mode !== 0o644 && mode !== 0o755) {
+    if (!isRegularFileMode(mode)) {
       throw new Error(`candidate workspace file has unsupported mode: ${path}`)
     }
     const view = inspectWorkspaceBytes(inputBytes, path)
@@ -852,6 +841,10 @@ function normalizeWorkspaceFiles(
   files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
   assertWorkspaceFilesWithinLimits(files, limits)
   return files
+}
+
+function isRegularFileMode(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 0o777
 }
 
 function workspaceLimits(

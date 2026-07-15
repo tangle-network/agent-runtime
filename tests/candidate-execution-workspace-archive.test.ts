@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   truncateSync,
   writeFileSync,
@@ -112,7 +113,7 @@ describe('candidate workspace archive', () => {
 
   it('restores a non-repository workspace and rejects archive drift', async () => {
     const source = temporaryRoot('candidate-workspace-files-')
-    writeFileSync(join(source, 'input.txt'), 'exact bytes', { mode: 0o644 })
+    writeFileSync(join(source, 'input.txt'), 'exact bytes', { mode: 0o664 })
     const captured = await captureAgentCandidateWorkspace(source)
     const port = createAgentCandidateWorkspacePort()
     const destination = join(temporaryRoot('candidate-workspace-parent-'), 'restored')
@@ -123,6 +124,7 @@ describe('candidate workspace archive', () => {
       destination,
     })
     expect(readFileSync(join(destination, 'input.txt'), 'utf8')).toBe('exact bytes')
+    expect(statSync(join(destination, 'input.txt')).mode & 0o777).toBe(0o664)
 
     const tampered = Uint8Array.from(captured.archive)
     const contentOffset = Buffer.from(tampered).indexOf('exact bytes')
