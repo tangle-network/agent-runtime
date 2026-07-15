@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.94.10` and `@tangle-network/agent-eval@0.117.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.94.11` and `@tangle-network/agent-eval@0.117.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 339 exports.
+Import from `@tangle-network/agent-runtime` — 341 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -199,6 +199,8 @@ Import from `@tangle-network/agent-runtime` — 339 exports.
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
+| `AgenticGeneratorShotDisposition` | type | Worktree decision emitted before a completed shot is retried, accepted, or |
+| `AgenticGeneratorShotExecution` | type | Frozen exact harness result for an author shot: full streams, process state, |
 | `ImproveSurface` | type | The executable agent lever `improve` optimizes. Profile fields remain |
 | `OpenAIChatResponseFormat` | type | `response_format` parameter for OpenAI-compatible chat endpoints. Use |
 | `OpenAIChatToolChoice` | type | `tool_choice` parameter for OpenAI-compat chat. Same shape as the OpenAI |

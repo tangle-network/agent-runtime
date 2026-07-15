@@ -116,6 +116,46 @@ export interface AgenticGeneratorShotReceipt {
   readonly error: { readonly name: string; readonly message: string } | null
 }
 
+/** Frozen exact harness result for an author shot: full streams, process state,
+ *  token usage, and execution-policy evidence.
+ *  The `onShotCompleted` callback receives `null` when execution failed before
+ *  the harness returned. */
+export type AgenticGeneratorShotExecution = Readonly<
+  Omit<LocalHarnessResult, 'usage' | 'evidence'> & {
+    readonly usage?: Readonly<CodexTokenUsage>
+    readonly evidence?: Readonly<Omit<CodexExecutionEvidence, 'readDeniedPaths' | 'policy'>> & {
+      readonly readDeniedPaths: ReadonlyArray<string>
+      readonly policy: Readonly<CodexExecutionEvidence['policy']>
+    }
+  }
+>
+
+/** Worktree decision emitted before a completed shot is retried, accepted, or
+ *  discarded. The callback runs while `worktreePath` is still available, so
+ *  callers can persist the exact diff. */
+export type AgenticGeneratorShotDisposition =
+  | {
+      readonly kind: 'clean'
+      readonly worktreePath: string
+    }
+  | {
+      readonly kind: 'rejected'
+      readonly worktreePath: string
+      readonly stage: 'raw-trace-evidence' | 'verification'
+      readonly feedback: string | null
+    }
+  | {
+      readonly kind: 'accepted'
+      readonly worktreePath: string
+      readonly verified: boolean
+    }
+  | {
+      readonly kind: 'setup-error'
+      readonly worktreePath: string
+      readonly stage: 'worktree-inspection' | 'raw-trace-evidence' | 'verification'
+      readonly error: { readonly name: string; readonly message: string }
+    }
+
 export interface AgenticGeneratorOptions {
   /** Local coding harness to run in the worktree. Default `claude`. */
   harness?: LocalHarness
@@ -129,8 +169,19 @@ export interface AgenticGeneratorOptions {
    *  candidate-specific paths after the driver creates its worktree. */
   codexReadDeniedPaths?: ReadonlyArray<string> | ((worktreePath: string) => ReadonlyArray<string>)
   /** Awaited once for every attempted author shot, including process failures.
-   *  Throwing aborts the candidate so receipt persistence can fail closed. */
-  onShotCompleted?: (receipt: AgenticGeneratorShotReceipt) => void | Promise<void>
+   *  The second argument preserves the exact harness result, including stdout
+   *  and stderr, before worktree inspection or verification can reject the
+   *  shot. Throwing aborts the candidate so evidence persistence fails closed. */
+  onShotCompleted?: (
+    receipt: AgenticGeneratorShotReceipt,
+    execution: AgenticGeneratorShotExecution | null,
+  ) => void | Promise<void>
+  /** Awaited after worktree inspection and before the shot is accepted,
+   *  retried, or discarded. Throwing aborts the candidate. */
+  onShotDisposition?: (
+    receipt: AgenticGeneratorShotReceipt,
+    disposition: AgenticGeneratorShotDisposition,
+  ) => void | Promise<void>
   /** Optional hard upper bound passed to the run-wide CostLedger before each
    *  author shot. This MUST be enforced by the provider or executor; a planning
    *  estimate is not an admissible bound. Omit for an uncapped ledger. A capped
@@ -296,40 +347,72 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         } catch (cause) {
           shotError = cause instanceof Error ? cause : new Error(String(cause))
         }
-        await emitShotReceipt(
-          opts.onShotCompleted,
-          shotReceipt({
-            generation,
-            candidateIndex,
-            shot,
-            maxShots: shots,
-            harness,
-            profile: opts.profile,
-            prompt: exactPrompt,
-            startedAt,
-            completedAt: new Date(),
-            result: harnessResult,
-            profileWorkspaceReceipt,
-            costCallId,
-            costReceipt,
-            error: shotError,
-          }),
-          shotError,
-        )
+        const execution = shotExecutionSnapshot(harnessResult)
+        const receipt = shotReceipt({
+          generation,
+          candidateIndex,
+          shot,
+          maxShots: shots,
+          harness,
+          profile: opts.profile,
+          prompt: exactPrompt,
+          startedAt,
+          completedAt: new Date(),
+          result: execution,
+          profileWorkspaceReceipt,
+          costCallId,
+          costReceipt,
+          error: shotError,
+        })
+        await emitShotReceipt(opts.onShotCompleted, receipt, execution, shotError)
 
-        if (!harnessResult) {
+        if (!execution) {
           throw new Error('agenticGenerator: author shot completed without a harness result')
         }
 
+        let worktreeChanged: boolean
+        try {
+          worktreeChanged = dirty(worktreePath)
+        } catch (cause) {
+          return rethrowShotSetupError(
+            opts.onShotDisposition,
+            receipt,
+            worktreePath,
+            'worktree-inspection',
+            cause,
+          )
+        }
+
         // The worktree IS the signal: no edits ⇒ tell the next shot to act.
-        if (!dirty(worktreePath)) {
+        if (!worktreeChanged) {
+          await emitShotDisposition(opts.onShotDisposition, receipt, {
+            kind: 'clean',
+            worktreePath,
+          })
           attemptNote = EMPTY_TREE_NOTE
           continue
         }
 
         if (needsRawTraceEvidence) {
-          const problem = rawTraceEvidenceProblem(worktreePath, findings)
+          let problem: string | null
+          try {
+            problem = rawTraceEvidenceProblem(worktreePath, findings)
+          } catch (cause) {
+            return rethrowShotSetupError(
+              opts.onShotDisposition,
+              receipt,
+              worktreePath,
+              'raw-trace-evidence',
+              cause,
+            )
+          }
           if (problem) {
+            await emitShotDisposition(opts.onShotDisposition, receipt, {
+              kind: 'rejected',
+              worktreePath,
+              stage: 'raw-trace-evidence',
+              feedback: problem,
+            })
             attemptNote = problem
             continue
           }
@@ -338,12 +421,39 @@ export function agenticGenerator(opts: AgenticGeneratorOptions = {}): CandidateG
         // Dirty: with no verifier the diff IS the candidate (we trust the diff,
         // not the harness's stdout). With a verifier the candidate must pass it.
         if (!verify) {
+          await emitShotDisposition(opts.onShotDisposition, receipt, {
+            kind: 'accepted',
+            worktreePath,
+            verified: false,
+          })
           return { applied: true, summary: summarize(findings) }
         }
-        const result = await verify(worktreePath)
+        let result: VerifyResult
+        try {
+          result = await verify(worktreePath)
+        } catch (cause) {
+          return rethrowShotSetupError(
+            opts.onShotDisposition,
+            receipt,
+            worktreePath,
+            'verification',
+            cause,
+          )
+        }
         if (result.ok) {
+          await emitShotDisposition(opts.onShotDisposition, receipt, {
+            kind: 'accepted',
+            worktreePath,
+            verified: true,
+          })
           return { applied: true, summary: summarize(findings) }
         }
+        await emitShotDisposition(opts.onShotDisposition, receipt, {
+          kind: 'rejected',
+          worktreePath,
+          stage: 'verification',
+          feedback: result.feedback ?? null,
+        })
         // Dirty but failing — resume next shot atop these edits with the error.
         attemptNote = failureNote(result.feedback)
       }
@@ -463,10 +573,11 @@ async function withAuthorProfileResources<T>(
 async function emitShotReceipt(
   callback: AgenticGeneratorOptions['onShotCompleted'],
   receipt: AgenticGeneratorShotReceipt,
+  execution: AgenticGeneratorShotExecution | null,
   primaryError: Error | null,
 ): Promise<void> {
   try {
-    await callback?.(receipt)
+    await callback?.(receipt, execution)
   } catch (callbackError) {
     if (primaryError !== null) {
       throw new AggregateError(
@@ -479,6 +590,62 @@ async function emitShotReceipt(
   if (primaryError !== null) throw primaryError
 }
 
+async function emitShotDisposition(
+  callback: AgenticGeneratorOptions['onShotDisposition'],
+  receipt: AgenticGeneratorShotReceipt,
+  disposition: AgenticGeneratorShotDisposition,
+): Promise<void> {
+  await callback?.(receipt, disposition)
+}
+
+async function rethrowShotSetupError(
+  callback: AgenticGeneratorOptions['onShotDisposition'],
+  receipt: AgenticGeneratorShotReceipt,
+  worktreePath: string,
+  stage: Extract<AgenticGeneratorShotDisposition, { kind: 'setup-error' }>['stage'],
+  cause: unknown,
+): Promise<never> {
+  const error = cause instanceof Error ? cause : new Error(String(cause))
+  try {
+    await emitShotDisposition(callback, receipt, {
+      kind: 'setup-error',
+      worktreePath,
+      stage,
+      error: { name: error.name, message: error.message },
+    })
+  } catch (callbackError) {
+    throw new AggregateError(
+      [cause, callbackError],
+      'agenticGenerator: shot processing failed and its worktree disposition could not be persisted',
+    )
+  }
+  throw cause
+}
+
+function shotExecutionSnapshot(
+  result: LocalHarnessResult | null,
+): AgenticGeneratorShotExecution | null {
+  if (result === null) return null
+  const usage = result.usage ? Object.freeze({ ...result.usage }) : undefined
+  const evidence = result.evidence
+    ? Object.freeze({
+        ...result.evidence,
+        readDeniedPaths: Object.freeze([...result.evidence.readDeniedPaths]),
+        policy: Object.freeze({ ...result.evidence.policy }),
+      })
+    : undefined
+  return Object.freeze({
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    killedBySignal: result.killedBySignal,
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    ...(usage ? { usage } : {}),
+    ...(evidence ? { evidence } : {}),
+  })
+}
+
 function shotReceipt(input: {
   readonly generation: number | undefined
   readonly candidateIndex: number | undefined
@@ -489,7 +656,7 @@ function shotReceipt(input: {
   readonly prompt: string
   readonly startedAt: Date
   readonly completedAt: Date
-  readonly result: LocalHarnessResult | null
+  readonly result: AgenticGeneratorShotExecution | null
   readonly profileWorkspaceReceipt: WorkspacePlanReceipt | null
   readonly costCallId: string | null
   readonly costReceipt: CostReceipt | null

@@ -5896,7 +5896,7 @@ Defined in: [improvement/agentic-generator.ts:116](https://github.com/tangle-net
 
 ### AgenticGeneratorOptions
 
-Defined in: [improvement/agentic-generator.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L119)
+Defined in: [improvement/agentic-generator.ts:159](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L159)
 
 `@tangle-network/agent-runtime` improvement — the CODE-surface proposer for
 agent-eval's improvement loop.
@@ -5914,7 +5914,7 @@ producer, which mutates an isolated git worktree via a pluggable
 
 > `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
 
-Defined in: [improvement/agentic-generator.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L121)
+Defined in: [improvement/agentic-generator.ts:161](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L161)
 
 Local coding harness to run in the worktree. Default `claude`.
 
@@ -5922,7 +5922,7 @@ Local coding harness to run in the worktree. Default `claude`.
 
 > `optional` **profile?**: `AgentProfile`
 
-Defined in: [improvement/agentic-generator.ts:124](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L124)
+Defined in: [improvement/agentic-generator.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L164)
 
 Author profile rendered through the canonical harness mapper. Required
  for reproducible Codex so model and reasoning settings are explicit.
@@ -5931,7 +5931,7 @@ Author profile rendered through the canonical harness mapper. Required
 
 > `optional` **codexReproducible?**: `boolean`
 
-Defined in: [improvement/agentic-generator.ts:127](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L127)
+Defined in: [improvement/agentic-generator.ts:167](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L167)
 
 Run Codex with isolated configuration, exact prompt evidence, and required
  terminal token usage. Requires `harness: 'codex'` and `profile`.
@@ -5940,25 +5940,54 @@ Run Codex with isolated configuration, exact prompt evidence, and required
 
 > `optional` **codexReadDeniedPaths?**: readonly `string`[] \| ((`worktreePath`) => readonly `string`[])
 
-Defined in: [improvement/agentic-generator.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L130)
+Defined in: [improvement/agentic-generator.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L170)
 
 Absolute paths reproducible Codex must not read. A function can derive
  candidate-specific paths after the driver creates its worktree.
 
 ##### onShotCompleted?
 
-> `optional` **onShotCompleted?**: (`receipt`) => `void` \| `Promise`\<`void`\>
+> `optional` **onShotCompleted?**: (`receipt`, `execution`) => `void` \| `Promise`\<`void`\>
 
-Defined in: [improvement/agentic-generator.ts:133](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L133)
+Defined in: [improvement/agentic-generator.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L175)
 
 Awaited once for every attempted author shot, including process failures.
- Throwing aborts the candidate so receipt persistence can fail closed.
+ The second argument preserves the exact harness result, including stdout
+ and stderr, before worktree inspection or verification can reject the
+ shot. Throwing aborts the candidate so evidence persistence fails closed.
 
 ###### Parameters
 
 ###### receipt
 
 [`AgenticGeneratorShotReceipt`](#agenticgeneratorshotreceipt)
+
+###### execution
+
+`Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\> \| `null`
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### onShotDisposition?
+
+> `optional` **onShotDisposition?**: (`receipt`, `disposition`) => `void` \| `Promise`\<`void`\>
+
+Defined in: [improvement/agentic-generator.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L181)
+
+Awaited after worktree inspection and before the shot is accepted,
+ retried, or discarded. Throwing aborts the candidate.
+
+###### Parameters
+
+###### receipt
+
+[`AgenticGeneratorShotReceipt`](#agenticgeneratorshotreceipt)
+
+###### disposition
+
+[`AgenticGeneratorShotDisposition`](#agenticgeneratorshotdisposition)
 
 ###### Returns
 
@@ -5968,7 +5997,7 @@ Awaited once for every attempted author shot, including process failures.
 
 > `optional` **maximumCharge?**: `MaximumCharge`
 
-Defined in: [improvement/agentic-generator.ts:138](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L138)
+Defined in: [improvement/agentic-generator.ts:189](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L189)
 
 Optional hard upper bound passed to the run-wide CostLedger before each
  author shot. This MUST be enforced by the provider or executor; a planning
@@ -5979,7 +6008,7 @@ Optional hard upper bound passed to the run-wide CostLedger before each
 
 > `optional` **timeoutMs?**: `number`
 
-Defined in: [improvement/agentic-generator.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L140)
+Defined in: [improvement/agentic-generator.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L191)
 
 Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
@@ -5987,7 +6016,7 @@ Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
 
 > `optional` **buildPrompt?**: (`args`) => `string`
 
-Defined in: [improvement/agentic-generator.ts:143](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L143)
+Defined in: [improvement/agentic-generator.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L194)
 
 Build the harness task prompt from the report + findings. Override for
  domain phrasing; the default turns findings into a concrete coder task.
@@ -6012,7 +6041,7 @@ Build the harness task prompt from the report + findings. Override for
 
 > `optional` **verify?**: [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:149](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L149)
+Defined in: [improvement/agentic-generator.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L200)
 
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
@@ -6024,7 +6053,7 @@ Verify the worktree after each dirtying shot. When set, a candidate that
 
 > `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
-Defined in: [improvement/agentic-generator.ts:151](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L151)
+Defined in: [improvement/agentic-generator.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L202)
 
 Test seam — inject the harness runner (defaults to `runLocalHarness`).
 
@@ -6060,7 +6089,7 @@ Does NOT throw when:
 
 > `optional` **isDirty?**: (`worktreePath`) => `boolean`
 
-Defined in: [improvement/agentic-generator.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L153)
+Defined in: [improvement/agentic-generator.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L204)
 
 Test seam — inject the worktree-dirty check (defaults to `git status`).
 
@@ -11159,6 +11188,31 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 ***
 
+### AgenticGeneratorShotExecution
+
+> **AgenticGeneratorShotExecution** = `Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\>
+
+Defined in: [improvement/agentic-generator.ts:123](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L123)
+
+Frozen exact harness result for an author shot: full streams, process state,
+ token usage, and execution-policy evidence.
+ The `onShotCompleted` callback receives `null` when execution failed before
+ the harness returned.
+
+***
+
+### AgenticGeneratorShotDisposition
+
+> **AgenticGeneratorShotDisposition** = \{ `kind`: `"clean"`; `worktreePath`: `string`; \} \| \{ `kind`: `"rejected"`; `worktreePath`: `string`; `stage`: `"raw-trace-evidence"` \| `"verification"`; `feedback`: `string` \| `null`; \} \| \{ `kind`: `"accepted"`; `worktreePath`: `string`; `verified`: `boolean`; \} \| \{ `kind`: `"setup-error"`; `worktreePath`: `string`; `stage`: `"worktree-inspection"` \| `"raw-trace-evidence"` \| `"verification"`; `error`: \{ `name`: `string`; `message`: `string`; \}; \}
+
+Defined in: [improvement/agentic-generator.ts:136](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L136)
+
+Worktree decision emitted before a completed shot is retried, accepted, or
+ discarded. The callback runs while `worktreePath` is still available, so
+ callers can persist the exact diff.
+
+***
+
 ### ImproveSurface
 
 > **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"subagents"` \| `"agent-profile"` \| `"memory"` \| `"code"`
@@ -13138,7 +13192,7 @@ Wire integration:
 
 > **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
 
-Defined in: [improvement/agentic-generator.ts:157](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L157)
+Defined in: [improvement/agentic-generator.ts:208](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L208)
 
 Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
 
@@ -13158,7 +13212,7 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:693](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L693)
+Defined in: [improvement/agentic-generator.ts:860](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L860)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
