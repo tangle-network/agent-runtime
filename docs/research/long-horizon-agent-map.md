@@ -1,5 +1,8 @@
 # The long-horizon steered-agent product — map + decisions
 
+> Historical design input.
+> Current distributed execution decisions and implementation order live in [`../agent-managed-compute/`](../agent-managed-compute/).
+
 > Direction capture (2026-06-15). The product: an **autonomous supervisor agent** that decomposes a goal, drives a dynamically growing/shrinking tree of AgentProfile-drivers + workers (each in a sandbox, each possibly a different profile) to completion, and learns which decisions worked across runs — so the human isn't the steerer. Companion to [architecture.md](../architecture.md), [harness-compat.md](./harness-compat.md). Sources: 3 research tracks (harness-compat, Foreman post-mortem, surface audit).
 
 ## The corrected mental model (read first)
