@@ -53,6 +53,11 @@ export interface PreparedCandidateState {
       mode: number
       bytes: Uint8Array
     }>
+    profileFiles: ReadonlyArray<{
+      path: string
+      mode: number
+      bytes: Uint8Array
+    }>
   }
   memoryReservation?: {
     preparationId: string
@@ -60,6 +65,7 @@ export interface PreparedCandidateState {
     expiresAtMs: number
     effectiveNamespace: string
   }
+  knowledge?: PreparedAgentCandidateExecution['knowledge']
   trace: PreparedAgentCandidateExecution['trace']
   memory: PreparedAgentCandidateExecution['memory']
 }
@@ -99,6 +105,7 @@ export function createPreparedCandidateExecution(
     launch: state.launch,
     instruction: bytesView(state.instruction, 'bytes'),
     resolvedModel: state.resolvedModel,
+    ...(state.knowledge ? { knowledge: knowledgeView(state.knowledge) } : {}),
     trace: state.trace,
     memory: state.memory,
     [preparedCandidateBrand]: true as const,
@@ -177,6 +184,11 @@ export function beginPreparedCandidateRun(
             ),
           }
         : {}),
+      profile: Object.freeze({
+        files: Object.freeze(
+          state.executorInputs.profileFiles.map((file) => profileFileView(file)),
+        ),
+      }),
     }),
     roots: state.roots.execution,
     profilePlan: evidenceView(state.profilePlan),
@@ -188,6 +200,7 @@ export function beginPreparedCandidateRun(
     resolvedModel: state.resolvedModel,
     hardLimits: Object.freeze({ timeoutMs: state.executionPlan.value.material.limits.timeoutMs }),
     observedLimits: Object.freeze({ maxSteps: state.executionPlan.value.material.limits.maxSteps }),
+    ...(state.knowledge ? { knowledge: knowledgeView(state.knowledge) } : {}),
     trace: state.trace,
     memory: state.memory,
   })
@@ -285,9 +298,22 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
       ...(input.executorInputs.candidateFiles
         ? { candidateFiles: immutableExecutorFiles(input.executorInputs.candidateFiles) }
         : {}),
+      profileFiles: immutableExecutorFiles(input.executorInputs.profileFiles),
     }),
     ...(input.memoryReservation
       ? { memoryReservation: immutableCandidateValue(input.memoryReservation) }
+      : {}),
+    ...(input.knowledge
+      ? {
+          knowledge: Object.freeze({
+            candidate: immutableCandidateValue(input.knowledge.candidate),
+            snapshot: immutableCandidateValue(input.knowledge.snapshot),
+            files: immutableExecutorFiles(input.knowledge.files),
+            ...(input.knowledge.retrievalConfig
+              ? { retrievalConfig: Uint8Array.from(input.knowledge.retrievalConfig) }
+              : {}),
+          }),
+        }
       : {}),
     trace: immutableCandidateValue(input.trace),
     memory: immutableCandidateValue(input.memory),
@@ -344,6 +370,7 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     throw new Error('prepared model access no longer matches the signed execution plan')
   }
   assertExecutorInputs(state)
+  assertPreparedKnowledge(state)
   if (
     (state.memory.mode === 'isolated' && !state.memoryReservation) ||
     (state.memory.mode === 'disabled' && state.memoryReservation)
@@ -427,6 +454,25 @@ function bytesView<T extends { bytes: Uint8Array }>(value: T, key: 'bytes'): T {
   })
 }
 
+function knowledgeView(
+  knowledge: NonNullable<PreparedAgentCandidateExecution['knowledge']>,
+): NonNullable<PreparedAgentCandidateExecution['knowledge']> {
+  const retrievalConfig = knowledge.retrievalConfig
+    ? Uint8Array.from(knowledge.retrievalConfig)
+    : undefined
+  return Object.freeze({
+    candidate: knowledge.candidate,
+    snapshot: knowledge.snapshot,
+    files: Object.freeze(knowledge.files.map((file) => profileFileView(file))),
+    ...(retrievalConfig
+      ? {
+          get retrievalConfig(): Uint8Array {
+            return Uint8Array.from(retrievalConfig)
+          },
+        }
+      : {}),
+  })
+}
 function workspaceInputView(
   snapshot: AgentCandidateExecutorRequest['inputs']['task']['snapshot'],
   sourceFiles: PreparedCandidateState['executorInputs']['taskFiles'],
@@ -434,6 +480,19 @@ function workspaceInputView(
   return Object.freeze({
     snapshot,
     files: Object.freeze(sourceFiles.map((file) => executorFileView(file))),
+  })
+}
+
+function profileFileView(
+  source: PreparedCandidateState['executorInputs']['profileFiles'][number],
+): AgentCandidateExecutorRequest['inputs']['profile']['files'][number] {
+  const bytes = Uint8Array.from(source.bytes)
+  return Object.freeze({
+    path: source.path,
+    mode: source.mode,
+    get bytes(): Uint8Array {
+      return Uint8Array.from(bytes)
+    },
   })
 }
 
@@ -463,6 +522,54 @@ function assertExecutorInputs(state: PreparedCandidateState): void {
     )
   } else if (state.executorInputs.candidateFiles) {
     throw new Error('disabled candidate has executor files')
+  }
+
+  const expectedFiles = state.profilePlan.value.material.files
+  if (state.executorInputs.profileFiles.length !== expectedFiles.length) {
+    throw new Error('prepared profile executor files do not match the signed profile plan')
+  }
+  for (let index = 0; index < expectedFiles.length; index++) {
+    const expected = expectedFiles[index]
+    const actual = state.executorInputs.profileFiles[index]
+    if (
+      !expected ||
+      !actual ||
+      actual.path !== expected.relPath ||
+      actual.mode !== expected.mode ||
+      sha256Bytes(actual.bytes) !== expected.contentSha256
+    ) {
+      throw new Error('prepared profile executor files do not match the signed profile plan')
+    }
+  }
+}
+
+function assertPreparedKnowledge(state: PreparedCandidateState): void {
+  const expected = state.bundle.knowledge
+  const actual = state.knowledge
+  if (!expected || !actual) {
+    if (expected || actual)
+      throw new Error('prepared knowledge does not match the candidate bundle')
+    return
+  }
+  if (
+    canonicalCandidateDigest(actual.candidate) !== canonicalCandidateDigest(expected.candidate) ||
+    canonicalCandidateDigest(actual.snapshot) !== canonicalCandidateDigest(expected.snapshot) ||
+    state.executionPlan.value.material.knowledgeManifestDigest !== expected.snapshot.digest
+  ) {
+    throw new Error('prepared knowledge identity does not match the candidate bundle')
+  }
+  assertWorkspaceExecutorFiles(actual.files, expected.snapshot.material)
+  if (!expected.retrievalConfig || !actual.retrievalConfig) {
+    if (expected.retrievalConfig || actual.retrievalConfig) {
+      throw new Error('prepared knowledge retrieval config does not match the candidate bundle')
+    }
+    return
+  }
+  if (
+    actual.retrievalConfig.byteLength !== expected.retrievalConfig.byteLength ||
+    sha256Bytes(actual.retrievalConfig) !== expected.retrievalConfig.sha256
+  ) {
+    throw new Error('prepared knowledge retrieval config does not match the candidate bundle')
   }
 }
 

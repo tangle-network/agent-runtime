@@ -98,6 +98,7 @@ export {
   type CanonicalCandidateDocument,
   type PreparedAgentCandidateExecution,
   type PreparedAgentCandidateInstruction,
+  type PreparedAgentCandidateKnowledge,
   type PreparedAgentCandidateLaunch,
   type PreparedAgentCandidateTrace,
   type ResolvedAgentCandidateContainer,

@@ -1872,7 +1872,7 @@ Maximum time for task verification, executable grading, and receipt construction
 
 ### PrepareAgentCandidateExecutionOptions
 
-Defined in: [candidate-execution/prepare.ts:75](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L75)
+Defined in: [candidate-execution/prepare.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L76)
 
 #### Properties
 
@@ -1880,13 +1880,13 @@ Defined in: [candidate-execution/prepare.ts:75](https://github.com/tangle-networ
 
 > `optional` **cleanupTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:76](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L76)
+Defined in: [candidate-execution/prepare.ts:77](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L77)
 
 ##### resultTimeoutMs?
 
 > `optional` **resultTimeoutMs?**: `number`
 
-Defined in: [candidate-execution/prepare.ts:78](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L78)
+Defined in: [candidate-execution/prepare.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L79)
 
 Maximum time for task verification, executable grading, and receipt construction.
 
@@ -2139,7 +2139,7 @@ Evaluator clock; must be the same clock used by the claim store.
 
 ### AgentCandidateArtifactPort
 
-Defined in: [candidate-execution/types.ts:40](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L40)
+Defined in: [candidate-execution/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L41)
 
 Reads one content-addressed object from the closed S3/IPFS locator set.
 
@@ -2153,7 +2153,7 @@ Reads one content-addressed object from the closed S3/IPFS locator set.
 
 > **read**(`ref`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
-Defined in: [candidate-execution/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L41)
+Defined in: [candidate-execution/types.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L42)
 
 ###### Parameters
 
@@ -2169,7 +2169,7 @@ Defined in: [candidate-execution/types.ts:41](https://github.com/tangle-network/
 
 ### AgentCandidateOutputArtifactPort
 
-Defined in: [candidate-execution/types.ts:67](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L67)
+Defined in: [candidate-execution/types.ts:68](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L68)
 
 Durable content-addressed evidence store controlled only by the evaluator.
 
@@ -2183,7 +2183,7 @@ Durable content-addressed evidence store controlled only by the evaluator.
 
 > **read**(`ref`): `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
 
-Defined in: [candidate-execution/types.ts:41](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L41)
+Defined in: [candidate-execution/types.ts:42](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L42)
 
 ###### Parameters
 
@@ -2203,7 +2203,7 @@ Defined in: [candidate-execution/types.ts:41](https://github.com/tangle-network/
 
 > **put**(`input`): `Promise`\<`AgentCandidateArtifactRef`\>
 
-Defined in: [candidate-execution/types.ts:69](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L69)
+Defined in: [candidate-execution/types.ts:70](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L70)
 
 Must be idempotent for identical bytes and return only a durable S3/IPFS locator.
 
@@ -2237,7 +2237,7 @@ Abort must prevent durable publication when it happens before resolution.
 
 ### AgentCandidateRepositoryPort
 
-Defined in: [candidate-execution/types.ts:79](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L79)
+Defined in: [candidate-execution/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L80)
 
 Resolves a declared GitHub repository to an already-present local Git object store.
 
@@ -2247,7 +2247,7 @@ Resolves a declared GitHub repository to an already-present local Git object sto
 
 > **resolve**(`repository`): `Promise`\<`string`\>
 
-Defined in: [candidate-execution/types.ts:80](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L80)
+Defined in: [candidate-execution/types.ts:81](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L81)
 
 ###### Parameters
 
@@ -2263,7 +2263,7 @@ Defined in: [candidate-execution/types.ts:80](https://github.com/tangle-network/
 
 ### AgentCandidateVerificationPorts
 
-Defined in: [candidate-execution/types.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L83)
+Defined in: [candidate-execution/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L84)
 
 #### Extended by
 
@@ -2275,19 +2275,19 @@ Defined in: [candidate-execution/types.ts:83](https://github.com/tangle-network/
 
 > **artifacts**: [`AgentCandidateArtifactPort`](#agentcandidateartifactport)
 
-Defined in: [candidate-execution/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L84)
+Defined in: [candidate-execution/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L85)
 
 ##### repositories
 
 > **repositories**: [`AgentCandidateRepositoryPort`](#agentcandidaterepositoryport)
 
-Defined in: [candidate-execution/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L85)
+Defined in: [candidate-execution/types.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L86)
 
 ***
 
 ### AgentCandidateWorkspacePort
 
-Defined in: [candidate-execution/types.ts:95](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L95)
+Defined in: [candidate-execution/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L96)
 
 Materializes an already-verified workspace archive.
 
@@ -2301,7 +2301,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 > **materialize**(`input`): `Promise`\<`void`\>
 
-Defined in: [candidate-execution/types.ts:96](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L96)
+Defined in: [candidate-execution/types.ts:97](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L97)
 
 ###### Parameters
 
@@ -2309,7 +2309,7 @@ Defined in: [candidate-execution/types.ts:96](https://github.com/tangle-network/
 
 ###### role
 
-`"task"` \| `"memory"` \| `"candidate"`
+`"task"` \| `"knowledge"` \| `"memory"` \| `"candidate"`
 
 ###### snapshot
 
@@ -2331,7 +2331,7 @@ Defined in: [candidate-execution/types.ts:96](https://github.com/tangle-network/
 
 ### ResolvedAgentCandidateContainer
 
-Defined in: [candidate-execution/types.ts:104](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L104)
+Defined in: [candidate-execution/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L105)
 
 #### Properties
 
@@ -2339,37 +2339,37 @@ Defined in: [candidate-execution/types.ts:104](https://github.com/tangle-network
 
 > **source**: `"pinned-container"` \| `"evaluator-task-container"`
 
-Defined in: [candidate-execution/types.ts:105](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L105)
+Defined in: [candidate-execution/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L106)
 
 ##### image
 
 > **image**: `string`
 
-Defined in: [candidate-execution/types.ts:106](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L106)
+Defined in: [candidate-execution/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L107)
 
 ##### indexDigest
 
 > **indexDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:107](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L107)
+Defined in: [candidate-execution/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L108)
 
 ##### manifestDigest
 
 > **manifestDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:108](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L108)
+Defined in: [candidate-execution/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L109)
 
 ##### platform
 
 > **platform**: `AgentCandidateOciPlatform`
 
-Defined in: [candidate-execution/types.ts:109](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L109)
+Defined in: [candidate-execution/types.ts:110](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L110)
 
 ***
 
 ### AgentCandidateContainerPort
 
-Defined in: [candidate-execution/types.ts:112](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L112)
+Defined in: [candidate-execution/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L113)
 
 #### Methods
 
@@ -2377,7 +2377,7 @@ Defined in: [candidate-execution/types.ts:112](https://github.com/tangle-network
 
 > **resolve**(`input`): `Promise`\<[`ResolvedAgentCandidateContainer`](#resolvedagentcandidatecontainer)\>
 
-Defined in: [candidate-execution/types.ts:113](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L113)
+Defined in: [candidate-execution/types.ts:114](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L114)
 
 ###### Parameters
 
@@ -2399,7 +2399,7 @@ Defined in: [candidate-execution/types.ts:113](https://github.com/tangle-network
 
 ### AgentCandidateModelPort
 
-Defined in: [candidate-execution/types.ts:119](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L119)
+Defined in: [candidate-execution/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L120)
 
 #### Methods
 
@@ -2407,7 +2407,7 @@ Defined in: [candidate-execution/types.ts:119](https://github.com/tangle-network
 
 > **resolve**(`input`): `Promise`\<`AgentCandidateResolvedModel`\>
 
-Defined in: [candidate-execution/types.ts:120](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L120)
+Defined in: [candidate-execution/types.ts:121](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L121)
 
 ###### Parameters
 
@@ -2433,7 +2433,7 @@ Defined in: [candidate-execution/types.ts:120](https://github.com/tangle-network
 
 > **reserveGrant**(`input`): `Promise`\<[`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)\>
 
-Defined in: [candidate-execution/types.ts:130](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L130)
+Defined in: [candidate-execution/types.ts:131](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L131)
 
 Reserve a stable access identity without creating a live credential.
 The reservation is scoped to `preparationId` and must automatically expire
@@ -2479,7 +2479,7 @@ at `expiresAtMs`, even if this call returns ambiguously to the runtime.
 
 > **activateGrant**(`input`): `Promise`\<[`AgentCandidateProtectedModelActivation`](#agentcandidateprotectedmodelactivation)\>
 
-Defined in: [candidate-execution/types.ts:140](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L140)
+Defined in: [candidate-execution/types.ts:141](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L141)
 
 Create the live scoped credential only after the execution attempt is durably claimed.
 
@@ -2515,7 +2515,7 @@ Create the live scoped credential only after the execution attempt is durably cl
 
 > **settleGrant**(`input`): `Promise`\<[`AgentCandidateProtectedModelSettlement`](#agentcandidateprotectedmodelsettlement)\>
 
-Defined in: [candidate-execution/types.ts:153](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L153)
+Defined in: [candidate-execution/types.ts:154](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L154)
 
 Atomically revoke the grant, drain in-flight calls, and return its immutable final ledger.
 This operation must be idempotent for the exact preparation and must also
@@ -2554,7 +2554,7 @@ different preparation, even when both reservations report the same digest.
 
 ### AgentCandidateBenchmarkGraderIdentity
 
-Defined in: [candidate-execution/types.ts:168](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L168)
+Defined in: [candidate-execution/types.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L169)
 
 #### Properties
 
@@ -2562,25 +2562,25 @@ Defined in: [candidate-execution/types.ts:168](https://github.com/tangle-network
 
 > **name**: `string`
 
-Defined in: [candidate-execution/types.ts:169](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L169)
+Defined in: [candidate-execution/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L170)
 
 ##### version
 
 > **version**: `string`
 
-Defined in: [candidate-execution/types.ts:170](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L170)
+Defined in: [candidate-execution/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L171)
 
 ##### artifact
 
 > **artifact**: `AgentCandidateArtifactRef`
 
-Defined in: [candidate-execution/types.ts:171](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L171)
+Defined in: [candidate-execution/types.ts:172](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L172)
 
 ***
 
 ### AgentCandidateProtectedModelReservation
 
-Defined in: [candidate-execution/types.ts:174](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L174)
+Defined in: [candidate-execution/types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L175)
 
 #### Properties
 
@@ -2588,19 +2588,19 @@ Defined in: [candidate-execution/types.ts:174](https://github.com/tangle-network
 
 > **preparationId**: `string`
 
-Defined in: [candidate-execution/types.ts:175](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L175)
+Defined in: [candidate-execution/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L176)
 
 ##### digest
 
 > **digest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:176](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L176)
+Defined in: [candidate-execution/types.ts:177](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L177)
 
 ##### expiresAtMs
 
 > **expiresAtMs**: `number`
 
-Defined in: [candidate-execution/types.ts:178](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L178)
+Defined in: [candidate-execution/types.ts:179](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L179)
 
 Evaluator service must expire and revoke this reservation at this epoch millisecond.
 
@@ -2608,7 +2608,7 @@ Evaluator service must expire and revoke this reservation at this epoch millisec
 
 > **enforcedLimits**: [`AgentCandidateModelLimits`](#agentcandidatemodellimits)
 
-Defined in: [candidate-execution/types.ts:180](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L180)
+Defined in: [candidate-execution/types.ts:181](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L181)
 
 The gateway must stop calls before any one of these limits is exceeded.
 
@@ -2616,7 +2616,7 @@ The gateway must stop calls before any one of these limits is exceeded.
 
 > **network**: `AgentCandidateModelAccessNetwork`
 
-Defined in: [candidate-execution/types.ts:182](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L182)
+Defined in: [candidate-execution/types.ts:183](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L183)
 
 Exact public endpoint exception; every other candidate destination stays blocked.
 
@@ -2624,7 +2624,7 @@ Exact public endpoint exception; every other candidate destination stays blocked
 
 ### AgentCandidateProtectedModelActivation
 
-Defined in: [candidate-execution/types.ts:185](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L185)
+Defined in: [candidate-execution/types.ts:186](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L186)
 
 #### Properties
 
@@ -2632,7 +2632,7 @@ Defined in: [candidate-execution/types.ts:185](https://github.com/tangle-network
 
 > **env**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [candidate-execution/types.ts:187](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L187)
+Defined in: [candidate-execution/types.ts:188](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L188)
 
 Injected only into the trusted executor after all pre-launch checks pass.
 
@@ -2640,7 +2640,7 @@ Injected only into the trusted executor after all pre-launch checks pass.
 
 ### AgentCandidateProtectedModelSettlement
 
-Defined in: [candidate-execution/types.ts:190](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L190)
+Defined in: [candidate-execution/types.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L191)
 
 #### Properties
 
@@ -2648,31 +2648,31 @@ Defined in: [candidate-execution/types.ts:190](https://github.com/tangle-network
 
 > **preparationId**: `string`
 
-Defined in: [candidate-execution/types.ts:191](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L191)
+Defined in: [candidate-execution/types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L192)
 
 ##### grantDigest
 
 > **grantDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:192](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L192)
+Defined in: [candidate-execution/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L193)
 
 ##### closed
 
 > **closed**: `true`
 
-Defined in: [candidate-execution/types.ts:193](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L193)
+Defined in: [candidate-execution/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L194)
 
 ##### calls
 
 > **calls**: readonly `AgentCandidateModelSettlementCall`[]
 
-Defined in: [candidate-execution/types.ts:194](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L194)
+Defined in: [candidate-execution/types.ts:195](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L195)
 
 ***
 
 ### AgentCandidateMemoryResetResult
 
-Defined in: [candidate-execution/types.ts:197](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L197)
+Defined in: [candidate-execution/types.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L198)
 
 #### Properties
 
@@ -2680,43 +2680,43 @@ Defined in: [candidate-execution/types.ts:197](https://github.com/tangle-network
 
 > **preparationId**: `string`
 
-Defined in: [candidate-execution/types.ts:198](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L198)
+Defined in: [candidate-execution/types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L199)
 
 ##### accessDigest
 
 > **accessDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:199](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L199)
+Defined in: [candidate-execution/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L200)
 
 ##### expiresAtMs
 
 > **expiresAtMs**: `number`
 
-Defined in: [candidate-execution/types.ts:200](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L200)
+Defined in: [candidate-execution/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L201)
 
 ##### evidence
 
 > **evidence**: `AgentCandidateCapturedArtifact`
 
-Defined in: [candidate-execution/types.ts:201](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L201)
+Defined in: [candidate-execution/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L202)
 
 ##### emptyStateDigest
 
 > **emptyStateDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:202](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L202)
+Defined in: [candidate-execution/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L203)
 
 ##### beforeState
 
 > **beforeState**: `AgentCandidateWorkspaceSnapshotEvidence`
 
-Defined in: [candidate-execution/types.ts:203](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L203)
+Defined in: [candidate-execution/types.ts:204](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L204)
 
 ***
 
 ### AgentCandidateMemoryPort
 
-Defined in: [candidate-execution/types.ts:206](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L206)
+Defined in: [candidate-execution/types.ts:207](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L207)
 
 #### Methods
 
@@ -2724,7 +2724,7 @@ Defined in: [candidate-execution/types.ts:206](https://github.com/tangle-network
 
 > **reset**(`input`): `Promise`\<[`AgentCandidateMemoryResetResult`](#agentcandidatememoryresetresult)\>
 
-Defined in: [candidate-execution/types.ts:212](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L212)
+Defined in: [candidate-execution/types.ts:213](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L213)
 
 Reset and reserve exact task memory without returning live access.
 The service must scope the reservation to `preparationId`, automatically
@@ -2766,7 +2766,7 @@ revoke it at `expiresAtMs`, and never reuse it for another preparation.
 
 > **activate**(`input`): `Promise`\<\{ `env`: `Readonly`\<`Record`\<`string`, `string`\>\>; \}\>
 
-Defined in: [candidate-execution/types.ts:224](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L224)
+Defined in: [candidate-execution/types.ts:225](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L225)
 
 Create live scoped access only after the execution attempt is durably claimed.
 Activation must match the exact preparation/access pair and may not extend expiry.
@@ -2803,7 +2803,7 @@ Activation must match the exact preparation/access pair and may not extend expir
 
 > **close**(`input`): `Promise`\<\{ `closed`: `true`; \}\>
 
-Defined in: [candidate-execution/types.ts:236](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L236)
+Defined in: [candidate-execution/types.ts:237](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L237)
 
 Revoke evaluator-owned access after process death or a failed preparation.
 Must be idempotent and concurrency-safe for the exact preparation/access
@@ -2841,7 +2841,7 @@ pair and must never close a different preparation.
 
 ### AgentCandidateExecutionPorts
 
-Defined in: [candidate-execution/types.ts:245](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L245)
+Defined in: [candidate-execution/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L246)
 
 #### Extends
 
@@ -2853,7 +2853,7 @@ Defined in: [candidate-execution/types.ts:245](https://github.com/tangle-network
 
 > **artifacts**: [`AgentCandidateArtifactPort`](#agentcandidateartifactport)
 
-Defined in: [candidate-execution/types.ts:84](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L84)
+Defined in: [candidate-execution/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L85)
 
 ###### Inherited from
 
@@ -2863,7 +2863,7 @@ Defined in: [candidate-execution/types.ts:84](https://github.com/tangle-network/
 
 > **repositories**: [`AgentCandidateRepositoryPort`](#agentcandidaterepositoryport)
 
-Defined in: [candidate-execution/types.ts:85](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L85)
+Defined in: [candidate-execution/types.ts:86](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L86)
 
 ###### Inherited from
 
@@ -2873,31 +2873,31 @@ Defined in: [candidate-execution/types.ts:85](https://github.com/tangle-network/
 
 > **workspaces**: [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
 
-Defined in: [candidate-execution/types.ts:246](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L246)
+Defined in: [candidate-execution/types.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L247)
 
 ##### containers
 
 > **containers**: [`AgentCandidateContainerPort`](#agentcandidatecontainerport)
 
-Defined in: [candidate-execution/types.ts:247](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L247)
+Defined in: [candidate-execution/types.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L248)
 
 ##### models
 
 > **models**: [`AgentCandidateModelPort`](#agentcandidatemodelport)
 
-Defined in: [candidate-execution/types.ts:248](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L248)
+Defined in: [candidate-execution/types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L249)
 
 ##### memory
 
 > **memory**: [`AgentCandidateMemoryPort`](#agentcandidatememoryport)
 
-Defined in: [candidate-execution/types.ts:249](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L249)
+Defined in: [candidate-execution/types.ts:250](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L250)
 
 ***
 
 ### AgentCandidateTaskExecution
 
-Defined in: [candidate-execution/types.ts:253](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L253)
+Defined in: [candidate-execution/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L254)
 
 One signed benchmark task and the exact result shape its executor must capture.
 
@@ -2907,37 +2907,37 @@ One signed benchmark task and the exact result shape its executor must capture.
 
 > **executionId**: `string`
 
-Defined in: [candidate-execution/types.ts:254](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L254)
+Defined in: [candidate-execution/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L255)
 
 ##### benchmark
 
 > **benchmark**: `string`
 
-Defined in: [candidate-execution/types.ts:255](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L255)
+Defined in: [candidate-execution/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L256)
 
 ##### benchmarkVersion
 
 > **benchmarkVersion**: `string`
 
-Defined in: [candidate-execution/types.ts:256](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L256)
+Defined in: [candidate-execution/types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L257)
 
 ##### taskId
 
 > **taskId**: `string`
 
-Defined in: [candidate-execution/types.ts:257](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L257)
+Defined in: [candidate-execution/types.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L258)
 
 ##### splitDigest
 
 > **splitDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:258](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L258)
+Defined in: [candidate-execution/types.ts:259](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L259)
 
 ##### instruction
 
 > **instruction**: `string`
 
-Defined in: [candidate-execution/types.ts:260](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L260)
+Defined in: [candidate-execution/types.ts:261](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L261)
 
 Exact agent-visible task instruction. The runtime rejects malformed Unicode.
 
@@ -2945,7 +2945,7 @@ Exact agent-visible task instruction. The runtime rejects malformed Unicode.
 
 > `optional` **repository?**: `AgentCandidateTaskRepository`
 
-Defined in: [candidate-execution/types.ts:262](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L262)
+Defined in: [candidate-execution/types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L263)
 
 Optional source identity, required when the expected outcome is a workspace.
 
@@ -2953,19 +2953,19 @@ Optional source identity, required when the expected outcome is a workspace.
 
 > **outcome**: `AgentCandidateTaskOutcomeSpec`
 
-Defined in: [candidate-execution/types.ts:263](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L263)
+Defined in: [candidate-execution/types.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L264)
 
 ##### attempt
 
 > **attempt**: `AgentCandidateAttemptPolicy`
 
-Defined in: [candidate-execution/types.ts:264](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L264)
+Defined in: [candidate-execution/types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L265)
 
 ##### model
 
 > **model**: `object`
 
-Defined in: [candidate-execution/types.ts:265](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L265)
+Defined in: [candidate-execution/types.ts:266](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L266)
 
 ###### requested
 
@@ -2979,13 +2979,13 @@ Defined in: [candidate-execution/types.ts:265](https://github.com/tangle-network
 
 > **grader**: [`AgentCandidateBenchmarkGraderIdentity`](#agentcandidatebenchmarkgraderidentity)
 
-Defined in: [candidate-execution/types.ts:269](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L269)
+Defined in: [candidate-execution/types.ts:270](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L270)
 
 ##### executionRoots
 
 > **executionRoots**: `object`
 
-Defined in: [candidate-execution/types.ts:271](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L271)
+Defined in: [candidate-execution/types.ts:272](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L272)
 
 Absolute paths inside the evaluator-owned execution environment.
 
@@ -3001,7 +3001,7 @@ Absolute paths inside the evaluator-owned execution environment.
 
 > **stagingRoots**: `object`
 
-Defined in: [candidate-execution/types.ts:276](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L276)
+Defined in: [candidate-execution/types.ts:277](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L277)
 
 Host-side staging roots. These are verified but never signed as container paths.
 
@@ -3021,25 +3021,25 @@ Host-side staging roots. These are verified but never signed as container paths.
 
 > **workspace**: `AgentCandidateWorkspaceSnapshotEvidence`
 
-Defined in: [candidate-execution/types.ts:281](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L281)
+Defined in: [candidate-execution/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L282)
 
 ##### evaluatorTaskContainer?
 
 > `optional` **evaluatorTaskContainer?**: [`ResolvedAgentCandidateContainer`](#resolvedagentcandidatecontainer)
 
-Defined in: [candidate-execution/types.ts:282](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L282)
+Defined in: [candidate-execution/types.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L283)
 
 ##### limits
 
 > **limits**: `AgentCandidateExecutionLimits`
 
-Defined in: [candidate-execution/types.ts:283](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L283)
+Defined in: [candidate-execution/types.ts:284](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L284)
 
 ***
 
 ### VerifiedAgentCandidate
 
-Defined in: [candidate-execution/types.ts:286](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L286)
+Defined in: [candidate-execution/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L287)
 
 #### Properties
 
@@ -3047,25 +3047,25 @@ Defined in: [candidate-execution/types.ts:286](https://github.com/tangle-network
 
 > `readonly` **bundle**: `AgentCandidateBundle`
 
-Defined in: [candidate-execution/types.ts:287](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L287)
+Defined in: [candidate-execution/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L288)
 
 ##### materializedTree?
 
 > `readonly` `optional` **materializedTree?**: `string`
 
-Defined in: [candidate-execution/types.ts:288](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L288)
+Defined in: [candidate-execution/types.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L289)
 
 ##### \[verifiedCandidateBrand\]
 
 > `readonly` **\[verifiedCandidateBrand\]**: `true`
 
-Defined in: [candidate-execution/types.ts:289](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L289)
+Defined in: [candidate-execution/types.ts:290](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L290)
 
 ***
 
 ### CanonicalCandidateDocument
 
-Defined in: [candidate-execution/types.ts:292](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L292)
+Defined in: [candidate-execution/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L293)
 
 #### Type Parameters
 
@@ -3079,13 +3079,13 @@ Defined in: [candidate-execution/types.ts:292](https://github.com/tangle-network
 
 > `readonly` **value**: `T`
 
-Defined in: [candidate-execution/types.ts:293](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L293)
+Defined in: [candidate-execution/types.ts:294](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L294)
 
 ##### bytes
 
 > `readonly` **bytes**: `Uint8Array`
 
-Defined in: [candidate-execution/types.ts:295](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L295)
+Defined in: [candidate-execution/types.ts:296](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L296)
 
 Canonical UTF-8 bytes of `value` with its top-level digest omitted.
 
@@ -3093,13 +3093,13 @@ Canonical UTF-8 bytes of `value` with its top-level digest omitted.
 
 > `readonly` **digest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:296](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L296)
+Defined in: [candidate-execution/types.ts:297](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L297)
 
 ***
 
 ### PreparedAgentCandidateLaunch
 
-Defined in: [candidate-execution/types.ts:299](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L299)
+Defined in: [candidate-execution/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L300)
 
 #### Properties
 
@@ -3107,13 +3107,13 @@ Defined in: [candidate-execution/types.ts:299](https://github.com/tangle-network
 
 > **executable**: `string`
 
-Defined in: [candidate-execution/types.ts:300](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L300)
+Defined in: [candidate-execution/types.ts:301](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L301)
 
 ##### args
 
 > **args**: readonly `string`[]
 
-Defined in: [candidate-execution/types.ts:302](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L302)
+Defined in: [candidate-execution/types.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L303)
 
 Complete fixed argv, including profile materializer flags but excluding task delivery.
 
@@ -3121,13 +3121,13 @@ Complete fixed argv, including profile materializer flags but excluding task del
 
 > **env**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [candidate-execution/types.ts:303](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L303)
+Defined in: [candidate-execution/types.ts:304](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L304)
 
 ##### flags
 
 > **flags**: readonly `string`[]
 
-Defined in: [candidate-execution/types.ts:305](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L305)
+Defined in: [candidate-execution/types.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L306)
 
 Informational subset already present at the tail of `args`; executors must not append twice.
 
@@ -3135,13 +3135,13 @@ Informational subset already present at the tail of `args`; executors must not a
 
 > **cwd**: `string`
 
-Defined in: [candidate-execution/types.ts:306](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L306)
+Defined in: [candidate-execution/types.ts:307](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L307)
 
 ***
 
 ### PreparedAgentCandidateInstruction
 
-Defined in: [candidate-execution/types.ts:309](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L309)
+Defined in: [candidate-execution/types.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L310)
 
 #### Properties
 
@@ -3149,19 +3149,53 @@ Defined in: [candidate-execution/types.ts:309](https://github.com/tangle-network
 
 > **bytes**: `Uint8Array`
 
-Defined in: [candidate-execution/types.ts:310](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L310)
+Defined in: [candidate-execution/types.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L311)
 
 ##### delivery
 
 > **delivery**: `AgentCandidateInstructionDelivery`
 
-Defined in: [candidate-execution/types.ts:311](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L311)
+Defined in: [candidate-execution/types.ts:312](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L312)
+
+***
+
+### PreparedAgentCandidateKnowledge
+
+Defined in: [candidate-execution/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L316)
+
+Exact file-backed knowledge admitted by the candidate bundle.
+
+#### Properties
+
+##### candidate
+
+> `readonly` **candidate**: `AgentCandidateKnowledgeRef`
+
+Defined in: [candidate-execution/types.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L317)
+
+##### snapshot
+
+> `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
+
+Defined in: [candidate-execution/types.ts:318](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L318)
+
+##### files
+
+> `readonly` **files**: readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspacefile)[]
+
+Defined in: [candidate-execution/types.ts:319](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L319)
+
+##### retrievalConfig?
+
+> `readonly` `optional` **retrievalConfig?**: `Uint8Array`\<`ArrayBufferLike`\>
+
+Defined in: [candidate-execution/types.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L320)
 
 ***
 
 ### PreparedAgentCandidateTrace
 
-Defined in: [candidate-execution/types.ts:314](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L314)
+Defined in: [candidate-execution/types.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L323)
 
 #### Properties
 
@@ -3169,25 +3203,25 @@ Defined in: [candidate-execution/types.ts:314](https://github.com/tangle-network
 
 > **runId**: `string`
 
-Defined in: [candidate-execution/types.ts:315](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L315)
+Defined in: [candidate-execution/types.ts:324](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L324)
 
 ##### tags
 
 > **tags**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [candidate-execution/types.ts:316](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L316)
+Defined in: [candidate-execution/types.ts:325](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L325)
 
 ##### env
 
 > **env**: `Readonly`\<`Record`\<`string`, `string`\>\>
 
-Defined in: [candidate-execution/types.ts:317](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L317)
+Defined in: [candidate-execution/types.ts:326](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L326)
 
 ***
 
 ### PreparedAgentCandidateExecution
 
-Defined in: [candidate-execution/types.ts:320](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L320)
+Defined in: [candidate-execution/types.ts:329](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L329)
 
 #### Properties
 
@@ -3195,19 +3229,19 @@ Defined in: [candidate-execution/types.ts:320](https://github.com/tangle-network
 
 > `readonly` **bundle**: `AgentCandidateBundle`
 
-Defined in: [candidate-execution/types.ts:321](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L321)
+Defined in: [candidate-execution/types.ts:330](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L330)
 
 ##### executionId
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/types.ts:322](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L322)
+Defined in: [candidate-execution/types.ts:331](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L331)
 
 ##### roots
 
 > `readonly` **roots**: `object`
 
-Defined in: [candidate-execution/types.ts:323](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L323)
+Defined in: [candidate-execution/types.ts:332](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L332)
 
 ###### execution
 
@@ -3241,7 +3275,7 @@ Defined in: [candidate-execution/types.ts:323](https://github.com/tangle-network
 
 > `readonly` **profilePlan**: `object`
 
-Defined in: [candidate-execution/types.ts:334](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L334)
+Defined in: [candidate-execution/types.ts:343](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L343)
 
 ###### value
 
@@ -3259,13 +3293,13 @@ Defined in: [candidate-execution/types.ts:334](https://github.com/tangle-network
 
 > `readonly` **profileActivation**: `AgentCandidateProfileActivation`
 
-Defined in: [candidate-execution/types.ts:339](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L339)
+Defined in: [candidate-execution/types.ts:348](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L348)
 
 ##### executionPlan
 
 > `readonly` **executionPlan**: `object`
 
-Defined in: [candidate-execution/types.ts:340](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L340)
+Defined in: [candidate-execution/types.ts:349](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L349)
 
 ###### value
 
@@ -3279,49 +3313,55 @@ Defined in: [candidate-execution/types.ts:340](https://github.com/tangle-network
 
 > `readonly` **materializationReceipt**: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateMaterializationReceipt`\>
 
-Defined in: [candidate-execution/types.ts:344](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L344)
+Defined in: [candidate-execution/types.ts:353](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L353)
 
 ##### launch
 
 > `readonly` **launch**: [`PreparedAgentCandidateLaunch`](#preparedagentcandidatelaunch)
 
-Defined in: [candidate-execution/types.ts:345](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L345)
+Defined in: [candidate-execution/types.ts:354](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L354)
 
 ##### instruction
 
 > `readonly` **instruction**: [`PreparedAgentCandidateInstruction`](#preparedagentcandidateinstruction)
 
-Defined in: [candidate-execution/types.ts:346](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L346)
+Defined in: [candidate-execution/types.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L355)
 
 ##### resolvedModel
 
 > `readonly` **resolvedModel**: `AgentCandidateResolvedModel`
 
-Defined in: [candidate-execution/types.ts:347](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L347)
+Defined in: [candidate-execution/types.ts:356](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L356)
+
+##### knowledge?
+
+> `readonly` `optional` **knowledge?**: [`PreparedAgentCandidateKnowledge`](#preparedagentcandidateknowledge)
+
+Defined in: [candidate-execution/types.ts:357](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L357)
 
 ##### trace
 
 > `readonly` **trace**: [`PreparedAgentCandidateTrace`](#preparedagentcandidatetrace)
 
-Defined in: [candidate-execution/types.ts:348](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L348)
+Defined in: [candidate-execution/types.ts:358](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L358)
 
 ##### memory
 
 > `readonly` **memory**: `AgentCandidateEffectiveMemory`
 
-Defined in: [candidate-execution/types.ts:349](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L349)
+Defined in: [candidate-execution/types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L359)
 
 ##### \[preparedCandidateBrand\]
 
 > `readonly` **\[preparedCandidateBrand\]**: `true`
 
-Defined in: [candidate-execution/types.ts:350](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L350)
+Defined in: [candidate-execution/types.ts:360](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L360)
 
 ***
 
 ### AgentCandidateProtectedRunCapture
 
-Defined in: [candidate-execution/types.ts:353](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L353)
+Defined in: [candidate-execution/types.ts:363](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L363)
 
 #### Properties
 
@@ -3329,19 +3369,19 @@ Defined in: [candidate-execution/types.ts:353](https://github.com/tangle-network
 
 > **executionId**: `string`
 
-Defined in: [candidate-execution/types.ts:354](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L354)
+Defined in: [candidate-execution/types.ts:364](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L364)
 
 ##### termination
 
 > **termination**: `AgentCandidateTermination`
 
-Defined in: [candidate-execution/types.ts:355](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L355)
+Defined in: [candidate-execution/types.ts:365](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L365)
 
 ***
 
 ### AgentCandidateExecutorMemoryCapture
 
-Defined in: [candidate-execution/types.ts:378](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L378)
+Defined in: [candidate-execution/types.ts:388](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L388)
 
 Raw isolated-memory capture made only after access has been revoked.
 
@@ -3351,19 +3391,19 @@ Raw isolated-memory capture made only after access has been revoked.
 
 > `readonly` **afterState**: `AgentCandidateWorkspaceManifestMaterial`
 
-Defined in: [candidate-execution/types.ts:379](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L379)
+Defined in: [candidate-execution/types.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L389)
 
 ##### archive
 
 > `readonly` **archive**: `Uint8Array`
 
-Defined in: [candidate-execution/types.ts:380](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L380)
+Defined in: [candidate-execution/types.ts:390](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L390)
 
 ***
 
 ### AgentCandidateExecutorFinalCapture
 
-Defined in: [candidate-execution/types.ts:384](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L384)
+Defined in: [candidate-execution/types.ts:394](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L394)
 
 Replayable evaluator result captured only after process death and trace drain.
 
@@ -3373,13 +3413,13 @@ Replayable evaluator result captured only after process death and trace drain.
 
 > `readonly` `optional` **taskOutcome?**: [`AgentCandidateExecutorTaskOutcomeCapture`](#agentcandidateexecutortaskoutcomecapture)
 
-Defined in: [candidate-execution/types.ts:385](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L385)
+Defined in: [candidate-execution/types.ts:395](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L395)
 
 ##### memoryAfter?
 
 > `readonly` `optional` **memoryAfter?**: [`AgentCandidateExecutorMemoryCapture`](#agentcandidateexecutormemorycapture)
 
-Defined in: [candidate-execution/types.ts:387](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L387)
+Defined in: [candidate-execution/types.ts:397](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L397)
 
 Required only when the prepared candidate uses isolated task memory.
 
@@ -3387,7 +3427,7 @@ Required only when the prepared candidate uses isolated task memory.
 
 > `readonly` `optional` **evidence?**: `Uint8Array`\<`ArrayBufferLike`\>
 
-Defined in: [candidate-execution/types.ts:389](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L389)
+Defined in: [candidate-execution/types.ts:399](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L399)
 
 Executor-native bytes preserved when a fresh worker cannot reconstruct a verified outcome.
 
@@ -3395,7 +3435,7 @@ Executor-native bytes preserved when a fresh worker cannot reconstruct a verifie
 
 ### AgentCandidateBenchmarkGraderPort
 
-Defined in: [candidate-execution/types.ts:426](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L426)
+Defined in: [candidate-execution/types.ts:436](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L436)
 
 Evaluator-owned executable grader, pinned by immutable implementation bytes.
 
@@ -3411,19 +3451,19 @@ copying an expected digest from ambient configuration.
 
 > `readonly` **name**: `string`
 
-Defined in: [candidate-execution/types.ts:427](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L427)
+Defined in: [candidate-execution/types.ts:437](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L437)
 
 ##### version
 
 > `readonly` **version**: `string`
 
-Defined in: [candidate-execution/types.ts:428](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L428)
+Defined in: [candidate-execution/types.ts:438](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L438)
 
 ##### artifact
 
 > `readonly` **artifact**: `AgentCandidateArtifactRef`
 
-Defined in: [candidate-execution/types.ts:429](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L429)
+Defined in: [candidate-execution/types.ts:439](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L439)
 
 #### Methods
 
@@ -3431,7 +3471,7 @@ Defined in: [candidate-execution/types.ts:429](https://github.com/tangle-network
 
 > **run**(`input`): `Promise`\<\{ `evaluation`: `BenchmarkEvaluation`; `evidence`: `Uint8Array`; `binding`: \{ `implementationDigest`: `` `sha256:${string}` ``; `taskOutcomeDigest`: `` `sha256:${string}` ``; `outputDigest`: `` `sha256:${string}` ``; \}; \}\>
 
-Defined in: [candidate-execution/types.ts:430](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L430)
+Defined in: [candidate-execution/types.ts:440](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L440)
 
 ###### Parameters
 
@@ -3477,7 +3517,7 @@ Frozen result deadline; runners must stop work and side effects when aborted.
 
 ### AgentCandidateExecutorRequest
 
-Defined in: [candidate-execution/types.ts:458](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L458)
+Defined in: [candidate-execution/types.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L468)
 
 One detached request passed to the trusted environment-specific executor.
 
@@ -3487,13 +3527,13 @@ One detached request passed to the trusted environment-specific executor.
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/types.ts:459](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L459)
+Defined in: [candidate-execution/types.ts:469](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L469)
 
 ##### inputs
 
 > `readonly` **inputs**: `object`
 
-Defined in: [candidate-execution/types.ts:461](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L461)
+Defined in: [candidate-execution/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L471)
 
 Immutable bytes from which the executor creates fresh isolated workspaces.
 
@@ -3505,11 +3545,19 @@ Immutable bytes from which the executor creates fresh isolated workspaces.
 
 > `readonly` `optional` **candidate?**: [`AgentCandidateExecutorWorkspaceInput`](#agentcandidateexecutorworkspaceinput)
 
+###### profile
+
+> `readonly` **profile**: `object`
+
+###### profile.files
+
+> `readonly` **files**: readonly `AgentCandidateExecutorProfileFile`[]
+
 ##### roots
 
 > `readonly` **roots**: `object`
 
-Defined in: [candidate-execution/types.ts:465](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L465)
+Defined in: [candidate-execution/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L478)
 
 ###### taskRoot
 
@@ -3523,7 +3571,7 @@ Defined in: [candidate-execution/types.ts:465](https://github.com/tangle-network
 
 > `readonly` **profilePlan**: `object`
 
-Defined in: [candidate-execution/types.ts:466](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L466)
+Defined in: [candidate-execution/types.ts:479](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L479)
 
 ###### value
 
@@ -3541,13 +3589,13 @@ Defined in: [candidate-execution/types.ts:466](https://github.com/tangle-network
 
 > `readonly` **profileActivation**: `AgentCandidateProfileActivation`
 
-Defined in: [candidate-execution/types.ts:467](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L467)
+Defined in: [candidate-execution/types.ts:480](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L480)
 
 ##### executionPlan
 
 > `readonly` **executionPlan**: `object`
 
-Defined in: [candidate-execution/types.ts:468](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L468)
+Defined in: [candidate-execution/types.ts:481](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L481)
 
 ###### value
 
@@ -3561,31 +3609,31 @@ Defined in: [candidate-execution/types.ts:468](https://github.com/tangle-network
 
 > `readonly` **materializationReceipt**: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateMaterializationReceipt`\>
 
-Defined in: [candidate-execution/types.ts:469](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L469)
+Defined in: [candidate-execution/types.ts:482](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L482)
 
 ##### launch
 
 > `readonly` **launch**: [`PreparedAgentCandidateLaunch`](#preparedagentcandidatelaunch)
 
-Defined in: [candidate-execution/types.ts:470](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L470)
+Defined in: [candidate-execution/types.ts:483](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L483)
 
 ##### instruction
 
 > `readonly` **instruction**: [`PreparedAgentCandidateInstruction`](#preparedagentcandidateinstruction)
 
-Defined in: [candidate-execution/types.ts:471](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L471)
+Defined in: [candidate-execution/types.ts:484](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L484)
 
 ##### resolvedModel
 
 > `readonly` **resolvedModel**: `AgentCandidateResolvedModel`
 
-Defined in: [candidate-execution/types.ts:472](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L472)
+Defined in: [candidate-execution/types.ts:485](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L485)
 
 ##### hardLimits
 
 > `readonly` **hardLimits**: `Pick`\<`AgentCandidateExecutionLimits`, `"timeoutMs"`\>
 
-Defined in: [candidate-execution/types.ts:474](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L474)
+Defined in: [candidate-execution/types.ts:487](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L487)
 
 Mechanically enforced by the runtime plus executor process-death acknowledgement.
 
@@ -3593,27 +3641,33 @@ Mechanically enforced by the runtime plus executor process-death acknowledgement
 
 > `readonly` **observedLimits**: `Pick`\<`AgentCandidateExecutionLimits`, `"maxSteps"`\>
 
-Defined in: [candidate-execution/types.ts:476](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L476)
+Defined in: [candidate-execution/types.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L489)
 
 Validity bound checked against protected traces; generic black-box executors cannot preempt it.
+
+##### knowledge?
+
+> `readonly` `optional` **knowledge?**: [`PreparedAgentCandidateKnowledge`](#preparedagentcandidateknowledge)
+
+Defined in: [candidate-execution/types.ts:490](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L490)
 
 ##### trace
 
 > `readonly` **trace**: [`PreparedAgentCandidateTrace`](#preparedagentcandidatetrace)
 
-Defined in: [candidate-execution/types.ts:477](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L477)
+Defined in: [candidate-execution/types.ts:491](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L491)
 
 ##### memory
 
 > `readonly` **memory**: `AgentCandidateEffectiveMemory`
 
-Defined in: [candidate-execution/types.ts:478](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L478)
+Defined in: [candidate-execution/types.ts:492](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L492)
 
 ***
 
 ### AgentCandidateExecutorPort
 
-Defined in: [candidate-execution/types.ts:489](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L489)
+Defined in: [candidate-execution/types.ts:503](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L503)
 
 Executes one prepared request inside an evaluator-owned isolation boundary.
 
@@ -3628,7 +3682,7 @@ no candidate-authored usage or score fields.
 
 > **execute**(`request`, `context`): `Promise`\<[`AgentCandidateProtectedRunCapture`](#agentcandidateprotectedruncapture)\>
 
-Defined in: [candidate-execution/types.ts:490](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L490)
+Defined in: [candidate-execution/types.ts:504](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L504)
 
 ###### Parameters
 
@@ -3662,7 +3716,7 @@ Absolute epoch-millisecond deadline owned by the runtime.
 
 > **stop**(`request`, `context`): `Promise`\<\{ `stopped`: `true`; \}\>
 
-Defined in: [candidate-execution/types.ts:501](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L501)
+Defined in: [candidate-execution/types.ts:515](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L515)
 
 Kill the exact process/container and drain trace writes. Must be idempotent.
 
@@ -3702,7 +3756,7 @@ Absolute execution deadline; a later stop acknowledgement cannot produce success
 
 > **capture**(`request`, `context`): `Promise`\<[`AgentCandidateExecutorFinalCapture`](#agentcandidateexecutorfinalcapture)\>
 
-Defined in: [candidate-execution/types.ts:513](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L513)
+Defined in: [candidate-execution/types.ts:527](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L527)
 
 Capture immutable final evidence after stop. Must be replayable by a fresh worker.
 
@@ -3732,7 +3786,7 @@ Aborted at the frozen execution deadline or evaluator cleanup deadline.
 
 ### AgentCandidateExecutorStopRequest
 
-Defined in: [candidate-execution/types.ts:524](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L524)
+Defined in: [candidate-execution/types.ts:538](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L538)
 
 Opaque process identity used for termination without re-exposing launch credentials.
 
@@ -3742,19 +3796,19 @@ Opaque process identity used for termination without re-exposing launch credenti
 
 > `readonly` **executionId**: `string`
 
-Defined in: [candidate-execution/types.ts:525](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L525)
+Defined in: [candidate-execution/types.ts:539](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L539)
 
 ##### executionPlanDigest
 
 > `readonly` **executionPlanDigest**: `` `sha256:${string}` ``
 
-Defined in: [candidate-execution/types.ts:526](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L526)
+Defined in: [candidate-execution/types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L540)
 
 ***
 
 ### AgentCandidateExecutorWorkspaceInput
 
-Defined in: [candidate-execution/types.ts:529](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L529)
+Defined in: [candidate-execution/types.ts:543](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L543)
 
 #### Properties
 
@@ -3762,19 +3816,19 @@ Defined in: [candidate-execution/types.ts:529](https://github.com/tangle-network
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
 
-Defined in: [candidate-execution/types.ts:530](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L530)
+Defined in: [candidate-execution/types.ts:544](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L544)
 
 ##### files
 
 > `readonly` **files**: readonly [`AgentCandidateExecutorWorkspaceFile`](#agentcandidateexecutorworkspacefile)[]
 
-Defined in: [candidate-execution/types.ts:531](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L531)
+Defined in: [candidate-execution/types.ts:545](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L545)
 
 ***
 
 ### AgentCandidateExecutorWorkspaceFile
 
-Defined in: [candidate-execution/types.ts:534](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L534)
+Defined in: [candidate-execution/types.ts:548](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L548)
 
 #### Properties
 
@@ -3782,19 +3836,19 @@ Defined in: [candidate-execution/types.ts:534](https://github.com/tangle-network
 
 > `readonly` **path**: `string`
 
-Defined in: [candidate-execution/types.ts:535](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L535)
+Defined in: [candidate-execution/types.ts:549](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L549)
 
 ##### mode
 
 > `readonly` **mode**: `number`
 
-Defined in: [candidate-execution/types.ts:536](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L536)
+Defined in: [candidate-execution/types.ts:550](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L550)
 
 ##### bytes
 
 > `readonly` **bytes**: `Uint8Array`
 
-Defined in: [candidate-execution/types.ts:537](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L537)
+Defined in: [candidate-execution/types.ts:551](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L551)
 
 ***
 
@@ -10760,9 +10814,9 @@ Secret-free response from the service's reservation endpoint.
 
 ### AgentCandidateOutputPurpose
 
-> **AgentCandidateOutputPurpose** = `"execution-plan"` \| `"materialization-receipt"` \| `"candidate-workspace-manifest"` \| `"candidate-workspace-archive"` \| `"task-manifest"` \| `"task-archive"` \| `"task-patch"` \| `"task-output"` \| `"task-outcome"` \| `"memory-after-manifest"` \| `"memory-after-archive"` \| `"grader-evidence"` \| `"benchmark-result"` \| `"model-settlement"` \| `"trace"` \| `"run-receipt"` \| `"executor-capture"` \| `"knowledge-retrieval-config"` \| `"knowledge-evaluation"` \| `"failure-evidence"`
+> **AgentCandidateOutputPurpose** = `"execution-plan"` \| `"materialization-receipt"` \| `"candidate-workspace-manifest"` \| `"candidate-workspace-archive"` \| `"task-manifest"` \| `"task-archive"` \| `"task-patch"` \| `"task-output"` \| `"task-outcome"` \| `"memory-after-manifest"` \| `"memory-after-archive"` \| `"grader-evidence"` \| `"benchmark-result"` \| `"model-settlement"` \| `"trace"` \| `"executor-capture"` \| `"run-receipt"` \| `"knowledge-retrieval-config"` \| `"knowledge-evaluation"` \| `"failure-evidence"`
 
-Defined in: [candidate-execution/types.ts:44](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L44)
+Defined in: [candidate-execution/types.ts:45](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L45)
 
 ***
 
@@ -10770,7 +10824,7 @@ Defined in: [candidate-execution/types.ts:44](https://github.com/tangle-network/
 
 > **AgentCandidateModelLimits** = `Pick`\<`AgentCandidateExecutionLimits`, `"maxModelCalls"` \| `"maxInputTokens"` \| `"maxOutputTokens"` \| `"maxCostUsd"`\>
 
-Defined in: [candidate-execution/types.ts:163](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L163)
+Defined in: [candidate-execution/types.ts:164](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L164)
 
 Limits mechanically enforced by the evaluator-owned model gateway.
 
@@ -10780,7 +10834,7 @@ Limits mechanically enforced by the evaluator-owned model gateway.
 
 > **AgentCandidateExecutorTaskOutcomeCapture** = \{ `kind`: `"workspace"`; `resultTree`: `string`; `afterState`: `AgentCandidateWorkspaceManifestMaterial`; `archive`: `Uint8Array`; `gitDiff`: `Uint8Array`; \} \| \{ `kind`: `"output"`; `bytes`: `Uint8Array`; \}
 
-Defined in: [candidate-execution/types.ts:359](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L359)
+Defined in: [candidate-execution/types.ts:369](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L369)
 
 Raw evaluator capture made only after the candidate process is dead.
 
@@ -10840,7 +10894,7 @@ Exact evaluator-captured final output bytes.
 
 > **VerifiedAgentCandidateTaskOutcome** = \{ `kind`: `"workspace"`; `evidence`: `PersistedTaskOutcomeEvidence`\<`"workspace"`\>; `patch`: `Uint8Array`; `[verifiedTaskOutcomeBrand]`: `true`; \} \| \{ `kind`: `"output"`; `evidence`: `PersistedTaskOutcomeEvidence`\<`"output"`\>; `spec`: `AgentCandidateTaskOutputSpec`; `bytes`: `Uint8Array`; `[verifiedTaskOutcomeBrand]`: `true`; \}
 
-Defined in: [candidate-execution/types.ts:402](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L402)
+Defined in: [candidate-execution/types.ts:412](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L412)
 
 Branded task outcome that has survived independent evaluator verification.
 
@@ -10848,15 +10902,15 @@ Branded task outcome that has survived independent evaluator verification.
 
 ### AgentCandidateRunFinalization
 
-> **AgentCandidateRunFinalization** = \{ `succeeded`: `true`; `receipt`: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateRunReceipt`\>; `artifacts`: \{ `modelSettlement`: `AgentCandidateArtifactRef`; `executorCapture`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \}; \} \| \{ `succeeded`: `false`; `reason`: `string`; `partial`: \{ `executionId`: `string`; `bundleDigest`: `Sha256Digest`; `executionPlanDigest`: `Sha256Digest`; `materializationReceiptDigest`: `Sha256Digest`; `termination?`: `AgentCandidateTermination`; \}; `usage`: `AgentCandidateFixedSpend` \| `null`; \}
+> **AgentCandidateRunFinalization** = \{ `succeeded`: `true`; `receipt`: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateRunReceipt`\>; `artifacts`: \{ `executorCapture`: `AgentCandidateArtifactRef`; `modelSettlement`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \}; \} \| \{ `succeeded`: `false`; `reason`: `string`; `partial`: \{ `executionId`: `string`; `bundleDigest`: `Sha256Digest`; `executionPlanDigest`: `Sha256Digest`; `materializationReceiptDigest`: `Sha256Digest`; `termination?`: `AgentCandidateTermination`; \}; `usage`: `AgentCandidateFixedSpend` \| `null`; \}
 
-Defined in: [candidate-execution/types.ts:540](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L540)
+Defined in: [candidate-execution/types.ts:560](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L560)
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `succeeded`: `true`; `receipt`: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateRunReceipt`\>; `artifacts`: \{ `modelSettlement`: `AgentCandidateArtifactRef`; `executorCapture`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \}; \}
+\{ `succeeded`: `true`; `receipt`: [`CanonicalCandidateDocument`](#canonicalcandidatedocument)\<`AgentCandidateRunReceipt`\>; `artifacts`: \{ `executorCapture`: `AgentCandidateArtifactRef`; `modelSettlement`: `AgentCandidateArtifactRef`; `taskOutcome`: `AgentCandidateArtifactRef`; `benchmarkResult`: `AgentCandidateArtifactRef`; `runReceipt`: `AgentCandidateArtifactRef`; \}; \}
 
 ***
 
@@ -11783,7 +11837,7 @@ MUST map this to `RunRecord.error` rather than recording silent
 
 > `const` **CANDIDATE\_TRACE\_TAGS**: `object`
 
-Defined in: [candidate-execution/types.ts:567](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L567)
+Defined in: [candidate-execution/types.ts:587](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L587)
 
 Protected trace tags that bind a run to one prepared candidate execution.
 
@@ -11811,7 +11865,7 @@ Protected trace tags that bind a run to one prepared candidate execution.
 
 > `const` **CANDIDATE\_TRACE\_ENV**: `object`
 
-Defined in: [candidate-execution/types.ts:575](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L575)
+Defined in: [candidate-execution/types.ts:595](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/types.ts#L595)
 
 Environment keys used to propagate immutable candidate trace identity.
 
@@ -11841,7 +11895,7 @@ Environment keys used to propagate immutable candidate trace identity.
 
 ### AGENT\_CANDIDATE\_EXECUTION\_SUPPORT
 
-> `const` **AGENT\_CANDIDATE\_EXECUTION\_SUPPORT**: `Readonly`\<\{ `outcomes`: readonly \[`"workspace"`, `"output"`\]; `code`: readonly \[`"disabled"`, `"no-op"`, `"git-patch"`\]; `memory`: readonly \[`"disabled"`, `"isolated"`\]; `knowledge`: `false`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; \}\>
+> `const` **AGENT\_CANDIDATE\_EXECUTION\_SUPPORT**: `Readonly`\<\{ `outcomes`: readonly \[`"workspace"`, `"output"`\]; `code`: readonly \[`"disabled"`, `"no-op"`, `"git-patch"`\]; `memory`: readonly \[`"disabled"`, `"isolated"`\]; `knowledge`: `true`; `profile`: `Readonly`\<\{ `mcpTransports`: readonly \[`"stdio"`\]; `remoteMcp`: `false`; `tools`: `false`; `permissions`: `false`; `modes`: `false`; `confidential`: `false`; \}\>; \}\>
 
 Defined in: [candidate-execution/verify.ts:38](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/verify.ts#L38)
 
@@ -12343,7 +12397,7 @@ Persist evaluator evidence, read it back, and bind the returned locator to the e
 
 > **prepareAgentCandidateExecution**(`candidate`, `task`, `ports`, `options?`): `Promise`\<[`PreparedAgentCandidateExecution`](#preparedagentcandidateexecution)\>
 
-Defined in: [candidate-execution/prepare.ts:82](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L82)
+Defined in: [candidate-execution/prepare.ts:83](https://github.com/tangle-network/agent-runtime/blob/main/src/candidate-execution/prepare.ts#L83)
 
 Materializes a verified candidate into one immutable evaluator-owned execution plan.
 

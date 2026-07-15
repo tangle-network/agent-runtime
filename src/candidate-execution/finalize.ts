@@ -110,7 +110,6 @@ export async function finalizeAgentCandidateRun(
       evidence.persistedCapture.memoryAfter,
       signal,
     )
-
     const redacted = redactProtectedValue(
       {
         run: { ...run, redactionVersion: REDACTION_VERSION },

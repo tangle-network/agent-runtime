@@ -51,6 +51,7 @@ import {
 } from './digest'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
+import { prepareAgentCandidateKnowledge } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import { candidateMaterializerHarness, createAgentCandidateProfileActivation } from './profile'
@@ -216,6 +217,7 @@ export async function prepareAgentCandidateExecution(
       cleanupTimeoutMs,
     )
     const memory = preparedMemory.value
+    const knowledge = await prepareAgentCandidateKnowledge(candidate, ports)
     const baseLaunch = buildLaunch(candidate, task, profileApplication.flags)
     const publicEnv = mergePublicEnvironment(
       bundle.execution.env ?? {},
@@ -279,6 +281,7 @@ export async function prepareAgentCandidateExecution(
         env: publicEnv,
         cwd: bundle.execution.cwd,
       },
+      ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
       memory,
       limits: task.limits,
       network: { mode: 'disabled' },
@@ -312,6 +315,7 @@ export async function prepareAgentCandidateExecution(
         harnessVersion: bundle.execution.harnessVersion,
         container,
         resolvedModel,
+        ...(bundle.knowledge ? { knowledgeManifestDigest: bundle.knowledge.snapshot.digest } : {}),
         ...(entrypoint ? { entrypoint } : {}),
       },
     )
@@ -375,6 +379,10 @@ export async function prepareAgentCandidateExecution(
       executorInputs: {
         taskFiles: taskExecutorFiles,
         ...(candidateExecutorFiles ? { candidateFiles: candidateExecutorFiles } : {}),
+        profileFiles: exactProfileExecutorFiles(
+          profileWorkspacePlan.files,
+          profileApplication.profilePlan.material.files,
+        ),
       },
       ...(preparedMemory.accessDigest && preparedMemory.value.mode === 'isolated'
         ? {
@@ -386,6 +394,7 @@ export async function prepareAgentCandidateExecution(
             },
           }
         : {}),
+      ...(knowledge ? { knowledge } : {}),
       trace: { runId: traceRunId, tags: traceTags, env: traceEnv },
       memory,
     })
@@ -914,6 +923,31 @@ function modelLimits(limits: AgentCandidateExecutionLimits): {
   }
 }
 
+function exactProfileExecutorFiles(
+  sourceFiles: ReadonlyArray<{ relPath: string; content: string; mode?: number }>,
+  expectedFiles: ReadonlyArray<{ relPath: string; mode: number; contentSha256: string }>,
+): Array<{ path: string; mode: number; bytes: Uint8Array }> {
+  const byPath = new Map(sourceFiles.map((file) => [file.relPath, file]))
+  if (byPath.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
+    throw new Error('profile source files do not match the signed profile plan')
+  }
+  return expectedFiles.map((expected) => {
+    const source = byPath.get(expected.relPath)
+    const mode = source?.mode ?? 0o644
+    const bytes = Buffer.from(source?.content ?? '', 'utf8')
+    if (
+      !source ||
+      !Number.isInteger(mode) ||
+      mode < 0 ||
+      mode > 0o777 ||
+      mode !== expected.mode ||
+      sha256Bytes(bytes) !== expected.contentSha256
+    ) {
+      throw new Error('profile source files do not match the signed profile plan')
+    }
+    return { path: expected.relPath, mode, bytes: Uint8Array.from(bytes) }
+  })
+}
 function isWellFormedUnicode(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index)

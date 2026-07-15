@@ -222,7 +222,7 @@ export function createAgentCandidateWorkspacePort(
 }
 
 async function materializeAgentCandidateWorkspace(input: {
-  role: 'task' | 'candidate' | 'memory'
+  role: 'task' | 'candidate' | 'knowledge' | 'memory'
   snapshot: AgentCandidateWorkspaceSnapshotEvidence
   archive: Uint8Array
   destination: string

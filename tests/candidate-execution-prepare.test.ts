@@ -61,7 +61,7 @@ function taskRepository(): { root: string; commit: string; tree: string } {
 
 function snapshot(
   root: string,
-  files: Array<{ path: string; mode: 0o644 | 0o755 }>,
+  files: Array<{ path: string; mode: number }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
     kind: 'agent-candidate-workspace-manifest' as const,
@@ -325,6 +325,7 @@ describe('candidate execution preparation', () => {
     })
     expect(plan.task.outcome).toEqual(value.task.outcome)
     expect(plan.task.repository).toEqual(value.task.repository)
+    expect(plan.task.outcome).toEqual({ kind: 'workspace' })
     expect(plan.profile).toEqual({
       planDigest: prepared.profilePlan.value.digest,
       targetWorkspace: 'task',
@@ -631,13 +632,32 @@ describe('candidate execution preparation', () => {
     const value = fixture()
     value.task.executionId = '..'
     const seedBytes = Buffer.from('seed-memory')
+    const knowledgeBytes = Buffer.from('{"documents":[]}')
     const seed = {
       locator: { kind: 's3' as const, bucket: 'test-artifacts', key: 'memory/seed.bin' },
       sha256: embeddedCandidateArtifact(seedBytes).sha256,
       byteLength: seedBytes.byteLength,
     }
+    const knowledgeSnapshot = emptySnapshot('knowledge')
+    const retrievalConfig = embeddedCandidateArtifact(knowledgeBytes)
+    const evaluation = embeddedCandidateArtifact(Buffer.from('{"score":1}'))
     value.bundle = redigestBundle(value.bundle, {
       memory: { mode: 'isolated', scope: 'task', seed },
+      knowledge: {
+        candidate: {
+          kind: 'knowledge-improvement-candidate',
+          runId: 'knowledge-run-1',
+          candidateId: 'knowledge-1',
+          goalHash: sha('1'),
+          baseHash: sha('2'),
+          candidateHash: sha('3'),
+          evidenceHash: sha('4'),
+          promotionPlanHash: sha('5'),
+        },
+        snapshot: knowledgeSnapshot,
+        retrievalConfig,
+        evaluation,
+      },
     })
     value.ports.artifacts.read = async (ref) => {
       if (ref.sha256 === seed.sha256) return seedBytes
@@ -668,6 +688,12 @@ describe('candidate execution preparation', () => {
       seedDigest: seed.sha256,
     })
     expect(JSON.stringify(prepared)).not.toContain('TANGLE_MEMORY_NAMESPACE')
+    expect(prepared.knowledge).toMatchObject({
+      candidate: { candidateId: 'knowledge-1' },
+      snapshot: { digest: knowledgeSnapshot.digest },
+      files: [],
+    })
+    expect(Buffer.from(prepared.knowledge?.retrievalConfig ?? [])).toEqual(knowledgeBytes)
   })
 
   it('rejects snapshot-only knowledge before artifact access', async () => {

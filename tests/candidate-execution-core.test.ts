@@ -191,14 +191,15 @@ describe('materialized workspace identity', () => {
     const root = temporaryRoot('candidate-workspace-')
     mkdirSync(join(root, '.git'))
     writeFileSync(join(root, '.git', 'ignored'), 'Git internals are not uploaded')
-    writeFileSync(join(root, 'run.js'), 'ok\n', { mode: 0o755 })
+    writeFileSync(join(root, 'run.js'), 'ok\n', { mode: 0o600 })
+    chmodSync(join(root, 'run.js'), 0o664)
     const bytes = Buffer.from('ok\n')
     const material: AgentCandidateWorkspaceManifestMaterial = {
       kind: 'agent-candidate-workspace-manifest',
       files: [
         {
           path: 'run.js',
-          mode: 0o755,
+          mode: 0o664,
           sha256: embeddedCandidateArtifact(bytes).sha256,
           byteLength: bytes.byteLength,
         },

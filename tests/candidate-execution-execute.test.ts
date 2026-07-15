@@ -328,11 +328,21 @@ describe('atomic prepared candidate execution', () => {
     expect('content' in afterState.manifest).toBe(false)
     expect(result.receipt.bytes.byteLength).toBeLessThan(100_000)
     expect(result.receipt.value).toMatchObject({
+      modelSettlement: {
+        material: {
+          usage: { modelCalls: 0, inputTokens: 0, outputTokens: 0, costUsdNanos: 0 },
+        },
+      },
       trace: { modelCallCount: 0 },
     })
     const persistedArchive = await executionOptions.outputArtifacts.read(archive)
     expect(persistedArchive.byteLength).toBe(largeArchive.byteLength)
     expect(sha256Bytes(persistedArchive)).toBe(archive.sha256)
+    const executorCapture = await executionOptions.outputArtifacts.read(
+      result.artifacts.executorCapture,
+    )
+    expect(executorCapture.byteLength).toBeLessThan(100_000)
+    expect(Buffer.from(executorCapture).toString('utf8')).not.toContain('content')
     await expect(
       executionOptions.outputArtifacts.read(result.artifacts.runReceipt),
     ).resolves.toEqual(result.receipt.bytes)

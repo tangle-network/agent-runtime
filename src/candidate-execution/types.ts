@@ -11,6 +11,7 @@ import type {
   AgentCandidateFixedSpend,
   AgentCandidateGitHubRepository,
   AgentCandidateInstructionDelivery,
+  AgentCandidateKnowledgeRef,
   AgentCandidateMaterializationReceipt,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelAccessNetwork,
@@ -57,8 +58,8 @@ export type AgentCandidateOutputPurpose =
   | 'benchmark-result'
   | 'model-settlement'
   | 'trace'
-  | 'run-receipt'
   | 'executor-capture'
+  | 'run-receipt'
   | 'knowledge-retrieval-config'
   | 'knowledge-evaluation'
   | 'failure-evidence'
@@ -94,7 +95,7 @@ export interface AgentCandidateVerificationPorts {
  */
 export interface AgentCandidateWorkspacePort {
   materialize(input: {
-    role: 'task' | 'candidate' | 'memory'
+    role: 'task' | 'candidate' | 'knowledge' | 'memory'
     snapshot: AgentCandidateWorkspaceSnapshotEvidence
     archive: Uint8Array
     destination: string
@@ -311,6 +312,14 @@ export interface PreparedAgentCandidateInstruction {
   delivery: AgentCandidateInstructionDelivery
 }
 
+/** Exact file-backed knowledge admitted by the candidate bundle. */
+export interface PreparedAgentCandidateKnowledge {
+  readonly candidate: AgentCandidateKnowledgeRef
+  readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
+  readonly files: readonly AgentCandidateExecutorWorkspaceFile[]
+  readonly retrievalConfig?: Uint8Array
+}
+
 export interface PreparedAgentCandidateTrace {
   runId: string
   tags: Readonly<Record<string, string>>
@@ -345,6 +354,7 @@ export interface PreparedAgentCandidateExecution {
   readonly launch: PreparedAgentCandidateLaunch
   readonly instruction: PreparedAgentCandidateInstruction
   readonly resolvedModel: AgentCandidateResolvedModel
+  readonly knowledge?: PreparedAgentCandidateKnowledge
   readonly trace: PreparedAgentCandidateTrace
   readonly memory: AgentCandidateEffectiveMemory
   readonly [preparedCandidateBrand]: true
@@ -461,6 +471,9 @@ export interface AgentCandidateExecutorRequest {
   readonly inputs: {
     readonly task: AgentCandidateExecutorWorkspaceInput
     readonly candidate?: AgentCandidateExecutorWorkspaceInput
+    readonly profile: {
+      readonly files: readonly AgentCandidateExecutorProfileFile[]
+    }
   }
   readonly roots: PreparedAgentCandidateExecution['roots']['execution']
   readonly profilePlan: PreparedAgentCandidateExecution['profilePlan']
@@ -474,6 +487,7 @@ export interface AgentCandidateExecutorRequest {
   readonly hardLimits: Pick<AgentCandidateExecutionLimits, 'timeoutMs'>
   /** Validity bound checked against protected traces; generic black-box executors cannot preempt it. */
   readonly observedLimits: Pick<AgentCandidateExecutionLimits, 'maxSteps'>
+  readonly knowledge?: PreparedAgentCandidateKnowledge
   readonly trace: PreparedAgentCandidateTrace
   readonly memory: AgentCandidateEffectiveMemory
 }
@@ -537,13 +551,19 @@ export interface AgentCandidateExecutorWorkspaceFile {
   readonly bytes: Uint8Array
 }
 
+export interface AgentCandidateExecutorProfileFile {
+  readonly path: string
+  readonly mode: number
+  readonly bytes: Uint8Array
+}
+
 export type AgentCandidateRunFinalization =
   | {
       succeeded: true
       receipt: CanonicalCandidateDocument<AgentCandidateRunReceipt>
       artifacts: {
-        modelSettlement: AgentCandidateArtifactRef
         executorCapture: AgentCandidateArtifactRef
+        modelSettlement: AgentCandidateArtifactRef
         taskOutcome: AgentCandidateArtifactRef
         benchmarkResult: AgentCandidateArtifactRef
         runReceipt: AgentCandidateArtifactRef

@@ -263,6 +263,8 @@ describe('protected candidate run finalization', () => {
         },
       },
     })
+    const taskOutcome = result.receipt.value.taskOutcome.material.outcome
+    if (taskOutcome.kind !== 'workspace') throw new Error('expected workspace task outcome')
     await Promise.all([
       expect(outputs.outputArtifacts.read(result.artifacts.runReceipt)).resolves.toEqual(
         result.receipt.bytes,
@@ -281,6 +283,20 @@ describe('protected candidate run finalization', () => {
         outputs.outputArtifacts.read(result.receipt.value.benchmarkResult.material.grader.artifact),
       ).resolves.toEqual(Uint8Array.from(Buffer.from('fixture executable grader', 'utf8'))),
     ])
+    const executorCapture = JSON.parse(
+      Buffer.from(await outputs.outputArtifacts.read(result.artifacts.executorCapture)).toString(
+        'utf8',
+      ),
+    )
+    expect(executorCapture).toMatchObject({
+      kind: 'agent-candidate-executor-capture',
+      executionPlanDigest: execution.executionPlan.value.digest,
+      taskOutcome: {
+        kind: 'workspace',
+        gitDiff: taskOutcome.gitDiff.artifact,
+      },
+    })
+    expect(JSON.stringify(executorCapture)).not.toContain('content')
   })
 
   it('returns invalid capture instead of minting zero usage when provider usage is missing', async () => {

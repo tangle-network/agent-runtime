@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 339 exports.
+Import from `@tangle-network/agent-runtime` — 340 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -173,6 +173,7 @@ Import from `@tangle-network/agent-runtime` — 339 exports.
 | `ModelInfo` | interface | A model entry as returned by the Tangle Router `/v1/models` endpoint. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `OtelExportConfig` | interface | OTEL span exporter — streams LoopTraceEvents to an OTLP/HTTP collector. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `RawTraceDistillerOptions` | interface | `rawTraceDistiller` — the meta-harness `analyzeGeneration` producer. |
 | `ReflectiveGeneratorOptions` | interface | `reflectiveGenerator` — the cheap, no-sandbox `CandidateGenerator`. It drafts |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
@@ -944,7 +945,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 93 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 94 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -989,6 +990,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 93 exports.
 | `AgentCandidateTaskExecution` | interface | One signed benchmark task and the exact result shape its executor must capture. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
+| `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
 | `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
 | `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |

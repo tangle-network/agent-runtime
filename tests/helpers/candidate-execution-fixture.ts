@@ -65,7 +65,7 @@ function taskRepository(): { root: string; commit: string; tree: string } {
 
 function snapshot(
   root: string,
-  files: Array<{ path: string; mode: 0o644 | 0o755 }>,
+  files: Array<{ path: string; mode: number }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
     kind: 'agent-candidate-workspace-manifest' as const,

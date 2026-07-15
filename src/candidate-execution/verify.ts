@@ -39,7 +39,7 @@ export const AGENT_CANDIDATE_EXECUTION_SUPPORT = Object.freeze({
   outcomes: Object.freeze(['workspace', 'output'] as const),
   code: Object.freeze(['disabled', 'no-op', 'git-patch'] as const),
   memory: Object.freeze(['disabled', 'isolated'] as const),
-  knowledge: false,
+  knowledge: true,
   profile: Object.freeze({
     mcpTransports: Object.freeze(['stdio'] as const),
     remoteMcp: false,
@@ -64,11 +64,6 @@ export async function verifyAgentCandidateBundle(
   const canonicalBytes = canonicalCandidateBytes(withoutDigest)
   verifyBytes(canonicalBytes, parsed.digest, canonicalBytes.byteLength, 'candidate bundle')
   assertCandidateProfileExecutionSupport(parsed.profile)
-  if (parsed.knowledge) {
-    throw new Error(
-      'candidate knowledge execution is unsupported; promote the approved exact candidate through agent-runtime/knowledge',
-    )
-  }
 
   const artifactBytes = new Map<string, Uint8Array>()
   const readArtifact = async (artifact: AgentCandidateCapturedArtifact): Promise<Uint8Array> => {
@@ -109,6 +104,16 @@ export async function verifyAgentCandidateBundle(
     )
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.manifest), workspace.manifest)
     artifactBytes.set(artifactCacheKey(parsed.execution.workspace.archive), workspace.archive)
+  }
+  if (parsed.knowledge) {
+    const knowledge = await verifyWorkspaceSnapshotArtifacts(
+      parsed.knowledge.snapshot,
+      ports.artifacts,
+    )
+    artifactBytes.set(artifactCacheKey(parsed.knowledge.snapshot.manifest), knowledge.manifest)
+    artifactBytes.set(artifactCacheKey(parsed.knowledge.snapshot.archive), knowledge.archive)
+    if (parsed.knowledge.retrievalConfig) await readArtifact(parsed.knowledge.retrievalConfig)
+    await readArtifact(parsed.knowledge.evaluation)
   }
   if (parsed.memory.mode === 'isolated' && parsed.memory.seed)
     await readArtifact(parsed.memory.seed)
