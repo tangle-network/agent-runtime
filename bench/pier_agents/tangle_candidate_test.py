@@ -4,6 +4,7 @@ import hashlib
 import importlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -965,7 +966,7 @@ class TangleCandidateAgentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
             fixture["plan"]["launch"]["env"] = {
-                "FIXTURE_SLEEP": {"kind": "public", "value": "0.25"}
+                "FIXTURE_SLEEP": {"kind": "public", "value": "2"}
             }
             fixture["plan"]["limits"]["timeoutMs"] = 10
             _rewrite_signed_plan(fixture)
@@ -976,9 +977,17 @@ class TangleCandidateAgentTest(unittest.TestCase):
             started = time.monotonic()
             with self.assertRaises(asyncio.TimeoutError):
                 asyncio.run(agent.run("make the task ready", environment, context))
-            self.assertLess(time.monotonic() - started, 0.2)
+            wall_elapsed = time.monotonic() - started
+            candidate_command = next(
+                command
+                for command in environment.commands
+                if "/run-" in command and "/timeout-" in command
+            )
+            self.assertEqual(shlex.split(candidate_command)[4], "0.010")
             self.assertEqual(context.metadata["termination"]["kind"], "timeout")
             self.assertEqual(context.metadata["termination"]["timeoutMs"], 10)
+            self.assertLess(context.metadata["observedElapsedMs"], 250)
+            self.assertLess(wall_elapsed, 1)
 
     def test_profile_cleanup_does_not_follow_candidate_links(self):
         for attack in ("symlink", "hardlink"):

@@ -31,6 +31,7 @@ import {
   type AgentCandidateOutputArtifactPort,
   type AgentCandidateTaskExecution,
   type ResolvedAgentCandidateContainer,
+  sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
 } from '@tangle-network/agent-runtime'
 
@@ -113,13 +114,11 @@ function workspaceSnapshot(
     })
     .sort((left, right) => left.path.localeCompare(right.path))
   const material = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files,
-  }
+  } satisfies AgentCandidateWorkspaceSnapshotEvidence['material']
   const manifest = canonicalBytes(material)
   return {
-    schemaVersion: 1,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256(manifest),
     material,
@@ -329,7 +328,6 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
   const taskWorkspace = workspaceSnapshot(taskRoot, ['src/status.txt'])
   const candidateWorkspace = workspaceSnapshot(candidateRoot, ['runner.py'])
   const bundleWithoutDigest = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -388,10 +386,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
       },
     },
   }
-  const bundle = {
-    ...bundleWithoutDigest,
-    digest: sha256(canonicalBytes(bundleWithoutDigest)),
-  } as AgentCandidateBundle
+  const bundle: AgentCandidateBundle = sealAgentCandidateBundle(bundleWithoutDigest)
   const container: ResolvedAgentCandidateContainer = {
     source: 'evaluator-task-container',
     image: fixtureImage,

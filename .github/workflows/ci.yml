@@ -42,9 +42,6 @@ jobs:
 
   agent-bench:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: bench
     steps:
       - uses: actions/checkout@v4
 
@@ -54,16 +51,13 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: bench/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install published dependencies
+      - name: Install package set
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck public entrypoint against installed packages
-        run: pnpm run typecheck:public
+      - name: Build current agent-runtime
+        run: pnpm run build
 
-      - name: Test deterministic package paths
-        run: pnpm test
-
-      - name: Verify packed package in a clean consumer
-        run: pnpm run verify:package
+      - name: Verify agent-bench against current agent-runtime
+        run: pnpm run verify:bench

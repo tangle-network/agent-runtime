@@ -58,6 +58,31 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.9.3)(tsx@4.22.4)(yaml@2.9.0)
 
+  bench:
+    dependencies:
+      '@tangle-network/agent-eval':
+        specifier: 0.121.0
+        version: 0.121.0(typescript@5.9.3)
+      '@tangle-network/agent-interface':
+        specifier: 0.28.0
+        version: 0.28.0
+      '@tangle-network/agent-runtime':
+        specifier: workspace:*
+        version: link:..
+      '@tangle-network/sandbox':
+        specifier: ^0.10.5
+        version: 0.10.5(viem@2.54.6(typescript@5.9.3)(zod@4.4.3))
+    devDependencies:
+      '@types/node':
+        specifier: ^25.9.3
+        version: 25.9.3
+      tsx:
+        specifier: ^4.22.4
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
 packages:
 
   '@adraffy/ens-normalize@1.11.1':

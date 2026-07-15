@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -72,22 +72,15 @@ try {
     '@tangle-network',
     'agent-knowledge',
   )
-  if (!existsSync(join(knowledgePackageDir, 'package.json'))) {
-    throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge package')
-  }
-  const knowledgePackDir = join(tempRoot, 'knowledge')
-  mkdirSync(knowledgePackDir, { recursive: true })
-  run('pnpm', ['pack', '--pack-destination', knowledgePackDir], knowledgePackageDir)
-  const knowledgeTarballs = run(
-    'find',
-    [knowledgePackDir, '-maxdepth', '1', '-name', '*.tgz', '-print'],
-    repoRoot,
+  const knowledgePackageJson = JSON.parse(
+    readFileSync(join(knowledgePackageDir, 'package.json'), 'utf8'),
   )
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-  if (knowledgeTarballs.length !== 1) {
-    throw new Error(`expected exactly one packed knowledge tarball, found ${knowledgeTarballs.length}`)
+  if (
+    knowledgePackageJson.name !== '@tangle-network/agent-knowledge' ||
+    typeof knowledgePackageJson.version !== 'string' ||
+    knowledgePackageJson.version.length === 0
+  ) {
+    throw new Error('packed consumer requires an installed @tangle-network/agent-knowledge release')
   }
   const peerPackages = [
     '@tangle-network/agent-eval',
@@ -122,7 +115,7 @@ try {
   )
   writeFileSync(
     join(appDir, 'pnpm-workspace.yaml'),
-    `overrides:\n  '@tangle-network/agent-knowledge': file:${knowledgeTarballs[0]}\n`,
+    `overrides:\n  '@tangle-network/agent-knowledge': ${knowledgePackageJson.version}\n`,
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
@@ -203,7 +196,7 @@ try {
       void outcome
     `,
   )
-  run('pnpm', ['install', '--ignore-scripts', '--config.auto-install-peers=false'], appDir)
+  run('pnpm', ['install', '--config.auto-install-peers=false'], appDir)
   run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
@@ -344,6 +337,31 @@ try {
     ],
     appDir,
   )
+
+  const installedPackageDir = join(
+    appDir,
+    'node_modules',
+    '@tangle-network',
+    'agent-runtime',
+  )
+  const repackDir = join(tempRoot, 'repack')
+  mkdirSync(repackDir, { recursive: true })
+  run(
+    'npm',
+    ['pack', '--ignore-scripts=false', '--pack-destination', repackDir],
+    installedPackageDir,
+  )
+  const repackedTarballs = run(
+    'find',
+    [repackDir, '-maxdepth', '1', '-name', '*.tgz', '-print'],
+    repoRoot,
+  )
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+  if (repackedTarballs.length !== 1) {
+    throw new Error(`expected exactly one repacked runtime tarball, found ${repackedTarballs.length}`)
+  }
 } finally {
   rmSync(tempRoot, { recursive: true, force: true })
 }
