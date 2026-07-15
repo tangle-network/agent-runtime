@@ -375,7 +375,6 @@ function measuredProfileResult(
   bundle: AgentCandidateBundle,
 ): AgentImprovementMeasuredComparison {
   return {
-    schemaVersion: 1,
     kind: 'agent-improvement-measured-comparison',
     benchmark: { name: 'development', version: '1', splitDigest: candidateSha('f') },
     baselineProfileDigest: canonicalCandidateDigest(baselineProfile),

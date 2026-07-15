@@ -55,7 +55,7 @@ export function profileDiffProposer<TFindings = unknown>(
       const candidates: ProposedCandidate[] = []
       const normalizedBaseline = applyExactAgentProfileDiff(
         profile,
-        { schemaVersion: 1, kind: 'agent-profile-diff' },
+        { kind: 'agent-profile-diff' },
         'profile diff baseline',
       )
       const seen = new Set<string>([canonicalJson(normalizedBaseline)])

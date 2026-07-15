@@ -267,7 +267,6 @@ class SandboxAgentCandidateExecutor implements AgentCandidateExecutorPort {
     }
     context.signal.throwIfAborted()
     const evidence = canonicalCandidateBytes({
-      schemaVersion: 1,
       kind: 'sandbox-agent-candidate-capture',
       sandboxId: sandbox.id,
       executionId: request.executionId,

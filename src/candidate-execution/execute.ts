@@ -456,7 +456,6 @@ export async function executePreparedAgentCandidate(
   try {
     terminal = result.succeeded
       ? {
-          schemaVersion: 1,
           status: 'succeeded',
           usage: settlementResult.settlement.usage,
           modelSettlement: result.artifacts.modelSettlement,
@@ -465,7 +464,6 @@ export async function executePreparedAgentCandidate(
           runReceipt: result.artifacts.runReceipt,
         }
       : {
-          schemaVersion: 1,
           status: 'failed',
           failureClass,
           usage: settlementResult.settlement.usage,
@@ -780,7 +778,6 @@ async function failClaimedExecution(
         claimStore,
         lease,
         {
-          schemaVersion: 1,
           status: 'failed',
           failureClass,
           usage: settled.settlement.usage,
@@ -912,7 +909,6 @@ async function persistFailureEvidence(
   outputArtifacts: AgentCandidateOutputArtifactPort,
 ) {
   const bytes = canonicalCandidateBytes({
-    schemaVersion: 1,
     kind: 'agent-candidate-execution-failure',
     executionId: state.executionId,
     bundleDigest: state.bundle.digest,

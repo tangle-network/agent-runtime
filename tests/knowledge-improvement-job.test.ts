@@ -142,7 +142,6 @@ function measuredKnowledgeComparison(
     resamples: 2_000,
   }
   return {
-    schemaVersion: 1,
     kind: 'agent-improvement-measured-comparison',
     benchmark: { name: 'development', version: '1', splitDigest: candidateSha('f') },
     baselineProfileDigest: canonicalCandidateDigest(baselineProfile),

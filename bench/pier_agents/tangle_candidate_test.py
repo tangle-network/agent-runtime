@@ -162,7 +162,6 @@ def _embedded(raw):
 
 def _workspace(files):
     material = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-workspace-manifest",
         "files": [
             {
@@ -176,7 +175,6 @@ def _workspace(files):
     }
     manifest = _canonical(material)
     return {
-        "schemaVersion": 1,
         "kind": "agent-candidate-workspace-snapshot",
         "digest": _sha(manifest),
         "material": material,
@@ -248,7 +246,6 @@ def _fixture(root: Path):
     task_snapshot = _workspace([("src/status.txt", 0o644, status)])
     candidate_snapshot = _workspace([("runner.py", 0o755, runner)])
     profile_material = {
-        "version": 1,
         "harness": "codex",
         "files": [
             {
@@ -265,7 +262,6 @@ def _fixture(root: Path):
     profile_digest = _sha(profile_raw)
     bundle_digest = f"sha256:{'b' * 64}"
     plan = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan-material",
         "bundleDigest": bundle_digest,
         "executionId": "pier-fixture-execution",
@@ -346,21 +342,18 @@ def _fixture(root: Path):
     plan_raw = _canonical(plan)
     plan_digest = _sha(plan_raw)
     execution_evidence = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan",
         "digest": plan_digest,
         "material": plan,
         "artifact": _embedded(plan_raw),
     }
     profile_evidence = {
-        "schemaVersion": 1,
         "kind": "agent-profile-workspace-plan",
         "digest": profile_digest,
         "material": profile_material,
         "artifact": _embedded(profile_raw),
     }
     receipt = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-materialization",
         "digestAlgorithm": "rfc8785-sha256",
         "bundleDigest": bundle_digest,
@@ -404,7 +397,6 @@ def _rewrite_signed_plan(fixture):
     plan_digest = _sha(plan_raw)
     receipt = json.loads(fixture["receipt_path"].read_text())
     receipt["executionPlan"] = {
-        "schemaVersion": 1,
         "kind": "agent-candidate-execution-plan",
         "digest": plan_digest,
         "material": fixture["plan"],
@@ -775,6 +767,21 @@ class CandidateContractTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 contract_module.CandidateContractError, "unexpected fields"
+            ):
+                contract_module.load_prepared_candidate_contract(
+                    fixture["plan_path"],
+                    fixture["receipt_path"],
+                    fixture["receipt_digest"],
+                )
+
+    def test_rejects_obsolete_contract_version_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _fixture(Path(directory))
+            fixture["plan"]["schemaVersion"] = 1
+            _rewrite_signed_plan(fixture)
+
+            with self.assertRaisesRegex(
+                contract_module.CandidateContractError, "obsolete version fields"
             ):
                 contract_module.load_prepared_candidate_contract(
                     fixture["plan_path"],

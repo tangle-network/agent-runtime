@@ -64,7 +64,6 @@ function snapshot(
   files: Array<{ path: string; mode: 0o644 | 0o755 }>,
 ): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: files
       .map((file) => {
@@ -83,7 +82,6 @@ function snapshot(
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -97,7 +95,6 @@ function bundle(
   active?: { commit: string; tree: string; workspace: AgentCandidateWorkspaceSnapshotEvidence },
 ): AgentCandidateBundle {
   const value = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-bundle' as const,
     digestAlgorithm: 'rfc8785-sha256' as const,
     profile: {
@@ -165,13 +162,11 @@ function redigestBundle(
 
 function emptySnapshot(label: string): AgentCandidateWorkspaceSnapshotEvidence {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [],
   }
   const manifest = embeddedCandidateArtifact(canonicalCandidateBytes(material))
   return {
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: manifest.sha256,
     material,
@@ -565,7 +560,7 @@ describe('candidate execution preparation', () => {
       network: { mode: 'gateway-only', domains: ['router.tangle.tools'] },
     })
     mismatched.ports.models.settleGrant = async () => ({
-      preparationId: `candidate-preparation-v1.${'A'.repeat(43)}`,
+      preparationId: `candidate-preparation.${'A'.repeat(43)}`,
       grantDigest: sha('c'),
       closed: true,
       calls: [],
@@ -725,6 +720,6 @@ describe('candidate execution preparation', () => {
       ),
     ).rejects.toThrow(/not scoped/)
     expect(closed).toHaveLength(1)
-    expect(closed[0]).toMatch(/candidate-preparation-v1\..+:preparation-failed/)
+    expect(closed[0]).toMatch(/candidate-preparation\..+:preparation-failed/)
   })
 })

@@ -73,7 +73,6 @@ export async function persistAgentCandidateExecutorCapture(
       )
     : undefined
   const bytes = canonicalCandidateBytes({
-    schemaVersion: 1,
     kind: 'agent-candidate-executor-capture',
     executionPlanDigest: identity.executionPlanDigest,
     ...(executorEvidence ? { executorEvidence } : {}),

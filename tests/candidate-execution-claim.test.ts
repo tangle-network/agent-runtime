@@ -174,7 +174,6 @@ describe('candidate execution claim lifecycle', () => {
 
     expect(terminal.usage).toEqual(result.usage)
     expect(terminal).toMatchObject({
-      schemaVersion: 1,
       modelSettlement: result.modelSettlement,
       taskOutcome: result.taskOutcome,
       benchmarkResult: result.benchmarkResult,
@@ -521,7 +520,7 @@ describe('candidate execution claim lifecycle', () => {
     ).toMatchObject({ acquired: false, detail: 'retry-lineage-mismatch' })
   })
 
-  it('persists claim8, pending2, terminal4, phase, staged, and full usage across stores', async () => {
+  it('persists claims, transitions, terminals, and full usage across stores', async () => {
     const directory = await tempDirectory()
     const store = new FileAgentCandidateExecutionClaimStore({ directory })
     const acquired = await acquire(store, claim())
@@ -541,9 +540,7 @@ describe('candidate execution claim lifecycle', () => {
       staged: terminal,
       terminal,
     })
-    expect(files.find(({ name }) => name.endsWith('.claim.json'))?.text).toContain('"version":8')
-    expect(files.find(({ name }) => name.includes('transition-2'))?.text).toContain('"version":2')
-    expect(files.find(({ name }) => name.endsWith('.terminal.json'))?.text).toContain('"version":4')
+    for (const file of files) expect(JSON.parse(file.text)).not.toHaveProperty('version')
     expect(files.map(({ text }) => text).join('\n')).not.toContain(acquired.lease.token)
   })
 
@@ -700,7 +697,6 @@ function failed(
   overrides: Partial<Extract<AgentCandidateExecutionTerminalResult, { status: 'failed' }>> = {},
 ): Extract<AgentCandidateExecutionTerminalResult, { status: 'failed' }> {
   return {
-    schemaVersion: 1,
     status: 'failed',
     failureClass,
     usage: usage(modelCalls),
@@ -711,7 +707,6 @@ function failed(
 
 function succeeded(): Extract<AgentCandidateExecutionTerminalResult, { status: 'succeeded' }> {
   return {
-    schemaVersion: 1,
     status: 'succeeded',
     usage: usage(2),
     modelSettlement: artifact('1'),
@@ -754,7 +749,7 @@ function cleanupHandles(memory = false): AgentCandidateExecutionClaim['cleanup']
 }
 
 function preparationId(character: string): string {
-  return `candidate-preparation-v1.${character.repeat(43)}`
+  return `candidate-preparation.${character.repeat(43)}`
 }
 
 function recoveryEvidence(
@@ -793,7 +788,7 @@ function sha256(character: string): `sha256:${string}` {
 }
 
 function leaseToken(character: string): string {
-  return `candidate-execution-lease-v1.${character.repeat(43)}`
+  return `candidate-execution-lease.${character.repeat(43)}`
 }
 
 async function acquire(

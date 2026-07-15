@@ -107,6 +107,17 @@ def _object(value: Any, label: str) -> dict[str, Any]:
     return value
 
 
+def _contract_object(
+    value: Any, label: str, *, kind: str | None = None
+) -> dict[str, Any]:
+    obj = _object(value, label)
+    if "schemaVersion" in obj or "version" in obj:
+        raise CandidateContractError(f"{label} contains obsolete version fields")
+    if kind is not None and obj.get("kind") != kind:
+        raise CandidateContractError(f"{label} has the wrong kind")
+    return obj
+
+
 def _string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value or "\0" in value:
         raise CandidateContractError(f"{label} must be a non-empty string without NUL")
@@ -236,18 +247,14 @@ def _embedded_bytes(value: Any, label: str) -> bytes:
 
 
 def _workspace_files(value: Any, label: str) -> tuple[WorkspaceFile, ...]:
-    snapshot = _object(value, label)
-    if (
-        snapshot.get("schemaVersion") != 1
-        or snapshot.get("kind") != "agent-candidate-workspace-snapshot"
-    ):
-        raise CandidateContractError(f"{label} has the wrong snapshot kind")
-    material = _object(snapshot.get("material"), f"{label}.material")
-    if (
-        material.get("schemaVersion") != 1
-        or material.get("kind") != "agent-candidate-workspace-manifest"
-    ):
-        raise CandidateContractError(f"{label}.material has the wrong manifest kind")
+    snapshot = _contract_object(
+        value, label, kind="agent-candidate-workspace-snapshot"
+    )
+    material = _contract_object(
+        snapshot.get("material"),
+        f"{label}.material",
+        kind="agent-candidate-workspace-manifest",
+    )
     values = material.get("files")
     if not isinstance(values, list):
         raise CandidateContractError(f"{label}.material.files must be an array")
@@ -359,26 +366,23 @@ def load_prepared_candidate_contract(
         raise CandidateContractError(
             "materialization receipt bytes do not match the expected digest"
         )
-    if plan.get("schemaVersion") != 1 or plan.get("kind") != _PLAN_KIND:
-        raise CandidateContractError("execution plan has the wrong schema or kind")
-    if receipt.get("schemaVersion") != 1 or receipt.get("kind") != _RECEIPT_KIND:
-        raise CandidateContractError(
-            "materialization receipt has the wrong schema or kind"
-        )
+    plan = _contract_object(plan, "execution plan", kind=_PLAN_KIND)
+    receipt = _contract_object(
+        receipt, "materialization receipt", kind=_RECEIPT_KIND
+    )
     if receipt.get("digestAlgorithm") != "rfc8785-sha256" or "digest" in receipt:
         raise CandidateContractError(
             "materialization receipt must be exact digest-free canonical material"
         )
 
-    execution_evidence = _object(receipt.get("executionPlan"), "receipt.executionPlan")
+    execution_evidence = _contract_object(
+        receipt.get("executionPlan"),
+        "receipt.executionPlan",
+        kind=_EXECUTION_EVIDENCE_KIND,
+    )
     plan_digest = _digest(
         execution_evidence.get("digest"), "receipt.executionPlan.digest"
     )
-    if (
-        execution_evidence.get("schemaVersion") != 1
-        or execution_evidence.get("kind") != _EXECUTION_EVIDENCE_KIND
-    ):
-        raise CandidateContractError("receipt execution evidence has the wrong kind")
     if (
         sha256_bytes(plan_raw) != plan_digest
         or execution_evidence.get("material") != plan
@@ -476,12 +480,11 @@ def load_prepared_candidate_contract(
     if receipt.get("candidateWorkspace") != candidate_snapshot:
         raise CandidateContractError("receipt and plan candidate workspaces differ")
 
-    profile_evidence = _object(receipt.get("profilePlan"), "receipt.profilePlan")
-    if (
-        profile_evidence.get("schemaVersion") != 1
-        or profile_evidence.get("kind") != _PROFILE_PLAN_KIND
-    ):
-        raise CandidateContractError("receipt profile evidence has the wrong kind")
+    profile_evidence = _contract_object(
+        receipt.get("profilePlan"),
+        "receipt.profilePlan",
+        kind=_PROFILE_PLAN_KIND,
+    )
     profile_digest = _digest(
         profile_evidence.get("digest"), "receipt.profilePlan.digest"
     )
@@ -494,7 +497,7 @@ def load_prepared_candidate_contract(
         profile_artifact_material = json.loads(profile_raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CandidateContractError("profile artifact is not UTF-8 JSON") from exc
-    profile_material = _object(
+    profile_material = _contract_object(
         profile_evidence.get("material"), "receipt.profilePlan.material"
     )
     if profile_artifact_material != profile_material:

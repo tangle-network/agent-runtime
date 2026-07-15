@@ -324,7 +324,7 @@ function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
     throw new Error('prepared instruction no longer matches the signed execution plan')
   }
   if (
-    !/^candidate-preparation-v1\.[A-Za-z0-9_-]{43}$/.test(state.preparationId) ||
+    !/^candidate-preparation\.[A-Za-z0-9_-]{43}$/.test(state.preparationId) ||
     !Number.isSafeInteger(state.reservationExpiresAtMs) ||
     state.reservationExpiresAtMs <= 0 ||
     !Number.isSafeInteger(state.cleanupTimeoutMs) ||

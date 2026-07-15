@@ -113,7 +113,6 @@ export async function finalizeAgentCandidateRun(
 
     const redacted = redactProtectedValue(
       {
-        schemaVersion: 1,
         run: { ...run, redactionVersion: REDACTION_VERSION },
         spans: orderedSpans,
         events: orderedEvents,
@@ -145,7 +144,6 @@ export async function finalizeAgentCandidateRun(
       signal,
     })
     const trace = {
-      schemaVersion: 1 as const,
       artifact: traceArtifact,
       eventCount:
         1 +
@@ -156,7 +154,6 @@ export async function finalizeAgentCandidateRun(
       modelCallCount: modelSpans.length,
     }
     const document = canonicalCandidateDocument<AgentCandidateRunReceipt>({
-      schemaVersion: 3,
       kind: 'agent-candidate-run',
       digestAlgorithm: 'rfc8785-sha256',
       bundleDigest: state.bundle.digest,
@@ -266,7 +263,6 @@ async function memoryReceipt(
   const afterState = capture.memoryAfter.afterState
   const manifestBytes = canonicalCandidateBytes(afterState)
   const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: afterState,

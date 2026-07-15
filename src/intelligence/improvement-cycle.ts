@@ -236,7 +236,6 @@ export function createAgentImprovementProposal(
   assertMeasuredCandidateBinding(evaluation, baselineProfile, candidateBundle)
   const changedSurfaces = deriveChangedSurfaces(baselineProfile, candidateProfile, candidateBundle)
   const withoutDigest = {
-    schemaVersion: 1 as const,
     kind: 'agent-improvement-proposal' as const,
     runId: options.runId,
     changedSurfaces,
@@ -267,7 +266,6 @@ export function reviewAgentImprovementProposal(
     }
   }
   const withoutDigest = {
-    schemaVersion: 1 as const,
     kind: 'agent-improvement-review' as const,
     proposalDigest: proposal.digest,
     candidateBundleDigest: proposal.candidateBundle.digest,
@@ -310,7 +308,6 @@ export async function executeApprovedAgentCandidate(
   const finalization = await executePreparedAgentCandidate(prepared, options.execution)
   if (!finalization.succeeded) return { finalization }
   const evidence = canonicalCandidateDocument<CandidateExecutionEvidence>({
-    schemaVersion: 1,
     kind: 'agent-candidate-execution-evidence',
     proposalDigest: proposal.digest,
     reviewDigest: review.digest,
@@ -728,7 +725,6 @@ export function createAgentImprovementMeasuredComparison<TScenario extends Scena
   }
 
   const comparison = immutableCandidateValue({
-    schemaVersion: 1 as const,
     kind: 'agent-improvement-measured-comparison' as const,
     benchmark,
     baselineProfileDigest: canonicalCandidateDigest(baselineProfile),

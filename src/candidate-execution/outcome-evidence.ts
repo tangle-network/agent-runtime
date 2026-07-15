@@ -85,7 +85,6 @@ export async function persistCandidateModelSettlementEvidence(
   outputArtifacts: AgentCandidateOutputArtifactPort,
 ): Promise<PersistedAgentCandidateModelSettlement> {
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-model-settlement-material' as const,
     executionPlanDigest: identity.executionPlanDigest,
     preparationId: settlement.value.preparationId,
@@ -117,7 +116,6 @@ export async function persistCandidateModelSettlementEvidence(
   })
   return immutableCandidateValue(
     agentCandidateModelSettlementEvidenceSchema.parse({
-      schemaVersion: 2,
       kind: 'agent-candidate-model-settlement',
       digest,
       material,
@@ -225,7 +223,6 @@ async function verifyWorkspaceTaskCapture(
   const manifestBytes = canonicalCandidateBytes(afterState)
   assertNoProtectedBytes(manifestBytes, protectedValues)
   const provisionalSnapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: afterState,
@@ -255,7 +252,6 @@ async function persistVerifiedWorkspaceTaskOutcome(
 ): Promise<VerifiedAgentCandidateTaskOutcome> {
   const { afterState, manifestBytes, patch, repository } = verified
   const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: afterState,
@@ -263,7 +259,6 @@ async function persistVerifiedWorkspaceTaskOutcome(
     archive: persisted.archive,
   })
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-task-outcome-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     outcome: {
@@ -337,7 +332,6 @@ async function persistVerifiedOutputTaskOutcome(
     throw new Error('persisted task output changed the signed media constraints')
   }
   const material = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-task-outcome-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     outcome: {
@@ -380,7 +374,6 @@ async function persistTaskOutcomeEvidence<Material extends AgentCandidateTaskOut
   })
   return immutableCandidateValue(
     agentCandidateTaskOutcomeEvidenceSchema.parse({
-      schemaVersion: 2,
       kind: 'agent-candidate-task-outcome',
       digest,
       material,
@@ -425,7 +418,6 @@ export async function persistCandidateBenchmarkResult(
   })
   const task = state.executionPlan.value.material.task
   const material = {
-    schemaVersion: 1 as const,
     kind: 'agent-candidate-benchmark-result-material' as const,
     executionPlanDigest: state.executionPlan.value.digest,
     taskOutcomeDigest: outcome.evidence.digest,
@@ -455,7 +447,6 @@ export async function persistCandidateBenchmarkResult(
   })
   return immutableCandidateValue(
     agentCandidateBenchmarkResultEvidenceSchema.parse({
-      schemaVersion: 1,
       kind: 'agent-candidate-benchmark-result',
       digest,
       material,
@@ -502,7 +493,6 @@ async function verifyMemoryCapture(
   assertNoProtectedBytes(manifestBytes, protectedValues)
   assertNoProtectedBytes(memory.archive, protectedValues)
   const snapshot = agentCandidateWorkspaceSnapshotEvidenceSchema.parse({
-    schemaVersion: 2,
     kind: 'agent-candidate-workspace-snapshot',
     digest: sha256Bytes(manifestBytes),
     material: memory.afterState,

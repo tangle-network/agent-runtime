@@ -194,7 +194,6 @@ describe('atomic prepared candidate execution', () => {
       succeeded: true,
       receipt: {
         value: {
-          schemaVersion: 3,
           executorCapture: expect.objectContaining({
             sha256: expect.stringMatching(/^sha256:/),
           }),
@@ -399,7 +398,6 @@ describe('atomic prepared candidate execution', () => {
     expect(result.receipt.value).toMatchObject({
       modelSettlement: {
         material: {
-          schemaVersion: 2,
           usage: {
             modelCalls: 1,
             inputTokens: 10,
@@ -1591,7 +1589,6 @@ describe('atomic prepared candidate execution', () => {
     }
     const memoryBytes = Buffer.from(secret, 'utf8')
     const afterState = {
-      schemaVersion: 2 as const,
       kind: 'agent-candidate-workspace-manifest' as const,
       files: [
         {

@@ -47,7 +47,6 @@ export function recoveredTerminalRecord(
 ): AgentCandidateExecutionTerminalRecord {
   const recovered = sealRecoveryEvidence(evidence, claim)
   return terminalRecord(claim, {
-    schemaVersion: 1,
     status: 'failed',
     failureClass:
       recovered.failureClass === 'pre-model-infrastructure' && phase !== 'claimed'
@@ -147,7 +146,6 @@ export function sealTerminalRecordValue(
           'executionPlanDigest',
           'preparationEvidence',
           'terminalDigest',
-          'schemaVersion',
           'status',
           'usage',
           'modelSettlement',
@@ -162,7 +160,6 @@ export function sealTerminalRecordValue(
           'executionPlanDigest',
           'preparationEvidence',
           'terminalDigest',
-          'schemaVersion',
           'status',
           'failureClass',
           'usage',
@@ -198,7 +195,6 @@ export function sealTerminalRecordValue(
   const result = sealTerminalResult(
     status === 'succeeded'
       ? {
-          schemaVersion: requireNumber(value.schemaVersion, label, 'schemaVersion') as 1,
           status,
           usage: requireObject(value.usage, label, 'usage') as unknown as AgentCandidateFixedSpend,
           modelSettlement: requireArtifactRef(value.modelSettlement, label, 'modelSettlement'),
@@ -207,7 +203,6 @@ export function sealTerminalRecordValue(
           runReceipt: requireArtifactRef(value.runReceipt, label, 'runReceipt'),
         }
       : {
-          schemaVersion: requireNumber(value.schemaVersion, label, 'schemaVersion') as 1,
           status,
           failureClass: requireFailureClass(value.failureClass, label),
           usage: requireObject(value.usage, label, 'usage') as unknown as AgentCandidateFixedSpend,
@@ -360,17 +355,8 @@ function sealTerminalResult(
   assertExactKeys(
     result,
     result.status === 'succeeded'
-      ? [
-          'schemaVersion',
-          'status',
-          'usage',
-          'modelSettlement',
-          'taskOutcome',
-          'benchmarkResult',
-          'runReceipt',
-        ]
+      ? ['status', 'usage', 'modelSettlement', 'taskOutcome', 'benchmarkResult', 'runReceipt']
       : [
-          'schemaVersion',
           'status',
           'failureClass',
           'usage',
@@ -379,14 +365,10 @@ function sealTerminalResult(
         ],
     'candidate execution terminal result',
   )
-  if (result.schemaVersion !== 1) {
-    throw new Error('candidate execution terminal schemaVersion must be 1')
-  }
   const usage = sealUsage(result.usage)
   const modelSettlement = sealArtifactRef(result.modelSettlement, 'modelSettlement')
   if (result.status === 'succeeded') {
     return Object.freeze({
-      schemaVersion: 1,
       status: 'succeeded',
       usage,
       modelSettlement,
@@ -400,7 +382,6 @@ function sealTerminalResult(
     throw new Error('pre-model infrastructure failure cannot contain model calls')
   }
   return Object.freeze({
-    schemaVersion: 1,
     status: 'failed',
     failureClass: result.failureClass,
     usage,

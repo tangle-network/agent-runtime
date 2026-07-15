@@ -81,7 +81,6 @@ export function createAgentCandidateProfileActivation(
   }
   return parseAgentCandidateProfileActivation(
     canonicalCandidateDocument<AgentCandidateProfileActivation>({
-      schemaVersion: 1,
       kind: 'agent-candidate-profile-activation',
       profilePlan,
       files,

@@ -12,7 +12,6 @@ import { withIntelligence } from './with-intelligence'
 /** A valid, promoted profile diff — the previously-DROPPED typed artifact the
  *  composed endpoint returns alongside prompt/skill artifacts. */
 const DIFF: AgentProfileDiff = {
-  schemaVersion: 1,
   kind: 'agent-profile-diff',
   id: 'diff-1',
   title: 'certified refund tool',
@@ -247,7 +246,6 @@ describe('withIntelligence — SEND (a typed RunRecord to /v1/otlp)', () => {
               },
             ],
             candidateExecution: {
-              schemaVersion: 1,
               kind: 'agent-candidate-execution-evidence',
               proposalDigest: `sha256:${'1'.repeat(64)}`,
               reviewDigest: `sha256:${'2'.repeat(64)}`,

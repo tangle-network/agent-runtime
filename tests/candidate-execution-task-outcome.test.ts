@@ -50,7 +50,6 @@ function changedOutcome(root: string, baseTree: string) {
   const resultTree = git(root, ['write-tree'], undefined, environment)
   const resultBytes = Buffer.from('export const value = 2\n')
   const afterState = {
-    schemaVersion: 2 as const,
     kind: 'agent-candidate-workspace-manifest' as const,
     files: [
       {

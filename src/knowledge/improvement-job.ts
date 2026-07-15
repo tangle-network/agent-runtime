@@ -275,7 +275,6 @@ async function freezeKnowledgeCandidate(
     })
     const evaluation = await captureKnowledgeEvidence(
       canonicalCandidateBytes({
-        schemaVersion: 1,
         kind: 'agent-knowledge-candidate-evaluation',
         candidate: candidateRef,
         metric: resolved.evaluation,
@@ -334,7 +333,6 @@ function interfaceKnowledgeCandidateRef(
   candidate: KnowledgeImprovementCandidateRef,
 ): AgentCandidateKnowledge['candidate'] {
   return {
-    schemaVersion: 1,
     kind: 'knowledge-improvement-candidate',
     runId: candidate.runId,
     candidateId: candidate.candidateId,
@@ -353,7 +351,6 @@ function agentKnowledgeCandidateRef(
   knowledge: AgentCandidateKnowledge,
 ): KnowledgeImprovementCandidateRef {
   return {
-    schemaVersion: 1,
     kind: 'knowledge-improvement-candidate',
     runId: knowledge.candidate.runId,
     candidateId: knowledge.candidate.candidateId,

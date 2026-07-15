@@ -80,7 +80,6 @@ export interface VerifyResult {
 export type Verifier = (worktreePath: string) => Promise<VerifyResult> | VerifyResult
 
 export interface AgenticGeneratorShotReceipt {
-  readonly schemaVersion: 1
   readonly generation: number | null
   readonly candidateIndex: number | null
   /** One-based shot number within this candidate. */
@@ -503,7 +502,6 @@ function shotReceipt(input: {
   const result = input.result
   const costBasis = costBasisFor(input.costReceipt)
   return {
-    schemaVersion: 1,
     generation: input.generation ?? null,
     candidateIndex: input.candidateIndex ?? null,
     shot: input.shot + 1,

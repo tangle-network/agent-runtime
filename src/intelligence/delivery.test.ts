@@ -83,7 +83,6 @@ describe('pullCertified', () => {
 
   it('deserializes the typed agentProfileDiffs the composed endpoint returns', async () => {
     const diff: AgentProfileDiff = {
-      schemaVersion: 1,
       kind: 'agent-profile-diff',
       set: { tools: { refund: true } },
     }

@@ -12,15 +12,11 @@ import {
 } from '@tangle-network/agent-interface'
 import {
   type AgentCandidatePreparationEvidence,
-  CLAIM_FORMAT_VERSION,
-  PENDING_FORMAT_VERSION,
   type PersistedAgentCandidateExecutionClaim,
   type PersistedAgentCandidateExecutionPending,
   type PersistedAgentCandidateExecutionPhase,
   type PersistedAgentCandidateExecutionTerminal,
-  PHASE_FORMAT_VERSION,
   sealCandidatePreparationEvidence,
-  TERMINAL_FORMAT_VERSION,
 } from './claim-file-formats'
 import {
   assertRecoveryMatchesStaged,
@@ -89,7 +85,6 @@ export type AgentCandidateExecutionFailureClass =
 /** Evaluator-owned terminal facts staged durably before the terminal CAS. */
 export type AgentCandidateExecutionTerminalResult =
   | {
-      readonly schemaVersion: 1
       readonly status: 'succeeded'
       readonly usage: AgentCandidateFixedSpend
       readonly modelSettlement: AgentCandidateArtifactRef
@@ -98,7 +93,6 @@ export type AgentCandidateExecutionTerminalResult =
       readonly runReceipt: AgentCandidateArtifactRef
     }
   | {
-      readonly schemaVersion: 1
       readonly status: 'failed'
       readonly failureClass: AgentCandidateExecutionFailureClass
       readonly usage: AgentCandidateFixedSpend
@@ -405,8 +399,8 @@ export class InMemoryAgentCandidateExecutionClaimStore
 }
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/
-const LEASE_TOKEN_PATTERN = /^candidate-execution-lease-v1\.[A-Za-z0-9_-]{43}$/
-const PREPARATION_ID_PATTERN = /^candidate-preparation-v1\.[A-Za-z0-9_-]{43}$/
+const LEASE_TOKEN_PATTERN = /^candidate-execution-lease\.[A-Za-z0-9_-]{43}$/
+const PREPARATION_ID_PATTERN = /^candidate-preparation\.[A-Za-z0-9_-]{43}$/
 
 function sealClaim(claim: AgentCandidateExecutionClaim): AgentCandidateExecutionClaim {
   assertExactKeys(
@@ -556,7 +550,7 @@ function newLease(claim: AgentCandidateExecutionClaim): AgentCandidateExecutionL
   return Object.freeze({
     executionId: claim.executionId,
     attempt: claim.attempt,
-    token: `candidate-execution-lease-v1.${randomBytes(32).toString('base64url')}`,
+    token: `candidate-execution-lease.${randomBytes(32).toString('base64url')}`,
     expiresAtMs: claim.leaseExpiresAtMs,
   })
 }
@@ -648,13 +642,9 @@ function rejectedRetry(
 async function readClaim(path: string): Promise<StoredClaim> {
   const parsed = await readJsonObject(path, 'claim')
   const record = parsed as Partial<PersistedAgentCandidateExecutionClaim>
-  if (record.version !== CLAIM_FORMAT_VERSION) {
-    throw new Error(`candidate execution claim at ${path} has unsupported version`)
-  }
   assertExactKeys(
     parsed,
     [
-      'version',
       'executionId',
       'attempt',
       'maxAttempts',
@@ -724,10 +714,7 @@ async function readClaimIfPresent(path: string): Promise<StoredClaim | undefined
 async function readTerminal(path: string): Promise<AgentCandidateExecutionTerminalRecord> {
   const parsed = await readJsonObject(path, 'terminal record')
   const record = parsed as Partial<PersistedAgentCandidateExecutionTerminal>
-  if (record.version !== TERMINAL_FORMAT_VERSION) {
-    throw new Error(`candidate execution terminal record at ${path} has unsupported version`)
-  }
-  assertExactKeys(parsed, ['version', 'terminal'], `candidate execution terminal record at ${path}`)
+  assertExactKeys(parsed, ['terminal'], `candidate execution terminal record at ${path}`)
   return sealTerminalRecordValue(
     requireObject(record.terminal, path, 'terminal'),
     `candidate execution terminal record at ${path}`,
@@ -762,12 +749,9 @@ async function readTransitionIfPresent(
   }
   if (parsed.kind === 'candidate-execution-phase') {
     const record = parsed as unknown as PersistedAgentCandidateExecutionPhase
-    if (record.version !== PHASE_FORMAT_VERSION) {
-      throw new Error(`candidate execution phase record at ${path} has unsupported version`)
-    }
     assertExactKeys(
       parsed,
-      ['version', 'kind', 'executionId', 'attempt', 'executionPlanDigest', 'phase'],
+      ['kind', 'executionId', 'attempt', 'executionPlanDigest', 'phase'],
       `candidate execution phase record at ${path}`,
     )
     if (
@@ -782,14 +766,7 @@ async function readTransitionIfPresent(
   }
   if (parsed.kind === 'candidate-execution-pending-terminal') {
     const record = parsed as unknown as PersistedAgentCandidateExecutionPending
-    if (record.version !== PENDING_FORMAT_VERSION) {
-      throw new Error(`candidate execution pending record at ${path} has unsupported version`)
-    }
-    assertExactKeys(
-      parsed,
-      ['version', 'kind', 'terminal'],
-      `candidate execution pending record at ${path}`,
-    )
+    assertExactKeys(parsed, ['kind', 'terminal'], `candidate execution pending record at ${path}`)
     const terminal = sealTerminalRecordValue(
       requireObject(record.terminal, path, 'terminal'),
       `candidate execution pending record at ${path}`,

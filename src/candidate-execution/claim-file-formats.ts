@@ -8,11 +8,6 @@ import type { AgentCandidateExecutionClaim, AgentCandidateExecutionTerminalRecor
 import { immutableCandidateValue } from './digest'
 import { assertExactObjectKeys } from './exact-object'
 
-export const CLAIM_FORMAT_VERSION = 8
-export const PENDING_FORMAT_VERSION = 2
-export const TERMINAL_FORMAT_VERSION = 4
-export const PHASE_FORMAT_VERSION = 1
-
 export interface AgentCandidatePreparationEvidence {
   readonly executionPlan: AgentCandidateArtifactRef
   readonly materializationReceipt: AgentCandidateArtifactRef
@@ -44,19 +39,16 @@ export function sealCandidatePreparationEvidence(
 }
 
 export interface PersistedAgentCandidateExecutionClaim extends AgentCandidateExecutionClaim {
-  version: typeof CLAIM_FORMAT_VERSION
   phase: 'claimed'
   leaseDigest: Sha256Digest
 }
 
 export interface PersistedAgentCandidateExecutionPending {
-  version: typeof PENDING_FORMAT_VERSION
   kind: 'candidate-execution-pending-terminal'
   terminal: AgentCandidateExecutionTerminalRecord
 }
 
 export interface PersistedAgentCandidateExecutionPhase {
-  version: typeof PHASE_FORMAT_VERSION
   kind: 'candidate-execution-phase'
   executionId: string
   attempt: number
@@ -65,6 +57,5 @@ export interface PersistedAgentCandidateExecutionPhase {
 }
 
 export interface PersistedAgentCandidateExecutionTerminal {
-  version: typeof TERMINAL_FORMAT_VERSION
   terminal: AgentCandidateExecutionTerminalRecord
 }

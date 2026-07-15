@@ -53,7 +53,6 @@ describe('public agent candidate bundle builder', () => {
       resources: { failOnError: true },
     }
     const diff: AgentProfileDiff = {
-      schemaVersion: 1,
       kind: 'agent-profile-diff',
       id: 'add-review-skill',
       source: { kind: 'optimizer', artifacts: ['trace:run-1'] },

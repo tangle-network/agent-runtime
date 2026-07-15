@@ -27,7 +27,6 @@ describe('profileDiffProposer', () => {
       proposeDiffs: () => [
         {
           diff: defineAgentProfileDiff({
-            schemaVersion: 1,
             kind: 'agent-profile-diff',
             id: 'github-review-skill',
             title: 'Pinned review skill',
@@ -100,7 +99,6 @@ describe('profileDiffProposer', () => {
       proposeDiffs: () => [
         {
           diff: {
-            schemaVersion: 1,
             kind: 'agent-profile-diff',
             set: { prompt: { systemPrompt: 'candidate' } },
             unknownField: true,
@@ -114,24 +112,21 @@ describe('profileDiffProposer', () => {
   it('drops no-op diffs and respects the shared population budget', async () => {
     const proposer = profileDiffProposer({
       proposeDiffs: () => [
-        { diff: defineAgentProfileDiff({ schemaVersion: 1, kind: 'agent-profile-diff' }) },
+        { diff: defineAgentProfileDiff({ kind: 'agent-profile-diff' }) },
         {
           diff: defineAgentProfileDiff({
-            schemaVersion: 1,
             kind: 'agent-profile-diff',
             set: { prompt: { systemPrompt: 'baseline' } },
           }),
         },
         {
           diff: defineAgentProfileDiff({
-            schemaVersion: 1,
             kind: 'agent-profile-diff',
             set: { prompt: { systemPrompt: 'first' } },
           }),
         },
         {
           diff: defineAgentProfileDiff({
-            schemaVersion: 1,
             kind: 'agent-profile-diff',
             set: { prompt: { systemPrompt: 'first' } },
           }),

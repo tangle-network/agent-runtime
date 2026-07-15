@@ -183,7 +183,7 @@ export async function prepareAgentCandidateExecution(
 
   const container = await resolveContainer(candidate, task, ports)
   const resolvedModel = await resolveModel(candidate, task, ports)
-  const preparationId = `candidate-preparation-v1.${randomBytes(32).toString('base64url')}`
+  const preparationId = `candidate-preparation.${randomBytes(32).toString('base64url')}`
   const reservationExpiresAtMs = Date.now() + Math.max(MIN_RESERVATION_TTL_MS, reservationWindowMs)
   const modelReservation = await withinCandidateCleanupDeadline(
     () =>
@@ -231,7 +231,6 @@ export async function prepareAgentCandidateExecution(
     )
     const routes = modelRoutes(bundle.profile, task.model.requested)
     const executionMaterial: AgentCandidateExecutionPlanMaterial = {
-      schemaVersion: 2,
       kind: 'agent-candidate-execution-plan-material',
       bundleDigest: bundle.digest,
       executionId: task.executionId,
@@ -292,7 +291,6 @@ export async function prepareAgentCandidateExecution(
     }
     const executionPlan: AgentCandidateExecutionPlanEvidence =
       agentCandidateExecutionPlanEvidenceSchema.parse({
-        schemaVersion: 2,
         kind: 'agent-candidate-execution-plan',
         digest: executionDigest,
         material: executionMaterial,
@@ -302,7 +300,6 @@ export async function prepareAgentCandidateExecution(
     const entrypoint = candidateEntrypointReceipt(candidate)
     const materializationReceipt = canonicalCandidateDocument<AgentCandidateMaterializationReceipt>(
       {
-        schemaVersion: 2,
         kind: 'agent-candidate-materialization',
         digestAlgorithm: 'rfc8785-sha256',
         bundleDigest: bundle.digest,
