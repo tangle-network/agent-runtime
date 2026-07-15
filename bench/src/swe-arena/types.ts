@@ -68,7 +68,12 @@ export interface LedgerRow {
   sup_settled: number
   sup_subtasks: string[]
   sup_delivered: boolean | null
-  sup_status: 'completed' | 'running'
+  /**
+   * The fixture ledger observed only completed/running; the driver can also
+   * settle failed/cancelled (M2 widened the union — the typed execution path
+   * records those honestly instead of coercing them).
+   */
+  sup_status: 'completed' | 'running' | 'failed' | 'cancelled' | null
   sup_verdict: 'delivered' | 'no-winner' | 'best-effort' | null
   solo_oc_rc: number
   sup_driver_rc: number
