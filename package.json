@@ -24,6 +24,11 @@
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
+    "./conversation": {
+      "types": "./dist/conversation.d.ts",
+      "import": "./dist/conversation.js",
+      "default": "./dist/conversation.js"
+    },
     "./intelligence": {
       "types": "./dist/intelligence.d.ts",
       "import": "./dist/intelligence.js",
@@ -104,6 +109,7 @@
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "verify:package": "node scripts/verify-package-exports.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect-v1.mjs",
+    "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
     "docs:api": "typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
