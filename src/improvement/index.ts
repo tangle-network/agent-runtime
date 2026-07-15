@@ -13,6 +13,8 @@
 export {
   AGENTIC_PROFILE_RESOURCE_ROOT,
   type AgenticGeneratorOptions,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
   type AgenticGeneratorShotReceipt,
   agenticGenerator,
   commandVerifier,
