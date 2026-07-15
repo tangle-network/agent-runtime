@@ -1,8 +1,14 @@
 # Spec — interactive (tmux) harness sessions + live streaming
 
+> Historical design input.
+> Current distributed readiness, security, recovery, and implementation order live in [`../agent-managed-compute/`](../agent-managed-compute/).
+> Checked items below record earlier experiments and are not current acceptance evidence.
+
 **Vision (one sentence):** instead of headless one-shot CLI calls, each agent in a supervised run is a **live, interactive harness session in its own tmux window** (driveable, observable, resumable), the whole agent tree is one tmux session, and it streams to a browser — composing with the recorded animated replay.
 
-**Why now:** the whole real chain already delivers — an opencode supervisor drives opencode workers via the coordination MCP, a real deployable check gates delivery (`bench/src/atom-mcp-e2e.mts`, `972707f`). What's missing is (a) the agents run *headless* (one prompt → output), so you can't watch or interact, and (b) the harness-specific glue lives in a bench script, not the substrate. This spec turns both into a real, generalized capability.
+**Prior experiment:** an opencode supervisor drove opencode workers through the coordination MCP in `bench/src/atom-mcp-e2e.mts` at `972707f`.
+That script is stale and is not a current distributed acceptance test.
+The durable two-agent recovery run in `agent-managed-compute/validation.md` is the replacement.
 
 ## Placement — who owns what (obeys the AgentProfile law + the layering)
 
@@ -10,7 +16,7 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 
 | Layer | Owns | Why |
 |---|---|---|
-| **agent-runtime** (this repo) | The **recursion + the ports**: the coordination MCP over the Scope (`serveCoordinationMcp`, done), a generic **`session` Executor** that opens/drives/observes a session via the substrate's API (NOT tmux-aware), the shared `Workspace` seam, the journal→replay. | The runtime stays harness-agnostic. It drives; it never spawns tmux or knows what opencode is. |
+| **agent-runtime** (this repo) | The recursion and ports: the coordination MCP over the `Scope`, the existing provider-backed `Executor`, the shared `Workspace` contract, and completed-tree replay. Durable coordinator recovery is still missing. | The runtime stays agent-runner-agnostic. It drives; it never spawns tmux or knows what opencode is. |
 | **agent-dev-container** (adc) | The **materialization**: given an `AgentProfile` + cwd + mcp config, stand up the harness as an **interactive tmux window** (the TUI, not `run`), materialize the FULL profile (skills as real SKILL.md files, tools, model, mcp), capture (`pipe-pane`) + stream (`ttyd`). Exposes a **session API** (create / send / observe / status / kill). | "the container where the agents actually live" — Drew. This is the harness-specific layer; it belongs in the substrate, never the runtime. |
 | **cli-bridge** | Stays the *headless* harness materializer (the test target + the fast path). Optionally grows the same session API for local runs. | Already proven; the adc is the richer/interactive home. |
 | **sandbox SDK** | The `AgentProfile` manifest + box abstraction the adc is a flavor of. | Where the profile shape + `resources.skills` materialization already live. |
@@ -67,9 +73,11 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 ## Open design points (decide during Phase 2–4)
 - **Interactive vs headless harness mode:** does opencode/claude-code expose a driveable interactive TUI, or do we run `run` *inside* the pane for the live-output view? (Headless-in-a-pane is the cheap first cut; true interactive is the goal.)
 - **Completion detection** in a TUI (sentinel vs a harness done event).
-- **Session lifecycle:** resume after a crash (the journal already supports replay/resume — extend to sessions).
+- **Session lifecycle:** reconnect after a crash requires durable coordinator recovery plus provider session replay. Completed-tree replay alone is insufficient.
 - **Security:** ttyd exposure + the coordination MCP exposure (bind localhost / authd tunnel).
 - **Concurrency:** N agents = N windows; the adc's resource limits.
 
 ## Net
-The runtime is essentially done for this (coordination MCP + the executor port + replay). The new work is a **substrate capability in the adc** (interactive tmux sessions + full-profile materialization + ttyd), reached through one small session API and one generic `session` executor in the runtime. Nothing here specializes the runtime to a harness.
+The runtime has the coordination MCP, execution port, environment-provider adapter, and completed-tree replay.
+It still needs durable coordinator recovery and secure remote MCP access.
+Interactive tmux materialization remains an agent-dev-container capability reached through the provider contract.
