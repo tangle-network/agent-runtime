@@ -16,6 +16,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 | # | Doc | Role | Purpose |
 |---|---|---|---|
 | 1 | [architecture.md](./architecture.md) | **canonical spine** | One recursive agent tree, two timescales, many benchmarks — the visual mental model (`act`/`Scope`/recursion, the up-flow, the three improvement timescales) folded in. The single source of truth; wins on conflict. |
+| 1a | [agent-managed-compute/](./agent-managed-compute/) | **distributed execution plan** | Current-state audit, converged design, failure behavior, dependency-ordered roadmap, and measurable completion criteria for agents that allocate and steer compute. |
 | 2 | [architecture-interpretations.md](./architecture-interpretations.md) | coherence verdict | Stress-tests the spine through five lenses + the decision gate. Answers "does it cohere?" — and where it doesn't. |
 | 3 | [roadmap-rsi.md](./roadmap-rsi.md) | build plan | The dependency-ordered sequence from scaffold to a measured surface. Phases, exit gates, open decisions. |
 | 4 | [learning-flywheel.md](./learning-flywheel.md) | theory deep-dive | The moat thesis — the `(π, τ, J, D, O)` recursion and cross-run flywheel. |
@@ -32,7 +33,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term, grounded to `file:line`; drifted synonyms flagged. |
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
-| [durability-adapters.md](./durability-adapters.md) | subsystem | Journal + durability for resumable conversations + supervisor trees. |
+| [durability-adapters.md](./durability-adapters.md) | subsystem | SQL-backed journal and restart behavior for conversations. Supervised-tree recovery is not implemented. |
 | [intelligence-sdk.md](./intelligence-sdk.md) | product SDK | Observe + OFF billing floor + effort tiers + certified delivery + capability resolver — the `/intelligence` subpath. Designed-not-shipped verbs fenced at the tail. |
 | [BUILDING.md](./BUILDING.md) | process | Building discipline: goal first, cheapest decisive proof, verification rules. |
 | [ANTI_PATTERNS.md](./ANTI_PATTERNS.md) | process | Named failure modes. |
@@ -42,7 +43,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 
 | Doc | Role | Purpose |
 |---|---|---|
-| [simplification-plan.md](./research/simplification-plan.md) | **live tracker** | The in-flight simplification/rearchitecture: the converged design, the scratch list, the doc/module inventory, the workstreams + completion criteria. |
+| [simplification-plan.md](./research/simplification-plan.md) | historical tracker | Earlier simplification analysis. The active execution and API convergence plan is [agent-managed-compute/roadmap.md](./agent-managed-compute/roadmap.md). |
 | [research/README.md](./research/README.md) | research index | Forward-looking design threads + decision log. Not the canonical spine. |
 | [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results, benchmark-matrix consolidation). |
 
