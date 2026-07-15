@@ -12,6 +12,7 @@ export default defineConfig({
     knowledge: 'src/knowledge/index.ts',
     profiles: 'src/profiles/index.ts',
     platform: 'src/platform/index.ts',
+    'primeintellect/index': 'src/primeintellect/index.ts',
     'candidate-execution/index': 'src/candidate-execution/index.ts',
     'mcp/index': 'src/mcp/index.ts',
     'mcp/bin': 'src/mcp/bin.ts',

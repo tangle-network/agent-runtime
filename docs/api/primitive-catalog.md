@@ -872,6 +872,26 @@ Import from `@tangle-network/agent-runtime/platform` — 20 exports.
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AuthorizeUrlOptions`, `CatalogResult`, `ConnectionHealth`, `ConnectionHealthResult`, `ExchangeCodeResult`, `ExecInput`, `MintTokenInput`, `MintTokenResult`, `PlatformHubStatus`, `StartAuthInput`, `StartAuthResult`.
 
+### PrimeIntellect: Verifiers v1 package and trace adapter
+
+Import from `@tangle-network/agent-runtime/primeintellect` — 27 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `createPrimeIntellectBackend` | function | Build the existing runtime backend against Prime's intercepted model endpoint. |
+| `createPrimeIntellectPackage` | function | Build a complete PrimeIntellect Verifiers v1 package without writing to disk. |
+| `importPrimeIntellectTraces` | function | Convert all Prime traces to agent-eval RunRecords while retaining one shared run config. |
+| `parsePrimeIntellectTraces` | function | Parse Prime's durable `traces.jsonl` and reject malformed rows with a line number. |
+| `primeIntellectTraceToRunRecord` | function | Project one complete Prime trace into the common agent-eval analysis row. |
+| `readPrimeIntellectEpisodeContext` | function | Read and validate the private process contract installed by the generated Prime harness. |
+| `runPrimeIntellectProgram` | function | Execute the caller's canonical runtime program inside a Prime rollout. |
+| `writePrimeIntellectPackage` | function | Write a bundle through a sibling temporary directory, then rename it into place. |
+| `PrimeIntellectPublicTask` | interface | The answer-free task exposed to the caller's runtime program. |
+| `PrimeIntellectRunner` | interface | Files and commands that make the caller's real agent program runnable. |
+| `PrimeIntellectTask` | interface | One immutable problem. References stay inside Prime's task process. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `PrimeIntellectEpisodeContext`, `PrimeIntellectPackageBundle`, `PrimeIntellectPackageManifest`, `PrimeIntellectPackageOptions`, `PrimeIntellectTrace`, `PrimeIntellectTraceImportOptions`, `RunPrimeIntellectProgramOptions`, `WritePrimeIntellectPackageOptions`, `PrimeIntellectBackendOptions`, `PrimeIntellectContent`, `PrimeIntellectImportDefaults`, `PrimeIntellectJson`, `PrimeIntellectMessage`, `PrimeIntellectScoring`, `PrimeIntellectSetupCommand`, `PrimeIntellectSplit`.
+
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
 Import from `@tangle-network/agent-runtime/candidate-execution` — 95 exports.

@@ -64,6 +64,11 @@
       "import": "./dist/platform.js",
       "default": "./dist/platform.js"
     },
+    "./primeintellect": {
+      "types": "./dist/primeintellect/index.d.ts",
+      "import": "./dist/primeintellect/index.js",
+      "default": "./dist/primeintellect/index.js"
+    },
     "./candidate-execution": {
       "types": "./dist/candidate-execution/index.d.ts",
       "import": "./dist/candidate-execution/index.js",
@@ -98,6 +103,7 @@
     "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "verify:package": "node scripts/verify-package-exports.mjs",
+    "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect-v1.mjs",
     "docs:api": "typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"
