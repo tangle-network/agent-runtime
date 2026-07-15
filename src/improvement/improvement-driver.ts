@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import type { AnalystFinding, CostLedger } from '@tangle-network/agent-eval'
+import type { AnalystFinding, CostLedgerHandle } from '@tangle-network/agent-eval'
 import {
   type CodeSurface,
   type LabeledScenarioStore,
@@ -66,7 +66,7 @@ export interface CandidateGenerator {
     generation?: number
     candidateIndex?: number
     /** Shared run-wide paid-call account supplied by agent-eval 0.117+. */
-    costLedger?: CostLedger
+    costLedger?: CostLedgerHandle
     /** Receipt attribution phase supplied alongside `costLedger`. */
     costPhase?: string
   }): Promise<{ applied: boolean; summary: string }>

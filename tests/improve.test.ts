@@ -88,6 +88,41 @@ describe('improve() — facade over selfImprove', () => {
     expect(out.profile.prompt?.systemPrompt).toBe('BASELINE')
   })
 
+  it('forwards dispatchTimeoutMs through improve() to abort a stalled cell', async () => {
+    let observedAbort = false
+    const stalledAgent = (
+      _surface: MutableSurface,
+      _scenario: DemoScenario,
+      ctx: DispatchContext,
+    ): Promise<string> =>
+      new Promise(() => {
+        ctx.signal.addEventListener(
+          'abort',
+          () => {
+            observedAbort = true
+          },
+          { once: true },
+        )
+      })
+
+    await expect(
+      improve(profileWith('BASELINE'), [], {
+        surface: 'prompt',
+        gate: 'none',
+        generator: scriptedWinner,
+        scenarios: scenarios.slice(0, 2),
+        judge,
+        agent: stalledAgent,
+        budget: { holdoutFraction: 0.5 },
+        dispatchTimeoutMs: 25,
+        expectUsage: 'off',
+        maxConcurrency: 1,
+      }),
+    ).rejects.toThrow(/dispatch exceeded 25ms/)
+
+    expect(observedAbort).toBe(true)
+  })
+
   it('applies the promoted prompt back into the profile on a ship verdict', async () => {
     const profile = profileWith('BASELINE')
     const out = await improve(profile, [], {

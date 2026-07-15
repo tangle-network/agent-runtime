@@ -6419,7 +6419,7 @@ Improvement-loop coordinates. Present when called through improvementDriver.
 
 ###### costLedger?
 
-`CostLedger`
+`CostLedgerHandle`
 
 Shared run-wide paid-call account supplied by agent-eval 0.117+.
 
@@ -13212,7 +13212,7 @@ Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a rea
 
 > **commandVerifier**(`command`, `args?`, `timeoutMs?`): [`Verifier`](#verifier)
 
-Defined in: [improvement/agentic-generator.ts:860](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L860)
+Defined in: [improvement/agentic-generator.ts:863](https://github.com/tangle-network/agent-runtime/blob/main/src/improvement/agentic-generator.ts#L863)
 
 A `Verifier` that runs a command in the worktree: exit 0 ⇒ ok, any other
  exit ⇒ failed with stdout+stderr as feedback. The common case — verify by
